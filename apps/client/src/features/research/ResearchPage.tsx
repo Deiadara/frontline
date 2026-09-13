@@ -1,4 +1,5 @@
 import {
+  OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
   RESEARCH_TRACK_BLURBS,
   RESEARCH_TRACK_STEPS,
@@ -7,7 +8,7 @@ import {
   findResearchItem,
   formatCountdown,
   formatDuration,
-  knownBlueprints,
+  researchCancelWindowMs,
   researchProgressAt,
   researchRemainingMs,
   type ActiveResearch,
@@ -16,31 +17,32 @@ import {
   type ResearchResponse,
   type ResearchTrackStatus,
 } from '@frontline/shared';
-import { useState } from 'react';
-import type { ReactNode } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { Icon, type IconName } from '../../components/ui/Icon';
+import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
-import { useMarket, useResearch, useStartTech } from '../../lib/queries';
+import { useCancelResearch, useMe, useResearch, useStartTech } from '../../lib/queries';
+import { announceWaived } from '../../lib/deltas';
 import { PageShell } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { TrackSigil } from './TrackSigil';
 import { BlueprintsSection } from './BlueprintsSection';
+import { ReimaginingSection } from './ReimaginingSection';
 
 /**
- * The research page (GDD §C, §D, §I1): two doors and one workspace.
+ * The research page (GDD §C, §D, §G2, §I1): three tabs and one workspace.
  *
  * **Programmes** is §C, the nineteen officer tracks. **Blueprints** is §D, the documents the crew
- * is assembling out of mission pages. They are one screen because they are one question, what the
- * Lab can open next, asked from two directions: one is time and two chairs, the other is paper.
+ * is assembling out of mission pages. **Reimagining** is §G2, the machine that eats three of those
+ * pages and hands back a fourth. They are one screen because they are one question, what the Lab
+ * can open next, asked from three directions: time and two chairs, paper, and the bench.
  *
  * Nothing on this page derives a rule. Every rung arrives with its price, its clock and the reason
  * it is shut already worded by `GET /research`, and the blueprint side reads the satchel it is
- * drawn from. Which door is open is the URL, so a link into a document lands on the document.
+ * drawn from. Which tab is open is the URL, so a link into a document lands on the document.
  */
 
 function EmptyRow({ text }: { text: string }) {
@@ -55,6 +57,7 @@ function titleOf(project: ActiveResearch['project']): string {
 
 function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
   const remaining = researchRemainingMs(active, at);
+  const cancel = useCancelResearch();
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -67,6 +70,19 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
         size="md"
         data-testid="research-progress"
       />
+      {/* The first tenth of the project's clock: call it off and ninety percent comes back. */}
+      <CancelMark
+        windowMs={researchCancelWindowMs(active, at)}
+        label={`Call off ${titleOf(active.project)}`}
+        pending={cancel.isPending}
+        onCancel={() => cancel.mutate({})}
+        data-testid="cancel-research"
+      />
+      {cancel.error && (
+        <p role="alert" className="font-body text-[13px] leading-relaxed text-oxblood-300">
+          {cancel.error.message}
+        </p>
+      )}
     </div>
   );
 }
@@ -314,7 +330,7 @@ function RungCard({
               data-sound="confirm"
               onClick={onStart}
               className={cn(
-                'shrink-0 rounded-sm border px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                'brushed relative shrink-0 rounded-sm border px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
                 item.blocker === null
                   ? 'border-brass-300/70 text-brass-300 hover:bg-brass-300/10'
                   : 'cursor-not-allowed border-surface-700 text-ink-400',
@@ -329,6 +345,11 @@ function RungCard({
   );
 }
 
+/** Whether a `?track=` the player typed, or a stale bookmark carries, names a real trade. */
+function isOfficerRole(value: string | null): value is OfficerRole {
+  return value !== null && (OFFICER_ROLES as readonly string[]).includes(value);
+}
+
 /** The whole §C section: the rail of nineteen trades, and the ten rungs of the one chosen. */
 function TracksSection({
   data,
@@ -340,14 +361,24 @@ function TracksSection({
   onStart: (techId: string) => void;
 }) {
   const statuses = data.tracks;
-  const [track, setTrack] = useState<OfficerRole | null>(null);
+  /*
+   * The open trade lives in the URL (`?track=head_of_research`), the way the roster's tabs do.
+   *
+   * It was component state, which made the rail unreachable from anywhere else: the shut
+   * Reimagining bench wants to send a player to the one rung that opens it, and a link that can
+   * only say "the Programmes tab" lands them on the Head Spy with nineteen rows to read. `replace`,
+   * because picking through the trades is browsing rather than navigating.
+   */
+  const [params, setParams] = useSearchParams();
+  const requested = params.get('track');
+  const track = isOfficerRole(requested) ? requested : null;
   const status = statuses.find((entry) => entry.role === track) ?? statuses[0];
   const running = data.active?.project.techId ?? null;
 
   if (!status) return <EmptyRow text="The archive has no tracks on file." />;
 
   return (
-    <div className="grid min-h-0 items-start gap-3 lg:grid-cols-[15rem_minmax(0,1fr)]">
+    <div className="grid min-h-0 items-start gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
       {/*
        * One scroller for both columns, which is the workspace's own.
        *
@@ -355,6 +386,10 @@ function TracksSection({
        * workspace it sat 31px above the sheet's visible edge, so its heading was clipped away and
        * the top row was cut in half. Two nested scrollers to save a page scroll is not worth a
        * heading that disappears.
+       *
+       * 19rem for the rail rather than 15 (maintainer request, 2026-09-10): a double-barrelled name
+       * with a nickname in it wrapped onto two lines at 15, and the sheet beside it had more
+       * width than ten rungs know what to do with. The sheet gives up what the rail takes.
        */}
       <Panel title="Trades" className="min-h-0 border border-surface-500/70">
         <ul className="min-h-0 divide-y divide-surface-700" data-testid="research-tracks">
@@ -363,7 +398,7 @@ function TracksSection({
               <TrackRow
                 status={entry}
                 selected={entry.role === track}
-                onSelect={() => setTrack(entry.role)}
+                onSelect={() => setParams({ track: entry.role }, { replace: true })}
               />
             </li>
           ))}
@@ -394,87 +429,90 @@ function TracksSection({
 }
 
 /**
- * The two doors of the archive.
+ * The three tabs of the archive.
  *
  * `path` is the whole of the section state. A player who bookmarks a document, or follows a link
  * out of the satchel, lands on the document rather than on the tracks with a second click to make.
+ *
+ * A strip across the top rather than the rail of doors that stood here until the board's
+ * 2026-09-10 call. The rail was 17rem of the frame spent on three rows, and the two screens that
+ * needed the width most (eight page sheets on one line, a machine with four sockets in it) were the
+ * two that had to give it up.
+ *
+ * Only Programmes carries a count. The doors used to print one on all three, and two of them were
+ * measuring the wrong thing: a document count next to Blueprints reads as progress through the
+ * catalogue when it is progress through a satchel, and a page count next to Reimagining is the size
+ * of the pile the machine eats rather than anything a player is working towards. Rungs done out of
+ * rungs there are is a real fraction, so it stayed.
  */
 const SECTIONS = [
-  {
-    id: 'programmes',
-    path: '/game/research',
-    label: 'Programmes',
-    icon: 'flask',
-    blurb: 'One track per trade, ten deep',
-  },
-  {
-    id: 'blueprints',
-    path: '/game/research/blueprints',
-    label: 'Blueprints',
-    icon: 'archive',
-    blurb: 'Documents you are still short of',
-  },
+  { id: 'programmes', path: '/game/research', label: 'Programmes' },
+  { id: 'blueprints', path: '/game/research/blueprints', label: 'Blueprints' },
+  { id: 'reimagining', path: '/game/research/reimagining', label: 'Reimagining' },
 ] as const;
 type SectionId = (typeof SECTIONS)[number]['id'];
 
-/** One door on the rail: a plated mark, what it is, and what is happening behind it. */
-function SectionButton({
-  icon,
+/**
+ * The mark on the chosen tab: a pair of drafting compasses, open, with the pencil leg down.
+ *
+ * The archive's own, and the reason it is here rather than in `Icon`: every glyph in that set is a
+ * nav mark used on several screens, and this one is furniture for one room (see the research
+ * section at the foot of `index.css`).
+ */
+function CompassMark({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="8" cy="3" r="1.4" />
+      <path d="M7.4 4.2L4 13M8.6 4.2L12 13" />
+      <path d="M5.6 9.2h4.8" strokeWidth="1" opacity="0.7" />
+    </svg>
+  );
+}
+
+/** One tab: what it is, and on Programmes how far up the rungs the crew is. */
+function SectionTab({
+  path,
   label,
-  blurb,
-  state,
-  selected,
-  onSelect,
+  count,
+  active,
 }: {
-  icon: IconName;
+  path: string;
   label: string;
-  blurb: string;
-  state: ReactNode;
-  selected: boolean;
-  onSelect: () => void;
+  count: string | null;
+  active: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      data-testid={`research-section-${label.toLowerCase().replace(/[^a-z]+/g, '-')}`}
+    <NavLink
+      to={path}
+      end
+      data-testid={`research-tab-${label.toLowerCase()}`}
       className={cn(
-        // A lit left edge on the chosen one, the same signal the training rail uses.
-        'flex w-full items-center gap-3 border-l-[3px] py-2.5 pl-2.5 pr-3 text-left transition-all duration-150',
-        selected
-          ? 'border-brass-300 bg-brass-300/10'
-          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+        'flex items-center gap-2 rounded-sm border px-4 py-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] transition-colors',
+        active
+          ? 'border-brass-300/80 bg-brass-300/15 text-brass-100'
+          : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-iris-300/60 hover:text-iris-100',
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm [&_svg]:h-5 [&_svg]:w-5',
-          selected ? 'text-brass-300' : 'text-ink-300',
-        )}
-      >
-        <Icon name={icon} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block break-words font-stamp text-[14px] leading-[1.15] text-ink-100">
-          {label}
-        </span>
-        <span className="block break-words font-body text-[11px] leading-snug text-ink-300">
-          {blurb}
-        </span>
-      </span>
-      <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.12em]">{state}</span>
-    </button>
+      {active && <CompassMark className="h-3.5 w-3.5 shrink-0 text-brass-300" />}
+      {label}
+      {count !== null && <span className="tabular-nums opacity-80">{count}</span>}
+    </NavLink>
   );
 }
 
 export function ResearchPage() {
   const researchQuery = useResearch();
   const startTechMutation = useStartTech();
-  // The satchel, for the door's count only. `BlueprintsSection` reads the same cached payload, so
-  // opening the door costs nothing.
-  const marketQuery = useMarket();
+  const me = useMe();
   const data = researchQuery.data;
   /*
    * The server's clock, corrected, not the browser's. The bar ticks every second and so looks
@@ -483,102 +521,90 @@ export function ResearchPage() {
    * response carries `serverNow` for exactly this; every other countdown in the game reads it.
    */
   const now = useServerClock(data?.serverNow, researchQuery.dataUpdatedAt);
-  const navigate = useNavigate();
   const { pathname } = useLocation();
 
-  const section: SectionId = pathname.endsWith('/blueprints') ? 'blueprints' : 'programmes';
+  const section: SectionId = pathname.endsWith('/blueprints')
+    ? 'blueprints'
+    : pathname.endsWith('/reimagining')
+      ? 'reimagining'
+      : 'programmes';
 
   const technologies = data?.technologies ?? [];
   const finished = technologies.filter((tech) => tech.known).length;
-  const documents = marketQuery.data ? knownBlueprints(marketQuery.data.inventory).length : null;
 
-  const stateOf = (id: SectionId): ReactNode =>
-    id === 'programmes' ? (
-      <span className="tabular-nums text-ink-200">
-        {finished}/{technologies.length}
-      </span>
-    ) : (
-      <span className="tabular-nums text-ink-200">{documents ?? ''}</span>
-    );
+  const countOf = (id: SectionId): string | null =>
+    id === 'programmes' ? `${finished}/${technologies.length}` : null;
 
   return (
-    <PageShell
-      quote="Nobody wrote down how any of it works. Somebody sits here until they have."
-      wide
-      fills
-    >
+    <PageShell quote="Research is finding out which bastard lied." wide fills>
       {/*
-       * A fixed frame, a rail of doors, and one workspace: the same shape the Training tab uses,
-       * and for the same reason. Stacked in a scrolling column, the tracks and the documents are
-       * each tall enough to push the other below the fold.
+       * A fixed frame, a strip of tabs, and one workspace under them, which is the market's shape.
+       * Stacked in a scrolling column, the tracks and the documents are each tall enough to push
+       * the other below the fold, so whichever tab is chosen gets the whole of the frame.
        */}
-      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-        <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          {/* Hugging, not filling. Two doors is the whole list and it can never grow, so a
-              stretched panel would be a framed sheet of empty tin under them. The training rail
-              fills because its roster does grow; this one does not. */}
-          <Panel title="The archive" className="min-h-0 border border-surface-500/70">
-            <ul
-              className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
-              data-testid="research-sections"
-            >
-              {SECTIONS.map((entry) => (
-                <li key={entry.id}>
-                  <SectionButton
-                    icon={entry.icon}
-                    label={entry.label}
-                    blurb={entry.blurb}
-                    state={stateOf(entry.id)}
-                    selected={section === entry.id}
-                    onSelect={() => void navigate(entry.path)}
-                  />
-                </li>
-              ))}
-            </ul>
-          </Panel>
-          {/* No caps readout at the foot of the rail (board request, 2026-09-09): the standing bar
-              prints the same figure on every screen. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2" data-testid="research-tabs">
+          {SECTIONS.map((entry) => (
+            <SectionTab
+              key={entry.id}
+              path={entry.path}
+              label={entry.label}
+              count={countOf(entry.id)}
+              active={section === entry.id}
+            />
+          ))}
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          {/* The bench in flight, over whichever door is open: a programme running is a fact about
-              the whole archive, not about the page a player happens to be on. */}
-          {data?.active && (
-            <div className="card-paper washed rivets edge-lit shrink-0 rounded-sm border border-brass-500/40 shadow-panel">
-              <ActiveProject active={data.active} at={now} />
-            </div>
-          )}
-
-          {startTechMutation.error && (
-            <p
-              role="alert"
-              className="shrink-0 font-body text-[13px] leading-relaxed text-oxblood-300"
-            >
-              {startTechMutation.error.message}
-            </p>
-          )}
-
-          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="research-workspace">
-            {section === 'blueprints' ? (
-              <BlueprintsSection />
-            ) : researchQuery.isLoading ? (
-              <EmptyRow text="Opening the archive…" />
-            ) : !data ? (
-              /* Not the same state as "still opening". This drew the loading line for a spent
-                 retry too, so a 500 looked like a slow network and looked like it for ever. */
-              <LoadFailure
-                what="The archive"
-                onRetry={() => void researchQuery.refetch()}
-                detail="Nothing has been lost. Whatever is on the bench is still on it."
-              />
-            ) : (
-              <TracksSection
-                data={data}
-                pending={startTechMutation.isPending}
-                onStart={(techId) => startTechMutation.mutate({ techId })}
-              />
-            )}
+        {/* The bench in flight, over whichever tab is open: a programme running is a fact about
+            the whole archive, not about the page a player happens to be on. */}
+        {data?.active && (
+          <div className="card-paper washed rivets edge-lit shrink-0 rounded-sm border border-brass-500/40 shadow-panel">
+            <ActiveProject active={data.active} at={now} />
           </div>
+        )}
+
+        {startTechMutation.error && (
+          <p
+            role="alert"
+            className="shrink-0 font-body text-[13px] leading-relaxed text-oxblood-300"
+          >
+            {startTechMutation.error.message}
+          </p>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="research-workspace">
+          {section === 'blueprints' ? (
+            <BlueprintsSection />
+          ) : section === 'reimagining' ? (
+            <ReimaginingSection />
+          ) : researchQuery.isLoading ? (
+            <EmptyRow text="Opening the archive…" />
+          ) : !data ? (
+            /* Not the same state as "still opening". This drew the loading line for a spent
+               retry too, so a 500 looked like a slow network and looked like it for ever. */
+            <LoadFailure
+              what="The archive"
+              onRetry={() => void researchQuery.refetch()}
+              detail="Nothing has been lost. Whatever is on the bench is still on it."
+            />
+          ) : (
+            <TracksSection
+              data={data}
+              pending={startTechMutation.isPending}
+              onStart={(techId) =>
+                startTechMutation.mutate(
+                  { techId },
+                  {
+                    // The testing build waives the rung's bill: say what it was. See `announceWaived`.
+                    onSuccess: () => {
+                      const rung = data.technologies.find((item) => item.id === techId);
+                      if (me.data?.admin === true && rung !== undefined) announceWaived(rung.cost);
+                    },
+                  },
+                )
+              }
+            />
+          )}
         </div>
       </div>
     </PageShell>

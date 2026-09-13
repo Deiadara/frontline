@@ -164,6 +164,26 @@ export function repairedByTime(building: Building, now: Date): Building {
       };
 }
 
+/**
+ * The instant a structure is fully repaired, or `null` when it has nothing to repair.
+ *
+ * The settle walk needs this, and it needs it as a *mark* rather than as a rate. Effectiveness is
+ * linear in damage ({@link buildingEffectiveness}) and damage falls at a constant
+ * {@link REPAIR_PER_HOUR}, so the average output over a stretch is the output halfway through it,
+ * which is what `district/settle.ts` reads. That stops being true the moment the damage hits zero
+ * partway through the stretch: past that point the line would go negative and the real structure is
+ * simply whole. A district settled once after three days away therefore banked three days at full
+ * rate when the first of them was spent in pieces. Cutting the walk here keeps every stretch on one
+ * side of the clamp, which is the same treatment a raid's disruption expiry gets.
+ */
+export function repairCompletesAt(building: Building): number | null {
+  const damagedAt = building.damagedAt ?? null;
+  if (damagedAt === null || building.damage <= 0) return null;
+  const at = Date.parse(damagedAt);
+  if (!Number.isFinite(at)) return null;
+  return at + (damageOf(building) / REPAIR_PER_HOUR) * 3_600_000;
+}
+
 /** Every structure in a district, brought up to date with the repair clock. */
 export function repairedDistrict(buildings: readonly Building[], now: Date): Building[] {
   return buildings.map((building) => repairedByTime(building, now));

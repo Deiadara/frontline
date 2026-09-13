@@ -1,5 +1,5 @@
 /**
- * The Upcoming tab, rebuilt in the Training tab's shape (board request).
+ * The Upcoming tab, rebuilt in the Training tab's shape (maintainer request).
  *
  * A rail of called fights down the left, one of them open, and the whole of the rest of the screen
  * given to that one fight. The rail is the only region that moves: picking the fourth fight out of

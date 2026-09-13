@@ -61,7 +61,7 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
  * desktop frame whole. Before it, all three were painted at their own shapes and every one of them
  * was either cropped, squashed or letterboxed to fit.
  *
- * `2.36:1` is the Bar's, and it is the exception that proves the rule: the board delivered that
+ * `2.36:1` is the Bar's, and it is the exception that proves the rule: the maintainer delivered that
  * room at its own shape rather than at 21:10, so it is carried at that shape rather than cropped
  * or stretched to join the other two. The label is the master's own ratio, not a chosen one.
  *
@@ -248,7 +248,7 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
    * A class of its own rather than more `portrait` keys, because the two are different objects.
    * An overseer portrait is one of four hero images a player picks from and sees at full size; an
    * officer portrait is one of forty-three drawn from a pool, and it appears on a roster card at
-   * a couple of hundred pixels. 4:5 rather than the overseer's taller frame is the shape the board
+   * a couple of hundred pixels. 4:5 rather than the overseer's taller frame is the shape the maintainer
    * delivered.
    *
    * 960×1200 is the largest size satisfying three constraints at once, and it took all three to
@@ -419,7 +419,7 @@ function subjectFor(table: Readonly<Record<string, string>>, id: string, label: 
 }
 
 /**
- * The officer pool (§C): forty-three faces, all one class, all one framing.
+ * The officer pool (§C): a hundred and thirty-nine faces, all one class, all one framing.
  *
  * Ordered by `OFFICER_PORTRAIT_IDS`, which is also what `officerPortraitId` indexes into, so a face
  * added to the end of the pool cannot renumber the seeds of the ones before it.
@@ -434,7 +434,7 @@ const officerDrafts = OFFICER_PORTRAIT_IDS.map((portraitId, index) =>
       framing: FRAMING.officer,
     },
     // Not `openai`: gpt-image-1 renders exactly three sizes and 960×1200 is not one of them.
-    // These arrived as a board delivery anyway, so what this records is which backend *could*
+    // These arrived as a maintainer delivery anyway, so what this records is which backend *could*
     // have produced them, and only FLUX takes an arbitrary size.
     backend: 'fal',
   }),
@@ -517,7 +517,7 @@ const BAR_PLATE_DELIVERY = {
  * table without an entry still fails {@link validateAssetSpec}.
  */
 /**
- * The city, as the board painted it: an aerial of the whole sprawl at night, which is the screen
+ * The city, as the maintainer painted it: an aerial of the whole sprawl at night, which is the screen
  * `/game` opens on.
  *
  * 21:10 rather than the class's 16:9, because that is the shape this screen actually has. Take the
@@ -591,6 +591,36 @@ const CHROME_ROW_PLATE_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
+ * The Undergrid, the fourth contested district, delivered at 3780x1800 with a labelled copy
+ * (maintainer, 2026-09-11). Its own entry for the reason the three above give: seven signs and a gate
+ * are fractions of this exact image (`features/city/marks.ts`).
+ */
+const UNDERGRID_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The Annexes, the fifth contested district, delivered at 1817x866 (maintainer, 2026-09-11).
+ *
+ * The odd one out of the five, and the number here is the measurement rather than the promise. The
+ * file arrived named `annexes-3780x1800-portrait.png` and measures 1817x866, which is 2.098
+ * wide-to-tall: the same 21:10 shape as the other four to within a pixel, at less than half the
+ * width. Recorded at what it is because the encoder's job is refusing to invent detail. Naming
+ * 3780x1800 here would have produced a file twice the size carrying exactly this much picture, and
+ * the audit trail would then say the maintainer delivered something they did not.
+ *
+ * What it costs is sharpness above an 1817px frame, which is a maximised window on a 1080p screen.
+ * A re-export of the same painting at 3780x1800 drops straight in here and nothing else moves.
+ */
+const ANNEXES_PLATE_DELIVERY = {
+  width: 1817,
+  height: 866,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
  * The faction's back room, delivered at 3780x1800.
  *
  * The same shape as the contested plates, which is the shape of the band between the two bars,
@@ -613,6 +643,8 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-district-rustyard': STEELBELT_PLATE_DELIVERY,
   'plate-district-chrome-row': CHROME_ROW_PLATE_DELIVERY,
   'plate-faction-room': FACTION_ROOM_PLATE_DELIVERY,
+  'plate-district-undergrid': UNDERGRID_PLATE_DELIVERY,
+  'plate-district-datavault-sigma': ANNEXES_PLATE_DELIVERY,
 };
 
 /**
@@ -659,6 +691,9 @@ const plateDrafts = (
     ['plate-district-rustyard', 'plate'],
     ['plate-district-chrome-row', 'plate'],
     ['plate-faction-room', 'plate'],
+    // Appended after the faction room rather than beside the other districts: the seed is the index.
+    ['plate-district-undergrid', 'plate'],
+    ['plate-district-datavault-sigma', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -680,6 +715,8 @@ const plateDrafts = (
     ...(key === 'plate-district-rustyard' ? STEELBELT_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-chrome-row' ? CHROME_ROW_PLATE_DELIVERY : {}),
     ...(key === 'plate-faction-room' ? FACTION_ROOM_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-undergrid' ? UNDERGRID_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-datavault-sigma' ? ANNEXES_PLATE_DELIVERY : {}),
   }),
 );
 

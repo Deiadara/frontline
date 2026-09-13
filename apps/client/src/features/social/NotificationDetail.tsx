@@ -20,7 +20,7 @@ import { cn } from '../../lib/cn';
 import { useMissions } from '../../lib/queries';
 
 /**
- * What is behind a notification (board request).
+ * What is behind a notification (maintainer request).
  *
  * A receipt that only carries a headline makes a player go and hunt for the thing it is about, and
  * the hunt is worse the more receipts there are. Opening one now shows the thing itself, drawn as a

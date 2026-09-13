@@ -222,7 +222,7 @@ describe('breaking into a lived-in district', () => {
     /*
      * A poor victim, in caps only.
      *
-     * A raid leaves the till alone now (board 2026-09-09), so the hold fills with materials on its
+     * A raid leaves the till alone now ( maintainer 2026-09-09), so the hold fills with materials on its
      * own and this is belt and braces rather than the load-bearing setup it used to be. It is kept
      * because the reason is still live: the refund is paid in caps, so any assertion about caps is
      * about a resource that can move on two counts at once and cannot tell a clobbered stockpile
@@ -269,7 +269,7 @@ describe('breaking into a lived-in district', () => {
 });
 
 /**
- * §A4, board 2026-09-09: what one call on a district actually takes.
+ * §A4, maintainer 2026-09-09: what one call on a district actually takes.
  *
  * The `building` target this replaced hit exactly one roof and took a share of everything including
  * the till. A crew who wanted a home properly turned over needed thirteen declarations against a cap

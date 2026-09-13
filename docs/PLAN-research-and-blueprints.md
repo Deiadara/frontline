@@ -56,7 +56,7 @@ player reads.
   **[call]** Deliberately _not_ on the Bar's pre-hire role picker. `BarPage` carries an explicit §B8
   note that nothing on a recruit's card may say what they would be good at, because the player is
   meant to read the sheet and decide. A mark beside that picker would turn hiring into shopping for
-  a letter, which is the thing the rule exists to stop. If the board wants it there anyway it is a
+  a letter, which is the thing the rule exists to stop. If the maintainer wants it there anyway it is a
   one line change and a rule to retire.
 
 - [x] B6. The mark is **not** shown on the standing bar.
@@ -659,7 +659,7 @@ I5b, the looking half, done by me on the lanes' screenshots rather than by trust
       doc, the manifest pinned at 238 assets, the order sheet regenerated. Chrome Row's row is
       `statue`, "Statue of the Revolutionary", easy, in the place The Long Pawn had; the sign sits
       on the plinth's face (0.435, 0.565), which is blank stone. The board's own `docs/DISTRICTS.md`
-      row, which sketched exactly this on 2026-09-03, is back to what the board wrote. The location
+      row, which sketched exactly this on 2026-09-03, is back to what the maintainer wrote. The location
       id changed under it (`chrome-row-longpawn` to `chrome-row-statue`), so any `location_control`
       row written against the old id in a development database is orphaned; nothing reads it.
 - [x] O4. **The district gate** slightly down (0.69 to 0.705), a few pixels clear of the gate's
@@ -852,7 +852,7 @@ are the mailbox's).
       file has a "Their card" section with the effect line; the seat plate's hover says the
       aspect, the mark and the pay. Tests: the shared deal and marks (`cards.test.ts`), the server
       screen-and-fold agreement with its control (`factions/cards.test.ts`), and the room e2e.
-      **Numbers are a first cut for the board to tune**: which attributes each card reads and the
+      **Numbers are a first cut for the maintainer to tune**: which attributes each card reads and the
       half-point-a-band payout are in one table in `packages/shared/src/factions/cards.ts`.
 
 ## S. The road, live (brief of 2026-09-04)
@@ -1081,7 +1081,7 @@ Two follow-ups by me after the lane landed: the e2e harness now answers `POST /m
       Furnace Row Pumps sign at 0.94 was not on screen there at all; it stands on the road at the
       row's left end now, and the marks test refuses anything below nine tenths. The tests assert
       the new rule (no offsets, inside the frame allowing for width, no two signs overlapping) and
-      three mutants were watched failing. Three signs moved again at the board's request after looking: Toolhouse Pawn up and left onto the open ground inside the palisade, clear of the gate sign; the Slag Bowl onto the floor of the bowl itself, on the band between the people standing in it (read off a gridded crop of the plate rather than guessed); Dockside Pumphouse up to the foot of its building.
+      three mutants were watched failing. Three signs moved again at the maintainer's request after looking: Toolhouse Pawn up and left onto the open ground inside the palisade, clear of the gate sign; the Slag Bowl onto the floor of the bowl itself, on the band between the people standing in it (read off a gridded crop of the plate rather than guessed); Dockside Pumphouse up to the foot of its building.
 
 - [x] K2. **Half and Max.** In the battle deploy dialog every unit's stepper gains a Half and a Max
       button (half of what is at home, all of it).
@@ -1127,7 +1127,7 @@ Two follow-ups by me after the lane landed: the e2e harness now answers `POST /m
 
 ## J. The Steelbelt redelivered, and crews in flight as a stack (2026-09-03)
 
-- [x] J1. **The Steelbelt plate.** The board delivered `images/steelbelt-portrait-3780x1800.jpeg`,
+- [x] J1. **The Steelbelt plate.** The maintainer delivered `images/steelbelt-portrait-3780x1800.jpeg`,
       a genuine 3780x1800 export of the same painting the 1584x672 file was cut from, and a
       labelled copy. Renamed to its manifest key as a PNG (`encode-art` takes PNG and WebP masters
       only; pixels unchanged), the delivery spec moved to 3780x1800 at 21:10 in the manifest and in
@@ -1410,7 +1410,7 @@ gaps the brief left filled in and recorded here so they can be reversed on purpo
       The settings layout gate's fixed probe height was a knife edge the new notification row
       tripped; it grows to the content now.
 
-Calls the board may want to reverse: the close applies no admin waivers (an admin build can bid on
+Calls the maintainer may want to reverse: the close applies no admin waivers (an admin build can bid on
 somebody it cannot hold and lose them as `passed`); the roster for a past day is regenerated at
 today's city average, so an officer signed at the close can be a shade stronger than the card that
 was bid on if the city levelled overnight; `BarRecruit.hired` is always false now and nothing
@@ -1561,7 +1561,7 @@ failing with its fix reverted unless it says otherwise.
       painted machine now); the removed Cistern still shipped two assets; `payroll_due` described a
       draw §H7 deleted; `settleUpgrade` was a second, uncalled settle beside the live one; a dead
       modal, three CSS classes, a dead skyline table and two plot helpers. Left on purpose and
-      recorded: `src/render/` is imported by nothing (the art policy names it, so a board call);
+      recorded: `src/render/` is imported by nothing (the art policy names it, so a maintainer call);
       129 officer faces delivered against a pool of 99 (widening re-maps every face); 36 exported
       symbols nothing imports (listed in the server report, a cleanup for a quiet tree); the
       residential gate and the break-in against `residentOf` stay as Q left them; `battle_incoming`
@@ -1607,7 +1607,7 @@ failing with its fix reverted unless it says otherwise.
       migration 0084) and mirrored to local storage for the first frame. The curve is
       `(percent / 100) ^ (5/3)`, so the middle of the bar is half as loud rather than a quarter.
       Research and the rules for what stays silent (hover, typing, scrolling, polls) are in
-      docs/SOUND.md. Background sound comes later, as the board said.
+      docs/SOUND.md. Background sound comes later, as the maintainer said.
 - [x] AC6. **The board's picks** (2026-09-08), off a listening board of all 151 files in the two
       packs: the tab change is `switch9` (the rising swish was rejected), the battle call is
       `scratch_005`, the refusal is `error_001`; the click, the confirm and the done chime stand.
@@ -1618,7 +1618,7 @@ failing with its fix reverted unless it says otherwise.
 - [x] AD1. **One sound for a fight called and a fight coming.** Both already play the `call` kind:
       the "Call it" button carries it, and the `district_attacked` bell arrives as a live `battle`
       event, which the announcer plays as `call` over the chime when the two land together. The
-      file behind it is the board's pick, `scratch_005`.
+      file behind it is the maintainer's pick, `scratch_005`.
 - [x] AD2. **The red mark.** `UnreadCounts.fightsOnYou` rides the `/me` poll: fights still to come
       that somebody else called on ground this crew defends (`fightsCalledOn`, counted the way the
       settler finds the defender). The bottom bar draws it on the left as a pulsing oxblood tile
@@ -1717,7 +1717,7 @@ front of them.
 The class rule is unchanged and is still a test rather than a taste: within a class the later
 machine is faster, bigger and dearer; no car keeps up with a bike, no truck with a car, and both
 bands of flyer outrun everything on the ground. The Road Reavers ride the Scrappy and are written
-at exactly its 65, which is the board's own rule and its own test.
+at exactly its 65, which is the maintainer's own rule and its own test.
 
 Units, fastest first. Everything not named as an exception sits at or under 50, which is under
 every machine above the Flatbed:
@@ -1920,7 +1920,7 @@ fourth level buys the last four points and its top six levels buy nothing at all
 open call, still open and now measurable: a question about `travel_speed` scaling with a location's
 level, not about the ceiling.
 
-**Two things for the board, not fixed here.**
+**Two things for the maintainer, not fixed here.**
 
 - **The Flatbed is worth nothing to a Razor column.** At 45 it is exactly the Razors' own speed, so
   a Garage-6 machine costing 5200 scrap moves a column of the game's commonest unit by zero minutes.
@@ -1965,14 +1965,14 @@ Nine faults, each fixed with a test watched failing under the fix reverted:
       dependency re-optimisation reloading the page inside the live test's window) is written
       down with a diagnostic for the next time.
 
-Left for the board: the Heli Porter's four-page blueprint against the Rotorcraft's seven makes the
+Left for the maintainer: the Heli Porter's four-page blueprint against the Rotorcraft's seven makes the
 strongest machine the quickest to unlock; the Flatbed's 45 equals the Razors' speed; the oxblood
 rule chip shares its colour with a bad characteristic chip; the roster fixture ships the printed
 sheet beside a filled bracket.
 
 ## AG. The card closes on its picture, and the machines join the roster (2026-09-08)
 
-Three board requests in one message, on the units screen and the yard.
+Three maintainer requests in one message, on the units screen and the yard.
 
 - [x] AG1. **The unit card closes on its portrait.** The picture had 12px over it and 42px under
       it: the frame had grown 2rem for the marks band's headroom while the portrait stayed capped
@@ -2052,7 +2052,7 @@ The board's brief, in order, and what was built for each:
       Bar's without the sealed phase, and the harness judges a bid with the shared step so an
       under-bid is refused in the server's words. Buying off the barrow is gone.
 
-Left for the board: the line price on the wire is the city's number now, so a crew holding the
+Left for the maintainer: the line price on the wire is the city's number now, so a crew holding the
 Downtown Market sees its discount at the close rather than on the card (the reserve has to be one
 figure for everybody); and a crew may sit at any number of lots at once, unlike the Bar's two.
 
@@ -2142,7 +2142,7 @@ The board's rules, as built (by agent, reviewed; one follow-up on the production
 - [x] AJ6. **The visited screen has one call**: Break the gate while it stands, Raid the district
       with the time left while it is down; the plates open an information-only dialog.
 
-Left for the board: the disruption's bonus cut is read at the moment of the settle while
+Left for the maintainer: the disruption's bonus cut is read at the moment of the settle while
 production is cut per segment, so a settle spanning the expiry is exact on production and all or
 nothing on the bonuses; the storage ceiling is among the channels cut (a raided crew's store is
 tighter for six hours), which reads as intended but is a call.
@@ -2171,7 +2171,7 @@ kinds, each honoured end to end and each with a mutant watched failing:
       boolean as an empty record, so every crew held all three permissions and no readout showed
       it. Fixed with a boolean arm and pinned.
 
-Left for the board: twelve kinds is the floor of the range asked for; a second trap per fight and a
+Left for the maintainer: twelve kinds is the floor of the range asked for; a second trap per fight and a
 free defensive garrison are designed but not built (one needs the report's trap note to become a
 list, the other the survivors ledger to skip stacks nobody owns); workshop refits still move only
 numbers, the rule-changing refits arriving as rungs and holdings instead.
@@ -2191,7 +2191,7 @@ numbers, the rule-changing refits arriving as rungs and holdings instead.
       filled rather than huddled on its centre line. The supply run is one line, three parts with
       a hairline between each: the material, how many, the price with the button on it; it wraps
       whole at 1280 wide.
-- [x] AL4. **Faction Offers.** The tab reads Faction Offers, and the board's note is on the tab
+- [x] AL4. **Faction Offers.** The tab reads Faction Offers, and the maintainer's note is on the tab
       row as "How Faction Offers Work", two sentences.
 - [x] AL6. **Typing a count.** The number field is a text input with a numeric keypad holding a
       draft while it has focus: it can be emptied, an exact figure typed, a leading zero is never
@@ -2232,7 +2232,7 @@ six-minute Glass Pull to a fourteen-hour Reservoir Expedition, every haul priced
 38: standard 22, battle 16, easy 15, hard 23. New guards: no two jobs with the same shape and
 numbers, every job drawn from every starting day of a year, names unique as well as ids.
 
-Left for the board: the page-prize rate moved from one page per 7.4 rotations to 8.0, still
+Left for the maintainer: the page-prize rate moved from one page per 7.4 rotations to 8.0, still
 inside the 6 to 9 band, because the board's hard share fell from 71% to 63% with the easy fights
 added; page prizes and item finds are rolled by the engine per area and day and cannot be
 authored on a template.
@@ -2320,6 +2320,228 @@ Reported, not changed: the live channel's `base` event does not name the distric
 copy of the base (the polls cover it); `speedPercent` on the wire is kept alive by a fixture
 only; a fallback letter at 20% opacity where a machine has no painting; the market's own copy of
 the rarity tones beside the shared one.
+
+## AP. The research screen rebuilt, and three small notes (2026-09-10)
+
+The small ones, by hand:
+
+- [x] AP1. **The Runner's hours chip at the plaque's height.** The standing note's small size is
+      one line of capitals at 21px, the height of "Always in", and the last-visit chip beside it
+      the same, so both panel heads are 45px and the chips sit level.
+- [x] AP2. **The tab lines are hovers.** "There is a door at the end of the arcade" sits on the
+      Black Market tab as its tip, and Faction Offers carries one of its own about crews trading
+      with crews; nothing is printed beside the strip.
+- [x] AP3. **The Heli Porter is a seven-page document**: Tail Drive, Hydraulics and Load Floor
+      added, each with its line and rarity, closing the Section AF call that the strongest
+      machine was the quickest to assemble (163 pages in the catalogue now).
+
+The research screen, by agent, reviewed:
+
+- [x] AP4. **Three tabs instead of the rail.** Programmes, Blueprints and Reimagining as a strip
+      at the top like the market's, each with its count (rungs, documents, pages), the chosen one
+      lit with a brass compass; the workspace under it the whole width; the quote stays.
+- [x] AP5. **Blueprints as a list.** One "Show unlocked" switch, off on load; three category
+      drawers side by side with counts, one open at a time; each document a full-width row with
+      its cover, name, rarity and blurb on the left, its pages across the middle as sheets with
+      names, and "N of M pages" over an Unlock button live only on a complete set, a rubber stamp
+      once unlocked. Rows one height, the eight-page Colossus on one line at 1280 (gated). The
+      screen's own furniture: a drafting grid behind the rows, index tabs on the drawers, a tick
+      box, the stamp.
+- [x] AP6. **Reimagining as its own tab**, with the board's new line, a lock and one sentence
+      while the crew lacks the Head of Research or the research, and otherwise a machine: three
+      sockets in a triangle the player fills from a tray of the pages they hold (a page as many
+      times as it is held), an outfeed for the result, a lever that lights on the third page,
+      and an animation that draws the sheets into the gearing and flashes the new page out. The
+      rule changed with it: the request names the three pages (a wire tuple), each must be held
+      as many times as named, and the result is still a page the crew does not hold, never one of
+      the three, never a page of an unlocked document. The old "most duplicated first" rule and
+      its spare-pages refusal are gone; the tray head prints the spare count so the choice is
+      informed. The first cut of the machine was three boxes and two hairlines; it is brass and
+      iron now: bolted socket wells, riveted pipes with flanged elbows, a four-gear train with
+      real teeth, two gauges whose needles swing when the third page goes in, a lever plate,
+      the pipes' flow and the gears' turning as the lit state, and the apparatus sized off its
+      plate as a query container so it fills the panel at every viewport without a stamp or a
+      cut (gated on both axes).
+- [x] AP7. Two screenshot traps found on the way: a 150ms colour transition on the tabs and a
+      200ms fade on the gearing were both caught mid-flight by the sweep while every assertion
+      passed; both are polled on the colour now.
+
+## AQ. Five notes (2026-09-10)
+
+- [x] AQ1. **The Bar's tables box off the bar.** It sat hard against the standing bar; it keeps
+      the same 16px the note keeps off the nav.
+- [x] AQ2. **Show unlocked on the drawer row**, at the right end of the line the three drawers
+      open, since it filters the list they open.
+- [x] AQ3. **The blueprints drawers, rows and frame with visible edges.** The short rows sat at
+      75% on a half-transparent plate and read as rows that had not loaded; every row, drawer and
+      the list's frame carries a drawn edge and a plate of its own, the finished row the brass.
+- [x] AQ4. **The research quote**: "Research is finding out which bastard lied."
+- [x] AQ5. **A bell for every page that comes into the satchel** (by agent, reviewed): one kind,
+      "Pages found", one shared diff of the satchel before and after (pages only, upward only),
+      one server helper naming the page, its document and where it came from, rung at six sites
+      (a run coming home, the Runner's close beside the lot's own bell, the back room, the Lab,
+      and both sides of an offer settling), a pair of one sheet ringing once with its count, each
+      site with its own mutant. Escrow coming home does not ring: the page never left the crew.
+      The lane also caught a tone of mine the palette does not define, now the palette's own.
+
+## AR. The blueprints cabinet (2026-09-10)
+
+- [x] AR1. **An inner menu of its own.** The three drawers and the Show unlocked switch sit inside
+      a hand-ruled frame with the list they open, under a rule that separates them from the
+      archive's own strip; the drawers and the switch are hand-inked boxes in verdigris, the
+      archive's tabs stay brass, so the two rows read as two kinds of door.
+- [x] AR2. **The three category lines are gone** from the screen ("Bodies and machines", "Made
+      for one night", "What a structure or a squad becomes"); the shared copy stays for anything
+      else that wants it.
+
+## AS. Who leads a run (2026-09-10)
+
+The board's brief: a run needs somebody leading it, the Overseer first; a leader out on a run
+cannot be sent again until home; a leader's attributes move the odds and every job cares about
+different ones, composably and in the spirit of the crew screen's fit points; a gauge on the
+launch dialog with the percentage; a button that picks the most suitable leader; research that
+opens unled runs at a penalty and later without; battle jobs in tiers with a band instead of a
+number, the enemy hidden, the real engine, whoever stood or ran coming home with the report.
+
+The shared model (`missions.leading.ts`, by hand):
+
+- [x] AS1. **Leanings.** Eight (a fight, quiet work, a haul, a long road, talking, salvage, the
+      wire, casualties), each a profile of attributes with an importance on each and exactly one
+      irreplaceable, composing by the higher importance where two overlap; a job's leanings are
+      authored on its template or read off its card (a battle is a fight, standard work a haul
+      and salvage, against the Combine wants quiet, for it wants talk, the far band is a road).
+- [x] AS2. **The leader's fit** on the crew screen's own arithmetic (the four importances, their
+      weights, the band bonuses), as a share of a perfect sheet; a signed edge on the odds,
+      neutral at the recruitment mean (fit 0.15), symmetric, capped at 25 points either way.
+- [x] AS3. **The unled rule** off two research rungs: forbidden, then 10 points off, then free.
+      One function prices the card, the gauge and the launch alike.
+- [x] AS4. **The gauge's five tones** at twenty points each; the best leader as the highest fit
+      among those free, ties to the first named.
+- [x] AS5. **Battles**: three tiers (skirmish, fight, siege) read off difficulty and distance
+      unless authored; a coarse yardstick for a force (offense plus a fifth of vitality per
+      body, a Razor about 175); what a tier fields at level one (eight, twenty and forty-five
+      Razors' worth), four percent more per level; four bands off the ratio with the leader's
+      edge folded in as a share of the force. What a job fields is never on the wire.
+- [x] AS6. **The server** (by agent, reviewed). Leaders on the wire, the Overseer first, each
+      with the run they are out on; the launch refuses an unknown leader, a busy one ("out
+      leading a run until they are back"), and an unled run until Written Orders is researched,
+      checking who is free after the settle so a crew walking in on this request can go straight
+      out. The old rules retired: the difficulty gate, the ×0.67 and ×1.5 penalties, the
+      Overseer's separate nudge; the Overseer goes through the fit like anyone. Two rungs on the
+      Right Hand's track at steps 2 and 6 (Written Orders; They Have Done It Before), keeping
+      the steps' bonuses so the track's totals hold. Battle jobs build their enemy off the row's
+      seed (a skirmish is Razors and Scrapers, a fight adds Ash Walkers and Wardens, a siege is
+      Wardens, Breakers, Snipers and Juggernauts, within seven percent of the tier's strength),
+      fight it with the real engine on a bare field with no ring either side, and bring home
+      the force less the fallen; a run nobody returns from pays nothing and rings "Nobody came
+      back". Migration 0088 adds the three columns. Left open by the lane: the tier and the
+      level are read at the settle rather than frozen on the row, and a leader who falls on a
+      battle job is not laid up afterwards.
+- [x] AS7. **The screen** (by agent, reviewed). The picker lists the Overseer first and every
+      officer with their fit for this job as a percent, a busy leader dimmed and unpickable
+      "until they are back"; a button picks the most suitable free leader; the gauge is a drawn
+      speedometer, five arcs red to blue, a brass needle and the figure in the well, live off the
+      shared odds as the choice changes, the job's leanings as chips under it; a battle job shows
+      the same bezel with the four bands and never a number, the tier on its card; an unled run
+      is refused, penalised or free in the dial and in words; a run names its leader in flight
+      and home, a battle prints what came home and what was lost, and "Nobody came back" stands
+      where no report arrived. The send window became header, scrolling body and pinned footer,
+      because the dial pushed the buttons under the fold at 720. The harness now refuses in the
+      route's own words.
+
+Left for the maintainer: a finished run names its leader off the current books, so an officer who
+has since left reads "Somebody off the books" (a frozen name on the row would fix it); the
+battle tier and the level are read at the settle rather than frozen; a leader who falls on a
+battle job is not laid up; the mission bell does not yet name the leader or the losses; the
+chip band under each offer card puts "Send a crew" just under the fold at 1280x720.
+
+## AT. A bug pass over the leading round (2026-09-10)
+
+- [x] AT1. **The returned and in-flight lists clip at the panel's ruled line**, not its outer
+      edge: a row half-scrolled off the bottom used to show its last line under the line that is
+      meant to be the edge.
+- [x] AT2. **Shared and server** (by agent, reviewed). A leader was freed early: the read and the
+      recall built the busy list off a page of history (the newest two hundred rows), so a long
+      run behind two hundred short ones dropped off it while still out, and the launch, reading
+      the unbounded active list, disagreed with the card; both read the active list now. The
+      unled reader freed a crew holding only the second rung; the first rung is the gate. A doc
+      on the leanings contradicted its code (a raid on the Combine is not quiet work). Checked
+      and found right: recall keeps a leader out until the walk home ends; the card and the
+      launch price the same figure at every level, floor included; the seeded enemy sat inside
+      seven percent of its tier over 540,000 draws at levels 1 to 60; home plus lost equals what
+      went, porters on neither list; nothing pays on an unreported run; migration 0088 on a
+      seeded store. Left: an Overseer-led run buys no lead perks and any officer leading gets
+      every officer's, both older than the round; a released officer can be out leading a run;
+      mission battles are fought on bare ground so the crew's holdings do not reach them.
+- [x] AT3. **The client** (by agent, reviewed). The dial coloured itself off the raw chance and
+      printed the rounded one, so two jobs at 60% could wear two colours; one rounding now feeds
+      the figure, the tone and the needle. The Overseer's name on a run row came off a query
+      with a thirty-second staleness and no poll, so a cold load read "The Overseer" beside a
+      picker that already knew the name; the maintainer's own leaders are read first. "1 Razors"
+      became "Razors 1" like every other unit list. The harness forgot every launch it took, so
+      a second run by the same leader in one test was accepted, and the client's invalidation
+      after a launch was only proven once the assertion ran shorter than the board's poll.
+      Checked and found right: the needle's ends, the tone boundaries, the best-leader button
+      over the free ones only, the unled sentences, the band recomputed live off the picked
+      force. By hand afterwards: the battle band's level now rides on the missions payload
+      beside the rule, rather than on a second query that could answer level one first.
+
+Left for the maintainer: the dial has no hover tip where every other figure on the card has one;
+the yardstick counts porters who never stand in the line (consistently on both sides); a tier's
+total weight is readable from the client bundle though its composition is not; the send dialog
+has two nested scrollers, the crew list's cap predating the round.
+
+## AU. One person in one place, three research doors, and the drawings (2026-09-10)
+
+- [x] AU1. **A leader is held by whatever has them** (by agent, reviewed). The mission wire's
+      `outOn` became `held` (`run`, `fight`, `scouting`, `injury`, or null) and `heldUntil`, the
+      clock where one is known: a run's return, the scouting party's, the end of an injury. A
+      declared fight carries no clock, because what frees the officer is the fight settling.
+      `officerDuty` answers in that vocabulary, injury first, then fight, run, scouting.
+      Every door refuses in one sentence off one table (`LEADER_HOLD_MESSAGES`): the launch,
+      `/battles/lead` and the scouting party all say `is at a fight` or `is out leading a run`
+      about the same person. The Overseer is held by a run alone, since nothing on the books can
+      name them to a fight or a scouting party. The picker dims a held row with the reason and,
+      where there is a clock, the wait. The scouting refusal used to say `They are already out`
+      for three different jobs; it now says which. Eleven mutants watched failing, one of them
+      the shared sentence reworded and caught at all three doors. A pre-existing flake in the
+      recall test (launched and recalled in the same millisecond) was fixed by leaving a minute
+      earlier.
+- [x] AU2. **The fight screen's picker agrees with its door** (by hand). It listed every officer
+      but the injured, so it offered a name that `/battles/lead` then turned away for being out
+      leading a run. It asks `officerDuty` now, keeping the officer already leading that fight;
+      a mutant back to injury-only failed both new tests, one per direction.
+- [x] AU3. **No counts on Blueprints and Reimagining** (by agent, reviewed). Programmes keeps its
+      rungs; the other two tabs are their label alone, and the page no longer reads the satchel
+      for them. Pinned as exact label text plus no request to the market.
+- [x] AU4. **The locked Reimagining bench is a door** (by agent, reviewed). No Head of Research:
+      `Hire a Head of Research at the Bar`, to the Bar, because without the chair every rung on
+      the track is shut. Chair but no rung: `Research it on the Fabricator's track`, to the
+      Programmes tab with that trade open. The brief had the rung on the Head of Research's
+      track; it is the sixth rung of the Fabricator's, so both the track and the label are read
+      off the rung rather than written down, and a test pins the track. The Programmes tab
+      gained `?track=<role>` so a door can land on a trade; unknown values fall back to the
+      first. Once the bench runs there is no door. Two doc lines that still repeated the brief's
+      wrong track were corrected by hand, along with the client spec's claim that all three tabs
+      carry a count.
+- [x] AU5. **Every sheet draws what it is about** (by agent, reviewed at 3x). A hundred and ten
+      motifs in `blueprints/motifs.ts`, each an id and a one-line label that is the spec of the
+      drawing; every document and page in the catalogue names one by hand (the Sniper a rifle,
+      Barrel Liners a bore, Ghillie Patterns a net, the Colossus a walking hull with its Reactor
+      Housing a cored vessel). Forty-one covers, forty-one different drawings; a document's pages
+      never repeat and never draw their own cover; two documents may share a page where the part
+      is the same. The seeded second and third marks are gone, and one motif fills the paper.
+      Four drawings redrawn after a contact sheet (dimension, board, laminate, braid) and Range
+      Cards given its own card. The distinctness test compares the strokes inside the drawing,
+      not the id on it, after a mutant pointing every sheet at one drawing passed twenty-one
+      green tests. ART-BIBLE §6.4 rewritten.
+- [x] AU6. **The picker's wait reads the server's clock** (by hand). It counted down off
+      `Date.now()` while every other clock on the missions page reads `useServerClock`, so a
+      machine an hour out would have the picker and the run card two panels away disagreeing by
+      an hour about the same officer. `now` is threaded from the page into the board and the send
+      dialog. The unit board's fixture had the same split, building the mark off the wall clock
+      beside a frozen `serverNow`; both now come off the maintainer's own clock, half a minute clear of
+      a minute boundary so rounding cannot wobble. Mutant back to `Date.now()` watched failing.
 
 ## Gates
 

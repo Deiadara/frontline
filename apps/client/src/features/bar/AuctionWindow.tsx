@@ -3,7 +3,6 @@ import {
   formatClock,
   nextMinimumBid,
   notorietyTier,
-  officerPortraitId,
   type BarAuction,
   type BarRecruit,
   type JoinBlocker,
@@ -25,6 +24,8 @@ import { AuctionClock, PhaseBadge, leaderName, phaseOf, standingOf } from './Auc
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
   level: 'Wants a crew that has been doing this longer',
+  infamy: 'Wants infamy banked, not just a rank',
+  faction: 'Wants a faction behind you that has earned',
 };
 
 /**
@@ -137,7 +138,7 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
       <div className="flex min-w-0 gap-3">
         <div className="edge-lit w-28 shrink-0 rounded-sm border-2 border-brass-500/45 bg-surface-950 p-1 shadow-panel">
           <OfficerPortrait
-            portraitId={officerPortraitId(recruit.id)}
+            portraitId={recruit.portraitId}
             name={recruit.name}
             className="w-full rounded-[2px] border border-surface-950/80"
             style={{ aspectRatio: '4 / 5' }}
@@ -167,7 +168,10 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
               ))}
             </ul>
           )}
-          {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
+          {(recruit.requirement.minNotoriety > 0 ||
+            recruit.requirement.minLevel > 1 ||
+            recruit.requirement.minInfamy > 0 ||
+            recruit.requirement.minFactionInfamy > 0) && (
             <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
               {recruit.requirement.minNotoriety > 0 && (
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
@@ -181,6 +185,23 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
                   And one that has reached{' '}
                   <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
+                </p>
+              )}
+              {recruit.requirement.minInfamy > 0 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  With{' '}
+                  <span className="text-ink-100">
+                    {recruit.requirement.minInfamy.toLocaleString()} infamy
+                  </span>{' '}
+                  still in the account
+                </p>
+              )}
+              {recruit.requirement.minFactionInfamy > 0 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  And a faction that has earned{' '}
+                  <span className="text-ink-100">
+                    {recruit.requirement.minFactionInfamy.toLocaleString()}
+                  </span>
                 </p>
               )}
             </div>
@@ -306,7 +327,7 @@ function BidHistory({ auction, zone }: { auction: BarAuction; zone: string }) {
 /**
  * The controls, which are a different pair of controls in each phase.
  *
- * Open: a figure and a button, with the three quick steps a player actually uses instead of typing
+ * Open: a figure and a button, with the two quick raises a player actually uses instead of typing
  * (the increment, five percent, ten). Sealed: one value, one press, and a confirmation, because it
  * cannot be taken back. Closed: nothing, and a line saying so.
  */
@@ -439,16 +460,9 @@ function BidPanel({
               / wk
             </span>
           </div>
+          {/* Two quick raises. The "+ 1 step" button went at the maintainer's request (2026-09-11):
+              the field's own arrows step by the legal increment, so it was the same control twice. */}
           <div className="flex flex-wrap gap-1.5">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={refusal !== null}
-              onClick={() => setAmount((current) => current + stepFrom(current))}
-              data-testid="bid-step"
-            >
-              + 1 step
-            </Button>
             <Button
               size="sm"
               variant="ghost"

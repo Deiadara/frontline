@@ -7,12 +7,12 @@ import {
   unitColumnSpeed,
   type Fleet,
   TRAVEL_BAND_MINUTES,
-  delegatedMinutes,
-  delegatedSuccessChance,
-  modifiedSuccessChance,
+  composeProfile,
+  leaningsFor,
+  missionOdds,
+  type Attributes,
   type Base,
-  type Commander,
-  type DelegationTerms,
+  type UnledRule,
   areaPayPercent,
   levelPayPercent,
   missionTimings,
@@ -20,7 +20,6 @@ import {
   scaledSuccessChance,
   type Army,
   type MissionTemplate,
-  type Overseer,
   hastenedMinutes,
   hastenedRoadMinutes,
 } from '@frontline/shared';
@@ -41,16 +40,16 @@ import { pricedTimings } from './pricing.js';
  * in flight keeps the terms it launched under. The seed is drawn once, now, and decides the
  * outcome whenever the mission is finally settled: see `rollMissionOutcome`.
  *
- * Two modifiers land at exactly this point, and only this point:
+ * One modifier lands at exactly this point, and only this point: whoever is leading the run
+ * (`missions.leading.ts`). Their edge on the job's own profile moves the authored odds, and a run
+ * with nobody at the head of it takes `UNLED_PENALTY` off instead, or nothing, depending on what
+ * the crew has researched. It is frozen onto the row with everything else, so training the
+ * Overseer or reshuffling officers mid-flight cannot re-roll or re-price a crew that has already
+ * left the gate.
  *
- *   * **§F5**: the Overseer's Speed and Stealth move the odds on a run that risks people.
- *   * **§G6**: a run with nobody leading it takes longer and is likelier to come home empty.
- *
- * They **compose**, in that order: §F5 says what the player's own character is worth to this run,
- * and §G7 then scales what the crew behind them is worth. Both are frozen onto the row with
- * everything else, so training the Overseer or moving officers mid-flight cannot re-roll, retime
- * or re-price a crew that has already left the gate. An absent Overseer or absent crew leaves the
- * template's authored value untouched rather than penalising it.
+ * The clock is no longer part of it. The old §G6 rule made an unled run half again as long as a
+ * led one; leading is a question of odds now, and one number moving is easier to read on a card
+ * than two.
  *
  * The number never reaches the client: `missions.test.ts` asserts the board ships no
  * `successChance` at all.
@@ -63,15 +62,22 @@ export function launchMission(args: {
   base: Base;
   template: MissionTemplate;
   now: Date;
-  /** §F5, whose Speed and Stealth the run rides on. Absent means no edge either way. */
-  overseer?: Overseer | undefined;
-  /** §G5/§G6: the terms the resolved crew earned. Absent means a bare run, no modifier. */
-  terms?: DelegationTerms | undefined;
   /**
-   * §G6: the officer leading it, absent for a delegation. Recorded on the row so the character
-   * who was actually out can be paid for it when the crew comes home (INTERFACES §2 R2).
+   * Who is leading it, or absent for a run nobody leads (maintainer, 2026-09-10).
+   *
+   * The Overseer and an officer reach this the same way and are scored the same way; which of the
+   * two it was is recorded on the row, because the Overseer is not on the books and cannot be
+   * named by `officerId`.
    */
-  officer?: Commander | undefined;
+  leader?: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes } | undefined;
+  /**
+   * What the crew's research allows when nobody leads (`unledRule`).
+   *
+   * Passed in rather than read here, because whether an unled run may go out at all is the
+   * route's door: this function prices a launch that has already been through it. A `forbidden`
+   * run with no leader prices at zero, which is the honest reading of a job that cannot go.
+   */
+  unled: UnledRule;
   /**
    * §C3: the machines carrying them, taken out of the Garage for this run.
    *
@@ -138,9 +144,8 @@ export function launchMission(args: {
     base,
     template,
     now,
-    overseer,
-    terms,
-    officer,
+    leader,
+    unled,
     admin = false,
     missionSpeedPercent = 0,
     leadSpeedPercent = 0,
@@ -153,8 +158,8 @@ export function launchMission(args: {
   } = args;
 
   // §E5/§I: the crew's own level makes the same job harder, at the same rate it makes it pay
-  // more. Applied before the Overseer's edge and the delegation, so the two modifiers move a
-  // number that already belongs to this crew.
+  // more. Applied before the leader's edge, so what the leader is worth moves a number that
+  // already belongs to this crew.
   const authored = scaledSuccessChance(template.successChance, base.level);
 
   /*
@@ -178,10 +183,7 @@ export function launchMission(args: {
   // The clock the crew actually keeps: the ground's cut and, on a led run, the officer's on top.
   const runSpeedPercent = missionSpeedPercent + Math.max(0, leadSpeedPercent);
   const durationMinutes = adminMinutes(
-    hastenedMinutes(
-      terms ? delegatedMinutes(template.durationMinutes, terms) : template.durationMinutes,
-      runSpeedPercent,
-    ),
+    hastenedMinutes(template.durationMinutes, runSpeedPercent),
     admin,
   );
   const timings = missionTimings({
@@ -201,9 +203,19 @@ export function launchMission(args: {
    */
   const priced = pricedTimings(template, missionSpeedPercent);
 
-  const afterOverseer = overseer
-    ? modifiedSuccessChance(authored, overseer.attributes, template.kind)
-    : authored;
+  /*
+   * The odds the run goes out with, from the one function the card and the gauge also read.
+   *
+   * A battle job carries a chance like everything else and never rolls against it: `resolve.ts`
+   * fights it. The figure is still frozen here, because it is what the leader was worth to the
+   * job and the report has nothing else to say it with.
+   */
+  const odds = missionOdds({
+    authored,
+    leader: leader?.attributes ?? null,
+    profile: composeProfile(leaningsFor(template)),
+    unled,
+  });
 
   return {
     mission: {
@@ -225,7 +237,11 @@ export function launchMission(args: {
       travelMinutes: timings.travelMinutes,
       durationMinutes: timings.durationMinutes,
       status: 'active',
-      officerId: officer?.id ?? null,
+      officerId: leader?.kind === 'officer' ? leader.id : null,
+      overseerLed: leader?.kind === 'overseer',
+      // Filled in by the settler, and only on a battle job: nobody dies on a standard run.
+      lost: {},
+      reported: true,
       outcome: null,
       rewards: {},
       spoils: {},
@@ -239,8 +255,9 @@ export function launchMission(args: {
        */
       pagePrize: pagePrizeFor(areaId, missionBoardDay(now), template.id, template.difficulty),
       pageWon: null,
+      found: {},
     },
     seed,
-    successChance: terms ? delegatedSuccessChance(afterOverseer, terms) : afterOverseer,
+    successChance: odds.chance,
   };
 }

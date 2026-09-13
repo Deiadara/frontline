@@ -61,6 +61,7 @@ export const NOTIFICATION_KINDS = [
   'district_attacked',
   'market_won',
   'market_outbid',
+  'page_found',
   // The crew
   'officer_hired',
   'bar_outbid',
@@ -196,6 +197,12 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     label: 'Lots at the barrow',
     blurb: 'A lot you were bidding on has gone to somebody else, or gone unsold.',
     icon: 'market',
+  },
+  page_found: {
+    group: 'district',
+    label: 'Pages found',
+    blurb: 'A blueprint page came into the satchel.',
+    icon: 'research',
   },
   scout_home: {
     group: 'district',

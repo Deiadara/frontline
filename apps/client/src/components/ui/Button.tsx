@@ -20,8 +20,9 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * put on top of artwork, which an outline does not.
  */
 const VARIANTS: Record<Variant, string> = {
+  // `brushed-deep`: the drawn line round a brass face has to be a darker orange or it is the face.
   primary:
-    'border-brass-500 bg-brass-500/90 text-surface-950 shadow-lifted hover:bg-brass-300 ' +
+    'brushed-deep border-brass-500 bg-brass-500/90 text-surface-950 shadow-lifted hover:bg-brass-300 ' +
     'active:translate-y-px active:shadow-none',
   danger:
     'border-oxblood-500 bg-oxblood-500/90 text-ink-100 shadow-lifted hover:bg-oxblood-300 ' +
@@ -81,6 +82,32 @@ export function buttonSkin({
     'disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:active:translate-y-0',
     VARIANTS[variant],
     SIZES[size],
+    className,
+  );
+}
+
+/**
+ * The dressing for a tab or a toggle: the same drawn line the buttons carry, on a control that
+ * picks rather than acts (maintainer request, 2026-09-11).
+ *
+ * Every screen with tabs had its own copy of this class list, and none of them carried the
+ * `brushed` stroke, so a row of tabs sat over a row of drawn buttons looking like a different
+ * program. One skin, so the tabs on the battle board, the units roster and the market read as the
+ * same hand that drew Withdraw.
+ */
+export function tabSkin({
+  active,
+  className,
+}: {
+  active: boolean;
+  className?: string | undefined;
+}): string {
+  return cn(
+    'brushed relative flex items-center gap-2 rounded-sm border px-3 py-2 transition-colors duration-150',
+    'font-display text-[12px] font-bold uppercase tracking-[0.14em]',
+    active
+      ? 'border-brass-300/80 bg-brass-300/15 text-brass-100'
+      : 'border-surface-600 bg-surface-800/70 text-ink-300 hover:border-iris-300/60 hover:text-ink-100',
     className,
   );
 }

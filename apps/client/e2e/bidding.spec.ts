@@ -238,7 +238,7 @@ test.describe('bidding (§H7)', () => {
 
   /**
    * The window is a portrait, a thirty-three row sheet and a bid panel side by side, which is the
-   * densest thing this screen draws. Measured at the two viewports the board reads it at, in both
+   * densest thing this screen draws. Measured at the two viewports the maintainer reads it at, in both
    * phases, because the sealed phase swaps the whole right-hand column for a different one.
    */
   for (const [tag, size] of [
@@ -350,7 +350,7 @@ test.describe('the painted picker', () => {
   test('opens a drawn list, picks with the keyboard, and closes on escape', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 1100 });
     await installApi(page, adminGame);
-    // The offers composer lost its item slot (materials only, board 2026-09-09), so the drawn
+    // The offers composer lost its item slot (materials only, maintainer 2026-09-09), so the drawn
     // list under test is the Settings clock picker, which sits down a long sheet the same way.
     await page.goto('/game/settings');
     await settleFonts(page);

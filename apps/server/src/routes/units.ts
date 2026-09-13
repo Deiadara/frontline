@@ -155,7 +155,7 @@ export function registerUnitRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §D5c: burn a fitted modification (board request).
+   * §D5c: burn a fitted modification (maintainer request).
    *
    * The only way one ever comes off, and it destroys the thing: gone from the bracket *and* from
    * what the crew has built, so putting the same kind of plate on a different unit means building

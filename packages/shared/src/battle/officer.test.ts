@@ -34,7 +34,7 @@ import { routSurvivors, winnerCasualties } from './rout.js';
  *
  * Two halves. The first is the attribute table, which is arithmetic and is pinned twice over: once
  * derived from the table (so a weight that moves is caught) and once against numbers computed by
- * hand off the board's own formulas (so a table rewritten to agree with itself is caught too). A
+ * hand off the maintainer's own formulas (so a table rewritten to agree with itself is caught too). A
  * test that only asks the table what the table says would pass on any table.
  *
  * The second is what the engine does with them: they draw half the fire, they never appear in a
@@ -81,7 +81,7 @@ describe('the attribute to battle stat mapping (§D2)', () => {
   /**
    * The independent anchor.
    *
-   * Every figure below was computed by hand off the board's table rather than read out of
+   * Every figure below was computed by hand off the maintainer's table rather than read out of
    * `OFFICER_STAT_FORMULAS`, so a weight edited in the table fails here even if the derived tests
    * above still agree with themselves.
    */

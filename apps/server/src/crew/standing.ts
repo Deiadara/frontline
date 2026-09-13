@@ -149,7 +149,7 @@ export function crewSheetsFor(
    * crew's sheet is circular, and it would be. Perks are not: they are static ids on a person, so
    * `peerLift` folds them without needing a single sheet.
    *
-   * Every officer is lifted by everybody *except themselves*, which is the board's rule and also
+   * Every officer is lifted by everybody *except themselves*, which is the maintainer's rule and also
    * the only reading that makes sense. A perk that raised the number printed beside it on the same
    * card is not a bonus, it is a different number.
    */

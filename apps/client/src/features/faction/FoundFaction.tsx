@@ -208,7 +208,7 @@ function CreateInvitation({ onStart }: { onStart: () => void }) {
 }
 
 /**
- * The creation sheet: the three fields the board asked for.
+ * The creation sheet: the three fields the maintainer asked for.
  *
  * Two columns rather than one long form, and that is a fit rather than a taste. Stacked, the name,
  * the builder, the description and the button come to ~520px and the shortest supported screen has

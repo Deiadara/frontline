@@ -13,7 +13,7 @@ import { ResearchPage } from './ResearchPage';
 import { useSession } from '../../store/session';
 
 /**
- * §C on the screen: nineteen trades on a rail, ten rungs on the one you opened.
+ * §C on the screen: three tabs, nineteen trades on a rail, ten rungs on the one you opened.
  *
  * The page reads the server's answer and adds nothing of its own to it, which is the property
  * worth testing: a rung's blocker, its two marks and its price all come off the wire, and a screen
@@ -34,7 +34,8 @@ function stub(research: ResearchResponse = F.research): void {
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/research')) return reply(research);
     if (path.endsWith('/me')) return reply(F.me);
-    // The Blueprints door counts documents off the satchel, which rides the market payload.
+    // Only the Blueprints and Reimagining workspaces read the satchel now. The strip above them
+    // does not, and one of the tests below is that it does not.
     if (path.endsWith('/market')) return reply(F.market);
     throw new Error(`unstubbed request: ${path}`);
   });
@@ -58,7 +59,9 @@ function open(at = '/game/research') {
 
 async function openTracks() {
   open();
-  fireEvent.click(await screen.findByTestId('research-section-programmes'));
+  // `/game/research` is Programmes, so the strip is already on it: the click is only here to prove
+  // a tab that is already chosen does not navigate away from itself.
+  fireEvent.click(await screen.findByTestId('research-tab-programmes'));
   return screen.getByTestId('research-tracks');
 }
 
@@ -71,29 +74,69 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 /**
- * §I1a: two doors, and the desk is not one of them.
+ * §I1a: three tabs, and the desk is not one of them.
  *
- * Written against the rail's own children rather than against a list of ids the page also exports,
- * because the failure this is for is a door that is still *rendered*: a section left in `SECTIONS`
- * behind a condition nobody notices is exactly how the desk would survive its own deletion.
+ * Written against the strip's own children rather than against a list of ids the page also
+ * exports, because the failure this is for is a tab that is still *rendered*: a section left in
+ * `SECTIONS` behind a condition nobody notices is exactly how the desk would survive its own
+ * deletion.
  */
-describe('the archive rail', () => {
-  it('has exactly two doors: Programmes and Blueprints', async () => {
+describe('the archive tabs', () => {
+  it('has exactly three: Programmes, Blueprints and Reimagining', async () => {
     stub();
     open();
-    const rail = await screen.findByTestId('research-sections');
-    const doors = within(rail).getAllByRole('button');
-    expect(doors.map((door) => door.getAttribute('data-testid'))).toEqual([
-      'research-section-programmes',
-      'research-section-blueprints',
+    const strip = await screen.findByTestId('research-tabs');
+    const tabs = within(strip).getAllByRole('link');
+    expect(tabs.map((tab) => tab.getAttribute('data-testid'))).toEqual([
+      'research-tab-programmes',
+      'research-tab-blueprints',
+      'research-tab-reimagining',
     ]);
   });
 
-  it('opens on Programmes, and the Blueprints workspace is not rendered behind it', async () => {
+  /** Rungs done out of rungs there are: the one count on the strip the maintainer kept. */
+  it('carries the rung count on Programmes', async () => {
+    stub();
+    open();
+    const done = F.research.technologies.filter((tech) => tech.known).length;
+    // Waited on: the strip is drawn before the read lands and says 0/0 until it does.
+    await waitFor(() =>
+      expect(screen.getByTestId('research-tab-programmes')).toHaveTextContent(
+        `${done}/${F.research.technologies.length}`,
+      ),
+    );
+  });
+
+  /**
+   * The board's 2026-09-10 call: the other two tabs print no number at all.
+   *
+   * Two assertions, because either alone is weak. The text is what a player sees, and an empty
+   * count element would pass it; the second is that the strip never asks for the satchel, which is
+   * where both dropped counts came from, and it fails the moment somebody wires one back up.
+   */
+  it('prints no count on Blueprints or Reimagining, and does not read the satchel for one', async () => {
+    stub();
+    open();
+    const done = F.research.technologies.filter((tech) => tech.known).length;
+    await waitFor(() =>
+      expect(screen.getByTestId('research-tab-programmes')).toHaveTextContent(
+        `${done}/${F.research.technologies.length}`,
+      ),
+    );
+    expect(screen.getByTestId('research-tab-blueprints').textContent).toBe('Blueprints');
+    expect(screen.getByTestId('research-tab-reimagining').textContent).toBe('Reimagining');
+    const satchel = fetchMock.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].endsWith('/market'),
+    );
+    expect(satchel, 'the strip read the satchel for a count it no longer prints').toHaveLength(0);
+  });
+
+  it('opens on Programmes, and the other workspaces are not rendered behind it', async () => {
     stub();
     open();
     expect(await screen.findByTestId('research-tracks')).toBeInTheDocument();
     expect(screen.queryByTestId('blueprints-section')).toBeNull();
+    expect(screen.queryByTestId('reimagining-section')).toBeNull();
   });
 
   /** §I1d: the section is the URL, so a deep link into the documents lands on the documents. */
@@ -102,18 +145,26 @@ describe('the archive rail', () => {
     open('/game/research/blueprints');
     expect(await screen.findByTestId('blueprints-section')).toBeInTheDocument();
     expect(screen.queryByTestId('research-tracks')).toBeNull();
-    expect(screen.getByTestId('research-section-blueprints')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(screen.getByTestId('research-tab-blueprints')).toHaveAttribute('aria-current', 'page');
   });
 
-  it('walks from one door to the other', async () => {
+  it('opens on Reimagining when the URL says reimagining', async () => {
+    stub();
+    open('/game/research/reimagining');
+    expect(await screen.findByTestId('reimagine-machine')).toBeInTheDocument();
+    expect(screen.queryByTestId('research-tracks')).toBeNull();
+    expect(screen.getByTestId('research-tab-reimagining')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('walks from one tab to the next and back', async () => {
     stub();
     open();
-    fireEvent.click(await screen.findByTestId('research-section-blueprints'));
+    fireEvent.click(await screen.findByTestId('research-tab-blueprints'));
     expect(await screen.findByTestId('blueprints-section')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('research-section-programmes'));
+    fireEvent.click(screen.getByTestId('research-tab-reimagining'));
+    expect(await screen.findByTestId('reimagining-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('blueprints-section')).toBeNull();
+    fireEvent.click(screen.getByTestId('research-tab-programmes'));
     expect(await screen.findByTestId('research-tracks')).toBeInTheDocument();
   });
 });
@@ -147,6 +198,34 @@ describe('the research tracks', () => {
     const other = F.research.technologies.find((tech) => tech.track !== first);
     if (!other) throw new Error('need a rung on another track');
     expect(panel.queryByTestId(`tech-${other.id}`)).toBeNull();
+  });
+
+  /**
+   * §I1d again, one level down: the open trade is the URL too.
+   *
+   * It was component state, and the shut Reimagining bench needs to send a player to one rung on
+   * one trade. A link that can only reach the tab lands them on the first row of nineteen.
+   */
+  it('opens the trade the URL names rather than the first on the rail', async () => {
+    stub();
+    open('/game/research?track=scout');
+    const panel = await screen.findByTestId('tech-track-scout');
+    expect(
+      within(panel).getByRole('heading', { name: OFFICER_ROLE_LABELS.scout }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('research-track-scout')).toHaveAttribute('aria-pressed', 'true');
+    // ...and the first trade on the rail, which is what a page ignoring the URL would have shown.
+    const first = OFFICER_ROLES[0];
+    if (!first) throw new Error('need a role');
+    expect(screen.queryByTestId(`tech-track-${first}`)).toBeNull();
+  });
+
+  it('ignores a track nobody has, rather than drawing an empty panel', async () => {
+    stub();
+    open('/game/research?track=chief_of_vibes');
+    const first = OFFICER_ROLES[0];
+    if (!first) throw new Error('need a role');
+    expect(await screen.findByTestId(`tech-track-${first}`)).toBeInTheDocument();
   });
 
   it('switches the whole panel when another trade is chosen', async () => {

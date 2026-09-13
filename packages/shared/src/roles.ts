@@ -69,16 +69,16 @@ export const BENCH_LABEL = 'On the bench';
 /**
  * The faces an officer can have (§C).
  *
- * A **pool**, not a portrait per role: the art is ninety-nine people, and a Head Spy is a job
- * rather than a face. Which one a given officer wears is derived from their id rather than stored
- * (see `officerPortraitId`), so every officer already on a save has a face the moment the pool
- * lands, with no migration and no column.
+ * A **pool**, not a portrait per role: the art is a hundred and thirty-nine people, and a Head Spy
+ * is a job rather than a face. Which one a given officer wears is derived from their id rather than
+ * stored (see `officerPortraitId`), so every officer already on a save has a face the moment the
+ * pool lands, with no migration and no column.
  *
  * This is the list of art that **exists**, which is what the manifest and the order sheet are
  * about. What the game actually hands out is {@link ASSIGNABLE_OFFICER_PORTRAIT_IDS}, and the two
  * are not the same list.
  */
-export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 99 }, (_, index) =>
+export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 139 }, (_, index) =>
   String(index + 1).padStart(2, '0'),
 );
 
@@ -102,12 +102,15 @@ export const DUPLICATE_OFFICER_PORTRAIT_IDS: readonly string[] = ['42', '43'];
  * Separate from {@link OFFICER_PORTRAIT_IDS} because the two answer different questions. That list
  * is what art exists, and the manifest and `docs/ART-ORDER.md` are built from it; this one is what
  * a roster may draw from. Dropping a duplicate from the second does not pretend the file is gone:
- * it stays on disk, still described, for the board to replace with a new face. The day they do,
+ * it stays on disk, still described, for the maintainer to replace with a new face. The day they do,
  * `DUPLICATE_OFFICER_PORTRAIT_IDS` goes back to empty and the two lists are the same again.
  *
- * Ninety-seven, which is prime, and that is worth more than it looks: the probe in
+ * A hundred and thirty-seven, which is prime, and that is worth more than it looks: the probe in
  * {@link officerPortraits} only walks the whole pool when its stride is coprime with the size, and
- * every stride is coprime with a prime.
+ * every stride is coprime with a prime. It survived the board's second drop by luck rather than by
+ * design: ninety-nine faces less the two duplicates was ninety-seven, and a hundred and thirty-nine
+ * less the same two is a hundred and thirty-seven. The next drop may not land on one, which is what
+ * the linear sweep in {@link officerPortraits} is there for.
  */
 export const ASSIGNABLE_OFFICER_PORTRAIT_IDS: readonly string[] = OFFICER_PORTRAIT_IDS.filter(
   (portraitId) => !DUPLICATE_OFFICER_PORTRAIT_IDS.includes(portraitId),
@@ -191,7 +194,7 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
      * The sweep is not belt-and-braces, it is the part that makes the promise true.
      *
      * A double-hash probe only visits every slot when the stride is coprime with the pool size.
-     * The pool is 43, which is prime, so every stride in 1..42 is coprime with it and the probe
+     * The pool is 137, which is prime, so every stride in 1..136 is coprime with it and the probe
      * does walk the whole pool: measured, no full nineteen-chair roster in two hundred thousand
      * reaches this line. It is not dead code, it is the part that keeps the promise true if the
      * pool size ever stops being prime. At the old size of 33 (3 x 11) any stride that was a
@@ -203,6 +206,46 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
       pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
     }
     taken.add(pick);
+    assigned.set(id, pick);
+  }
+  return assigned;
+}
+
+/**
+ * Faces for people who do not have one yet, against everyone in the city who does.
+ *
+ * The city-wide half of the rule (maintainer request, 2026-09-11): a face on somebody's books is
+ * nobody else's, on any crew. `taken` is every stored `portraitId` in the city; `ids` are the
+ * people to place, in order (a Bar roster in seat order, or the officers of one base in hire
+ * order), and each gets the first face in their own probe sequence that neither the city nor
+ * anybody placed before them holds. The probe is {@link officerPortraits}'s, so a roster with no
+ * city behind it resolves exactly as it always did.
+ *
+ * **When the pool runs out** the walk finds nothing free, and the fallback is the person's own
+ * hashed face, shared or not: a hundred and thirty-seven faces is the whole of the delivered art,
+ * and refusing to draw the hundred and thirty-eighth officer in a city would be worse than a twin.
+ * The board is adding portraits; the day the pool is bigger than the city's roster this branch is
+ * never reached.
+ */
+export function freePortraits(
+  ids: readonly string[],
+  taken: ReadonlySet<string>,
+): ReadonlyMap<string, string> {
+  const size = ASSIGNABLE_OFFICER_PORTRAIT_IDS.length;
+  const used = new Set(taken);
+  const assigned = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    const hash = hashOf(id);
+    const stride = (hash % (size - 1)) + 1;
+    let pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS[hash % size] as string;
+    for (let step = 1; used.has(pick) && step < size; step += 1) {
+      pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS[(hash + step * stride) % size] as string;
+    }
+    if (used.has(pick)) {
+      pick =
+        ASSIGNABLE_OFFICER_PORTRAIT_IDS.find((face) => !used.has(face)) ?? officerPortraitId(id);
+    }
+    used.add(pick);
     assigned.set(id, pick);
   }
   return assigned;

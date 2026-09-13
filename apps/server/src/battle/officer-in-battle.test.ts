@@ -22,6 +22,7 @@ import {
   TRAVEL_MINUTES_PER_MAP_UNIT,
   UNIT_UPGRADES,
   upgradedStats,
+  type ApiError,
   type BattlesResponse,
   type BattleTarget,
   type SkirmishEngine,
@@ -795,7 +796,9 @@ describe('an officer cannot lead two fights at once', () => {
 
     const refused = await lead(stack, second, officerId);
     expect(refused.statusCode).toBe(403);
-    expect(refused.body).toContain('already leading another fight');
+    // The one sentence a fight holds somebody with, wherever they are turned away
+    // (`LEADER_HOLD_MESSAGES`): the launch and the scouting party say it too.
+    expect(refused.json<ApiError>().error.message).toBe('Vasco Renn is at a fight');
   });
 
   /** Standing them down frees them, which is what makes the refusal a choice rather than a trap. */
@@ -809,6 +812,27 @@ describe('an officer cannot lead two fights at once', () => {
     expect((await lead(stack, first, null)).statusCode).toBe(200);
 
     expect((await lead(stack, second, officerId)).statusCode).toBe(200);
+  });
+
+  /** The picker on each fight agrees with the door: the leader of the first stays on the first's
+   *  list and is off the second's, instead of being offered there and refused. */
+  it('keeps them on their own fight’s picker and off the other one’s', async () => {
+    const stack = await makeStack(undefined, 'listed');
+    const officerId = hire(stack).id;
+    const first = await declare(stack);
+    const second = await declare(stack, SECOND);
+    expect((await lead(stack, first, officerId)).statusCode).toBe(200);
+
+    const res = await stack.app.inject({
+      method: 'GET',
+      url: '/api/battles',
+      headers: auth(stack.token),
+    });
+    const coming = res.json<BattlesResponse>().coming;
+    const pickerOf = (battleId: string) =>
+      coming.find((view) => view.battle.id === battleId)!.leaders.map((one) => one.officerId);
+    expect(pickerOf(first)).toEqual([officerId]);
+    expect(pickerOf(second)).toEqual([]);
   });
 
   /** And naming the same officer on the fight they already lead is not "elsewhere". */
@@ -863,6 +887,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
         level: gateLevel,
         upgradingTo: null,
         upgradingUntil: null,
+        upgradingSince: null,
       });
     }
 
@@ -942,6 +967,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
       level: 12,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
 
     // One location back in somebody else's hands: the district is no longer theirs outright, so

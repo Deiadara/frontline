@@ -20,7 +20,7 @@ import { populationCapacity, type Building } from './index.js';
  * One pool now. The Quarters raise it and captured ground raises it, because people who work for
  * you have to sleep somewhere and the ground you hold is where the somewhere is.
  *
- * ## Officers do not draw on it (board rule)
+ * ## Officers do not draw on it (project rule)
  *
  * The army does, and only the army. Nineteen officers against a ceiling in the hundreds was a
  * rounding error that still had to be explained on every screen that showed the number, and it made
@@ -34,7 +34,7 @@ import { populationCapacity, type Building } from './index.js';
  * A Colossus is not one person. Supply is the figure the roster already used for exactly this and
  * it is deliberately sub-linear against strength: a unit five times as dangerous as another tends
  * to cost four times the population, so the heavy end of the roster is *efficient* per bed as well
- * as expensive per cap. That is the trade the board asked for, and it is what stops a maxed
+ * as expensive per cap. That is the trade the maintainer asked for, and it is what stops a maxed
  * district being an ocean of Razors.
  */
 

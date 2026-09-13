@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const useUnits = vi.hoisted(() => vi.fn());
 const refetch = vi.hoisted(() => vi.fn());
+const refreshCrew = vi.hoisted(() => vi.fn());
 /* The two writes, as mutable state rather than a fresh literal, so a test can put a refusal on one
    of them the way react-query would. */
 const train = vi.hoisted(() => ({
@@ -22,6 +23,9 @@ vi.mock('../../lib/queries', () => ({
   useUnits,
   useMe: () => ({ data: { base: { id: 'base-1' } } }),
   useTrainUnits: () => train,
+  // The roster refreshes the crew when a batch lands, so the experience reaches the meter at the
+  // same moment the body reaches the card.
+  useRefreshCrew: () => refreshCrew,
   useCancelTraining: () => cancel,
 }));
 
@@ -84,6 +88,7 @@ function bench(queue: TrainingOrder[]): {
 beforeEach(() => {
   useUnits.mockReset();
   refetch.mockReset();
+  refreshCrew.mockReset();
   train.error = null;
   train.variables = undefined;
   cancel.error = null;
@@ -119,6 +124,20 @@ describe('the training bench', () => {
     expect(refetch).toHaveBeenCalled();
   });
 
+  /**
+   * And the crew with it (maintainer request, 2026-09-12).
+   *
+   * One settle stands the unit up and pays the §I1 experience for having trained it. They are two
+   * reads, so refreshing only the roster put the `+1` on the card and left the experience waiting
+   * for the shell's own poll: the two halves of one event, arriving up to five seconds apart, the
+   * second with nothing on screen to explain it.
+   */
+  it('refreshes the crew as well, so the experience lands with the body', () => {
+    useUnits.mockReturnValue(bench([order('done', 'sparks', 14, 10)]));
+    render(<Page />);
+    expect(refreshCrew).toHaveBeenCalled();
+  });
+
   it('leaves a bench where nothing has finished exactly as it is', () => {
     useUnits.mockReturnValue(
       bench([order('first', 'sparks', 4, 20), order('second', 'razors', 0, 20)]),
@@ -126,6 +145,7 @@ describe('the training bench', () => {
     render(<Page />);
     expect(within(screen.getByTestId('training-queue')).getAllByRole('listitem')).toHaveLength(2);
     expect(refetch, 'nothing settled, so nothing to re-read').not.toHaveBeenCalled();
+    expect(refreshCrew, 'and no experience to announce').not.toHaveBeenCalled();
   });
 });
 

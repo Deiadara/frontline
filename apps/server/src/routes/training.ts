@@ -10,6 +10,9 @@ import {
   type CrewStandingResponse,
   type TrainingResponse,
   type TrainingSession,
+  CancelDrillRequestSchema,
+  cancelDrill,
+  drillCancellable,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectTraining, settleTrainingFor } from '../crew/training.js';
@@ -37,6 +40,27 @@ function extraSessionsFor(app: FastifyInstance, base: Base): number {
  */
 
 export function registerTrainingRoutes(app: FastifyInstance): void {
+  /** Take a drill off the board inside its first tenth; the day's session comes back. */
+  app.post('/training/cancel', { preHandler: app.authenticate }, (request): TrainingResponse => {
+    const { sessionId } = parseBody(CancelDrillRequestSchema, request.body);
+    const now = new Date().toISOString();
+    return app.db.transaction(() => {
+      const { base, overseer } = settleTrainingFor(
+        app.repos,
+        ownBase(app, request.currentUser.id),
+        now,
+      );
+      const session = base.training.sessions.find((held) => held.id === sessionId);
+      if (!session) throw new AppError('NOT_FOUND', 'No drill by that name is running');
+      if (!drillCancellable(session, now)) {
+        throw new AppError('TRAINING_REFUSED', 'The hour has gone too far to stop');
+      }
+      const training = cancelDrill(base.training, sessionId, now);
+      app.repos.bases.updateTraining(base.id, training, base.commanders);
+      return projectTraining({ ...base, training }, overseer, now, extraSessionsFor(app, base));
+    })();
+  });
+
   app.get('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {
     const now = new Date().toISOString();
     const settled = app.db.transaction(() =>

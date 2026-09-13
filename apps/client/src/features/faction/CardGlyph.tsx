@@ -23,7 +23,7 @@ interface CardSpec {
    *
    * Four of the five carry a rank in the corner, which is what a rank is for: one or two
    * characters, read at a glance off a fanned hand. The joker has no rank, and abbreviating it to
-   * `JKR` in the corner was reading as three initials rather than as a card. The board asked for
+   * `JKR` in the corner was reading as three initials rather than as a card. The maintainer asked for
    * the word, so it is set across the top of the face where there is room for it.
    */
   readonly legend:
@@ -64,7 +64,7 @@ const CARDS: Readonly<Record<CardId, CardSpec>> = {
  *
  * `textAnchor="middle"` centres the advance width, and the tracking after the final letter is
  * part of that width, so the word sits half a step of tracking left of the centre line: `x` puts
- * it back. Measured in the screenshots the board asked for rather than derived.
+ * it back. Measured in the screenshots the maintainer asked for rather than derived.
  */
 const BANNER_TRACKING = 0.55;
 

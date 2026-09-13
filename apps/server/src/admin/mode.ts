@@ -20,7 +20,7 @@ import type { PartialResources } from '@frontline/shared';
  *   still is not. Only the *price* and the *clock* are overridden, because those are the two things
  *   that cost a reviewer an afternoon rather than telling them something.
  *
- * It is **on by default** (`ADMIN=false` turns it off) because the board asked for the testing build
+ * It is **on by default** (`ADMIN=false` turns it off) because the maintainer asked for the testing build
  * to be the one you get by running the thing. The badge in the HUD is not decoration: an unmarked
  * free-and-instant build would be indistinguishable from a broken economy.
  */
@@ -77,7 +77,7 @@ export function adminCaps(caps: number, admin: boolean): number {
  *
  * This is the second half of the mode, and it reverses an earlier decision on purpose. The rule
  * used to be "only the price and the clock are overridden; refusals still refuse", which is a
- * defensible testing mode and is not the one the board asked for: a reviewer who wants to look at
+ * defensible testing mode and is not the one the maintainer asked for: a reviewer who wants to look at
  * the Garage cannot, because the Garage is behind twelve Nexus levels, and telling them to spend
  * the afternoon buying those twelve levels is exactly the afternoon this mode exists to give back.
  *

@@ -37,7 +37,6 @@ import {
   isBlueprintUnlocked,
   knownBlueprints,
   reimaginingAvailable,
-  reimaginingRequirements,
   sparePages,
   unlockBlueprint,
   unlockRefusal,
@@ -373,15 +372,16 @@ describe('what a crew knows about a blueprint (§D5 to §D10)', () => {
 });
 
 describe('the Reimagining seam (§G4)', () => {
-  it('stays locked until both requirements are met, and says which is missing', () => {
-    const none = { hasHeadOfResearch: false, hasReimaginingResearch: false };
-    expect(reimaginingAvailable(none)).toBe(false);
-    expect(reimaginingRequirements(none).every((line) => !line.met)).toBe(true);
-
-    const halfway = { hasHeadOfResearch: true, hasReimaginingResearch: false };
-    expect(reimaginingAvailable(halfway)).toBe(false);
-    expect(reimaginingRequirements(halfway).map((line) => line.met)).toEqual([true, false]);
-
+  it('stays locked until both halves of the gate are met', () => {
+    expect(reimaginingAvailable({ hasHeadOfResearch: false, hasReimaginingResearch: false })).toBe(
+      false,
+    );
+    expect(reimaginingAvailable({ hasHeadOfResearch: true, hasReimaginingResearch: false })).toBe(
+      false,
+    );
+    expect(reimaginingAvailable({ hasHeadOfResearch: false, hasReimaginingResearch: true })).toBe(
+      false,
+    );
     expect(reimaginingAvailable({ hasHeadOfResearch: true, hasReimaginingResearch: true })).toBe(
       true,
     );

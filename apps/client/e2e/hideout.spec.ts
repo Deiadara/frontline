@@ -1,14 +1,14 @@
 /**
  * MOU-167 / GDD §A1 acceptance gate: the district as a place, with zero visual bugs.
  *
- * The board's bar is "no cut text or images, no overflow, no overlapping elements, at every
+ * the maintainer's bar is "no cut text or images, no overflow, no overlapping elements, at every
  * supported viewport". The plots are outlines traced on the painted plate in *percentages* of a
  * scene box, so the failure mode is not one bad viewport. It is a nudged vertex that lands wrong at
  * every viewport at once, or a name plate whose text is wider than the scene that clips it.
  * `plots.test.ts` pins the tracing as plane geometry; this pins what the browser actually laid out
  * and actually hit-tests, which is the only place font metrics, borders and compositing exist.
  *
- * Screenshots land in `screenshots/hideout/` so the board can open the whole matrix at once.
+ * Screenshots land in `screenshots/hideout/` so the maintainer can open the whole matrix at once.
  */
 import {
   levelCapForNexus,
@@ -616,28 +616,39 @@ test.describe('a district that has been played', () => {
 test.describe('building in the district (§A1, §D3)', () => {
   test('an empty plot becomes an order in the queue', async ({ page }) => {
     await installApi(page, me);
-    // Registered after `installApi`, so Playwright's reverse-order matching gives it priority.
-    await page.route('**/api/base/build', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          base: {
-            ...base,
-            resources: { ...base.resources, oil: base.resources.oil - 10 },
-            buildQueue: [
-              {
-                id: 'q1',
-                kind: 'quarters',
-                level: 1,
-                startedAt: new Date().toISOString(),
-                durationSeconds: 20,
-              },
-            ],
-          },
-        }),
-      }),
+    const queued = {
+      ...base,
+      resources: { ...base.resources, oil: base.resources.oil - 10 },
+      buildQueue: [
+        {
+          id: 'q1',
+          kind: 'quarters' as const,
+          level: 1,
+          startedAt: new Date().toISOString(),
+          durationSeconds: 20,
+          paid: {},
+          parts: {},
+        },
+      ],
+    };
+    // What the district reads back, and it follows the write: the client drops the district key
+    // right after writing the build's response over it, so a read that went on answering the
+    // pre-order base would put the vacant plot straight back. The real route settles the same
+    // queue. Both registered after `installApi`, so Playwright's reverse-order matching gives
+    // them priority over the harness.
+    let served = base;
+    const json = (body: unknown) => ({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+    await page.route(`**/api/base/${base.id}`, (route) =>
+      route.fulfill(json({ base: served, serverNow: new Date().toISOString() })),
     );
+    await page.route('**/api/base/build', (route) => {
+      served = queued;
+      return route.fulfill(json({ base: queued }));
+    });
     await page.goto('/game/base');
 
     const quarters = page.getByRole('button', { name: /^The Quarters,/ });

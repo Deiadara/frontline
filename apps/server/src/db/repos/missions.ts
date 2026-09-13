@@ -28,9 +28,13 @@ interface MissionRow {
   seed: number;
   status: string;
   officer_id: string | null;
+  overseer_led: number;
+  lost_json: string;
+  reported: number;
   outcome: string | null;
   rewards_json: string;
   spoils_json: string;
+  found_json: string;
   resolved_at: string | null;
 }
 
@@ -64,6 +68,12 @@ export interface MissionResolution {
   resolvedAt: string;
   /** §F1f: the page this run won, or null. Named by the mission report. */
   pageWon?: string | null;
+  /** The bodies a battle job did not bring home. Empty on every standard run. */
+  lost?: Mission['lost'];
+  /** Whether anybody came back to tell it. False only on a battle job that was wiped out. */
+  reported?: boolean;
+  /** §F1f and the salvage roll: what they turned up, so the report can name it. */
+  found?: Mission['found'];
 }
 
 export interface MissionsRepo {
@@ -108,9 +118,15 @@ function rowToStored(row: MissionRow): StoredMission {
       durationMinutes: row.duration_minutes,
       status: row.status,
       officerId: row.officer_id,
+      overseerLed: row.overseer_led === 1,
+      // Repaired on the way out like the force, and for the same reason: a unit the catalogue has
+      // since dropped must not take the whole board down with a failed parse.
+      lost: withoutRetiredUnits(readJson(row.lost_json)),
+      reported: row.reported === 1,
       outcome: row.outcome,
       rewards: readJson(row.rewards_json),
       spoils: readJson(row.spoils_json),
+      found: readJson(row.found_json),
       resolvedAt: row.resolved_at,
       pagePrize: row.page_prize as Mission['pagePrize'],
       pageWon: row.page_won,
@@ -125,8 +141,8 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     `INSERT INTO missions
        (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
         priced_minutes, started_at, travel_minutes, duration_minutes, success_chance, seed, status,
-        officer_id, outcome, rewards_json, resolved_at, page_prize)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        officer_id, overseer_led, outcome, rewards_json, resolved_at, page_prize)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
@@ -138,10 +154,11 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
    * spoils, timings and outcome, and every read of a daily screen serialised all of them on the
    * 600/min read bucket. The screen got slower every week it was played.
    *
-   * `MISSION_HISTORY_LIMIT` is a *history* bound, not a cap on what is running: everything active
-   * is newest-first by `started_at`, so an active run cannot fall off the end while there are fewer
-   * concurrent slots than this. `listActiveByBaseId` is the unbounded one, and it is bounded by the
-   * game instead.
+   * `MISSION_HISTORY_LIMIT` is a *history* bound and nothing else. An active run **can** fall off
+   * the end of it: rows come back newest-launch-first, so a day-long job with two hundred short
+   * ones launched after it is off the page while it is still out. Nothing may read this to work
+   * out what is running. `listActiveByBaseId` is the unbounded query for that, and it is bounded
+   * by the game instead: a crew has a handful of slots.
    */
   const byBaseStmt = db.prepare(
     'SELECT * FROM missions WHERE base_id = ? ORDER BY started_at DESC, id DESC LIMIT ?',
@@ -158,7 +175,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const resolveStmt = db.prepare(
     `UPDATE missions
         SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?,
-            page_won = ?
+            page_won = ?, lost_json = ?, reported = ?, found_json = ?
       WHERE id = ?`,
   );
 
@@ -181,6 +198,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         seed,
         mission.status,
         mission.officerId,
+        mission.overseerLed ? 1 : 0,
         mission.outcome,
         JSON.stringify(mission.rewards),
         mission.resolvedAt,
@@ -206,13 +224,19 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
       const row = byIdStmt.get(missionId) as MissionRow | undefined;
       return row ? rowToStored(row) : undefined;
     },
-    markResolved(missionId, { outcome, rewards, spoils, resolvedAt, pageWon }) {
+    markResolved(
+      missionId,
+      { outcome, rewards, spoils, resolvedAt, pageWon, lost, reported, found },
+    ) {
       resolveStmt.run(
         outcome,
         JSON.stringify(rewards),
         JSON.stringify(spoils),
         resolvedAt,
         pageWon ?? null,
+        JSON.stringify(lost ?? {}),
+        reported === false ? 0 : 1,
+        JSON.stringify(found ?? {}),
         missionId,
       );
     },

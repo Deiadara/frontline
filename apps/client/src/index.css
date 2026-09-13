@@ -57,6 +57,19 @@
   }
 
   /**
+   * The same brushed stroke, in a darker orange, for a control whose own face is brass.
+   *
+   * `.brushed` draws its line in `#c1832a`, which on the dark faces of a ghost or a danger button
+   * reads as a pen line round the plate (maintainer request, 2026-09-11: "a little hand drawn, not too
+   * much"). On the primary button's brass face the same line is the same colour as the face and
+   * vanishes, so the yellow buttons looked machine-cut beside the red ones that looked drawn. A
+   * darker orange is what a pen leaves on brass.
+   */
+  .brushed-deep::after {
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='3'/%3E%3C/filter%3E%3Crect x='3' y='3' width='34' height='34' fill='none' stroke='%237a3c08' stroke-opacity='0.85' stroke-width='2' filter='url(%23r)'/%3E%3C/svg%3E");
+  }
+
+  /**
    * Four bolts, one per corner.
    *
    * The cheapest possible way to say "somebody screwed this plate to a wall", and the reason the
@@ -278,6 +291,19 @@
   }
 
   /**
+   * The same hand-inked box in verdigris, for a door that is not one of the archive's own.
+   *
+   * The Blueprints cabinet's drawers sit under the archive's brass tabs and must read as a
+   * different kind of control: same pen, different ink. The stroke is `verdigris-300`.
+   */
+  .ink-box-verdigris {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.8'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%235fbcaf' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 6 L192 5 L194 50 L7 51 Z' stroke-opacity='0.8' stroke-width='2'/%3E%3Cpath d='M7 51 L10 49 L26 50' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
    * A panel with a frame ruled round it by hand.
    *
    * `border-image`, not a stretched background, and the difference is the whole point.
@@ -322,7 +348,7 @@
    * There were two of these, identical but for their amplitude, and the second silently won: the
    * first was dead CSS from the moment it was written. Removed rather than merged.
    *
-   * The wave is nearly flat now (board request). It ran at an amplitude of 2.4 on a 120 box, which
+   * The wave is nearly flat now (maintainer request). It ran at an amplitude of 2.4 on a 120 box, which
    * on the training screen's selected officer read as a ribbon rather than as a line somebody drew:
    * the frame is the widest thing on that panel and the eye follows the wobble instead of the name
    * inside it. At 0.7 it is a straight line a person drew rather than a straight line a machine
@@ -331,7 +357,7 @@
    * The four deviations are deliberately unequal. A wave with the same amplitude at every control
    * point reads as a pattern however small it is; uneven ones read as a hand.
    *
-   * Thickness matches `.ink-frame` exactly (board request): the brass sheet ran at a 3.6 stroke
+   * Thickness matches `.ink-frame` exactly (maintainer request): the brass sheet ran at a 3.6 stroke
    * against the plain sheet's 2.6, so the selected officer on the training screen was ringed in a
    * line half again as thick as the roster entries beside it and the faction panels next door. It
    * is the *colour* that says selected, not the weight. Only the stroke colour and opacity differ
@@ -763,10 +789,12 @@
   /**
    * A figure floating off a readout the crew just spent from or was just paid into.
    *
-   * 1.6 seconds, and it has to be all three of: long enough to read a seven-digit number, short
+   * 3.4 seconds, and it has to be all three of: long enough to read a seven-digit number, short
    * enough that four of them in a row do not queue up, and gone on its own without anything
-   * watching it. `forwards` holds the last frame so a figure whose removal timer has not fired yet
-   * sits invisible rather than snapping back to full opacity.
+   * watching it. It was 2.4; the maintainer asked for one more second on screen before the fade
+   * (2026-09-11), so the hold grew and the rise and the fade kept their lengths. `forwards` holds
+   * the last frame so a figure whose removal timer has not fired yet sits invisible rather than
+   * snapping back to full opacity.
    *
    * The rise is 14px, which is under one line: this is a receipt drifting off a chip, not a thing
    * flying across the screen. Anything further and the eye follows it instead of reading it.
@@ -776,11 +804,11 @@
       opacity: 0;
       transform: translate(-50%, 6px) scale(0.92);
     }
-    14% {
+    10% {
       opacity: 1;
       transform: translate(-50%, 0) scale(1);
     }
-    68% {
+    77.5% {
       opacity: 1;
     }
     100% {
@@ -794,10 +822,10 @@
     0% {
       opacity: 0;
     }
-    14% {
+    10% {
       opacity: 1;
     }
-    68% {
+    77.5% {
       opacity: 1;
     }
     100% {
@@ -806,7 +834,7 @@
   }
 
   .delta-figure {
-    animation: delta-rise 2400ms ease-out forwards;
+    animation: delta-rise 3400ms ease-out forwards;
   }
 
   /**
@@ -814,7 +842,7 @@
    *
    * The two ornaments stop dead: they are decoration, so honouring the preference costs no
    * information. The spend and gain figures are the exception, and they are why this is no longer
-   * a blanket rule: what they carry is the number itself, so they keep their 2.4 seconds and give
+   * a blanket rule: what they carry is the number itself, so they keep their 3.4 seconds and give
    * up the travel instead. `translate(-50%, 0)` is still set on the element, so the figure stays
    * centred on its chip with the transform never animated.
    */
@@ -980,5 +1008,667 @@
     .holo-tag::after {
       animation: none;
     }
+  }
+}
+
+/*
+ * The archive's own furniture.
+ *
+ * The research screens are a drafting table and a filing cabinet: paper ruled in faint blue,
+ * drawers with index tabs on them, a stamp on anything finished, and a bench with brass sockets
+ * and gearing in it. None of these appear anywhere else, which is the point: the market is a
+ * street and the archive is a room with a lamp in it, and a player should know which one they are
+ * looking at before reading a word.
+ */
+@layer utilities {
+  /**
+   * Blueprint paper: two rulings, the finer one four to the coarse.
+   *
+   * Faint on purpose. It sits *behind* rows carrying eight drawings each, and a grid a player can
+   * count is a grid competing with the sheets on top of it. Painted as gradients rather than an
+   * asset so it tiles at any size and costs nothing to ship.
+   */
+  .drafting-grid {
+    background-color: rgb(14 20 32 / 0.35);
+    background-image:
+      linear-gradient(rgb(126 168 214 / 0.07) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(126 168 214 / 0.07) 1px, transparent 1px),
+      linear-gradient(rgb(126 168 214 / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(126 168 214 / 0.035) 1px, transparent 1px);
+    background-size:
+      64px 64px,
+      64px 64px,
+      16px 16px,
+      16px 16px;
+  }
+
+  /**
+   * The paper flag on the side of a drawer divider.
+   *
+   * Drawn on the left edge of a category button, which is why those carry `pl-5`: the tab is 10px
+   * of the padding and the label starts after it.
+   */
+  .index-tab::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 25%;
+    bottom: 25%;
+    width: 5px;
+    border-radius: 1px;
+    background: linear-gradient(180deg, rgb(224 162 74 / 0.85), rgb(224 162 74 / 0.35));
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.35);
+  }
+
+  /**
+   * A hand-inked tick box: not quite square, because nobody rules a 4mm box with a straight edge.
+   *
+   * The wobble is one skewed corner rather than a border-radius per corner, which reads as a drawn
+   * box at 16px where four different radii read as a mistake.
+   */
+  .tick-box {
+    border-radius: 2px 3px 2px 4px;
+    transform: rotate(-1.5deg);
+  }
+
+  /**
+   * The stamp on a document nobody can take away.
+   *
+   * Oxblood, askew, and double-ruled, which is what a rubber stamp looks like when the pad is dry
+   * on one side. Askew by 4 degrees: enough to read as pressed by hand, little enough that the row
+   * it sits in does not look broken.
+   */
+  .rubber-stamp {
+    display: inline-block;
+    padding: 2px 8px;
+    color: rgb(198 90 84 / 0.95);
+    border: 2px solid rgb(198 90 84 / 0.6);
+    border-radius: 2px;
+    transform: rotate(-4deg);
+    box-shadow: inset 0 0 0 1px rgb(198 90 84 / 0.25);
+    text-shadow: 0 0 1px rgb(198 90 84 / 0.4);
+  }
+
+  /**
+   * The Lab's bench: the plate the machine is bolted to.
+   *
+   * `--sock` is the whole layout. Every part of the apparatus is placed as a percentage of a box
+   * derived from it, so one number decides how big the machine is and nothing else has to agree.
+   * It is bound to viewport height rather than to a breakpoint because what runs out on this
+   * screen is height: at 1280x720 the workspace is about 300px and at 1440x900 it is nearly 500,
+   * and a fixed 120px socket either fits one of those or fills the other.
+   *
+   * The plate texture is on `::before` rather than in `background-image`, which `.rivets` owns:
+   * this element carries both, and a `background` shorthand here would quietly wipe the bolts.
+   */
+  .lab-bench {
+    /* Below `lg` the plate has no definite height, so the machine is sized off the window. */
+    --sock: clamp(96px, 13vh, 132px);
+    position: relative;
+    background-color: rgb(15 13 21 / 0.72);
+  }
+
+  /**
+   * From `lg` the machine is sized by the plate it is bolted to rather than by the window.
+   *
+   * How much height there is cannot be worked out from `vh`: at 1024 the bottom bar wraps onto a
+   * second row and takes 90px that the same height of window keeps at 1280, and a machine sized off
+   * `vh` was drawn 269px tall into a 254px plate. So the plate becomes a query container and the
+   * apparatus takes the smaller of what its height and its width allow, which is the same
+   * arithmetic a person does laying a drawing on a table.
+   *
+   * `container-type: size` needs both axes definite, which is why the bench column is a percentage
+   * of the row from `lg` up rather than sized by its contents: a container measuring itself against
+   * a child that is measuring itself against the container has no answer. It is on `.lab-plate`
+   * rather than on `.lab-bench` for the same reason: the locked bench has no definite height, and
+   * size containment would collapse it to its own padding.
+   */
+  @media (min-width: 1024px) {
+    .lab-plate {
+      container-type: size;
+    }
+    .lab-plate .lab-apparatus {
+      --sock: clamp(72px, min(40cqh, 19.35cqw), 180px);
+    }
+  }
+  .lab-bench::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(177deg, rgb(255 255 255 / 0.055) 0%, transparent 26%, rgb(0 0 0 / 0.32) 100%),
+      repeating-linear-gradient(101deg, rgb(255 255 255 / 0.022) 0 2px, transparent 2px 6px);
+  }
+
+  /**
+   * The apparatus: a 620 by 300 drawing, scaled by `--sock` and never by anything else.
+   *
+   * The sockets are HTML (they are buttons carrying page glyphs) and the linkage is one SVG on the
+   * same 620x300 grid, so the two only line up because both are placed in percentages of this box.
+   * Change a number here and the matching number in `Linkage` has to move with it.
+   */
+  .lab-apparatus {
+    position: relative;
+    width: calc(var(--sock) * 5.1667);
+    height: calc(var(--sock) * 2.5);
+  }
+  /* The warm light the bench throws once the machine will run. Its own layer, so it can fade. */
+  .lab-apparatus::before {
+    content: '';
+    position: absolute;
+    inset: -12% -6%;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(52% 60% at 68% 48%, rgb(224 162 74 / 0.16), transparent 70%);
+    transition: opacity 280ms ease-out;
+  }
+  .lab-bench[data-lit='yes'] .lab-apparatus::before {
+    opacity: 1;
+  }
+
+  /**
+   * A socket: a well sunk into the plate, inside a brass rim with four bolts on it.
+   *
+   * Five stacked inset shadows and no border. A border that changed width on a state change would
+   * shift the sheet inside it by a pixel, which reads as the page twitching; shadows brighten in
+   * place. The bolts are on `::before` so the well underneath keeps its own gradient.
+   */
+  .lab-socket {
+    position: relative;
+    border-radius: 5px;
+    background:
+      radial-gradient(72% 52% at 50% 24%, rgb(44 37 29 / 0.95), rgb(9 11 17 / 0.98) 78%),
+      rgb(9 11 17);
+    box-shadow:
+      inset 0 0 0 3px rgb(146 106 48 / 0.85),
+      inset 0 0 0 4px rgb(0 0 0 / 0.6),
+      inset 0 9px 16px rgb(0 0 0 / 0.62),
+      inset 0 -6px 12px rgb(0 0 0 / 0.45),
+      0 1px 0 rgb(232 207 158 / 0.1);
+    transition:
+      box-shadow 240ms ease-out,
+      background 240ms ease-out;
+    font-size: clamp(9px, calc(var(--sock) * 0.092), 15px);
+  }
+  .lab-socket::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    border-radius: 5px;
+    background-image:
+      radial-gradient(
+        circle 2.6px at 9px 9px,
+        rgb(248 242 230 / 0.5),
+        rgb(20 15 8 / 0.95) 74%,
+        transparent
+      ),
+      radial-gradient(
+        circle 2.6px at calc(100% - 9px) 9px,
+        rgb(248 242 230 / 0.5),
+        rgb(20 15 8 / 0.95) 74%,
+        transparent
+      ),
+      radial-gradient(
+        circle 2.6px at 9px calc(100% - 9px),
+        rgb(248 242 230 / 0.5),
+        rgb(20 15 8 / 0.95) 74%,
+        transparent
+      ),
+      radial-gradient(
+        circle 2.6px at calc(100% - 9px) calc(100% - 9px),
+        rgb(248 242 230 / 0.5),
+        rgb(20 15 8 / 0.95) 74%,
+        transparent
+      );
+    background-repeat: no-repeat;
+  }
+  /* Loaded: the rim goes bright and the well warms up under the sheet. */
+  .lab-socket[data-filled='yes'] {
+    background:
+      radial-gradient(72% 52% at 50% 24%, rgb(58 45 30 / 0.95), rgb(12 13 19 / 0.98) 78%),
+      rgb(12 13 19);
+    box-shadow:
+      inset 0 0 0 3px rgb(240 173 76 / 0.92),
+      inset 0 0 0 4px rgb(0 0 0 / 0.5),
+      inset 0 9px 16px rgb(0 0 0 / 0.5),
+      inset 0 -6px 12px rgb(0 0 0 / 0.35),
+      0 0 14px rgb(240 173 76 / 0.28);
+  }
+  /* The outfeed, once something is in it: the one fitting on the bench that glows outward. */
+  .lab-socket-out[data-filled='yes'] {
+    box-shadow:
+      inset 0 0 0 3px rgb(240 173 76 / 1),
+      inset 0 0 0 4px rgb(0 0 0 / 0.45),
+      inset 0 9px 16px rgb(0 0 0 / 0.45),
+      0 0 22px rgb(240 173 76 / 0.42);
+  }
+  /* The page outline printed in an empty well, and the word engraved under it. */
+  .lab-socket-empty {
+    color: rgb(168 158 186 / 0.5);
+    text-shadow:
+      0 1px 0 rgb(255 255 255 / 0.07),
+      0 -1px 0 rgb(0 0 0 / 0.7);
+  }
+  /*
+   * Where each fitting sits on the 620 by 300 grid.
+   *
+   * After `.lab-socket` on purpose: that rule carries `position: relative` for its own bolt layer,
+   * and with these declared first every socket came out relatively positioned, so `left` and `top`
+   * were offsets from the flow instead of places on the plate. The whole apparatus laid itself out
+   * down the middle of the bench and every pipe missed its fitting.
+   */
+  .lab-slot {
+    position: absolute;
+    width: 19.3548%;
+    height: 40%;
+  }
+  .lab-slot-apex {
+    left: 16.129%;
+    top: 0;
+  }
+  .lab-slot-left {
+    left: 0;
+    top: 46.667%;
+  }
+  .lab-slot-right {
+    left: 32.258%;
+    top: 46.667%;
+  }
+  .lab-slot-out {
+    left: 80.645%;
+    top: 30%;
+  }
+  .lab-slot-lever {
+    position: absolute;
+    left: 75.806%;
+    top: 80%;
+    width: 24.194%;
+    height: 17.333%;
+  }
+
+  /* Sized off the well rather than off `--sock`: the well is what actually got scaled. */
+  .lab-page-glyph {
+    width: auto;
+    height: 40%;
+  }
+  .lab-page-glyph-out {
+    width: auto;
+    height: 42%;
+  }
+
+  /**
+   * The lever: a brass plate screwed to the bench with the word cut into it.
+   *
+   * A real `<button>` wearing a plate, rather than the game's pressed-metal `Button`. Every other
+   * control in the game is chrome over a document; this one is part of a machine, and a control
+   * that looks like the thing it operates is the whole argument for drawing the bench at all.
+   */
+  .lab-lever {
+    border-radius: 4px;
+    letter-spacing: 0.2em;
+    font-size: clamp(10px, calc(var(--sock) * 0.1), 16px);
+    color: rgb(120 106 84);
+    background: linear-gradient(180deg, rgb(74 62 44) 0%, rgb(46 38 28) 52%, rgb(30 25 19) 100%);
+    box-shadow:
+      inset 0 0 0 2px rgb(120 92 48 / 0.55),
+      inset 0 1px 0 rgb(255 255 255 / 0.08),
+      0 2px 0 rgb(0 0 0 / 0.55);
+    text-shadow: 0 -1px 0 rgb(0 0 0 / 0.8);
+    transition:
+      background 200ms ease-out,
+      color 200ms ease-out,
+      box-shadow 200ms ease-out;
+  }
+  .lab-lever:enabled {
+    color: rgb(38 28 14);
+    background: linear-gradient(
+      180deg,
+      rgb(244 199 122) 0%,
+      rgb(224 162 74) 48%,
+      rgb(168 116 42) 100%
+    );
+    box-shadow:
+      inset 0 0 0 2px rgb(255 231 184 / 0.5),
+      inset 0 1px 0 rgb(255 255 255 / 0.45),
+      0 2px 0 rgb(0 0 0 / 0.55),
+      0 0 18px rgb(240 173 76 / 0.35);
+    text-shadow: 0 1px 0 rgb(255 236 196 / 0.55);
+  }
+  .lab-lever:enabled:hover {
+    background: linear-gradient(
+      180deg,
+      rgb(255 219 152) 0%,
+      rgb(240 178 88) 48%,
+      rgb(184 130 50) 100%
+    );
+  }
+  .lab-lever:enabled:active {
+    transform: translateY(2px);
+    box-shadow:
+      inset 0 0 0 2px rgb(255 231 184 / 0.5),
+      inset 0 2px 5px rgb(0 0 0 / 0.5);
+  }
+
+  /**
+   * The linkage, and what it does when the bench is charged.
+   *
+   * Four gears at four rates, two of them backwards, because a train where everything turns
+   * together is a wheel. The pipes carry a dashed run that only appears once all three sockets are
+   * full: an idle pipe is empty pipe. The gauges' needles are the same state said a third way, for
+   * a player who is looking at the dials rather than at the sockets.
+   */
+  .lab-flow {
+    opacity: 0;
+    stroke-dasharray: 9 17;
+    transition: opacity 240ms ease-out;
+  }
+  .lab-bench[data-lit='yes'] .lab-flow {
+    opacity: 0.85;
+    animation: lab-flow-run 1.6s linear infinite;
+  }
+  .lab-bench[data-phase='running'] .lab-flow {
+    animation-duration: 0.5s;
+  }
+  @keyframes lab-flow-run {
+    to {
+      stroke-dashoffset: -52;
+    }
+  }
+
+  /* Iron at rest, brass once the bench is charged. The one colour on the plate that is a state. */
+  .lab-gears {
+    color: #6f6659;
+    transition: color 220ms ease-out;
+  }
+  .lab-bench[data-lit='yes'] .lab-gears {
+    color: rgb(240 173 76);
+  }
+
+  .lab-gear {
+    transform-box: fill-box;
+    transform-origin: 50% 50%;
+  }
+  .lab-bench[data-lit='yes'] .lab-gear-a {
+    animation: lab-gear-turn 7s linear infinite;
+  }
+  .lab-bench[data-lit='yes'] .lab-gear-b {
+    animation: lab-gear-turn 4.1s linear infinite reverse;
+  }
+  .lab-bench[data-lit='yes'] .lab-gear-c {
+    animation: lab-gear-turn 3.6s linear infinite reverse;
+  }
+  .lab-bench[data-lit='yes'] .lab-gear-d {
+    animation: lab-gear-turn 2.9s linear infinite;
+  }
+  .lab-bench[data-phase='running'] .lab-gear-a {
+    animation-duration: 1.15s;
+  }
+  .lab-bench[data-phase='running'] .lab-gear-b {
+    animation-duration: 0.68s;
+  }
+  .lab-bench[data-phase='running'] .lab-gear-c {
+    animation-duration: 0.6s;
+  }
+  .lab-bench[data-phase='running'] .lab-gear-d {
+    animation-duration: 0.48s;
+  }
+  @keyframes lab-gear-turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* The needles rest low and swing up when the bench is charged. */
+  .lab-needle {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transform: rotate(-62deg);
+    transition: transform 460ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  .lab-bench[data-lit='yes'] .lab-needle {
+    transform: rotate(46deg);
+  }
+  .lab-bench[data-lit='yes'] .lab-needle-b {
+    transform: rotate(24deg);
+  }
+
+  /**
+   * A sheet leaving its socket along its own pipe.
+   *
+   * One class per socket, because the three of them are in three different places and a single
+   * translation would send the base pair sideways into the plate. Percentages rather than pixels,
+   * so the travel scales with `--sock` like everything else on the bench.
+   */
+  .lab-drawn-0 {
+    animation: lab-draw-0 620ms cubic-bezier(0.5, 0, 0.9, 0.6) forwards;
+  }
+  .lab-drawn-1 {
+    animation: lab-draw-1 620ms cubic-bezier(0.5, 0, 0.9, 0.6) forwards;
+  }
+  .lab-drawn-2 {
+    animation: lab-draw-2 620ms cubic-bezier(0.5, 0, 0.9, 0.6) forwards;
+  }
+  @keyframes lab-draw-0 {
+    0% {
+      transform: translate(0, 0) scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(217%, 75%) scale(0.16);
+      opacity: 0;
+    }
+  }
+  @keyframes lab-draw-1 {
+    0% {
+      transform: translate(0, 0) scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(300%, -42%) scale(0.16);
+      opacity: 0;
+    }
+  }
+  @keyframes lab-draw-2 {
+    0% {
+      transform: translate(0, 0) scale(1);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(133%, -42%) scale(0.16);
+      opacity: 0;
+    }
+  }
+
+  /* The new page arriving: one flash, then it sits there. */
+  .lab-flash {
+    animation: lab-flash-in 480ms ease-out;
+  }
+  @keyframes lab-flash-in {
+    0% {
+      transform: scale(0.55);
+      opacity: 0;
+      filter: brightness(2.6);
+    }
+    45% {
+      filter: brightness(2);
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+      filter: brightness(1);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lab-socket,
+    .lab-lever,
+    .lab-gears,
+    .lab-apparatus::before,
+    .lab-needle,
+    .lab-flow {
+      transition: none;
+    }
+    .lab-bench[data-lit='yes'] .lab-gear-a,
+    .lab-bench[data-lit='yes'] .lab-gear-b,
+    .lab-bench[data-lit='yes'] .lab-gear-c,
+    .lab-bench[data-lit='yes'] .lab-gear-d,
+    .lab-bench[data-lit='yes'] .lab-flow,
+    .lab-drawn-0,
+    .lab-drawn-1,
+    .lab-drawn-2,
+    .lab-flash {
+      animation: none;
+    }
+  }
+}
+
+/*
+ * The mission board's own furniture.
+ *
+ * One instrument, and it is the only one in the game. Everywhere else the interface reports a
+ * number; the launch window has to report a number that *moves while the player is deciding*, as
+ * a leader is picked and units are added, and a figure that ticks in a table is a figure nobody
+ * watches. So the odds on a job are a dial: a brass bezel screwed to a plate, five coloured bands
+ * of twenty points under it, a needle that travels, and the figure struck in the well.
+ */
+@layer utilities {
+  .mission-gauge {
+    /* The five bands, and the one source for them: the arcs and the struck figure read the same
+       swatch, so a retune moves both. Deliberately not ramp tokens: this is a painted instrument
+       and its bands have to separate at a glance, which four steps of one ramp cannot do. */
+    --gauge-red: #e05a4a;
+    --gauge-orange: #ff8c1a;
+    --gauge-yellow: #ffd166;
+    --gauge-green: #43b56e;
+    --gauge-blue: #22d3ee;
+    border-radius: 6px;
+    background:
+      radial-gradient(120% 90% at 50% 100%, rgb(62 53 81 / 0.75), rgb(23 19 32 / 0.95) 70%),
+      linear-gradient(180deg, rgb(34 29 47 / 0.9), rgb(23 19 32 / 0.98));
+    box-shadow:
+      inset 0 0 0 1px rgb(193 131 42 / 0.35),
+      inset 0 1px 0 rgb(255 236 196 / 0.12),
+      0 6px 16px -10px rgb(0 0 0 / 0.9);
+  }
+  .mission-gauge[data-tone='red'] {
+    --gauge-tone: var(--gauge-red);
+  }
+  .mission-gauge[data-tone='orange'] {
+    --gauge-tone: var(--gauge-orange);
+  }
+  .mission-gauge[data-tone='yellow'] {
+    --gauge-tone: var(--gauge-yellow);
+  }
+  .mission-gauge[data-tone='green'] {
+    --gauge-tone: var(--gauge-green);
+  }
+  .mission-gauge[data-tone='blue'] {
+    --gauge-tone: var(--gauge-blue);
+  }
+
+  /* The rim, and the scratch of a hairline inside it. Brass, because it is machined. */
+  .gauge-bezel {
+    fill: none;
+    stroke: rgb(193 131 42 / 0.75);
+    stroke-width: 5;
+    stroke-linecap: round;
+  }
+  .gauge-hairline {
+    fill: none;
+    stroke: rgb(240 173 76 / 0.28);
+    stroke-width: 1;
+  }
+  .gauge-tick {
+    stroke: rgb(188 178 162 / 0.5);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+
+  .gauge-band {
+    fill: none;
+    stroke-width: 12;
+    stroke-linecap: butt;
+  }
+  .gauge-band-red {
+    stroke: var(--gauge-red);
+  }
+  .gauge-band-orange {
+    stroke: var(--gauge-orange);
+  }
+  .gauge-band-yellow {
+    stroke: var(--gauge-yellow);
+  }
+  .gauge-band-green {
+    stroke: var(--gauge-green);
+  }
+  .gauge-band-blue {
+    stroke: var(--gauge-blue);
+  }
+
+  /**
+   * The needle, and the travel that is the whole point of drawing one.
+   *
+   * `transform-box: view-box` so the rotation is about the dial's pivot in the SVG's own
+   * coordinates rather than about the blade's own box, which would spin it on the spot. The
+   * angle arrives as a custom property from the component: one declaration here, one number
+   * there, and no inline `transform` for a stylesheet to fight with.
+   */
+  .gauge-needle {
+    fill: #f0ad4c;
+    transform-box: view-box;
+    transform-origin: 110px 118px;
+    transform: rotate(var(--gauge-angle, -90deg));
+    transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.65));
+  }
+  .gauge-hub {
+    fill: #c1832a;
+    stroke: rgb(255 236 196 / 0.45);
+    stroke-width: 1;
+  }
+
+  /* The figure struck in the well, in the colour of the band the needle is in. */
+  .gauge-figure {
+    color: var(--gauge-tone, #f0ad4c);
+    text-shadow: 0 1px 0 rgb(0 0 0 / 0.6);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gauge-needle {
+      transition: none;
+    }
+  }
+
+  /**
+   * The Scrapyard's own surfaces (maintainer request, 2026-09-10).
+   *
+   * The archive is paper; the yard is metal. `steel-plate` is a cool dark sheet with a faint
+   * brushed grain running across it, and `hazard-edge` runs a chevron tape along the top of the one
+   * plate per screen that is about the yard itself. Both are backgrounds, so they cost no markup.
+   */
+  .steel-plate {
+    position: relative;
+    background-image:
+      repeating-linear-gradient(
+        104deg,
+        rgb(255 255 255 / 0.025) 0 1px,
+        rgb(255 255 255 / 0) 1px 7px
+      ),
+      linear-gradient(160deg, rgb(48 46 62 / 0.92), rgb(28 27 38 / 0.96) 55%, rgb(22 21 30 / 0.98));
+    box-shadow:
+      inset 0 1px 0 rgb(222 216 240 / 0.12),
+      inset 0 -1px 0 rgb(0 0 0 / 0.5),
+      inset 0 0 22px rgb(0 0 0 / 0.35);
+  }
+  .hazard-edge {
+    border-top: 4px solid transparent;
+    border-image-slice: 4;
+    border-image-width: 4px 0 0 0;
+    border-image-repeat: repeat;
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='4'%3E%3Crect width='16' height='4' fill='%23f0ad4c' fill-opacity='0.75'/%3E%3Cpath d='M0 4L8 0h4L4 4z' fill='%23171520' fill-opacity='0.9'/%3E%3C/svg%3E");
   }
 }

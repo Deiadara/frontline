@@ -135,7 +135,7 @@ test.describe('the black market', () => {
   test('counts down to the refresh', async ({ page }) => {
     await open(page, '/game/market/black', 1280, 720);
     // The countdown is a duration, not a wall clock, so it reads the same wherever the player is.
-    // The note that used to quote the landing time went with the board's 2026-09-09 pass: the
+    // The note that used to quote the landing time went with the maintainer's 2026-09-09 pass: the
     // shelf's rules are on the cards, and the clock is what a player checks.
     await expect(page.getByTestId('black-refresh')).toContainText(/\d/);
     await expect(page.getByTestId('info-note')).toHaveCount(0);

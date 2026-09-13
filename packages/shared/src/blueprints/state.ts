@@ -7,7 +7,13 @@ import {
   type ItemCost,
 } from '../items/inventory.js';
 import { seedFrom } from '../rng.js';
-import { BLUEPRINTS, findBlueprint, type BlueprintPage, type BlueprintSpec } from './catalog.js';
+import {
+  BLUEPRINTS,
+  findBlueprint,
+  findBlueprintPage,
+  type BlueprintPage,
+  type BlueprintSpec,
+} from './catalog.js';
 
 /**
  * What a crew knows about a blueprint (GDD §D5 to §D10).
@@ -151,16 +157,6 @@ export function reimaginingAvailable(context: ReimaginingContext): boolean {
   return context.hasHeadOfResearch && context.hasReimaginingResearch;
 }
 
-/** The requirement lines the locked panel prints, each with whether this crew has met it. */
-export function reimaginingRequirements(
-  context: ReimaginingContext,
-): readonly { label: string; met: boolean }[] {
-  return [
-    { label: 'A Head of Research on the crew', met: context.hasHeadOfResearch },
-    { label: 'Reimagining, researched in the Lab', met: context.hasReimaginingResearch },
-  ];
-}
-
 /**
  * Pages the crew holds more than one of, and could therefore spend.
  *
@@ -181,25 +177,76 @@ export function sparePages(inventory: Inventory): { pageId: string; spare: numbe
 }
 
 /**
- * §G2/§G3: three spare pages to the Lab, one page you do not have back.
+ * Every page the crew is holding, with the document it came out of.
+ *
+ * What the Reimagining tray is drawn from: one tile per distinct page, carrying how many copies
+ * are in the bag, because a page can go into the machine as many times as it is held.
+ */
+export interface HeldPage {
+  page: BlueprintPage;
+  blueprint: BlueprintSpec;
+  held: number;
+}
+
+export function heldPages(inventory: Inventory): HeldPage[] {
+  const held: HeldPage[] = [];
+  for (const spec of BLUEPRINTS) {
+    for (const page of spec.pages) {
+      const count = itemCount(inventory, page.id);
+      if (count > 0) held.push({ page, blueprint: spec, held: count });
+    }
+  }
+  return held;
+}
+
+/**
+ * §G2/§G3: three pages to the Lab, one page you do not have back.
  *
  * **Guaranteed**, which is the whole point and the reason this is not a roll. A player spending
- * three pages they cannot use is buying certainty, so the trade either hands back something new or
- * refuses: there is no outcome where the pages are gone and nothing arrived. That also means the
- * refusal has to be able to say "there is nothing left to want", which is a real end state once a
- * crew holds a copy of every page in the game.
+ * three pages is buying certainty, so the trade either hands back something new or refuses: there
+ * is no outcome where the pages are gone and nothing arrived. That also means the refusal has to
+ * be able to say "there is nothing left to want", which is a real end state once a crew holds a
+ * copy of every page in the game.
  *
  * "One you do not have" is measured against pages **held**, not against blueprints unlocked: a page
  * of a document you have already assembled is one you own, and handing it back would be handing
  * back nothing. Any category (§G3), because the trade is with the Lab rather than with a shop and
  * the Lab does not care which drawer the sheet came out of.
+ *
+ * ## The player names the three (maintainer, 2026-09-10)
+ *
+ * The Lab used to pick, spending the most duplicated pages first. That was the right rule while
+ * the trade was a button, and it is the wrong one now that the machine has three sockets and a
+ * tray: a player who drops three sheets in has already decided, and a bench that quietly swapped
+ * them for whatever it liked best would be answering a question nobody asked. So the pages come in
+ * on the request, and the rule is only that they are pages, that the crew holds as many copies as
+ * it named, and that there are exactly three.
+ *
+ * What the caller still does not get to choose is what comes back. That is seeded off the crew and
+ * the moment, so a request retried because the connection dropped cannot be retried until the Lab
+ * offers something better.
  */
 export type ReimaginingRefusal =
-  'not_available' | 'not_enough_spare_pages' | 'nothing_left_to_find';
+  'not_available' | 'nothing_left_to_find' | 'wrong_page_count' | 'pages_not_held';
+
+/**
+ * What each refusal says to the player, beside `BLUEPRINT_UNLOCK_MESSAGES` and for the same
+ * reason: the route answers with the machine name, and a screen printing `pages_not_held` at
+ * somebody is telling them nothing.
+ */
+export const REIMAGINING_REFUSAL_MESSAGES: Readonly<Record<ReimaginingRefusal, string>> = {
+  not_available: 'The Lab is not doing this yet.',
+  nothing_left_to_find:
+    'Every page there is, you either hold or have already bound into a document. Nothing left to want.',
+  wrong_page_count: 'The machine takes three pages. No more, no fewer.',
+  pages_not_held: 'You are not holding three pages like that.',
+};
 
 export interface ReimaginingInput {
   inventory: Inventory;
   context: ReimaginingContext;
+  /** The three the player put in the sockets, in the order they put them there. */
+  pages: readonly string[];
   /** Seeded off the crew and the moment, so a retried request cannot shop for a better page. */
   seed: string;
 }
@@ -220,11 +267,36 @@ export function unseenPages(inventory: Inventory): string[] {
   );
 }
 
+/**
+ * Whether the crew really holds every copy the request named.
+ *
+ * Counted rather than checked one at a time, because naming the same page three times is allowed
+ * and is the ordinary way to spend a stack: a crew holding two Slab Armours may put two in and no
+ * more. An id that is not a page at all fails here too, so a request naming a servo is refused
+ * with the same sentence as one naming a page the crew does not have.
+ */
+function holdsNamedPages(inventory: Inventory, pages: readonly string[]): boolean {
+  const wanted = new Map<string, number>();
+  for (const pageId of pages) wanted.set(pageId, (wanted.get(pageId) ?? 0) + 1);
+  for (const [pageId, count] of wanted) {
+    if (!findBlueprintPage(pageId)) return false;
+    if (itemCount(inventory, pageId as ItemId) < count) return false;
+  }
+  return true;
+}
+
+/**
+ * The refusals, in the order a player wants to hear them.
+ *
+ * "Nothing left to find" comes before anything about the three sockets, because it is a fact about
+ * the crew rather than about what they have just dropped in: a player at the end of the collection
+ * should read it on an empty machine rather than after filling it.
+ */
 export function reimaginingRefusal(input: ReimaginingInput): ReimaginingRefusal | null {
   if (!reimaginingAvailable(input.context)) return 'not_available';
-  const spare = sparePages(input.inventory).reduce((total, entry) => total + entry.spare, 0);
-  if (spare < REIMAGINING_PAGES_SPENT) return 'not_enough_spare_pages';
   if (unseenPages(input.inventory).length === 0) return 'nothing_left_to_find';
+  if (input.pages.length !== REIMAGINING_PAGES_SPENT) return 'wrong_page_count';
+  if (!holdsNamedPages(input.inventory, input.pages)) return 'pages_not_held';
   return null;
 }
 
@@ -239,24 +311,15 @@ export interface Reimagined {
 /**
  * Runs the trade, or returns null when {@link reimaginingRefusal} would refuse it.
  *
- * Spends the *most duplicated* pages first. A crew holding four of one page and one spare of
- * another should lose the four before the one: spending evenly would take the page they are one
- * short of finishing a document with, which is the opposite of what a player pressing this button
- * wants.
+ * The three that go in are the three that were named. What comes back cannot be one of them: the
+ * pool is read off the inventory as it stands *before* the spend, and every named page is held
+ * there, so `unseenPages` has already left all three out. Pinned by a test rather than by a second
+ * filter, because a filter here would be a second copy of the rule that could drift from the first.
  */
 export function reimagine(input: ReimaginingInput): Reimagined | null {
   if (reimaginingRefusal(input) !== null) return null;
 
-  const spent: string[] = [];
-  const pool = [...sparePages(input.inventory)].sort((a, b) => b.spare - a.spare);
-  for (const entry of pool) {
-    while (entry.spare > 0 && spent.length < REIMAGINING_PAGES_SPENT) {
-      spent.push(entry.pageId);
-      entry.spare -= 1;
-    }
-    if (spent.length === REIMAGINING_PAGES_SPENT) break;
-  }
-
+  const spent = [...input.pages];
   const unseen = unseenPages(input.inventory);
   const gained = unseen[seedFrom(`reimagine:${input.seed}`) % unseen.length]!;
   const cost: ItemCost = {};

@@ -46,7 +46,7 @@ export type MarketTab = 'market' | 'offers' | 'black';
  * sheet's header, which the market has no room for. A page that passes nothing gets nothing.
  */
 export function MarketTabs({ active, action }: { active: MarketTab; action?: ReactNode }) {
-  const tab = (to: string, label: string, mine: MarketTab) => {
+  const tab = (to: string, label: string, mine: MarketTab, tip?: string) => {
     // The back-room tab keeps its own colours in *both* states, so the door is visible from the
     // shop rather than only once a player is through it.
     const black = mine === 'black';
@@ -55,8 +55,11 @@ export function MarketTabs({ active, action }: { active: MarketTab; action?: Rea
         to={to}
         end
         data-testid={`market-tab-${mine}`}
+        // What the door is for, on the door (maintainer request, 2026-09-10): the line about the
+        // arcade used to sit printed beside the tabs, and only where the strip had the width.
+        data-tip={tip}
         className={cn(
-          'rounded-sm border px-4 py-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] transition-colors',
+          'brushed relative rounded-sm border px-4 py-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] transition-colors',
           active === mine
             ? black
               ? 'border-tangerine-300/80 bg-tangerine-300/15 text-tangerine-100'
@@ -74,14 +77,17 @@ export function MarketTabs({ active, action }: { active: MarketTab; action?: Rea
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="market-tabs">
       {tab('/game/market', 'The Market', 'market')}
-      {tab('/game/market/offers', 'Faction Offers', 'offers')}
-      {tab('/game/market/black', 'Black Market', 'black')}
-      {active === 'market' && (
-        // Only where the strip has the width: on a narrow sheet the line wrapped the strip onto
-        // a second row, and the market's frame does not scroll, so that row came off the lots.
-        <span className="hidden font-display text-[11px] uppercase tracking-[0.14em] text-tangerine-300/80 [@media(min-width:1200px)]:inline">
-          There is a door at the end of the arcade. It costs infamy, not caps.
-        </span>
+      {tab(
+        '/game/market/offers',
+        'Faction Offers',
+        'offers',
+        'Crews trading with crews. What you put up leaves your store until somebody takes it or you take it back.',
+      )}
+      {tab(
+        '/game/market/black',
+        'Black Market',
+        'black',
+        'There is a door at the end of the arcade. It costs infamy, not caps.',
       )}
       {action !== undefined && <div className="ml-auto">{action}</div>}
     </div>
@@ -212,7 +218,7 @@ export function BlackMarketPage() {
   const refreshesIn = Date.parse(data.refreshesAt) - now.getTime();
 
   return (
-    <PageShell wide quote="Nothing on this shelf has papers, and nothing on it takes caps.">
+    <PageShell wide quote="Caps won't get you far in here.">
       <MarketTabs active="black" />
 
       {/* The clock is not a rule, so it does not go behind a hover: it is the one thing on this

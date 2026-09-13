@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { MAX_DIGITS, NumberField, digitsOf, draftOf } from './NumberField';
 
 /**
- * Typing into the field (board request, 2026-09-09).
+ * Typing into the field (maintainer request, 2026-09-09).
  *
  * The field used to be a controlled number input, which could not be emptied: the empty string
  * read as zero, zero clamped to the floor, and the floor was written back in front of whatever the

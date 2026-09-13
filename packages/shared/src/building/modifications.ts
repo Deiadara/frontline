@@ -6,8 +6,8 @@ import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
  *
  * A modification is **not** a level. Levels are bought with materials and time; a modification is
  * *researched* or built in the Scrapyard, needs a Lead Engineer on the books to design it, and then
- * sits in one of the structure's three slots. Each structure offers five and holds three, so the
- * choice is which three of the five this district is: see §E, which is what made the slots
+ * sits in one of the structure's three slots. Each structure offers seven and holds three, so the
+ * choice is which three of the seven this district is: see §E, which is what made the slots
  * emptiable again.
  *
  * Slots open as the structure grows, at {@link MODIFICATION_SLOT_LEVELS}.
@@ -17,7 +17,7 @@ import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
  * What a modification actually does.
  *
  * A closed set, and every member is read by something. That constraint is the whole design of this
- * module: it would have been easy to give each of the sixty-five a bespoke sentence and no
+ * module: it would have been easy to give each of the seventy-seven a bespoke sentence and no
  * implementation, which is exactly the dead-`output` mistake the structure catalogue was rewritten
  * to remove. A modification whose effect cannot be spelled as one of these does not get written.
  *
@@ -36,7 +36,6 @@ export const MODIFICATION_EFFECTS = [
   'faction_xp_percent',
   'research_time_reduction',
   'housing_percent',
-  'character_xp_percent',
   /** Percentage points on the payroll ceiling: room for another name on the book. */
   'payroll_percent',
   'raid_loot_percent',
@@ -62,12 +61,14 @@ export interface ModificationSpec {
 }
 
 /**
- * The catalogue, five per structure.
+ * The catalogue, seven per structure.
  *
- * The board named nine of these outright (Encrypted Core, Automated Protocols, Precision
+ * The maintainer named nine of these outright (Encrypted Core, Automated Protocols, Precision
  * Fabricators, Salvage Drones, Quantum Modeling, Neural Drafting Table, Redundant Testing
- * Chambers, Arcades, Graffiti Walls, Insect Farm); those keep the board's own name and wording.
- * The rest fill each structure out to five along the same lines.
+ * Chambers, Arcades, Graffiti Walls, Insect Farm); those keep the maintainer's own name and wording.
+ * The rest fill each structure out to seven along the same lines. Every structure carries at
+ * least one plain bolt-on and one piece of engineering, either side of the advanced threshold in
+ * `addons.ts`, so the Scrapyard's level gate has something to hold back on every plot.
  */
 const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   // --- The Nexus ---
@@ -108,6 +109,22 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'build_time_reduction',
     magnitude: 8,
   },
+  {
+    building: 'nexus',
+    name: 'Filed Drawings',
+    description:
+      'Every drawing the district has ever paid for, filed where the Lab can find it again.',
+    effect: 'research_time_reduction',
+    magnitude: 8,
+  },
+  {
+    building: 'nexus',
+    name: 'Stores Register',
+    description:
+      'One register for every store in the district, so nothing is counted twice or lost behind a door.',
+    effect: 'storage_percent',
+    magnitude: 14,
+  },
 
   // --- The Quarters ---
   {
@@ -144,10 +161,23 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'quarters',
     name: 'Turnout Drills',
-    description:
-      'Bunk to boots in ninety seconds. It carries into everything else they are asked to do.',
-    effect: 'character_xp_percent',
+    description: 'Bunk to boots in ninety seconds, and the same again on every other parade.',
+    effect: 'training_time_reduction',
     magnitude: 8,
+  },
+  {
+    building: 'quarters',
+    name: 'Mess Rota',
+    description: 'One kitchen, one sitting, and what a recruit is fed stops being an argument.',
+    effect: 'training_supplies_reduction',
+    magnitude: 8,
+  },
+  {
+    building: 'quarters',
+    name: 'Undercroft Billets',
+    description: 'The cellars dug out, drained and bunked. Cold, dry, and out of the wind.',
+    effect: 'housing_percent',
+    magnitude: 14,
   },
 
   // --- The Greenhouse ---
@@ -190,6 +220,20 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'payroll_percent',
     magnitude: 18,
   },
+  {
+    building: 'greenhouse',
+    name: 'Root Cellars',
+    description: 'Cold stores under the benches, so a good month keeps until a bad one.',
+    effect: 'storage_percent',
+    magnitude: 9,
+  },
+  {
+    building: 'greenhouse',
+    name: 'Hydroponic Racks',
+    description: 'Trays stacked four high on a pump loop. The floor grows what an acre used to.',
+    effect: 'production_percent',
+    magnitude: 13,
+  },
 
   // --- The Generator ---
   {
@@ -229,6 +273,21 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
       'The turbine gets a bench and a log book beside it. Everything that breaks is written down and read.',
     effect: 'faction_xp_percent',
     magnitude: 3,
+  },
+  {
+    building: 'generator',
+    name: 'Clean Feed',
+    description:
+      'The Lab bench gets its power off the top of the load, so no run dies in a brownout.',
+    effect: 'research_time_reduction',
+    magnitude: 7,
+  },
+  {
+    building: 'generator',
+    name: 'Standby Bank',
+    description: 'Charged cells that hold the lights and the turrets up when the main set is hit.',
+    effect: 'defense_percent',
+    magnitude: 12,
   },
 
   // --- The Scrapyard ---
@@ -272,6 +331,21 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'production_percent',
     magnitude: 10,
   },
+  {
+    building: 'scrapyard',
+    name: 'Parts Cage',
+    description: 'Everything worth keeping behind mesh, tagged, with one key and one list.',
+    effect: 'storage_percent',
+    magnitude: 9,
+  },
+  {
+    building: 'scrapyard',
+    name: 'Alloy Furnace',
+    description:
+      'Mixed metal in, one grade out. The yard stops selling good stock at scrap prices.',
+    effect: 'production_percent',
+    magnitude: 15,
+  },
 
   // --- The Apothecary ---
   {
@@ -313,6 +387,22 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'build_cost_reduction',
     magnitude: 8,
   },
+  {
+    building: 'apothecary',
+    name: 'Stimulant Line',
+    description:
+      'Measured doses for the drill yard, and a recruit is through the course a week sooner.',
+    effect: 'training_time_reduction',
+    magnitude: 8,
+  },
+  {
+    building: 'apothecary',
+    name: 'Dispensary Apprenticeships',
+    description:
+      'Apprentices grinding and weighing under somebody who has seen a wrong dose. Nothing is spoiled twice.',
+    effect: 'training_supplies_reduction',
+    magnitude: 12,
+  },
 
   // --- The Gate ---
   {
@@ -340,8 +430,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'gate',
     name: 'Watch Rota',
-    description: 'Everyone stands a turn on the step. Everyone gets better at reading the street.',
-    effect: 'character_xp_percent',
+    description:
+      'Everyone stands a turn on the step, so everyone learns which doors out there are worth opening.',
+    effect: 'raid_loot_percent',
     magnitude: 8,
   },
   {
@@ -350,6 +441,20 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description: 'Rubble goes back into the mixer. Every wall in the district costs less to raise.',
     effect: 'build_cost_reduction',
     magnitude: 7,
+  },
+  {
+    building: 'gate',
+    name: 'Toll House',
+    description: 'Everything coming in pays at the step, and the book covers another name for it.',
+    effect: 'payroll_percent',
+    magnitude: 8,
+  },
+  {
+    building: 'gate',
+    name: 'Kill Funnel',
+    description: 'The approach narrowed to one lane that nothing wide can turn around in.',
+    effect: 'defense_percent',
+    magnitude: 14,
   },
 
   // --- The Lab ---
@@ -365,8 +470,8 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     building: 'lab',
     name: 'Neural Drafting Table',
     description:
-      'Researchers use implants to design directly in their mind. What they learn doing it stays.',
-    effect: 'character_xp_percent',
+      'Researchers design directly in their mind. A revision that took a fortnight takes an hour.',
+    effect: 'research_time_reduction',
     magnitude: 12,
   },
   {
@@ -392,20 +497,35 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'defense_percent',
     magnitude: 10,
   },
+  {
+    building: 'lab',
+    name: 'Written Drill',
+    description: 'Drill set down properly, so the Gauntlet stops teaching the same hour twice.',
+    effect: 'training_time_reduction',
+    magnitude: 7,
+  },
+  {
+    building: 'lab',
+    name: 'Materials Bench',
+    description:
+      'Substitutes tested before they are ordered, so the district buys the cheap one that holds.',
+    effect: 'build_cost_reduction',
+    magnitude: 12,
+  },
 
   // --- The Gauntlet ---
   {
     building: 'gauntlet',
     name: 'Live-Fire Range',
-    description: 'Real rounds, real noise. Nothing else teaches as fast or as permanently.',
-    effect: 'character_xp_percent',
+    description: 'Real rounds, real noise. Nobody who has drilled here panics at the door.',
+    effect: 'defense_percent',
     magnitude: 18,
   },
   {
     building: 'gauntlet',
     name: 'Instructor Cadre',
-    description: 'People whose whole job is making other people better at theirs.',
-    effect: 'character_xp_percent',
+    description: 'People whose whole job is making other people better at theirs. Less is ruined.',
+    effect: 'training_supplies_reduction',
     magnitude: 14,
   },
   {
@@ -430,6 +550,21 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
       'Combine training rigs, repurposed. A recruit walks the course before they walk it.',
     effect: 'training_time_reduction',
     magnitude: 12,
+  },
+  {
+    building: 'gauntlet',
+    name: 'Kit Store',
+    description:
+      'Kit issued, signed for and handed back, so a course stops eating a new set every intake.',
+    effect: 'training_supplies_reduction',
+    magnitude: 9,
+  },
+  {
+    building: 'gauntlet',
+    name: 'Night Course',
+    description: 'The same run made in the dark until dark stops being a reason to slow down.',
+    effect: 'training_time_reduction',
+    magnitude: 14,
   },
 
   // --- The Infirmary ---
@@ -460,8 +595,9 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
   {
     building: 'infirmary',
     name: 'Nutrition Programme',
-    description: 'Somebody finally works out what the crew is actually short of, and fixes it.',
-    effect: 'character_xp_percent',
+    description:
+      'Somebody finally works out what the crew is short of. People mend faster and the beds free up.',
+    effect: 'housing_percent',
     magnitude: 10,
   },
   {
@@ -470,6 +606,21 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description: 'A cold chain that runs the length of the district, for far more than medicine.',
     effect: 'storage_percent',
     magnitude: 10,
+  },
+  {
+    building: 'infirmary',
+    name: 'Convalescent Beds',
+    description: 'Beds that stand empty most weeks and billet the overflow the rest of the time.',
+    effect: 'housing_percent',
+    magnitude: 8,
+  },
+  {
+    building: 'infirmary',
+    name: 'Prosthetics Bench',
+    description:
+      'Limbs fitted and tuned here, so somebody is back on the course in days rather than months.',
+    effect: 'training_time_reduction',
+    magnitude: 12,
   },
 
   // --- The Garage ---
@@ -511,6 +662,21 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     effect: 'build_time_reduction',
     magnitude: 10,
   },
+  {
+    building: 'garage',
+    name: 'Tyre Bank',
+    description: 'Rims and treads sorted by size, so nothing comes home on a bare hub.',
+    effect: 'raid_loot_percent',
+    magnitude: 9,
+  },
+  {
+    building: 'garage',
+    name: 'Fuel Bowsers',
+    description:
+      'Tankage on wheels. What the district cannot hold standing still, it holds parked.',
+    effect: 'storage_percent',
+    magnitude: 14,
+  },
 ];
 
 /** `nexus` + `Encrypted Core` → `nexus_encrypted_core`. Ids are derived so no two can collide. */
@@ -539,7 +705,7 @@ export function isModificationId(id: string): boolean {
 }
 
 /**
- * Validated against the catalogue rather than declared as an enum of sixty-five literals: the ids
+ * Validated against the catalogue rather than declared as an enum of seventy-seven literals: the ids
  * are *derived* from the names above, so an enum would be a second list to keep in step with the
  * first. The refinement reads the same map every lookup does.
  */
@@ -548,13 +714,13 @@ export const ModificationIdSchema = z
   .refine(isModificationId, { message: 'unknown modification' });
 export type ModificationId = string;
 
-/** The five a structure offers, in catalogue order. */
+/** The seven a structure offers, in catalogue order. */
 export function modificationsFor(kind: BuildingKind): ModificationSpec[] {
   return MODIFICATIONS.filter((mod) => mod.building === kind);
 }
 
 /** How many each structure offers: asserted, so a missing entry cannot ship quietly. */
-export const MODIFICATIONS_PER_BUILDING = 5;
+export const MODIFICATIONS_PER_BUILDING = 7;
 
 /**
  * Structure levels at which a modification slot opens (§A1: "unlocked when the building reaches

@@ -13,6 +13,7 @@ import {
   type ItemId,
   type ScrapyardResponse,
   type SkirmishEngine,
+  scrapyardPrice,
 } from '@frontline/shared';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -329,7 +330,7 @@ describe('§I4: setting a trap on a fight you are defending', () => {
    *
    * The row holds a single id, so a crew cannot set two whatever this route does. What is enforced
    * here is the ally: a reinforcement with a shell of their own would be a second row for
-   * `springAnyTrap` to find, and two traps going off is not what the board asked for.
+   * `springAnyTrap` to find, and two traps going off is not what the maintainer asked for.
    */
   it('refuses an ally a second trap once the defender has set one', async () => {
     const stack = await makeStack();
@@ -344,7 +345,7 @@ describe('§I4: setting a trap on a fight you are defending', () => {
       side: 'defender',
       army: {},
       perimeter: {},
-      boostId: null,
+      boostIds: [],
       officerId: null,
       trapId: null,
       vehicles: {},
@@ -368,7 +369,7 @@ describe('§I4: setting a trap on a fight you are defending', () => {
       side: 'defender',
       army: {},
       perimeter: {},
-      boostId: null,
+      boostIds: [],
       officerId: null,
       trapId: null,
       vehicles: {},
@@ -571,7 +572,8 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
       expect(row, spec.id).toBeDefined();
       expect(row!.kind).toBe('trap');
       expect(row!.building).toBeNull();
-      expect(row!.cost).toEqual(spec.cost);
+      // Priced off the catalogue with the yard's own cut at the level `readyToCut` stands (3).
+      expect(row!.cost).toEqual(scrapyardPrice(spec.cost, 3));
       expect(row!.blueprint).toBe(blueprintForTrap(spec.id)!.name);
     }
   });
@@ -611,7 +613,7 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
 
     expect(heldOf(stack, stack.defender.id)).toBe(1);
     expect(stack.app.repos.bases.findById(stack.defender.id)!.resources.scrap).toBe(
-      before.scrap - (TRAP.cost.scrap ?? 0),
+      before.scrap - (scrapyardPrice(TRAP.cost, 3).scrap ?? 0),
     );
     // Building a second is legal: two fights on the same evening want two traps.
     expect((await build(stack)).statusCode).toBe(200);
@@ -715,7 +717,7 @@ describe('§I4c: migration 0078 on a deployment written before it', () => {
     expect(row!.trapId).toBeNull();
     // Every other field the row carried, so an ALTER that rebuilt the table would be caught here.
     expect(row!.army).toEqual({ razors: 4 });
-    expect(row!.boostId).toBe('boost_plated_overnight');
+    expect(row!.boostIds).toEqual(['boost_plated_overnight']);
     expect(row!.officerId).toBe('off-1');
     expect(row!.vehicles).toEqual({ motorcycle: 2 });
     expect(row!.updatedAt).toBe('2026-08-01T00:00:00.000Z');

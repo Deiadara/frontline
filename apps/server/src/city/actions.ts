@@ -15,6 +15,10 @@ import {
   type Base,
   type Location,
   type LocationControl,
+  addResources,
+  cancelRefund,
+  cancelWindowOpen,
+  type PartialResources,
 } from '@frontline/shared';
 import { isFightingForce } from '../battle/forces.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -47,6 +51,9 @@ export const CITY_REFUSALS = [
   'at_max_fortification',
   'already_fortifying',
   'cannot_afford',
+  /** Calling work off: nothing is running here, or its first tenth has passed. */
+  'nothing_running',
+  'window_closed',
 ] as const;
 export type CityRefusal = (typeof CITY_REFUSALS)[number];
 
@@ -197,4 +204,40 @@ export function startFortifying(
   const next: Base = { ...base, resources: spendResources(base.resources, cost) };
   repos.bases.updateResources(next.id, next.resources);
   return { kind: 'ok', base: next };
+}
+
+/** When the running dig began: its end, less the clock that level always takes. */
+export function fortifyingSince(control: LocationControl): string | null {
+  if (control.fortifyingUntil === null) return null;
+  const level = nextFortifyLevel(control.fortification);
+  if (level === null) return null;
+  return new Date(Date.parse(control.fortifyingUntil) - fortifySeconds(level) * 1000).toISOString();
+}
+
+/**
+ * Call the dig off (maintainer request, 2026-09-12; `time/cancel.ts`): inside its first tenth, with
+ * ninety percent of the materials back.
+ */
+export function cancelFortifying(
+  repos: Repositories,
+  input: { base: Base; location: Location; now: Date },
+): CityActionResult<{ base: Base; refund: PartialResources }> {
+  const { base, location, now } = input;
+  const control = repos.city.control(location.id);
+  if (!control) return { kind: 'refused', reason: 'not_contested' };
+  if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
+  const since = fortifyingSince(control);
+  const level = nextFortifyLevel(control.fortification);
+  if (control.fortifyingUntil === null || since === null || level === null) {
+    return { kind: 'refused', reason: 'nothing_running' };
+  }
+  const total = Date.parse(control.fortifyingUntil) - Date.parse(since);
+  if (!cancelWindowOpen(Date.parse(since), total, now.getTime())) {
+    return { kind: 'refused', reason: 'window_closed' };
+  }
+  const refund = cancelRefund(fortifyCost(level));
+  repos.city.put({ ...control, fortifyingUntil: null });
+  const next: Base = { ...base, resources: addResources(base.resources, refund) };
+  repos.bases.updateResources(next.id, next.resources);
+  return { kind: 'ok', base: next, refund };
 }

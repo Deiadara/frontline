@@ -125,9 +125,9 @@ export function projectTraining(
       // an hour on the bench is the cheapest hour a crew ever buys.
       role: officer.role === null ? BENCH_LABEL : OFFICER_ROLE_LABELS[officer.role],
       officerRole: officer.role,
-      // Derived rather than stored: see `officerPortraits`. Every officer already on a save has a
-      // face the moment the pool lands, with no migration and no column.
-      portraitId: faces.get(officer.id) ?? null,
+      // The stored face (maintainer, 2026-09-11), with the old derived one behind it for an officer
+      // written before the column existed and not yet backfilled.
+      portraitId: officer.portraitId ?? faces.get(officer.id) ?? null,
       attributes: officer.attributes,
       perks: officer.perks,
       session: sessionFor(state, officer.id) ?? null,

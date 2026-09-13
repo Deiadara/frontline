@@ -13,7 +13,7 @@ import type { UnitSpec, UnitStats } from '../units/index.js';
  * ## The mapping is a table, not a formula
  *
  * {@link OFFICER_STAT_FORMULAS} is the design surface: a weighted sum of named attributes per
- * battle stat, transcribed from the board's table. Two properties are load-bearing and both are
+ * battle stat, transcribed from the maintainer's table. Two properties are load-bearing and both are
  * pinned by `officer.test.ts`:
  *
  * - **Every capped stat reaches its cap.** The weights of each 0..100 stat sum to exactly 1.0, so
@@ -156,7 +156,7 @@ export function officerStat(stat: OfficerStatKey, attributes: Attributes): numbe
 /**
  * The floor an officer's morale sits on, in the roster's units.
  *
- * `OFFICER_STAT_FORMULAS.morale` is the board's table and it is right as a *rating*: half resolve,
+ * `OFFICER_STAT_FORMULAS.morale` is the maintainer's table and it is right as a *rating*: half resolve,
  * a quarter composure, a quarter leadership, 0..100. What was wrong was spending that rating
  * directly as battle morale, because the two numbers are not on the same scale.
  *
@@ -282,7 +282,7 @@ export function battleMargin(ownSurvivingShare: number, enemySurvivingShare: num
 /**
  * The chance the officer leading this side comes home hurt, given the margin.
  *
- * Falls as the win gets more decisive and rises as the loss does, which is the board's rule in one
+ * Falls as the win gets more decisive and rises as the loss does, which is the maintainer's rule in one
  * line. Never zero and never certain: a stray round is always possible, and an officer who is
  * guaranteed to be hurt by a bad day is an officer nobody sends twice.
  */
@@ -295,7 +295,7 @@ export function officerInjuryChance(margin: number): number {
  * Whether the officer comes home injured.
  *
  * Two ways in, and the first is not a roll. An officer whose body was taken off the field *would
- * have died*, and the board's rule is that the worst thing that happens to them is a stretcher, so
+ * have died*, and the maintainer's rule is that the worst thing that happens to them is a stretcher, so
  * that case is settled rather than chanced. Everybody else rolls against the margin.
  */
 export function officerInjured(fell: boolean, margin: number, roll: number): boolean {

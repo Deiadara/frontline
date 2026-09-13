@@ -19,7 +19,7 @@ import {
 import { NotificationSchema, NotificationSettingsSchema } from './social/notifications.js';
 
 /**
- * What the faction screen, the mailbox and the bell put on the wire (GDD, board request).
+ * What the faction screen, the mailbox and the bell put on the wire (GDD, maintainer request).
  *
  * Kept apart from `api.ts` for the reason `api.battle.ts` is: these three are one feature area with
  * a dozen DTOs between them, and a single file with every response in the game in it is a file
@@ -129,6 +129,71 @@ export const ReinforceRequestSchema = z.object({
 });
 export type ReinforceRequest = z.infer<typeof ReinforceRequestSchema>;
 
+/**
+ * A faction's file, readable by anybody (maintainer request, 2026-09-12).
+ *
+ * The faction answer to `/crews/:id`. Until now a faction only existed to the people in it: the
+ * standings printed a name and a badge, and there was nowhere to click. A player deciding whether
+ * to pick a fight with a table, or to ask it for a seat, needs to see who is at it, and this is
+ * that page.
+ *
+ * ## What is public, and why
+ *
+ * The same line `CrewProfileResponseSchema` draws. Everything here is already said out loud
+ * somewhere: the standings print the name, the badge, the seat count and what the faction has won,
+ * and each member's own file prints their level, their infamy and their rank. What is not here is
+ * everything the faction screen adds for the people sitting at it: the ally armies, the ally
+ * battles, the open invitations. Those are the point of being a member, and a rival reading the
+ * roster's army sizes and battle marks would be a free scout of five crews at once.
+ */
+export const FactionProfileMemberSchema = z.object({
+  userId: IdSchema,
+  /** What to call them on screen: their display name if they set one, else the login name. */
+  username: z.string().min(1),
+  /**
+   * The login name, which is the only thing `POST /messages` can address.
+   *
+   * Separate from {@link FactionProfileMemberSchema.shape.username} because that one is
+   * `displayNameOf(user)` and a display name is neither unique nor a credential. The roster's mail
+   * door used to put the display name in `?to=`, and every member who had set one was unreachable:
+   * the composer prefilled a name no account answers to and the send came back `no_such_player`.
+   */
+  handle: z.string().min(1),
+  rank: FactionRankSchema,
+  level: z.number().int().positive(),
+  infamy: z.number().nonnegative(),
+  /** What they have won under this badge, which is how a roster reads as a pecking order. */
+  infamyEarned: z.number().nonnegative(),
+  districtName: z.string().min(1),
+  joinedAt: IsoDateTimeSchema,
+  isBot: z.boolean(),
+  /** Whether this row is the reader, so the page can mark it and skip offering to message them. */
+  isYou: z.boolean(),
+  /**
+   * The face on their file, which is what the roster draws (maintainer request, 2026-09-12).
+   *
+   * Null only for an account that registered and never chose an Overseer, which cannot hold a
+   * district, so in practice every row has one.
+   */
+  portraitId: z.string().min(1).nullable(),
+  overseerName: z.string().min(1).nullable(),
+});
+export type FactionProfileMember = z.infer<typeof FactionProfileMemberSchema>;
+
+export const FactionProfileResponseSchema = z.object({
+  /** Whether the reader is at this table. Decides the doors, not the content. */
+  isYours: z.boolean(),
+  faction: FactionSchema,
+  /** Seats filled, out of `MAX_FACTION_MEMBERS`. */
+  members: z.array(FactionProfileMemberSchema),
+  /** The mean level of the roster, recomputed on every read. See `averageLevel`. */
+  averageLevel: z.number().int().nonnegative(),
+  /** Where the faction sits on the factions' board, or null if the board does not list it. */
+  rank: z.number().int().positive().nullable(),
+  serverNow: IsoDateTimeSchema,
+});
+export type FactionProfileResponse = z.infer<typeof FactionProfileResponseSchema>;
+
 /** Every faction write answers with the refreshed screen, so nothing is re-derived on the client. */
 export const FactionMutationResponseSchema = z.object({ faction: FactionResponseSchema });
 export type FactionMutationResponse = z.infer<typeof FactionMutationResponseSchema>;
@@ -184,12 +249,21 @@ export const UnreadCountsSchema = z.object({
   messages: z.number().int().nonnegative(),
   notifications: z.number().int().nonnegative(),
   /**
-   * Fights still to come that were called on this crew's ground (board request, 2026-09-08).
+   * Fights still to come that were called on this crew's ground (maintainer request, 2026-09-08).
    *
    * A declaration is public eight hours out and the bell for it can be dismissed, so the shell
    * carries the count on the one poll it always runs and draws it as the red mark on the bottom
    * bar. Defaulted, so a response from before the field parses as a quiet day.
    */
   fightsOnYou: z.number().int().nonnegative().default(0),
+  /**
+   * Feats finished and not yet collected (maintainer request, 2026-09-13).
+   *
+   * Here rather than on its own endpoint for the reason the other three are: the HUD and the
+   * bottom bar are on every screen, and a fourth interval against a fourth route to draw a fourth
+   * number is three requests where one will do. Defaulted, so a response from before the field
+   * parses as nothing waiting.
+   */
+  featsReady: z.number().int().nonnegative().default(0),
 });
 export type UnreadCounts = z.infer<typeof UnreadCountsSchema>;

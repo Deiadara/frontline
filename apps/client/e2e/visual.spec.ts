@@ -8,6 +8,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
+  BUILDING_CATALOG,
   BUILDING_KINDS,
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
@@ -141,7 +142,7 @@ async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promis
  * and a 1440x900 laptop leaves 399 for them. The sheet has always been a scrolling region, so
  * nothing was ever unreachable, and every gate in this file passed it: the failure was that the
  * cut landed wherever the frame ended, slicing the last visible row through its digits with no
- * sign that scrolling recovered it. That is what the board reported, and it is what this pins.
+ * sign that scrolling recovered it. That is what the maintainer reported, and it is what this pins.
  *
  * `fitsWholeSheet` records which branch a viewport is in rather than being a target, the way the
  * character select's roster flag does. Both branches are real and both have to be checked: a fold
@@ -183,6 +184,21 @@ async function expectWholeDrillRows(page: Page, fitsWholeSheet: boolean): Promis
       new RegExp(`Scroll for ${fold.hidden} more`),
     );
   }
+}
+
+/**
+ * The tab strip has finished changing colour.
+ *
+ * `transition-colors` is 150ms, and a screenshot taken the frame after a click catches the strip
+ * mid-fade: the tab that was chosen a moment ago is still the gold one and the tab that is chosen
+ * now is still wearing its hover. Every assertion passed and the image the maintainer looked at said the
+ * wrong tab was open. Polled on the colour rather than slept on, so it is also the check that the
+ * lit mark is lit at all.
+ */
+const LIT_TAB_BORDER = 'rgba(240, 173, 76, 0.8)';
+
+async function litTabSettled(page: Page, testId: string): Promise<void> {
+  await expect(page.getByTestId(testId)).toHaveCSS('border-color', LIT_TAB_BORDER);
 }
 
 for (const size of VIEWPORTS) {
@@ -538,7 +554,7 @@ for (const size of VIEWPORTS) {
       /*
        * Three cards, and every section on the same line across all three.
        *
-       * The board asked for it in those words, and it is what makes three offers comparable at a
+       * The maintainer asked for it in those words, and it is what makes three offers comparable at a
        * glance: a player reading them is comparing them, and a column that shifts because one
        * brief is a line longer makes that comparison work. Measured on the deploy button, which is
        * the last thing in a card and therefore carries every drift above it.
@@ -602,6 +618,77 @@ for (const size of VIEWPORTS) {
       await settleFonts(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/missions-board-${tag}.png` });
+    });
+
+    /**
+     * The send window, at both kinds of job (maintainer, 2026-09-10).
+     *
+     * This is the tallest dialog in the game: a dial, a leader picker, a crew list and the yard,
+     * inside a frame capped at `100vh - 2rem`. At 1280x720 that cap bites, which is exactly why
+     * it is shot at every viewport rather than at the comfortable ones: what falls off the bottom
+     * of a dialog that cannot scroll is the pair of buttons that dismisses it.
+     *
+     * Both kinds, because they draw different instruments: five bands and a percentage on
+     * standard work, four bands and a named one on a fight.
+     */
+    test(`missions send window at ${tag}`, async ({ page }) => {
+      await installApi(page, me);
+      await page.goto('/game/missions');
+      await expect(page.getByTestId('board-area')).toBeVisible();
+
+      const dialog = page.getByRole('dialog');
+      const shoot = async (kind: 'standard' | 'battle') => {
+        await settleFonts(page);
+        // Settled out of its own state change before the shutter. The send control fades between
+        // the live and the dead look, and a shot taken mid-fade shows a button a player can press
+        // wearing the greyed-out appearance of one they cannot.
+        await expect(dialog.getByTestId('confirm-send')).toHaveCSS('opacity', '1');
+        // The dial, the chips under it and the picker beside them are all on screen at once: the
+        // three are one thought and a viewport that split them would be the defect.
+        await expect(dialog.getByTestId('mission-gauge')).toBeInViewport();
+        await expect(dialog.getByTestId('job-leanings')).toBeInViewport();
+        await expect(dialog.getByTestId('confirm-send')).toBeInViewport();
+
+        const clipped = await page.evaluate<string[]>(() =>
+          [...document.querySelectorAll<HTMLElement>('[role="dialog"] *')]
+            .filter((el) => el.children.length === 0 && (el.textContent ?? '').trim().length > 0)
+            .filter((el) => el.scrollWidth > el.clientWidth + 1)
+            .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+        );
+        expect(clipped, `cut text in the send window: ${clipped.join(' | ')}`).toEqual([]);
+
+        await expectNothingOverflowsTheScreen(page);
+        await expectNothingClippedHorizontally(page);
+        await page.screenshot({ path: `screenshots/visual/missions-send-${kind}-${tag}.png` });
+      };
+
+      const cards = page.locator('[data-testid^="offer-"]');
+      const openOne = async (wanted: 'standard' | 'battle'): Promise<boolean> => {
+        for (let index = 0; index < (await cards.count()); index += 1) {
+          const card = cards.nth(index);
+          const isBattle = (await card.getByText('Battle', { exact: true }).count()) > 0;
+          if (isBattle !== (wanted === 'battle')) continue;
+          await card.getByRole('button', { name: /Send a crew/ }).click();
+          await expect(dialog).toBeVisible();
+          return true;
+        }
+        return false;
+      };
+
+      expect(await openOne('standard'), 'no standard job on the opening board').toBe(true);
+      // A crew picked and a leader on it: the state a player spends the most time looking at, and
+      // the only one where every line of this window is drawn at once.
+      await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('2');
+      await dialog.getByTestId('best-leader').click();
+      await shoot('standard');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+
+      if (await openOne('battle')) {
+        await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('4');
+        await shoot('battle');
+        await page.keyboard.press('Escape');
+      }
     });
 
     /*
@@ -825,11 +912,11 @@ for (const size of VIEWPORTS) {
       await expect(note, 'the standing note opened off the screen').toBeInViewport({ ratio: 1 });
     });
     /*
-     * §C/§D/§I1: the research page, at both of its doors.
+     * §C/§D/§G2/§I1: the research page, at all three of its tabs.
      *
      * Fat in the same specific way the Bar fixture is: the longest role labels in §C1, the deepest
      * track the marks allow, and a satchel holding documents in every state §D6 to §D10 draws. The
-     * two sections are shot separately because they render disjoint trees.
+     * three sections are shot separately because they render disjoint trees.
      */
     test(`research at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
@@ -840,7 +927,7 @@ for (const size of VIEWPORTS) {
         route.fulfill({ json: { ...market, inventory: pagesHeld } }),
       );
       await page.goto('/game/research');
-      await expect(page.getByTestId('research-sections')).toBeVisible();
+      await expect(page.getByTestId('research-tabs')).toBeVisible();
       await settleFonts(page);
 
       /*
@@ -863,12 +950,12 @@ for (const size of VIEWPORTS) {
         );
 
       /*
-       * The rail is exactly two doors, looked at rather than counted in a unit test.
+       * The strip is exactly three tabs, looked at rather than counted in a unit test.
        *
-       * The desk and the files were doors here until §I1e, and a door left rendering behind a
+       * The desk and the files were doors here until §I1e, and a tab left rendering behind a
        * condition nobody notices is the failure this shot exists to catch.
        */
-      await expect(page.getByTestId('research-sections').getByRole('button')).toHaveCount(2);
+      await expect(page.getByTestId('research-tabs').getByRole('link')).toHaveCount(3);
 
       /*
        * The Lab's tree, and the one thing on it that has been wrong before.
@@ -895,9 +982,10 @@ for (const size of VIEWPORTS) {
       await expectSheetNotWashedOut(page);
       await page.screenshot({ path: `screenshots/visual/research-programmes-${tag}.png` });
 
-      // And the documents, behind the other door, which is where §D's widest rows live.
-      await page.getByTestId('research-section-blueprints').click();
+      // And the documents, behind the second tab, which is where §D's widest rows live.
+      await page.getByTestId('research-tab-blueprints').click();
       await expect(page.getByTestId('blueprints-section')).toBeVisible();
+      await litTabSettled(page, 'research-tab-blueprints');
       await settleFonts(page);
       const cutDocs = await clipped();
       expect(cutDocs, `cut text on the blueprints: ${cutDocs.join(' | ')}`).toEqual([]);
@@ -905,6 +993,34 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedHorizontally(page);
       await expectNoImagesClipped(page, '[data-testid="blueprints-section"]');
       await page.screenshot({ path: `screenshots/visual/research-blueprints-${tag}.png` });
+
+      /*
+       * The Colossus' eight sheets on one line, at every width from 1280 up.
+       *
+       * the maintainer's bar for this screen is a number rather than a look, so it is measured here as
+       * well as in `blueprints.spec.ts`: that spec runs at one width, and the whole risk is that a
+       * width somewhere else in the matrix is the one where the strip wraps.
+       */
+      const lines = await page
+        .getByTestId('pages-bp_the_colossus')
+        .locator('li')
+        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)));
+      expect(lines).toHaveLength(8);
+      if (size.width >= 1280) {
+        expect([...new Set(lines)], `the Colossus strip wrapped at ${tag}`).toHaveLength(1);
+      }
+
+      // And the bench, behind the third, which is the widest single object in the archive.
+      await page.getByTestId('research-tab-reimagining').click();
+      await expect(page.getByTestId('reimagine-machine')).toBeVisible();
+      await litTabSettled(page, 'research-tab-reimagining');
+      await settleFonts(page);
+      const cutBench = await clipped();
+      expect(cutBench, `cut text on the bench: ${cutBench.join(' | ')}`).toEqual([]);
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await expectNoImagesClipped(page, '[data-testid="reimagining-section"]');
+      await page.screenshot({ path: `screenshots/visual/research-reimagining-${tag}.png` });
     });
 
     /**
@@ -955,7 +1071,7 @@ for (const size of VIEWPORTS) {
        * Every card the same card, on **every tier**.
        *
        * The tier walk is not padding. The marks band prints all of a unit's rules, modifiers and
-       * characteristics and wraps (board request, 2026-09-08), and the frame budgets a fixed number
+       * characteristics and wraps (maintainer request, 2026-09-08), and the frame budgets a fixed number
        * of rows for it, so the card that breaks the frame is the one with the most marks: the
        * Colossus, on Legendary, which the screen never shows until somebody clicks the tab. A sweep
        * that only ever measured the tier the page opens on would have passed the entire time.
@@ -1029,7 +1145,7 @@ for (const size of VIEWPORTS) {
         ).toEqual([]);
       }
 
-      // The machines, on the last tab (board request, 2026-09-08): every card whole, nothing
+      // The machines, on the last tab (maintainer request, 2026-09-08): every card whole, nothing
       // out of the screen, and its own picture of the sheet.
       await page.getByTestId('tier-vehicles').click();
       await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
@@ -1124,7 +1240,7 @@ for (const size of VIEWPORTS) {
     });
 
     /*
-     * The card closes on the picture (board request, 2026-09-08).
+     * The card closes on the picture (maintainer request, 2026-09-08).
      *
      * Four measurements, on every card of every tier, with **every unit unlocked**: the sweep
      * above runs on the late-game fixture, where most of the roster is locked and the price box
@@ -1315,7 +1431,7 @@ for (const size of VIEWPORTS) {
       expect(day.y, 'the day belongs under the roster').toBeGreaterThan(roster.y);
       // Both in the same column, left-aligned with each other rather than merely stacked.
       expect(Math.abs(day.x - roster.x)).toBeLessThan(12);
-      // The paragraph explaining the rules is gone (board request): it was read once and then sat
+      // The paragraph explaining the rules is gone (maintainer request): it was read once and then sat
       // at the foot of the rail for good, and the day's own strokes say what it said.
       await expect(page.getByTestId('info-note')).toHaveCount(0);
 
@@ -1363,7 +1479,7 @@ for (const size of VIEWPORTS) {
       await installApi(page, lateGame);
       await page.goto('/game');
       await page.getByTestId('hud-overseer').click();
-      // "What the crew is buying" is its own screen now (board request), reached from the crew
+      // "What the crew is buying" is its own screen now (maintainer request), reached from the crew
       // page. The file is the person: their own sheet, and the door to the bench.
       await expect(page.getByTestId('file-body')).toBeVisible();
       await expect(page.getByTestId('crew-effects')).toHaveCount(0);
@@ -1478,7 +1594,7 @@ for (const size of VIEWPORTS) {
           }),
         }),
       );
-      // The rail lives on the one screen that is about things being in flight (board request).
+      // The rail lives on the one screen that is about things being in flight (maintainer request).
       // On the city and district screens it was a third band of chrome over the artwork, appearing
       // and disappearing with what the crew was doing, so the painting moved under it; and on the
       // missions page it wrapped under the board with two or three crews out, so that screen now
@@ -1554,7 +1670,7 @@ for (const size of VIEWPORTS) {
 
       /*
        * The frame does not scroll, and neither does anything in it at the sizes the game is
-       * drawn at (board request, 2026-09-08). The sheet's body is `overflow-hidden`, so a counter
+       * drawn at (maintainer request, 2026-09-08). The sheet's body is `overflow-hidden`, so a counter
        * pushed below its fold is not caught by the page-overflow sweep: it is simply cut. The
        * barrow and the Broker are the two panels that give when the frame is short, each behind
        * its own scroller, and this is what says neither had to.
@@ -1627,78 +1743,75 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * The workshop: three ladders, and no yard.
+     * §B9: the Scrapyard, where add-ons are built (reworked at the maintainer's request, 2026-09-10).
      *
-     * The vehicle assertion that used to live here moved to the Garage with the vehicles
-     * themselves (§B11). Left in place it would have gone on passing only for as long as the
-     * Workshop kept a page it no longer owns, which is the wrong thing for a test to defend.
+     * Three benches under one strip of tabs, and each one is shot: the structures with the bracket
+     * rack at the head of the bench, the three refit ladders, and the traps. The rack is drawn
+     * against a district with something bolted in, something on the shelf and a bracket still shut,
+     * because `lateGame` stands its structures at level 1 and would certify none of those states.
      */
-    test(`the workshop at ${tag}`, async ({ page }) => {
-      await installApi(page, lateGame);
-      await page.goto('/game/workshop');
-      await expect(page.getByTestId('upgrade-armour_1')).toBeVisible();
-      await settleFonts(page);
-
-      // A built rung, a reachable one and a locked one all render differently, and all three are
-      // on this fixture, which is the point of the fixture.
-      await expect(page.getByTestId('upgrade-armour_1')).toContainText('Built');
-      await expect(page.getByTestId('upgrade-armour_3')).toContainText('Needs the Gauntlet');
-      // The yard is gone from here: see the Garage's own test below.
-      await expect(page.getByTestId('vehicle-rotorcraft')).toHaveCount(0);
-
-      await expectNothingOverflowsTheScreen(page);
-      await expectNothingClippedHorizontally(page);
-      await expectSheetNotWashedOut(page);
-      await page.screenshot({ path: `screenshots/visual/workshop-${tag}.png` });
-    });
-
-    /**
-     * §I3b: the Workshop's other view, which builds nothing and points at both ends.
-     *
-     * The district behind it is deliberately not `lateGame`'s: that one stands three structures at
-     * level 1, so this shot would be twelve panels all reading "not built yet" and would certify
-     * none of the three slot states the view is for.
-     */
-    test(`the workshop's modifications at ${tag}`, async ({ page }) => {
+    test(`the scrapyard at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.route('**/api/me', (route) =>
         route.fulfill({ json: { ...me, base: districtWithAddons } }),
       );
-      await page.goto('/game/workshop');
-      await page.getByTestId('workshop-view-modifications').click();
-      await expect(page.getByTestId('workshop-modifications')).toBeVisible();
-      await settleFonts(page);
-
-      // A bracket with something in it, an open empty one and one the level has not opened: all
-      // three on screen, or the screenshot is of a state rather than of the view.
-      const first = BUILDING_KINDS[0];
-      const last = BUILDING_KINDS[BUILDING_KINDS.length - 1];
-      await expect(page.getByTestId(`workshop-slot-${first}-1`)).toContainText('Empty');
-      await expect(page.getByTestId(`workshop-shelf-${first}`)).toBeVisible();
-      await expect(page.getByTestId(`workshop-slot-${last}-0`)).toContainText('Opens at level');
-
-      await expectNothingOverflowsTheScreen(page);
-      await expectNothingClippedHorizontally(page);
-      await expectSheetNotWashedOut(page);
-      await page.screenshot({ path: `screenshots/visual/workshop-modifications-${tag}.png` });
-    });
-
-    /**
-     * §B9: the Scrapyard, where add-ons are built.
-     *
-     * The page, its route and its server handler all landed without a fixture, so under this
-     * harness it fell through to the 404 catch-all: a whole screen that could be walked to and
-     * found empty. This is the test that would have said so.
-     */
-    test(`the scrapyard at ${tag}`, async ({ page }) => {
-      await installApi(page, lateGame);
       await page.goto('/game/scrapyard');
       await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
       await settleFonts(page);
 
+      // The yard's own plate, on the tab strip: level, cut, and the next rung worth reaching.
+      await expect(page.getByTestId('scrapyard-level')).toContainText('Level 6');
+      await expect(page.getByTestId('scrapyard-discount')).toContainText('% off');
+      // A fitted bracket, an empty one and one the level has not opened, all on one screen.
+      const first = BUILDING_KINDS[0];
+      await expect(page.getByTestId(`scrapyard-slot-${first}-1`)).toContainText('Empty');
+      await expect(page.getByTestId(`scrapyard-shelf-${first}`)).toBeVisible();
+      const last = BUILDING_KINDS[BUILDING_KINDS.length - 1]!;
+      await page
+        .getByTestId(
+          `scrapyard-bench-${BUILDING_CATALOG[last].name.toLowerCase().replace(/[^a-z]+/g, '-')}`,
+        )
+        .click();
+      await expect(page.getByTestId(`scrapyard-slot-${last}-0`)).toContainText('Opens at level');
+
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
-      await page.screenshot({ path: `screenshots/visual/scrapyard-${tag}.png`, fullPage: true });
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/scrapyard-${tag}.png` });
+    });
+
+    test(`the scrapyard's refits at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/scrapyard?view=refits');
+      await expect(page.getByTestId('scrapyard-refits')).toBeVisible();
+      await settleFonts(page);
+
+      // A built rung, a reachable one and one the yard is too low for all render differently, and
+      // all three are on this fixture, which is the point of the fixture.
+      await expect(page.getByTestId('addon-armour_1')).toContainText('Built');
+      await expect(page.getByTestId('addon-armour_3')).toContainText(
+        'Needs the Scrapyard at level',
+      );
+      expect(await page.locator('[data-testid^="addon-build-"]').count()).toBeGreaterThan(0);
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await expectSheetNotWashedOut(page);
+      await page.screenshot({ path: `screenshots/visual/scrapyard-refits-${tag}.png` });
+    });
+
+    test(`the scrapyard's traps at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame);
+      await page.goto('/game/scrapyard?view=traps');
+      await expect(page.getByTestId('scrapyard-view-traps')).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await settleFonts(page);
+
+      await expectNothingOverflowsTheScreen(page);
+      await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/visual/scrapyard-traps-${tag}.png` });
     });
 
     /**
@@ -1706,7 +1819,7 @@ for (const size of VIEWPORTS) {
      * request, 2026-09-08).
      *
      * The page is the yard's level and seats and one button; the roster's Vehicles tab carries
-     * what the Workshop's yard assertion used to, a machine already in the yard and one held
+     * what the old Workshop's yard assertion used to, a machine already in the yard and one held
      * behind a blueprint saying so, and `units at` above sweeps that tab. Both get a screenshot,
      * which the Garage did not have at all when it landed: that is how a new full-width grid
      * reaches the board unreviewed.
@@ -1763,7 +1876,7 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('create-sheet')).toBeVisible();
       await settleFonts(page);
 
-      // The three fields the board asked for, and the control that draws the badge.
+      // The three fields the maintainer asked for, and the control that draws the badge.
       await expect(page.getByTestId('faction-name')).toBeVisible();
       await expect(page.getByTestId('faction-blurb')).toBeVisible();
       await expect(page.getByTestId('badge-shape-shield')).toBeVisible();
@@ -1996,7 +2109,7 @@ test('typography survives with every third-party origin unreachable', async ({ p
  *
  * The bar is a row of instruments and its recurring failure is that an instrument grows with its
  * reading. A long notoriety rank, a seven-figure stockpile and a maximum-length crew name each
- * used to widen their own plate and push everything to the right of them along; the board hit that
+ * used to widen their own plate and push everything to the right of them along; the maintainer hit that
  * and screenshotted a rank sitting over the doors.
  *
  * These are pixel assertions on purpose. jsdom has no layout engine, so a unit test can check that
@@ -2031,7 +2144,7 @@ test.describe('the standing bar does not resize itself', () => {
    *
    * The bar has two regimes: an authored two-tier break below 1550, and a plain flex row above it.
    * The matrix skips from 1440 straight to 1920, so the whole middle regime went unmeasured, and
-   * that is where the board's screenshot came from: a centred grid, since removed, engaged at 1500
+   * that is where the maintainer's screenshot came from: a centred grid, since removed, engaged at 1500
    * while needing about 1960, promised each side more room than the frame had, and ran the
    * stockpile over the identity plaque. Every boundary is sampled on both sides.
    *
@@ -2057,7 +2170,7 @@ test.describe('the standing bar does not resize itself', () => {
        * Every labelled box in the bar against every other, not a hand-listed few.
        *
        * The narrower check below names four selectors and misses the doors, which is exactly what
-       * the plaque was overlapping in the board's screenshot: the test was looking at the two
+       * the plaque was overlapping in the maintainer's screenshot: the test was looking at the two
        * things that did not collide. Containment is skipped, because a chip inside a chip is not
        * an overlap.
        */
@@ -2157,7 +2270,7 @@ test.describe('the standing bar does not resize itself', () => {
      * Fixed columns are only half the rule: the other half is that the figure still *fits*.
      *
      * `truncate` keeps an absurd number from shoving the bar apart, but a truncated number is a
-     * lie: `9,999,9...` reads as a different score. The board's bar is worth nothing if it is
+     * lie: `9,999,9...` reads as a different score. the maintainer's bar is worth nothing if it is
      * wrong, so at the largest figures the game can produce, nothing in it may be cut off.
      */
     test(`shows every figure in full at its largest at ${tag}`, async ({ page }) => {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The mark an officer gets for a role (board brief, 2026-09-03).
+ * The mark an officer gets for a role (maintainer brief, 2026-09-03).
  *
  * A role already scores a sheet, server-side: the weighted mean of the attributes that role cares
  * about, a number the player has never seen. A mark is that number said out loud,

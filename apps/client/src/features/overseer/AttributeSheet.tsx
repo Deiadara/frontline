@@ -57,7 +57,7 @@ function AttributeRow({
     // figure that takes only the width its digits need. The bar version can afford 8px and a
     // fixed 24px column because it is only ever drawn where there is room for it; spending the
     // same here truncated `Communication` in a 122px column, which the layout gate reads as a cut
-    // label and the board's bar forbids.
+    // label and the maintainer's bar forbids.
     <li
       data-testid={importance === null ? undefined : `attr-${name}`}
       data-importance={importance ?? undefined}
@@ -132,7 +132,7 @@ function AttributeRow({
  * into rather than the width of the window. A media query got this wrong in the obvious way: the
  * Bar's recruit cards are two to a row on a wide screen, so at 1440 they took the four-column
  * branch inside a 590px card and truncated every label to `Stren…`, which is a cut label and the
- * one thing the board's bar forbids outright.
+ * one thing the maintainer's bar forbids outright.
  */
 export function AttributeSheet({
   attributes,
@@ -157,7 +157,7 @@ export function AttributeSheet({
    * The bar costs about 50px of row, which is what a column needs to hold `Communication` whole
    * beside it. In a 488px character-select card four groups leave 122px each: enough for the word
    * and the figure, which is what that card showed before, and not enough for a bar as well. The
-   * choice there is the bar or a cut label, and a cut label is the one the board's bar forbids.
+   * choice there is the bar or a cut label, and a cut label is the one the maintainer's bar forbids.
    */
   bars?: boolean;
   /**

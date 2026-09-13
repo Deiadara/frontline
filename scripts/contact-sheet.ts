@@ -238,7 +238,7 @@ function sheetSvg(cells: readonly Cell[], counts: Tally, layout: Layout): string
  * Whether librsvg found a font to draw with.
  *
  * It renders text as nothing at all when fontconfig turns up empty, which would produce a sheet of
- * unlabelled thumbnails: the one thing the board asked this image for is which key each picture is.
+ * unlabelled thumbnails: the one thing the maintainer asked this image for is which key each picture is.
  * A silent miss is worth one 200×40 raster to rule out.
  */
 export async function fontsRender(): Promise<boolean> {
@@ -357,7 +357,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 
   // The §6 transparency floor, reported here as well as in the test suite: this is the command
-  // `assets/README.md` sends the board to run after a drop, and the repo has no CI, so vitest only
+  // `assets/README.md` sends the maintainer to run after a drop, and the repo has no CI, so vitest only
   // fires when an agent runs the gates. A thumbnail cannot show the failure either: an opaque
   // foreground plane looks like perfectly good art in its cell, and blankets the map in the game.
   for (const problem of await auditDeliveries(options.assetDir)) {

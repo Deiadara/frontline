@@ -19,7 +19,7 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { defaultScout, planScout, sendScout, settleScouting } from './scouting.js';
 
 /**
- * §A4: scouting as a journey (board rework).
+ * §A4: scouting as a journey (maintainer rework).
  *
  * The old scout was a button that opened ground on the spot, from anywhere, free. What replaced it
  * is one officer walking there, spending time on it, and walking back. These tests are about the
@@ -281,7 +281,7 @@ describe('what it costs, and who pays it', () => {
   });
 
   /**
-   * ...unless the crew has bought a second party (`scout_parties`, board brief 2026-09-09).
+   * ...unless the crew has bought a second party (`scout_parties`, maintainer brief 2026-09-09).
    *
    * The door's only limit is a count of officers on the road, so widening it is the one thing that
    * buys a crew a second answer tonight: no percentage off `scoutRunMinutes` ever does, because a
@@ -364,9 +364,48 @@ describe('what it costs, and who pays it', () => {
   });
 });
 
+/**
+ * The walk out, frozen on the row (bug pass, 2026-09-13).
+ *
+ * A recall is the first tenth of the way out, and the way out is the walk. It used to be read back
+ * off the mark as half the round trip, which is the walk plus half the looking: with a slow officer
+ * on near ground the window was still open hours after they had arrived, and the walk home was then
+ * charged as time elapsed rather than as distance covered.
+ */
+describe('what a recall is measured against', () => {
+  it('freezes the walk out, not half the whole run', async () => {
+    const stack = await makeStack('walkout');
+    hire(stack, 5, 'trader');
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const officer = base.commanders[0]!;
+    const districtId = await darkDistrict(stack);
+    const now = new Date();
+
+    const plan = planScout(stack.app.repos, base, districtId, officer, now)!;
+    // Priced independently of the plan: the walk is the shared road clock at this officer's own
+    // speed with the crew's holdings, and the looking is their sheet. Neither is read back off the
+    // other, which is the mistake being guarded.
+    const effects = standingEffectsFor(stack.app.repos, base);
+    const walk = travelMinutesBetween(findDistrict(base.districtId)!, findDistrict(districtId)!, {
+      speed: officerBattleStats(officer.attributes).speed,
+      reductionPercent: effects.travelSpeedPercent,
+      flatMinutesOff: effects.roadMinutesOff,
+    });
+    expect(plan.travelMinutes).toBe(walk);
+    // The looking is real, so half the mark is strictly longer than the walk. That gap is the bug.
+    expect(plan.minutes / 2).toBeGreaterThan(walk);
+
+    const sent = sendScout(stack.app.repos, { base, districtId, officerId: officer.id, now });
+    expect(sent.kind).toBe('sent');
+    if (sent.kind !== 'sent') return;
+    expect(sent.run.travelMinutes).toBe(walk);
+    expect(stack.app.repos.scouting.activeFor(base.id)[0]?.travelMinutes).toBe(walk);
+  });
+});
+
 describe('the ground a new crew starts with', () => {
   /**
-   * One district open from the first minute (board request).
+   * One district open from the first minute (maintainer request).
    *
    * Scouting costs an officer and hours, and a new crew has neither, so a wholly fogged start is a
    * first session that opens with a wait before the first mission board can be read.

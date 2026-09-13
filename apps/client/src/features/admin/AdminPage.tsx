@@ -1,13 +1,19 @@
 import {
+  BLUEPRINT_CATEGORIES,
+  BLUEPRINT_CATEGORY_LABELS,
   BUILDING_CATALOG,
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
   CITY_DISTRICTS,
   districtDisplayName,
+  OFFICER_ROLE_LABELS,
+  OFFICER_ROLES,
   RESOURCE_KEYS,
+  type AdminGrantRequest,
   type AdminKnobsRequest,
   type AdminSnapshot,
   type BuildingKind,
+  type OfficerRole,
   type ResourceKey,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
@@ -18,7 +24,13 @@ import { NumberField } from '../../components/ui/NumberField';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
-import { useAdmin, useAdminFog, useAdminKnobs, useAdminMockBattle } from '../../lib/queries';
+import {
+  useAdmin,
+  useAdminFog,
+  useAdminGrant,
+  useAdminKnobs,
+  useAdminMockBattle,
+} from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
@@ -285,9 +297,110 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
   );
 }
 
+/**
+ * Grants (maintainer request, 2026-09-11): the documents, pages, parts and rungs a reviewer needs to
+ * see the yard at mid and late game.
+ *
+ * Every Scrapyard bench draws only what the crew holds the drawings for, so without this the only
+ * way to look at an advanced bracket was to collect its pages honestly. These are additive: a
+ * grant on top of a satchel is a satchel with more in it.
+ */
+function GrantsPanel() {
+  const grant = useAdminGrant();
+  const [parts, setParts] = useState(20);
+  const [track, setTrack] = useState<OfficerRole>('security_officer');
+  const button = (label: string, body: AdminGrantRequest, testId: string) => (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={grant.isPending}
+      onClick={() => grant.mutate(body)}
+      data-testid={testId}
+    >
+      {label}
+    </Button>
+  );
+  return (
+    <Panel title="Grants for testing">
+      <div className="flex flex-col gap-4 p-4" data-testid="admin-grants">
+        <div className="flex flex-col gap-1.5">
+          <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
+            Blueprints, assembled
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {button('Every document', { blueprints: 'all' }, 'admin-grant-blueprints')}
+            {BLUEPRINT_CATEGORIES.map((category) =>
+              button(
+                BLUEPRINT_CATEGORY_LABELS[category],
+                { blueprints: category },
+                `admin-grant-blueprints-${category}`,
+              ),
+            )}
+          </div>
+          <span className="font-body text-[12px] text-ink-300">
+            Puts the finished document in the satchel, so the yard's rows open at once.
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          {button('One of every page', { pages: 'all' }, 'admin-grant-pages')}
+          <label className="flex flex-col gap-1.5">
+            <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
+              Of every part
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              value={parts}
+              onChange={(event) =>
+                setParts(Math.min(999, Math.max(1, Math.trunc(Number(event.target.value)))))
+              }
+              data-testid="admin-grant-parts"
+              className="w-24 rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] tabular-nums text-ink-100"
+            />
+          </label>
+          {button('Fill the parts bin', { parts }, 'admin-grant-parts-go')}
+        </div>
+
+        <div className="flex flex-wrap items-end gap-3">
+          {button('Finish every research rung', { technologies: 'all' }, 'admin-grant-research')}
+          <label className="flex flex-col gap-1.5">
+            <span className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-ink-200">
+              One track
+            </span>
+            <select
+              value={track}
+              onChange={(event) => setTrack(event.target.value as OfficerRole)}
+              data-testid="admin-grant-track"
+              className="rounded-sm border border-surface-600 bg-surface-950 px-2.5 py-2 text-[13px] text-ink-100"
+            >
+              {OFFICER_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {OFFICER_ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {button('Finish that track', { technologies: track }, 'admin-grant-track-go')}
+          <span className="font-body text-[12px] text-ink-300">
+            A trap wants its Lab rung as well as its document.
+          </span>
+        </div>
+
+        {grant.error !== null && (
+          <p role="alert" className="font-body text-[13px] text-oxblood-300">
+            {grant.error.message}
+          </p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 /** What is on disk, so a restore can be chosen without an ssh session. */
 /**
- * Fog of war (board request).
+ * Fog of war (maintainer request).
  *
  * In admin mode every district is scouted, so a reviewer can open any screen without sending a
  * scout and waiting. This is where a district is un-ticked to look at the unscouted state of it.
@@ -532,6 +645,7 @@ export function AdminPage() {
         <FogPanel snapshot={snapshot} />
         <div className="flex flex-col gap-5">
           <StateKnobs snapshot={snapshot} />
+          <GrantsPanel />
           <FightsPanel />
           <BackupsPanel snapshot={snapshot} />
         </div>

@@ -20,7 +20,7 @@ import { releaseHover } from './parts';
  * along its foot, the leader in the middle: the seat's card (`CardGlyph`), a name and a rank, or a
  * marked spare chair. The painted people stay the picture; nothing hangs on a face (`seats.ts`).
  *
- * Nothing on this screen touches `features/bar`; the room borrowed the Bar's plate until the board
+ * Nothing on this screen touches `features/bar`; the room borrowed the Bar's plate until the maintainer
  * delivered this one.
  */
 

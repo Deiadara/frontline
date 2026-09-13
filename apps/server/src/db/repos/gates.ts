@@ -21,6 +21,7 @@ interface GateRow {
   level: number;
   upgrading_to: number | null;
   upgrading_until: string | null;
+  upgrading_since: string | null;
 }
 
 const rowToGate = (row: GateRow): CapturedGate =>
@@ -29,6 +30,7 @@ const rowToGate = (row: GateRow): CapturedGate =>
     level: row.level,
     upgradingTo: row.upgrading_to,
     upgradingUntil: row.upgrading_until,
+    upgradingSince: row.upgrading_since,
   });
 
 export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
@@ -38,12 +40,13 @@ export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
     'SELECT * FROM captured_gates WHERE upgrading_until IS NOT NULL AND upgrading_until <= ?',
   );
   const putStmt = db.prepare(
-    `INSERT INTO captured_gates (district_id, level, upgrading_to, upgrading_until)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO captured_gates (district_id, level, upgrading_to, upgrading_until, upgrading_since)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (district_id) DO UPDATE SET
        level = excluded.level,
        upgrading_to = excluded.upgrading_to,
-       upgrading_until = excluded.upgrading_until`,
+       upgrading_until = excluded.upgrading_until,
+       upgrading_since = excluded.upgrading_since`,
   );
 
   return {
@@ -58,7 +61,13 @@ export function createCapturedGatesRepo(db: AppDatabase): CapturedGatesRepo {
       return (dueStmt.all(at) as GateRow[]).map(rowToGate);
     },
     put(gate) {
-      putStmt.run(gate.districtId, gate.level, gate.upgradingTo, gate.upgradingUntil);
+      putStmt.run(
+        gate.districtId,
+        gate.level,
+        gate.upgradingTo,
+        gate.upgradingUntil,
+        gate.upgradingSince,
+      );
     },
   };
 }

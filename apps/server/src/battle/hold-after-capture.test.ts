@@ -210,7 +210,7 @@ describe('what happens to the crew that took the location', () => {
     // than passing because the roster was already whole.
     expect(garrisonOf(stack), 'nobody was left to pull out').toEqual({ razors: 4 });
 
-    // The withdraw the board asked for is the garrison call with a negative delta. There is no
+    // The withdraw the maintainer asked for is the garrison call with a negative delta. There is no
     // second endpoint, and this is the half of "unless they are pulled out" that makes the other
     // half safe to offer.
     const pulled = await stack.app.inject({

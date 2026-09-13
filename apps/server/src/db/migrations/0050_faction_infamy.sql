@@ -1,4 +1,4 @@
--- What a faction has earned, as opposed to what its members happen to be holding (board request).
+-- What a faction has earned, as opposed to what its members happen to be holding (maintainer request).
 --
 -- Team infamy is **not** the sum of the members' current infamy, and the difference matters twice:
 --

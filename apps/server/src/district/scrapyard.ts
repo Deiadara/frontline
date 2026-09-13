@@ -23,28 +23,37 @@ import {
   isAdvancedUpgrade,
   modificationGateMet,
   modificationPrice,
+  scrapyardDiscountPercent,
+  scrapyardLevelForModification,
+  scrapyardLevelForTrap,
+  scrapyardLevelForUpgrade,
+  scrapyardLevelRefusal,
+  scrapyardPrice,
+  discounted,
   spendResources,
   upgradePrice,
   type AddonKind,
   type Base,
   type ItemId,
   type ModificationSpec,
+  type PartialResources,
   type ScrapyardEntry,
   type ScrapyardResponse,
   type TrapSpec,
   type UpgradeSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { tallyAddonBuilt } from '../feats/tally.js';
 
 /**
  * The Scrapyard's own page (§B9).
  *
- * One list of everything the yard can turn out: the fifty-five building modifications and the nine
+ * One list of everything the yard can turn out: the seventy-seven building modifications and the twelve
  * unit upgrades, side by side, because they are the same kind of object to a player. Both are a
  * permanent thing bolted to something they already own, both cost scrap and, past the cheap end,
  * high-quality metal, and both mostly want a blueprint first.
  *
- * **No other resource appears on those two**, which is the board's rule and is enforced by
+ * **No other resource appears on those two**, which is the maintainer's rule and is enforced by
  * `modificationPrice` and `upgradePrice` rather than trusted: neither can return a caps line.
  *
  * The traps (§I4) are the third bench and the exception, deliberately. They are priced by
@@ -59,6 +68,39 @@ import type { Repositories } from '../db/repos/index.js';
 
 /** The Scrapyard has to be standing to build anything: this is its shop. */
 export const SCRAPYARD_REQUIRED_LEVEL = 1;
+
+/**
+ * What the ground takes off a refit, on top of the yard's own level (maintainer request, 2026-09-10).
+ *
+ * The Armory's favour (`refitDiscountPercent`) used to be honoured by the Workshop's route and
+ * nowhere else, so the same Composite Weave had two prices depending on which door a player came
+ * through. The Workshop is gone and this is the one door, so its standing rides in here: the
+ * route reads it off `standingEffectsFor` and a caller with no crew to hand gets the bare bill.
+ */
+export interface YardStanding {
+  refitDiscountPercent: number;
+}
+const NO_STANDING: YardStanding = { refitDiscountPercent: 0 };
+
+/** The yard's own level, which every price and every gate on this page reads. */
+const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapyard');
+
+/**
+ * Every price the yard quotes, in one place: the list price, then the ground's cut on a refit,
+ * then the yard's own level. Floored at one per line by `scrapyardPrice`, so nothing is free.
+ */
+function modificationBill(base: Base, spec: ModificationSpec): PartialResources {
+  return scrapyardPrice(modificationPrice(spec), yardLevel(base));
+}
+function upgradeBill(base: Base, spec: UpgradeSpec, standing: YardStanding): PartialResources {
+  return scrapyardPrice(
+    discounted(upgradePrice(spec), standing.refitDiscountPercent),
+    yardLevel(base),
+  );
+}
+function trapBill(base: Base, spec: TrapSpec): PartialResources {
+  return scrapyardPrice(spec.cost, yardLevel(base));
+}
 
 /**
  * The document a Scrapyard entry is behind (§D12f, §D12g), named, or null when nothing gates it.
@@ -83,13 +125,15 @@ function documentFor(spec: ModificationSpec | UpgradeSpec): string | null {
  * the drawings sends them to the wrong building.
  */
 function trapBlockerFor(base: Base, spec: TrapSpec): string | null {
+  const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForTrap(spec));
+  if (shut !== null) return shut;
   if (!blueprintGateMet(base.inventory, 'trap', spec.id)) {
     return describeBlueprintGate('trap', spec.id);
   }
   if (!base.research.technologies.includes(spec.requiresTech)) {
     return `Needs ${findTech(spec.requiresTech)?.name ?? spec.requiresTech} from the Lab`;
   }
-  return canAfford(base.resources, spec.cost) ? null : 'You cannot cover that';
+  return canAfford(base.resources, trapBill(base, spec)) ? null : 'You cannot cover that';
 }
 
 /**
@@ -102,12 +146,16 @@ function describeTrap(spec: TrapSpec): string {
   return `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} bodies`;
 }
 
-function upgradeBlockerFor(base: Base, spec: UpgradeSpec): string | null {
+function upgradeBlockerFor(base: Base, spec: UpgradeSpec, standing: YardStanding): string | null {
   if (base.fittedUpgrades.includes(spec.id)) return null;
   const previous = UNIT_UPGRADES.find(
     (other) => other.line === spec.line && other.tier === spec.tier - 1,
   );
   if (previous && !base.fittedUpgrades.includes(previous.id)) return `Build ${previous.name} first`;
+  // The yard's own level, before the document: a crew four pages short of the drawings and three
+  // levels short of the yard has to raise the yard first either way.
+  const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForUpgrade(spec));
+  if (shut !== null) return shut;
   if (!blueprintGateMet(base.inventory, 'unit_upgrade', spec.id)) {
     return `Needs the ${documentFor(spec)}`;
   }
@@ -130,7 +178,9 @@ function upgradeBlockerFor(base: Base, spec: UpgradeSpec): string | null {
     const [item, count] = missing;
     return `Needs ${count} ${ITEM_CATALOG[item as ItemId]?.name ?? item}`;
   }
-  return canAfford(base.resources, upgradePrice(spec)) ? null : 'You cannot cover that';
+  return canAfford(base.resources, upgradeBill(base, spec, standing))
+    ? null
+    : 'You cannot cover that';
 }
 
 /**
@@ -145,13 +195,18 @@ function upgradeBlockerFor(base: Base, spec: UpgradeSpec): string | null {
 function modificationBlockerFor(base: Base, id: string): string | null {
   const spec = findModification(id);
   if (!spec) return 'No such add-on';
+  const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForModification(spec));
+  if (shut !== null) return shut;
   if (!modificationGateMet(base.inventory, spec)) return `Needs the ${documentFor(spec)}`;
   // The Lab project that used to sit between the drawings and the yard is gone with the desk: a
   // crew holding the structure's retrofit blueprint can cut any of its advanced add-ons.
-  return canAfford(base.resources, modificationPrice(spec)) ? null : 'You cannot cover that';
+  return canAfford(base.resources, modificationBill(base, spec)) ? null : 'You cannot cover that';
 }
 
-export function projectScrapyard(base: Base): ScrapyardResponse {
+export function projectScrapyard(
+  base: Base,
+  standing: YardStanding = NO_STANDING,
+): ScrapyardResponse {
   const addons = addonsOf(base);
   const owned = (id: string): number => addons.built.filter((built) => built === id).length;
 
@@ -162,10 +217,12 @@ export function projectScrapyard(base: Base): ScrapyardResponse {
     description: spec.description,
     building: spec.building,
     effect: describeAddonEffect(spec),
-    cost: modificationPrice(spec),
+    cost: modificationBill(base, spec),
     advanced: isAdvancedModification(spec),
     blueprint: documentFor(spec),
     owned: owned(spec.id),
+    requiresLevel: scrapyardLevelForModification(spec),
+    documentHeld: modificationGateMet(base.inventory, spec),
     blocker: modificationBlockerFor(base, spec.id),
   }));
 
@@ -176,11 +233,13 @@ export function projectScrapyard(base: Base): ScrapyardResponse {
     description: spec.description,
     building: null,
     effect: describeAddonEffect(spec),
-    cost: upgradePrice(spec),
+    cost: upgradeBill(base, spec, standing),
     advanced: isAdvancedUpgrade(spec),
     blueprint: documentFor(spec),
     owned: base.fittedUpgrades.includes(spec.id) ? 1 : 0,
-    blocker: base.fittedUpgrades.includes(spec.id) ? null : upgradeBlockerFor(base, spec),
+    requiresLevel: scrapyardLevelForUpgrade(spec),
+    documentHeld: blueprintGateMet(base.inventory, 'unit_upgrade', spec.id),
+    blocker: base.fittedUpgrades.includes(spec.id) ? null : upgradeBlockerFor(base, spec, standing),
   }));
 
   /*
@@ -201,15 +260,18 @@ export function projectScrapyard(base: Base): ScrapyardResponse {
     description: spec.description,
     building: null,
     effect: describeTrap(spec),
-    cost: spec.cost,
+    cost: trapBill(base, spec),
     advanced: (spec.cost.highQualityMetal ?? 0) > 0,
     blueprint: blueprintForTrap(spec.id)?.name ?? null,
     owned: itemCount(base.inventory, spec.id as ItemId),
+    requiresLevel: scrapyardLevelForTrap(spec),
+    documentHeld: blueprintGateMet(base.inventory, 'trap', spec.id),
     blocker: trapBlockerFor(base, spec),
   }));
 
   return {
-    scrapyardLevel: buildingLevel(base.buildings, 'scrapyard'),
+    scrapyardLevel: yardLevel(base),
+    discountPercent: scrapyardDiscountPercent(yardLevel(base)),
     resources: base.resources,
     entries: [...modifications, ...upgrades, ...traps],
   };
@@ -230,6 +292,7 @@ export function buildAddon(
   base: Base,
   kind: AddonKind,
   id: string,
+  standing: YardStanding = NO_STANDING,
 ): AddonBuildResult {
   if (buildingLevel(base.buildings, 'scrapyard') < SCRAPYARD_REQUIRED_LEVEL) {
     return { kind: 'refused', reason: 'Build the Scrapyard first' };
@@ -249,10 +312,13 @@ export function buildAddon(
 
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, spec.cost),
+      resources: spendResources(base.resources, trapBill(base, spec)),
       inventory: addItems(base.inventory, { [spec.id]: 1 }),
     };
     repos.bases.updateHoldings(built.id, built.resources, built.inventory);
+    // Feats: a trap counts as a trap and as a fitting, because the two ladders are asking
+    // different questions and a trap is an honest answer to both. See `tallyAddonBuilt`.
+    tallyAddonBuilt(repos, built.id, true);
     return { kind: 'built', base: built };
   }
 
@@ -265,23 +331,24 @@ export function buildAddon(
     const addons = addonsOf(base);
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, modificationPrice(spec)),
+      resources: spendResources(base.resources, modificationBill(base, spec)),
       addons: { ...addons, built: [...addons.built, spec.id] },
     };
     repos.bases.updateResources(built.id, built.resources);
     repos.bases.updateAddons(built.id, built.addons ?? addons);
+    tallyAddonBuilt(repos, built.id, false);
     return { kind: 'built', base: built };
   }
 
   const spec = findUpgrade(id);
   if (!spec) return { kind: 'refused', reason: 'No such add-on' };
   if (base.fittedUpgrades.includes(spec.id)) return { kind: 'refused', reason: 'Already built' };
-  const blocker = upgradeBlockerFor(base, spec);
+  const blocker = upgradeBlockerFor(base, spec, standing);
   if (blocker !== null) return { kind: 'refused', reason: blocker };
 
   const built: Base = {
     ...base,
-    resources: spendResources(base.resources, upgradePrice(spec)),
+    resources: spendResources(base.resources, upgradeBill(base, spec, standing)),
     // Spent, not merely checked. A requirement that is verified and never consumed is a one-off
     // toll that buys every upgrade in the line for ever.
     inventory: removeItems(base.inventory, spec.parts),
@@ -289,5 +356,6 @@ export function buildAddon(
   };
   repos.bases.updateHoldings(built.id, built.resources, built.inventory);
   repos.bases.updateUpgrades(built.id, built.fittedUpgrades);
+  tallyAddonBuilt(repos, built.id, false);
   return { kind: 'built', base: built };
 }

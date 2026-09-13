@@ -173,7 +173,7 @@ export type HoldBonus =
    */
   | { kind: 'population'; flat: number }
   /*
-   * The rules (board brief, 2026-09-09).
+   * The rules (maintainer brief, 2026-09-09).
    *
    * Everything above this line is a figure going up or a price coming down, and a catalogue of
    * nothing but those reads as one slider with forty labels on it. Each of these changes what
@@ -240,7 +240,7 @@ export type HoldBonus =
 /**
  * How far a location can be worked up, and what each level is worth.
  *
- * Ten levels, which is the shape the board asked for once holding ground became a progression
+ * Ten levels, which is the shape the maintainer asked for once holding ground became a progression
  * track rather than a three-step errand. A location is still a post on a board, and the
  * interesting question about a post is still whether it is worth pouring anything into when
  * somebody could take it tomorrow. What changed is the answer: a capture no longer resets the
@@ -1229,7 +1229,7 @@ export function upgradeNote(kind: LocationKind, level: number): string | null {
 /**
  * How hard a location is to dig into (§A4).
  *
- * Deliberately inverted against intuition, and the board asked for it that way: an *easy* location
+ * Deliberately inverted against intuition, and the maintainer asked for it that way: an *easy* location
  * to fortify pays the most per level. The rubble-and-rebar barricade you can add to all afternoon
  * is worth more per level than the spire you can barely drill into: the hard ones are already
  * defensible, so what you can add to them is marginal.

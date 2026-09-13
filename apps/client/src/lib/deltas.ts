@@ -1,5 +1,6 @@
 import { PLAYER_LEVEL_MIN, playerXpToNextLevel } from '@frontline/shared';
 import { useEffect, useRef, useState } from 'react';
+import { recentPress, type Press } from './lastPress';
 
 /**
  * One figure floating off a readout: `-1,200` when the crew spent it, `+400` when it landed.
@@ -23,10 +24,30 @@ export interface DeltaMark {
    * figure appears and freed when it goes, so a figure never moves once it is on screen.
    */
   lane: number;
+  /**
+   * A price that was quoted and then not taken (admin mode, `admin/mode.ts`).
+   *
+   * The testing build waives every training, build and research bill while still quoting it, so
+   * the stockpile never moves and the diff below has nothing to say. The board still wants the
+   * receipt: pressing Train and seeing nothing reads as a button that did not work. So the client
+   * announces the quoted bill itself ({@link announceWaived}), and the figure says it was waived
+   * rather than pretending the number went down.
+   */
+  waived?: boolean;
+  /**
+   * The button press this figure answers, when one was made just before it appeared.
+   *
+   * Stamped on the figure the moment it is minted rather than read when it is drawn (board
+   * request, 2026-09-12): two presses a second apart on two cards each mint their own figures, and
+   * a readout that looked up "the last press" when it drew put both under whichever button was
+   * pressed last. Absent for a move nobody pressed a button for, a mission home or a fight
+   * settled, which is drawn on its chip at the top of the screen instead.
+   */
+  press?: Press;
 }
 
 /** How long a figure stays up. Matches the `delta-rise` keyframes in `index.css`. */
-export const DELTA_MS = 2400;
+export const DELTA_MS = 3400;
 
 /** What the client can see of the passive output behind a reading. */
 export interface TrickleRates<K extends string> {
@@ -232,14 +253,19 @@ export function useDeltaMarks<K extends string>(
     if (moved.length === 0) return;
 
     // The figures are minted here rather than inside the updater below, so their ids are fixed
-    // whatever React does with the updater (it may call it more than once).
+    // whatever React does with the updater (it may call it more than once). The press they
+    // answer is read once, here, for the same reason.
+    const press = recentPress() ?? undefined;
     const fresh = moved.map(([key, amount]) => ({ key, id: (nextId += 1), amount }));
 
     setMarks((live) => {
       const next = { ...live };
       for (const { key, id, amount } of fresh) {
         const standing = next[key] ?? [];
-        next[key] = [...standing, { id, amount, lane: freeLane(standing) }];
+        next[key] = [
+          ...standing,
+          { id, amount, lane: freeLane(standing), ...(press ? { press } : {}) },
+        ];
       }
       return next;
     });
@@ -257,6 +283,76 @@ export function useDeltaMarks<K extends string>(
     }, DELTA_MS);
     timers.current.add(timer);
   }, [values, trickle]);
+
+  return marks;
+}
+
+// --- receipts the stockpile cannot show ------------------------------------------------------
+
+type Announced = Readonly<Partial<Record<string, number | undefined>>>;
+const listeners = new Set<(bill: Announced) => void>();
+
+/**
+ * Say what a press would have cost, when the mode did not charge it.
+ *
+ * Called by the screen that pressed, with the same bill it quoted on the button, and only when
+ * `/me` says admin mode is on: with the mode off the stockpile falls and {@link useDeltaMarks}
+ * throws the real figure, and announcing as well would show the bill twice.
+ */
+export function announceWaived(bill: Announced): void {
+  const spent = Object.fromEntries(Object.entries(bill).filter(([, amount]) => (amount ?? 0) > 0));
+  if (Object.keys(spent).length === 0) return;
+  for (const listener of listeners) listener(spent);
+}
+
+/**
+ * The announced receipts, as figures, keyed the way {@link useDeltaMarks} keys its own so a chip
+ * can draw both lists as one.
+ */
+export function useAnnouncedMarks(): Record<string, readonly DeltaMark[]> {
+  const [marks, setMarks] = useState<Record<string, readonly DeltaMark[]>>({});
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const running = timers.current;
+    const hear = (bill: Announced) => {
+      const press = recentPress() ?? undefined;
+      const fresh = Object.entries(bill).map(([key, amount]) => ({
+        key,
+        id: (nextId += 1),
+        amount: -Math.round(amount ?? 0),
+      }));
+      setMarks((live) => {
+        const next = { ...live };
+        for (const { key, id, amount } of fresh) {
+          const standing = next[key] ?? [];
+          next[key] = [
+            ...standing,
+            { id, amount, lane: freeLane(standing), waived: true, ...(press ? { press } : {}) },
+          ];
+        }
+        return next;
+      });
+      const timer = setTimeout(() => {
+        running.delete(timer);
+        const gone = new Set(fresh.map((mark) => mark.id));
+        setMarks((live) => {
+          const next = { ...live };
+          for (const { key } of fresh) {
+            next[key] = (next[key] ?? []).filter((mark) => !gone.has(mark.id));
+          }
+          return next;
+        });
+      }, DELTA_MS);
+      running.add(timer);
+    };
+    listeners.add(hear);
+    return () => {
+      listeners.delete(hear);
+      for (const timer of running) clearTimeout(timer);
+      running.clear();
+    };
+  }, []);
 
   return marks;
 }

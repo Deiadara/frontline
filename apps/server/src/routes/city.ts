@@ -11,15 +11,28 @@ import {
   type CityMutationResponse,
   type CityResponse,
   type DistrictDetailResponse,
+  CancelLocationWorkRequestSchema,
+  RecallScoutRequestSchema,
+  CancelGateRaiseRequestSchema,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { setGarrison, startFortifying, type CityRefusal } from '../city/actions.js';
+import {
+  cancelFortifying,
+  setGarrison,
+  startFortifying,
+  type CityRefusal,
+} from '../city/actions.js';
 import { projectCity, projectDistrict } from '../city/view.js';
-import { UPGRADE_REFUSALS, startUpgrade, type UpgradeRefusal } from '../city/upgrade.js';
+import {
+  UPGRADE_REFUSALS,
+  cancelUpgrade,
+  startUpgrade,
+  type UpgradeRefusal,
+} from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { sendScout } from '../scouting/scouting.js';
-import { raiseCapturedGate } from '../city/gates.js';
+import { recallScout, sendScout } from '../scouting/scouting.js';
+import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
 import { settleWorld } from '../world/settle.js';
 
 /**
@@ -43,6 +56,11 @@ const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> 
   },
   not_held: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },
   not_contested: { code: 'INVALID_TARGET', message: 'There is nothing there to take' },
+  nothing_running: { code: 'NOT_FOUND', message: 'Nothing is under way there' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'The work has gone too far to stop. It finishes now',
+  },
   at_max_fortification: {
     code: 'PLACE_UNAVAILABLE',
     message: 'It is as dug in as that ground allows',
@@ -64,10 +82,44 @@ const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: str
   own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
 };
 
-function refuseScout(reason: ScoutRefusal): never {
+/** The table above, unless the refusal came with a sentence about the person it turned away. */
+function refuseScout(reason: ScoutRefusal, detail?: string): never {
   const { code, message } = SCOUT_REFUSAL_ERRORS[reason];
-  throw new AppError(code, message);
+  throw new AppError(code, detail ?? message);
 }
+
+const WORK_CANCEL_ERRORS: Record<
+  'not_yours' | 'nothing_running' | 'window_closed',
+  { code: ErrorCode; message: string }
+> = {
+  not_yours: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },
+  nothing_running: { code: 'NOT_FOUND', message: 'Nothing is under way there' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'The work has gone too far to stop. It finishes now',
+  },
+};
+const SCOUT_RECALL_ERRORS: Record<
+  'nobody_out' | 'window_closed',
+  { code: ErrorCode; message: string }
+> = {
+  nobody_out: { code: 'NOT_FOUND', message: 'Nobody of yours is out' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'They are too far down the road to call back. They will be home when they are home',
+  },
+};
+const GATE_CANCEL_ERRORS: Record<
+  'not_held' | 'nothing_running' | 'window_closed',
+  { code: ErrorCode; message: string }
+> = {
+  not_held: { code: 'FORBIDDEN', message: 'You do not hold all of that district' },
+  nothing_running: { code: 'NOT_FOUND', message: 'Nothing is being raised there' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'The work has gone too far to stop. It finishes now',
+  },
+};
 
 function refuse(reason: CityRefusal): never {
   const { code, message } = REFUSAL_ERRORS[reason];
@@ -108,7 +160,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
   );
 
   /**
-   * §A4: send somebody to look at a district (board rework).
+   * §A4: send somebody to look at a district (maintainer rework).
    *
    * This used to open the ground on the spot. It now puts one officer on the road, and the ground
    * opens when they walk back in: see `scouting/scouting.ts` for what that costs and why.
@@ -132,13 +184,13 @@ export function registerCityRoutes(app: FastifyInstance): void {
         now,
       }),
     )();
-    if (outcome.kind === 'refused') refuseScout(outcome.reason);
+    if (outcome.kind === 'refused') refuseScout(outcome.reason, outcome.message);
 
     return { district: projectDistrict(app.repos, base, district, now), base };
   });
 
   /**
-   * §B7: raise the gate on a district this crew has taken whole (board request).
+   * §B7: raise the gate on a district this crew has taken whole (maintainer request).
    *
    * A separate route rather than a `buildQueue` entry, because a captured gate is not one of this
    * district's structures: it stands somewhere else, it has no Nexus over it, and it is inherited
@@ -188,6 +240,89 @@ export function registerCityRoutes(app: FastifyInstance): void {
    */
 
   /** §A4: leave units on a location you hold, or bring them home. */
+  /**
+   * Calling work off (maintainer request, 2026-09-12; `time/cancel.ts`). Four of them here, one shape:
+   * inside the first tenth, ninety percent back, and the district read back the way every other
+   * city write answers.
+   */
+  app.post(
+    '/city/cancel-upgrade',
+    { preHandler: app.authenticate },
+    (request): CityMutationResponse => {
+      const { locationId } = parseBody(CancelLocationWorkRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(app, request.currentUser.id, now);
+      const location = findLocation(locationId);
+      const district = location ? findDistrict(location.districtId) : undefined;
+      const control = app.repos.city.control(locationId);
+      if (!location || !district || !control) throw new AppError('NOT_FOUND', 'No such location');
+
+      const outcome = app.db.transaction(() =>
+        cancelUpgrade(app.repos, { base, location, control, now }),
+      )();
+      if (outcome.kind === 'refused') {
+        const { code, message } = WORK_CANCEL_ERRORS[outcome.reason];
+        throw new AppError(code, message);
+      }
+      return {
+        district: projectDistrict(app.repos, outcome.base, district, now),
+        base: outcome.base,
+      };
+    },
+  );
+
+  app.post(
+    '/city/cancel-fortify',
+    { preHandler: app.authenticate },
+    (request): CityMutationResponse => {
+      const { locationId } = parseBody(CancelLocationWorkRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(app, request.currentUser.id, now);
+      const location = findLocation(locationId);
+      const district = location ? findDistrict(location.districtId) : undefined;
+      if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
+
+      const outcome = app.db.transaction(() =>
+        cancelFortifying(app.repos, { base, location, now }),
+      )();
+      if (outcome.kind === 'refused') refuse(outcome.reason);
+      return {
+        district: projectDistrict(app.repos, outcome.base, district, now),
+        base: outcome.base,
+      };
+    },
+  );
+
+  app.post(
+    '/city/scout/recall',
+    { preHandler: app.authenticate },
+    (request): CityMutationResponse => {
+      parseBody(RecallScoutRequestSchema, request.body ?? {});
+      const now = new Date();
+      const base = settled(app, request.currentUser.id, now);
+      const outcome = app.db.transaction(() => recallScout(app.repos, base, now))();
+      if (outcome.kind === 'refused') {
+        const { code, message } = SCOUT_RECALL_ERRORS[outcome.reason];
+        throw new AppError(code, message);
+      }
+      const district = findDistrict(outcome.run.districtId);
+      if (!district) throw new AppError('NOT_FOUND', 'No such district');
+      return { district: projectDistrict(app.repos, base, district, now), base };
+    },
+  );
+
+  app.post('/city/gate/cancel', { preHandler: app.authenticate }, (request): CityResponse => {
+    const { districtId } = parseBody(CancelGateRaiseRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const outcome = app.db.transaction(() => cancelGateRaise(app.repos, base, districtId, now))();
+    if (outcome.kind === 'refused') {
+      const { code, message } = GATE_CANCEL_ERRORS[outcome.reason];
+      throw new AppError(code, message);
+    }
+    return projectCity(app.repos, outcome.base, now);
+  });
+
   app.post('/city/garrison', { preHandler: app.authenticate }, (request): CityMutationResponse => {
     const { locationId, changes } = parseBody(GarrisonRequestSchema, request.body);
     const now = new Date();

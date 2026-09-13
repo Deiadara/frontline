@@ -5,8 +5,10 @@ import {
   DeployRequestSchema,
   LayTrapRequestSchema,
   BuyBattleBoostRequestSchema,
+  LEADER_HOLD_MESSAGES,
   LeadBattleRequestSchema,
   TakeVehiclesRequestSchema,
+  UpgradeNotorietyRequestSchema,
   mergeFleets,
   officerIsInjured,
   removeFleet,
@@ -26,6 +28,7 @@ import {
   type BattlesResponse,
   type Base,
   type ItemId,
+  battleBoostSlots,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
@@ -35,8 +38,9 @@ import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
 import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
 import { projectActions, projectBattles } from './view.js';
 import { seatedRoles } from '../crew/roster.js';
+import { crewEffectsFor } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
-import { OFFICER_DUTY_MESSAGES, officerDuty } from '../crew/duty.js';
+import { officerDuty } from '../crew/duty.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
@@ -212,7 +216,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        *
        * A side can be several crews. The row holds a single id, so a crew cannot set two; an ally
        * reinforcing the defence setting a second one would be a row `springAnyTrap` reads and a
-       * second trap going off, which is not the one the board asked for.
+       * second trap going off, which is not the one the maintainer asked for.
        */
       const taken = app.repos.sieges
         .side(battle.id, side)
@@ -324,20 +328,42 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        * undimmed) all bill full price for a row that does not move. Swapping to a *different*
        * boost still pays again, which is the §D7 rule and is pinned by its own test.
        */
-      if (deployment.boostId === boostId) return respond(base, now);
+      /*
+       * A name is taken, never swapped or given back (maintainer request, 2026-09-12).
+       *
+       * The old route wrote the id over whatever was there, so a player could browse the list at
+       * the mark and the only cost of a change of mind was the second name's price. Taking one is
+       * final now: the same name twice is refused rather than silently charged again, and a crew
+       * at its cap is refused outright. The screen asks before it sends, so a refusal here is a
+       * second tab or a retried request rather than a surprise.
+       */
+      if (deployment.boostIds.includes(boostId)) {
+        throw new AppError('BOOST_REFUSED', 'That name is already on this fight');
+      }
+      const slots = battleBoostSlots(crewEffectsFor(app.repos, base).battleBoostsFlat);
+      if (deployment.boostIds.length >= slots) {
+        throw new AppError(
+          'BOOST_REFUSED',
+          slots === 1
+            ? 'One name to a fight. This one already has its name'
+            : `You may burn ${slots} names on a fight, and this one has them`,
+        );
+      }
 
       // A crate costs nothing here: it was paid for at the shelf. Only a name burns infamy.
       const left = spec ? spendInfamy(base.economy.infamy, spec.cost) : base.economy.infamy;
       if (left === null) throw new AppError('NOT_ENOUGH_INFAMY', 'Your name is not worth that yet');
-      app.repos.sieges.putDeployment({
-        ...deployment,
-        baseId: base.id,
-        boostId,
-        updatedAt: now.toISOString(),
-      });
-
       const economy = { ...base.economy, infamy: left };
-      app.repos.bases.updateEconomy(base.id, economy);
+      // The name and the bill, together: a boost written without its price is a free boost.
+      app.db.transaction(() => {
+        app.repos.sieges.putDeployment({
+          ...deployment,
+          baseId: base.id,
+          boostIds: [...deployment.boostIds, boostId],
+          updatedAt: now.toISOString(),
+        });
+        app.repos.bases.updateEconomy(base.id, economy);
+      })();
       return respond({ ...base, economy }, now);
     },
   );
@@ -402,7 +428,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        */
       const duty = officerDuty(app.repos, base, officer, now, battle.id);
       if (duty !== null) {
-        throw new AppError('FORBIDDEN', `${officer.name} ${OFFICER_DUTY_MESSAGES[duty]}`);
+        throw new AppError('FORBIDDEN', `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}`);
       }
     }
 
@@ -460,15 +486,19 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       }
 
       const fleet = removeFleet(available, vehicles);
-      app.repos.sieges.putDeployment({
-        ...deployment,
-        baseId: base.id,
-        vehicles,
-        updatedAt: now.toISOString(),
-      });
-      app.repos.bases.updateFleet(base.id, fleet);
-      // Whatever is already walking to this fight rides on the new set from here.
-      retimeColumns(app.repos, base, battleId, vehicles, now);
+      // Three writes that have to land together: a throw in the retime (a legacy row naming a
+      // district that is gone) otherwise left the yard short with the fight holding the machines.
+      app.db.transaction(() => {
+        app.repos.sieges.putDeployment({
+          ...deployment,
+          baseId: base.id,
+          vehicles,
+          updatedAt: now.toISOString(),
+        });
+        app.repos.bases.updateFleet(base.id, fleet);
+        // Whatever is already walking to this fight rides on the new set from here.
+        retimeColumns(app.repos, base, battleId, vehicles, now);
+      })();
       return respond({ ...base, fleet }, now);
     },
   );
@@ -510,9 +540,18 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     '/battles/notoriety',
     { preHandler: app.authenticate },
     (request): BattleMutationResponse => {
+      const { fromNotoriety } = parseBody(UpgradeNotorietyRequestSchema, request.body ?? {});
       const now = new Date();
       const base = settled(request.currentUser.id, now);
 
+      // The rung the screen was showing has to be the rung the row is on: a second press that
+      // named the old one bought a second rank, and a rank is not refundable.
+      if (fromNotoriety !== undefined && fromNotoriety !== base.economy.notoriety) {
+        throw new AppError(
+          'STALE_STATE',
+          'Your name has already moved. Read it again before buying.',
+        );
+      }
       const cost = notorietyUpgradeCost(base.economy.notoriety);
       if (cost === null) {
         throw new AppError('PLACE_UNAVAILABLE', 'There is no name above the one you have');

@@ -67,7 +67,7 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
 }
 
 /**
- * §A4: one district open from the first minute (board request).
+ * §A4: one district open from the first minute (maintainer request).
  *
  * Scouting is a journey now, and a new crew has nobody worth sending and nothing to do while they
  * walk. Starting wholly fogged in meant a first session that opens with a four-hour wait before

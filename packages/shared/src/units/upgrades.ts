@@ -11,12 +11,14 @@ import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  * that unit you will ever field, which is the version that respects a player's time: nobody wants
  * to re-buy a helmet for each recruit.
  *
- * ## Three lines, each behind a blueprint
+ * ## Four lines, each behind a blueprint
  *
  * **Armour** is plate and padding: vitality and armour, at the cost of a little speed. **Weapons**
  * are what they carry: penetration, offense, range. **Cybernetics** are what goes *in* them:
  * reflex and speed and stealth, and the only line whose top tier asks for a Neural Shunt per
- * upgrade rather than per unit.
+ * upgrade rather than per unit. **Discipline** is none of those: it is drill, and it buys morale
+ * and the look of a unit that is not going to break, which is the only line that makes a crew
+ * harder to fight without making it better at fighting.
  *
  * Each line's first tier is open to anybody. The second and third want the line's blueprint
  * **document** (§D12g), assembled out of pages, which is what puts the mission board on the
@@ -30,14 +32,14 @@ import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
  *
  * ## Everything costs scrap
  *
- * That is the board's rule and it is a good one: scrap is the material the city is made of, so
+ * That is the maintainer's rule and it is a good one: scrap is the material the city is made of, so
  * every physical improvement comes out of the same pile that the buildings do. High-quality metal
  * appears at tier two and above, components at tier two and three. **Scrap and metal are the only
  * two resources on the bill** (§B9), because these are built in the Scrapyard and that page shows
  * no other.
  */
 
-export const UPGRADE_LINES = ['armour', 'weapons', 'cybernetics'] as const;
+export const UPGRADE_LINES = ['armour', 'weapons', 'cybernetics', 'discipline'] as const;
 export const UpgradeLineSchema = z.enum(UPGRADE_LINES);
 export type UpgradeLine = z.infer<typeof UpgradeLineSchema>;
 
@@ -45,12 +47,14 @@ export const UPGRADE_LINE_LABELS: Readonly<Record<UpgradeLine, string>> = {
   armour: 'Armour',
   weapons: 'Weapons',
   cybernetics: 'Cybernetics',
+  discipline: 'Discipline',
 };
 
 export const UPGRADE_LINE_BLURBS: Readonly<Record<UpgradeLine, string>> = {
   armour: 'Plate, padding and whatever else stops a round. Heavier people move slower.',
   weapons: 'What they are carrying, and how far it reaches.',
   cybernetics: 'Wet-side work. Faster than a body has any business being, and it costs.',
+  discipline: 'What keeps them standing when the maths says run.',
 };
 
 export const UPGRADE_MAX_TIER = 3;
@@ -181,6 +185,41 @@ const SPECS: readonly UpgradeSpec[] = [
     cost: { scrap: 14400, highQualityMetal: 900 },
     parts: { neural_shunt: 4, coolant_cell: 2 },
     requiresGauntletLevel: 16,
+  },
+
+  // Discipline: drill, signals and the nerve to stand. Nothing here makes a unit deadlier.
+  {
+    id: 'discipline_1',
+    line: 'discipline',
+    tier: 1,
+    name: 'Standing Drill',
+    description: 'An hour of it every morning until the order arrives before the thought does.',
+    effect: { morale: 8, intimidation: 3 },
+    cost: { scrap: 1100 },
+    parts: {},
+    requiresGauntletLevel: 2,
+  },
+  {
+    id: 'discipline_2',
+    line: 'discipline',
+    tier: 2,
+    name: 'Section Signals',
+    description: 'Lamps and hand signs down the line, so a section that cannot hear still knows.',
+    effect: { morale: 14, intimidation: 7, vitality: 6, evasion: 3 },
+    cost: { scrap: 4400, highQualityMetal: 200 },
+    parts: { optic_cluster: 2, scrap_servo: 3 },
+    requiresGauntletLevel: 7,
+  },
+  {
+    id: 'discipline_3',
+    line: 'discipline',
+    tier: 3,
+    name: 'Held Ground',
+    description: 'They do not fall back. It is worth what it costs and it costs somebody.',
+    effect: { morale: 22, intimidation: 14, vitality: 10, evasion: 5, speed: -2 },
+    cost: { scrap: 11200, highQualityMetal: 700 },
+    parts: { optic_cluster: 3, neural_shunt: 2 },
+    requiresGauntletLevel: 13,
   },
 ];
 

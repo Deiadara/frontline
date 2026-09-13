@@ -41,39 +41,6 @@ export const ALLEGIANCE_IDENTITIES: Readonly<Record<Allegiance, AllegianceIdenti
 export const GOVERNMENT = ALLEGIANCE_IDENTITIES.government;
 
 /**
- * Which way a job points at the state (§A3, §D8).
- *
- * One field rather than a allegiance plus a direction, so "a job *for* the undercity in general" and
- * other combinations that mean nothing cannot be written down. `against_government` is what §D8
- * reads as anti-systemic action; `for_government` is what it reads as collaboration.
- */
-export const MISSION_STANCES = ['against_government', 'for_government', 'unaligned'] as const;
-export const MissionStanceSchema = z.enum(MISSION_STANCES);
-export type MissionStance = z.infer<typeof MissionStanceSchema>;
-
-export interface MissionStanceSpec {
-  /** Board badge, short enough for a mission card. */
-  label: string;
-  /** What taking the job says about you. */
-  description: string;
-}
-
-export const MISSION_STANCE_SPECS: Readonly<Record<MissionStance, MissionStanceSpec>> = {
-  against_government: {
-    label: 'Anti-Combine',
-    description: 'A blow against the government. The street keeps score, and so does the Combine.',
-  },
-  for_government: {
-    label: 'Combine Contract',
-    description: 'Combine work, Combine pay. Somebody in the undercity is going to hear about it.',
-  },
-  unaligned: {
-    label: 'Unaligned',
-    description: 'Nothing the government has an opinion about.',
-  },
-};
-
-/**
  * §A3: enemy composition. What the Combine actually puts on the ground, scaled by how hard the
  * site is: it answers a hydroponics fence with a patrol and its own spire with the household
  * guard. Ordered by `minDifficulty` ascending; `governmentGarrisonFor` takes the last band a

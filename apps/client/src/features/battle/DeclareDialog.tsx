@@ -106,7 +106,7 @@ export function DeclareDialog({
                   data-testid={`slot-${slot}`}
                   onClick={() => setPicked(slot)}
                   className={cn(
-                    'border px-2.5 py-1 font-display text-[12px] tabular-nums transition-colors',
+                    'brushed relative rounded-sm border px-2.5 py-1 font-display text-[12px] tabular-nums transition-colors',
                     slot === chosen
                       ? 'border-brass-300 bg-brass-300/15 text-brass-100'
                       : 'border-surface-600 text-ink-300 hover:border-iris-300/70 hover:text-ink-100',

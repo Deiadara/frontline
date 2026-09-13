@@ -74,6 +74,34 @@ export const TRAP_CATALOG: readonly TrapSpec[] = [
     killShare: 0.16,
     maxKills: 28,
   },
+  {
+    id: 'trap_razor_wire',
+    name: 'Razor Wire',
+    description:
+      'A belt of tape across the approach. Nobody dies of it; everybody slows down in it.',
+    requiresTech: 'tech_watch_schedules',
+    cost: { scrap: 450, planks: 180, caps: 240 },
+    killShare: 0.04,
+    maxKills: 4,
+  },
+  {
+    id: 'trap_fuel_fougasse',
+    name: 'Fuel Fougasse',
+    description: 'A drum of thickened oil laid in a pit at an angle, with a charge behind it.',
+    requiresTech: 'tech_sally_ports',
+    cost: { scrap: 2400, planks: 400, oil: 620, caps: 1400 },
+    killShare: 0.12,
+    maxKills: 18,
+  },
+  {
+    id: 'trap_flooded_cellar',
+    name: 'Flooded Cellar',
+    description: 'The basement filled from the culvert, and two bus bars sitting in the far wall.',
+    requiresTech: 'tech_layered_defence',
+    cost: { scrap: 5600, planks: 1800, oil: 900, highQualityMetal: 340, caps: 3200 },
+    killShare: 0.2,
+    maxKills: 34,
+  },
 ];
 
 const BY_ID = new Map(TRAP_CATALOG.map((spec) => [spec.id, spec]));

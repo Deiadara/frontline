@@ -34,7 +34,7 @@ import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
 
 /**
- * Factions (board request): the team a player belongs to.
+ * Factions (maintainer request): the team a player belongs to.
  *
  * Every write answers with the whole refreshed screen, the way every other mutating route in this
  * server does, so the client never re-derives a roster from a partial response.

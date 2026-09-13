@@ -16,7 +16,7 @@ const YES = () => true;
 const NO = () => false;
 
 describe('the workshop catalogue', () => {
-  it('gives every line the same three rungs', () => {
+  it('gives every one of the four lines the same three rungs', () => {
     for (const line of UPGRADE_LINES) {
       expect(
         upgradesInLine(line).map((spec) => spec.tier),
@@ -211,8 +211,10 @@ describe('what a refit does to a sheet', () => {
       expect(all[key], key).toBeLessThanOrEqual(100);
     }
     // Damage and hit points took the whole workshop and kept it: no ceiling, and the refit is
-    // still worth what it says on it.
-    expect(all.vitality).toBe(99 + 10 + 17 + 27);
+    // still worth what it says on it. Written out per rung, armour then discipline, rather than
+    // summed off the catalogue: a total read back out of `UNIT_UPGRADES` would agree with itself
+    // whatever the catalogue said.
+    expect(all.vitality).toBe(99 + 10 + 17 + 27 + 6 + 10);
     expect(all.offense).toBe(99 + 20 + 30 + 60);
   });
 

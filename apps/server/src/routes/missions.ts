@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   removeFleet,
   CITY_DISTRICTS,
+  LEADER_HOLD_MESSAGES,
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
   RecallMissionRequestSchema,
@@ -11,6 +12,7 @@ import {
   missionForceRefusal,
   missionBoardDay,
   missionOffers,
+  unledRule,
   type Base,
   type LaunchMissionResponse,
   type MissionForceRefusal,
@@ -20,10 +22,10 @@ import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { areaStatesFor, projectAreas } from '../missions/board.js';
-import { resolveCrew } from '../missions/crew.js';
+import { benchFor, leadersFor, runLedBy } from '../missions/leaders.js';
 import { launchMission } from '../missions/launch.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { OFFICER_DUTY_MESSAGES, officerDuty } from '../crew/duty.js';
+import { officerDuty } from '../crew/duty.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 import { takeLevelUp } from '../progression/award.js';
 
@@ -71,9 +73,25 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const levelUp = takeLevelUp(app.repos, settlement.base.id);
 
     const stored = app.repos.missions.listByBaseId(settlement.base.id);
-    const active = stored.filter((entry) => entry.mission.status === 'active');
+    // The runs still out, off their own query rather than off the history page above. That page is
+    // the newest `MISSION_HISTORY_LIMIT` rows, so a day-long job with two hundred short ones
+    // launched after it falls off the end of it: the bench would call its leader free while the
+    // launch refuses them, and the area would offer work a crew is already in.
+    const active = app.repos.missions.listActiveByBaseId(settlement.base.id);
 
     return {
+      leaders: leadersFor({
+        repos: app.repos,
+        base: settlement.base,
+        overseer: request.currentUser.overseerId
+          ? app.repos.overseers.findById(request.currentUser.overseerId)
+          : undefined,
+        active,
+        now,
+      }),
+      // What this crew may do with nobody at the head of a run, off the two rungs that open it.
+      unledRule: unledRule(settlement.base.research.technologies),
+      level: settlement.base.level,
       missions: stored.map((entry) => entry.mission),
       justResolved: settlement.resolved,
       resources: settlement.base.resources,
@@ -99,7 +117,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
   });
 
   app.post('/missions', { preHandler: app.authenticate }, (request): LaunchMissionResponse => {
-    const { templateId, areaId, force, officerId, vehicles } = parseBody(
+    const { templateId, areaId, force, leaderId, vehicles } = parseBody(
       LaunchMissionRequestSchema,
       request.body,
     );
@@ -108,7 +126,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       throw new AppError('NOT_FOUND', 'That mission is not on the board');
     }
     const now = new Date();
-    // The offer has to be one this area is making *today*: boards turn over at midnight UTC, so a
+    // The offer has to be one this area is making *today*: boards turn over at midnight, Athens, so a
     // tab left open overnight is posting a job that is no longer on the wall.
     if (!missionOffers(areaId, missionBoardDay(now)).some((offer) => offer.id === templateId)) {
       throw new AppError('NOT_FOUND', 'That job is not on offer there');
@@ -116,26 +134,28 @@ export function registerMissionRoutes(app: FastifyInstance): void {
 
     const own = requireOwnBase(app, request.currentUser.id);
 
-    // §G6: naming somebody who does not work here is a 404, not an unled run: silently demoting it
-    // to a delegation would charge the §G6 penalty for what is really a stale tab or a typo.
-    //
-    // Checked *before* the settle so a doomed request never banks one (MOU-280): the settle's
-    // level-up can only be announced by the response that caused it, and this one is an error
-    // envelope. The lookup reads `base.commanders`, which a settlement never touches, so hoisting
-    // it changes no answer. The checks below cannot follow it up: both read state the settle moves.
-    const officer = officerId ? own.commanders.find((held) => held.id === officerId) : undefined;
-    if (officerId !== undefined && !officer) {
-      throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
-    }
-    // §D4: an officer who is still recovering is out, and leading is a service like any other.
-    // Refused rather than quietly demoted to an unled run: the player picked a person, and a job
-    // that silently costs the §G6 penalty is worse than one that says why it will not go.
-    // The same check covers the one-job rule: this door used to look at injury and nothing else,
-    // so the same person could be leading a declared fight, walking home from a scouting run and
-    // launching a mission at once. See `crew/duty.ts`.
-    const duty = officer ? officerDuty(app.repos, own, officer, now) : null;
-    if (officer && duty !== null) {
-      throw new AppError('MISSION_REFUSED', `${officer.name} ${OFFICER_DUTY_MESSAGES[duty]}`);
+    /*
+     * Who is leading it (maintainer, 2026-09-10).
+     *
+     * Naming somebody who is not on this crew's bench is a 404, not a quiet demotion to an unled
+     * run: a stale tab or a typo would otherwise cost the player the unled penalty with nothing on
+     * screen to explain it, or be refused outright now that unled runs are researched into.
+     *
+     * This half is checked *before* the settle so a doomed request never banks one (MOU-280): the
+     * settle's level-up can only be announced by the response that caused it, and this one is an
+     * error envelope. It reads `base.commanders` and the Overseer, neither of which a settlement
+     * touches, so hoisting it changes no answer. Whether that leader is *free* cannot follow it
+     * up: the crew they are out with may be walking through the gate on this very request.
+     */
+    const bench = benchFor(
+      request.currentUser.overseerId
+        ? app.repos.overseers.findById(request.currentUser.overseerId)
+        : undefined,
+      own.commanders,
+    );
+    const leader = leaderId ? bench.find((candidate) => candidate.id === leaderId) : undefined;
+    if (leaderId !== undefined && !leader) {
+      throw new AppError('NOT_FOUND', 'Nobody on your bench by that id');
     }
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
@@ -146,6 +166,32 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     // The active runs, not the whole history filtered down to them: the repo has a query for this
     // and the launch path was loading a month of finished work to count what is out.
     const active = app.repos.missions.listActiveByBaseId(base.id);
+
+    // One job at a time, for the Overseer as much as for an officer: a person who is out is out.
+    // Read off the runs the settle left active, so the leader who just came home is free again.
+    if (leader && runLedBy(leader, active) !== null) {
+      throw new AppError('MISSION_REFUSED', `${leader.name} ${LEADER_HOLD_MESSAGES.run}`, levelUp);
+    }
+    /*
+     * §D4 and the rest of what can hold an officer: injured, leading a declared fight, or out
+     * scouting. Refused rather than quietly demoted to an unled run, because the player picked a
+     * person. The Overseer answers to none of it: they are the player, not an employee.
+     *
+     * Below the settle with the rule above, and for the same reason: `officerDuty` reads the
+     * crew's active runs too, so hoisted it would hold an officer whose run has just landed.
+     */
+    const officer =
+      leader?.kind === 'officer'
+        ? base.commanders.find((held) => held.id === leader.id)
+        : undefined;
+    const duty = officer ? officerDuty(app.repos, base, officer, now) : null;
+    if (officer && duty !== null) {
+      throw new AppError(
+        'MISSION_REFUSED',
+        `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}`,
+        levelUp,
+      );
+    }
 
     if (active.length >= missionSlotsFor(app, base, now)) {
       throw new AppError(
@@ -183,25 +229,19 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       throw new AppError(code, message, levelUp);
     }
 
-    // §F5: the run rides on the player's own character, so the Overseer is read here and the
-    // modified chance is frozen onto the row by `launchMission`.
-    const overseer = request.currentUser.overseerId
-      ? app.repos.overseers.findById(request.currentUser.overseerId)
-      : undefined;
     /*
-     * §G6: a hard run needs an officer leading it. The terms it fixes (`delegationTerms`) are what
-     * `launchMission` freezes onto the row beside §F5's.
+     * A crew with nobody at the head of it goes out only once somebody has written down how.
      *
-     * One refusal, not two. There used to be a second, for an easy job with no officer and nobody
-     * in the assignee pool to delegate to; there is no pool, and what a mission sends is units,
-     * which the force check above already covers. The level-up rides out on the envelope because
-     * the settle above may have banked one before this refused.
+     * The refusal names the rung rather than saying no, because "you cannot" with no next step is
+     * the worst thing a launch screen can say: the Overseer is always available, so the player's
+     * choice here is between sending themselves and finishing a piece of research. The level-up
+     * rides out on the envelope because the settle above may have banked one before this refused.
      */
-    const crew = resolveCrew({ base, template, officer });
-    if (!crew.terms.allowed) {
+    const unled = unledRule(base.research.technologies);
+    if (!leader && unled === 'forbidden') {
       throw new AppError(
         'MISSION_NEEDS_OFFICER',
-        'That job is too hard to run without an officer leading it',
+        'Somebody has to lead this. Written Orders, on the Right Hand track, is what lets a crew go out without one',
         levelUp,
       );
     }
@@ -228,9 +268,8 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       force,
       vehicles,
       now,
-      overseer,
-      terms: crew.terms,
-      officer,
+      leader,
+      unled,
       admin: app.config.admin,
       // §A4/§E: the ground this crew holds takes time off the road (the Smuggler's Tunnel), and
       // the people on the books take a bigger cut of what the job pays. Read once: two calls would
@@ -303,7 +342,24 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       const settled = settlement.base;
       const levelUp = takeLevelUp(app.repos, settled.id);
       const all = app.repos.missions.listByBaseId(settled.id);
+      // Off its own query, for the reason `GET /missions` gives: the page above is bounded and the
+      // runs that are out are not.
+      const active = app.repos.missions.listActiveByBaseId(settled.id);
       return {
+        // The same two fields the read answers with. A recall does not free the person leading the
+        // crew: they are on the road home, and the row stays active until they are through the
+        // gate. What has changed here is whoever landed in the settle above.
+        leaders: leadersFor({
+          repos: app.repos,
+          base: settled,
+          overseer: request.currentUser.overseerId
+            ? app.repos.overseers.findById(request.currentUser.overseerId)
+            : undefined,
+          active,
+          now,
+        }),
+        unledRule: unledRule(settled.research.technologies),
+        level: settled.level,
         missions: all.map((entry) => entry.mission),
         justResolved: settlement.resolved,
         resources: settled.resources,
@@ -313,7 +369,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         areas: projectAreas(
           CITY_DISTRICTS,
           areaStatesFor(app.repos, settled),
-          all.filter((entry) => entry.mission.status === 'active'),
+          active,
           settled.level,
           missionBoardDay(now),
           (({ missionSpeedPercent, missionSpoilsPercent }) => ({

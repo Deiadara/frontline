@@ -3,6 +3,7 @@ import {
   unlockBlueprint,
   unlockRefusal,
   reimagine,
+  ReimagineRequestSchema,
   reimaginingRefusal,
   isReimaginingResearched,
   type ReimaginingContext,
@@ -32,8 +33,9 @@ import {
 } from '../market/board.js';
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { AppError, parseBody } from '../errors.js';
-import { ownBase } from './own-base.js';
+import { ownBase, settledOwnBase } from './own-base.js';
 import { seatedRoles } from '../crew/roster.js';
+import { tellPagesFound } from '../social/pages.js';
 
 /**
  * The market (market extension).
@@ -73,7 +75,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     // the next one, and the lot it names has to be settled before anything is written against it.
     settleVendorAuctions(app.repos, now);
     return app.db.transaction(() => {
-      const base = ownBase(app, request.currentUser.id);
+      const base = settledOwnBase(app, request.currentUser.id, now);
       const result = placeVendorBid(app.repos, {
         base,
         userId: request.currentUser.id,
@@ -120,20 +122,23 @@ export function registerMarketRoutes(app: FastifyInstance): void {
   );
 
   /**
-   * §G2/§G3: three spare pages to the Lab, one page you do not have back.
+   * §G2/§G3: three pages to the Lab, one page you do not have back.
    *
-   * Everything a player could try to steer is decided here rather than sent: which pages go, and
-   * which one comes back. The seed is the base and the moment, so a request that is retried
-   * because the connection dropped cannot be retried until the Lab offers something better.
+   * The three that go in are the player's, named on the request: the machine on the Reimagining
+   * tab has three sockets and they fill them. What comes back is still decided here, seeded off
+   * the base and the moment, so a request that is retried because the connection dropped cannot be
+   * retried until the Lab offers something better.
    *
-   * The availability check is re-run off the base record rather than trusted from the board that
-   * drew the button. A client holding a stale payload is the ordinary case, not an attack, and it
-   * is the same predicate either way.
+   * Both checks are re-run off the base record rather than trusted from the board that drew the
+   * button: whether the Lab is open, and whether the crew really holds the three pages it named. A
+   * client holding a stale payload is the ordinary case, not an attack, and it is the same
+   * predicate either way.
    */
   app.post(
     '/blueprints/reimagine',
     { preHandler: app.authenticate },
     (request): ReimagineResponse => {
+      const { pages } = parseBody(ReimagineRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
@@ -144,6 +149,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         const input = {
           inventory: base.inventory,
           context,
+          pages,
           seed: `${base.id}:${now.toISOString()}`,
         };
         const refusal = reimaginingRefusal(input);
@@ -155,6 +161,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         if (traded === null) throw new AppError('REIMAGINING_REFUSED', 'not_available');
 
         app.repos.bases.updateHoldings(base.id, base.resources, traded.inventory);
+        // §G3: the one that came back, not the three that went in. The response says the same
+        // thing to whoever pressed the button; the bell is for the list they read later.
+        tellPagesFound(app.repos, {
+          userId: request.currentUser.id,
+          before: base.inventory,
+          after: traded.inventory,
+          source: { kind: 'lab' },
+          now,
+        });
         return {
           market: board({ ...base, inventory: traded.inventory }, now),
           spent: traded.spent,
@@ -174,7 +189,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return app.db.transaction(() => {
         const result = barter(
           app.repos,
-          ownBase(app, request.currentUser.id),
+          settledOwnBase(app, request.currentUser.id, now),
           give,
           want,
           amount,
@@ -194,7 +209,13 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const { key, units } = parseBody(BuySupplyRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const result = buySupply(app.repos, ownBase(app, request.currentUser.id), key, units, now);
+        const result = buySupply(
+          app.repos,
+          settledOwnBase(app, request.currentUser.id, now),
+          key,
+          units,
+          now,
+        );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
       })();
@@ -208,7 +229,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     return app.db.transaction(() => {
       const result = postOffer(
         app.repos,
-        ownBase(app, request.currentUser.id),
+        settledOwnBase(app, request.currentUser.id, now),
         give,
         want,
         counterTo,
@@ -226,7 +247,11 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       const { offerId } = parseBody(OfferActionRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
-        const result = withdrawOffer(app.repos, ownBase(app, request.currentUser.id), offerId);
+        const result = withdrawOffer(
+          app.repos,
+          settledOwnBase(app, request.currentUser.id, now),
+          offerId,
+        );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
       })();
@@ -242,9 +267,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return app.db.transaction(() => {
         const result = acceptOffer(
           app.repos,
-          ownBase(app, request.currentUser.id),
+          settledOwnBase(app, request.currentUser.id, now),
           offerId,
-          new Date(),
+          now,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };

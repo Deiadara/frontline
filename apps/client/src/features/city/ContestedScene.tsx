@@ -7,7 +7,7 @@ import { cn } from '../../lib/cn';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
 /**
- * A contested district as a place (board request): the painting, with a sign on each location.
+ * A contested district as a place (maintainer request): the painting, with a sign on each location.
  *
  * The screen underneath this is a grid of seven cards, and it stays: cards are where the numbers,
  * the garrison and the Call a fight control live, and none of that fits on a sign. What the grid
@@ -94,6 +94,29 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
               </p>
               <p className="font-body text-[12px] leading-relaxed text-verdigris-100">
                 {LOCATION_CATALOG[view.location.kind].reward}
+              </p>
+              {/* Who holds it, on its own line under a label (maintainer request, 2026-09-11): the
+                  one fact a player hovering a sign is most often after, and the sign's colour
+                  only ever said "yours" or "not yours". */}
+              <p className="flex items-baseline gap-2 border-t border-surface-700/70 pt-1.5 font-body text-[12px] leading-relaxed">
+                <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+                  Held by
+                </span>
+                <span
+                  className={
+                    view.holder.kind === 'crew' && view.holder.baseId === baseId
+                      ? 'text-verdigris-100'
+                      : 'text-ink-100'
+                  }
+                >
+                  {view.holder.kind === 'crew' && view.holder.baseId === baseId
+                    ? 'You'
+                    : view.holderName}
+                  {view.holderPlayer !== null &&
+                    !(view.holder.kind === 'crew' && view.holder.baseId === baseId) && (
+                      <span className="text-ink-300"> ({view.holderPlayer})</span>
+                    )}
+                </span>
               </p>
             </div>
           }
@@ -193,7 +216,15 @@ function Sign({
       >
         <span
           className={cn(
-            'flex max-w-[9rem] items-center gap-1.5 rounded-sm border px-2 py-0.5 text-left',
+            // One line, always (maintainer request, 2026-09-11). It was `max-w-[9rem]`, so the two
+            // longest names in the city wrapped: "The Unfinished Faculty" and "Statue of the
+            // Revolutionary" each came out as a two-line block sitting over more of the painting
+            // than the thing they name. A sign is a plate on a wall and a plate does not wrap.
+            //
+            // Nothing is at risk of running off the frame for it: the longest name in the game is
+            // 27 characters, which is about 12rem at this size, and the `side` clamp above turns
+            // any sign near an edge inward.
+            'flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-left',
             'font-display text-[10px] font-semibold uppercase leading-tight tracking-[0.09em] shadow-lifted',
             held
               ? 'border-verdigris-300/70 bg-surface-950/85 text-verdigris-100'
@@ -201,7 +232,7 @@ function Sign({
           )}
         >
           {shut && <Icon name="lock" aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />}
-          <span className="min-w-0">{name}</span>
+          <span>{name}</span>
         </span>
       </HoverCard>
     </span>

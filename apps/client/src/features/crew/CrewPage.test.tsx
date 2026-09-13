@@ -194,7 +194,7 @@ describe('when the books refuse a change', () => {
   });
 
   /**
-   * A benched officer carries a door to a chair (board request, 2026-09-09).
+   * A benched officer carries a door to a chair (maintainer request, 2026-09-09).
    *
    * The card used to be one big button that opened the file, and the chair list was a dropdown
    * inside it: two presses and a hunt, for the one thing a benched officer is there for. The door
@@ -230,7 +230,7 @@ describe('when the books refuse a change', () => {
 });
 
 /**
- * The order of the nineteen cards (board pass, 2026-09-09).
+ * The order of the nineteen cards (maintainer pass, 2026-09-09).
  *
  * In catalogue order alone a crew of three opened this screen on four empty chairs and had every
  * officer it had hired below the fold, on the one screen whose subject is those officers. The

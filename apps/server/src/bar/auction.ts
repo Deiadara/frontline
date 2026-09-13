@@ -20,8 +20,16 @@ import type { BarBid, BarResult } from '../db/repos/bar.js';
 import type { Repositories } from '../db/repos/index.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { notify } from '../social/notify.js';
-import { assessAgainst, committedWage, ledgerFor, recruitSlotsFor, signRecruit } from './hire.js';
-import { barDay, findBarRecruit, seatOf, type BarCharacter } from './roster.js';
+import {
+  assessAgainst,
+  committedWage,
+  factionInfamyOf,
+  ledgerFor,
+  recruitSlotsFor,
+  signRecruit,
+} from './hire.js';
+import { barDay, findBarRecruit, recruitId, seatOf, type BarCharacter } from './roster.js';
+import { rosterFaces } from '../crew/faces.js';
 
 /**
  * The Bar's daily auction (GDD §H7a), server side.
@@ -124,7 +132,10 @@ function tableRefusal(
   day: string,
 ): BidRefusal | undefined {
   const { base, userId, recruit, admin } = request;
-  if (!assessAgainst(base, recruit).interested && !adminWaives('not_interested', admin)) {
+  if (
+    !assessAgainst(base, recruit, factionInfamyOf(repos, base)).interested &&
+    !adminWaives('not_interested', admin)
+  ) {
     return 'not_interested';
   }
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
@@ -315,10 +326,14 @@ function recruitOn(repos: Repositories, day: string, recruitId: string): BarChar
  * otherwise leave the table due again, and the second pass would hand the person to the crew
  * behind the one that already has them.
  */
-export function settleBarAuctions(repos: Repositories, now: Date): void {
+export function settleBarAuctions(repos: Repositories, now: Date): number {
+  // Counted, so the world settle can tell every open tab the room changed. See `world/settle.ts`.
+  let closed = 0;
   for (const table of repos.bar.unsettled(barDay(now))) {
     repos.tx(() => closeTable(repos, table.day, table.recruitId, now));
+    closed += 1;
   }
+  return closed;
 }
 
 function closeTable(repos: Repositories, day: string, recruitId: string, now: Date): void {
@@ -352,6 +367,18 @@ interface Winner {
  * filled its last chair after bidding has no room for the person it won, and handing them over
  * anyway would put an officer on books that cannot hold them.
  */
+/**
+ * The face this recruit's card wore, worked out the way the Bar worked it out: the seats before
+ * this one in today's room, against the faces the city holds now. A hire in between can move it
+ * by one probe step, and that is still a face nobody else has.
+ */
+function faceFor(repos: Repositories, day: string, recruit: BarCharacter): string | undefined {
+  const seat = seatOf(day, recruit.id);
+  if (seat === null) return undefined;
+  const seats = Array.from({ length: seat + 1 }, (_, index) => recruitId(day, index));
+  return rosterFaces(repos, seats).get(recruit.id);
+}
+
 function award(
   repos: Repositories,
   day: string,
@@ -367,18 +394,23 @@ function award(
     const base = bid ? repos.bases.findById(bid.baseId) : undefined;
     if (!base) continue;
 
+    const face = faceFor(repos, day, recruit);
     const signed = signRecruit(repos, {
       base,
       userId: entry.userId,
       recruit,
       price: entry.final,
       now,
+      ...(face === undefined ? {} : { portraitId: face }),
     });
     if (signed.kind === 'refused') continue;
 
     // §I1: signing somebody is one of the few things in a session that takes a real decision, and
     // it still pays when the decision was made hours ago at a table.
     awardPlayerXp(repos, signed.base, 'officerHired');
+    // `signRecruit` already tallied the signing itself. Nothing to add here: the two doors into
+    // the Bar are one hire, and counting it at both would make the ladder twice as fast for
+    // anybody who bids rather than pays the asking price.
     // The **price**, not `signed.wage`: what goes on the result row and into everybody's bell is
     // the number the table closed at. What their negotiators talked it down to is their business.
     return { userId: entry.userId, price: entry.final };

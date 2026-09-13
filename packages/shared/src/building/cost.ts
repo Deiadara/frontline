@@ -26,7 +26,7 @@ export const BUILDING_COST_GROWTH = 1.28;
 /**
  * The clock multiplies by this per level: level 20 takes ~1050x level 1.
  *
- * With the catalogue's 20-70 second first levels that is the ladder the board asked for: seconds
+ * With the catalogue's 20-70 second first levels that is the ladder the maintainer asked for: seconds
  * at the start, a few minutes by level 10, and the better part of a working day at the top before
  * the Generator takes its cut.
  */

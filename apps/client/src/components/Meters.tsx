@@ -224,7 +224,9 @@ export function InfamyChip({
                 <Button
                   size="sm"
                   disabled={!affordable || upgrade.isPending}
-                  onClick={() => upgrade.mutate(undefined)}
+                  // The rung this chip is showing: the server refuses a press that names one the
+                  // row has already left, so a double click buys one rank and not two.
+                  onClick={() => upgrade.mutate({ fromNotoriety: notoriety })}
                   data-testid="upgrade-tier"
                 >
                   Upgrade Tier

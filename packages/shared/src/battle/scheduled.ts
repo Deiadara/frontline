@@ -179,13 +179,19 @@ export const BattleDeploymentSchema = z.object({
   army: ArmySchema.default({}),
   perimeter: ArmySchema.default({}),
   /**
-   * §D7: the one boost this side bought for this fight, or null.
+  /**
+   * §D7: the names this side has burned on this fight.
    *
-   * On the deployment rather than on the battle because both sides get one, and paid for at the
-   * moment it is chosen rather than at the mark: a crew that buys a boost and then withdraws has
-   * still spent the name. Changing it refunds nothing, which is what stops it being a shop.
+   * On the deployment rather than on the battle because both sides get them, and paid for at the
+   * moment each is chosen rather than at the mark: a crew that buys a boost and then withdraws
+   * has still spent the name.
+   *
+   * A list since the maintainer's 2026-09-12 call. One per fight is still the rule and the cap is a
+   * crew's `battleBoostsFlat` (the Field Commander's last rung buys a second). A name is
+   * **locked** once taken: nothing here can be removed, which is what stops the boost list being
+   * a shop a player browses at the mark.
    */
-  boostId: z.string().min(1).nullable().default(null),
+  boostIds: z.array(z.string().min(1)).default([]),
   /**
    * §D1: the one officer this crew is sending to lead, or null.
    *
@@ -285,7 +291,7 @@ export function emptyDeployment(
     side,
     army: {},
     perimeter: {},
-    boostId: null,
+    boostIds: [],
     officerId: null,
     trapId: null,
     vehicles: {},

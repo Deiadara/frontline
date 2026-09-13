@@ -860,7 +860,7 @@ export function encodeDelivery(image: RgbaImage, spec: AssetSpec): Promise<Buffe
  * compositing, so a master that is transparent anywhere ships whatever RGB was hiding under it:
  * black patches, for a master with nothing painted there. No other gate sees it: `minTransparency`
  * is attached only to the two planes, and `matte` is never declared for an opaque delivery
- * (`postProcessFor`), so both checks above are inert on exactly the keys the board's masters land
+ * (`postProcessFor`), so both checks above are inert on exactly the keys the maintainer's masters land
  * on (MOU-374).
  */
 /**
@@ -1127,7 +1127,7 @@ export function parseLicensingRegister(markdown: string): readonly LicensingRow[
 /**
  * Requires every image in the drop directory to have an ART-BIBLE §9 licensing row.
  *
- * The board rule is absolute, *an asset with no recorded provenance does not ship*, and until now
+ * The project rule is absolute, *an asset with no recorded provenance does not ship*, and until now
  * it was the one art rule enforced by prose alone. `gen-art.ts` writes a `*.provenance.json`, but
  * only beside the **master** in `art-src/`, and only on the generate path, which is dormant and
  * key-gated. The route art actually arrives by is a file saved straight into `assets/`, which the

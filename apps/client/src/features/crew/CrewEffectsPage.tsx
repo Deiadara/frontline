@@ -8,7 +8,7 @@ import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 
 /**
- * What the crew is buying (board request): the outcomes the books are paying for.
+ * What the crew is buying (maintainer request): the outcomes the books are paying for.
  *
  * Its own screen, reached from the crew page, rather than the bottom two thirds of the overseer's
  * own file. It was on that file because the numbers are computed from the same sheet, which is a

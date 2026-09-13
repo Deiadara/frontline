@@ -118,7 +118,7 @@ function BlueprintsLink({ pages }: { pages: number }) {
 }
 
 const EMPTY_COPY: Record<ItemKind, string> = {
-  blueprint: 'No blueprints. Everything past the first tier of the workshop is waiting on one.',
+  blueprint: 'No blueprints. Everything past the first rung of the refits is waiting on one.',
   page: 'No pages. They belong on the Blueprints page rather than in here.',
   component: 'No parts. The Runner carries them, and so does anything you pull apart.',
   relic: 'Nothing worth selling on. That is not the worst problem to have.',

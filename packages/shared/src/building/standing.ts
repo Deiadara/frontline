@@ -48,7 +48,7 @@ export const DEFENSE_PER_GATE_LEVEL = 6;
 /**
  * §B7: percentage points of defence on **every unit holding this district**, per Gate level.
  *
- * The board asked for the Gate's contribution to be an explicit, level-scaled percentage rather
+ * The maintainer asked for the Gate's contribution to be an explicit, level-scaled percentage rather
  * than a number folded into a difficulty rating nobody could point at. This is that percentage, and
  * it lands on the same `defensePercent` channel the ground and the crew already push, so the
  * battle engine reads it without a new parameter: see `battle/effects.ts`, where a defending side
@@ -115,17 +115,6 @@ export function researchTimeReduction(buildings: readonly Building[]): number {
   );
 }
 
-/** Percentage points the Gauntlet adds to every character XP award, per level (§H6). */
-export const CHARACTER_XP_PER_GAUNTLET_LEVEL = 2;
-
-export function characterXpBonus(buildings: readonly Building[]): number {
-  const effects = districtEffects(buildings);
-  return (
-    buildingLevel(buildings, 'gauntlet') * CHARACTER_XP_PER_GAUNTLET_LEVEL +
-    effects.character_xp_percent
-  );
-}
-
 /**
  * §A1: the share of a winning force's casualties the Infirmary gets back on their feet.
  *
@@ -156,7 +145,7 @@ export const MAX_GAUNTLET_TRAINING_BONUS = 40;
  * §B6: how much faster this district trains, in percentage points.
  *
  * Applies to **every** unit on the roster, including the ones the Gauntlet cannot train itself.
- * That is the board's wording and it is the right rule: the Gauntlet is where a crew learns to
+ * That is the maintainer's wording and it is the right rule: the Gauntlet is where a crew learns to
  * drill, and a Cyber Dog assembled in the Infirmary is still handled by people who trained here.
  *
  * The Gauntlet's own contribution is capped separately from the modifications on top, so a maxed

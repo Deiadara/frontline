@@ -84,6 +84,22 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
 
   const district = findDistrict(target.districtId);
   if (!district) return { kind: 'refused', reason: 'unscouted' };
+  /*
+   * The location has to be *in* the district the target names.
+   *
+   * The two ids arrive separately and nothing tied them together: the visibility check, the gate
+   * rule and the infamy price all read `districtId`, while the defender, the capture and the
+   * resolver read `locationId`. A crew could therefore name a shut, unscouted district's location
+   * under an open district's id, march down the shorter road, and take the location behind a gate
+   * it was never allowed through. Refused as `unscouted`, which is what the target *is* from where
+   * the caller is standing.
+   */
+  if (
+    target.kind === 'location' &&
+    !district.locations.some((location) => location.id === target.locationId)
+  ) {
+    return { kind: 'refused', reason: 'unscouted' };
+  }
 
   // The same visibility the map computed, uplink range included: deriving it twice from different
   // inputs is how a screen and a rule quietly disagree about what a crew can see.
@@ -114,7 +130,10 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
    * raid on itself, and the settle then looted the resident (itself) and paid the haul back off a
    * stockpile read before the loot, so the same fight minted resources out of nothing.
    */
-  if (target.kind !== 'location' && residentOf(repos, target.districtId)?.id === base.id) {
+  if (
+    target.kind !== 'location' &&
+    (residentOf(repos, target.districtId)?.id === base.id || base.districtId === target.districtId)
+  ) {
     return { kind: 'refused', reason: 'own_ground' };
   }
 

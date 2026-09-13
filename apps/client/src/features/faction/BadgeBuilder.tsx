@@ -200,7 +200,7 @@ function Swatch({
       data-tip={label}
       data-testid={testId}
       className={cn(
-        'flex h-11 w-11 items-center justify-center rounded-sm border transition-colors',
+        'brushed relative flex h-11 w-11 items-center justify-center rounded-sm border transition-colors',
         selected
           ? 'border-brass-300 bg-brass-300/15 shadow-brass'
           : 'border-surface-600 hover:border-brass-300/60',

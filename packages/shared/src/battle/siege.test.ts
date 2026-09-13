@@ -114,7 +114,7 @@ describe('when a fight may be called for (§A4)', () => {
     expect(scheduleRefusal(at('2026-08-16T19:30:00.000Z'), NOON)).toBe('too_soon');
   });
 
-  /** "Up to one second before the fight": the board's rule, stated literally. */
+  /** "Up to one second before the fight": the maintainer's rule, stated literally. */
   it('keeps deployment open until one second before the mark, and shuts it after', () => {
     const mark = at('2026-08-16T20:00:00.000Z');
     expect(deploymentIsOpen(mark, at('2026-08-16T19:59:59.000Z'))).toBe(true);
@@ -154,7 +154,7 @@ describe('what may be declared against (§A4)', () => {
   });
 
   /**
-   * §A4, board 2026-09-09: **a home is shut.**
+   * §A4, maintainer 2026-09-09: **a home is shut.**
    *
    * A residential district holds no locations, so `districtHolder` answers null for one and
    * `gateArmed` therefore answers false: every crew's home was permanently open ground. The
@@ -196,7 +196,7 @@ describe('what may be declared against (§A4)', () => {
   });
 
   it('keeps a breach open for a day and not a minute longer', () => {
-    // Anchored to the board's own number rather than to the constant: deriving the expectation
+    // Anchored to the maintainer's own number rather than to the constant: deriving the expectation
     // from `GATE_BREACH_HOURS` makes this test agree with any retune of it, including one that
     // shortens a siege window to an hour.
     expect(GATE_BREACH_HOURS).toBe(24);
@@ -319,7 +319,7 @@ describe('the ring outside the fight (§A4)', () => {
   });
 
   /**
-   * The one rule that is not the first fight's, and the one the board asked for by name.
+   * The one rule that is not the first fight's, and the one the maintainer asked for by name.
    *
    * Measured as a rate over many withdrawals rather than on one, because a single roll of a halved
    * chance can still come up. Both runs are the same fleeing force against the same ring, so the
@@ -715,7 +715,7 @@ describe('what a breach does to a district (§A4)', () => {
   });
 
   /**
-   * A gate's strength is its level, and nothing else (board request).
+   * A gate's strength is its level, and nothing else (maintainer request).
    *
    * Watches sat on every structure and cost nothing; digging replaced them and was the same
    * mistake wearing a price tag, because it made a gate harder to get through without making it

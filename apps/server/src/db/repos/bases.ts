@@ -22,6 +22,7 @@ import {
   type BuildQueue,
   type TrainingQueue,
   type Commander,
+  CommanderSchema,
   EconomyStateSchema,
   type EconomyState,
   type ProgressionState,
@@ -90,6 +91,12 @@ export interface BasesRepo {
   findBotByDistrictId(districtId: string): Base | undefined;
   /** Public projections of every base: never exposes resources, buildings or commanders. */
   listSummaries(): BaseSummary[];
+  /**
+   * Every officer on anybody's books, for the one question asked across crews: which faces are
+   * taken (maintainer request, 2026-09-11). Not a projection anybody sees; the Bar reads it to keep a
+   * recruit's face free of every crew's, and the boot backfills faces off it.
+   */
+  allCommanders(): Commander[];
   /**
    * Every district's standing, for the leaderboard (§J9).
    *
@@ -486,6 +493,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   // Ordered, because callers ask this for "the crew that lives in district X" and a district holds
   // more than one. An unordered scan makes that answer depend on the storage engine's mood, so the
   // map, the battle board and the settler could each name a different crew for the same ground.
+  const allCommandersStmt = db.prepare('SELECT commanders_json FROM bases');
   const summariesStmt = db.prepare(
     'SELECT id, owner_id, name, district_id, level, is_bot FROM bases ORDER BY created_at, id',
   );
@@ -570,6 +578,12 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     listSummaries() {
       const rows = summariesStmt.all() as BaseSummaryRow[];
       return rows.map(rowToSummary);
+    },
+    allCommanders() {
+      const rows = allCommandersStmt.all() as { commanders_json: string }[];
+      return rows.flatMap((row) =>
+        CommanderSchema.array().parse(knownCommanders(readJson(row.commanders_json))),
+      );
     },
     listStandings() {
       const rows = standingsStmt.all() as (BaseSummaryRow & { economy_json: string })[];

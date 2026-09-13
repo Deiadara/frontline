@@ -3,6 +3,7 @@ import {
   BARTER_RESOURCES,
   ITEM_CATALOG,
   ITEM_RARITY_LABELS,
+  blueprintOfPage,
   RESOURCE_LABELS,
   barterQuote,
   supplyPrice,
@@ -36,10 +37,10 @@ import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { MarketTabs } from './BlackMarketPage';
 import { useDayResetClock, usePlayerZone } from '../settings/usePlayerZone';
 import { ItemGlyph } from '../inventory/ItemGlyph';
-import { VendorAuctionWindow } from './VendorAuctionWindow';
+import { VendorAuctionWindow, lotSpec } from './VendorAuctionWindow';
 
 /**
- * The market (market extension, reworked by the board 2026-09-08).
+ * The market (market extension, reworked by the maintainer 2026-09-08).
  *
  * One screen, no scrolling: a street you stand in rather than a list you read down. Three
  * counters, each a different kind of thing:
@@ -109,7 +110,7 @@ export function MarketPage() {
 }
 
 /**
- * The Runner's hours, on the head of his own stall (board request, 2026-09-09).
+ * The Runner's hours, on the head of his own stall (maintainer request, 2026-09-09).
  *
  * A standing note rather than a chip that only tells the time, because the rule behind the clock
  * is the thing a player has to know: what he has is shared with the city, and every line is a lot.
@@ -156,22 +157,42 @@ function lotStanding(auction: VendorAuction): 'leading' | 'outbid' | 'out' {
 }
 
 /**
- * One lot on the barrow, as a card small enough that six of them make one row.
+ * One lot on the barrow: one of six plates the board is split into (maintainer request, 2026-09-10).
  *
- * The art, the name, the figure on a lit tag and one door. What the tag says is the leading bid,
- * or the price the lot opens at when nobody has said a number, and its edge carries the reader's
- * own standing so a glance across the row says which lots they are winning and losing.
+ * The barrow used to be a strip of six thumbnails along the top of the stall with the rest of the
+ * panel empty under them. It is a three by two board now and each lot is a plate that fills its
+ * sixth: the drawing of the thing at a size it can be told apart at, the name, what it is (its
+ * rarity, or the document a page came out of), the figure on a lit tag and one door. What the tag
+ * says is the leading bid, or the price the lot opens at when nobody has said a number, and its
+ * edge carries the reader's own standing so a glance across the board says which lots they are
+ * winning and losing.
  */
 function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
-  const spec = ITEM_CATALOG[offer.line.item as ItemId];
+  const spec = lotSpec(offer.line.item);
+  if (spec === undefined) {
+    // An id the catalogue lacks. The plate says so rather than the barrow throwing on `spec.kind`.
+    return (
+      <li
+        className="card-paper washed edge-lit relative flex min-h-0 min-w-0 flex-col items-center justify-center rounded-md border border-surface-600 p-2 opacity-60"
+        data-testid={`vendor-line-${offer.line.id}`}
+      >
+        <span className="line-clamp-2 w-full min-w-0 break-all text-center font-display text-[11px] font-bold leading-[1.15] text-ink-100">
+          {offer.line.item}
+        </span>
+      </li>
+    );
+  }
   const { auction } = offer;
   const gone = auction === null;
   const standing = auction === null ? 'out' : lotStanding(auction);
+  // A page says which document it is a page of: that is the fact a collector is scanning for, and
+  // the rarity is already in the plate's edge.
+  const document = spec.kind === 'page' ? blueprintOfPage(spec.id) : undefined;
 
   return (
     <li
       className={cn(
-        'card-paper washed edge-lit relative flex min-w-0 flex-col items-center gap-1 rounded-md border p-1.5',
+        'card-paper washed edge-lit relative flex min-h-0 min-w-0 flex-col items-center justify-between gap-1 rounded-md border p-2',
         RARITY_TONE[spec.rarity],
         gone && 'opacity-50',
       )}
@@ -179,21 +200,30 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
     >
       {/* The stock count in the corner, the way a shelf label sits on a shelf. Visits, not units:
           one goes per visit, so "2 left" is two more visits it can be bid on. */}
-      <span className="absolute right-0.5 top-0.5 rounded-sm bg-surface-950/80 px-1 py-0.5 font-display text-[8px] font-bold uppercase tracking-[0.08em]">
+      <span className="absolute right-1 top-1 rounded-sm bg-surface-950/80 px-1 py-0.5 font-display text-[8px] font-bold uppercase tracking-[0.08em]">
         {gone ? 'gone' : `${offer.line.stock} left`}
       </span>
 
+      {/* The plate has two sizes and the frame's height picks one. Under 860px tall the barrow is
+          one row of six and the plate is the thumbnail it used to be; from 860 up it is a three by
+          two board and the drawing gets the room. Both are the same six lots in the same order. */}
       <HoverCard label={spec.name} size="window" card={<ItemWindow id={spec.id} />}>
-        <span className="icon-tile flex h-8 w-8 items-center justify-center rounded-md">
-          <ItemGlyph id={spec.id} className="h-6 w-6" />
+        <span className="icon-tile flex h-14 w-14 items-center justify-center rounded-md [@media(max-height:859px)]:h-8 [@media(max-height:859px)]:w-8">
+          <ItemGlyph
+            id={spec.id}
+            size="md"
+            className="h-11 w-11 [@media(max-height:859px)]:h-6 [@media(max-height:859px)]:w-6"
+          />
         </span>
       </HoverCard>
 
-      {/* Two lines, because "Blueprint: Rotorcraft" is a name and a name cut in half is not one.
-          Two lines is also the whole of the card's slack, which is why nothing else on it says a
-          word: the standing is in the tag's edge and on the button. */}
-      <span className="line-clamp-2 w-full min-w-0 text-center font-display text-[10.5px] font-bold leading-[1.15] text-ink-100">
-        {spec.name}
+      <span className="flex w-full min-w-0 flex-col items-center gap-0.5">
+        <span className="line-clamp-2 w-full min-w-0 text-center font-display text-[11px] font-bold leading-[1.15] text-ink-100 [@media(max-height:859px)]:text-[10.5px]">
+          {spec.name}
+        </span>
+        <span className="line-clamp-1 w-full min-w-0 text-center font-display text-[9px] uppercase tracking-[0.14em] opacity-80 [@media(max-height:859px)]:hidden">
+          {document ? `Page of the ${document.name}` : ITEM_RARITY_LABELS[spec.rarity]}
+        </span>
       </span>
 
       <span
@@ -281,7 +311,7 @@ function LastVisit({ results }: { results: readonly VendorAuctionResult[] }) {
         </InfoWindow>
       }
     >
-      <span className="shrink-0 rounded-sm border border-surface-600 px-2 py-1 font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink-300">
+      <span className="flex h-[1.3125rem] shrink-0 items-center rounded-sm border border-surface-600 px-2 font-display text-[10px] font-bold uppercase leading-none tracking-[0.14em] text-ink-300">
         Last visit: {won} of {results.length} won
       </span>
     </HoverCard>
@@ -305,7 +335,7 @@ function VendorPanel({
       title="The Runner"
       className="flex min-h-0 flex-col"
       // The hours and the last visit on the Runner's own head, right-aligned, at the head's
-      // height (board request, 2026-09-09): the clock belongs to the stall it is about.
+      // height (maintainer request, 2026-09-09): the clock belongs to the stall it is about.
       action={
         <span className="flex items-center gap-2">
           <LastVisit results={vendor.results} />
@@ -319,9 +349,17 @@ function VendorPanel({
       <div aria-hidden className="awning !absolute inset-x-0 top-[2.75rem] z-[2]" />
       {/* Nothing on the barrow until he is standing behind it: the server withholds the stock as
           well, so this is not a curtain over data the client was sent anyway. */}
+      {/* Six lots on a board split in six. From 1100px wide the board fills the stall: three by
+          two on a frame 860px or taller, one row of six on a shorter one, so nothing under the
+          awning ever scrolls at the sizes the game is drawn at. Under 1100px the six cannot share
+          a line and the barrow is three to a row behind its own scroller, the one concession. */}
       {vendor.open ? (
         <ul
-          className="grid min-h-0 flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3 [@media(min-width:1100px)]:grid-cols-6"
+          className={cn(
+            'grid min-h-0 flex-1 auto-rows-min grid-cols-3 gap-2 overflow-y-auto p-3',
+            '[@media(min-width:1100px)]:auto-rows-fr [@media(min-width:1100px)]:grid-rows-2 [@media(min-width:1100px)]:overflow-visible',
+            '[@media(min-width:1100px)_and_(max-height:859px)]:grid-cols-6 [@media(min-width:1100px)_and_(max-height:859px)]:grid-rows-1',
+          )}
           data-testid="vendor-stock"
         >
           {vendor.stock.map((offer) => (
@@ -351,7 +389,7 @@ function VendorPanel({
 /**
  * The Broker: always in, always half.
  *
- * Drawn down the centre line (board request): what leaves at the top, what arrives at the bottom,
+ * Drawn down the centre line (maintainer request): what leaves at the top, what arrives at the bottom,
  * and between them the number and the deal it makes. Every row is centred so the eye reads
  * straight down through the trade rather than across a form. The quote stays above the button,
  * which was always right: nobody should find out the rate afterwards.
@@ -385,7 +423,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
         </span>
       }
     >
-      {/* Two ledgers and the deal between them (board request, 2026-09-09). What leaves is a
+      {/* Two ledgers and the deal between them (maintainer request, 2026-09-09). What leaves is a
           framed sheet in the giving colour, what arrives a framed sheet in the taking colour, and
           the rate sits on the band between them with the arrow pointing the way the goods go. The
           two sheets share whatever height the column has, so the counter is full at any size, and

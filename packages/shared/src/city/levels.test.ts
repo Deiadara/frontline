@@ -207,7 +207,7 @@ describe('what an upgrade costs and what it is', () => {
   });
 
   /**
-   * The board asked for this by name: an upgrade has to *say what it is*.
+   * The maintainer asked for this by name: an upgrade has to *say what it is*.
    *
    * "+50% oil" is a number going up. "You get the underground tanks pumping again" is a thing that
    * happened to a petrol station you own, and it is the difference between a build order and a

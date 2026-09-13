@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * The cities of the world (board request, §J9a).
+ * The cities of the world (maintainer request, §J9a).
  *
  * There is one today. It exists as a **list** rather than as an implicit "everywhere" because the
  * board is adding more, and the difference between the two shapes is what the standings screen is

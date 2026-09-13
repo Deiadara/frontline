@@ -97,6 +97,9 @@ export const CONSUMABLE_ITEM_IDS = [
   'trap_pressure_plates',
   'trap_gas_shell',
   'trap_collapse',
+  'trap_razor_wire',
+  'trap_fuel_fougasse',
+  'trap_flooded_cellar',
 ] as const;
 
 export type ConsumableId = (typeof CONSUMABLE_ITEM_IDS)[number];
@@ -397,13 +400,13 @@ function blueprintItemSpec(blueprint: BlueprintSpec): ItemSpec {
  * how many pages that blueprint has.
  */
 /**
- * The three traps as items (§I4).
+ * The six traps as items (§I4).
  *
  * `tradeable: false`, which is the whole shape of the thing: a trap is behind a document and a Lab
  * rung, and an item that walked out of the yard onto a barrow would be a way past both for anybody
  * with caps. `capsValue` is therefore only the barter broker's floor and the number a salvage
- * valuation would read. It sits above each trap's own caps line (400, 1,100, 2,600) and below the
- * whole bill, because what a crew paid for one is mostly scrap and planks rather than money.
+ * valuation would read. It sits above each trap's own caps line and below the whole bill, because
+ * what a crew paid for one is mostly scrap and planks rather than money.
  *
  * The ids match `TRAP_CATALOG` exactly. `springTrap` takes one out of the satchel by the id it was
  * set under, so the two lists being the same list is the mechanic and not a tidiness rule.
@@ -439,6 +442,36 @@ const CONSUMABLE_SPECS: readonly ItemSpec[] = [
       'Cutting gear, jacks and one holding charge. Somebody still has to survey the wall.',
     usedFor: 'Set under one fight you are defending. Gone once it goes off.',
     capsValue: 6000,
+    tradeable: false,
+  },
+  {
+    id: 'trap_razor_wire',
+    name: 'Razor Wire',
+    kind: 'consumable',
+    rarity: 'common',
+    description: 'Two reels of tape, a bag of pickets and a pair of gloves that will not last.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 700,
+    tradeable: false,
+  },
+  {
+    id: 'trap_fuel_fougasse',
+    name: 'Fuel Fougasse',
+    kind: 'consumable',
+    rarity: 'rare',
+    description: 'A drum of thickened oil, a scatter charge and the dimensions of the pit.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 3200,
+    tradeable: false,
+  },
+  {
+    id: 'trap_flooded_cellar',
+    name: 'Flooded Cellar',
+    kind: 'consumable',
+    rarity: 'exotic',
+    description: 'Sluice plate, cable and two bus bars. The cellar has to be found locally.',
+    usedFor: 'Set under one fight you are defending. Gone once it goes off.',
+    capsValue: 7800,
     tradeable: false,
   },
 ];

@@ -564,7 +564,7 @@ describe('how far a crew can see', () => {
 });
 
 /**
- * §A4, board 2026-09-09: what a raid takes off a crew for the hours the disruption lasts.
+ * §A4, maintainer 2026-09-09: what a raid takes off a crew for the hours the disruption lasts.
  *
  * Production losing a quarter of its hours was the whole of a raid's aftermath, and it is the half
  * a victim can see coming. This is the other half: every positive percentage the crew holds is

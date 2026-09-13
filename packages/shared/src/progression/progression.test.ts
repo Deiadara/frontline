@@ -115,7 +115,7 @@ describe('the unlock catalogue (§I3)', () => {
     { id: 'hard-missions', level: 5, name: 'Hard work', description: 'The bad jobs.' },
   ];
 
-  it('opens the four screens at the levels the board named', () => {
+  it('opens the four screens at the levels the maintainer named', () => {
     expect(AREA_UNLOCK_LEVELS).toEqual({ research: 3, market: 5, training: 7, bar: 10 });
     for (const area of GATED_AREAS) {
       expect(isPlayerUnlockActive(area, AREA_UNLOCK_LEVELS[area] - 1)).toBe(false);

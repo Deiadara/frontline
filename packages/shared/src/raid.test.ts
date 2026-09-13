@@ -75,7 +75,7 @@ describe('what a raid can take', () => {
 });
 
 /**
- * §A4, board 2026-09-09: a raid on a home takes a share of everything **except caps**.
+ * §A4, maintainer 2026-09-09: a raid on a home takes a share of everything **except caps**.
  *
  * The exclusion is the whole reason the carry sheet matters. Caps are first in the priority order
  * and weigh one apiece, so a raid that could take them filled its hold with the victim's wallet and

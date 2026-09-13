@@ -4,6 +4,7 @@ import {
   FOUND_FACTION_NEXUS_LEVEL,
   FOUND_FACTION_PLAYER_LEVEL,
   MAX_FACTION_MEMBERS,
+  notorietySpentTo,
   randomBadge,
   type FactionResponse,
   type LeaderboardResponse,
@@ -17,7 +18,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 
 /**
- * Factions, the mailbox and the bell, over HTTP (board request).
+ * Factions, the mailbox and the bell, over HTTP (maintainer request).
  *
  * Driven through the real routes with real accounts rather than against the repos, because every
  * rule worth testing here is a *route* rule: who may invite, what happens at the fifth seat, whose
@@ -645,7 +646,7 @@ describe('the bell', () => {
 });
 
 /**
- * The rank the board asked for, over HTTP.
+ * The rank the maintainer asked for, over HTTP.
  *
  * The shared `factions.test.ts` pins the permission table as arithmetic; this pins that the routes
  * actually ask it. Both are needed: a correct table nobody consults is the same bug as a wrong one,
@@ -826,7 +827,7 @@ describe('the badge', () => {
 /**
  * §J: the invitation arrives in the inbox, and is answered from there.
  *
- * The board asked for the invite to be a message with a button on it rather than a second list
+ * The maintainer asked for the invite to be a message with a button on it rather than a second list
  * somewhere else, so what is asserted is that the message *carries the invitation*: same id, so
  * pressing the button spends the same row the faction screen would.
  */
@@ -955,6 +956,86 @@ describe('the leaderboard', () => {
   });
 
   /**
+   * Total infamy: the wallet plus everything already spent on the ladder (maintainer request).
+   *
+   * The standings may be sorted by it, and it exists because `infamy` alone ranks the crew that
+   * hoarded above the crew that earned twice as much and spent it. The ladder is the only thing
+   * infamy is ever spent on, so the tier a crew stands on is a complete record of what left the
+   * wallet: `notorietySpentTo` turns it back into a figure.
+   */
+  it('reports total infamy as the wallet plus the ladder already bought', async () => {
+    const spender = await player(app, 'spender');
+    const hoarder = await player(app, 'hoarder');
+    setInfamy(spender.id, 1000);
+    setInfamy(hoarder.id, 2000);
+    // Three rungs bought: 300 + 900 + 2700, which is the cost of standing where they stand.
+    const base = app.repos.bases.findByOwnerId(spender.id)!;
+    app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 1000, notoriety: 3 });
+
+    const rows = (await board(spender.token)).entries as {
+      username: string;
+      infamy: number;
+      totalInfamy: number;
+    }[];
+    const rowOf = (name: string) => rows.find((row) => row.username === name)!;
+
+    expect(rowOf('spender').totalInfamy).toBe(1000 + notorietySpentTo(3));
+    // Nothing bought, so the two figures are the same number and the field is not a second wallet.
+    expect(rowOf('hoarder').totalInfamy).toBe(2000);
+    // And the two sorts genuinely disagree about these two, which is the whole point of the field:
+    // the hoarder is ahead on the wallet and behind on the total.
+    expect(rowOf('hoarder').infamy).toBeGreaterThan(rowOf('spender').infamy);
+    expect(rowOf('hoarder').totalInfamy).toBeLessThan(rowOf('spender').totalInfamy);
+  });
+
+  /**
+   * The face a roster draws (maintainer request, 2026-09-12).
+   *
+   * The faction screen used to draw a member as their seat's playing card and a generated sigil,
+   * so a table of five people looked like a hand of cards. The one picture of somebody the game
+   * already has is their Overseer's, and it now rides on the member row so the screen can use it.
+   */
+  it('carries each member’s own Overseer on the roster row', async () => {
+    const leader = await player(app, 'portrait_leader');
+    await found(app, leader.token, 'The Long Look');
+
+    const screen = (
+      await app.inject({ method: 'GET', url: '/api/factions', headers: auth(leader.token) })
+    ).json<FactionResponse>();
+
+    const row = screen.members.find((member) => member.userId === leader.id);
+    expect(row).toBeDefined();
+    const overseer = app.repos.overseers.findById(app.repos.users.findById(leader.id)!.overseerId!);
+    expect(row?.portraitId).toBe(overseer?.portraitId);
+    expect(row?.overseerName).toBe(overseer?.name);
+    // Not the account name wearing a different key: those are two different strings about a
+    // player, and a roster that confused them would look right until somebody renamed one.
+    expect(row?.overseerName).not.toBe(row?.username);
+  });
+
+  /** The faction a row belongs to, so the standings can link to that faction's file. */
+  it('carries the faction id beside the faction name, and null for somebody at no table', async () => {
+    const seated = await player(app, 'seated');
+    // Registered and left at no table: the null half of the assertion needs a real row, not an
+    // absence, or it would pass against a board that simply never listed them.
+    await player(app, 'alone');
+    await found(app, seated.token, 'The Long Count');
+
+    const rows = (await board(seated.token)).entries as {
+      username: string;
+      factionId: string | null;
+      factionName: string | null;
+    }[];
+    const rowOf = (name: string) => rows.find((row) => row.username === name)!;
+
+    const faction = app.repos.factions.findByName('The Long Count');
+    expect(rowOf('seated').factionId).toBe(faction?.id);
+    expect(rowOf('seated').factionName).toBe('The Long Count');
+    expect(rowOf('alone').factionId).toBeNull();
+    expect(rowOf('alone').factionName).toBeNull();
+  });
+
+  /**
    * The faction board ranks what was earned at the table.
    *
    * The two factions below are built so a wallet-summing board would order them the other way
@@ -979,6 +1060,51 @@ describe('the leaderboard', () => {
     // The rich faction is on the board, and on nothing.
     expect(rows.find((row) => row.name === 'Rich Idlers')?.infamy).toBe(0);
     expect((await board(earner.token, '?board=factions')).yourRank).toBe(1);
+  });
+
+  /**
+   * The mean level at the table, which moves with the roster (maintainer request).
+   *
+   * `topLevel` says how good the best of them is, and a faction of one and a faction of five can
+   * answer that with the same number. This says what the table is worth walking into, and it is
+   * computed on every read off the members' own districts, so a seat changing hands changes it.
+   */
+  it('averages the levels at a table, and moves when somebody sits down', async () => {
+    const leader = await player(app, 'avg_leader');
+    const joiner = await player(app, 'avg_joiner');
+    await found(app, leader.token, 'The Mean');
+
+    const levelOf = (userId: string, level: number) => {
+      const base = app.repos.bases.findByOwnerId(userId)!;
+      app.repos.bases.updateProgression(base.id, level, base.progression);
+    };
+    levelOf(leader.id, 8);
+
+    const rowFor = async () => {
+      const rows = (await board(leader.token, '?board=factions')).entries as {
+        name: string;
+        averageLevel: number;
+        topLevel: number;
+      }[];
+      return rows.find((row) => row.name === 'The Mean')!;
+    };
+
+    expect((await rowFor()).averageLevel).toBe(8);
+
+    levelOf(joiner.id, 3);
+    app.repos.factions.addMember({
+      userId: joiner.id,
+      factionId: app.repos.factions.findByName('The Mean')!.id,
+      rank: 'member',
+      joinedAt: new Date().toISOString(),
+    });
+
+    const after = await rowFor();
+    // 8 and 3 average to 5.5, which rounds up: the figure is a whole number and says so.
+    expect(after.averageLevel).toBe(6);
+    expect(Number.isInteger(after.averageLevel)).toBe(true);
+    // And it is not just the best of them wearing a different name.
+    expect(after.topLevel).toBe(8);
   });
 
   /**

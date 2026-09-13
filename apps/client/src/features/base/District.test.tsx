@@ -103,6 +103,8 @@ const queued: BuildStructureResponse = {
         level: 1,
         startedAt: NOW,
         durationSeconds: buildingBuildSeconds('quarters', 1, base.buildings),
+        paid: {},
+        parts: {},
       },
     ],
   },
@@ -139,9 +141,17 @@ function stubApi({ detail = base, build, effects = {}, quotes, clocks }: Stubbed
       json: () => Promise.resolve(body),
     } as Response);
 
+  /*
+   * What `GET /base/:id` answers, and it follows the write. The client drops the district key
+   * right after writing a build's response over it, so a read that went on answering the
+   * pre-order base would put the vacant plot straight back; the real route settles the same queue.
+   */
+  let current = detail;
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/base/build')) {
-      return build ? reply(build.body, { ok: build.ok, status: build.status }) : reply(queued);
+      if (build) return reply(build.body, { ok: build.ok, status: build.status });
+      current = queued.base;
+      return reply(queued);
     }
     if (path.endsWith('/base/district-name'))
       return reply({ base: { ...detail, name: 'Vermilion' } });
@@ -154,7 +164,7 @@ function stubApi({ detail = base, build, effects = {}, quotes, clocks }: Stubbed
         ...(quotes ? { buildQuotes: quotes } : {}),
         ...(clocks ? { buildClocks: clocks } : {}),
       });
-    if (path.includes('/base/')) return reply({ base: detail });
+    if (path.includes('/base/')) return reply({ base: current, serverNow: NOW });
     throw new Error(`unstubbed request: ${path}`);
   });
 }
@@ -328,7 +338,7 @@ describe('§D3: building and upgrading consume materials, and take time', () => 
     expect(within(dialog()).getByRole('button', { name: 'Queue build' })).toBeEnabled();
   });
 
-  it('shows the order in the queue, from the response and without a refetch', async () => {
+  it('shows the order in the queue, straight off the response', async () => {
     stubApi();
     renderDistrict();
 
@@ -638,6 +648,8 @@ describe("a neighbour's district (§A4)", () => {
         level: 4,
         startedAt: new Date().toISOString(),
         durationSeconds: 600,
+        paid: {},
+        parts: {},
       },
     ]);
     expect(queued.getByTestId('plot-lab')).toHaveAccessibleName(/vacant plot/);

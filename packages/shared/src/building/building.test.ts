@@ -80,7 +80,6 @@ import {
   type ProductionCarry,
 } from './production.js';
 import {
-  characterXpBonus,
   districtDefense,
   payrollBonusPercent,
   factionXpBonus,
@@ -99,7 +98,7 @@ import {
 } from './queue.js';
 
 /**
- * The district (GDD §A1): thirteen structures, a build queue, a power grid and sixty-five
+ * The district (GDD §A1): eleven structures, a build queue, a power grid and seventy-seven
  * modifications.
  *
  * Where a claim can be checked against something other than the constant that produced it, it is:
@@ -282,7 +281,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   });
 
   /**
-   * The board asked for seconds at the start, minutes in the middle and hours at the end. Asserted
+   * The maintainer asked for seconds at the start, minutes in the middle and hours at the end. Asserted
    * in those units rather than against the growth constant. This is the one claim in the module
    * that a reader can check against the request itself.
    */
@@ -440,6 +439,8 @@ describe('§B4: the Generator pays for the clock', () => {
         level: 3,
         startedAt: new Date(now.getTime() - 1000 * 1000).toISOString(),
         durationSeconds: 2000,
+        paid: {},
+        parts: {},
       },
       {
         id: 'b',
@@ -447,6 +448,8 @@ describe('§B4: the Generator pays for the clock', () => {
         level: 2,
         startedAt: new Date(now.getTime() + 1000 * 1000).toISOString(),
         durationSeconds: 800,
+        paid: {},
+        parts: {},
       },
     ];
     const boosted = boostedQueue(queue, now, BUILD_BOOST_PERCENT);
@@ -750,11 +753,9 @@ describe('what the district is worth to the crew (§A1)', () => {
     expect(districtDefense(fortified)).toBeGreaterThan(districtDefense([build('gate', 5)]));
   });
 
-  it('gives the Lab and the Gauntlet each their own live effect', () => {
+  it('gives the Lab a live effect off its own level', () => {
     expect(researchTimeReduction([])).toBe(0);
     expect(researchTimeReduction([build('lab', 10)])).toBeGreaterThan(0);
-    expect(characterXpBonus([])).toBe(0);
-    expect(characterXpBonus([build('gauntlet', 10)])).toBeGreaterThan(0);
   });
 
   it('caps every reduction, however many modifications are stacked on it', () => {
@@ -772,11 +773,25 @@ describe('what the district is worth to the crew (§A1)', () => {
 });
 
 describe('modifications (§A1)', () => {
-  it('offers five per structure, sixty-five in all, with unique ids', () => {
+  it('offers seven per structure, seventy-seven in all, with unique ids', () => {
     expect(MODIFICATIONS).toHaveLength(BUILDING_KINDS.length * MODIFICATIONS_PER_BUILDING);
     expect(new Set(MODIFICATIONS.map((mod) => mod.id)).size).toBe(MODIFICATIONS.length);
     for (const kind of BUILDING_KINDS) {
       expect(modificationsFor(kind), kind).toHaveLength(MODIFICATIONS_PER_BUILDING);
+    }
+  });
+
+  /**
+   * Seven per structure is two rows on the yard's page, not one: the plain bolt-on the day the
+   * Scrapyard is standing, and the piece of engineering behind a retrofit document and the yard's
+   * own level. A structure with seven cheap entries would have nothing for the level gate to hold
+   * back, and a structure with seven expensive ones would have nothing to fit at level one.
+   */
+  it('puts at least one entry either side of the advanced threshold on every structure', () => {
+    for (const kind of BUILDING_KINDS) {
+      const offered = modificationsFor(kind);
+      expect(offered.filter(isAdvancedModification).length, kind).toBeGreaterThan(0);
+      expect(offered.filter((mod) => !isAdvancedModification(mod)).length, kind).toBeGreaterThan(0);
     }
   });
 
@@ -848,6 +863,8 @@ describe('the build queue (§A1)', () => {
     level,
     startedAt: startedAt.toISOString(),
     durationSeconds: seconds,
+    paid: {},
+    parts: {},
   });
 
   it('holds six orders', () => {
@@ -1027,7 +1044,7 @@ describe('§A1: the population ceiling', () => {
 });
 
 /**
- * §B10: what the Infirmary is actually worth, in the board's own numbers.
+ * §B10: what the Infirmary is actually worth, in the maintainer's own numbers.
  *
  * Anchored on literals rather than on `CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL`, and that is the
  * whole point of the test. The existing coverage computes what it expects *from* the constant, so
@@ -1035,7 +1052,7 @@ describe('§A1: the population ceiling', () => {
  * it recovering anybody was caught by it) but it agrees with any rate at all: the constant was
  * moved from 1.5 to 4 during integration and the entire suite stayed green.
  *
- * The board asked for 4% per level, capped at 40. Both halves are written out here by hand.
+ * The maintainer asked for 4% per level, capped at 40. Both halves are written out here by hand.
  */
 describe('the Infirmary, at the boardrate', () => {
   const gate = (level: number): Building[] => [

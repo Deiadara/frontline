@@ -606,7 +606,7 @@ describe('a perk that lifts the other officers', () => {
     expect(sheetOf(repos, base, 'pupil').attributes[attribute]).toBe(20 + flat);
   });
 
-  /** The rule the board asked for, and the whole reason the perk book was reworked. */
+  /** The rule the maintainer asked for, and the whole reason the perk book was reworked. */
   it('does not raise it on the officer carrying it', () => {
     const repos = openStack();
     const base = roster(repos, [
@@ -641,7 +641,7 @@ describe('a perk that lifts the other officers', () => {
 });
 
 /**
- * §C2: the bench, and what somebody on it is worth (board request).
+ * §C2: the bench, and what somebody on it is worth (maintainer request).
  *
  * The Bar turns over at midnight and a good sheet walks away, so the pressure to sign is real and
  * the pressure to have already decided which chair was artificial. The bench removes the second

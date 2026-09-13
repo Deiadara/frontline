@@ -154,13 +154,28 @@ export function retimeColumns(
  * the fortification and battle settlers have: a column that arrived while nobody was looking is on
  * the ground by the time the next request reads the row.
  */
-export function settleMovements(repos: Repositories, now: Date): void {
+export function settleMovements(repos: Repositories, now: Date): number {
+  // Counted, so the world settle can tell every open tab a column landed. See `world/settle.ts`.
+  let landed = 0;
   for (const movement of repos.movements.arrivedBy(now.toISOString())) {
     if (!movementArrived(movement, now)) continue;
+    landed += 1;
     const battle = repos.sieges.find(movement.battleId);
-    // Overtaken: the fight is over, or the row is gone. Send them home rather than onto a
-    // battlefield that no longer exists.
-    if (!battle || battle.resolvedAt !== null) {
+    /*
+     * Overtaken: the fight is over, or the row is gone, or the column got there after the mark.
+     * Send them home rather than onto a battlefield that no longer exists.
+     *
+     * The third case is the one a late tick opens. Deployment shuts a second before the mark, but
+     * the settle that runs the fight is the *next* tick or read after it, and a server that was
+     * asleep between the two folded in every column with `arrivesAt` up to `now`, including ones
+     * that arrived after the hour the fight was called for. A fight is run with what was on the
+     * ground at its mark and nothing that walked in afterwards.
+     */
+    if (
+      !battle ||
+      battle.resolvedAt !== null ||
+      Date.parse(movement.arrivesAt) > Date.parse(battle.scheduledFor)
+    ) {
       returnHome(repos, movement);
       continue;
     }
@@ -178,6 +193,7 @@ export function settleMovements(repos: Repositories, now: Date): void {
     });
     repos.movements.remove(movement.id);
   }
+  return landed;
 }
 
 /** Turn a column around: the units go back onto the roster and the row goes. */

@@ -1,24 +1,28 @@
 import {
   MISC_AREA_ID,
   MAX_ATTRIBUTE,
-  MISSION_EDGE_ATTRIBUTES,
-  MAX_MISSION_EDGE,
   OVERSEER_PRESETS,
+  UNLED_PENALTY,
+  composeProfile,
   createCommander,
   findMissionTemplate,
   itemsInTrack,
+  leaningsFor,
   makeAttributes,
-  modifiedSuccessChance,
-  overseerMissionEdge,
+  missionOdds,
+  scaledSuccessChance,
   startingEconomy,
   startingProgression,
   startingResearch,
+  type Attributes,
   type Base,
   type Commander,
   type Overseer,
   type OverseerPreset,
   type ResearchResponse,
+  type MissionTemplate,
   type ResearchState,
+  type UnledRule,
   startingTraining,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -32,11 +36,16 @@ import { startResearch } from './start.js';
 
 /**
  * Research at the seam the browser actually touches: the two routes, end to end over a real
- * database, and the Overseer's own effect on a run (§F5).
+ * database, and what the Overseer is worth at the head of a run.
  *
  * The ladder itself is asserted in `packages/shared/src/research/tracks.test.ts` and the score-side
  * rules in `tracks.test.ts` next door. What only this file can say is that a rung started over HTTP
  * lands on the read that comes after its clock, and that the desk's route is gone.
+ *
+ * §F5 used to be here as `overseerMissionEdge`, a ±15% nudge off Speed and Stealth. Who leads a
+ * run is a general rule now (`missions.leading.ts`) and the Overseer goes through it like anybody
+ * else; what is left to check on this side is that the launch freezes what the shared model said
+ * rather than working it out again.
  */
 
 const NOW = new Date('2026-08-13T09:00:00.000Z');
@@ -216,69 +225,97 @@ describe('a rung pays XP off its own clock (§I1)', () => {
   });
 });
 
-describe('§F5: the Overseer modifies a run that risks people', () => {
+describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', () => {
   const battle = findMissionTemplate('foundry-raid');
   const standard = findMissionTemplate('scrap-run');
   if (!battle || !standard) throw new Error('expected both mission kinds on the board');
 
-  it('is exactly the board’s worked example: Speed and Stealth, on a raid', () => {
-    expect(MISSION_EDGE_ATTRIBUTES.battle).toEqual(['speed', 'stealth']);
-    expect(MISSION_EDGE_ATTRIBUTES.standard).toEqual([]);
-  });
+  /** The odds the shared model says a run goes out with, restated from its own inputs. */
+  function odds(template: MissionTemplate, leader: Attributes | null, unled: UnledRule) {
+    return missionOdds({
+      authored: scaledSuccessChance(template.successChance, 1),
+      leader,
+      profile: composeProfile(leaningsFor(template)),
+      unled,
+    });
+  }
 
-  it('raises the chance for a fast, quiet Overseer and lowers it for a slow, loud one', () => {
-    const sharp = makeAttributes(10, { speed: MAX_ATTRIBUTE, stealth: MAX_ATTRIBUTE });
-    const clumsy = makeAttributes(10, { speed: 0, stealth: 0 });
-
-    expect(overseerMissionEdge(sharp, 'battle')).toBeCloseTo(MAX_MISSION_EDGE, 10);
-    expect(overseerMissionEdge(clumsy, 'battle')).toBeLessThan(0);
-    expect(modifiedSuccessChance(battle.successChance, sharp, 'battle')).toBeGreaterThan(
-      battle.successChance,
-    );
-    expect(modifiedSuccessChance(battle.successChance, clumsy, 'battle')).toBeLessThan(
-      battle.successChance,
-    );
-  });
-
-  it('leaves a standard run and an average Overseer alone', () => {
-    const sharp = makeAttributes(10, { speed: MAX_ATTRIBUTE, stealth: MAX_ATTRIBUTE });
-    expect(modifiedSuccessChance(standard.successChance, sharp, 'standard')).toBe(
-      standard.successChance,
-    );
-    // Zero at the recruitment mean, so the board's authored chances still mean what they say.
-    expect(overseerMissionEdge(makeAttributes(15), 'battle')).toBe(0);
-  });
-
-  it('never leaves 0..1, whatever the sheet says', () => {
-    const sharp = makeAttributes(MAX_ATTRIBUTE);
-    const clumsy = makeAttributes(0);
-    for (const chance of [0, 0.02, 0.5, 0.99, 1]) {
-      expect(modifiedSuccessChance(chance, sharp, 'battle')).toBeLessThanOrEqual(1);
-      expect(modifiedSuccessChance(chance, clumsy, 'battle')).toBeGreaterThanOrEqual(0);
-    }
-  });
-
-  it('freezes the modified chance onto the row at launch', () => {
+  it('freezes what the leader was worth onto the row, not a second arithmetic', () => {
     const base = makeBase();
     const sharp = makeOverseer({
-      attributes: makeAttributes(10, { speed: MAX_ATTRIBUTE, stealth: MAX_ATTRIBUTE }),
+      attributes: makeAttributes(10, {
+        leadership: MAX_ATTRIBUTE,
+        strategy: MAX_ATTRIBUTE,
+        toughness: MAX_ATTRIBUTE,
+      }),
     });
-    const args = { areaId: MISC_AREA_ID, force: { razors: 1 } };
-    const stored = launchMission({
+    const args = { areaId: MISC_AREA_ID, force: { razors: 1 }, unled: 'free' as const };
+    const led = launchMission({
       id: 'm',
       base,
       template: battle,
       now: NOW,
-      overseer: sharp,
+      leader: { kind: 'overseer', id: sharp.id, attributes: sharp.attributes },
       ...args,
     });
-    expect(stored.successChance).toBe(
-      modifiedSuccessChance(battle.successChance, sharp.attributes, 'battle'),
-    );
-    // No Overseer means the template's authored chance, untouched: the pre-§F5 behaviour.
-    expect(
-      launchMission({ id: 'm', base, template: battle, now: NOW, ...args }).successChance,
-    ).toBe(battle.successChance);
+    expect(led.successChance).toBe(odds(battle, sharp.attributes, 'free').chance);
+    // A raid wants somebody who can hold a line, and this one can: it is worth more than the
+    // authored figure, which is the whole reason the player is asked who goes.
+    expect(led.successChance).toBeGreaterThan(battle.successChance);
+  });
+
+  it('takes the unled penalty off a crew that went out on its own', () => {
+    const base = makeBase();
+    const args = { areaId: MISC_AREA_ID, force: { razors: 1 } };
+    const free = launchMission({
+      id: 'm',
+      base,
+      template: standard,
+      now: NOW,
+      ...args,
+      unled: 'free',
+    });
+    const docked = launchMission({
+      id: 'm',
+      base,
+      template: standard,
+      now: NOW,
+      ...args,
+      unled: 'penalised',
+    });
+    expect(free.successChance).toBe(scaledSuccessChance(standard.successChance, 1));
+    expect(docked.successChance).toBeCloseTo(free.successChance - UNLED_PENALTY, 10);
+  });
+
+  it('reads the same for an officer as for the Overseer, on the same sheet', () => {
+    const base = makeBase();
+    const sheet = makeAttributes(40);
+    const asOverseer = launchMission({
+      id: 'm',
+      base,
+      template: battle,
+      now: NOW,
+      areaId: MISC_AREA_ID,
+      force: { razors: 1 },
+      unled: 'free',
+      leader: { kind: 'overseer', id: 'ov-1', attributes: sheet },
+    });
+    const asOfficer = launchMission({
+      id: 'm',
+      base,
+      template: battle,
+      now: NOW,
+      areaId: MISC_AREA_ID,
+      force: { razors: 1 },
+      unled: 'free',
+      leader: { kind: 'officer', id: 'off-1', attributes: sheet },
+    });
+    expect(asOfficer.successChance).toBe(asOverseer.successChance);
+    // Which of the two it was is still on the row: the Overseer is not on the books.
+    expect(asOverseer.mission.overseerLed).toBe(true);
+    expect(asOverseer.mission.officerId).toBeNull();
+    expect(asOfficer.mission.overseerLed).toBe(false);
+    expect(asOfficer.mission.officerId).toBe('off-1');
   });
 });
 

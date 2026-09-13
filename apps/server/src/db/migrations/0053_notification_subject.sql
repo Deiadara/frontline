@@ -1,4 +1,4 @@
--- What a notification is *about*, so opening one can show it (board request).
+-- What a notification is *about*, so opening one can show it (maintainer request).
 --
 -- A notification carried a `link` and nothing else, so every receipt for a mission went to the same
 -- place: the missions screen, with no way to say which of the four crews that came home this

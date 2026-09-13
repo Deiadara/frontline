@@ -16,7 +16,7 @@
  *
  * jsdom has no layout engine: `getBoundingClientRect` is all zeroes, so nothing in this file can
  * answer "do these two boxes overlap". That question is answered in a real browser, by
- * `visual.spec.ts`, and that is the test that actually caught the board's screenshot.
+ * `visual.spec.ts`, and that is the test that actually caught the maintainer's screenshot.
  *
  * What this catches is the *cause*, one layer down and much earlier: a component that hands a
  * variable-length value to a box with no width and no wrapping plan is broken whether or not
@@ -107,7 +107,7 @@ function textLeaves(root: HTMLElement): HTMLElement[] {
  *
  * Proportional figures are why a counter ticking 1109 → 1110 jogs the label beside it: `1` is
  * narrower than `0` in almost every typeface with a proportional default. In a row of readouts
- * that reads as the whole row twitching. The board asked for this in as many words ("have all the
+ * that reads as the whole row twitching. The maintainer asked for this in as many words ("have all the
  * numbers always be the same size so it's not weird"), and it is one class.
  */
 function expectFiguresAreTabular(result: RenderResult, what: string): void {

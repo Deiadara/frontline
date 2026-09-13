@@ -137,24 +137,79 @@ function atRecruitment(value: number, floor: number): number {
 export const MAX_CALIBRE = MAX_RECRUITMENT_ATTRIBUTE - STRENGTH_MEAN;
 
 /**
+ * And the floor, which exists so a roll can be *below* the room as well as above it.
+ *
+ * The lift used to clamp at zero, which made `calibre` a one-way dial: a room could be raised and
+ * never lowered, so every recruit in a young city sat on the same means and the whole Bar came out
+ * within a few percent of itself (measured: ordinary sheets ran 638 to 686 points at the tenth and
+ * ninetieth percentiles, on a mean of 662). A green recruit is a real kind of person and this is
+ * the room the roll needs to put them in.
+ *
+ * Eight, against a base mean of 18 and a strength mean of 30: a green sheet means about 10, with
+ * its strengths about 22, which reads as somebody who has not done this before and is still worth
+ * the floor wage. `BASE_FLOOR` catches the tail.
+ */
+export const MIN_CALIBRE = -8;
+
+/**
  * Which attributes a roll lifts. Most are drawn over the affinity's template: heavier weights
  * come up more often, but one comes from outside it, so the lifted set is never the template's
  * own membership and cannot be read back as one.
  */
-function pickStrengths(rng: Rng, affinity: OfficerRole): AttributeName[] {
+function pickStrengths(rng: Rng, affinity: OfficerRole, extra = 0): AttributeName[] {
   const template = attributeWeightsOf(affinity);
   const named = new Set<AttributeName>(template.map(([name]) => name));
   const offTemplate = ATTRIBUTE_NAMES.filter((name) => !named.has(name));
 
-  const count = randomInt(rng, MIN_STRENGTHS, MAX_STRENGTHS);
+  // `extra` is the Bar's standout seats (`bar/roster.ts`) and is zero everywhere else. Both
+  // samplers cap at their pool, so a request past the template's five simply takes all of it: the
+  // off-template draw stays at its analysed count and the affinity still contributes, which is
+  // what the import-time check above is guarding.
+  const count = randomInt(rng, MIN_STRENGTHS, MAX_STRENGTHS) + Math.max(0, extra);
   return [
     ...sample(rng, offTemplate, OFF_TEMPLATE_STRENGTHS),
     ...weightedSample(rng, template, count - OFF_TEMPLATE_STRENGTHS),
   ];
 }
 
-function rollAttributes(rng: Rng, affinity: OfficerRole, calibre = 0): Attributes {
-  const lift = Math.min(MAX_CALIBRE, Math.max(0, calibre));
+/**
+ * How one roll differs from the ordinary one, which is how the Bar's standout seats are made.
+ *
+ * Every field is off by default, so `rollRecruit(seed)` is the roll it has always been and every
+ * distribution the leak analysis measured is untouched. What a standout gets is stated here rather
+ * than as three loose parameters, because the three only ever move together.
+ */
+export interface RollShape {
+  /** Perks the roll is guaranteed, on top of whatever it drew. */
+  minPerks: number;
+  /**
+   * Attributes lifted past the ordinary band.
+   *
+   * This is the lever that still means something at the ceiling. A calibre lift raises the means,
+   * and in a mature city the room is already at `MAX_CALIBRE`, so there is nothing left for it to
+   * raise: two rolls come out the same. Lifting *more* attributes makes a better sheet without
+   * putting any single one past `MAX_RECRUITMENT_ATTRIBUTE`, which is the one bound that may never
+   * move.
+   */
+  extraStrengths: number;
+  /** Whether this roll skips the ordinary one to three weaknesses. */
+  noWeaknesses: boolean;
+}
+
+/** The roll everybody outside the Bar's standout seats gets. */
+export const ORDINARY_ROLL: RollShape = {
+  minPerks: 0,
+  extraStrengths: 0,
+  noWeaknesses: false,
+};
+
+function rollAttributes(
+  rng: Rng,
+  affinity: OfficerRole,
+  calibre = 0,
+  shape: RollShape = ORDINARY_ROLL,
+): Attributes {
+  const lift = Math.min(MAX_CALIBRE, Math.max(MIN_CALIBRE, calibre));
   const sheet = Object.fromEntries(
     ATTRIBUTE_NAMES.map((name) => [
       name,
@@ -162,16 +217,18 @@ function rollAttributes(rng: Rng, affinity: OfficerRole, calibre = 0): Attribute
     ]),
   ) as Attributes;
 
-  const strengths = pickStrengths(rng, affinity);
+  const strengths = pickStrengths(rng, affinity, shape.extraStrengths);
   for (const name of strengths) {
     // The better of the two: a lift marks an attribute as strong, so it must never pull one down.
     const lifted = atRecruitment(gaussian(rng, STRENGTH_MEAN + lift, STRENGTH_STD_DEV), BASE_FLOOR);
     sheet[name] = Math.max(sheet[name], lifted);
   }
 
-  const eligible = ATTRIBUTE_NAMES.filter((name) => !strengths.includes(name));
-  for (const name of sample(rng, eligible, randomInt(rng, MIN_WEAKNESSES, MAX_WEAKNESSES))) {
-    sheet[name] = atRecruitment(gaussian(rng, WEAKNESS_MEAN, WEAKNESS_STD_DEV), WEAKNESS_FLOOR);
+  if (!shape.noWeaknesses) {
+    const eligible = ATTRIBUTE_NAMES.filter((name) => !strengths.includes(name));
+    for (const name of sample(rng, eligible, randomInt(rng, MIN_WEAKNESSES, MAX_WEAKNESSES))) {
+      sheet[name] = atRecruitment(gaussian(rng, WEAKNESS_MEAN, WEAKNESS_STD_DEV), WEAKNESS_FLOOR);
+    }
   }
 
   return sheet;
@@ -188,9 +245,15 @@ function rollPerkCount(rng: Rng): number {
   return 0;
 }
 
-/** Distinct perks, because carrying the same bonus twice reads as a bug rather than as luck. */
-function rollPerks(rng: Rng): string[] {
-  const wanted = rollPerkCount(rng);
+/**
+ * Distinct perks, because carrying the same bonus twice reads as a bug rather than as luck.
+ *
+ * `minPerks` is the floor the Bar's standout seats stand on (maintainer request, 2026-09-11). The count
+ * is still rolled first and the floor applied after, so the same seed draws the same stream: a
+ * standout is the ordinary roll with a floor under it rather than a different person.
+ */
+function rollPerks(rng: Rng, minPerks = 0): string[] {
+  const wanted = Math.max(minPerks, rollPerkCount(rng));
   const picked: string[] = [];
   for (let attempt = 0; picked.length < wanted && attempt < PERK_IDS.length * 2; attempt += 1) {
     const id = PERK_IDS[randomInt(rng, 0, PERK_IDS.length - 1)];
@@ -200,13 +263,17 @@ function rollPerks(rng: Rng): string[] {
 }
 
 /** Roll one recruitable character, keeping the affinity. Same seed, same character. */
-export function rollRecruit(seed: number, calibre = 0): ShapedRoll {
+export function rollRecruit(
+  seed: number,
+  calibre = 0,
+  shape: RollShape = ORDINARY_ROLL,
+): ShapedRoll {
   const rng = createRng(seed);
   const affinity = OFFICER_ROLES[randomInt(rng, 0, OFFICER_ROLES.length - 1)];
   if (!affinity) throw new Error('no officer roles to draw an affinity from');
 
-  const rolled = rollAttributes(rng, affinity, calibre);
-  const perks = rollPerks(rng);
+  const rolled = rollAttributes(rng, affinity, calibre, shape);
+  const perks = rollPerks(rng, shape.minPerks);
 
   // Still clamped to the recruitment ceiling. A perk cannot breach it the way a trait could,
   // because a perk does not touch this person's own sheet at all, but the clamp is the guarantee
@@ -222,7 +289,11 @@ export function rollRecruit(seed: number, calibre = 0): ShapedRoll {
 }
 
 /** Roll one recruitable character. Same seed and calibre, same character. */
-export function generateCharacter(seed: number, calibre = 0): GeneratedCharacter {
-  const { attributes, perks } = rollRecruit(seed, calibre);
+export function generateCharacter(
+  seed: number,
+  calibre = 0,
+  shape: RollShape = ORDINARY_ROLL,
+): GeneratedCharacter {
+  const { attributes, perks } = rollRecruit(seed, calibre, shape);
   return { attributes, perks };
 }

@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { BlueprintCategorySchema } from './blueprints/catalog.js';
 import { BuildingKindSchema } from './building/index.js';
+import { OfficerRoleSchema } from './roles.js';
 import { BlackMarketSlotSchema, BoostStashSchema } from './market/blackmarket.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PartialResourcesSchema } from './resources.js';
@@ -166,6 +168,34 @@ export const AdminKnobsRequestSchema = z
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to set');
 export type AdminKnobsRequest = z.infer<typeof AdminKnobsRequestSchema>;
+
+/**
+ * The Console's grants (maintainer request, 2026-09-11): the things a reviewer cannot knob into
+ * existence and cannot reach honestly in an afternoon. Every Scrapyard bench now shows only what
+ * the crew holds the drawings for, so testing the yard at mid and late game means holding mid
+ * and late game documents; and a trap wants a Lab rung as well.
+ *
+ * Each field is optional and independent. `blueprints` puts the finished document (not its pages)
+ * in the satchel, so the row unlocks at once; `pages` hands over one copy of every page in the
+ * game, for the Blueprints and Reimagining screens; `parts` is that many of every component the
+ * Runner carries, for refits; `technologies` marks every rung of one track, or of all of them,
+ * as finished. Admin mode only, refused as NOT_FOUND otherwise, like every other console route.
+ */
+export const AdminGrantRequestSchema = z
+  .object({
+    /** Every finished document, or every document of one category, or the named ones. */
+    blueprints: z
+      .union([z.literal('all'), BlueprintCategorySchema, z.array(z.string())])
+      .optional(),
+    /** One copy of every page in the catalogue. */
+    pages: z.literal('all').optional(),
+    /** This many of every component good. */
+    parts: z.number().int().min(1).max(999).optional(),
+    /** Every rung on every track, or on one track. */
+    technologies: z.union([z.literal('all'), OfficerRoleSchema]).optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0, 'Nothing to grant');
+export type AdminGrantRequest = z.infer<typeof AdminGrantRequestSchema>;
 
 export const AdminSnapshotSchema = z.object({
   state: AdminStateSchema,

@@ -10,7 +10,7 @@ import {
 /**
  * The one arithmetic every road in the game is measured with.
  *
- * Written against the board's own worked example rather than against the implementation: *"a 30
+ * Written against the maintainer's own worked example rather than against the implementation: *"a 30
  * speed unit makes it 30% faster to go there, and a 100 speed unit makes it 100% faster, e.g. 20
  * mins down to 10 mins"*, and then *"other bonuses like 10% less travel time stack on top, so 20 to
  * 10 mins and then another 10 percent of that"*. Every number below is one of those sentences.
@@ -24,7 +24,7 @@ describe('roadMinutes', () => {
 
   it('halves the road at 100 and takes about a quarter off at 30', () => {
     expect(roadMinutes(20, 100)).toBe(10);
-    // 20 / 1.3 = 15.38, which the board wrote as "about 15.4".
+    // 20 / 1.3 = 15.38, which the maintainer wrote as "about 15.4".
     expect(roadMinutes(20, 30)).toBe(15);
     expect(roadMinutes(200, 30)).toBe(154);
   });

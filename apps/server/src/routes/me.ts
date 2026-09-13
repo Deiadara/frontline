@@ -1,4 +1,5 @@
 import type { MeResponse } from '@frontline/shared';
+import { featsReadyCount } from '../feats/project.js';
 import type { FastifyInstance } from 'fastify';
 import { fightsCalledOn } from '../battle/declare.js';
 import { settleBase } from '../district/settle.js';
@@ -25,6 +26,9 @@ export function registerMeRoutes(app: FastifyInstance): void {
       notifications: app.repos.social.unreadNotifications(user.id),
       // The red mark on the bottom bar: fights still to come on this crew's ground.
       fightsOnYou: base ? fightsCalledOn(app.repos, base) : 0,
+      // And the one on the Feats door: finished and waiting to be collected. Off the same
+      // evaluation the screen runs, so the badge and the page cannot disagree about the number.
+      featsReady: base ? featsReadyCount(app.repos, base) : 0,
     };
     // What the next level of each structure will actually cost, discounts included. The dialog
     // cannot work it out: `buildingCostPercent` is a per-structure record and the effects on the

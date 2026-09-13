@@ -31,6 +31,18 @@ export const LIVE_EVENT_KINDS = [
   'faction',
   /** Your own holdings moved for a reason you did not cause on this tab. */
   'base',
+  /*
+   * The three below are **broadcast**: every open tab gets them, because what changed is the one
+   * world everybody shares (maintainer request, 2026-09-11: two players looking at the same street
+   * must see the same street). Still a nudge and never a payload, so a tab learns *that* the map
+   * moved and refetches it through its own fogged, authenticated read.
+   */
+  /** Shared ground moved: a location changed hands or was dug in, a fight was called or settled, a gate went up or down, the standings moved. */
+  'world',
+  /** The market moved: a listing posted, taken or withdrawn, a bid on the Runner's barrow, a lot closed. */
+  'market',
+  /** The Bar moved: a bid on a seat, a table closed. */
+  'bar',
 ] as const;
 
 export type LiveEventKind = (typeof LIVE_EVENT_KINDS)[number];

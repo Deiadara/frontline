@@ -248,12 +248,16 @@ describe('how many of one machine a yard holds (§C)', () => {
         durationMinutes: 60,
         status: 'active',
         officerId: null,
+        overseerLed: false,
+        lost: {},
+        reported: true,
         outcome: null,
         rewards: {},
         spoils: {},
         resolvedAt: null,
         pagePrize: null,
         pageWon: null,
+        found: {},
       },
     });
 
@@ -276,6 +280,7 @@ describe('how many of one machine a yard holds (§C)', () => {
       spoils: {},
       resolvedAt: new Date().toISOString(),
       pageWon: null,
+      found: {},
     });
     const allowed = await build(app, token, 'motorcycle');
     expect(allowed.statusCode, allowed.body.slice(0, 200)).toBe(200);

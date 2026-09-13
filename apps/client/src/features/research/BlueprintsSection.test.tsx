@@ -18,7 +18,7 @@ import { BLUEPRINT_UNLOCK_MESSAGES } from '@frontline/shared';
 import { useSession } from '../../store/session';
 
 /**
- * The Blueprints page, and the one thing it must never do.
+ * The Blueprints tab, and the one thing it must never do.
  *
  * §D5: a document a crew holds no pages of is not on this screen. Every other assertion here is
  * about a state a player can reach by finding pages, but that one is about what they must *not*
@@ -31,15 +31,9 @@ const resources = Object.fromEntries(
   RESOURCE_KEYS.map((key) => [key, key === 'caps' ? 10_000 : 1_000]),
 ) as Resources;
 
-function marketWith(
-  inventory: Inventory,
-  reimagining: MarketResponse['reimagining'] = {
-    hasHeadOfResearch: false,
-    hasReimaginingResearch: false,
-  },
-): MarketResponse {
+function marketWith(inventory: Inventory): MarketResponse {
   return {
-    reimagining,
+    reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
     serverNow: NOW,
     caps: resources.caps,
     resources,
@@ -79,39 +73,15 @@ const ALL_SNIPER_PAGES: Inventory = {
   pg_snipers_ghillie_patterns: 1,
 };
 
-/** Both halves of the §G4 gate met, which is what puts a button on the panel. */
-const LAB_OPEN = { hasHeadOfResearch: true, hasReimaginingResearch: true };
-
 function stub(
   inventory: Inventory,
   onUnlock?: (body: unknown) => Inventory,
-  reimagining: MarketResponse['reimagining'] = {
-    hasHeadOfResearch: false,
-    hasReimaginingResearch: false,
-  },
-  /** When set, the trade route refuses with this machine name instead of trading. */
-  refuseTrade: string | null = null,
   /** When set, the unlock route refuses with this machine name instead of unlocking. */
   refuseUnlock: string | null = null,
 ): void {
   let current = inventory;
   fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-    if (path.endsWith('/market')) return reply(marketWith(current, reimagining));
-    if (path.endsWith('/blueprints/reimagine') && refuseTrade !== null) {
-      return reply(
-        { error: { code: 'REIMAGINING_REFUSED', message: refuseTrade } },
-        { ok: false, status: 409 },
-      );
-    }
-    if (path.endsWith('/blueprints/reimagine')) {
-      // What the route answers with: the board, plus the only place the new page is ever named.
-      current = { ...current, pg_munitions_load_tables: 1 };
-      return reply({
-        market: marketWith(current, reimagining),
-        spent: ['pg_snipers_range_cards', 'pg_snipers_range_cards', 'pg_snipers_range_cards'],
-        gained: 'pg_munitions_load_tables',
-      });
-    }
+    if (path.endsWith('/market')) return reply(marketWith(current));
     if (path.endsWith('/blueprints/unlock') && refuseUnlock !== null) {
       return reply(
         { error: { code: 'BLUEPRINT_REFUSED', message: refuseUnlock } },
@@ -134,12 +104,15 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/game/inventory/blueprints']}>
+      <MemoryRouter initialEntries={['/game/research/blueprints']}>
         <BlueprintsSection />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
+
+/** The switch, by the name a player reads on it. */
+const showUnlocked = () => screen.getByRole('switch', { name: /Show unlocked/ });
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
@@ -162,62 +135,66 @@ describe('what a crew is allowed to see (§D5)', () => {
     );
     // Not one row, and not one name: the Colossus is not a thing this player knows exists.
     expect(screen.queryByText('Colossus Blueprint')).toBeNull();
-    expect(document.querySelectorAll('[data-testid^="blueprint-"]')).toHaveLength(0);
+    expect(document.querySelectorAll('[data-testid^="blueprint-bp"]')).toHaveLength(0);
+    // ...and no furniture either: the switch and the drawers would be a screen with controls on it
+    // and nothing to control.
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 
   it('reveals exactly the one document a single page belongs to, and nothing beside it', async () => {
     stub({ pg_colossus_hull_sections: 1 });
     renderPage();
     expect(await screen.findByText('Colossus Blueprint')).toBeVisible();
-    expect(document.querySelectorAll('[data-testid^="blueprint-"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-testid^="blueprint-bp"]')).toHaveLength(1);
     expect(screen.queryByText('Sniper Blueprint')).toBeNull();
   });
 });
 
 /**
- * §D8, the board's 2026-09-09 call: every page is its own thing and says so.
+ * §D8, the maintainer's 2026-09-09 call: every page is its own thing and says so.
  *
- * A page row carries three things a square never could: the page's name, its rarity, and on hover
+ * A page tile carries three things a square never could: the page's name, its rarity, and on hover
  * the line saying what is actually drawn on the sheet. All three are authored in the shared
  * catalogue, so the assertions read them from there rather than repeating the copy: a test holding
  * its own copy of "Range Cards" passes on a screen printing a page that no longer exists.
  */
-describe('what a page row says about the page (§D8)', () => {
+describe('what a page tile says about the page (§D8)', () => {
   it('names every page of the document and inks each one at its own rarity', async () => {
     stub({ pg_snipers_range_cards: 1 });
     renderPage();
-    const rows = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
+    const tiles = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
     const snipers = findBlueprint('bp_snipers');
     expect(snipers).toBeDefined();
     if (!snipers) return;
 
     for (const [index, page] of snipers.pages.entries()) {
-      const text = rows[index]?.textContent ?? '';
-      expect(text, `row ${index} does not name ${page.id}`).toContain(page.name);
-      // The rarity word is printed in the row now rather than only carried on the hover: the row
-      // is 44px tall for the sake of the drawing, which leaves a second line free.
-      expect(text, `row ${index} does not say what ${page.id} is worth`).toContain(
-        ITEM_RARITY_LABELS[pageRarity(snipers, page)],
+      expect(tiles[index]?.textContent ?? '', `tile ${index} does not name ${page.id}`).toContain(
+        page.name,
       );
     }
-    expect(rows.map((row) => row.dataset.rarity)).toEqual(
+    /*
+     * The rarity is on the tile's own attribute and on its hover rather than printed under the
+     * name: an 88px tile has room for a page name at 10px and nothing else, and the strip has to
+     * put the Colossus' eight sheets on one line.
+     */
+    expect(tiles.map((tile) => tile.dataset.rarity)).toEqual(
       snipers.pages.map((page) => pageRarity(snipers, page)),
     );
     // Barrel Liners is authored a tier above the document. A screen reading one rarity for the
-    // whole document would draw all three rows the same and still name them correctly.
-    expect(new Set(rows.map((row) => row.dataset.rarity)).size).toBeGreaterThan(1);
+    // whole document would draw all three tiles the same and still name them correctly.
+    expect(new Set(tiles.map((tile) => tile.dataset.rarity)).size).toBeGreaterThan(1);
   });
 
   it('puts the page description and its rarity word on the hover', async () => {
     stub({ pg_snipers_range_cards: 1 });
     renderPage();
-    const rows = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
+    const tiles = within(await screen.findByTestId('pages-bp_snipers')).getAllByRole('listitem');
     const snipers = findBlueprint('bp_snipers');
     const page = snipers?.pages[1];
     expect(page).toBeDefined();
     if (!snipers || !page) return;
 
-    const tip = rows[1]?.dataset.tip ?? '';
+    const tip = tiles[1]?.dataset.tip ?? '';
     expect(tip).toContain(page.name);
     expect(tip).toContain(page.description);
     expect(tip).toContain(ITEM_RARITY_LABELS[pageRarity(snipers, page)]);
@@ -235,59 +212,65 @@ describe('what a page row says about the page (§D8)', () => {
 });
 
 describe('a document being collected (§D6 to §D9)', () => {
-  it('draws a square per page, filled for what is held', async () => {
+  it('draws a sheet per page, lit for what is held', async () => {
     stub({ pg_snipers_range_cards: 1 });
     renderPage();
-    const squares = await screen.findByTestId('pages-bp_snipers');
-    const cells = within(squares).getAllByRole('listitem');
+    const strip = await screen.findByTestId('pages-bp_snipers');
+    const tiles = within(strip).getAllByRole('listitem');
     // Three, off the catalogue rather than a literal, and never zero: `?? 0` here would pass on a
     // blueprint that had gone missing entirely.
     expect(findBlueprint('bp_snipers')?.pages).toHaveLength(3);
-    expect(cells).toHaveLength(3);
-    expect(cells.map((cell) => cell.dataset.held)).toEqual(['no', 'yes', 'no']);
+    expect(tiles).toHaveLength(3);
+    expect(tiles.map((tile) => tile.dataset.held)).toEqual(['no', 'yes', 'no']);
   });
 
-  it('locks and darkens it, and offers no way to unlock a document short of a page', async () => {
+  it('locks it, and holds Unlock shut on a document short of a page', async () => {
     stub({ pg_snipers_range_cards: 1 });
     renderPage();
-    const card = await screen.findByTestId('blueprint-bp_snipers');
-    expect(card.dataset.status).toBe('partial');
-    expect(card.className).toContain('opacity-75');
-    expect(within(card).getByLabelText('Locked')).toBeVisible();
-    expect(within(card).queryByRole('button', { name: 'Unlock' })).toBeNull();
-    expect(within(card).getByText('1 of 3 pages')).toBeVisible();
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    expect(row.dataset.status).toBe('partial');
+    // A short document is a plate with a plain edge; the finished one below wears the brass.
+    expect(row.className).not.toContain('shadow-brass');
+    expect(within(row).getByLabelText('Locked')).toBeVisible();
+    expect(within(row).getByText('1 of 3 pages')).toBeVisible();
+    /*
+     * There, and dead. The control used to appear only once the set was complete, so an incomplete
+     * document had nothing on its right at all and the row was a sentence with the verb missing.
+     * §D6 wants the player to see what the pages are *for*.
+     */
+    expect(within(row).getByRole('button', { name: 'Unlock' })).toBeDisabled();
   });
 
-  it('offers Unlock only once every page is in', async () => {
+  it('lights Unlock the moment the last page is in', async () => {
     stub(ALL_SNIPER_PAGES);
     renderPage();
-    const card = await screen.findByTestId('blueprint-bp_snipers');
-    expect(card.dataset.status).toBe('complete');
-    expect(card.className).not.toContain('opacity-75');
-    expect(within(card).getByRole('button', { name: 'Unlock' })).toBeEnabled();
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    expect(row.dataset.status).toBe('complete');
+    expect(row.className).toContain('shadow-brass');
+    expect(within(row).getByRole('button', { name: 'Unlock' })).toBeEnabled();
   });
 });
 
 describe('unlocking (§D10)', () => {
-  it('moves the document to the unlocked view and stops offering the button', async () => {
+  it('takes the document off the collecting list and stamps it in the unlocked one', async () => {
     // What the server does: spend one of each page, hand back the document.
     stub(ALL_SNIPER_PAGES, () => ({ bp_snipers: 1 }));
     renderPage();
 
-    const card = await screen.findByTestId('blueprint-bp_snipers');
-    fireEvent.click(within(card).getByRole('button', { name: 'Unlock' }));
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    fireEvent.click(within(row).getByRole('button', { name: 'Unlock' }));
 
-    // Gone from the collecting view, which is what "moves to the unlocked page" means.
+    // Gone from the list, which is what "moves to the unlocked page" means.
     await waitFor(() => expect(screen.queryByTestId('blueprint-bp_snipers')).toBeNull());
-    fireEvent.click(screen.getByRole('tab', { name: /Unlocked/ }));
+    fireEvent.click(showUnlocked());
 
-    const unlockedCard = await screen.findByTestId('blueprint-bp_snipers');
-    expect(unlockedCard.dataset.status).toBe('unlocked');
-    expect(within(unlockedCard).queryByRole('button', { name: 'Unlock' })).toBeNull();
-    expect(within(unlockedCard).getByText('Unlocked')).toBeVisible();
-    // The pages were spent, and the finished document still draws a full row.
-    const cells = within(screen.getByTestId('pages-bp_snipers')).getAllByRole('listitem');
-    expect(cells.every((cell) => cell.dataset.held === 'yes')).toBe(true);
+    const unlockedRow = await screen.findByTestId('blueprint-bp_snipers');
+    expect(unlockedRow.dataset.status).toBe('unlocked');
+    expect(within(unlockedRow).queryByRole('button', { name: 'Unlock' })).toBeNull();
+    expect(within(unlockedRow).getByText('Unlocked')).toBeVisible();
+    // The pages were spent, and the finished document still draws a full strip.
+    const tiles = within(screen.getByTestId('pages-bp_snipers')).getAllByRole('listitem');
+    expect(tiles.every((tile) => tile.dataset.held === 'yes')).toBe(true);
   });
 
   it('sends the blueprint the player pressed, and nothing else', async () => {
@@ -297,44 +280,91 @@ describe('unlocking (§D10)', () => {
       return { bp_snipers: 1 };
     });
     renderPage();
-    const card = await screen.findByTestId('blueprint-bp_snipers');
-    fireEvent.click(within(card).getByRole('button', { name: 'Unlock' }));
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    fireEvent.click(within(row).getByRole('button', { name: 'Unlock' }));
     await waitFor(() => expect(seen).toEqual([{ blueprintId: 'bp_snipers' }]));
   });
 });
 
-describe('categories and the Reimagining seam (§D11d, §G4)', () => {
-  it('files each document under its own category', async () => {
-    stub({
-      pg_snipers_range_cards: 1,
-      pg_munitions_load_tables: 1,
-      pg_shaped_charges_cone_geometry: 1,
-    });
+/**
+ * The switch and the three drawers (maintainer, 2026-09-10).
+ *
+ * Both are state the screen holds and nothing else does, which makes them the two places this
+ * screen can lie about what a crew owns: a switch that showed unlocked documents by default would
+ * bury what a player is short of, and a drawer that filtered on the wrong field would hide a
+ * document that is really there.
+ */
+describe('the switch and the drawers', () => {
+  const MIXED: Inventory = {
+    pg_snipers_range_cards: 1,
+    bp_motorcycle: 1,
+    pg_munitions_load_tables: 1,
+    pg_shaped_charges_cone_geometry: 1,
+  };
+
+  it('leaves unlocked documents out until the switch is on', async () => {
+    stub(MIXED);
     renderPage();
+
+    expect(await screen.findByTestId('blueprint-bp_snipers')).toBeVisible();
+    expect(showUnlocked()).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByTestId('blueprint-bp_motorcycle')).toBeNull();
+
+    fireEvent.click(showUnlocked());
+    expect(showUnlocked()).toHaveAttribute('aria-checked', 'true');
+    expect(await screen.findByTestId('blueprint-bp_motorcycle')).toBeVisible();
+    // Both, not just the unlocked ones: the switch adds to the list rather than swapping it.
+    expect(screen.getByTestId('blueprint-bp_snipers')).toBeVisible();
+    expect(screen.getByTestId('blueprint-bp_motorcycle').dataset.status).toBe('unlocked');
+  });
+
+  it('counts what each drawer holds, and follows the switch when it counts', async () => {
+    stub(MIXED);
+    renderPage();
+
+    const drawer = (category: string) => screen.getByTestId(`blueprint-category-${category}`);
+    await screen.findByTestId('blueprints-unit');
+    expect(drawer('unit')).toHaveTextContent('1');
+    expect(drawer('upgrade')).toHaveTextContent('1');
+    expect(drawer('consumable')).toHaveTextContent('1');
+
+    fireEvent.click(showUnlocked());
+    // The motorbike is a unit document, so only that drawer's count moves.
+    expect(drawer('unit')).toHaveTextContent('2');
+    expect(drawer('upgrade')).toHaveTextContent('1');
+  });
+
+  it('shows one drawer at a time, and files each document under its own', async () => {
+    stub(MIXED);
+    renderPage();
+
     expect(
       within(await screen.findByTestId('blueprints-unit')).getByText('Sniper Blueprint'),
     ).toBeVisible();
+    expect(screen.queryByTestId('blueprints-upgrade')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('blueprint-category-upgrade'));
     expect(
       within(screen.getByTestId('blueprints-upgrade')).getByText('Munitions Blueprint'),
     ).toBeVisible();
+    expect(screen.queryByTestId('blueprints-unit')).toBeNull();
+    expect(screen.queryByText('Sniper Blueprint')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('blueprint-category-consumable'));
     expect(
       within(screen.getByTestId('blueprints-consumable')).getByText('Shaped Charge Blueprint'),
     ).toBeVisible();
   });
 
-  it('shows Reimagining locked, with both requirements stated, even with nothing held', async () => {
-    stub({});
+  /** A crew whose only pages are recipes opens on the recipes rather than on an empty drawer. */
+  it('opens on the first drawer that has anything in it', async () => {
+    stub({ pg_shaped_charges_cone_geometry: 1 });
     renderPage();
-    expect(await screen.findByText('Reimagining')).toBeVisible();
-    expect(screen.getByText('A Head of Research on the crew')).toBeVisible();
-    expect(screen.getByText('Reimagining, researched in the Lab')).toBeVisible();
-    expect(screen.getByText(/Take 3 pages you do not need/)).toBeVisible();
-  });
-
-  it('counts duplicates as the spare pages the trade would eat', async () => {
-    stub({ pg_snipers_range_cards: 3 });
-    renderPage();
-    expect(await screen.findByText('2 spare pages in the satchel')).toBeVisible();
+    expect(await screen.findByTestId('blueprints-consumable')).toBeVisible();
+    expect(screen.getByTestId('blueprint-category-consumable')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });
 
@@ -347,12 +377,12 @@ describe('categories and the Reimagining seam (§D11d, §G4)', () => {
  */
 describe('a refused Unlock (§D10)', () => {
   it('shows the sentence rather than the machine name', async () => {
-    // A complete set, so the button is there to press, with the server refusing anyway.
-    stub(ALL_SNIPER_PAGES, undefined, undefined, null, 'missing_pages');
+    // A complete set, so the button is live to press, with the server refusing anyway.
+    stub(ALL_SNIPER_PAGES, undefined, 'missing_pages');
     renderPage();
 
-    const card = await screen.findByTestId('blueprint-bp_snipers');
-    fireEvent.click(within(card).getByRole('button', { name: 'Unlock' }));
+    const row = await screen.findByTestId('blueprint-bp_snipers');
+    fireEvent.click(within(row).getByRole('button', { name: 'Unlock' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(BLUEPRINT_UNLOCK_MESSAGES.missing_pages);
@@ -367,101 +397,35 @@ describe('a refused Unlock (§D10)', () => {
  * because unlocking spends one of each and leaves the count at zero. Reimagining therefore handed
  * back pages of documents finished last week, and the fix was to exclude them. That fix has a
  * consequence on this screen: a *second* copy of such a page is now genuinely spendable, and the
- * card was hiding it, because the spare badge was suppressed for unlocked documents entirely.
+ * row was hiding it, because the spare badge was suppressed for unlocked documents entirely.
  */
 describe('a spare page of a document already assembled (§D10, §G2)', () => {
-  it('marks the copy on the card rather than hiding it under a finished document', async () => {
+  it('marks the copy on the row rather than hiding it under a finished document', async () => {
     // Unlocked, plus one loose copy of one of its pages.
     stub({ bp_snipers: 1, pg_snipers_range_cards: 1 });
     renderPage();
 
-    fireEvent.click(await screen.findByRole('tab', { name: /Unlocked/ }));
-    const rows = within(await screen.findByTestId('pages-bp_snipers'));
-    // "x1" rather than a bare 1: the count sits at the end of a row carrying a name now, and a
-    // lone digit beside "Range Cards" reads as part of the name.
-    expect(rows.getByText('x1')).toBeVisible();
+    fireEvent.click(await screen.findByRole('switch', { name: /Show unlocked/ }));
+    const strip = within(await screen.findByTestId('pages-bp_snipers'));
+    // "x1" rather than a bare 1: the count sits on a tile carrying a name now, and a lone digit
+    // beside "Range Cards" reads as part of the name.
+    expect(strip.getByText('x1')).toBeVisible();
   });
 
   it('leaves a spent page with no copies left carrying no number at all', async () => {
     stub({ bp_snipers: 1 });
     renderPage();
 
-    fireEvent.click(await screen.findByRole('tab', { name: /Unlocked/ }));
-    const squares = await screen.findByTestId('pages-bp_snipers');
-    // Any digit, not just a `1`. Rendering `{held}` unconditionally puts a literal `0` in every
-    // square, which a check for one particular number walks straight past.
-    for (const square of squares.querySelectorAll('li')) {
-      const shown = [...square.children]
+    fireEvent.click(await screen.findByRole('switch', { name: /Show unlocked/ }));
+    const strip = await screen.findByTestId('pages-bp_snipers');
+    // Any digit, not just a `1`. Rendering `{held}` unconditionally puts a literal `0` on every
+    // tile, which a check for one particular number walks straight past.
+    for (const tile of strip.querySelectorAll('li')) {
+      const shown = [...tile.children]
         .filter((child) => !child.classList.contains('sr-only'))
         .map((child) => child.textContent ?? '')
         .join('');
       expect(shown, `a spent page is showing "${shown}"`).not.toMatch(/\d/);
     }
-  });
-});
-
-/**
- * §G2: the trade itself, once the Lab will do it.
- *
- * The panel had a lock on it and nothing behind the lock for as long as the research did not
- * exist, so these cover the half that was a placeholder: a button that posts, and a report that
- * names the page. That report matters more than it looks. The page a crew gains is chosen on the
- * server and appears in the satchel as one more row among dozens, so this sentence is the only
- * moment a player is told what they got.
- */
-describe('trading three pages for one (§G2)', () => {
-  it('drops the requirement list and offers the trade once the Lab is open', async () => {
-    stub({ pg_snipers_range_cards: 4 }, undefined, LAB_OPEN);
-    renderPage();
-
-    expect(await screen.findByTestId('reimagine')).toBeEnabled();
-    // The lock copy earns its space only while it is shut.
-    expect(screen.queryByText('A Head of Research on the crew')).toBeNull();
-  });
-
-  it('names what went in and what came out', async () => {
-    stub({ pg_snipers_range_cards: 4 }, undefined, LAB_OPEN);
-    renderPage();
-
-    fireEvent.click(await screen.findByTestId('reimagine'));
-    const report = await screen.findByTestId('reimagine-result');
-    expect(report).toHaveTextContent('Range Cards x3 went in');
-    expect(report).toHaveTextContent('Load Tables came out');
-  });
-
-  it('holds the trade shut and says why when the spares are short', async () => {
-    stub({ pg_snipers_range_cards: 3 }, undefined, LAB_OPEN);
-    renderPage();
-
-    expect(await screen.findByTestId('reimagine')).toBeDisabled();
-    expect(screen.getByTestId('reimagine-refusal')).toHaveTextContent(
-      'wants 3 pages you do not need',
-    );
-  });
-
-  it('says why when the server refuses a trade the page thought was fine', async () => {
-    // The page's own check passes: four copies is three spares, and the Lab is open. The refusal
-    // arrives from the server, which is what happens when the Head of Research is unseated in
-    // another tab between the board being drawn and the button being pressed.
-    stub({ pg_snipers_range_cards: 4 }, undefined, LAB_OPEN, 'not_available');
-    renderPage();
-
-    fireEvent.click(await screen.findByTestId('reimagine'));
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('The Lab is not doing this yet.');
-    // And never the raw machine name.
-    expect(alert.textContent).not.toContain('not_available');
-  });
-
-  it('keeps the lock on while only one half of the gate is met', async () => {
-    stub({ pg_snipers_range_cards: 4 }, undefined, {
-      hasHeadOfResearch: true,
-      hasReimaginingResearch: false,
-    });
-    renderPage();
-
-    expect(await screen.findByText('Reimagining')).toBeVisible();
-    expect(screen.queryByTestId('reimagine')).toBeNull();
-    expect(screen.getByText('A Head of Research on the crew')).toBeVisible();
   });
 });

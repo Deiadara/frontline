@@ -9,7 +9,7 @@ import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
  *
  * The building grants nothing passively, so this page *is* the building: what the yard is for,
  * what level it stands at and how many seats are parked in it. The machines themselves are on the
- * roster, under a Vehicles tab beside the units they carry (board request, 2026-09-08): a machine
+ * roster, under a Vehicles tab beside the units they carry (maintainer request, 2026-09-08): a machine
  * is chosen against the legs of the people who will ride it, and that comparison wants the two
  * sheets on one screen. This page is the door to that tab, and the door says what is behind it.
  */

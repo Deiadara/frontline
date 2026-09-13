@@ -29,7 +29,7 @@ export const CommanderSchema = z.object({
   id: IdSchema,
   name: z.string().min(1),
   /**
-   * The chair they sit in, or `null` for somebody on the bench (§C2, board request).
+   * The chair they sit in, or `null` for somebody on the bench (§C2, maintainer request).
    *
    * The bench is not a nineteenth kind of job, it is the absence of one: an officer you have signed
    * and have not decided about yet. They are on the books, they are drawing a wage, and they are
@@ -76,6 +76,16 @@ export const CommanderSchema = z.object({
    * Defaulted, so every officer written before an officer could be hurt reads as fit.
    */
   injuredUntil: IsoDateTimeSchema.nullable().default(null),
+  /**
+   * The face they wear, chosen once at signing and kept (maintainer request, 2026-09-11).
+   *
+   * It was derived from the id on every read (`officerPortraits`), which kept two officers on one
+   * crew apart and nothing else: two crews in the same city could both be looking at the same
+   * woman. The face is a fact about the officer now. `signRecruit` picks the first free face in the
+   * whole city and writes it here, and the Bar shows a recruit the face they would sign with. Null
+   * only on an officer written before the column existed; the server backfills those on boot.
+   */
+  portraitId: z.string().nullable().default(null),
 });
 export type Commander = z.infer<typeof CommanderSchema>;
 
@@ -101,5 +111,6 @@ export function createCommander(
     perks: [...perks],
     weeklyWage,
     injuredUntil: null,
+    portraitId: null,
   };
 }

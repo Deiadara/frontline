@@ -88,7 +88,7 @@ interface DistrictSceneProps {
    *
    * Split out from {@link readOnly} because that flag was carrying three different meanings at
    * once: "not yours to build on", "draw only what is standing", and "this is a thumbnail in a
-   * panel". Visiting a neighbour needs the first two and the *opposite* of the third: the board
+   * panel". Visiting a neighbour needs the first two and the *opposite* of the third: the maintainer
    * asked for another crew's ground to open as a full screen, exactly like your own.
    *
    * Defaults to the old behaviour, so the city screen's preview is unchanged.
@@ -119,7 +119,7 @@ const PLATE_STYLES: Record<PlotState, string> = {
  *
  * Two rules pull against each other here and both are real.
  *
- * The board asked for a district that covers the screen it is in, and it is right to: fitting the
+ * The maintainer asked for a district that covers the screen it is in, and it is right to: fitting the
  * whole painting into the room the chrome left over drew a 1250px picture in a 1440px frame with a
  * ninety-pixel slab of background down each side, and the game's best artwork ended up looking like
  * a screenshot pasted on a page. But the floating HUD and the scenery switcher are bars, and a
@@ -188,7 +188,7 @@ const BAND_SPAN = (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100;
  *
  * Negative: the picture starts above the band, because the first thing down it is empty ground.
  *
- * With room to spare the buildings are centred in it, which is the arrangement the board asked
+ * With room to spare the buildings are centred in it, which is the arrangement the maintainer asked
  * for. Without, **the whole shortfall goes to the bottom**: the band's top edge lands exactly on
  * the top of the clear area, so the far side of the district, where the tallest buildings are, is
  * never cut. What slides under the scenery switcher instead is the front row, which is what a

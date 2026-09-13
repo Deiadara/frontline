@@ -109,7 +109,7 @@ export function trustProxyFrom(raw: string): boolean | number | string {
 /**
  * Whether admin mode is on when nobody has said.
  *
- * **On** for a person running the game, which is what the board asked for: the testing build is the
+ * **On** for a person running the game, which is what the maintainer asked for: the testing build is the
  * one you get by starting the thing, and a mode you have to remember to switch on is a mode nobody
  * is in.
  *

@@ -1,4 +1,4 @@
--- Factions: up to five players who fight together (GDD, board request).
+-- Factions: up to five players who fight together (GDD, maintainer request).
 --
 -- The word had three other meanings in this codebase and all three were moved out of the way first
 -- (`0044`, plus the `DistrictName*` and `Allegiance` renames), because this is the one players mean.

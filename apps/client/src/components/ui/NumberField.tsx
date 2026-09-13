@@ -13,7 +13,7 @@ import { cn } from '../../lib/cn';
  * So the native spinners are hidden and two real buttons take their place: full-height, in the
  * chrome's own brass, with the field's own border around all three.
  *
- * ## Typing (board request, 2026-09-09)
+ * ## Typing (maintainer request, 2026-09-09)
  *
  * The input is text with a numeric keypad, not `type="number"`, and it holds a **draft** while it
  * has focus. A controlled number input cannot be emptied: the moment the last digit went, the
@@ -142,56 +142,67 @@ export function NumberField({
   };
 
   return (
+    /*
+     * Two boxes, not one (maintainer request, 2026-09-11). The drawn stroke is a pen line that wanders
+     * up to six pixels inside the edge it is drawn round, and the steppers sit flush against that
+     * edge, so the line ran through both chevrons. The outer box carries the stroke and three
+     * pixels of nothing; the inner box is the control, and nothing in it reaches the line.
+     */
     <span
       className={cn(
-        'edge-lit inline-flex items-stretch overflow-hidden rounded-sm border border-surface-600 bg-surface-950',
+        'brushed relative inline-flex rounded-sm p-[3px]',
         disabled && 'opacity-50',
         className,
       )}
     >
-      <Step
-        direction="down"
-        onClick={step(-by)}
-        disabled={disabled || value <= min}
-        label={by === 1 ? `One fewer ${label}` : `${by} fewer ${label}`}
-      />
-      {/*
-       * Named on the input rather than by a clipped `<label>`. `sr-only` clips its text to a 1px
-       * box, which is the exact shape every "is any text cut off?" gate looks for, so a stepper
-       * on a gated screen read as a cut word. `aria-label` names it the same to a reader and to
-       * `getByLabelText`, and draws nothing. `role="spinbutton"` with the three values is what a
-       * reader heard from the number input this replaces.
-       */}
-      <input
-        aria-label={label}
-        id={id}
-        type="text"
-        role="spinbutton"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        min={min}
-        max={max}
-        aria-valuemin={min}
-        aria-valuemax={max}
-        aria-valuenow={value}
-        value={draft ?? String(value)}
-        disabled={disabled}
-        onChange={(event) => type(event.target.value)}
-        onFocus={(event) => event.target.select()}
-        onBlur={settle}
-        onKeyDown={keys}
-        data-testid={testId}
-        // Sized to the digits, not to the number: see the note on width above. `min-w` rather than
-        // `w`, so a caller's wider frame still stretches the box and a narrower one cannot squeeze
-        // a six-figure count.
-        className="no-spinner min-w-[4.25rem] grow appearance-none border-x border-surface-600 bg-transparent px-1 py-1.5 text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
-      />
-      <Step
-        direction="up"
-        onClick={step(by)}
-        disabled={disabled || value >= max}
-        label={by === 1 ? `One more ${label}` : `${by} more ${label}`}
-      />
+      <span className="edge-lit inline-flex w-full items-stretch overflow-hidden rounded-sm border border-surface-600 bg-surface-950">
+        <Step
+          direction="down"
+          onClick={step(-by)}
+          disabled={disabled || value <= min}
+          label={by === 1 ? `One fewer ${label}` : `${by} fewer ${label}`}
+        />
+        {/*
+         * Named on the input rather than by a clipped `<label>`. `sr-only` clips its text to a 1px
+         * box, which is the exact shape every "is any text cut off?" gate looks for, so a stepper
+         * on a gated screen read as a cut word. `aria-label` names it the same to a reader and to
+         * `getByLabelText`, and draws nothing. `role="spinbutton"` with the three values is what a
+         * reader heard from the number input this replaces.
+         */}
+        <input
+          aria-label={label}
+          id={id}
+          type="text"
+          role="spinbutton"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          min={min}
+          max={max}
+          aria-valuemin={min}
+          aria-valuemax={max}
+          aria-valuenow={value}
+          value={draft ?? String(value)}
+          disabled={disabled}
+          onChange={(event) => type(event.target.value)}
+          onFocus={(event) => event.target.select()}
+          onBlur={settle}
+          onKeyDown={keys}
+          data-testid={testId}
+          // Sized to the digits, not to the number: see the note on width above. `min-w` rather than
+          // `w`, so a caller's wider frame still stretches the box and a narrower one cannot squeeze
+          // a six-figure count.
+          // `py-[3px]` rather than the `py-1.5` it had: the outer frame now carries 3px of its own on
+          // each side for the drawn line, and the field's overall height is budgeted to the pixel
+          // by the unit card's price box (see `visual.spec.ts`, "closes on its portrait").
+          className="no-spinner min-w-[4.25rem] grow appearance-none border-x border-surface-600 bg-transparent px-1 py-[3px] text-center font-display text-[14px] font-bold tabular-nums text-ink-100 focus-visible:outline-none"
+        />
+        <Step
+          direction="up"
+          onClick={step(by)}
+          disabled={disabled || value >= max}
+          label={by === 1 ? `One more ${label}` : `${by} more ${label}`}
+        />
+      </span>
     </span>
   );
 }

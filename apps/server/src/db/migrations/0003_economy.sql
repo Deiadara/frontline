@@ -1,6 +1,6 @@
 -- The real economy (MOU-161, GDD §D).
 --
--- Destructive by board decision (§D9): the MVP's credits/power/data/alloy are *replaced* by
+-- Destructive by maintainer decision (§D9): the MVP's credits/power/data/alloy are *replaced* by
 -- caps/food/oil/scrap/high-quality metal, and every stockpile is reset to the new starting
 -- values rather than converted. There is no live player data to preserve.
 --

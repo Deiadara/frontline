@@ -30,7 +30,6 @@ import {
   observedForceSize,
   reportReaches,
   officerBattleStats,
-  officerIsInjured,
   type BattleLeader,
   type Army,
   type BattleReportView,
@@ -46,6 +45,9 @@ import {
   type ItemId,
   type StructureDefence,
   type TrapOption,
+  battleBoostSlots,
+  gateDefensePercent,
+  gateIntelResistancePercent,
 } from '@frontline/shared';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -57,6 +59,7 @@ import { defendingBaseOf } from './declare.js';
 import { districtsLivedIn, isInhabited, residentOf, targetName } from './ground.js';
 import { battlefieldOf } from './resolve.js';
 import { seatedRoles } from '../crew/roster.js';
+import { officerDuty } from '../crew/duty.js';
 
 /**
  * The battle board, as one crew sees it (GDD §A4, battle rework).
@@ -189,7 +192,8 @@ function viewOf(
           cityLevelFor(repos),
         )
       : [],
-    boostId: deployment?.boostId ?? null,
+    boostIds: deployment?.boostIds ?? [],
+    boostSlots: battleBoostSlots(crewEffectsFor(repos, base).battleBoostsFlat),
     officerId: deployment?.officerId ?? null,
     // §C3: what has been committed, and what is still in the yard to commit. Both, because the
     // picker's question is "how many of these am I taking", and the answer is bounded by the sum.
@@ -197,7 +201,7 @@ function viewOf(
     yard: side ? base.fleet : {},
     // §D1: who this crew could send. A bystander gets nothing, for the same reason they get no
     // shelf: the list is the caller's own roster and it is not the other side's business.
-    leaders: side ? leadersFor(base, now) : [],
+    leaders: side ? leadersFor(repos, base, battle.id, now) : [],
     // §I4: a trap goes under ground you are holding, so only the defender gets a list. An attacker
     // and a bystander get an empty one rather than no field, which is the same shape the boosts
     // take and keeps the payload from saying which side the reader is on twice.
@@ -209,14 +213,18 @@ function viewOf(
 /**
  * The officers a crew could put at the front of a column (§D1).
  *
- * Fit ones only. An injured officer is left out rather than sent and greyed: their recovery clock
- * is on the crew screen, which is the one place it belongs, and a second copy of it here is a
- * second place for it to drift. Their combat sheet rides along so the player can weigh a person
- * against a stack of Razors before deciding, which is the whole decision §D1 adds.
+ * Free ones only, by the same question `/battles/lead` asks before it refuses (`officerDuty`): an
+ * officer out leading a run, out scouting, at another fight or laid up is left out rather than
+ * listed and greyed. Their clock is on the screen that holds them, which is the one place it
+ * belongs, and a second copy of it here is a second place for it to drift. The list used to drop
+ * the injured alone, so it offered a name the route then turned away with "is out leading a run".
+ * The officer already leading *this* fight stays on it, or the picker would lose its own answer.
+ * Their combat sheet rides along so the player can weigh a person against a stack of Razors
+ * before deciding, which is the whole decision §D1 adds.
  */
-function leadersFor(base: Base, now: Date): BattleLeader[] {
+function leadersFor(repos: Repositories, base: Base, battleId: string, now: Date): BattleLeader[] {
   return base.commanders
-    .filter((officer) => !officerIsInjured(officer.injuredUntil, now))
+    .filter((officer) => officerDuty(repos, base, officer, now, battleId) === null)
     .map((officer) => ({
       officerId: officer.id,
       name: officer.name,
@@ -260,7 +268,7 @@ function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
  * The crew's own structures, as the defence tab lists them.
  *
  * Level and damage, and nothing to buy: a gate's strength is the level it has been raised to
- * (board request), which is bought in the district's own build queue like every other level. The
+ * (maintainer request), which is bought in the district's own build queue like every other level. The
  * digging that used to sit here bought defence without buying height and is gone; locations keep
  * theirs, where the ground varies and the choice is real.
  */
@@ -272,6 +280,16 @@ function structuresOf(base: Base): StructureDefence[] {
     level: building.level,
     damage: building.damage,
     effectiveness: buildingEffectiveness(building),
+    /*
+     * What the Gate is worth, on the Gate's own row.
+     *
+     * Both figures are folded from the *whole* district (a modification on another structure can
+     * lift the same channels), which is why they are read off the standing fold rather than
+     * multiplied out of the level here: the screen must quote the number the fight will use.
+     */
+    defensePercent: building.kind === 'gate' ? gateDefensePercent(base.buildings) : null,
+    intelResistancePercent:
+      building.kind === 'gate' ? gateIntelResistancePercent(base.buildings) : null,
   }));
 }
 

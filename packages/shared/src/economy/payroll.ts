@@ -57,7 +57,7 @@ export const PAYROLL_STEP_BASE_COST = 500;
  * 1.15, so the tenth step costs about 1,760 caps and the twentieth about 7,100. A crew that keeps
  * buying keeps paying more for the same 30 caps of room, which is what stops a late-game stockpile
  * from turning the officer roster into a solved problem. It never stops being purchasable, which
- * is the board's rule: uncapped.
+ * is the maintainer's rule: uncapped.
  */
 export const PAYROLL_STEP_GROWTH = 1.15;
 

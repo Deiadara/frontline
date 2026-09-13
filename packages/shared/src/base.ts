@@ -24,7 +24,7 @@ import { ResourcesSchema } from './resources.js';
  * How long a allegiance's name may be.
  *
  * Long enough for "The Ninth Street Reclamation Company", short enough that the HUD's identity
- * line and the city map's marker can both render it whole at 1024px: the board's zero-cut-text
+ * line and the city map's marker can both render it whole at 1024px: the maintainer's zero-cut-text
  * bar is a layout constraint, so the length that satisfies it belongs in the schema rather than
  * in a CSS truncation nobody can see coming.
  */

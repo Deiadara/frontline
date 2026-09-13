@@ -124,7 +124,7 @@ export const MVP_BOT: BotBlueprint = {
 };
 
 /**
- * The neighbour who is on your side (board request).
+ * The neighbour who is on your side (maintainer request).
  *
  * A hardcoded, non-playing crew that sits in a faction with the player, so the faction screen has
  * somebody in it from the first minute: their district, their army, their fights and their standing
@@ -191,6 +191,84 @@ export const MVP_ALLY: BotBlueprint = {
 
 /** The plot the ally sits on: the third residential district, beside the player and the rival. */
 export const ALLY_DISTRICT_ID = 'ashen-terraces';
+
+/**
+ * The rival's second, who fills the fourth and last residential plot.
+ *
+ * Added with the NPC faction (maintainer request, 2026-09-12). The rival already existed and sat at no
+ * table, so there was no faction in the world a player was not in, and the enemy faction profile
+ * had nothing to open on. A faction of one would have technically answered that and shown a roster
+ * with a single row, which is not what a rival table looks like; two crews make it a table.
+ *
+ * Built like the ally and the rival: a real district, a real army, a real stockpile, read by the
+ * same code that reads a live member's. Nothing drives either of them.
+ */
+export const RIVAL_SECOND_DISTRICT_ID = 'south-quay';
+
+export const MVP_RIVAL_SECOND: BotBlueprint = {
+  username: 'Sollen_Tam',
+  baseName: 'Sollen Reclamation',
+  overseerPresetId: 'technocrat',
+  level: 5,
+  resources: {
+    caps: 3600,
+    supplies: 2100,
+    oil: 2400,
+    scrap: 4600,
+    planks: 1800,
+    highQualityMetal: 620,
+  },
+  buildings: [
+    { id: 'sollen-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0 },
+    { id: 'sollen-gate', kind: 'gate', level: 3, modifications: [], damage: 0 },
+    { id: 'sollen-gauntlet', kind: 'gauntlet', level: 3, modifications: [], damage: 0 },
+    { id: 'sollen-quarters', kind: 'quarters', level: 3, modifications: [], damage: 0 },
+  ],
+  // A salvage outfit: thin on bodies, heavy on the machines that pull a wreck apart. Different
+  // again from the rival's line troops and the ally's mixed roster, so the three NPC crews read as
+  // three different operations rather than one army at three levels.
+  army: { ironsides: 6, razors: 14, scrapers: 9, breakers: 5, stitchers: 3 },
+  commanders: [
+    createCommander(
+      'sollen-commander-boss',
+      'Mirek Sollen',
+      'lead_engineer',
+      { engineering: 39, salvage: 33, craft: 26 },
+      ['site_foreman'],
+      110,
+    ),
+    createCommander('sollen-commander-broker', 'Adaeze Quill', 'finance_officer', {
+      negotiation: 31,
+      analysis: 28,
+      logistics: 24,
+    }),
+  ],
+};
+
+/**
+ * The NPC faction (maintainer request, 2026-09-12): the table a player is never invited to.
+ *
+ * The rival leads it and the salvage outfit sits under them. It exists so there is a faction in
+ * the world that is somebody else's from the first boot, which is what the public faction profile
+ * is for: a player can read who is at it, what it has won and what rank each of them holds, and
+ * write to any of them, without any of it being a screen only the seeder can produce.
+ *
+ * Its badge is deliberately unlike the ally's: a steel lozenge carrying a bone key against the
+ * ally's brass skull on a soot shield, so the two are told apart at roster size.
+ */
+export const MVP_RIVAL_FACTION = {
+  name: 'The Vexhold Concern',
+  badge: {
+    shape: 'lozenge',
+    ground: 'steel',
+    field: 'pale',
+    fieldColor: 'rust',
+    prop: 'key',
+    ink: 'bone',
+  },
+  blurb:
+    'Debt is a kind of ground, and we hold a great deal of it. Nothing personal in any of this.',
+} as const satisfies { name: string; badge: FactionBadge; blurb: string };
 
 /** What the seeded faction is called. The ally founds it and leads it. */
 export const MVP_FACTION = {

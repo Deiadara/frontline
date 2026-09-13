@@ -216,11 +216,18 @@ describe('the receipt reaches an open tab', () => {
     expect(heard.every((event) => !Number.isNaN(Date.parse(event.at)))).toBe(true);
   });
 
-  /** Nobody else's tab lights up for a fight they had no part in. */
-  it('says nothing to a player who was not in it', async () => {
+  /**
+   * Nobody else's bell rings for a fight they had no part in.
+   *
+   * What they *do* get is the shared-world nudge (maintainer request, 2026-09-11): the fight moved the
+   * map everybody is looking at, so every open tab is told the map moved and refetches it through
+   * its own fog. A nudge carries no payload, so nothing about the fight itself crosses over; the
+   * receipt, the report and the bell stay with the two crews that were in it.
+   */
+  it('gives a player who was not in it the map nudge and nothing else', async () => {
     const stack = await makeStack('quiet');
-    const listener = vi.fn();
-    const leave = liveHub.subscribe('somebody-else-entirely', listener);
+    const heard: LiveEvent[] = [];
+    const leave = liveHub.subscribe('somebody-else-entirely', (event) => heard.push(event));
 
     try {
       await readyFight(stack);
@@ -229,7 +236,8 @@ describe('the receipt reaches an open tab', () => {
       leave();
     }
 
-    expect(listener).not.toHaveBeenCalled();
+    expect(heard.length).toBeGreaterThan(0);
+    expect(new Set(heard.map((event) => event.kind))).toEqual(new Set(['world']));
   });
 });
 
@@ -305,6 +313,7 @@ describe('a crew comes home on time', () => {
       areaId: MISC_AREA_ID,
       force: { razors: 1 },
       now: new Date(Date.now() - minutesAgo * 60_000),
+      unled: 'free',
     });
     stack.app.repos.missions.insert(stored);
     return stored.mission.id;

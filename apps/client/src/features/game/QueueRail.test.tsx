@@ -29,6 +29,9 @@ vi.mock('../../lib/queries', () => ({
   useMissions,
   useResearch: () => ({ data: undefined }),
   useRecallMission: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useCancelBuild: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useCancelTraining: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  useCancelResearch: () => ({ mutate: vi.fn(), isPending: false, error: null }),
 }));
 
 const { QueueRail } = await import('./QueueRail');

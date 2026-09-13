@@ -13,7 +13,13 @@ import {
   nextQueuedLevel,
   projectedBuildings,
   queueStartsAt,
+  queueCancellable,
+  queueCompletesAt,
+  cancelRefund,
+  addResources,
+  addItems,
   spendResources,
+  type PartialResources,
   structureLevelCap,
   type Base,
   type BuildQueueEntry,
@@ -27,7 +33,6 @@ import {
   buildBoostPercent,
   withReduction,
   type BuildingRequirement,
-  type PartialResources,
   type CrewEffects,
   BUILDING_KINDS,
 } from '@frontline/shared';
@@ -293,6 +298,10 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
     level,
     startedAt: queueStartsAt(base.buildQueue, now).toISOString(),
     durationSeconds: orderSeconds(structure, level, base, effects, now, admin),
+    // What was actually taken, so a cancel in the first tenth can hand ninety percent back. The
+    // testing build takes nothing, and refunds nothing.
+    paid: adminCost(cost, admin),
+    parts,
   };
 
   const queued: Base = {
@@ -315,6 +324,56 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
  * followed by "you need Quarters at 4" is two round trips for one answer, and the district screen
  * shows the same list in its hover note.
  */
+export type BuildCancelRefusal = 'unknown_order' | 'window_closed';
+export type BuildCancelResult =
+  | { kind: 'refused'; reason: BuildCancelRefusal }
+  | { kind: 'cancelled'; base: Base; refund: PartialResources };
+
+/**
+ * Take an order off the queue (maintainer request, 2026-09-12; `time/cancel.ts`).
+ *
+ * Inside the first tenth of its own clock, or before it has started at all: an order waiting
+ * behind another has done nothing yet. Ninety percent of the materials come back and every part
+ * comes back whole. The orders behind it close up, the way a cancelled training batch's do: each
+ * entry's clock is absolute and was frozen at the completion of the one in front, so the one
+ * behind a cancelled order would otherwise wait out a build that no longer exists.
+ */
+export function cancelBuild(
+  repos: Repositories,
+  base: Base,
+  orderId: string,
+  now: Date,
+): BuildCancelResult {
+  const entry = base.buildQueue.find((queued) => queued.id === orderId);
+  if (!entry) return { kind: 'refused', reason: 'unknown_order' };
+  if (!queueCancellable(entry, now)) return { kind: 'refused', reason: 'window_closed' };
+
+  const refund = cancelRefund(entry.paid);
+  // Closed up in order, so a moved entry's completion feeds the one behind it. An order already
+  // running keeps its clock; only the ones still waiting move up, and never to before now.
+  const rechained: BuildQueueEntry[] = [];
+  for (const queued of base.buildQueue) {
+    if (queued.id === orderId) continue;
+    const previous = rechained.at(-1);
+    if (Date.parse(queued.startedAt) <= now.getTime()) {
+      rechained.push(queued);
+      continue;
+    }
+    const startsAt = previous === undefined ? now : queueCompletesAt(previous);
+    rechained.push({ ...queued, startedAt: (startsAt > now ? startsAt : now).toISOString() });
+  }
+
+  const cancelled: Base = {
+    ...base,
+    resources: addResources(base.resources, refund),
+    inventory: addItems(base.inventory, entry.parts),
+    buildQueue: rechained,
+  };
+  repos.bases.updateHoldings(cancelled.id, cancelled.resources, cancelled.inventory);
+  repos.bases.updateDistrict(cancelled.id, cancelled.buildings, cancelled.buildQueue);
+  return { kind: 'cancelled', base: cancelled, refund };
+}
+
 export function nexusGate(
   structure: BuildingKind,
   base: Base,

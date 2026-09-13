@@ -155,7 +155,7 @@ describe('a listing of your own', () => {
     renderOffers();
     await screen.findByTestId('offer-offer-mine');
     expect(screen.getByRole('button', { name: 'Withdraw' })).toBeEnabled();
-    // No verdict on a card any more (board request, 2026-09-09): the piles say what the deal is.
+    // No verdict on a card any more (maintainer request, 2026-09-09): the piles say what the deal is.
     expect(screen.queryByText('steep')).toBeNull();
     expect(screen.queryByText('in your favour')).toBeNull();
   });

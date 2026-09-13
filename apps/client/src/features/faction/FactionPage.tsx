@@ -92,15 +92,19 @@ export function FactionPage() {
     );
   }
 
-  const error =
-    invite.error ??
-    leave.error ??
-    disband.error ??
-    memberAction.error ??
-    reinforce.error ??
-    identity.error ??
-    describe.error ??
-    null;
+  /*
+   * The banner is the answer to the most recently *sent* write, and only that one.
+   *
+   * A mutation keeps its last error until it is fired again, so a chain of `??` over seven of them
+   * showed the session's first refusal for as long as the page stayed mounted, whatever succeeded
+   * after it. `submittedAt` is when each was last fired; the latest is the one the player is
+   * waiting on, and a success there clears the banner.
+   */
+  const writes = [invite, leave, disband, memberAction, reinforce, identity, describe];
+  const latest = writes.reduce((best, write) =>
+    write.submittedAt > best.submittedAt ? write : best,
+  );
+  const error = latest.error;
   const pending =
     invite.isPending || leave.isPending || memberAction.isPending || reinforce.isPending;
 

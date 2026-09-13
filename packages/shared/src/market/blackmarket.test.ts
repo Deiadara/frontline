@@ -29,7 +29,7 @@ describe('the shelf', () => {
     // Written as literals on purpose. Every other assertion in this file derives its expectation
     // from `BLACK_MARKET_SLOTS`, so lowering that constant to four leaves the whole suite green
     // while the shelf quietly loses a slot: the shape of tautology that hides a half-implemented
-    // change. These three lines are the independent anchor: they say what the board asked for.
+    // change. These three lines are the independent anchor: they say what the maintainer asked for.
     expect(BLACK_MARKET_SLOTS).toBe(5);
     expect(BLACK_MARKET_TAKES_PER_DAY).toBe(1);
     expect(blackMarketBoard('2026-08-16', [])).toHaveLength(5);

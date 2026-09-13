@@ -5,6 +5,7 @@ import {
   travelMinutes,
   type VehicleId,
   type BattleBoostOption,
+  type BattleLeader,
   type BattleReportView,
   type BattleView,
   type BattlesResponse,
@@ -15,14 +16,16 @@ import {
   findUnit,
   forecast,
 } from '@frontline/shared';
-import { useMemo, useState } from 'react';
-import { Button, buttonSkin } from '../../components/ui/Button';
+import { useEffect, useMemo, useState } from 'react';
+import { Button, buttonSkin, tabSkin } from '../../components/ui/Button';
+import { Confirm } from '../../components/ui/Confirm';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Panel } from '../../components/ui/Panel';
 import { PanelSection } from '../../components/ui/PanelSection';
+import { FileSection } from '../overseer/FileSection';
 import { cn } from '../../lib/cn';
 import {
   useActions,
@@ -35,6 +38,7 @@ import {
   useMe,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
+import { useServerClock } from '../missions/useServerClock';
 import { heldToLine, readColumn } from './column';
 import { Characteristics } from '../../components/ui/LabelChip';
 import { locationKindOf, whenItHolds } from '../city/characteristics';
@@ -86,12 +90,19 @@ export function BattlePage() {
 
   const [tab, setTab] = useState<Tab>('coming');
   const [openId, setOpenId] = useState<string | null>(null);
-  /* Which fight is open, and which of its two places the dialog is moving people to. One dialog,
-     two modes, so the state has to carry both: `deploying.view` alone cannot say which. */
-  const [deploying, setDeploying] = useState<{ view: BattleView; mode: DeployMode } | null>(null);
+  /* Which fight the dialog is open on, and which of its two places it is moving people to. One
+     dialog, two modes, so the state has to carry both. The id rather than the view: the view is
+     rebuilt on every poll, and a dialog holding the one it opened with would quote a muster and a
+     window that were true when it was pressed. */
+  const [deploying, setDeploying] = useState<{ battleId: string; mode: DeployMode } | null>(null);
   const [reading, setReading] = useState<BattleReportView | null>(null);
 
   const data = battles.data;
+  /*
+   * Ticks once a second against the server's clock. `Date.parse(data.serverNow)` was the clock
+   * before, so every countdown on the page moved only when a poll landed, in five-second steps.
+   */
+  const now = useServerClock(data?.serverNow, battles.dataUpdatedAt).getTime();
   const army = me.data?.base?.army ?? {};
   /** §C3: the workshop's brackets, which move a unit's speed and therefore the column's clock. */
   const loadouts = me.data?.base?.unitLoadouts ?? {};
@@ -100,6 +111,27 @@ export function BattlePage() {
   // The fight the detail is showing. Falls back to the first one so the page never opens on an
   // empty right-hand column with a full list beside it.
   const open = data?.coming.find((view) => view.battle.id === openId) ?? data?.coming[0] ?? null;
+
+  const deployingView =
+    deploying === null
+      ? null
+      : (data?.coming.find((view) => view.battle.id === deploying.battleId) ?? null);
+  /*
+   * Closing the dialog also forgets the last refusal. The mutation is the page's, not the
+   * dialog's, so without this the next fight's dialog opened on the previous fight's error.
+   */
+  const { reset: resetDeploy } = deploy;
+  const closeDeploy = () => {
+    setDeploying(null);
+    resetDeploy();
+  };
+  // A fight that resolved or was withdrawn while its dialog was up leaves nothing to send to.
+  useEffect(() => {
+    if (deploying !== null && deployingView === null) {
+      setDeploying(null);
+      resetDeploy();
+    }
+  }, [deploying, deployingView, resetDeploy]);
 
   return (
     <PageShell
@@ -141,7 +173,7 @@ export function BattlePage() {
               /*
                * One frame, two columns, and the rail is what moves (the Training tab's shape).
                *
-               * The board asked for this screen to be built the way the gym is, and the reason is
+               * The maintainer asked for this screen to be built the way the gym is, and the reason is
                * the same: picking the fourth fight out of a list must not move the fight you were
                * reading. So the frame is fixed, the rail scrolls inside its own panel, and the
                * detail beside it keeps its top edge wherever the rail is scrolled to.
@@ -162,7 +194,7 @@ export function BattlePage() {
                       <li key={view.battle.id}>
                         <ComingRow
                           view={view}
-                          now={Date.parse(data.serverNow)}
+                          now={now}
                           open={view.battle.id === open?.battle.id}
                           onOpen={() => setOpenId(view.battle.id)}
                         />
@@ -176,7 +208,7 @@ export function BattlePage() {
                    * The detail takes whatever height is left, and only scrolls when a viewport
                    * genuinely cannot hold it. A fight carries four panels (the ground, the leader,
                    * the machines and the boost), which no 768-tall laptop fits, and cut content is
-                   * the one thing the board's bar rules out outright.
+                   * the one thing the maintainer's bar rules out outright.
                    */
                   <div
                     /*
@@ -200,10 +232,10 @@ export function BattlePage() {
                       army={army}
                       loadouts={loadouts}
                       infamy={data.infamy}
-                      now={Date.parse(data.serverNow)}
+                      now={now}
                       walking={columnsTo(road.data?.movements, open.battle.id)}
-                      onDeploy={(mode) => setDeploying({ view: open, mode })}
-                      deploying={deploy.isPending && deploying?.view.battle.id === open.battle.id}
+                      onDeploy={(mode) => setDeploying({ battleId: open.battle.id, mode })}
+                      deploying={deploy.isPending && deploying?.battleId === open.battle.id}
                     />
                   </div>
                 )}
@@ -223,9 +255,9 @@ export function BattlePage() {
         </div>
       )}
 
-      {deploying && (
+      {deploying !== null && deployingView !== null && (
         <DeployDialog
-          view={deploying.view}
+          view={deployingView}
           army={army}
           loadouts={loadouts}
           homeDistrictId={me.data?.base?.districtId ?? null}
@@ -233,11 +265,11 @@ export function BattlePage() {
           mode={deploying.mode}
           pending={deploy.isPending}
           error={deploy.error}
-          onClose={() => setDeploying(null)}
+          onClose={closeDeploy}
           onConfirm={(changes, perimeterChanges) =>
             deploy.mutate(
-              { battleId: deploying.view.battle.id, changes, perimeterChanges },
-              { onSuccess: () => setDeploying(null) },
+              { battleId: deployingView.battle.id, changes, perimeterChanges },
+              { onSuccess: closeDeploy },
             )
           }
         />
@@ -292,13 +324,7 @@ function Tabs({
           aria-selected={tab === entry.id}
           data-testid={`battles-tab-${entry.id}`}
           onClick={() => onPick(entry.id)}
-          className={cn(
-            'edge-lit flex items-center gap-2 rounded-sm border px-3 py-2 transition-colors duration-150',
-            'font-display text-[12px] font-bold uppercase tracking-[0.14em]',
-            tab === entry.id
-              ? 'border-brass-300/80 bg-brass-300/15 text-brass-100'
-              : 'border-surface-600 bg-surface-800/70 text-ink-300 hover:border-iris-300/60 hover:text-ink-100',
-          )}
+          className={tabSkin({ active: tab === entry.id })}
         >
           {entry.label}
           <span className="font-display text-[11px] tabular-nums text-ink-300">
@@ -312,9 +338,9 @@ function Tabs({
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <Panel>
-      <p className="p-6 font-body text-[13px] leading-relaxed text-ink-300">{children}</p>
-    </Panel>
+    <FileSection icon="battles" title="Nothing here">
+      <p className="font-body text-[13px] leading-relaxed text-ink-300">{children}</p>
+    </FileSection>
   );
 }
 
@@ -448,15 +474,27 @@ function BattleDetail({
     <div className="flex flex-col gap-4" data-testid={`battle-detail-${view.battle.id}`}>
       {/* The one the rail has open, said again in colour rather than in weight: `.ink-frame-brass`
           is the same stroke as `.ink-frame`, so what marks it is the brass and nothing else. */}
-      <Panel
-        className="ink-frame ink-frame-brass"
-        title={view.targetName}
-        action={
-          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            {view.districtName}
-          </span>
-        }
+      <section
+        className="ink-frame ink-frame-brass card-paper washed flex min-w-0 flex-col"
+        data-testid="battle-head"
       >
+        <header className="flex flex-col gap-2 px-4 pt-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              aria-hidden
+              className="icon-plate flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
+            >
+              <Icon name="battles" />
+            </span>
+            <h2 className="min-w-0 flex-1 font-stamp text-[17px] leading-tight text-ink-100">
+              {view.targetName}
+            </h2>
+            <span className="shrink-0 rounded-sm border border-surface-600 px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+              {view.districtName}
+            </span>
+          </div>
+          <span aria-hidden className="ink-rule block w-full" />
+        </header>
         {/*
           §A4: what the ground is like, under the name of the ground and above everything else.
           
@@ -466,7 +504,7 @@ function BattleDetail({
           Anodics rather than the Snipers" a decision somebody can make before the mark rather than
           a lesson they read in the report afterwards.
         */}
-        <div className="border-b border-surface-700 px-4 pb-3 pt-4">
+        <div className="border-b border-surface-700 px-4 pb-3 pt-3">
           <Characteristics
             labels={view.battlefield.labels}
             size="md"
@@ -564,7 +602,7 @@ function BattleDetail({
             )}
           </div>
         )}
-      </Panel>
+      </section>
 
       {view.side !== null && <LeadPicker view={view} />}
       {/* §C3: a machine shortens a road. A crew holding its own district has no road to this
@@ -648,8 +686,8 @@ function VehiclePicker({
 
   const lines = VEHICLES.filter((spec) => (owned[spec.id] ?? 0) > 0);
   return (
-    <Panel title="Machines">
-      <div className="flex flex-col gap-2.5 p-4" data-testid="vehicle-picker">
+    <FileSection icon="gear" title="Machines" note="No one prefers going there on foot">
+      <div className="flex flex-col gap-2.5" data-testid="vehicle-picker">
         <PanelSection
           label="Loaded"
           note={
@@ -715,8 +753,13 @@ function VehiclePicker({
             </ul>
           )}
         </PanelSection>
+        {take.error && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {take.error.message}
+          </p>
+        )}
       </div>
-    </Panel>
+    </FileSection>
   );
 }
 
@@ -738,11 +781,13 @@ function LeadPicker({ view }: { view: BattleView }) {
   const shut = !view.deploymentOpen;
 
   return (
-    <Panel title="Leading">
-      <div className="flex flex-col gap-2.5 p-4" data-testid="lead-picker">
+    // No note: the section is called Leading, it holds one picker, and the sentence under the
+    // title was the same instruction the panel under it was already giving (maintainer, 2026-09-12).
+    <FileSection icon="crew" title="Leading">
+      <div className="flex flex-col gap-2.5" data-testid="lead-picker">
         <PanelSection
           label="At the front"
-          note={shut ? 'They are already on the ground' : 'One officer, and only if you want one'}
+          note={shut ? 'They are already on the ground' : undefined}
           action={
             view.officerId === null ? undefined : (
               <Button
@@ -762,11 +807,12 @@ function LeadPicker({ view }: { view: BattleView }) {
               <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
                 {chosen.name}
               </p>
-              <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
-                Fights at {chosen.stats.offense} damage and {chosen.stats.vitality} vitality. Half
-                as likely to be shot at while anyone else is standing, and never killed: the worst
-                that happens is a day laid up, and no report from this fight.
-              </p>
+              {/* The whole battle sheet (maintainer request, 2026-09-12), not the two headline
+                  figures: stealth decides whether the fight starts on your terms and morale
+                  decides whether it ends early, and a player choosing between two officers was
+                  being shown neither. What being led *costs* is on the officer's own page, which
+                  is where a rule about officers belongs. */}
+              <OfficerSheet stats={chosen.stats} />
             </>
           ) : (
             <p className="font-body text-[12px] leading-relaxed text-ink-300">
@@ -788,20 +834,61 @@ function LeadPicker({ view }: { view: BattleView }) {
           onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
           data-testid="lead-officer-picker"
         />
+        {lead.error && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {lead.error.message}
+          </p>
+        )}
       </div>
-    </Panel>
+    </FileSection>
+  );
+}
+
+/** A figure on its own tile: the same tile a crew's file keeps its standing in. */
+/**
+ * An officer's battle sheet, as they would fight.
+ *
+ * Every stat the engine reads, rather than the two the panel used to print: the same figures a
+ * unit card carries, in the same order, so comparing an officer against the people they are
+ * leading is reading one row against another. `lootCapacity` is left off on purpose: an officer
+ * carries nothing home, and a zero on a sheet reads as a weakness rather than as "not applicable".
+ */
+function OfficerSheet({ stats }: { stats: BattleLeader['stats'] }) {
+  const rows: readonly (readonly [string, number])[] = [
+    ['Damage', stats.offense],
+    ['Vitality', stats.vitality],
+    ['Armour', stats.armor],
+    ['Penetration', stats.penetration],
+    ['Range', stats.range],
+    ['Speed', stats.speed],
+    ['Evasion', stats.evasion],
+    ['Stealth', stats.stealth],
+    ['Morale', stats.morale],
+    ['Intimidation', stats.intimidation],
+  ];
+  return (
+    <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3" data-testid="lead-sheet">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex items-baseline justify-between gap-2">
+          <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+            {label}
+          </dt>
+          <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
 function Figure({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <div className="border border-surface-700 bg-surface-950/60 p-2.5">
-      <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">{label}</p>
-      <p className="mt-0.5 truncate font-display text-base font-bold tabular-nums text-ink-100">
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-sm border border-surface-700 bg-surface-950/40 px-2.5 py-2">
+      <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">{label}</p>
+      <p className="break-words font-display text-[15px] font-bold leading-tight tabular-nums text-brass-100">
         {value}
       </p>
       {note !== undefined && note !== '' && (
-        <p className="mt-1 font-body text-[11px] leading-snug text-ink-300">{note}</p>
+        <p className="font-body text-[11px] leading-snug text-ink-300">{note}</p>
       )}
     </div>
   );
@@ -1000,35 +1087,45 @@ function onGroundLabel(unitId: string): string {
  */
 function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
   const buy = useBuyBattleBoost();
-  const bought = view.boosts.find((option) => option.id === view.boostId) ?? null;
+  const taken = view.boostIds
+    .map((id) => view.boosts.find((option) => option.id === id))
+    .filter((option): option is BattleBoostOption => option !== undefined);
   const [picked, setPicked] = useState<string>('');
   const choice = view.boosts.find((option) => option.id === picked) ?? null;
+  /** The one the player has said yes to, waiting on the confirmation. */
+  const [confirming, setConfirming] = useState<BattleBoostOption | null>(null);
 
   const shut = !view.deploymentOpen;
-  const blocked = blockerFor(choice, shut);
+  const full = view.boostIds.length >= view.boostSlots;
+  const blocked = full
+    ? view.boostSlots === 1
+      ? 'This fight has its name'
+      : `This fight has all ${view.boostSlots} of its names`
+    : blockerFor(choice, shut);
 
   return (
-    <Panel title="Boosts">
-      <div className="flex flex-col gap-2.5 p-4" data-testid="name-buys">
+    <FileSection icon="infamy" title="Boosts" note="Burn the name to boost the fight">
+      <div className="flex flex-col gap-2.5" data-testid="name-buys">
         <PanelSection
-          label="Running"
-          note={bought ? undefined : 'One per fight'}
+          label={view.boostSlots === 1 ? 'Running' : `Running (${taken.length}/${view.boostSlots})`}
+          note={taken.length > 0 ? undefined : 'One per fight'}
           data-testid="boost-bought"
         >
-          {bought ? (
-            <>
-              <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
-                {bought.name}
-              </p>
-              <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
-                {bought.effect} · reaching {bought.reach}% of what you sent
-              </p>
-            </>
+          {taken.length > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              {taken.map((option) => (
+                <li key={option.id}>
+                  <p className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300">
+                    {option.name}
+                  </p>
+                  <p className="mt-0.5 font-body text-[12px] leading-snug text-ink-100">
+                    {option.effect} · reaching {option.reach}% of what you sent
+                  </p>
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p className="font-body text-[12px] leading-relaxed text-ink-300">
-              Nothing taken. Swapping a name for another one later costs the name twice; swapping
-              contraband costs nothing.
-            </p>
+            <p className="font-body text-[12px] leading-relaxed text-ink-300">Nothing taken yet.</p>
           )}
         </PanelSection>
 
@@ -1040,13 +1137,16 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
               size="sm"
               variant={choice?.held ? 'primary' : 'danger'}
               disabled={choice === null || blocked !== null || buy.isPending}
-              onClick={() =>
-                choice &&
-                buy.mutate(
-                  { battleId: view.battle.id, boostId: choice.id },
-                  { onSuccess: () => setPicked('') },
-                )
-              }
+              /*
+               * Asks before it sends (maintainer request, 2026-09-12).
+               *
+               * A name is final: it cannot be swapped, cleared or refunded, and the infamy is gone
+               * the moment the request lands. A confirmation is the only thing standing between a
+               * misclick on a drop-down and a rank's worth of points, and the server refuses a
+               * second name rather than charging for a change of mind, so there is no undo behind
+               * this button to fall back on.
+               */
+              onClick={() => choice && setConfirming(choice)}
               data-testid="buy-boost"
             >
               {choice?.held ? 'Take it in' : 'Burn the name'}
@@ -1056,14 +1156,16 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
           <div className="flex flex-col gap-2.5">
             <Dropdown
               label="Boost"
-              placeholder={bought ? 'Take a different one' : 'Choose a boost'}
+              placeholder={full ? 'Nothing more to take' : 'Choose a boost'}
               value={picked}
-              disabled={shut}
+              disabled={shut || full}
               options={view.boosts.map((option) => ({
                 value: option.id,
                 label: option.name,
                 hint: hintFor(option),
-                disabled: !option.available || !option.affordable,
+                // A name already on this fight is not on offer: taking it twice is refused.
+                disabled:
+                  !option.available || !option.affordable || view.boostIds.includes(option.id),
               }))}
               onChange={setPicked}
               data-testid="boost-picker"
@@ -1084,8 +1186,34 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
             )}
           </div>
         </PanelSection>
+        {buy.error && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {buy.error.message}
+          </p>
+        )}
       </div>
-    </Panel>
+
+      {confirming && (
+        <Confirm
+          title={confirming.held ? 'Take it in?' : 'Burn the name?'}
+          body={
+            confirming.held
+              ? `Take ${confirming.name} into this fight? It leaves the bag the moment the fight goes off, whichever way it goes, and it cannot be taken back out.`
+              : `Spend ${confirming.cost.toLocaleString()} infamy on ${confirming.name} for this fight? The name is burned: it cannot be swapped, cleared or refunded.`
+          }
+          confirm={confirming.held ? 'Take it in' : 'Burn it'}
+          testId="confirm-boost"
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            buy.mutate(
+              { battleId: view.battle.id, boostId: confirming.id },
+              { onSuccess: () => setPicked('') },
+            );
+            setConfirming(null);
+          }}
+        />
+      )}
+    </FileSection>
   );
 }
 
@@ -1115,8 +1243,12 @@ function TrapPicker({ view }: { view: BattleView }) {
       : null;
 
   return (
-    <Panel title="Trap">
-      <div className="flex flex-col gap-2.5 p-4" data-testid="trap-picker">
+    <FileSection
+      icon="alert"
+      title="Trap"
+      note="Set under the approach, and only on ground you are holding"
+    >
+      <div className="flex flex-col gap-2.5" data-testid="trap-picker">
         <PanelSection
           label="Under the approach"
           note={
@@ -1207,8 +1339,13 @@ function TrapPicker({ view }: { view: BattleView }) {
             )}
           </div>
         </PanelSection>
+        {set.error && (
+          <p role="alert" className="font-body text-[12px] text-oxblood-300">
+            {set.error.message}
+          </p>
+        )}
       </div>
-    </Panel>
+    </FileSection>
   );
 }
 
@@ -1239,8 +1376,15 @@ function Reports({
 }) {
   if (reports.length === 0) return <Empty>Nothing has gone off yet.</Empty>;
   return (
-    <Panel>
-      <ul className="flex flex-col divide-y divide-surface-700 p-2" data-testid="battle-reports">
+    <FileSection
+      icon="archive"
+      title="Reports"
+      note="Every fight this crew was in, most recent first"
+    >
+      <ul
+        className="flex flex-col divide-y divide-surface-700 rounded-sm border border-surface-700 bg-surface-950/40"
+        data-testid="battle-reports"
+      >
         {reports.map((report) => (
           <li key={report.battleId}>
             <button
@@ -1274,7 +1418,7 @@ function Reports({
           </li>
         ))}
       </ul>
-    </Panel>
+    </FileSection>
   );
 }
 
@@ -1284,28 +1428,53 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
   const rest = structures.filter((structure) => structure.kind !== 'gate');
 
   return (
-    <Panel title="Your ground">
-      <div className="flex flex-col gap-2.5 p-4" data-testid="structures">
-        <PanelSection
-          label="The way in"
-          note="A gate is worth its level. There is nothing else to buy on it"
-          data-testid="gate-defence"
-        >
+    <FileSection icon="district" title="Your ground">
+      <div className="flex flex-col gap-2.5" data-testid="structures">
+        {/* One section, called after the thing it is about (maintainer request, 2026-09-12). It was
+            "The way in" wrapped around a line that said "The Gate 2", which is a heading and a
+            subheading saying the same word, and neither of them said what the level was worth. */}
+        <PanelSection label="The gate" data-testid="gate-defence">
           {gate === null ? (
             <p className="font-body text-[12px] leading-relaxed text-ink-300">
               You have no Gate. Raise one in the district and it becomes the thing an attacker has
               to get through.
             </p>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
-                {gate.label} <span className="tabular-nums text-brass-300">{gate.level}</span>
-              </span>
-              <span className="font-body text-[11px] text-ink-300">
-                {gate.damage > 0
-                  ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
-                  : 'Intact'}
-              </span>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-display text-[13px] uppercase tracking-[0.14em] text-ink-100">
+                  Level <span className="tabular-nums text-brass-300">{gate.level}</span>
+                </span>
+                <span className="font-body text-[11px] text-ink-300">
+                  {gate.damage > 0
+                    ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
+                    : 'Intact'}
+                </span>
+              </div>
+              {/* What the level is actually worth, which is the question the section exists to
+                  answer. Both figures are the district's folded totals, so a modification that
+                  lifts either is counted here rather than only in the fight. */}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+                    Toughness
+                  </dt>
+                  <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">
+                    +{Math.round(gate.defensePercent ?? 0)}%
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+                    Against scouts
+                  </dt>
+                  <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">
+                    +{Math.round(gate.intelResistancePercent ?? 0)}%
+                  </dd>
+                </div>
+              </dl>
+              <p className="font-body text-[11px] leading-snug text-ink-300">
+                Every level is worth more of both, and there is nothing else to buy on it.
+              </p>
             </div>
           )}
         </PanelSection>
@@ -1336,6 +1505,6 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
           </div>
         </PanelSection>
       </div>
-    </Panel>
+    </FileSection>
   );
 }

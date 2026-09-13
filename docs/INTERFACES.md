@@ -3,7 +3,7 @@
 Ownership map and cross-workstream rulings for the [GDD](./GDD.md) rollout. The GDD says _what_ to
 build; this file says _who owns which symbol_ so two workstreams never define the same thing.
 
-- **Authority:** CTO (MOU-170). A ruling here overrides a workstream issue description.
+- **Authority:** the maintainer. A ruling here overrides a workstream issue description.
 - **Scope:** only symbols more than one workstream touches. If a symbol has one owner, it is not listed.
 - **Conflict?** If your workstream needs to change something owned by another, raise it on MOU-170:
   do not fork a second definition.
@@ -96,7 +96,7 @@ bind W5 and W7 directly:
 Reputation and infamy counters are defined once, in W2. W10 (The Government) **feeds** those counters;
 it does not open a second anti-government tally. §D8a's `[TODO-LATER]` markers are W2's to place.
 
-### R6: migration numbers are allocated by the CTO, and `0003` is already doubled
+### R6: migration numbers are allocated centrally, and `0003` is already doubled
 
 W1 and W2 each wrote a migration numbered `0003` (`0003_attribute_model.sql`, `0003_economy.sql`).
 The runner (`apps/server/src/db/index.ts`) keys `schema_migrations` on the **file name** and applies
@@ -107,7 +107,7 @@ first, `economy` second. That ordering is alphabetical accident, not intent.
   against any database that already ran it, and `0003_attribute_model.sql` re-applied throws
   (`RENAME COLUMN skills_json` on a column that is already `attributes_json`), which fails boot.
 - **The next migration is `0004`.** From here, a workstream asks on MOU-170 for its number before
-  writing the file; the CTO allocates. Two agents picking the next integer from the same tree is how
+  writing the file; the maintainer allocates. Two agents picking the next integer from the same tree is how
   this happened.
 - **No migration may depend on another `0003` running before it.** `0003_attribute_model.sql`
   `DELETE`s `bases`/`battles`/`overseers`; `0003_economy.sql` then backfills `bases` rows that no
@@ -131,7 +131,7 @@ the two meet at exactly one point: a mission completing.
 
 ### R8: migration numbers for this wave
 
-Allocated under R6 (the CTO allocates; do not pick your own):
+Allocated under R6 (allocated centrally; do not pick your own):
 
 - **W3 / MOU-162 → `0004_missions.sql`**
 - **W6 / MOU-165 → `0005_progression.sql`**

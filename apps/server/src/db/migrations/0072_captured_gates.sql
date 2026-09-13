@@ -1,4 +1,4 @@
--- §B7: the gate on a district somebody has taken whole (board request).
+-- §B7: the gate on a district somebody has taken whole (maintainer request).
 --
 -- Keyed by district rather than by crew, and that is the design rather than a shortcut. A gate is a
 -- wall standing in a place: a crew that loses the ground loses it, and a crew that takes the ground

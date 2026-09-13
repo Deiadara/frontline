@@ -369,7 +369,7 @@ function intimidation(side: SideState): number {
  *     either is silenced, so the order the two are computed in cannot change the answer.
  *
  * Bodies are silenced whole. Fractional suppression would be a damage multiplier wearing a
- * costume, and the board asked for men who do not attack.
+ * costume, and the maintainer asked for men who do not attack.
  */
 export function nerve(side: SideState): number {
   return side.stacks.reduce(
@@ -632,7 +632,7 @@ export function officerStackOf(side: SideState): Stack | undefined {
  * What the officer on this side did, for the settler that has to decide about a stretcher (§D4).
  *
  * `fell` is the whole question: a body taken off the field is somebody who *would have died*, and
- * the board's rule is that the worst thing that happens to an officer is an injury.
+ * the maintainer's rule is that the worst thing that happens to an officer is an injury.
  */
 export function officerOutcomeOf(side: SideState): OfficerOutcome | null {
   const stack = officerStackOf(side);

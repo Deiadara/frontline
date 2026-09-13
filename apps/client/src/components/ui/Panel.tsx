@@ -34,7 +34,7 @@ interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   /**
    * A shorter head, for a panel that has to share a frame that does not scroll.
    *
-   * The market's supply run sits under the barrow on a screen the board asked to fit in one
+   * The market's supply run sits under the barrow on a screen the maintainer asked to fit in one
    * frame, and a full head there is a row of lots. The name keeps the hand face, a size down.
    */
   dense?: boolean;
@@ -85,7 +85,7 @@ export function Panel({
         >
           {/* The hand face, and a step up in size again. A panel heading is a *name*: "On the
               shelf", "Your crew", and it is the label a player scans a screen by, so it is one of
-              the places the board asked for lettering rather than a field label. */}
+              the places the maintainer asked for lettering rather than a field label. */}
           <h2
             className={cn(
               'font-stamp leading-none',

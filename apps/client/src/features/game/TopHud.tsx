@@ -17,8 +17,9 @@ import { CrewLevelChip, InfamyChip } from '../../components/Meters';
 import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { cn } from '../../lib/cn';
-import { useDeltaMarks, xpBehind } from '../../lib/deltas';
+import { useAnnouncedMarks, useDeltaMarks, xpBehind } from '../../lib/deltas';
 import type { LiveStatus } from '../../lib/live';
 import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
@@ -65,7 +66,7 @@ function HudDoor({
           className={cn(
             // The same struck plate the scenery switcher's doors wear (`door-tile`): bevel,
             // interior glow, sheen and drop shadow. The two rows are the same kind of object and
-            // now say so, which is what the board asked for.
+            // now say so, which is what the maintainer asked for.
             // 40px, matching the overseer's portrait at the other end of the group. The five doors
             // were 44 and made the right-hand cluster 23px wider than the stockpile, which put the
             // plaque visibly off-centre between them: it is centred in the *viewport* by the grid,
@@ -193,6 +194,9 @@ export function TopHud({
     [economy.productionSettledAt, perHour],
   );
   const spent = useDeltaMarks(resources, trickle);
+  // And the bills admin mode quoted and did not take: see `announceWaived`. Empty with the mode
+  // off, so with the mode off a chip draws exactly what the diff found.
+  const waived = useAnnouncedMarks();
   // The wallet has no trickle at all: infamy is only ever paid or spent, so every move shows.
   const wallet = useMemo(() => ({ infamy: Math.round(economy.infamy) }), [economy.infamy]);
   const walletMoved = useDeltaMarks(wallet);
@@ -231,7 +235,7 @@ export function TopHud({
      * the longest rank, that is 776 * 2 + 312 plus gaps and padding: about 1920px. The floor was
      * 1500, so from 1500 to 1920 the grid promised each side more room than the frame had, the
      * stockpile ran over the identity plaque, and the plaque ran over the doors beside it. That is
-     * the board's screenshot. Below the floor the grid gives way to a plain flex row: the three
+     * the maintainer's screenshot. Below the floor the grid gives way to a plain flex row: the three
      * groups still read left, middle, right, the sign is simply not on the centre line.
      *
      * Which means this number is downstream of the chip sizes. Shrink a chip and it can come down;
@@ -263,7 +267,7 @@ export function TopHud({
             kind={kind}
             value={resources[kind]}
             capacity={ceiling(kind)}
-            deltas={spent[kind] ?? []}
+            deltas={[...(spent[kind] ?? []), ...(waived[kind] ?? [])]}
           />
         ))}
       </div>
@@ -373,14 +377,21 @@ export function TopHud({
               Overseer
             </span>
           </span>
-          <span className="block h-10 w-10 shrink-0 overflow-hidden rounded-sm border border-surface-600 shadow-lifted transition-colors group-hover:border-brass-300/70">
+          {/* The same drawn frame the file behind this door carries, at the size a 40px avatar can
+              hold: the pen line and the cold hairline, and no corner brackets. The hover cue is an
+              outline rather than a border colour, because the frame paints its own edge with a
+              box-shadow and a second one would fight it. */}
+          <PortraitFrame
+            size="sm"
+            className="h-10 w-10 shrink-0 shadow-lifted outline-1 -outline-offset-1 outline-brass-300/70 group-hover:outline"
+          >
             <OverseerPortrait
               portraitId={overseer.portraitId}
               archetype={overseer.archetype}
               aspect="square"
               showTag={false}
             />
-          </span>
+          </PortraitFrame>
         </NavLink>
       </div>
     </header>

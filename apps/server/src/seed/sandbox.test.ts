@@ -145,7 +145,17 @@ describe('UNLOCKED: the end-game sandbox', () => {
     repos.bases.updateDistrict(
       'b1',
       [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
-      [{ id: 'q1', kind: 'quarters', level: 1, startedAt: NOW, durationSeconds: 60 }],
+      [
+        {
+          id: 'q1',
+          kind: 'quarters',
+          level: 1,
+          startedAt: NOW,
+          durationSeconds: 60,
+          paid: {},
+          parts: {},
+        },
+      ],
     );
 
     applyUnlockedSandbox(repos, 'Nikos');

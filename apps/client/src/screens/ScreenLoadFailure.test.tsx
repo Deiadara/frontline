@@ -13,9 +13,9 @@ import { MarketPage } from '../features/market/MarketPage';
 import { MissionsPage } from '../features/missions/MissionsPage';
 import { OverseerProfilePage } from '../features/overseer/OverseerProfilePage';
 import { ResearchPage } from '../features/research/ResearchPage';
+import { ScrapyardPage } from '../features/scrapyard/ScrapyardPage';
 import { TrainingPage } from '../features/overseer/TrainingPage';
 import { UnitsPage } from '../features/units/UnitsPage';
-import { WorkshopPage } from '../features/workshop/WorkshopPage';
 import { useSession } from '../store/session';
 
 /**
@@ -59,7 +59,7 @@ const SCREENS: readonly [string, ComponentType][] = [
   ['the satchel', InventoryPage],
   ['the units tab', UnitsPage],
   ['the gym', TrainingPage],
-  ['the workshop', WorkshopPage],
+  ['the yard', ScrapyardPage],
   ['the overseer file', OverseerProfilePage],
 ];
 

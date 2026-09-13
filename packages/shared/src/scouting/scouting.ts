@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
 import { ATTRIBUTE_NAMES, type Attributes } from '../attributes.js';
 import { IsoDateTimeSchema, IdSchema } from '../primitives.js';
 
 /**
- * Scouting a district (§A4, board rework).
+ * Scouting a district (§A4, maintainer rework).
  *
  * It used to be a button. `POST /city/scout` marked the ground seen and returned, instantly, free,
  * from anywhere on the map, which made the fog a formality: every district was one click from
@@ -102,8 +103,51 @@ export const ScoutingRunSchema = z.object({
   departedAt: IsoDateTimeSchema,
   /** When they are back and the ground is open. One mark: there is no separate arrival. */
   returnsAt: IsoDateTimeSchema,
+  /**
+   * The walk out, frozen at the send, exactly as a mission freezes its own `travelMinutes`.
+   *
+   * Stored rather than derived, because it cannot be derived. The mark is the whole run, which is
+   * the walk twice plus the looking, and the looking is anything from forty minutes to four hours
+   * depending on whose sheet it was priced against: half the mark is not the walk out, and reading
+   * it as if it were left the recall window open long after the scout had arrived. Working it back
+   * off the officer's sheet would be worse again, since a retune or a levelled-up scout would move
+   * the leg of a run already on the road.
+   *
+   * Defaulted for rows written before it existed; 0 shuts their window rather than guessing.
+   */
+  travelMinutes: z.number().int().nonnegative().default(0),
+  /**
+   * Set when the crew turned the scout round (maintainer request, 2026-09-12). `returnsAt` is then
+   * the walk home, as long as the walk out had been, and the ground does **not** open when they
+   * are back: they never got there.
+   */
+  recalledAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type ScoutingRun = z.infer<typeof ScoutingRunSchema>;
+
+/** The way out: the leg the send froze, and the only part of the run a recall can undo. */
+function outboundMs(run: Pick<ScoutingRun, 'travelMinutes'>): number {
+  return run.travelMinutes * 60_000;
+}
+
+/** What a recall needs to know: who is out, since when, and how long the walk out is. */
+type RecallableRun = Pick<ScoutingRun, 'departedAt' | 'travelMinutes' | 'recalledAt'>;
+
+/** Whether the scout can still be turned round: the first tenth of the way out. */
+export function scoutRecallable(run: RecallableRun, now: Date): boolean {
+  if (run.recalledAt !== null) return false;
+  return cancelWindowOpen(Date.parse(run.departedAt), outboundMs(run), now.getTime());
+}
+
+export function scoutRecallWindowMs(run: RecallableRun, now: Date): number {
+  if (run.recalledAt !== null) return 0;
+  return cancelWindowMs(Date.parse(run.departedAt), outboundMs(run), now.getTime());
+}
+
+/** When a scout turned round at `now` is home: as far back as they have come. */
+export function scoutRecalledReturnsAt(run: Pick<ScoutingRun, 'departedAt'>, now: Date): Date {
+  return new Date(now.getTime() + Math.max(0, now.getTime() - Date.parse(run.departedAt)));
+}
 
 /** Whether this run is done, against a clock the server owns. */
 export function scoutRunIsDue(run: ScoutingRun, now: Date): boolean {

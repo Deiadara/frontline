@@ -174,7 +174,8 @@ and the `bar_hires` signing log.
 - `POST /api/bar/release`: `{officerId}`. Frees their slice of the payroll book and charges
   `DISMISSAL_WEEKS` of it in caps on the spot. `404 NOT_FOUND` for a stranger, `409
 INSUFFICIENT_CAPS` when the crew cannot cover it.
-- `POST /api/bar/payroll`: `{}`. Buys one step of standing payroll at a server-quoted price.
+- `POST /api/bar/payroll`: `{fromSteps?}`. Buys one step of standing payroll at a server-quoted
+  price. `fromSteps` names the step count the screen showed; a stale one is `409 STALE_STATE`.
 
 **Every** route here settles last night's tables before it reads anything (see below), not only the
 read. All five touch state the close moves: the chair it filled, the wage it committed, the tables a
@@ -257,6 +258,32 @@ winner is charged at the close instead, so the result row and both notifications
 lot closed at and the discount is invisible to everybody who was outbid. Nothing is escrowed at the
 bid, so caps are checked at the table and again at the close.
 
+### Blueprints and the Reimagining bench (§D10, §G2)
+
+Both writes live on the market routes, because a blueprint and its pages are items: they sit in
+`inventory_json` beside everything else a crew holds, and both answer with the whole refreshed board
+so the satchel updates from the response instead of racing a refetch.
+
+- `POST /api/blueprints/unlock`: `{blueprintId}`. Spends one of every page and banks the document.
+  `409 BLUEPRINT_REFUSED` with `unknown_blueprint`, `already_unlocked` or `missing_pages`.
+- `POST /api/blueprints/reimagine`: `ReimagineRequestSchema` `{pages: [id, id, id]}`. The player
+  names the three (maintainer, 2026-09-10); the Lab used to pick the most duplicated itself. The tuple is
+  parsed against the page catalogue, so anything but exactly three real page ids is a
+  `400 VALIDATION_ERROR` at the door. Then `reimaginingRefusal` re-checks against the _base record_:
+  `not_available` (no Head of Research seated, or the rung not banked), `nothing_left_to_find` (the
+  crew holds or has already bound every page in the game), `wrong_page_count`, and `pages_not_held`
+  when a named page is not held, or is named more times than it is held. Every one is a
+  `409 REIMAGINING_REFUSED` carrying the machine name, and `REIMAGINING_REFUSAL_MESSAGES` in shared
+  is the sentence each one prints.
+
+What comes back is never the caller's choice: `unseenPages` is read off the inventory as it stands
+_before_ the spend and indexed by a seed of the base id and the moment, so a request retried because
+the connection dropped cannot be retried until the Lab offers something better. The three named
+pages are held at that point, so none of them can be the page handed back, and a page of a document
+the crew has already unlocked is out of the pool whatever its count says. The answer carries `spent`
+and `gained` beside the board: the response is the only place a player ever learns which page they
+got.
+
 ### Closing a visit
 
 `settleVendorAuctions(repos, now)` is the whole of the close, lazy like every other clock here. It
@@ -277,10 +304,68 @@ Two doors reach it and both are fine, because it is a function of stored rows: `
 top of the ranking and could not cover its own bid) from `lost` and `unsold` by re-running the
 ranking.
 
+### Notifications
+
+The kinds live in `@frontline/shared`'s `social/notifications.ts` and every one of them is written
+through `notify`. `page_found` says a blueprint page reached the satchel and has five doors, so its
+sentence is written once: `tellPagesFound` (`social/pages.ts`) diffs the satchel before and after
+and rings for a mission's page prize, the Runner's lot close, a page taken off the Black Market
+shelf, the page the Lab hands back for a Reimagining, and each side of a settled market offer. The
+Runner's close rings it alongside `market_won`: one is the lot, the other is the sheet.
+
+### The live channel
+
+`GET /api/events` is a server-sent event stream (`live/routes.ts`), one per open tab, heartbeat
+every `LIVE_HEARTBEAT_MS`. Every event is a **nudge with no payload**: `{kind, at}`. The client
+answers one by invalidating the queries that kind names (`lib/live.ts`), so there is one code path
+from server state to screen state and it is the one every page load exercises.
+
+Two scopes of kind, from `@frontline/shared`'s `live/events.ts`:
+
+- **Per account**: `notification`, `battle`, `message`, `faction`, `base`. Published by `notify`
+  alongside the receipt it writes, to the account the receipt is for.
+- **Broadcast**: `world`, `market`, `bar`. Published to every connected account, because what
+  moved is the one world everybody shares. Two sources: `live/broadcast.ts` maps the route prefix
+  of every **successful** write that changes shared state (a fight called or moved, a location
+  taken or dug in, a listing or a bid, a faction founded or left, a crew renamed) to a kind in an
+  `onResponse` hook; `world/settle.ts` broadcasts what the clock itself moved (fights resolved,
+  columns landed, gates raised, tables and lots closed), only when a count is above zero. A
+  refused write announces nothing. Because a nudge carries no data, nothing crosses the fog: each
+  tab refetches through its own authenticated, fogged reads.
+
+On connect the client refetches every active query, so anything that happened while a tab was
+disconnected is caught up without the server replaying events.
+
 ### `POST /api/base/faction` (auth)
 
 Body: `RenameFactionRequestSchema` `{name}`: trimmed and bounded by `FactionNameSchema`.
 `200` → `RenameFactionResponseSchema` `{base}`.
+
+### Calling things off (maintainer, 2026-09-12)
+
+One rule for everything that takes time, in `@frontline/shared`'s `time/cancel.ts`: a thing can be
+called off inside the **first tenth** of its own clock, and a spend called off comes back at
+**ninety percent** (whole units, rounded down; parts come back whole). A journey has no bill and
+refunds time instead: a crew, a scout or a column turned round in the first tenth of the way out
+walks home the distance already covered, so the return takes as long as the going did. Every route
+below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARCH_BUSY` or
+`TRAINING_REFUSED`, matching its start route) and `404 NOT_FOUND` when there is nothing to call off.
+
+- `POST /api/base/cancel`: `{orderId}`. Removes a build order (`paid` and `parts` are recorded on
+  the entry at order time); the orders behind it close up. Answers like `/base/build`.
+- `POST /api/research/cancel`: `{}`. Takes the active project off the bench (`paid` is recorded on
+  it). Answers with the research screen.
+- `POST /api/city/cancel-upgrade` and `POST /api/city/cancel-fortify`: `{locationId}`. The start of
+  each is derived from its end and the level's fixed duration, which the district read exposes as
+  `upgradingSince` and `fortifyingSince`. Answer like `/city/upgrade`.
+- `POST /api/city/scout/recall`: `{}`. Sets `recalledAt` on the run and its `returnsAt` to now plus
+  the time out; the settler marks it home without opening the ground.
+- `POST /api/city/gate/cancel`: `{districtId}`. The raise's `upgradingSince` (migration 0089) is
+  the clock's start. Answers with the city.
+- `POST /api/training/cancel`: `{sessionId}`. Drops the drill and hands the day's session back.
+- `POST /api/units/cancel` and `POST /api/actions/recall` already existed; the unit refund moved
+  from ninety-five to ninety percent. `POST /api/missions/recall` now refuses outside the first
+  tenth of the outbound leg (it was open until the crew was home).
 
 ### Lazy settlement
 
@@ -334,7 +419,10 @@ at for three days resolves to the same result whenever it is next opened.
 
 - `GET /api/battles` → `BattlesResponseSchema`. Coming fights the caller is in or can see, finished
   ones they are allowed to read, the half-hour marks open right now, their infamy and what it buys,
-  their own structures, and the gate state of every district they can see into.
+  their own structures, and the gate state of every district they can see into. Each fight's
+  `leaders` list is the officers free to take it, filtered through the same `officerDuty` the lead
+  route refuses with, keeping whoever already leads that fight. It used to drop the injured alone,
+  so it offered names `/battles/lead` then turned away.
 - `POST /api/battles/declare`: `{target, scheduledFor}`. Three target kinds, `location`, `gate` and
   `district`, and which of them is legal is `declarationRefusal` and nothing else. Refused
   (`409 BATTLE_REFUSED`) for a mark off the half hour, inside eight hours or past twenty-four; for a
@@ -342,7 +430,7 @@ at for three days resolves to the same result whenever it is next opened.
   outright nor lived on; for a raid behind a gate that is still standing, or on a plot nobody lives
   on; for unscouted ground, ground already called, a fourth simultaneous call, or your own.
 
-#### Raiding a home (§A4, board 2026-09-09)
+#### Raiding a home (§A4, maintainer 2026-09-09)
 
 **A home is shut.** A residential district has no locations, so `districtHolder` answers null for
 one; the resident is what shuts it (`districtIsShut`), and the gate that is fought is the resident's
@@ -383,13 +471,115 @@ district, resolved history included, so the repo carries no legacy branch.
   Garage section below for what a machine is worth on the road.
 - `POST /api/battles/lead`: `{battleId, officerId}`, or `officerId: null` to stand somebody down.
   One officer, one fight, and one duty at a time (`crew/duty.ts`): somebody already leading a fight,
-  walking home from a scouting run or out on a job is refused with where they are.
+  walking home from a scouting run, laid up, or **out leading a run** is refused with `403` and the
+  hold's own sentence, the same one the missions board dims them with and the launch refuses them
+  with. `POST /api/city/scout` reads the same function and refuses the same way, with the sentence
+  in place of its flat "they are already out". The rule runs in both directions: a leader in a
+  fight cannot lead a run, and a leader on a run cannot be named to a fight or sent scouting.
 - `POST /api/battles/trap`: `{locationId, trapId}`. One armed trap per location, gated on the Lab.
-- `POST /api/battles/boost`: `{battleId, boostId}`. One boost per side, and only the crew whose
-  fight it is may name it, so an ally cannot burn the slot the principal was going to use.
-- `POST /api/battles/notoriety`: no body. Buys the next rung of notoriety with infamy;
+- `POST /api/battles/boost`: `{battleId, boostId}`. Burns a name on one fight, and only the crew
+  whose fight it is may do it, so an ally cannot spend the slot the principal was going to use.
+  **A name is final** (maintainer, 2026-09-12): it cannot be swapped, cleared or refunded, taking the
+  same name twice is `409 BOOST_REFUSED`, and a crew already at its cap is refused the same way.
+  The cap is `BattleView.boostSlots`: one, plus `CrewEffects.battleBoostsFlat`, which the Field
+  Commander's last research rung raises by one. `BattleView.boostIds` is what has been burned, in
+  order. Two names stack by adding their percentages (`battle/resolve.ts`).
+- `POST /api/battles/notoriety`: `{fromNotoriety?}`. Buys the next rung of notoriety with infamy;
   `409 NOT_ENOUGH_INFAMY` when the name is not worth it yet, and `409 PLACE_UNAVAILABLE` at the top
-  of the ladder.
+  of the ladder. `fromNotoriety` is the rung the screen was showing: when it is given and the row
+  has moved on, `409 STALE_STATE` and nothing is bought, so a double click or a second tab cannot
+  buy two irreversible ranks off one decision.
+
+### Missions (§E), and who leads one (maintainer, 2026-09-10)
+
+`GET /api/missions` settles first (see **Lazy settlement**) and then answers the whole screen:
+the crew's runs, what just came home, the boards, the army at home, and two fields about leading.
+
+- **`leaders`** is the bench, from `apps/server/src/missions/leaders.ts`: the **Overseer first**,
+  kind `overseer`, then every officer on the books in roster order, kind `officer`. Each carries the
+  sheet the screen scores them with and one reason they cannot go: `held`, one of `run`, `fight`,
+  `scouting`, `injury` or `null`, with `heldUntil` set to the mark they are free at wherever the
+  server knows one (the run's return, the scouting run's, the end of the injury). A declared fight
+  has no such mark until it settles, so `held: 'fight'` always carries `heldUntil: null`.
+  - An officer's `held` is `officerDuty` (`apps/server/src/crew/duty.ts`), the same question the
+    three dispatch doors ask before they refuse, asked in one order: injured, at a fight, out on a
+    run, out scouting. A dimmed row and a `409` therefore never disagree about why.
+  - **The Overseer is only ever held by a run they lead.** They are not on the books, so no
+    declared fight and no scouting party can name them, and §D4's injuries belong to officers.
+    Their half is the run join alone: the row's `overseerLed` flag, where an officer's is
+    `officerId`.
+  - Both this and the boards read the runs still out through `listActiveByBaseId`, never by
+    filtering the `missions` history the response also carries: that page is the newest
+    `MISSION_HISTORY_LIMIT` rows, so a long job with a couple of hundred short ones launched after
+    it drops off the end of it while it is still out, and the bench would call its leader free
+    while the launch refuses them.
+- **`unledRule`** is `unledRule(base.research.technologies)`: `forbidden`, `penalised` or `free`.
+  The second rung only lifts the first one's cost, so holding it without the first opens nothing.
+
+Every offer carries three fields the gauge needs and nothing more: `authoredChance`
+(`scaledSuccessChance(template.successChance, base.level)`, the odds before anybody is considered),
+`leanings` (`leaningsFor`), and `battleTier` (`battleTierFor`, `null` on standard work). The odds a
+run would actually go out with are **not** on the card: the screen adds the chosen leader's edge
+with `missionOdds`, which is the same function `launchMission` freezes the row with, so the needle
+and the row cannot disagree.
+
+`POST /api/missions` takes `leaderId` (the Overseer's id or an officer's) instead of the old
+`officerId`, and it is optional:
+
+- an id nobody on the bench answers to → `404`;
+- a leader who is out leading a run → `409`, "`<name>` is out leading a run". One job at a time,
+  for the Overseer as much as for an officer;
+- an officer who is injured, leading a declared fight or out scouting → `409` through
+  `officerDuty`, in that hold's own words: "`<name>` is at a fight", "`<name>` is out scouting",
+  "`<name>` is still laid up" (`LEADER_HOLD_MESSAGES`, in `@frontline/shared`). The Overseer
+  answers to none of that: they are the player, not an employee;
+- no `leaderId` at all with `unledRule` `forbidden` → `409 MISSION_NEEDS_OFFICER`, naming Written
+  Orders, the rung that opens it.
+
+Otherwise the row is priced by `missionOdds({authored, leader, profile, unled})` and frozen:
+`officerId` for an officer, `overseerLed: true` for the Overseer, neither for an unled run. What
+came before this is gone rather than kept beside it: `delegationTerms`, the ×0.67 odds and ×1.5
+clock penalties, `requiresOfficer`'s hard-job gate, and `overseerMissionEdge`'s Speed-and-Stealth
+nudge. The Overseer goes through `leaderFit` like anybody else.
+
+The two rungs that open an unled run are the Right Hand's second and sixth (`research/tracks.ts`):
+`tech_unled_runs` (Written Orders) lets a crew go out with nobody at the head of it at
+`UNLED_PENALTY` off the odds, and `tech_unled_runs_free` (They Have Done It Before) takes the
+penalty away. Written Orders is the gate and the sixth rung only lifts what it charges, so a crew
+holding the second without the first is `forbidden`. The track already refuses a rung whose
+predecessor is unfinished; `unledRule` says it as well so the rule does not rest on that.
+
+A recall does not free the leader. `recalledAt` is recorded and the row stays `active` for the walk
+home, so the person at the head of the crew is out until the settle brings them in, and a recalled
+run never fights: `battleTierFor` is skipped on it, the whole force comes back, and it settles as a
+failure with `lost` empty and `reported` true.
+
+#### A battle job fights
+
+A `battle` template no longer rolls against its frozen chance. At the settle
+(`missions/resolve.ts` through `missions/battle.ts`):
+
+1. The enemy is built from the row's own seed: `enemyForce(tier, base.level, seed)`
+   (`missions/enemy.ts`), a force of catalogue units whose `fieldStrength` lands within
+   `ENEMY_STRENGTH_TOLERANCE` of `enemyStrength(tier, level)`. Each tier draws from its own short
+   roster: razors and scrapers for a skirmish, ash walkers and wardens behind them for a fight,
+   wardens, breakers, snipers and juggernauts for a siege.
+2. `TacticalSkirmishEngine` runs it with the crew as the attacker and the enemy as the defender, on
+   a bare battlefield, **with no ring on either side**: whoever breaks and runs is not pursued and
+   comes home. Whoever led the run is folded in as the side's officer, the way a declared battle
+   folds one.
+3. The outcome is `success` when the crew held the field. `lost` on the row is the bodies that did
+   not come home, `force` less `lost` walks back into the army, and a machine whose riders all died
+   is wrecked by the same `wrecked` rule the battle settler uses.
+4. `reported` is false when nobody came home at all. Then the run banks nothing: no pay, no
+   salvage, no page, no XP, no infamy, and the bell says "Nobody came back from `<job>`".
+
+Migration 0088 adds `overseer_led`, `lost_json` and `reported` to `missions`. A row written before
+it reads as an officer-led or unled run that killed nobody and was reported, which is what every one
+of them was.
+
+A mission does not lay a leader up: §D4's stretcher needs the day's margin and a stream the battle
+settler owns. A leader is out for the length of the run and free the moment the crew is home.
 
 ### The Garage, and the one arithmetic every road uses (§C3)
 
@@ -412,24 +602,25 @@ that turns those two numbers into minutes, and every road in the game goes throu
 a fight, a mission's travel leg, a scouting run at the officer's own speed, and the city view's
 estimates at speed 0. The **speed divides** (`base / (1 + speed/100)`) and the crew's
 **travel reduction multiplies what is left**, capped at `MAX_TRAVEL_SPEED_BONUS`. The effective
-speed a road reads is the sheet after the workshop's fitted upgrades and the crew's
+speed a road reads is the sheet after the Scrapyard's fitted upgrades and the crew's
 `unitSpeedPercent` channel, which is the same figure `battle/effects.ts` hands the engine.
 
 A mission's pay is deliberately not on that clock. `pricedMinutes` is **the card's own figure**:
 `pricedTimings(template, missionSpeedPercent)` in `apps/server/src/missions/pricing.ts`, and the one
 function both `offerFor` (which draws the board) and `launchMission` (which freezes the row) call,
 so the two cannot come apart. It carries the crew's own `missionSpeedPercent` and nothing else,
-because that is the only input the card can know when it is read. Four things are therefore in the
+because that is the only input the card can know when it is read. Three things are therefore in the
 clock the crew actually runs on and out of the one it is paid on:
 
 - the **column's pace**, chosen after the card is read, so the Garage buys a shorter wait and never
   a smaller cheque;
 - §D5's **`leadArrivalPercent`**, for the same reason: `rewardScale` is monotonic in the minutes, so
   pricing a led run off its own shorter clock paid a crew _less_ for bringing their fastest leader;
-- §G6's **delegation penalty**, which would otherwise pay an unled crew _more_ for being
-  short-staffed, against `delegation.ts`'s rule that leading is always better than not leading;
 - **admin mode**, which skips the wait and not the economy: the card is not admin-aware and quotes
   the real clock, so the testing build pays the real price.
+
+There used to be a fourth, §G6's officerless penalty, which made an unled run half again as long.
+Leading a job moves its odds and not its clock now: see the missions section above.
 
 `missionXp` is frozen off the same figure, and `resolveDueMissions` pays and awards against it
 through `pricedTotalMinutes`. What an officer leading a run _does_ buy on the pay side is

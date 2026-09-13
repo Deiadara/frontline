@@ -6,7 +6,7 @@
  *
  * **Speed** is a stat, 0 to 100, on units and on machines. It says how fast a body crosses the
  * city, and it is spent as a divisor: `base / (1 + speed/100)`. A unit on 100 halves the road, a
- * unit on 30 takes twenty minutes down to about fifteen and a half. That is the board's rule,
+ * unit on 30 takes twenty minutes down to about fifteen and a half. That is the maintainer's rule,
  * "a 30 speed unit makes it 30% faster to go there", and it is the whole of {@link roadMinutes}.
  *
  * **A travel-time reduction** is a percentage the ground or the crew takes off whatever clock the

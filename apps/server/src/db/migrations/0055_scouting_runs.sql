@@ -1,4 +1,4 @@
--- Scouting is a journey somebody makes, not a button (board rework).
+-- Scouting is a journey somebody makes, not a button (maintainer rework).
 --
 -- One row per crew that has somebody out. `officer_id` is not a foreign key because officers live
 -- in `bases.commanders_json` rather than in a table of their own; the settle checks they are still

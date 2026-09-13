@@ -93,5 +93,5 @@ Researched rather than assumed, and the sources are in the module doc on
   read transaction against a live database and writes one consistent, defragmented file.
 - **A schedule plus retention, not one snapshot.** Frequent cheap snapshots with a rolling window is
   the pattern every production SQLite guide converges on. Continuous replication (Litestream and
-  friends) is the next step up if the board ever wants a recovery point measured in seconds rather
+  friends) is the next step up if the maintainer ever wants a recovery point measured in seconds rather
   than minutes; nothing here would have to change to adopt it.

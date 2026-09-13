@@ -4,7 +4,7 @@ import { factionScreen, lateGame, me } from './fixtures';
 import type { FactionResponse } from '@frontline/shared';
 
 /**
- * The faction, the mailbox and the bell (board request).
+ * The faction, the mailbox and the bell (maintainer request).
  *
  * Three screens the standing bar leads to, and the properties that make them worth having rather
  * than three lists: an ally's fight can be reinforced from the faction screen, a message marks
@@ -47,11 +47,16 @@ test('the faction screen is a room with the table standing in it', async ({ page
   // ...and the three places nobody is in are marked rather than left out of the picture.
   await expect(page.locator('[data-testid^="faction-empty-seat"]')).toHaveCount(3);
 
-  // The four readings, top right, over the hall.
-  await expect(page.locator('[data-testid^="dial-"]')).toHaveCount(4);
+  // The five readings, top right, over the hall.
+  await expect(page.locator('[data-testid^="dial-"]')).toHaveCount(5);
   await expect(page.getByTestId('dial-seats')).toContainText('2/5');
   // Bodies is the population the table's units take up (32 + 60 in the fixture), not a head count.
   await expect(page.getByTestId('dial-bodies')).toContainText('92');
+  // Earned is the faction's own append-only total, which is what the standings rank it by. Summing
+  // the members' contribution rows would agree here and stop agreeing the day somebody leaves.
+  await expect(page.getByTestId('dial-earned')).toContainText('1,820');
+  // The mean level at the table as a whole number: a 2 and a 6 in the fixture.
+  await expect(page.getByTestId('dial-level')).toContainText('4');
   await expect(page.getByTestId('dial-fights')).toContainText('1');
   await expect(page.getByTestId('faction-vacancies')).toContainText('3 seats open');
 
@@ -67,7 +72,17 @@ test('the faction screen is a room with the table standing in it', async ({ page
   const sableCard = page.getByTestId('faction-card-Sable_Ninth');
   await expect(sableCard).toContainText('Defences');
   await expect(sableCard).toContainText('Toughness, Organization and Resolve');
-  await expect(members.getByRole('img', { name: 'King of diamonds' })).toBeVisible();
+  /*
+   * The row draws the person, not the chair (maintainer request, 2026-09-12).
+   *
+   * It used to draw the seat's playing card, so a table of five people read as a hand of cards.
+   * The card is still what the seat *means* and is still in the hover above; the picture on the
+   * row is now their own Overseer, the same face the Bar and their crew file print.
+   */
+  const face = members.getByTestId('member-face-Sable_Ninth');
+  await expect(face).toBeVisible();
+  await expect(face).not.toHaveAttribute('data-face', 'none');
+  await expect(members.getByRole('img', { name: 'King of diamonds' })).toHaveCount(0);
   await expect(members.locator('[data-tip="Defences: D+"]')).toBeVisible();
   await expect(page.getByTestId('faction-card-Nikos')).toContainText('Attacks');
 
@@ -105,8 +120,10 @@ test('an ally’s fight counts down over the room, and opens the form that sends
   const fights = page.getByTestId('faction-fights-window');
   await expect(fights).toBeVisible();
   await expect(fights.getByText('24', { exact: false })).toBeVisible();
-  // The card carries the mark's own wall clock, which the chip has no room for.
-  await expect(fights.getByText('03:30')).toBeVisible();
+  // The card carries the mark's own wall clock, which the chip has no room for. On the player's
+  // clock: the fixture's user reads Athens time, three hours ahead of the `03:30Z` in the payload
+  // in August. The UTC digits were what the card used to print, and they were wrong for everybody.
+  await expect(fights.getByText('06:30')).toBeVisible();
   await expect(page.getByTestId('reinforce-unit-ally-battle-1')).toBeVisible();
   await expect(page.getByTestId('reinforce-ally-battle-1')).toBeVisible();
 
@@ -467,7 +484,7 @@ test('founding one takes a name, a drawn badge and a description', async ({ page
   const sheet = page.getByTestId('create-sheet');
   await expect(sheet).toBeVisible();
 
-  // The three fields the board asked for, in order.
+  // The three fields the maintainer asked for, in order.
   await expect(page.getByTestId('faction-name')).toBeVisible();
   await expect(page.getByTestId('faction-blurb')).toBeVisible();
 
@@ -614,7 +631,7 @@ test('the standing bar carries both counts, left of the fighting', async ({ page
 
   await expect(page.getByTestId('hud-messages')).toBeVisible();
   await expect(page.getByTestId('hud-notifications')).toBeVisible();
-  // Both doors sit before Battles in the DOM, which is the order the board asked for.
+  // Both doors sit before Battles in the DOM, which is the order the maintainer asked for.
   const order = await page.evaluate(() => {
     const ids = ['hud-messages', 'hud-notifications', 'hud-battles'];
     return ids.map(

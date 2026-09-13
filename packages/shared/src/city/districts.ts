@@ -397,7 +397,7 @@ export const CITY_DISTRICTS: readonly District[] = [
       // People have been living on the moored barges longer than anybody has been calling it a slum.
       ['barges', 'The Moored Barges', 'refugee_camp', 'easy'],
       // A gantry crane with a cabin at the top of it. Whoever is up there sees the whole waterfront.
-      // Named a Site rather than a Gate (board request): a district's *gate* is a real mechanic
+      // Named a Site rather than a Gate (maintainer request): a district's *gate* is a real mechanic
       // three files over, and a location whose name claimed to be one had players calling fights
       // at it expecting the district to open.
       ['cranegate', 'Crane Site', 'watchtower', 'medium'],

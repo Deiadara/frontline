@@ -329,18 +329,42 @@ describe('the Bar roster response (INTERFACES R4)', () => {
   });
 
   it('would fire on a leak: the permutation check is not vacuous', () => {
-    // A positive control for the assertion above: `roleFit` is exactly the shape of hint R4 bans,
-    // and rotating the sheet has to move it. Without this, a projection that dropped every derived
-    // number would pass the permutation test by having nothing left to compare.
-    const [recruit] = barRoster(barDay(NOW));
+    /*
+     * A positive control for the assertion above: `roleFit` is exactly the shape of hint R4 bans,
+     * and rotating the sheet has to move it. Without this, a projection that dropped every derived
+     * number would pass the permutation test by having nothing left to compare.
+     *
+     * Asked of the **room** rather than of one chair, and that is the fix rather than a loosening.
+     * `roleFit` is a weighted sum over five attributes and a recruit's thirty-five attributes only
+     * carry thirteen to sixteen distinct values, so a rotation lands on an equal sum often enough
+     * to matter: measured over a year of rooms, seat zero has at least one tied role on **70 of
+     * 365 days**, and the old "all nineteen must move for seat zero" passed on the other 295 by
+     * luck of the seed rather than by anything it was checking. Every role moved by somebody in
+     * the room holds on **365 of 365**, and it is the stronger claim: it says no role is immune to
+     * the rotation, which is what makes the check above mean something.
+     */
+    const roster = barRoster(barDay(NOW));
+    expect(roster.length).toBeGreaterThan(0);
+    const immune = OFFICER_ROLES.filter((role) =>
+      roster.every(
+        (one) => roleFit(rotateSheet(one.attributes), role) === roleFit(one.attributes, role),
+      ),
+    );
+    expect(immune, 'a role no rotation in the whole room moves: the check proves nothing').toEqual(
+      [],
+    );
+
+    // ...and on the one chair the assertion above samples, all but a tie or two still move.
+    const [recruit] = roster;
     if (!recruit) throw new Error('empty roster');
     const moved = OFFICER_ROLES.filter(
       (role) =>
         roleFit(rotateSheet(recruit.attributes), role) !== roleFit(recruit.attributes, role),
     );
-    expect(moved.length, 'rotating the sheet must move role fit, or the check proves nothing').toBe(
-      OFFICER_ROLES.length,
-    );
+    expect(
+      moved.length,
+      'rotating one sheet must move nearly every role fit, or the check proves nothing',
+    ).toBeGreaterThanOrEqual(OFFICER_ROLES.length - 2);
 
     // ...and the value/token scans have to fire on a planted affinity, too.
     const leaky = { recruits: [{ id: 'x', affinity: OFFICER_ROLES[0] }] };

@@ -6,6 +6,7 @@ import {
   HOLDER_LABELS,
   LOCATION_CATALOG,
   describeHoldBonus,
+  displayNameOf,
   districtHolder,
   gateIntelResistancePercent,
   garrisonSize,
@@ -35,7 +36,8 @@ import {
   type Building,
 } from '@frontline/shared';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
-import { upgradeSeconds } from './upgrade.js';
+import { upgradeSeconds, upgradingSince } from './upgrade.js';
+import { fortifyingSince } from './actions.js';
 import type { Repositories } from '../db/repos/index.js';
 import { defaultScout, planScout } from '../scouting/scouting.js';
 import { capturedGatesFor, gateFor, holdsDistrictWhole } from './gates.js';
@@ -64,6 +66,14 @@ export interface CityContext {
   /** A crew's name by base id, for "who holds this". */
   nameOf: (baseId: string) => string;
   /**
+   * The player behind a crew, by the name they go by, or null for a crew with no account behind it.
+   *
+   * A sign says which crew; a file says which person, and the person is who a player is sizing up
+   * before they call a fight. The seeded neighbours have accounts too, so they answer here like
+   * anybody else.
+   */
+  playerOf: (baseId: string) => string | null;
+  /**
    * §F2: how much of somebody else's garrison count this crew fails to bring back, in percent.
    *
    * The holder's counter-intelligence minus this crew's own reading. Zero for a location we hold, and
@@ -77,7 +87,12 @@ export interface CityContext {
 export function cityContextFor(repos: Repositories, base: Base): CityContext {
   const controls = repos.city.controls();
   const effects = standingEffectsFor(repos, base);
-  const names = new Map(repos.bases.listSummaries().map((summary) => [summary.id, summary.name]));
+  const summaries = repos.bases.listSummaries();
+  const names = new Map(summaries.map((summary) => [summary.id, summary.name]));
+  // One user read per crew, cached for the projection: a district draws a dozen locations and most
+  // of them belong to the same two or three crews.
+  const owners = new Map(summaries.map((summary) => [summary.id, summary.ownerId]));
+  const players = new Map<string, string | null>();
   /*
    * What a scout brings home: **the people and the ground together**.
    *
@@ -101,6 +116,16 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
     intelYieldPercent: reading,
     visible: visibleDistricts(repos, base, controls, effects),
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
+    playerOf: (baseId) => {
+      let player = players.get(baseId);
+      if (player === undefined) {
+        const ownerId = owners.get(baseId);
+        const user = ownerId === undefined ? undefined : repos.users.findById(ownerId);
+        player = user ? displayNameOf(user) : null;
+        players.set(baseId, player);
+      }
+      return player;
+    },
     blurAgainst: (baseId) => {
       if (baseId === base.id) return 0;
       let held = resistance.get(baseId);
@@ -221,7 +246,7 @@ export function projectCity(repos: Repositories, base: Base, now: Date): CityRes
       summarise(district, context, residentSummary(summaries, district.id, base)),
     ),
     // §B7: the gates on ground this crew holds outright. Empty for a crew that holds none.
-    capturedGates: capturedGatesFor(repos, base),
+    capturedGates: capturedGatesFor(repos, base, now),
     homeDistrictId: base.districtId,
     serverNow: now.toISOString(),
   };
@@ -277,8 +302,12 @@ function projectLocation(
       control.holder.kind === 'crew'
         ? context.nameOf(control.holder.baseId)
         : HOLDER_LABELS[control.holder.kind],
+    holderPlayer: control.holder.kind === 'crew' ? context.playerOf(control.holder.baseId) : null,
     fortification: control.fortification,
     fortifyingUntil: control.fortifyingUntil,
+    // So the sheet can offer to call the work off in its first tenth (`time/cancel.ts`).
+    upgradingSince: upgradingSince(location, control),
+    fortifyingSince: fortifyingSince(control),
     defense: locationDefense(location, control),
     // §F2: what a scout can actually count. Exact on our own ground; on somebody else's, only as
     // sharp as their cryptography lets it be.
@@ -333,6 +362,9 @@ export function scoutingRunView(
     officerName: officer?.name ?? 'Somebody',
     departedAt: run.departedAt,
     returnsAt: run.returnsAt,
+    // The leg the screen times its recall window off: see `ScoutingRunViewSchema`.
+    travelMinutes: run.travelMinutes,
+    recalledAt: run.recalledAt,
   };
 }
 

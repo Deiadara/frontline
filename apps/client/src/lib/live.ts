@@ -39,10 +39,58 @@ import { useSession } from '../store/session';
 const INVALIDATES: Record<LiveEventKind, readonly (readonly unknown[])[]> = {
   notification: [queryKeys.notifications, queryKeys.me],
   // A fight moves the board, the map it was fought over, and the army and stockpile under it.
-  battle: [queryKeys.battles, queryKeys.city, queryKeys.me, queryKeys.units, queryKeys.actions],
-  message: [queryKeys.messages, queryKeys.me],
+  battle: [
+    queryKeys.battles,
+    queryKeys.city,
+    queryKeys.me,
+    queryKeys.units,
+    queryKeys.actions,
+    queryKeys.feats,
+  ],
+  // `faction` too: a `faction_invite` receipt is published as `message` (`live/kinds.ts` on the
+  // server), and the invitation itself is listed on the faction screen, not in the inbox.
+  message: [queryKeys.messages, queryKeys.me, queryKeys.faction],
   faction: [queryKeys.faction, queryKeys.me],
-  base: [queryKeys.me, queryKeys.units, queryKeys.missions, queryKeys.research],
+  /*
+   * Everything a `base` receipt can stand for. The server maps `officer_hired`, `training_done`,
+   * `page_found` and `building_done` onto this one kind alongside the mission and research ones,
+   * so the Bar, the crew and its fold, the gym, the satchel (read off the market), the yard, the
+   * garage and the district's own read (`['base']` is the prefix of every base id) all go stale
+   * with it. Most of those have no poll, so this is the only thing that ever re-reads them.
+   */
+  base: [
+    queryKeys.me,
+    queryKeys.units,
+    queryKeys.missions,
+    queryKeys.research,
+    queryKeys.crew,
+    queryKeys.crewStanding,
+    queryKeys.bar,
+    queryKeys.training,
+    queryKeys.market,
+    queryKeys.scrapyard,
+    queryKeys.garage,
+    // Almost everything a feat counts also moves the district, so this is the nudge that keeps the
+    // board and its badge current without a poll of their own.
+    queryKeys.feats,
+    ['base'],
+  ],
+  /*
+   * The shared world (broadcast to every tab, see `live/broadcast.ts` on the server). `['district']`
+   * is the prefix of every district read, so whichever district this tab is standing in refetches;
+   * `['leaderboard']` likewise covers both boards and both scopes.
+   */
+  world: [
+    queryKeys.city,
+    ['district'],
+    queryKeys.battles,
+    queryKeys.actions,
+    ['leaderboard'],
+    ['crew-profile'],
+    queryKeys.faction,
+  ],
+  market: [queryKeys.market, queryKeys.blackMarket],
+  bar: [queryKeys.bar],
 };
 
 function applyEvent(queryClient: QueryClient, event: LiveEvent): void {
@@ -70,6 +118,10 @@ const EVENT_SOUND: Readonly<Record<LiveEventKind, EventSound | null>> = {
   battle: 'call',
   message: null,
   faction: null,
+  // Somebody else's move. Silent: a sound for every bid in the city would be a casino.
+  world: null,
+  market: null,
+  bar: null,
 };
 
 /** Which sound wins when two arrive together. The drum outranks the chime. */
@@ -171,6 +223,13 @@ export function useLiveEvents(): LiveStatus {
 
     let cancelled = false;
     let attempt = 0;
+    /**
+     * Whether an earlier connection in this run ever delivered a byte. The catch-up refetch below
+     * is for what was missed while the channel was down, and on the first connection of a page
+     * load nothing was: every screen has just been read or is being read, so the refetch was a
+     * second copy of every request on the page for no new information.
+     */
+    let connectedBefore = false;
     const controllers = new Set<AbortController>();
     const sounds = createEventAnnouncer();
     /** The backoff sleep in flight, so unmounting does not leave up to 39s of timer behind. */
@@ -219,14 +278,18 @@ export function useLiveEvents(): LiveStatus {
               delivered = true;
               attempt = 0;
               // Anything that happened while this tab was disconnected is already in the database
-              // and was never pushed. Refetching on connect is what makes a dropped connection cost
-              // latency and not a stale screen.
+              // and was never pushed. Refetching on a *re*connect is what makes a dropped
+              // connection cost latency and not a stale screen; on the first connection there was
+              // no gap to catch up on (see `connectedBefore`).
               //
               // `refetchType: 'active'` rather than everything: the shell prefetches around eight
               // screens, and refetching all of them on a reconnect turns a wifi handover into a
               // burst of requests for screens nobody is looking at. The inactive ones are still
               // marked stale, so they refetch the moment they mount.
-              void clientRef.current.invalidateQueries({ refetchType: 'active' });
+              if (connectedBefore) {
+                void clientRef.current.invalidateQueries({ refetchType: 'active' });
+              }
+              connectedBefore = true;
             }
             clearTimeout(silence);
             silence = setTimeout(() => controller.abort(), LIVE_SILENCE_TIMEOUT_MS);

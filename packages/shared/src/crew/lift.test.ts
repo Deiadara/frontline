@@ -6,7 +6,7 @@ import { PERK_CATALOG } from './perks.js';
 /**
  * §B7: what one officer's perks do to everybody else's sheet.
  *
- * The rule the whole file is about, and the board's own words for it: a bonus to the number
+ * The rule the whole file is about, and the maintainer's own words for it: a bonus to the number
  * already printed on the card carrying it is not a bonus. So every perk here reaches *other
  * people*, and the test that matters most is the one asserting it does not reach its owner.
  */

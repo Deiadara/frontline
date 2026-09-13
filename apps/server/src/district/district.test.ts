@@ -128,6 +128,8 @@ const entry = (kind: Building['kind'], level: number, startedAt: Date, seconds: 
   level,
   startedAt: startedAt.toISOString(),
   durationSeconds: seconds,
+  paid: {},
+  parts: {},
 });
 
 describe('ordering a level (§A1, §D3)', () => {
@@ -469,7 +471,7 @@ describe('settling the district (§A1)', () => {
 
 describe('population (§A1: one pool)', () => {
   /**
-   * §A1, as the board rewrote it: **the army draws on the pool and the officers do not.**
+   * §A1, as the maintainer rewrote it: **the army draws on the pool and the officers do not.**
    *
    * Officers used to be charged a bed each, which put hiring somebody in competition with training
    * somebody. That is not a trade the game wants: the crew is who you are, the army is what you can
@@ -526,7 +528,7 @@ describe('population (§A1: one pool)', () => {
     const filled = queueTraining(repos, { base, unit: razors, count: room, now: NOW });
     expect(filled.kind).toBe('queued');
 
-    // ...and signing somebody takes no bed off the army, which is the board's rule (§A1).
+    // ...and signing somebody takes no bed off the army, which is the maintainer's rule (§A1).
     const withOfficer = { ...base, commanders: [createCommander('o1', 'One', 'head_spy')] };
     expect(districtPopulation(repos, withOfficer).spare).toBe(room);
   });
@@ -613,7 +615,7 @@ describe('modification brackets (§E)', () => {
 /**
  * §B4: the Generator's paid burn.
  *
- * Three claims the board made and one it did not have to: it costs oil by Generator level, it runs
+ * Three claims the maintainer made and one it did not have to: it costs oil by Generator level, it runs
  * for two hours, it reaches work already in the queue, and buying a second one while one runs is
  * refused rather than stacked.
  */

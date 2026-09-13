@@ -183,15 +183,27 @@ const MARKUP_MAX = 1.6;
 export const VENDOR_PAGE_ODDS = 0.15;
 
 /**
+ * What the Runner carries: parts and relics, never a finished blueprint (maintainer request, 2026-09-10).
+ *
+ * The six pre-war `blueprint_*` goods used to be on the barrow up to twice a day. A blueprint is a
+ * document assembled out of pages now, and a shop that sold the finished thing beside the pages a
+ * crew is collecting was two prices for one idea. So the barrow's pool is the goods list without
+ * them; the only paper he ever carries is a **page**, at the odds below. The old documents stay in
+ * the catalogue and in satchels, and the Black Market's shelf is its own call.
+ */
+export const VENDOR_GOODS: readonly ItemId[] = ITEM_IDS.filter(
+  (id) => ITEM_CATALOG[id].kind !== 'blueprint',
+);
+
+/**
  * What the Runner is carrying today.
  *
  * Weighted away from the exotic end: a barrow with a Rotor Hub on it every day is a barrow nobody
- * has to plan around. Blueprints appear at most twice, so a player who wants a specific one is
- * waiting for a day rather than for a purchase.
+ * has to plan around.
  */
 export function vendorStockFor(day: string): VendorLine[] {
   const rng = rngFrom(`${day}:vendor-stock`);
-  const weighted: ItemId[] = ITEM_IDS.flatMap((id) => {
+  const weighted: ItemId[] = VENDOR_GOODS.flatMap((id) => {
     const spec = ITEM_CATALOG[id];
     const weight =
       spec.rarity === 'common'
@@ -205,15 +217,10 @@ export function vendorStockFor(day: string): VendorLine[] {
   });
 
   const chosen: ItemId[] = [];
-  let blueprints = 0;
   let guard = 0;
   while (chosen.length < VENDOR_STOCK_SIZE && guard++ < 200) {
     const id = pick(rng, weighted);
     if (chosen.includes(id)) continue;
-    if (ITEM_CATALOG[id].kind === 'blueprint') {
-      if (blueprints >= 2) continue;
-      blueprints++;
-    }
     chosen.push(id);
   }
 
@@ -238,9 +245,9 @@ export function vendorStockFor(day: string): VendorLine[] {
   return chosen.map((id, index) => {
     const spec = ITEM_CATALOG[id];
     const markup = MARKUP_MIN + rng() * (MARKUP_MAX - MARKUP_MIN);
-    // One of a blueprint, one of a page, a handful of anything else. A blueprint is knowledge and
-    // two is nothing; a page is one particular sheet of paper and there is only ever one of it.
-    const stock = spec.kind === 'blueprint' || spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * 4);
+    // One of a page, a handful of anything else: a page is one particular sheet of paper and
+    // there is only ever one of it on the barrow.
+    const stock = spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * 4);
     return {
       id: `${day}-${index}-${id}`,
       item: id,
@@ -282,7 +289,7 @@ export function barterQuote(giveAmount: number, rate: number = BARTER_RATE): num
 export const BARTER_MINIMUM = 10;
 
 /**
- * The resources the Broker deals in: every material, and never caps (board request, 2026-09-09).
+ * The resources the Broker deals in: every material, and never caps (maintainer request, 2026-09-09).
  *
  * Caps are money, and the supply run is where money becomes material at a price the day rations.
  * A Broker that took caps at half would be a second, unrationed supply run, and one that paid

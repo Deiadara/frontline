@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
 import {
   ATTRIBUTE_NAMES,
   AttributeNameSchema,
@@ -170,6 +171,37 @@ export function trainingBlocker(
  * also the function a test uses to build a state in a known shape and a guard here would make the
  * happy path and the fixture path disagree about what is possible.
  */
+/** Whether a drill can still be called off: inside the first tenth of its hour. */
+export function drillCancellable(session: TrainingSession, now: string): boolean {
+  return cancelWindowOpen(
+    Date.parse(session.startedAt),
+    session.durationSeconds * 1000,
+    Date.parse(now),
+  );
+}
+
+export function drillCancelWindowMs(session: TrainingSession, now: string): number {
+  return cancelWindowMs(
+    Date.parse(session.startedAt),
+    session.durationSeconds * 1000,
+    Date.parse(now),
+  );
+}
+
+/**
+ * Take a drill off the board and hand the day's session back: nothing was learned, so nothing
+ * was spent but the slot, and the slot comes back whole.
+ */
+export function cancelDrill(state: TrainingState, sessionId: string, now: string): TrainingState {
+  const rolled = rollDay(state, now);
+  if (!rolled.sessions.some((session) => session.id === sessionId)) return rolled;
+  return {
+    ...rolled,
+    used: Math.max(0, rolled.used - 1),
+    sessions: rolled.sessions.filter((session) => session.id !== sessionId),
+  };
+}
+
 export function beginTraining(
   state: TrainingState,
   session: TrainingSession,
@@ -237,7 +269,7 @@ export function applyGain(sheet: Attributes, gain: TrainingGain): Attributes {
 /**
  * What the hour actually looks like.
  *
- * The board asked for a title on each one: a workout for something physical, the right book for
+ * The maintainer asked for a title on each one: a workout for something physical, the right book for
  * something mental, and the reason to write thirty-five rather than four is that four means the
  * Training tab shows the same sentence five times a day forever. These are the closest this game
  * gets to saying what a day in the district is like, so they are specific: a place, a piece of

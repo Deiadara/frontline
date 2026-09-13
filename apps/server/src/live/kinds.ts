@@ -28,4 +28,7 @@ export const NOTIFICATION_LIVE_KINDS: Partial<Record<NotificationKind, LiveEvent
   // §H7a: the close signs somebody while the player is asleep, so the crew they are looking at
   // when the bell rings is a crew short of the officer it just won.
   officer_hired: 'base',
+  // A page can land without the player doing anything: the Runner's close and somebody accepting
+  // a listing both write into the satchel on their own clock.
+  page_found: 'base',
 };

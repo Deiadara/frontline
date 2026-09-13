@@ -75,6 +75,16 @@ export const ScrapyardEntrySchema = z.object({
   blueprint: z.string().nullable(),
   /** How many the crew already owns. Unit upgrades are one or none; traps are the count in the bag. */
   owned: z.number().int().nonnegative(),
+  /** The yard level this entry opens at (`building/scrapyard.ts`), so a shut row can say how far. */
+  requiresLevel: z.number().int().positive(),
+  /**
+   * Whether the crew holds the document this entry wants, or needs none (maintainer request,
+   * 2026-09-11). The page draws only the rows this is true for: an entry whose drawings the crew
+   * has never assembled is not on the board, the way a blueprint you hold no pages of is not on
+   * the Blueprints page. The count of what is hidden is still said, so a bench never looks empty
+   * for no reason.
+   */
+  documentHeld: z.boolean(),
   /** Why the button is dead, already worded, or null when it is live. */
   blocker: z.string().nullable(),
 });
@@ -83,6 +93,8 @@ export type ScrapyardEntry = z.infer<typeof ScrapyardEntrySchema>;
 export const ScrapyardResponseSchema = z.object({
   /** Zero when the Scrapyard has not been built: the page says so rather than 404ing. */
   scrapyardLevel: z.number().int().nonnegative(),
+  /** Percent the yard's level takes off every bill on this page; already applied to every `cost`. */
+  discountPercent: z.number().nonnegative(),
   resources: ResourcesSchema,
   entries: z.array(ScrapyardEntrySchema),
 });
@@ -116,6 +128,8 @@ export const CapturedGateViewSchema = z.object({
   nextSeconds: z.number().int().nonnegative().nullable(),
   /** When work in progress lands, or null when nobody is working on it. */
   upgradingUntil: IsoDateTimeSchema.nullable(),
+  /** When it began, so the first tenth can be called off. Null with nothing under way. */
+  upgradingSince: IsoDateTimeSchema.nullable(),
   /** What it is worth right now, already worded for the screen. */
   defensePercent: z.number(),
   intelResistancePercent: z.number(),
@@ -126,3 +140,7 @@ export type CapturedGateView = z.infer<typeof CapturedGateViewSchema>;
 
 export const RaiseGateRequestSchema = z.object({ districtId: IdSchema });
 export type RaiseGateRequest = z.infer<typeof RaiseGateRequestSchema>;
+
+/** `POST /city/gate/cancel`: call off the level being raised, inside its first tenth. */
+export const CancelGateRaiseRequestSchema = z.object({ districtId: IdSchema });
+export type CancelGateRaiseRequest = z.infer<typeof CancelGateRaiseRequestSchema>;

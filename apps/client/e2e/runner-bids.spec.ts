@@ -3,7 +3,7 @@ import { lateGame, market } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
 /**
- * Bidding at the barrow (market extension, board 2026-09-08).
+ * Bidding at the barrow (market extension, maintainer 2026-09-08).
  *
  * Every line the Runner carries is a lot, and the lot's screen is where a crew says a number.
  * These walk the four lots the fixture draws: one somebody else leads, one we lead, one nobody
@@ -44,7 +44,7 @@ test.describe('the barrow is an auction', () => {
     page,
   }) => {
     await openMarket(page);
-    // The quote the board asked for, and the hours where the doors are.
+    // The quote the maintainer asked for, and the hours where the doors are.
     await expect(page.getByTestId('page-sheet')).toContainText('Nobody owns the market');
     await expect(page.getByTestId('info-note')).toContainText('The Runner: in');
     await expect(page.getByRole('button', { name: /^Buy$/ })).toHaveCount(0);

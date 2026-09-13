@@ -63,7 +63,7 @@ export function pagePrizeOdds(difficulty: 'easy' | 'hard'): number {
 /**
  * Whether this offer carries a page, and of which category.
  *
- * Seeded off the board's own key so the answer is stable for as long as the offer is: a card that
+ * Seeded off the maintainer's own key so the answer is stable for as long as the offer is: a card that
  * re-rolled its prize on every read would be a card a player could refresh until it paid.
  */
 export function pagePrizeFor(

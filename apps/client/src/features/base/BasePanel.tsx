@@ -7,6 +7,7 @@ import {
   populationDraw,
   playerLevelGrants,
   playerXpToNextLevel,
+  queueCancelWindowMs,
   queueProgressAt,
   queueRemainingMs,
   storageCapacityFor,
@@ -22,14 +23,17 @@ import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
 import { RESOURCE_META, ResourceGrid } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
+import { announceWaived } from '../../lib/deltas';
 import {
   useBase,
   useBuildStructure,
   useBuyBuildBoost,
+  useCancelBuild,
   useClearModification,
   useFitModification,
   useMe,
@@ -131,7 +135,7 @@ export function BasePanel() {
       />
 
       {/*
-       * §A1: what is under way, down the left of the district (board request).
+       * §A1: what is under way, down the left of the district (maintainer request).
        *
        * It was inside the Reports drawer, which is a button at the bottom of the screen: the one
        * thing on this page that is *happening* was the one thing you had to go and open a panel to
@@ -141,7 +145,11 @@ export function BasePanel() {
        * (see `DistrictScene`) and giving the rail its own column would take a fifth of the
        * artwork on every viewport for something that is empty most of the time.
        */}
-      <BuildQueueRail base={base} />
+      <BuildQueueRail
+        base={base}
+        serverNow={baseQuery.data?.serverNow}
+        receivedAt={baseQuery.dataUpdatedAt}
+      />
 
       {/* §I1 pays for building things, and the response is the only thing that knows this build is
           what crossed the threshold (MOU-227), so the banner lives with the district, over it, and
@@ -163,7 +171,11 @@ export function BasePanel() {
 
       <ReportsDrawer>
         <Panel title={`Build queue (${base.buildQueue.length} / ${MAX_BUILD_QUEUE})`}>
-          <BuildQueue base={base} />
+          <BuildQueue
+            base={base}
+            serverNow={baseQuery.data?.serverNow}
+            receivedAt={baseQuery.dataUpdatedAt}
+          />
         </Panel>
 
         <div className="grid gap-5 lg:grid-cols-2">
@@ -214,9 +226,22 @@ export function BasePanel() {
           // The server's own price for every plot, off the call the shell polls. See the prop.
           quotes={me.data?.buildQuotes}
           clocks={me.data?.buildClocks}
+          serverNow={baseQuery.data?.serverNow}
+          receivedAt={baseQuery.dataUpdatedAt}
           pending={build.isPending}
           error={build.error ?? boost.error ?? fit.error ?? clear.error}
-          onBuild={() => build.mutate({ kind: selectedPlot })}
+          onBuild={() =>
+            build.mutate(
+              { kind: selectedPlot },
+              {
+                // The testing build waives the bill it quoted: say what it was. See `announceWaived`.
+                onSuccess: () => {
+                  const quote = me.data?.buildQuotes?.[selectedPlot];
+                  if (me.data?.admin === true && quote !== undefined) announceWaived(quote);
+                },
+              },
+            )
+          }
           onClose={() => setSelectedPlot(null)}
           onBoost={() => boost.mutate({})}
           boostPending={boost.isPending}
@@ -232,15 +257,24 @@ export function BasePanel() {
   );
 }
 
+interface BuildQueueProps {
+  base: Base;
+  /** `useServerClock`'s two arguments, off the district read (`BaseDetailResponse.serverNow`). */
+  serverNow: string | undefined;
+  receivedAt: number | undefined;
+}
+
 /**
  * What is being built, in the order it will land (§A1).
  *
  * The countdown ticks against the *server's* clock, like the mission board's: a machine with a
  * skewed clock shows the same remaining time as everyone else, and still cannot make a build land
- * early.
+ * early. `serverNow` and `receivedAt` are the district read's clock and when it arrived; both were
+ * passed as `undefined` before `/base/:id` carried one, which made this the browser's clock.
  */
-function BuildQueue({ base }: { base: Base }) {
-  const now = useServerClock(undefined, undefined);
+function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
+  const now = useServerClock(serverNow, receivedAt);
+  const cancel = useCancelBuild(base.id);
 
   if (base.buildQueue.length === 0) {
     return (
@@ -252,35 +286,51 @@ function BuildQueue({ base }: { base: Base }) {
   }
 
   return (
-    <ol className="flex flex-col divide-y divide-surface-700" data-testid="build-queue">
-      {base.buildQueue.map((entry, index) => {
-        const progress = queueProgressAt(entry, now);
-        const remaining = queueRemainingMs(entry, now);
-        return (
-          <li key={entry.id} className="flex flex-col gap-1.5 px-4 py-3">
-            <div className="flex items-baseline justify-between gap-4">
-              <span className="truncate font-display text-[12px] uppercase tracking-[0.18em] text-ink-200">
-                {index + 1}. {BUILDING_CATALOG[entry.kind].name} → Lv {entry.level}
+    <>
+      {cancel.error && (
+        <p role="alert" className="px-4 pt-3 font-body text-xs text-oxblood-300">
+          {cancel.error.message}
+        </p>
+      )}
+      <ol className="flex flex-col divide-y divide-surface-700" data-testid="build-queue">
+        {base.buildQueue.map((entry, index) => {
+          const progress = queueProgressAt(entry, now);
+          const remaining = queueRemainingMs(entry, now);
+          return (
+            <li key={entry.id} className="flex flex-col gap-1.5 px-4 py-3">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="truncate font-display text-[12px] uppercase tracking-[0.18em] text-ink-200">
+                  {index + 1}. {BUILDING_CATALOG[entry.kind].name} → Lv {entry.level}
+                </span>
+                <span className="shrink-0 font-display text-sm font-semibold tabular-nums text-brass-300">
+                  {formatRemaining(remaining)}
+                </span>
+              </div>
+              <span className="block h-1.5 w-full bg-surface-700">
+                <span
+                  className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
+                  style={{ width: `${progress * 100}%` }}
+                />
               </span>
-              <span className="shrink-0 font-display text-sm font-semibold tabular-nums text-brass-300">
-                {formatRemaining(remaining)}
-              </span>
-            </div>
-            <span className="block h-1.5 w-full bg-surface-700">
-              <span
-                className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
-                style={{ width: `${progress * 100}%` }}
+              {/* Inside the first tenth, or before the clock has started at all: the order can
+                  still be called off, and ninety percent of what it took comes back. */}
+              <CancelMark
+                windowMs={queueCancelWindowMs(entry, now)}
+                label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
+                pending={cancel.isPending}
+                onCancel={() => cancel.mutate({ orderId: entry.id })}
+                data-testid={`queue-cancel-build-${entry.id}`}
               />
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+            </li>
+          );
+        })}
+      </ol>
+    </>
   );
 }
 
 /**
- * The build queue as a rail down the left of the district (§A1, board request).
+ * The build queue as a rail down the left of the district (§A1, maintainer request).
  *
  * One rectangle per order, top-left downwards, each carrying the structure it is raising and how
  * long it has left. Collapsible, because a full queue is six plates and a player reading the map
@@ -289,8 +339,9 @@ function BuildQueue({ base }: { base: Base }) {
  * Drawn only when there is something in it. An empty rail is a label for a thing that is not
  * happening, and the district screen already says where orders are placed.
  */
-function BuildQueueRail({ base }: { base: Base }) {
-  const now = useServerClock(undefined, undefined);
+function BuildQueueRail({ base, serverNow, receivedAt }: BuildQueueProps) {
+  const now = useServerClock(serverNow, receivedAt);
+  const cancel = useCancelBuild(base.id);
   const [open, setOpen] = useState(true);
 
   if (base.buildQueue.length === 0) return null;
@@ -349,8 +400,26 @@ function BuildQueueRail({ base }: { base: Base }) {
                 style={{ width: `${queueProgressAt(entry, now) * 100}%` }}
               />
             </span>
+            {/* On its own row rather than beside "to level N": the plate is 15rem wide and the
+                X with its countdown is most of that. */}
+            <CancelMark
+              className="mt-0.5"
+              windowMs={queueCancelWindowMs(entry, now)}
+              label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
+              pending={cancel.isPending}
+              onCancel={() => cancel.mutate({ orderId: entry.id })}
+              data-testid={`cancel-build-${entry.id}`}
+            />
           </div>
         ))}
+      {open && cancel.error && (
+        <p
+          role="alert"
+          className="glass pointer-events-auto rounded-sm border border-oxblood-500/60 px-3 py-2 font-body text-xs text-oxblood-300"
+        >
+          {cancel.error.message}
+        </p>
+      )}
     </div>
   );
 }

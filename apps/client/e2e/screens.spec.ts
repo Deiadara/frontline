@@ -22,7 +22,6 @@ import {
   expectNothingClippedVertically,
   installApi,
   settleFonts,
-  walkBoards,
 } from './harness';
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -423,7 +422,6 @@ test('a standing note opens fully on screen, on every screen that has one', asyn
 
   const routes = [
     '/game/settings',
-    '/game/workshop',
     '/game/market',
     '/game/market/offers',
     '/game/bar',
@@ -540,7 +538,7 @@ test('the district view shows what is inside a scouted district (§A4)', async (
   await page.goto('/game');
   await enterDistrict(page, 'rustyard');
   /*
-   * The district is a screen now, not a column of cards (board request), so what is inside it is a
+   * The district is a screen now, not a column of cards (maintainer request), so what is inside it is a
    * sign on the painting for each location and a window behind each sign. Both halves are asserted:
    * every location is named on the ground, and opening one gives the moves for *that* location.
    */
@@ -618,7 +616,7 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
   await expect(page.getByTestId('supply')).toBeVisible();
 
-  // The screen opens on the carriers (board request): they are the tier that decides whether a
+  // The screen opens on the carriers (maintainer request): they are the tier that decides whether a
   // mission comes home with what it earned, and they were four tabs down behind the fighting ones.
   await expect(page.getByTestId('unit-scavengers')).toBeVisible();
 
@@ -661,7 +659,7 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
 });
 
 /**
- * Nothing in a locked unit's box is cut in half (board pass, 2026-09-09).
+ * Nothing in a locked unit's box is cut in half (maintainer pass, 2026-09-09).
  *
  * The box joined every clause into one string and clamped it at two lines, which cuts wherever the
  * second line happens to end: the Abomination read `hold the Mad Scientist'\u2026` and the Colossus the
@@ -773,10 +771,7 @@ test('a programme that lands while the page is open shows as finished', async ({
 
   // The page lands on Programmes, with the rung on the bench and its clock running. Also the proof
   // this route, not the catch-all, is the one answering.
-  await expect(page.getByTestId('research-section-programmes')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expect(page.getByTestId('research-tab-programmes')).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('research-progress')).toBeVisible();
   // Opened by name rather than relying on the page's default track: which trade the fixture puts
   // on the bench is a property of the catalogue, not of this test.
@@ -828,41 +823,32 @@ const routeBoard = (page: Page) =>
     });
   });
 
-test('a hard mission goes out with an officer leading it', async ({ page }) => {
+test('a mission goes out with somebody leading it', async ({ page }) => {
   await installApi(page, lateGame);
   await routeBoard(page);
   await page.goto('/game/missions');
 
   /*
-   * A job §G6 will not let out unled, found by walking the boards.
+   * Nobody leads a run until the player says who does.
    *
-   * `Battle` is the kind, not the difficulty, and the two came apart when the pool grew: a
-   * `debt-collection` is a battle an assignee crew may run alone. What this test is about is the
-   * *officer gate*, so it needs a job that actually has one, and the signal on screen is the
-   * picker defaulting to somebody rather than to "nobody".
+   * The picker used to default to the first officer on the books, which was there to keep a hard
+   * job from offering a button the server was certain to refuse. Who may lead, and whether a run
+   * may go out unled at all, is the crew's research now (`unledRule`), so the dialog opens with
+   * the choice unmade and the dial reading the odds of going without.
    */
   const dialog = page.getByRole('dialog');
-  const found = await walkBoards(page, async () => {
-    const jobs = page.locator('[data-testid^="offer-"]');
-    for (let index = 0; index < (await jobs.count()); index += 1) {
-      await jobs
-        .nth(index)
-        .getByRole('button', { name: /Send a crew/ })
-        .click();
-      await expect(dialog).toBeVisible();
-      if (await dialog.getByTestId('send-leader').getByText('The Ghost of Sector Nine').count()) {
-        return true;
-      }
-      await page.keyboard.press('Escape');
-      await expect(dialog).toBeHidden();
-    }
-    return false;
-  });
-  expect(found).toBe(true);
+  await page
+    .locator('[data-testid^="offer-"]')
+    .first()
+    .getByRole('button', { name: /Send a crew/ })
+    .click();
   await expect(dialog).toBeVisible();
+  // Reading "nobody", which under this crew's research is a real choice with a price on it and
+  // not an empty control: the picker offers it as an option, so it is what the trigger says.
+  await expect(dialog.getByTestId('send-leader')).toContainText('Nobody');
 
-  // §G3: the first officer leads until the player says otherwise, so a hard job is never offering
-  // a button the server is certain to refuse. Read as a *name*: that is what the player sees.
+  await dialog.getByTestId('send-leader').click();
+  await page.getByRole('option', { name: /The Ghost of Sector Nine/ }).click();
   await expect(dialog.getByTestId('send-leader')).toContainText('The Ghost of Sector Nine');
 
   // Somebody who can fight, because a battle job will not take porters alone (§A5).
@@ -876,10 +862,10 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
     templateId: string;
     areaId: string;
     force: Record<string, number>;
-    officerId: string;
+    leaderId: string;
   };
   expect(sent.force).toEqual({ razors: 3 });
-  expect(sent.officerId).toBe('off-1');
+  expect(sent.leaderId).toBe('off-1');
   expect(sent.areaId).toBeTruthy();
   expect(sent.templateId).toBeTruthy();
 
@@ -898,7 +884,7 @@ test('a hard mission goes out with an officer leading it', async ({ page }) => {
  * draft of this picker shipped "Instructor of the Yo" cut mid-word. The painted list is ordinary
  * DOM, so the check is the one every other guard in this suite uses: does the text fit the box.
  */
-test('the officer picker cuts nobody off', async ({ page }) => {
+test('the leader picker cuts nobody off', async ({ page }) => {
   await installApi(page, lateGame);
   await routeBoard(page);
   await page.goto('/game/missions');
@@ -914,7 +900,7 @@ test('the officer picker cuts nobody off', async ({ page }) => {
       .filter((option) => option.scrollWidth > option.clientWidth + 1)
       .map((option) => option.textContent ?? ''),
   );
-  expect(cut, 'no officer name may be cut off by the picker').toEqual([]);
+  expect(cut, 'no leader may be cut off by the picker').toEqual([]);
   await page.keyboard.press('Escape');
 });
 
@@ -987,7 +973,6 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
     ['/game/scrapyard', '**/api/scrapyard'],
     // Seven more that said it in the DOM and said it underneath the standing bar: see the
     // viewport assertion below for what that looked like.
-    ['/game/workshop', '**/api/workshop'],
     ['/game/training', '**/api/training'],
     ['/game/market', '**/api/market'],
     ['/game/market/black', '**/api/black-market'],
@@ -1085,7 +1070,7 @@ test('says when it has stopped receiving updates', async ({ page }) => {
  * §H7: ending somebody's job, from their own file.
  *
  * The control was only ever on the Bar's payroll list, which is the screen you open to look at
- * *the book*. The board asked for it where a player is already reading the person: the officer's
+ * *the book*. The maintainer asked for it where a player is already reading the person: the officer's
  * window on the crew screen.
  *
  * Two presses on purpose, and the test asserts the first one does not release anybody. The window
@@ -1143,7 +1128,7 @@ test('an officer can be let go from their own file, at a price, and not by accid
 });
 
 /**
- * §C2: filling a chair from the bench (board request).
+ * §C2: filling a chair from the bench (maintainer request).
  *
  * The bench exists because the Bar turns over at midnight and a good sheet walks away, so a player
  * has to be able to sign somebody before deciding where to put them. This is the other end of it:
@@ -1183,7 +1168,7 @@ test('an empty chair can be filled from the bench', async ({ page }) => {
 });
 
 /**
- * §A4: opening a district is a journey (board rework).
+ * §A4: opening a district is a journey (maintainer rework).
  *
  * The old scout was a button that lifted the fog on the spot. The three things this pins are the
  * three the rework is for: the price is quoted before the press, the press starts a walk rather
@@ -1237,7 +1222,7 @@ test('a captured district offers its gate, and raising it reaches the server', a
 });
 
 /**
- * The row of doors along the bottom of every screen sits on one line (board pass, 2026-09-09).
+ * The row of doors along the bottom of every screen sits on one line (maintainer pass, 2026-09-09).
  *
  * The bar was `items-end`, which lines up the *bottoms* of its children, and a door behind a level
  * (§I3) is a line taller than the rest because it prints `Lv N` under its label. So the Bar,
@@ -1249,9 +1234,16 @@ test('a captured district offers its gate, and raising it reaches the server', a
  * deliberate `-translate-y-1` lift, which is the one thing on this row that is *meant* to be off
  * the line. The links themselves are untransformed, so their tops are the row's own geometry.
  *
- * Both widths matter and they are different code paths: below 1500 Settings is a flex item like
- * every other door, above it the door is pinned out of the flow and has to be told where the row
- * starts. `me` is level 1, so four of the thirteen doors are locked and carry the extra line.
+ * Both widths matter and they are different code paths: below 1500 Settings and Feats are flex
+ * items like every other door, above it they are pinned out of the flow, one to each end, and each
+ * has to be told where the row starts. `me` is level 1, so four of the doors are locked and carry
+ * the extra line.
+ *
+ * The subject is the **row**, not the roll call. An exact door count used to stand here as a
+ * precondition and it was 13; the day the Feats door landed it became 14 and this test failed for
+ * a reason that had nothing to do with what it is checking. A floor keeps the precondition honest,
+ * that the bar drew its doors at all, without pinning how many places the game has this month.
+ * `DESTINATIONS` cannot simply be imported: the e2e project compiles without JSX.
  */
 for (const width of [1280, 1600]) {
   test(`every door in the bottom bar starts on one line at ${width}px`, async ({ page }) => {
@@ -1270,7 +1262,7 @@ for (const width of [1280, 1600]) {
       ),
     );
     // The precondition: one row, and a locked door in it. On two rows the tops differ by design.
-    expect(doors.length, 'every place must be drawn').toBe(13);
+    expect(doors.length, 'the bar drew no doors').toBeGreaterThanOrEqual(12);
     expect(
       await page.getByTestId('nav-locked-bar').count(),
       'this fixture must still have a door behind a level',
@@ -1284,7 +1276,7 @@ for (const width of [1280, 1600]) {
 /**
  * The crew screen leads with the people, and every card is the same card.
  *
- * Two board requests, a day apart. The first: the hired officers were below the fold behind four
+ * Two maintainer requests, a day apart. The first: the hired officers were below the fold behind four
  * empty chairs. The second: once the people came first, a vacancy in a row of its own shrank to
  * the chair drawing while a vacancy beside a portrait stood at the portrait's height, so the
  * roster read as two kinds of card. The rows are one height now (`auto-rows-fr`), and this reads

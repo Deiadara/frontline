@@ -14,7 +14,7 @@ import {
   type ItemId,
   type Resources,
   type MarketResponse,
-  type WorkshopResponse,
+  type ScrapyardResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -25,7 +25,7 @@ import { acceptOffer, projectMarket } from './board.js';
 import { placeVendorBid, settleVendorAuctions } from './auction.js';
 
 /**
- * The market and the workshop, end to end over HTTP.
+ * The market and the yard's refits, end to end over HTTP.
  *
  * The rules themselves are pinned in `packages/shared`; what these are for is the part that only
  * exists on the server: that goods actually move, that they move *once*, and that escrow comes
@@ -258,7 +258,7 @@ describe('the Broker, over HTTP', () => {
     expect(small.statusCode).toBe(409);
   });
 
-  it('does not touch caps, either way round (board 2026-09-09)', async () => {
+  it('does not touch caps, either way round ( maintainer 2026-09-09)', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     stock(app, 'trader', { caps: 5000, oil: 1000, scrap: 0 });
@@ -344,6 +344,41 @@ describe('the board', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(baseOf(app, 'seller').resources.scrap).toBe(before);
+  });
+
+  /**
+   * A counter is a bid on one listing, so it goes when the listing goes.
+   *
+   * Accepting released the counters from the start; withdrawing did not, so a buyer's escrow sat
+   * locked for two days against a listing nobody could take any more.
+   */
+  it('releases the counters when the listing they answer is withdrawn', async () => {
+    const { app, seller, buyer } = await twoCrews();
+    await post(app, seller, {
+      give: { resources: { scrap: 100 }, items: {} },
+      want: { resources: { caps: 5000 }, items: {} },
+    });
+    const listing = (await board(app, buyer)).offers[0];
+    const buyerCaps = baseOf(app, 'buyer').resources.caps;
+    await post(app, buyer, {
+      give: { resources: { caps: 2000 }, items: {} },
+      want: { resources: { scrap: 100 }, items: {} },
+      counterTo: listing?.id,
+    });
+    expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps - 2000);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/market/withdraw',
+      headers: auth(seller),
+      payload: { offerId: listing?.id ?? '' },
+    });
+    expect(res.statusCode).toBe(200);
+    // The counter's escrow is back with the buyer, and the counter is off the board.
+    expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps);
+    expect((await board(app, seller)).offers.find((offer) => offer.counterTo === listing?.id)).toBe(
+      undefined,
+    );
   });
 
   it('moves both sides exactly once when somebody takes it', async () => {
@@ -474,15 +509,23 @@ describe('the board', () => {
   });
 });
 
-describe('the workshop, over HTTP', () => {
+describe("refits, over the yard's route", () => {
+  /*
+   * The Workshop's own route sold these until the maintainer's 2026-09-10 call folded it into the
+   * Scrapyard. Same nine upgrades, same parts, same brackets: the door moved, the rules did not.
+   */
   async function ready(): Promise<{ app: FastifyInstance; token: string }> {
     const app = await makeApp();
     const token = await signIn(app, 'smith');
     const base = baseOf(app, 'smith');
-    // A Gauntlet high enough for the whole first tier, and the money to pay for it.
+    // A Gauntlet and a yard high enough for every rung, and the money to pay for it.
     app.repos.bases.updateDistrict(
       base.id,
-      [...base.buildings, { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 }],
+      [
+        ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+      ],
       [],
     );
     stock(
@@ -494,17 +537,26 @@ describe('the workshop, over HTTP', () => {
     return { app, token };
   }
 
-  const workshop = async (app: FastifyInstance, token: string): Promise<WorkshopResponse> => {
-    const res = await app.inject({ method: 'GET', url: '/api/workshop', headers: auth(token) });
+  const yard = async (app: FastifyInstance, token: string): Promise<ScrapyardResponse> => {
+    const res = await app.inject({ method: 'GET', url: '/api/scrapyard', headers: auth(token) });
     expect(res.statusCode).toBe(200);
-    return res.json<WorkshopResponse>();
+    return res.json<ScrapyardResponse>();
   };
+
+  const buildRefit = (app: FastifyInstance, token: string, id: string) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/scrapyard/build',
+      headers: auth(token),
+      payload: { kind: 'upgrade', id },
+    });
 
   it('offers every rung, with the locked ones saying why', async () => {
     const { app, token } = await ready();
-    const view = await workshop(app, token);
-    expect(view.upgrades).toHaveLength(UNIT_UPGRADES.length);
-    const second = view.upgrades.find((upgrade) => upgrade.id === 'armour_2');
+    const view = await yard(app, token);
+    const refits = view.entries.filter((entry) => entry.kind === 'upgrade');
+    expect(refits).toHaveLength(UNIT_UPGRADES.length);
+    const second = refits.find((upgrade) => upgrade.id === 'armour_2');
     expect(second?.blocker).toContain('Scrap Plate');
   });
 
@@ -512,12 +564,7 @@ describe('the workshop, over HTTP', () => {
     const { app, token } = await ready();
     const before = baseOf(app, 'smith');
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/workshop/fit',
-      headers: auth(token),
-      payload: { upgradeId: 'weapons_1' },
-    });
+    const res = await buildRefit(app, token, 'weapons_1');
     expect(res.statusCode).toBe(200);
 
     const after = baseOf(app, 'smith');
@@ -543,12 +590,7 @@ describe('the workshop, over HTTP', () => {
     const before = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
     const penetrationBefore = penetrationOf(before, 'razors');
 
-    await app.inject({
-      method: 'POST',
-      url: '/api/workshop/fit',
-      headers: auth(token),
-      payload: { upgradeId: 'weapons_1' },
-    });
+    await buildRefit(app, token, 'weapons_1');
 
     const bought = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
     expect(penetrationOf(bought, 'razors')).toBe(penetrationBefore);
@@ -567,7 +609,7 @@ describe('the workshop, over HTTP', () => {
     expect(penetrationOf(after, 'razors')).toBeGreaterThan(penetrationBefore);
   });
 
-  it('refuses a bracket the workshop has not built for', async () => {
+  it('refuses a bracket the yard has not built for', async () => {
     const { app, token } = await ready();
     const res = await app.inject({
       method: 'POST',
@@ -581,19 +623,9 @@ describe('the workshop, over HTTP', () => {
 
   it('refuses the second rung without its blueprint, and takes it with one', async () => {
     const { app, token } = await ready();
-    await app.inject({
-      method: 'POST',
-      url: '/api/workshop/fit',
-      headers: auth(token),
-      payload: { upgradeId: 'armour_1' },
-    });
+    await buildRefit(app, token, 'armour_1');
 
-    const without = await app.inject({
-      method: 'POST',
-      url: '/api/workshop/fit',
-      headers: auth(token),
-      payload: { upgradeId: 'armour_2' },
-    });
+    const without = await buildRefit(app, token, 'armour_2');
     expect(without.statusCode).toBe(409);
     // §D12g: the document out of `blueprints/catalog.ts`, named, not the retired flat item.
     expect(without.json<{ error: { message: string } }>().error.message).toContain(
@@ -606,12 +638,7 @@ describe('the workshop, over HTTP', () => {
       bp_composite_armour: 1,
     });
 
-    const withOne = await app.inject({
-      method: 'POST',
-      url: '/api/workshop/fit',
-      headers: auth(token),
-      payload: { upgradeId: 'armour_2' },
-    });
+    const withOne = await buildRefit(app, token, 'armour_2');
     expect(withOne.statusCode).toBe(200);
   });
 
@@ -639,7 +666,7 @@ describe('the barrow is the same for the whole city', () => {
 });
 
 /**
- * §D5c: a modification is one object, it goes on one unit, and it does not come off (board rule).
+ * §D5c: a modification is one object, it goes on one unit, and it does not come off (project rule).
  *
  * Three rules, and each one closes a hole the old model left open. Before this a single Scrap
  * Plate could be bolted to every unit type in the game at once, and un-bolted for free, which made
@@ -654,7 +681,11 @@ describe('one of a thing is one of a thing (§D5c)', () => {
     const base = baseOf(app, 'plater');
     app.repos.bases.updateDistrict(
       base.id,
-      [...base.buildings, { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 }],
+      [
+        ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+      ],
       [],
     );
     stock(
@@ -670,9 +701,9 @@ describe('one of a thing is one of a thing (§D5c)', () => {
     const { app, token } = await armed();
     await app.inject({
       method: 'POST',
-      url: '/api/workshop/fit',
+      url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { upgradeId: 'weapons_1' },
+      payload: { kind: 'upgrade', id: 'weapons_1' },
     });
     return { app, token };
   }
@@ -699,9 +730,9 @@ describe('one of a thing is one of a thing (§D5c)', () => {
     const { app, token } = await withPlate();
     await app.inject({
       method: 'POST',
-      url: '/api/workshop/fit',
+      url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { upgradeId: 'armour_1' },
+      payload: { kind: 'upgrade', id: 'armour_1' },
     });
     expect((await fit(app, token, 'razors', 0)).statusCode).toBe(200);
 

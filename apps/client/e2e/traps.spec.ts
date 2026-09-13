@@ -1,13 +1,6 @@
-import {
-  TRAP_CATALOG,
-  blueprintForTrap,
-  type BattlesResponse,
-  type ScrapyardEntry,
-  type ScrapyardResponse,
-  type TrapOption,
-} from '@frontline/shared';
+import { TRAP_CATALOG, type BattlesResponse, type TrapOption } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { battles, lateGame, market, scrapyard } from './fixtures';
+import { HELD_TRAP, battles, lateGame, market, scrapyard } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
 /**
@@ -18,31 +11,15 @@ import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harn
  * exist; this says a player can see them, that an attacker cannot, and that neither screen cuts a
  * word doing it.
  *
- * The payloads are built here and routed **after** `installApi`, so the shared fixture is left
- * alone: Playwright matches the most recently registered route first, and what the trap panels
- * need is one crew holding two traps rather than a change every other spec has to live with.
+ * The battle payloads are built here and routed **after** `installApi`: Playwright matches the
+ * most recently registered route first, and what the trap panels need is one crew holding two
+ * traps. The yard's trap rows live in the shared `scrapyard` fixture, so the visual matrix shoots
+ * the same bench this spec drives.
  */
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
-const HELD = TRAP_CATALOG[0]!;
-
-/** The yard's rows for the three traps, worded exactly as `projectScrapyard` words them. */
-const trapEntries: ScrapyardEntry[] = TRAP_CATALOG.map((spec, index) => ({
-  id: spec.id,
-  kind: 'trap' as const,
-  name: spec.name,
-  description: spec.description,
-  building: null,
-  effect: `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} bodies`,
-  cost: spec.cost,
-  advanced: (spec.cost.highQualityMetal ?? 0) > 0,
-  blueprint: blueprintForTrap(spec.id)?.name ?? null,
-  owned: index === 0 ? 2 : 0,
-  // One live row and two locked ones, which is the state worth looking at: a bench where every
-  // row is buildable never draws a blocker, and one where none is never draws a Build.
-  blocker: index === 0 ? null : `Needs the ${blueprintForTrap(spec.id)?.name}`,
-}));
+const HELD = HELD_TRAP;
 
 const trapOptions: TrapOption[] = TRAP_CATALOG.map((spec, index) => ({
   trapId: spec.id,
@@ -63,11 +40,6 @@ const withTraps: BattlesResponse = {
   ),
 };
 
-const yardWithTraps: ScrapyardResponse = {
-  ...scrapyard,
-  entries: [...scrapyard.entries, ...trapEntries],
-};
-
 async function serveTraps(page: Page): Promise<void> {
   await installApi(page, lateGame);
   const json = (data: unknown) => ({
@@ -75,7 +47,7 @@ async function serveTraps(page: Page): Promise<void> {
     contentType: 'application/json',
     body: JSON.stringify(data),
   });
-  await page.route('**/api/scrapyard**', (route) => route.fulfill(json(yardWithTraps)));
+  await page.route('**/api/scrapyard**', (route) => route.fulfill(json(scrapyard)));
   await page.route('**/api/battles**', (route) => route.fulfill(json(withTraps)));
   // §I4h: the satchel reads its rows off the market payload rather than an endpoint of its own,
   // so this is where two Pressure Plates have to be for the Consumables panel to hold anything.
@@ -101,24 +73,28 @@ async function openFight(page: Page, battleId: string): Promise<void> {
   await expect(page.getByTestId(`battle-detail-${battleId}`)).toBeVisible();
 }
 
-test('the yard has a Traps bench, and it is one door among the rest', async ({ page }) => {
+test('the yard has a Traps bench, and it is one tab among the rest', async ({ page }) => {
   await serveTraps(page);
   await page.goto('/game/scrapyard');
   await expect(page.getByTestId('scrapyard-menu')).toBeVisible();
   await settleFonts(page);
 
-  await expect(page.getByTestId('scrapyard-bench-traps')).toBeVisible();
-  await page.getByTestId('scrapyard-bench-traps').click();
+  await expect(page.getByTestId('scrapyard-view-traps')).toBeVisible();
+  await page.getByTestId('scrapyard-view-traps').click();
   await expect(page.getByTestId('scrapyard-traps')).toBeVisible();
   // Narrowed to itself, exactly as the refit bench narrows: the structures are gone.
   await expect(page.getByTestId('scrapyard-nexus')).toHaveCount(0);
   await expect(page.getByTestId('scrapyard-refits')).toHaveCount(0);
 
-  for (const spec of TRAP_CATALOG) await expect(page.getByTestId(`addon-${spec.id}`)).toBeVisible();
+  // Only the trap whose document the crew holds is on the bench (maintainer, 2026-09-11); the rest are
+  // counted, not drawn, so a player knows there is more to find without being told what.
+  await expect(page.getByTestId(`addon-${HELD.id}`)).toBeVisible();
   await expect(page.getByTestId(`addon-build-${HELD.id}`)).toBeVisible();
-  // The locked rows name the document rather than saying "a blueprint".
-  await expect(page.getByTestId(`addon-blocker-${TRAP_CATALOG[1]!.id}`)).toContainText(
-    /Needs the .+ Blueprint/,
+  for (const spec of TRAP_CATALOG.slice(1)) {
+    await expect(page.getByTestId(`addon-${spec.id}`)).toHaveCount(0);
+  }
+  await expect(page.getByTestId('scrapyard-hidden-traps')).toContainText(
+    `${TRAP_CATALOG.length - 1} more`,
   );
 
   await expectNothingOverflowsTheScreen(page);
@@ -143,18 +119,18 @@ test('a ?bench= link opens the yard on that bench', async ({ page }) => {
   await expect(page.getByTestId('scrapyard-garage')).toBeVisible();
   await expect(page.getByTestId('scrapyard-traps')).toHaveCount(0);
 
-  // ...and the rail still writes the URL, so the two cannot disagree about what is open.
-  await page.getByTestId('scrapyard-bench-traps').click();
-  await expect(page).toHaveURL(/bench=traps/);
+  // ...and the tabs still write the URL, so the two cannot disagree about what is open.
+  await page.getByTestId('scrapyard-view-traps').click();
+  await expect(page).toHaveURL(/view=traps/);
   await expect(page.getByTestId('scrapyard-traps')).toBeVisible();
 
-  // A bench this yard has no door for is the whole board rather than an empty workspace: a
-  // structure with nothing left to build has no bench, and the building dialog links by structure.
+  // A bench this yard has no door for falls back to the first structure rather than to an empty
+  // workspace: the building dialog links by structure, and a typo is not a screen.
   await page.goto('/game/scrapyard?bench=nothing-here');
-  await expect(page.getByTestId('scrapyard-traps')).toBeVisible();
   await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
-  await expect(page.getByTestId('scrapyard-bench-everything')).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByTestId('scrapyard-traps')).toHaveCount(0);
+  await expect(page.getByTestId('scrapyard-view-modifications')).toHaveAttribute(
+    'aria-selected',
     'true',
   );
 });
@@ -238,7 +214,7 @@ for (const size of [
   });
 }
 
-/** The picker itself, opened: three traps, one live and two saying what is missing. */
+/** The picker itself, opened: six traps, one live and the rest saying what is missing. */
 test('the trap picker offers the whole catalogue and greys what is not in the bag', async ({
   page,
 }) => {

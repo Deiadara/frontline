@@ -259,7 +259,7 @@ describe('the Downtown Market', () => {
    *
    * The failure this case was written for was the shelf quoting the catalogue price while the till
    * charged the discounted one, which showed a crew a price it was never going to pay. Every line
-   * is a lot now (board 2026-09-08) and the answer is the other one: the reserve on the card is the
+   * is a lot now ( maintainer 2026-09-08) and the answer is the other one: the reserve on the card is the
    * city's number for everybody, because two crews bidding against each other have to be bidding
    * against the same floor, and the winner's ground comes off what they are charged at the close
    * where nobody they outbid can see it. So the assertion is that holding the Exchange moves the

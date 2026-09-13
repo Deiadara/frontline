@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { PartialResourcesSchema } from '../resources.js';
+import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 
 /**
@@ -45,8 +47,27 @@ export const ActiveResearchSchema = z.object({
   project: ResearchProjectSchema,
   startedAt: IsoDateTimeSchema,
   durationMinutes: z.number().int().positive(),
+  /** What starting it cost, so calling it off can hand ninety percent back (`time/cancel.ts`). */
+  paid: PartialResourcesSchema.default({}),
 });
 export type ActiveResearch = z.infer<typeof ActiveResearchSchema>;
+
+/** Whether the project can still be called off: inside the first tenth of its clock. */
+export function researchCancellable(active: ResearchClock, now: Date): boolean {
+  return cancelWindowOpen(
+    Date.parse(active.startedAt),
+    active.durationMinutes * 60_000,
+    now.getTime(),
+  );
+}
+
+export function researchCancelWindowMs(active: ResearchClock, now: Date): number {
+  return cancelWindowMs(
+    Date.parse(active.startedAt),
+    active.durationMinutes * 60_000,
+    now.getTime(),
+  );
+}
 
 const MINUTE_MS = 60_000;
 

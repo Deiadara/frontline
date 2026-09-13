@@ -150,7 +150,7 @@ const site = (
  * the Scrapyard's fenced lot are the two biggest things in the district.
  *
  * §A2 removed the Cistern's outline and **nothing else**: the painting is untouched, so the tank
- * is still drawn on the plate. What went is the tag over it, which is exactly what the board asked
+ * is still drawn on the plate. What went is the tag over it, which is exactly what the maintainer asked
  * for: a plot that is no longer a plot must not carry a label a player can click.
  */
 export const DISTRICT_SITES: readonly DistrictSite[] = [

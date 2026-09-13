@@ -23,7 +23,7 @@ import { BlueprintGlyph, PageGlyph, type GlyphSize } from '../research/Blueprint
  * pre-war `blueprint_*` goods are not in that catalogue and keep the kind glyph below.
  *
  * Item art is deliberately **not** in `ART_MANIFEST` yet. Adding eighteen keys would put eighteen
- * lines on the board's order sheet for a feature whose art has not been designed, and the order
+ * lines on the maintainer's order sheet for a feature whose art has not been designed, and the order
  * sheet is a list the board works through. When those masters are wanted, the keys go in the
  * manifest as `item-<id>` and this component grows the same `deliveredUrl` lookup every other
  * asset-backed component already has: one function call, no other change.
@@ -117,6 +117,112 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
   ),
 };
 
+/**
+ * The goods, each drawn as itself (maintainer request, 2026-09-10).
+ *
+ * The kind glyphs above were a shortcut that held while an item was a line in a list. The Runner's
+ * barrow is six plates a player scans, and six cogs in a row is a barrow that says nothing until
+ * it is read. So every good has a drawing of its own now, in the same 16 by 16 box and the same
+ * pen: a servo is a motor with a shaft, a gyro is three rings, a Rotor Hub is the hub and its
+ * blades. Anything not named here (the six pre-war `blueprint_*` goods, a good added tomorrow) keeps
+ * its kind glyph, so the record need not be total.
+ */
+const S = {
+  stroke: 'currentColor',
+  strokeWidth: 1.2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const;
+const GOOD_GLYPHS: Partial<Record<ItemId, JSX.Element>> = {
+  scrap_servo: (
+    <>
+      <path d="M3 5.5h7v5H3z" {...S} />
+      <path d="M10 8h3M13 7v2M1.5 8H3M4.5 10.5v2M8.5 10.5v2" {...S} />
+      <path d="M5 7.5h3" {...S} strokeWidth={0.9} />
+    </>
+  ),
+  gyro_assembly: (
+    <>
+      <circle cx="8" cy="8" r="5.5" {...S} />
+      <path d="M2.5 8a5.5 2.2 0 1 0 11 0a5.5 2.2 0 1 0-11 0" {...S} strokeWidth={1} />
+      <path d="M8 2.5a2.2 5.5 0 1 0 0 11a2.2 5.5 0 1 0 0-11" {...S} strokeWidth={1} />
+      <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
+  ceramic_plate: (
+    <>
+      <path d="M8 2.2l5 2.9v5.8l-5 2.9-5-2.9V5.1z" {...S} />
+      <path d="M8 5.6l2.3 1.3v2.7L8 10.9 5.7 9.6V6.9z" {...S} strokeWidth={0.9} />
+    </>
+  ),
+  optic_cluster: (
+    <>
+      <circle cx="7" cy="9" r="4.2" {...S} />
+      <circle cx="7" cy="9" r="1.6" {...S} strokeWidth={1} />
+      <circle cx="12.2" cy="4" r="1.8" {...S} strokeWidth={1} />
+      <path d="M9.8 6.2l1-1" {...S} strokeWidth={0.9} />
+    </>
+  ),
+  neural_shunt: (
+    <>
+      <path d="M5 3.5h6v5.5H5z" {...S} />
+      <path d="M6.6 9v4.5M9.4 9v4.5M8 3.5V1.5" {...S} />
+      <path d="M6.6 6.2h2.8" {...S} strokeWidth={0.9} />
+    </>
+  ),
+  coolant_cell: (
+    <>
+      <path d="M5 3.8h6v8.7a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 5 12.5z" {...S} />
+      <path d="M6.5 3.8V2h3v1.8M5 7h6M5 9.8h6" {...S} strokeWidth={1} />
+    </>
+  ),
+  rotor_hub: (
+    <>
+      <circle cx="8" cy="8.5" r="2" {...S} />
+      <path d="M8 6.5V1.5M9.7 9.5l4.3 2.5M6.3 9.5L2 12" {...S} />
+      <circle cx="8" cy="8.5" r="0.6" fill="currentColor" stroke="none" />
+    </>
+  ),
+  targeting_core: (
+    <>
+      <path d="M4 4h8v8H4z" {...S} />
+      <path
+        d="M2.5 6h1.5M2.5 10h1.5M12 6h1.5M12 10h1.5M6 2.5V4M10 2.5V4M6 12v1.5M10 12v1.5"
+        {...S}
+        strokeWidth={1}
+      />
+      <circle cx="8" cy="8" r="1.8" {...S} strokeWidth={1} />
+      <path d="M8 5.4v1M8 9.6v1M5.4 8h1M9.6 8h1" {...S} strokeWidth={0.9} />
+    </>
+  ),
+  combine_seal: (
+    <>
+      <circle cx="8" cy="8" r="5.6" {...S} />
+      <path
+        d="M8 4.3l1.1 2.3 2.5.3-1.8 1.7.5 2.5L8 9.9l-2.3 1.2.5-2.5L4.4 6.9l2.5-.3z"
+        {...S}
+        strokeWidth={1}
+      />
+    </>
+  ),
+  pre_collapse_ledger: (
+    <>
+      <path d="M4 2.6h7a1.4 1.4 0 0 1 1.4 1.4v9.4H5.4A1.4 1.4 0 0 1 4 12z" {...S} />
+      <path d="M4 12a1.4 1.4 0 0 1 1.4-1.4h7M6.6 5.6h3.4M6.6 8h3.4" {...S} strokeWidth={1} />
+    </>
+  ),
+  ivory_dice: (
+    <>
+      <path d="M7.2 2.6h6.2v6.2H7.2z" {...S} />
+      <path d="M2.6 7.2h6.2v6.2H2.6z" fill="rgb(20 18 26)" {...S} />
+      <circle cx="10.3" cy="5.7" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="4.4" cy="9" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="11.6" r="0.7" fill="currentColor" stroke="none" />
+      <circle cx="5.7" cy="10.3" r="0.7" fill="currentColor" stroke="none" />
+    </>
+  ),
+};
+
 const TINT: Record<ItemKind, string> = {
   blueprint: 'text-iris-100',
   page: 'text-iris-300',
@@ -152,7 +258,7 @@ export function ItemGlyph({
       fill="none"
       className={cn(TINT[spec.kind], className)}
     >
-      {GLYPHS[spec.kind]}
+      {GOOD_GLYPHS[id] ?? GLYPHS[spec.kind]}
     </svg>
   );
 }

@@ -21,7 +21,7 @@ import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
  *
  * `SkirmishEngine` is an interface and the result shape is stable, so the model behind it can be
  * replaced without touching a route, a repository or a screen. It has been replaced once already:
- * the coin flip the board asked for first is still here as {@link CoinFlipSkirmishEngine}, kept
+ * the coin flip the maintainer asked for first is still here as {@link CoinFlipSkirmishEngine}, kept
  * because a test that wants a decided outcome should not have to construct a whole army to get one.
  *
  * The real model is {@link TacticalSkirmishEngine}, and it lives in the modules beside this file.
@@ -237,7 +237,7 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   const { fled, killed } = routSurvivors(loserSide, routContext, next);
 
   // The ring, and only the winner's: a beaten side's perimeter walks away without fighting, which
-  // is the board's rule and the whole gamble of setting one. Meeting it is a second battle on the
+  // is the maintainer's rule and the whole gamble of setting one. Meeting it is a second battle on the
   // same ground (`perimeter.ts`), drawn from the rout's stream after the rout itself, so a battle
   // nobody ringed produces the exact stream it always did.
   const winnerRing =

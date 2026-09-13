@@ -36,7 +36,7 @@ import {
 import { cityContextFor } from './view.js';
 
 /**
- * §B7: the gate on a district a crew has taken whole (board request).
+ * §B7: the gate on a district a crew has taken whole (maintainer request).
  *
  * The board's words: "whenever you fully capture a district (excluding gate, you cannot really
  * capture that) you get access to its gate, and then you can upgrade it normally as if you would
@@ -109,7 +109,7 @@ describe('who gets a gate', () => {
     repos.city.put({ ...control, holder: { kind: 'looters' }, garrison: {} });
 
     expect(holdsDistrictWhole(repos, base.id, DISTRICT.id)).toBe(false);
-    expect(capturedGatesFor(repos, base)).toEqual([]);
+    expect(capturedGatesFor(repos, base, new Date(HOUR))).toEqual([]);
   });
 
   /**
@@ -208,13 +208,14 @@ describe('raising one', () => {
       level: CAPTURED_GATE_MAX_LEVEL,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
 
     expect(raiseCapturedGate(repos, base, DISTRICT.id, new Date(HOUR))).toEqual({
       kind: 'refused',
       reason: 'at_ceiling',
     });
-    // The same ceiling a Gate at home reaches, which is the board's rule that any gate you fully
+    // The same ceiling a Gate at home reaches, which is the maintainer's rule that any gate you fully
     // hold goes to the same place. Pinned against the structure ceiling rather than against 20, so
     // moving one moves both.
     expect(CAPTURED_GATE_MAX_LEVEL).toBe(BUILDING_MAX_LEVEL);
@@ -223,7 +224,7 @@ describe('raising one', () => {
 });
 
 describe('what one is worth', () => {
-  /** The same rates a home Gate pays, which is the board's rule for both halves. */
+  /** The same rates a home Gate pays, which is the maintainer's rule for both halves. */
   it('defends and blurs at exactly the home Gate rates', () => {
     expect(capturedGateDefensePercent(8)).toBe(8 * GATE_DEFENSE_PERCENT_PER_LEVEL);
     expect(capturedGateIntelResistancePercent(8)).toBe(8 * GATE_INTEL_RESISTANCE_PER_LEVEL);
@@ -258,6 +259,7 @@ describe('the gate belongs to the ground', () => {
       level: 12,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
 
     repos.users.insert({ id: 'u2', username: 'raider', passwordHash: 'x', createdAt: HOUR });
@@ -279,7 +281,7 @@ describe('the gate belongs to the ground', () => {
  * `officerGroupFlat` sat unread for eight perks.
  */
 /**
- * §A4: a gate that is down is a gate the holder can still lose (board request).
+ * §A4: a gate that is down is a gate the holder can still lose (maintainer request).
  *
  * A breach opens the district for {@link GATE_BREACH_HOURS} hours. If the holder loses a single
  * location inside it while that window is open, they no longer hold the district outright and the
@@ -292,7 +294,13 @@ describe('the gate belongs to the ground', () => {
 describe('losing a district while the gate is down', () => {
   /** Puts this district's gate at `level`, as if the holder had raised it there. */
   function raisedTo(repos: Repositories, districtId: string, level: number): void {
-    repos.capturedGates.put({ districtId, level, upgradingTo: null, upgradingUntil: null });
+    repos.capturedGates.put({
+      districtId,
+      level,
+      upgradingTo: null,
+      upgradingUntil: null,
+      upgradingSince: null,
+    });
   }
 
   /** Takes one location off the holder, the way a lost fight does. */
@@ -425,6 +433,7 @@ describe('what a captured gate changes', () => {
       level: 10,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
     const walled = cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2');
 
@@ -443,6 +452,7 @@ describe('what a captured gate changes', () => {
       level: 10,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
 
     const elsewhere = CITY_DISTRICTS.find((d) => d.id !== DISTRICT.id)!;
@@ -459,6 +469,7 @@ describe('what a captured gate changes', () => {
       level: 10,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
 
     expect(cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2')).toBe(0);
@@ -466,7 +477,7 @@ describe('what a captured gate changes', () => {
 });
 
 /**
- * §B4: the Generator's burn reaches a captured gate (board request).
+ * §B4: the Generator's burn reaches a captured gate (maintainer request).
  *
  * The burn promises "all building upgrades", and a captured gate is one: same cost curve, same
  * clock, same work. It is not in the district's `buildQueue` though, which is the only thing
@@ -504,6 +515,44 @@ describe('the build burn and a captured gate', () => {
     expect(Math.round(burntMs / 1000)).toBe(
       Math.round((plainMs / 1000) * (1 - BUILD_BOOST_PERCENT / 100)),
     );
+  });
+
+  /**
+   * ...and says so on the card, which is what a player reads before pressing (bug pass, 2026-09-13).
+   *
+   * `raiseCapturedGate` takes the burn off the clock it starts, and the card quoted
+   * `capturedGateSeconds` bare. So a crew with a Generator running was shown the full clock and
+   * given a shorter one: two numbers for one duration, and the one on screen was never the one
+   * charged.
+   */
+  it('quotes the shortened clock on the card while the burn runs', () => {
+    const { repos, base } = stack();
+    takeWhole(repos, base.id, DISTRICT.id);
+    const burning: Base = {
+      ...base,
+      economy: {
+        ...base.economy,
+        buildBoostUntil: new Date(Date.parse(HOUR) + BUILD_BOOST_MS).toISOString(),
+      },
+    };
+    const now = new Date(HOUR);
+
+    const quoted = capturedGatesFor(repos, burning, now).find(
+      (view) => view.districtId === DISTRICT.id,
+    );
+    expect(quoted?.nextSeconds).toBeDefined();
+    // Quoted below the catalogue clock, because the burn is running.
+    expect(quoted!.nextSeconds!).toBeLessThan(
+      capturedGateSeconds(gateFor(repos, DISTRICT.id).level + 1),
+    );
+
+    // ...and it is the clock the raise actually starts, to the second.
+    const started = raiseCapturedGate(repos, burning, DISTRICT.id, now);
+    if (started.kind !== 'started') throw new Error('expected a start');
+    const charged = Math.round(
+      (Date.parse(started.gate.upgradingUntil!) - Date.parse(HOUR)) / 1000,
+    );
+    expect(quoted!.nextSeconds).toBe(charged);
   });
 
   it('leaves the clock alone when no burn is running', () => {

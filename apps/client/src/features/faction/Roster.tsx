@@ -9,7 +9,7 @@ import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { cn } from '../../lib/cn';
-import { CardGlyph } from './CardGlyph';
+import { MemberFace } from './MemberFace';
 import { seatOrder } from './order';
 import { releaseHover } from './parts';
 
@@ -22,9 +22,9 @@ import { releaseHover } from './parts';
  * spreadsheets standing at a bar.
  *
  * The rows are in `seatOrder`, the same order the seats are filled in, so the third row and the
- * third figure are the same person. Each row carries the seat's card, what the card is for, what
- * it reads off its holder, and the holder's mark on it: the same grammar the crew screen uses for
- * an officer in a chair, because a seat at this table is a chair with a job.
+ * third figure are the same person. Each row carries the holder's face, what their seat is for,
+ * what it reads off them, and their mark on it: the same grammar the crew screen uses for an
+ * officer in a chair, because a seat at this table is a chair with a job.
  */
 export function Roster({
   members,
@@ -103,7 +103,17 @@ function MemberRow({
             : 'border-surface-600/70 hover:border-brass-300/50',
         )}
       >
-        <CardGlyph card={member.card} className="h-11 shrink-0" />
+        {/*
+         * Their face, where the seat's card used to be (maintainer request, 2026-09-13).
+         *
+         * A row of card glyphs made a table of five people look like a hand of five cards, and
+         * the card is still said twice in words on this very row: the aspect below the name, and
+         * the whole reading in the note that opens on hover. The picture is the one thing on the
+         * row that could only be about *them*.
+         */}
+        <span className="h-11 w-11 shrink-0">
+          <MemberFace member={member} size="sm" />
+        </span>
 
         <span className="flex min-w-0 flex-1 flex-col leading-tight">
           <span className="truncate font-stamp text-[13px] text-ink-100">

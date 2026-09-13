@@ -5,7 +5,6 @@ import {
   OFFICER_ROLE_LABELS,
   OFFICER_ROLES,
   notorietyTier,
-  officerPortraitId,
   plateAspect,
   type BarAuction,
   type BarAuctionResult,
@@ -49,6 +48,8 @@ import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
   level: 'Wants a crew that has been doing this longer',
+  infamy: 'Wants infamy banked, not just a rank',
+  faction: 'Wants a faction behind you that has earned',
 };
 
 /** A labelled block on the seat screen's identity band: the word above, the thing below. */
@@ -251,9 +252,14 @@ export function BarPage() {
           viewport, and the chrome floats on top of it. */}
       <div
         className="pointer-events-none absolute inset-0 flex flex-col gap-3 p-4"
-        style={{ paddingTop: 'var(--hud-h, 0px)', paddingBottom: 'calc(var(--nav-h, 0px) + 16px)' }}
+        // The same 16px off the bar at the top as the note keeps off the nav at the foot: the
+        // tables box sat hard against the standing bar (maintainer, 2026-09-10).
+        style={{
+          paddingTop: 'calc(var(--hud-h, 0px) + 16px)',
+          paddingBottom: 'calc(var(--nav-h, 0px) + 16px)',
+        }}
       >
-        {/* Your tables at the top left of the room (board request, 2026-09-09); the note and the
+        {/* Your tables at the top left of the room (maintainer request, 2026-09-09); the note and the
             readouts keep the foot, pushed there by `mt-auto` so they stay put whether or not this
             crew has a table. */}
         {yourTables.length > 0 && (
@@ -974,7 +980,7 @@ function RecruitCard({
            */}
           <div className="edge-lit rounded-sm border-2 border-brass-500/45 bg-surface-950 p-1 shadow-panel">
             <OfficerPortrait
-              portraitId={officerPortraitId(recruit.id)}
+              portraitId={recruit.portraitId}
               name={recruit.name}
               className="w-full rounded-[2px] border border-surface-950/80"
               style={{ aspectRatio: '4 / 5' }}
@@ -1003,7 +1009,10 @@ function RecruitCard({
             onBid={() => onBid(recruit.id)}
           />
 
-          {(recruit.requirement.minNotoriety > 0 || recruit.requirement.minLevel > 1) && (
+          {(recruit.requirement.minNotoriety > 0 ||
+            recruit.requirement.minLevel > 1 ||
+            recruit.requirement.minInfamy > 0 ||
+            recruit.requirement.minFactionInfamy > 0) && (
             <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
               {recruit.requirement.minNotoriety > 0 && (
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
@@ -1017,6 +1026,23 @@ function RecruitCard({
                 <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
                   And a crew that has reached{' '}
                   <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
+                </p>
+              )}
+              {recruit.requirement.minInfamy > 0 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  With{' '}
+                  <span className="text-ink-100">
+                    {recruit.requirement.minInfamy.toLocaleString()} infamy
+                  </span>{' '}
+                  still in the account
+                </p>
+              )}
+              {recruit.requirement.minFactionInfamy > 0 && (
+                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
+                  And a faction that has earned{' '}
+                  <span className="text-ink-100">
+                    {recruit.requirement.minFactionInfamy.toLocaleString()}
+                  </span>
                 </p>
               )}
             </div>
@@ -1254,7 +1280,7 @@ function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: nu
       <RaisePayroll
         ledger={ledger}
         caps={caps}
-        onRaise={() => raise.mutate({})}
+        onRaise={() => raise.mutate({ fromSteps: ledger.purchasedSteps })}
         pending={raise.isPending}
         error={raise.error?.message ?? null}
         testId="increase-payroll"

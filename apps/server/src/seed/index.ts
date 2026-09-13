@@ -15,7 +15,16 @@ import bcrypt from 'bcryptjs';
 import Database from 'better-sqlite3';
 import type { AppDatabase } from '../db/index.js';
 import type { Repositories } from '../db/repos/index.js';
-import { ALLY_DISTRICT_ID, MVP_ALLY, MVP_BOT, MVP_FACTION, MVP_PLAYER } from './constants.js';
+import {
+  ALLY_DISTRICT_ID,
+  MVP_ALLY,
+  MVP_BOT,
+  MVP_FACTION,
+  MVP_PLAYER,
+  MVP_RIVAL_FACTION,
+  MVP_RIVAL_SECOND,
+  RIVAL_SECOND_DISTRICT_ID,
+} from './constants.js';
 import { CITY_DISTRICTS, slotAtOrAfter } from '@frontline/shared';
 
 const BCRYPT_COST = 10;
@@ -37,6 +46,10 @@ export interface MvpSeedSummary {
   allyUsername: string;
   allyDistrictId: string;
   createdAlly: boolean;
+  /** The rival's second, and the faction the two of them hold. */
+  rivalSecondUsername: string;
+  rivalSecondDistrictId: string;
+  createdRivalFaction: boolean;
 }
 
 /**
@@ -70,6 +83,8 @@ export async function seedMvpWorld({ db, repos }: SeedMvpWorldOptions): Promise<
   const createdBot = await seedBot(db, repos);
   // The neighbour on your side, and the table you share with them.
   const createdAlly = await seedAlly(db, repos);
+  // The table on the other side. Runs after the rival, because it seats them.
+  const createdRivalFaction = await seedRivalFaction(db, repos);
 
   return {
     playerUsername: MVP_PLAYER.username,
@@ -81,6 +96,9 @@ export async function seedMvpWorld({ db, repos }: SeedMvpWorldOptions): Promise<
     allyUsername: MVP_ALLY.username,
     allyDistrictId: ALLY_DISTRICT_ID,
     createdAlly,
+    rivalSecondUsername: MVP_RIVAL_SECOND.username,
+    rivalSecondDistrictId: RIVAL_SECOND_DISTRICT_ID,
+    createdRivalFaction,
   };
 }
 
@@ -318,6 +336,114 @@ async function seedAlly(db: AppDatabase, repos: Repositories): Promise<boolean> 
       });
     }
     return true;
+  });
+}
+
+/**
+ * The NPC faction: the rival's second, and the table the two of them hold (maintainer request).
+ *
+ * Seated after `seedBot`, because the rival is its leader and a faction cannot be led by an
+ * account that does not exist yet. If the rival is somehow missing this step does nothing and
+ * returns false rather than founding a table with one person at it: the next boot runs `seedBot`
+ * again and then this, which is the repair path every other step here uses.
+ *
+ * Why there is a second NPC crew at all: a faction of one is not a faction to read. The public
+ * profile this exists to fill shows a roster with ranks on it, and a single row proves nothing
+ * about a screen that has to draw a leader and everybody under them.
+ */
+async function seedRivalFaction(db: AppDatabase, repos: Repositories): Promise<boolean> {
+  const preset = findOverseerPreset(MVP_RIVAL_SECOND.overseerPresetId);
+  if (!preset) {
+    throw new Error(
+      `MVP rival second references an unknown overseer preset: ${MVP_RIVAL_SECOND.overseerPresetId}`,
+    );
+  }
+  // No credential for this account exists anywhere: same treatment as the rival and the ally.
+  const passwordHash = await bcrypt.hash(randomUUID(), BCRYPT_COST);
+
+  return seedStep(db, () => {
+    const leader = repos.users.findByUsername(MVP_BOT.username);
+    if (!leader) return false;
+
+    const now = new Date().toISOString();
+    let wrote = false;
+
+    // The second crew, if it is not standing yet. Keyed on the account like the rival's, so
+    // deleting the base row restores the crew rather than leaving a seated member with no district.
+    const existing = repos.users.findByUsername(MVP_RIVAL_SECOND.username);
+    const secondId = existing?.id ?? randomUUID();
+    if (!existing || !repos.bases.findByOwnerId(secondId)) {
+      if (!existing) {
+        repos.users.insert({
+          id: secondId,
+          username: MVP_RIVAL_SECOND.username,
+          passwordHash,
+          createdAt: now,
+        });
+      }
+      if (!repos.users.findById(secondId)?.overseerId) {
+        const overseer = overseerFromPreset(preset, randomUUID());
+        repos.overseers.insert({
+          overseer,
+          userId: secondId,
+          presetId: preset.presetId,
+          createdAt: now,
+        });
+        repos.users.setOverseerId(secondId, overseer.id);
+      }
+      repos.bases.insert({
+        id: randomUUID(),
+        ownerId: secondId,
+        name: freeName(repos, MVP_RIVAL_SECOND.baseName),
+        districtId: RIVAL_SECOND_DISTRICT_ID,
+        level: MVP_RIVAL_SECOND.level,
+        isBot: true,
+        resources: MVP_RIVAL_SECOND.resources,
+        economy: startingEconomy(now),
+        progression: startingProgression(),
+        research: startingResearch(),
+        buildings: MVP_RIVAL_SECOND.buildings,
+        buildQueue: [],
+        army: MVP_RIVAL_SECOND.army,
+        trainingQueue: [],
+        training: startingTraining(now),
+        inventory: {},
+        fittedUpgrades: [],
+        unitLoadouts: {},
+        fleet: {},
+        commanders: MVP_RIVAL_SECOND.commanders,
+        createdAt: now,
+      });
+      wrote = true;
+    }
+
+    // The table. Guarded on the name, the way the ally's is, so a half-seeded world repairs
+    // rather than throwing on the UNIQUE index.
+    let factionId = repos.factions.findByName(MVP_RIVAL_FACTION.name)?.id;
+    if (!factionId) {
+      factionId = randomUUID();
+      repos.factions.insert({
+        id: factionId,
+        name: MVP_RIVAL_FACTION.name,
+        badge: MVP_RIVAL_FACTION.badge,
+        blurb: MVP_RIVAL_FACTION.blurb,
+        foundedAt: now,
+      });
+      wrote = true;
+    }
+
+    // Seated one at a time and only if they are not already somewhere: a crew that a live player
+    // somehow recruited stays where it is rather than being pulled back every boot.
+    for (const [userId, rank] of [
+      [leader.id, 'leader'],
+      [secondId, 'chief'],
+    ] as const) {
+      if (repos.factions.membershipOf(userId)) continue;
+      repos.factions.addMember({ userId, factionId, rank, joinedAt: now });
+      wrote = true;
+    }
+
+    return wrote;
   });
 }
 

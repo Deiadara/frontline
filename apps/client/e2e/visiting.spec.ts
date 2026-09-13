@@ -1,11 +1,11 @@
 /**
- * Standing in somebody else's district (board request).
+ * Standing in somebody else's district (maintainer request).
  *
  * It used to be a thumbnail in a column: a picture of a place rather than a place, with nothing to
  * do with the roofs you could see. It is a screen now, the same screen your own district is, with
  * the same name plate under each building.
  *
- * §A4, board 2026-09-09: **one call, and it is about the district.** A home is shut by the crew
+ * §A4, maintainer 2026-09-09: **one call, and it is about the district.** A home is shut by the crew
  * living on it, so while their Gate stands the only thing to hit is the gate, and inside the day a
  * breach lasts the only thing to hit is the whole place at once. The plates are information now;
  * they used to each offer a fight, which meant turning a district over cost thirteen declarations
@@ -116,7 +116,7 @@ test('offers the gate while it stands, and the raid only once it is down', async
   await expect(page.getByTestId('call-district')).toHaveCount(0);
 
   // The sign, the way back and the one call all sit in one row over the painting, so the row is
-  // what has to be looked at: filed for the board and swept for clipping in the same breath.
+  // what has to be looked at: filed for the maintainer and swept for clipping in the same breath.
   await expectNothingClippedVertically(page);
   await page.screenshot({ path: 'e2e-out/visiting-gate.png', fullPage: true });
 });

@@ -148,7 +148,7 @@ describe('finding a board a job is on', () => {
    * to name a template outright, and because the boards turn over daily a named id is a fixture
    * with a hidden expiry date. Measured over these two years, `scrap-run` is on no board on 19% of
    * days, `convoy-ambush` 15% and `deep-expedition` 24%, so the suite was red about one day in
-   * four for a reason nobody had changed. They ask the board for a job of the kind they need now,
+   * four for a reason nobody had changed. They ask the maintainer for a job of the kind they need now,
    * and this is the check that the board can always answer.
    *
    * It is also a player-facing rule in its own right. A day whose whole city offered only fights

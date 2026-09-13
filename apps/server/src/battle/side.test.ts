@@ -46,13 +46,21 @@ describe('a side with more than one crew on it', () => {
     expect(folded.perimeter).toEqual({ razors: 10, ghosts: 1 });
   });
 
-  it('takes one boost for the side rather than one per crew', () => {
-    const first = { ...row('a', {}), boostId: null };
-    const second = { ...row('b', {}), boostId: 'contraband' };
-    const third = { ...row('c', {}), boostId: 'stims' };
-    // A boost is bought for a fight and a side gets one. Reinforcements bringing their own would
-    // multiply an effect the design hands out once.
-    expect(combinedSide([first, second, third], 'b1', 'attacker', AT).boostId).toBe('contraband');
+  /**
+   * Every name the side burned, in order, with no duplicates.
+   *
+   * A crew may burn more than one since the maintainer's 2026-09-12 call (`battleBoostSlots`), and the
+   * cap is per *crew*: this fold is what carries an ally's name onto the side as well, and what
+   * stops the same name counting twice when two crews both burned it.
+   */
+  it('carries every name the side burned, and counts a shared one once', () => {
+    const first = { ...row('a', {}), boostIds: [] };
+    const second = { ...row('b', {}), boostIds: ['contraband'] };
+    const third = { ...row('c', {}), boostIds: ['stims', 'contraband'] };
+    expect(combinedSide([first, second, third], 'b1', 'attacker', AT).boostIds).toEqual([
+      'contraband',
+      'stims',
+    ]);
   });
 
   it('is an empty force when nobody has committed anything', () => {

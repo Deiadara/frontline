@@ -18,7 +18,12 @@ function gradientFor(portraitId: string): string {
 
 interface OverseerPortraitProps {
   portraitId: string;
-  archetype: OverseerArchetype;
+  /**
+   * What they are good at, for the tag in the corner. Optional, and drawn only when `showTag` is
+   * on and it is actually known: a faction roster row carries a portrait id and no archetype
+   * (`FactionMemberSchema`), and the tag is the only thing on this component that wants one.
+   */
+  archetype?: OverseerArchetype;
   /**
    * Box shape.
    *
@@ -26,10 +31,10 @@ interface OverseerPortraitProps {
    * their box, which is right for an avatar: the delivery is framed face-in-the-central-70% so a
    * crop always lands on the face.
    *
-   * `fill` is the other kind of placement. The box is whatever height the parent has left, and the
-   * whole painting is fitted inside it rather than cropped to it, so nothing is ever cut off. For
-   * the one screen that is *about* the portrait rather than using it as a label. Its box is the
-   * *delivery's* shape rather than the layout's, which is what makes that true: see below.
+   * `fill` is the other kind of placement: take the whole box the parent gives it, both ways, and
+   * crop to it. The shape is then the *caller's* to choose, which is the point. A framed picture
+   * sets the shape on the frame and lets the painting take all of it, so the frame is the edge of
+   * the picture rather than a box with a picture floating inside it.
    */
   aspect?: 'portrait' | 'square' | 'fill';
   /** Hide the archetype tag on tiny avatars. */
@@ -66,44 +71,56 @@ export function OverseerPortrait({
 }: OverseerPortraitProps) {
   const painted = deliveredUrl({ type: 'portrait', portraitId });
   return (
-    <div
+    /*
+     * A `<span>` with `display: block`, which lays out exactly as the `<div>` this was, and is
+     * legal in one place a `<div>` is not: inside a `<button>`. The faction roster's rows are
+     * `HoverCard` triggers, which are real buttons, and a button may hold phrasing content only.
+     */
+    <span
       className={cn(
-        'relative overflow-hidden border border-surface-600/70 bg-gradient-to-b',
+        'relative block overflow-hidden border border-surface-600/70 bg-gradient-to-b',
         aspect !== 'fill' && 'w-full',
         aspect === 'portrait' && 'aspect-[3/4]',
         aspect === 'square' && 'aspect-square',
         /*
-         * Height from the parent, width from the picture, and **2:3 because that is the picture**.
+         * The whole box, both ways (maintainer request, 2026-09-13: the portrait leaves too much dead
+         * space inside the template it sits in).
          *
-         * The leftover height decides how big the portrait is and the width follows from it, so the
-         * frame is exactly the shape of the painting. The first version filled the parent's width
-         * and fitted the image inside with `object-contain`, which showed the whole picture but
-         * left a bar of panel down each side of it: a framed picture in a frame the wrong shape.
+         * The shape used to live here, as `aspect-[2/3] h-full`, and the frame around it was
+         * whatever the panel was: on a 720-tall viewport that put a 120px-wide painting in the
+         * middle of a 332px bordered box, which is the dead space the board is looking at. The
+         * shape moved out to the caller's frame, and this takes all of whatever that frame is.
          *
-         * The second version had the right idea and the wrong number. The box was `aspect-[3/4]`
-         * and the delivered portraits are 928x1392, which is 2:3 (`ASSET_CLASS_SPECS.portrait` is
-         * 1024x1536, the same ratio, mislabelled `'3:4'` beside its own numbers). Covering a 0.75
-         * box with a 0.667 picture scales it by 1.125, so 11% of the height went: 5.6% off the top
-         * of the head and 5.6% off the bottom, on the one screen whose comment promises nothing is
-         * cut at any size.
+         * Taking all of it means cropping to it, so the crop is aimed: `object-top` below. The
+         * deliveries are 928x1392 with the head in the top half, and a box even slightly wider
+         * than 2:3 takes its first bite off the top of the skull if the crop is centred.
          */
-        aspect === 'fill' && 'aspect-[2/3] h-full max-w-full',
+        aspect === 'fill' && 'h-full w-full',
         gradientFor(portraitId),
         className,
       )}
     >
       {painted ? (
         // The 3:4 delivery is framed face-in-the-central-70%, so a square avatar can crop to fill.
-        <img src={painted} alt="" className="absolute inset-0 h-full w-full object-cover" />
+        <img
+          src={painted}
+          alt=""
+          className={cn(
+            'absolute inset-0 h-full w-full object-cover',
+            // A `fill` box is as tall as the parent has room for and can be much squarer than the
+            // 2:3 delivery, and a centred crop of a squarer box takes its bite out of the top.
+            aspect === 'fill' && 'object-top',
+          )}
+        />
       ) : (
         <Silhouette />
       )}
-      <div className="grain pointer-events-none absolute inset-0 opacity-60" />
-      {showTag && (
+      <span className="grain pointer-events-none absolute inset-0 block opacity-60" />
+      {showTag && archetype !== undefined && (
         <span className="absolute bottom-1.5 left-1.5 border border-brass-300/30 bg-surface-950/70 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.2em] text-brass-300">
           {archetype}
         </span>
       )}
-    </div>
+    </span>
   );
 }

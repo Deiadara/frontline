@@ -1,5 +1,5 @@
 /**
- * The Console's fog of war (board request).
+ * The Console's fog of war (maintainer request).
  *
  * In admin mode every district is scouted by default, and an admin can un-tick one to look at it
  * unscouted. Two things here are worth a test rather than a glance. The override is an *exception

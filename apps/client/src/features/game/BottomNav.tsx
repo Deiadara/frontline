@@ -1,6 +1,8 @@
-import { areaUnlockLevel, type GatedArea } from '@frontline/shared';
+import { areaUnlockLevel, badgeCount, type GatedArea } from '@frontline/shared';
+import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { FeatsDoorGlyph } from '../feats/marks';
 import { cn } from '../../lib/cn';
 import { useAdmin, useMe } from '../../lib/queries';
 
@@ -29,6 +31,15 @@ export interface NavDestination {
   /** Absent when the destination is not built yet: the door is drawn, dimmed and unclickable. */
   to?: string;
   icon: IconName;
+  /**
+   * A mark drawn for this door alone, in place of the one named by `icon`.
+   *
+   * The set in `components/ui/Icon` is shared by the whole interface, and a door that wants a
+   * glyph nobody else uses should not be a reason to edit it. A `glyph` is expected to fill its
+   * box: the tile supplies the size, the drop shadow and the dimming a shut door gets, exactly as
+   * it does for an `Icon`. `icon` stays required, so every door still has a name for its mark.
+   */
+  glyph?: ReactNode;
   /**
    * §I3: the screen this door leads to, when a level opens it.
    *
@@ -87,7 +98,12 @@ export const DESTINATIONS: readonly NavDestination[] = [
     icon: 'market',
     area: 'market',
   },
-  { label: 'Workshop', title: 'Refits and the yard', to: '/game/workshop', icon: 'workshop' },
+  {
+    label: 'Scrapyard',
+    title: 'Modifications, refits and traps',
+    to: '/game/scrapyard',
+    icon: 'workshop',
+  },
   {
     label: 'Satchel',
     title: 'Parts, relics and what the shops will take',
@@ -118,6 +134,24 @@ const SETTINGS: NavDestination = {
   icon: 'gear',
 };
 
+/**
+ * Feats, pinned to the **left** of the bar (maintainer request, 2026-09-13).
+ *
+ * Kept out of {@link DESTINATIONS} for the reason Settings is: it is not a place in the world. A
+ * feat is a note in the margin of everything else a player does, wanted from wherever they are
+ * standing the moment the red mark appears, and walking the row of thirteen doors to find it is
+ * the version where the mark does not work.
+ */
+const FEATS_DOOR: NavDestination = {
+  label: 'Feats',
+  title: 'What you have done, and what it pays',
+  to: '/game/feats',
+  // Never drawn: `glyph` is what this door wears. `icon` is required of every destination so that
+  // a door can always name its mark, and `loot` is the closest the shared set has.
+  icon: 'loot',
+  glyph: <FeatsDoorGlyph />,
+};
+
 const CONSOLE: NavDestination = {
   label: 'Console',
   title: 'Testing mode: knobs, presets and snapshots',
@@ -135,14 +169,21 @@ const testId = (label: string): string => `nav-${label.toLowerCase().replace(/\s
  * A door behind a level (§I3) still links. It reads as shut: dimmed, with a padlock over the
  * glyph and the level it opens at under the label, and clicking it goes to the screen that
  * explains itself. Disabling it would leave a player with a grey square and no way to find out
- * anything about it, which is precisely the failure the board asked to avoid.
+ * anything about it, which is precisely the failure the maintainer asked to avoid.
  */
 function Destination({
   destination,
   locked,
+  badge = 0,
 }: {
   destination: NavDestination;
   locked: number | null;
+  /**
+   * How many things behind this door are waiting. Zero draws nothing at all: an empty badge is a
+   * dot that means "no news". Same rule, same shape and same colour as the standing bar's two
+   * (`TopHud`), so a player reads one mark rather than learning a second.
+   */
+  badge?: number;
 }) {
   const body = (active: boolean) => (
     <>
@@ -162,13 +203,45 @@ function Destination({
                 'group-active:scale-100',
         )}
       >
-        <Icon
-          name={destination.icon}
-          className={cn(
-            'relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
-            locked !== null && 'opacity-40',
-          )}
-        />
+        {destination.glyph === undefined ? (
+          <Icon
+            name={destination.icon}
+            className={cn(
+              'relative z-[2] h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+              locked !== null && 'opacity-40',
+            )}
+          />
+        ) : (
+          <span
+            aria-hidden
+            className={cn(
+              'relative z-[2] block h-7 w-7 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]',
+              locked !== null && 'opacity-40',
+            )}
+          >
+            {destination.glyph}
+          </span>
+        )}
+        {/* The count, on the corner of the plate: the standing bar's badge, to the pixel. Capped
+            at `99+` by `badgeCount`, because three digits do not fit and a player with a hundred
+            waiting is not deciding on the exact figure. */}
+        {badge > 0 && (
+          <span
+            data-testid={`${testId(destination.label)}-badge`}
+            aria-hidden
+            className={cn(
+              'absolute -right-1 -top-1 z-[3] flex h-[18px] min-w-[18px] items-center justify-center',
+              'rounded-full border border-oxblood-300/60 bg-oxblood-500 px-1',
+              'font-display text-[10px] font-bold leading-none tabular-nums text-ink-100',
+              'shadow-[0_1px_3px_rgba(0,0,0,0.6)]',
+            )}
+          >
+            {badgeCount(badge)}
+          </span>
+        )}
+        {/* The badge is a picture, so the figure is said once here for anybody who cannot see it.
+            `TopHud` leaves this out and should not; that is a fix for its own file. */}
+        {badge > 0 && <span className="sr-only">{badge} waiting</span>}
         {/* The padlock, drawn over the glyph rather than replacing it: the door still has to be
             recognisable as the Bar or the Market, or a player cannot tell which one is shut. */}
         {locked !== null && (
@@ -246,7 +319,7 @@ function Destination({
 /**
  * The red mark: fights still to come that somebody has called on this crew's ground.
  *
- * On the left of the bar (board request), on every screen, because a declaration is the one thing
+ * On the left of the bar (maintainer request), on every screen, because a declaration is the one thing
  * in the game that arrives whether or not the player is looking and gives them hours to answer.
  * A link straight to the board rather than a badge on the Battles door: the door is one of
  * thirteen, and a mark that has to be found is a mark that is not doing its job.
@@ -258,7 +331,15 @@ function FightMark({ count }: { count: number }) {
       to="/game/battles"
       className={cn(
         'group flex w-[72px] flex-col items-center gap-1 focus-visible:outline-none',
-        '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:left-4',
+        /*
+         * `left-[94px]`, not `left-4`: the Feats door took the corner (maintainer request,
+         * 2026-09-13) and two doors pinned to the same edge are one door drawn on top of another.
+         * The figure is that door's own left inset plus its 72px width plus the row's 6px
+         * `gap-x-1.5`, so the pair reads as one cluster in the corner at the same spacing the walk
+         * of doors uses. Both are pinned or neither is: below 1500px they fall back into the flow
+         * side by side and wrap with everything else.
+         */
+        '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:left-[94px]',
         // `top-3`, which is the bar's own `pt-3`: pinned out of the flow, this mark has to be told
         // where the row of doors starts or it floats to its own height. Centring it in the bar put
         // its plate eight pixels above every plate beside it.
@@ -331,6 +412,34 @@ export function BottomNav() {
       // belongs.
       className="glass painted washed rivets pointer-events-auto relative flex shrink-0 flex-wrap items-start justify-center gap-x-1.5 gap-y-2 border-t-2 border-brass-500/45 px-4 pb-2.5 pt-3 shadow-panel"
     >
+      {/*
+       * Feats, in the corner, and the mark that says how many are waiting.
+       *
+       * One element pinned only where the row has room beside it, exactly as Settings is at the
+       * other end: below 1500px it falls back into the flow and wraps with everything else, which
+       * is the version that is never unreachable. `!absolute` for the reason spelled out on
+       * Settings, which is not a style preference: `.painted > *` sets `position: relative` on
+       * every direct child of this bar at the same specificity as a positioning utility, so which
+       * one wins is decided by the generated stylesheet's emission order. The flag makes it a
+       * decision rather than luck a Tailwind upgrade could reverse.
+       *
+       * First in the DOM as well as first on the screen, so the tab order and the painted order
+       * agree with the reading order.
+       */}
+      <span
+        className={cn(
+          '[@media(min-width:1500px)]:!absolute [@media(min-width:1500px)]:left-4',
+          // `top-3`, the bar's own `pt-3`. See the fight mark: an absolutely positioned door is
+          // outside the row's alignment and has to be given the row's own starting edge.
+          '[@media(min-width:1500px)]:top-3',
+        )}
+      >
+        <Destination
+          destination={FEATS_DOOR}
+          locked={null}
+          badge={me.data?.unread?.featsReady ?? 0}
+        />
+      </span>
       <FightMark count={me.data?.unread?.fightsOnYou ?? 0} />
       {destinations.map((destination) => (
         <Destination

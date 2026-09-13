@@ -437,7 +437,7 @@ describe('the migration chain', () => {
 });
 
 /**
- * 0081 to 0087 against a database that has something in every table.
+ * 0081 to 0093 against a database that has something in every table.
  *
  * The chain tests above prove a *cold* database reaches one schema, and each per-migration case
  * proves one migration against the rows it is about. Neither is the state a live save is in, and
@@ -446,11 +446,11 @@ describe('the migration chain', () => {
  * one of those passes on an empty store whether or not it got the interesting part right.
  *
  * So the store is filled first: one row in every table the schema has at 0081, seeded through the
- * live foreign keys rather than around them, and then the seven files are applied in order. The
+ * live foreign keys rather than around them, and then the thirteen files are applied in order. The
  * completeness assertion is what keeps this honest as tables are added: a new table with nothing in
  * it fails here by name rather than quietly narrowing what the chain was measured against.
  */
-describe('0081 to 0087 on a database with rows in every table', () => {
+describe('0081 to 0093 on a database with rows in every table', () => {
   const FIRST = '0081_mission_priced_minutes.sql';
   const THROUGH = [
     '0081_mission_priced_minutes.sql',
@@ -460,6 +460,12 @@ describe('0081 to 0087 on a database with rows in every table', () => {
     '0085_retire_flatbed_war_hauler.sql',
     '0086_vendor_auctions.sql',
     '0087_district_raid_target.sql',
+    '0088_mission_leader_and_losses.sql',
+    '0089_calling_things_off.sql',
+    '0090_mission_finds.sql',
+    '0091_two_names_on_a_fight.sql',
+    '0092_feats.sql',
+    '0093_scout_walk_out.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -698,7 +704,7 @@ describe('0081 to 0087 on a database with rows in every table', () => {
     return { db, tables };
   }
 
-  it('applies the seven files in order, once, and stops', () => {
+  it('applies the thirteen files in order, once, and stops', () => {
     const { db } = seeded();
     expect(runMigrations(db)).toEqual(THROUGH);
     expect(runMigrations(db), 'a second run must apply nothing').toEqual([]);
@@ -713,7 +719,7 @@ describe('0081 to 0087 on a database with rows in every table', () => {
       const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
       // `battle_deployments` and `troop_movements` are the ones this is really about: 0087 drops
       // the table they point at, and an implicit DELETE would empty them without a word.
-      expect(n, `${table} lost its row somewhere in 0081..0087`).toBe(1);
+      expect(n, `${table} lost its row somewhere in 0081..0093`).toBe(1);
     }
     // ...and the three that go are gone, rather than sitting there empty.
     for (const table of RETIRED) {
@@ -734,6 +740,17 @@ describe('0081 to 0087 on a database with rows in every table', () => {
 
     // 0081: a run already on the road prices off its own row's clock, which is what 0 means.
     expect(createMissionsRepo(db).findById('run-seed')?.mission.pricedMinutes).toBe(0);
+    /*
+     * 0088: the same row, read through the three columns it never had.
+     *
+     * A run written before leaders existed was led by an officer or by nobody, it killed nobody,
+     * and it was reported. The defaults have to say exactly that, or every historical row comes
+     * back as an unled wipeout with no report.
+     */
+    const migrated = createMissionsRepo(db).findById('run-seed')?.mission;
+    expect(migrated?.overseerLed).toBe(false);
+    expect(migrated?.lost).toEqual({});
+    expect(migrated?.reported).toBe(true);
     // ...and the district still opens, which is the thing every one of these can take away.
     expect(createBasesRepo(db).findById('b-seed')?.id).toBe('b-seed');
   });

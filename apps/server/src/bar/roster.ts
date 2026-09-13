@@ -1,6 +1,10 @@
 import {
+  RECRUIT_MAX_MIN_FACTION_INFAMY,
+  RECRUIT_MAX_MIN_INFAMY,
   RECRUIT_MAX_MIN_LEVEL,
   RECRUIT_MAX_MIN_NOTORIETY,
+  RECRUIT_MIN_FACTION_INFAMY_GATE,
+  RECRUIT_MIN_INFAMY_GATE,
   RECRUIT_MIN_LEVEL_GATE,
   RECRUIT_MIN_NOTORIETY_GATE,
   type Attributes,
@@ -9,7 +13,13 @@ import {
   GAME_TIMEZONE,
   dayInZone,
 } from '@frontline/shared';
-import { MAX_CALIBRE, generateCharacter } from '../characters/generate.js';
+import {
+  MAX_CALIBRE,
+  MIN_CALIBRE,
+  ORDINARY_ROLL,
+  generateCharacter,
+  type RollShape,
+} from '../characters/generate.js';
 import { createRng, randomInt, type Rng } from '../characters/rng.js';
 import { rollName } from './names.js';
 
@@ -63,6 +73,136 @@ const BOTH_DOORS_CHANCE = 0.35;
  */
 export const BAR_OPEN_DOOR_FLOOR = 3;
 
+/**
+ * The good ones, and where they sit (maintainer request, 2026-09-11).
+ *
+ * The room used to be eight people drawn off one curve, so the best seat on a given night was the
+ * best of eight ordinary rolls and a player had no reason to come back on a night they could not
+ * afford anybody. The last two seats of the base roster are **standouts**: rolled at a calibre well
+ * above the room, guaranteed a couple of perks, and behind all four §H3 doors including the two
+ * that are not about the player alone.
+ *
+ * Fixed seat indices, and that is load-bearing. §H2 says the room is the same for every player, and
+ * a crew whose Charisma has widened its room (`barSeatsFor`) must see the same people in the same
+ * chairs as a crew that has not. Anything counted from the *end* of a room whose length varies
+ * would put a different person behind these doors for two players looking at the same night. The
+ * seats a widened room adds are ordinary people who happened to be in.
+ */
+export const BAR_STANDOUT_SEATS = 2;
+
+/**
+ * How far above the room a standout is rolled, in attribute points on every mean.
+ *
+ * Six, against a base mean of 18 and a strength mean of 30, so a standout in a fresh city reads as
+ * somebody who has been somewhere. It is added to the city's own calibre and clamped with it, so in
+ * a mature city where the room is already at the ceiling what separates the standouts is the perk
+ * floor and the doors rather than the sheet. That is the honest version: the ceiling is the
+ * ceiling, and a room cannot be better than the game allows anybody to be.
+ */
+export const STANDOUT_CALIBRE_LIFT = 6;
+
+/** ...and the perks they are guaranteed, which the ordinary roll gives about one in five. */
+export const STANDOUT_MIN_PERKS = 2;
+
+/**
+ * What makes a standout better once the city has run out of calibre to give.
+ *
+ * `STANDOUT_CALIBRE_LIFT` is the whole difference in a young city and none of it in a mature one,
+ * because the room is already at `MAX_CALIBRE` and the lift clamps away: measured at city level 30
+ * the two sheets came out at 989 and 986 points, which is no difference at all. These two are the
+ * levers that still work at the ceiling. More of the sheet is lifted, and none of it is pulled
+ * down, so a standout is better at more things without any single attribute passing
+ * `MAX_RECRUITMENT_ATTRIBUTE`, which is the bound the whole game reads §B2a off.
+ */
+export const STANDOUT_EXTRA_STRENGTHS = 3;
+
+/** The shape the standout seats are rolled at, in one object because the parts only move together. */
+export const STANDOUT_ROLL: RollShape = {
+  minPerks: STANDOUT_MIN_PERKS,
+  extraStrengths: STANDOUT_EXTRA_STRENGTHS,
+  noWeaknesses: true,
+};
+
+/** Whether seat `index` is one of the two the good ones sit in. */
+export function isStandoutSeat(index: number): boolean {
+  return index >= BAR_ROSTER_SIZE - BAR_STANDOUT_SEATS && index < BAR_ROSTER_SIZE;
+}
+
+/**
+ * How good this particular person is, against the room they are standing in (maintainer request,
+ * 2026-09-11).
+ *
+ * The room used to be one curve and everybody was drawn off it, so eight recruits came out within
+ * a few percent of each other: measured over four hundred nights at city level 0, ordinary sheets
+ * ran 638 to 686 points between the tenth and ninetieth percentiles, on a mean of 662. That is not
+ * a room of people, it is the same person eight times with the names changed, and it made the
+ * choice at the Bar a choice about the *price* rather than about the person.
+ *
+ * A grade is a shift of the whole sheet rather than more noise on each attribute. That distinction
+ * is the point: thirty-five independent draws concentrate hard whatever their spread (the sum of
+ * thirty-five gaussians has a standard deviation of about five times one of them, against a mean
+ * of thirty-five times), so widening the per-attribute variance would blur every sheet without
+ * separating any two people. Moving the mean the whole sheet is drawn from separates them.
+ *
+ * Weighted towards the middle, with both tails thin: most people at the Bar are ordinary, a green
+ * one turns up often enough to be a real risk, and somebody seasoned is a night worth coming in
+ * for. The offsets are added to the room's own calibre and clamped with it, so a mature city
+ * raises the whole ladder rather than flattening it.
+ */
+export interface RecruitGrade {
+  /** For the logs and the tests. Never shown to a player: what they see is the sheet. */
+  id: string;
+  /** Points added to every mean this sheet is drawn from, on top of the room's own calibre. */
+  calibre: number;
+  weight: number;
+  /**
+   * The hardest §H3 rank this grade will ask a crew for. Zero is "anyone may approach me".
+   *
+   * A person asks for what they are worth, and without this the two halves of a recruit came from
+   * independent rolls: a green sheet of 348 points could sit behind the same rank-five door as the
+   * best officer in the game, which is a card nobody would ever take and reads as a bug in the
+   * roll. The level door rides on this one, because the control flow below only reaches it once a
+   * rank has been asked for.
+   */
+  maxNotoriety: number;
+}
+
+export const RECRUIT_GRADES: readonly RecruitGrade[] = [
+  { id: 'green', calibre: -8, weight: 12, maxNotoriety: 0 },
+  { id: 'raw', calibre: -5, weight: 20, maxNotoriety: 1 },
+  { id: 'ordinary', calibre: -2, weight: 30, maxNotoriety: 2 },
+  { id: 'steady', calibre: 1, weight: 22, maxNotoriety: 3 },
+  { id: 'seasoned', calibre: 4, weight: 12, maxNotoriety: 4 },
+  /*
+   * The top of the ordinary ladder, and deliberately under the standout seats' own lift.
+   *
+   * It was +7, which at every city level either matched or beat `STANDOUT_CALIBRE_LIFT`: an
+   * ordinary seat rolled 1042 points against a standout's 1027 on the same night, with none of the
+   * standout's doors on it. A seat that is as good and cheaper to reach makes the two chairs at
+   * the end of the room pointless, so the ordinary ceiling stops below them.
+   */
+  { id: 'veteran', calibre: 5, weight: 4, maxNotoriety: RECRUIT_MAX_MIN_NOTORIETY },
+] as const;
+
+/**
+ * Which grade this seat drew, off a seed of its own.
+ *
+ * A third stream rather than a draw off either existing one, for the reason the two already here
+ * are separate: the sheet seed feeds a whole rng stream whose draw order is W1's to change, and
+ * taking the grade off it would mean a retune of the attribute roll silently re-graded the room.
+ */
+export function gradeOf(seed: number): RecruitGrade {
+  const total = RECRUIT_GRADES.reduce((sum, grade) => sum + grade.weight, 0);
+  let roll = (createRng(seed)() * total) % total;
+  for (const grade of RECRUIT_GRADES) {
+    roll -= grade.weight;
+    if (roll < 0) return grade;
+  }
+  // Unreachable while the weights are positive, and a total function beats a throw on a rounding
+  // edge nobody will reproduce.
+  return RECRUIT_GRADES[RECRUIT_GRADES.length - 1] as RecruitGrade;
+}
+
 /** §H2a: the game date a roster is generated from, `YYYY-MM-DD`. Athens, not UTC. */
 export function barDay(now: Date, zone: string = GAME_TIMEZONE): string {
   return dayInZone(now, zone);
@@ -76,12 +216,47 @@ export function barDay(now: Date, zone: string = GAME_TIMEZONE): string {
  * scaled up by a level-thirty city asks for a level-thirty crew, so the good ones that turn up
  * late are gated at something a crew playing that city has actually reached.
  */
-function rollRequirement(rng: Rng, cityLevel: number): JoinRequirement {
-  if (rng() < OPEN_DOOR_CHANCE) return { minNotoriety: 0, minLevel: 1 };
-  const minNotoriety = randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, RECRUIT_MAX_MIN_NOTORIETY);
-  if (rng() >= BOTH_DOORS_CHANCE) return { minNotoriety, minLevel: 1 };
+function rollRequirement(rng: Rng, cityLevel: number, grade: RecruitGrade): JoinRequirement {
+  // Everything shut off. The two wide doors belong to the standout seats and are written out
+  // rather than defaulted, so a reader of this function can see that it does not roll them.
+  const open: JoinRequirement = {
+    minNotoriety: 0,
+    minLevel: 1,
+    minInfamy: 0,
+    minFactionInfamy: 0,
+  };
+  // Somebody with nothing to offer is in no position to ask. The grade decides how high they can
+  // reach, which is what keeps the sheet and the door on a card telling the same story.
+  if (grade.maxNotoriety < RECRUIT_MIN_NOTORIETY_GATE) return open;
+  if (rng() < OPEN_DOOR_CHANCE) return open;
+  const minNotoriety = randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, grade.maxNotoriety);
+  if (rng() >= BOTH_DOORS_CHANCE) return { ...open, minNotoriety };
   const ceiling = Math.min(RECRUIT_MAX_MIN_LEVEL, Math.max(RECRUIT_MIN_LEVEL_GATE, cityLevel));
-  return { minNotoriety, minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling) };
+  return { ...open, minNotoriety, minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling) };
+}
+
+/**
+ * A standout's doors: all four, every night, no open-door roll.
+ *
+ * The notoriety floor is the middle of the band rather than its bottom, because a standout asking
+ * the softest rank in the game would be a standout anybody could sign on their first night, and the
+ * whole point of the seat is that it is something to work towards. The level door is rolled against
+ * the city the same way the ordinary one is, so a room scaled up by a mature city asks for a crew
+ * that city could actually have produced.
+ */
+function rollStandoutRequirement(rng: Rng, cityLevel: number): JoinRequirement {
+  const floor = Math.ceil((RECRUIT_MIN_NOTORIETY_GATE + RECRUIT_MAX_MIN_NOTORIETY) / 2);
+  const ceiling = Math.min(RECRUIT_MAX_MIN_LEVEL, Math.max(RECRUIT_MIN_LEVEL_GATE, cityLevel));
+  return {
+    minNotoriety: randomInt(rng, floor, RECRUIT_MAX_MIN_NOTORIETY),
+    minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling),
+    minInfamy: randomInt(rng, RECRUIT_MIN_INFAMY_GATE, RECRUIT_MAX_MIN_INFAMY),
+    minFactionInfamy: randomInt(
+      rng,
+      RECRUIT_MIN_FACTION_INFAMY_GATE,
+      RECRUIT_MAX_MIN_FACTION_INFAMY,
+    ),
+  };
 }
 
 /** A character on the roster, before any particular crew is judged against them. */
@@ -101,9 +276,17 @@ export interface BarCharacter {
  * retune of the attribute roll cannot silently rename everyone.
  */
 function recruitAt(day: string, index: number, cityLevel: number): BarCharacter {
+  const standout = isStandoutSeat(index);
+  // The standout seats are the top of the ladder outright and do not draw a grade: what they are
+  // is the whole reason those two chairs exist.
+  const grade = gradeOf(seedFrom(`${day}:${index}:${SEAT_GENERATION}:grade`));
+  const calibre = standout
+    ? barCalibre(cityLevel) + STANDOUT_CALIBRE_LIFT
+    : barCalibre(cityLevel) + grade.calibre;
   const { attributes, perks } = generateCharacter(
     seedFrom(`${day}:${index}:${SEAT_GENERATION}:sheet`),
-    barCalibre(cityLevel),
+    Math.min(MAX_CALIBRE, Math.max(MIN_CALIBRE, calibre)),
+    standout ? STANDOUT_ROLL : ORDINARY_ROLL,
   );
   const rng = createRng(seedFrom(`${day}:${index}:${SEAT_GENERATION}:disposition`));
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
@@ -113,7 +296,11 @@ function recruitAt(day: string, index: number, cityLevel: number): BarCharacter 
     name: rollName(rng),
     attributes,
     perks,
-    requirement: openDoor ? { minNotoriety: 0, minLevel: 1 } : rollRequirement(rng, cityLevel),
+    requirement: standout
+      ? rollStandoutRequirement(rng, cityLevel)
+      : openDoor
+        ? { minNotoriety: 0, minLevel: 1, minInfamy: 0, minFactionInfamy: 0 }
+        : rollRequirement(rng, cityLevel, grade),
   };
 }
 

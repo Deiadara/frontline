@@ -1,5 +1,6 @@
 import {
   CITY_DISTRICTS,
+  cancelWindowMs,
   districtDisplayName,
   plateAspect,
   type CapturedGateView,
@@ -9,7 +10,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
-import { useCity, useMe, useRaiseGate } from '../../lib/queries';
+import { CancelMark } from '../../components/ui/CancelMark';
+import { useCancelGateRaise, useCity, useMe, useRaiseGate } from '../../lib/queries';
+import { formatRemaining } from '../base/format';
+import { useServerClock } from '../missions/useServerClock';
 import { Icon } from '../../components/ui/Icon';
 import { CitiesView } from '../cities/CitiesView';
 import { cn } from '../../lib/cn';
@@ -124,7 +128,7 @@ function DistrictTag({
       />
 
       {/*
-       * The same plate the district screen puts under a building (board request).
+       * The same plate the district screen puts under a building (maintainer request).
        *
        * These were scraps of light card stock with tape over the corners, and against a night
        * painting they were the brightest thing on the screen: ten cream stickers over the artwork,
@@ -165,6 +169,9 @@ export function CityView() {
   const city = useCity();
   const gates = city.data?.capturedGates ?? [];
   const raise = useRaiseGate();
+  const cancel = useCancelGateRaise();
+  // The city read's clock, for the gate panel's countdown and its first-tenth window.
+  const now = useServerClock(city.data?.serverNow, city.dataUpdatedAt);
 
   /**
    * Which zoom the camera is at: the city, or the step back from it.
@@ -236,7 +243,7 @@ export function CityView() {
           type="button"
           onClick={() => setPulledOut(true)}
           data-testid="all-cities"
-          className="glass edge-lit pointer-events-auto flex items-center gap-2 rounded-sm border border-surface-600 px-3 py-2 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-200 transition-colors hover:border-brass-300/70 hover:text-brass-100"
+          className="glass edge-lit brushed pointer-events-auto flex items-center gap-2 rounded-sm border border-surface-600 px-3 py-2 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-200 transition-colors hover:border-brass-300/70 hover:text-brass-100"
         >
           <Icon name="city" aria-hidden className="h-4 w-4" />
           All cities
@@ -244,7 +251,7 @@ export function CityView() {
       </div>
 
       {/*
-       * §B7: the gates on ground this crew holds outright (board request).
+       * §B7: the gates on ground this crew holds outright (maintainer request).
        *
        * Bottom-left, over the map, and drawn only when there is one. A crew that has never taken a
        * district whole sees the screen it has always seen; taking the last location in one makes a
@@ -262,10 +269,20 @@ export function CityView() {
               key={gate.districtId}
               gate={gate}
               stock={myBase?.resources ?? {}}
-              pending={raise.isPending}
+              now={now}
+              pending={raise.isPending || cancel.isPending}
               onRaise={() => raise.mutate({ districtId: gate.districtId })}
+              onCancel={() => cancel.mutate({ districtId: gate.districtId })}
             />
           ))}
+          {cancel.error && (
+            <p
+              role="alert"
+              className="glass pointer-events-auto rounded-sm border border-oxblood-500/60 px-3 py-2 font-body text-xs text-oxblood-300"
+            >
+              {cancel.error.message}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -283,16 +300,29 @@ export function CityView() {
 function CapturedGatePanel({
   gate,
   stock,
+  now,
   pending,
   onRaise,
+  onCancel,
 }: {
   gate: CapturedGateView;
   /** What is in the stockpile, so the price reads red when it cannot be paid. */
   stock: Parameters<typeof CostLine>[0]['stock'];
+  now: Date;
   pending: boolean;
   onRaise: () => void;
+  onCancel: () => void;
 }) {
   const working = gate.upgradingUntil !== null;
+  // The first tenth of the level's own clock, read off the two marks the view carries.
+  const windowMs =
+    gate.upgradingSince !== null && gate.upgradingUntil !== null
+      ? cancelWindowMs(
+          Date.parse(gate.upgradingSince),
+          Date.parse(gate.upgradingUntil) - Date.parse(gate.upgradingSince),
+          now.getTime(),
+        )
+      : 0;
   return (
     <div
       data-testid={`captured-gate-${gate.districtId}`}
@@ -311,9 +341,19 @@ function CapturedGatePanel({
         {Math.round(gate.intelResistancePercent)}% less for anybody reading it.
       </p>
       {working ? (
-        <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ember-300">
-          Being raised
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-display text-[11px] uppercase tracking-[0.14em] tabular-nums text-ember-300">
+            Being raised, {formatRemaining(Date.parse(gate.upgradingUntil ?? '') - now.getTime())}{' '}
+            left
+          </span>
+          <CancelMark
+            windowMs={windowMs}
+            label={`Call off raising the ${gate.districtName} gate`}
+            pending={pending}
+            onCancel={onCancel}
+            data-testid={`cancel-gate-${gate.districtId}`}
+          />
+        </div>
       ) : gate.nextCost === null ? (
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
           As high as it goes

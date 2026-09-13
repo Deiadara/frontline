@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CANCEL_WINDOW } from '../time/cancel.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { ArmySchema } from '../units/training.js';
 import { BattleSideSchema } from './scheduled.js';
@@ -55,7 +56,7 @@ export type Movement = z.infer<typeof MovementSchema>;
  * short enough that it is not a way to keep an army in superposition while you wait to see what
  * the other side does.
  */
-export const MOVEMENT_CANCEL_WINDOW = 0.1;
+export const MOVEMENT_CANCEL_WINDOW = CANCEL_WINDOW;
 
 const SECOND_MS = 1000;
 

@@ -96,6 +96,16 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     if (!matches) throw new AppError('INVALID_CREDENTIALS', 'That is not your current passphrase');
 
     const passwordHash = await bcrypt.hash(body.newPassword, BCRYPT_COST);
+    /*
+     * Re-read under the write. Two awaits sat between the compare and the write, and a second
+     * change landing in that gap (two tabs, one form each) passed its own compare against the
+     * same old hash and then silently overwrote the first. The row is the arbiter: if the hash
+     * moved while this request was hashing, this request lost, and says so.
+     */
+    const fresh = app.repos.users.findById(record.id);
+    if (!fresh || fresh.passwordHash !== record.passwordHash) {
+      throw new AppError('INVALID_CREDENTIALS', 'Your passphrase changed while this was in flight');
+    }
     app.repos.users.setPasswordHash(record.id, passwordHash);
     app.repos.history.record({
       actorId: record.id,

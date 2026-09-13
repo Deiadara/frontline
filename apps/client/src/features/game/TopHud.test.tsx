@@ -259,7 +259,7 @@ describe('TopHud', () => {
  * The standing bar at its widest legal values.
  *
  * jsdom has no layout engine, so these cannot answer "do two boxes overlap": that question lives
- * in `visual.spec.ts`, in a browser, and is the one that actually caught the board's screenshot.
+ * in `visual.spec.ts`, in a browser, and is the one that actually caught the maintainer's screenshot.
  * What these pin is the rule underneath it, which a browser test cannot state as clearly: **a
  * readout is an instrument and must not size itself to its reading.**
  *

@@ -60,7 +60,7 @@ export type CrewOnlyBonus =
   | { kind: 'casualty_recovery'; percent: number }
   | { kind: 'cohesion'; percent: number }
   /*
-   * The conditional ones (board request).
+   * The conditional ones (maintainer request).
    *
    * Everything above is worth the same on every turn of every game. These are worth nothing at all
    * until a particular thing is true, which is what makes them a decision rather than a number: an
@@ -1044,7 +1044,7 @@ const CATALOG: Perk[] = [
    * They are priced against their condition rather than against their size. `Line Brother` is a
    * bigger number than anything unconditional in the book and pays out in no fight you take on
    * your own; `Kept Ledger` is a quarter off one structure and nothing at all off the other
-   * eleven. That is the trade the board wanted at the Bar: not "is this good" but "is this the
+   * eleven. That is the trade the maintainer wanted at the Bar: not "is this good" but "is this the
    * shape of the game I am playing".
    */
   perk(

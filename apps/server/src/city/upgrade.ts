@@ -7,6 +7,10 @@ import {
   type Base,
   type Location,
   type LocationControl,
+  addResources,
+  cancelRefund,
+  cancelWindowOpen,
+  type PartialResources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -91,4 +95,45 @@ export function startUpgrade(
   repos.city.put(upgraded);
   repos.bases.updateResources(paid.id, paid.resources);
   return { kind: 'started', control: upgraded, base: paid, note, until };
+}
+
+/** When the running upgrade began: its end, less the clock it was given. Null with none running. */
+export function upgradingSince(location: Location, control: LocationControl): string | null {
+  if (control.upgradingUntil === null) return null;
+  return new Date(
+    Date.parse(control.upgradingUntil) - upgradeSeconds(location.kind, control.level) * 1000,
+  ).toISOString();
+}
+
+export type UpgradeCancelOutcome =
+  | { kind: 'refused'; reason: 'not_yours' | 'nothing_running' | 'window_closed' }
+  | { kind: 'cancelled'; control: LocationControl; base: Base; refund: PartialResources };
+
+/**
+ * Call the work off (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first tenth, with
+ * ninety percent of the level's price back. The clock's start is derived from its end and the
+ * duration the level always takes, so nothing new is stored for it.
+ */
+export function cancelUpgrade(
+  repos: Repositories,
+  args: { base: Base; location: Location; control: LocationControl; now: Date },
+): UpgradeCancelOutcome {
+  const { base, location, control, now } = args;
+  if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) {
+    return { kind: 'refused', reason: 'not_yours' };
+  }
+  const since = upgradingSince(location, control);
+  if (control.upgradingUntil === null || since === null) {
+    return { kind: 'refused', reason: 'nothing_running' };
+  }
+  const total = Date.parse(control.upgradingUntil) - Date.parse(since);
+  if (!cancelWindowOpen(Date.parse(since), total, now.getTime())) {
+    return { kind: 'refused', reason: 'window_closed' };
+  }
+  const refund = cancelRefund(upgradeCost(location.kind, control.level) ?? {});
+  const cleared: LocationControl = { ...control, upgradingUntil: null };
+  const repaid: Base = { ...base, resources: addResources(base.resources, refund) };
+  repos.city.put(cleared);
+  repos.bases.updateResources(repaid.id, repaid.resources);
+  return { kind: 'cancelled', control: cleared, base: repaid, refund };
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CANCEL_REFUND, CANCEL_WINDOW } from '../time/cancel.js';
 import type { Building } from '../building/index.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { MAX_TRAINING_SPEED_BONUS } from '../time/speed.js';
@@ -262,8 +263,9 @@ export function trainingProgressAt(order: TrainingOrder, now: Date): number {
  * the wrong one. Ninety-five percent back, and the missing twentieth is the material already cut
  * up before anybody said stop.
  */
-export const TRAINING_CANCEL_WINDOW = 0.1;
-export const TRAINING_CANCEL_REFUND = 0.95;
+export const TRAINING_CANCEL_WINDOW = CANCEL_WINDOW;
+/** Ninety, not the ninety-five it was: one refund for everything (`time/cancel.ts`). */
+export const TRAINING_CANCEL_REFUND = CANCEL_REFUND;
 
 /**
  * Whether this order is still inside its window.

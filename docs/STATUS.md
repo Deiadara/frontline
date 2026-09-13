@@ -46,7 +46,7 @@ missions and raids.
 ✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back.
 ✅ **Housing** (Quarters) caps the army, enforced on both hiring and placement.
 
-✅ **Modifications**: 65 of them, five per structure, slots opening at levels 5/10/20. Researched
+✅ **Modifications**: 77 of them, seven per structure, slots opening at levels 5/10/20. Researched
 rather than bought; needs a Lead Engineer. Fourteen effect kinds, every one wired to a real
 mechanic.
 
@@ -287,7 +287,7 @@ The brand wordmark is delivered too, but is **not** a manifest asset: it has no 
 backend can render 64:27 with alpha, so it ships as an ordinary import from
 `apps/client/src/brand/`. See the comment on `Wordmark.tsx`.
 
-`docs/ART-ORDER.md` (`pnpm art:order`) is the board's order sheet and lists the other 79.
+`docs/ART-ORDER.md` (`pnpm art:order`) is the maintainer's order sheet and lists the other 79.
 
 ---
 

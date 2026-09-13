@@ -67,7 +67,7 @@ import {
  *
  * Where a claim can be checked against something other than the constant that produced it, it is:
  * the unified bonus is asserted to be *different in kind* from the locations it sits over, and the
- * fortification ladder is asserted in percentages the board named rather than against the table
+ * fortification ladder is asserted in percentages the maintainer named rather than against the table
  * that produces them.
  */
 

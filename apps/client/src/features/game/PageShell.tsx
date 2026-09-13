@@ -269,15 +269,17 @@ export function InfoNote({
       <span
         className={cn(
           'flex items-center gap-1.5 rounded-sm border',
+          // `sm` is the height of the plaque chips a panel's head carries ("Always in"): one
+          // line of 10px capitals with the head's own padding, so a note beside them sits level.
           size === 'sm'
-            ? 'px-2 py-0.5 font-display text-[10px] font-bold uppercase tracking-[0.14em]'
+            ? 'h-[1.3125rem] px-2 font-display text-[10px] font-bold uppercase leading-none tracking-[0.14em]'
             : 'px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
           tone === 'warn'
             ? 'border-brass-500/50 bg-brass-500/10 text-brass-100'
             : 'border-iris-500/45 bg-iris-500/10 text-iris-100',
         )}
       >
-        <Icon name="info" aria-hidden className="h-3.5 w-3.5" />
+        <Icon name="info" aria-hidden className={size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
         {label}
       </span>
     </HoverCard>

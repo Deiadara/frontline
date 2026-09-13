@@ -1,4 +1,10 @@
-import { LiveEventSchema, type LiveEvent } from '@frontline/shared';
+import {
+  LiveEventSchema,
+  declarationWindow,
+  findDistrict,
+  startingHolder,
+  type LiveEvent,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
@@ -168,6 +174,88 @@ describe('the live channel over the wire', () => {
    * The leak. A subscriber that outlives its socket is a listener the hub will call forever, and a
    * player who reloads twenty times leaves twenty of them.
    */
+  /**
+   * The shared world reaches the *other* player (maintainer request, 2026-09-11).
+   *
+   * A fight called by one crew is a fact about the map every crew is looking at, so a tab that
+   * belongs to somebody else hears `world` and refetches. What it hears is a nudge and nothing
+   * more: no fight, no crew, no ground is named on the wire.
+   */
+  it("tells a second player's tab that the world moved when the first one writes to it", async () => {
+    const stack = await makeStack('mover');
+    const other = await stack.app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'watcher', password: 'hunter2pass' },
+    });
+    const watcher = other.json<{ token: string; user: { id: string } }>();
+    const controller = new AbortController();
+    const res = await fetch(`${stack.url}/events`, {
+      headers: { authorization: `Bearer ${watcher.token}` },
+      signal: controller.signal,
+    });
+    const frames = readFrames(res.body!, 2);
+    await vi.waitFor(() => expect(liveHub.isConnected(watcher.user.id)).toBe(true));
+
+    // The mover has a crew; the watcher has only an account, which is enough to hold a tab open.
+    const chosen = await stack.app.inject({
+      method: 'POST',
+      url: '/api/overseer',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { presetId: 'enforcer' },
+    });
+    // Scouting is a journey; the fixture wants the state, so the intel is written directly.
+    stack.app.repos.city.markScouted(
+      chosen.json<{ base: { id: string } }>().base.id,
+      'rustyard',
+      new Date().toISOString(),
+    );
+    const rustyard = findDistrict('rustyard')!;
+    const squatted = rustyard.locations.find(
+      (location) => startingHolder(location, rustyard).kind !== 'unoccupied',
+    )!;
+    const declared = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/declare',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: {
+        target: { kind: 'location', districtId: 'rustyard', locationId: squatted.id },
+        scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
+      },
+    });
+    expect(declared.statusCode).toBe(200);
+
+    const [, event] = await frames;
+    expect(event).toContain('event: world');
+    expect(payloadOf(event!).kind).toBe('world');
+    // Nothing but the kind and the clock: the wire carries no fact about the fight itself.
+    expect(Object.keys(payloadOf(event!)).sort()).toEqual(['at', 'kind']);
+    controller.abort();
+  });
+
+  /** A refused write changed nothing, so nobody is told anything. */
+  it('tells nobody about a write the server refused', async () => {
+    const stack = await makeStack('fumbler');
+    const controller = new AbortController();
+    const res = await fetch(`${stack.url}/events`, {
+      headers: { authorization: `Bearer ${stack.token}` },
+      signal: controller.signal,
+    });
+    const frames = readFrames(res.body!, 2, 400);
+    await vi.waitFor(() => expect(liveHub.isConnected(stack.userId)).toBe(true));
+
+    const refused = await stack.app.inject({
+      method: 'POST',
+      url: '/api/market/bid',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { nonsense: true },
+    });
+    expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+
+    expect(await frames).toHaveLength(1);
+    controller.abort();
+  });
+
   it('drops the subscription when the tab goes away', async () => {
     const stack = await makeStack('closer');
     const controller = new AbortController();

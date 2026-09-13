@@ -5,7 +5,7 @@ import { GAME_TIMEZONE, instantAtHourInZone } from '../time/zone.js';
 import { currentVendorSession, marketDay, vendorSessionsFor } from './vendor.js';
 
 /**
- * The Runner's barrow is an auction (market extension, board 2026-09-08).
+ * The Runner's barrow is an auction (market extension, maintainer 2026-09-08).
  *
  * He carries the same six lines for the whole city, and a line with two crews after it used to go
  * to whichever of them pressed Buy first, which rewards a fast connection and nothing else. Every

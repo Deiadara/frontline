@@ -1,14 +1,19 @@
 import {
   BUILDING_CATALOG,
-  canRecall,
   findMissionTemplate,
   findUnit,
   missionCompletesAt,
   missionPhaseAt,
   missionProgressAt,
+  queueCancelWindowMs,
   queueCompletesAt,
   queueProgressAt,
+  recallWindowMs,
+  researchCancelWindowMs,
   researchCompletesAt,
+  researchProgressAt,
+  trainingCancelWindowMs,
+  trainingCancellable,
   trainingProgressAt,
   trainingRemainingMs,
   type Base,
@@ -18,10 +23,19 @@ import {
 import { useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { Modal } from '../../components/ui/Modal';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
-import { useMe, useMissions, useRecallMission, useResearch } from '../../lib/queries';
+import {
+  useCancelBuild,
+  useCancelResearch,
+  useCancelTraining,
+  useMe,
+  useMissions,
+  useRecallMission,
+  useResearch,
+} from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 
@@ -63,8 +77,19 @@ interface Entry {
   place: string;
   /** What kind of thing this is, in the player's words. */
   kind: string;
-  /** Set on the things that can be called off; `null` on everything else. */
-  missionId: string | null;
+  /**
+   * How to call it off, while it still can be (maintainer request, 2026-09-12: everything that takes
+   * time has the same first-tenth window). `windowMs` at zero means the window has shut, and the
+   * detail draws no control at all.
+   */
+  cancel: Cancel;
+}
+
+interface Cancel {
+  route: 'build' | 'training' | 'research' | 'mission';
+  /** The order, batch or crew to name in the request. Unused by research, which has one bench. */
+  id: string;
+  windowMs: number;
 }
 
 function entriesFor(
@@ -82,7 +107,7 @@ function entriesFor(
     progress: queueProgressAt(entry, now),
     place: 'Your district',
     kind: 'Building',
-    missionId: null,
+    cancel: { route: 'build' as const, id: entry.id, windowMs: queueCancelWindowMs(entry, now) },
   }));
 
   const training = base.trainingQueue.map((order) => ({
@@ -94,15 +119,20 @@ function entriesFor(
     progress: trainingProgressAt(order, now),
     place: 'The Gauntlet',
     kind: 'Training',
-    missionId: null,
+    cancel: {
+      route: 'training' as const,
+      id: order.id,
+      // The bench's own gate, not just the clock: a batch with a body already out is not
+      // cancellable however young its clock is (`trainingCancellable`).
+      windowMs: trainingCancellable(order, now) ? trainingCancelWindowMs(order, now) : 0,
+    },
   }));
 
   /*
    * Crews that are actually *out*.
    *
-   * The only entries with somewhere to be and the only ones that can be turned around, which is why
-   * the rail carries them at all: a build finishing is a thing you wait for, a crew three districts
-   * away is a decision you might still want to change.
+   * The only entries with somewhere to be: a build finishing is a thing you wait for, a crew
+   * three districts away is a thing you might still want to go and look at.
    */
   const away = (missions?.missions ?? [])
     .filter((mission) => mission.status === 'active')
@@ -120,7 +150,11 @@ function entriesFor(
           mission.recalledAt !== null
             ? 'Coming home'
             : (MISSION_PHASE_WORD[missionPhaseAt(mission, now)] ?? 'Out'),
-        missionId: canRecall(mission, now) ? mission.id : null,
+        cancel: {
+          route: 'mission' as const,
+          id: mission.id,
+          windowMs: recallWindowMs(mission, now),
+        },
       };
     });
 
@@ -134,15 +168,14 @@ function entriesFor(
           to: '/game/research',
           place: 'The Archive',
           kind: 'Research',
-          missionId: null,
+          cancel: {
+            route: 'research' as const,
+            id: active.id,
+            windowMs: researchCancelWindowMs(active, now),
+          },
           endsAt: researchCompletesAt(active).getTime(),
-          progress: Math.min(
-            1,
-            Math.max(
-              0,
-              (now.getTime() - Date.parse(active.startedAt)) / (active.durationMinutes * 60_000),
-            ),
-          ),
+          // The Archive's own arithmetic, so the two bars cannot disagree.
+          progress: researchProgressAt(active, now),
         },
       ]
     : [];
@@ -162,7 +195,7 @@ const MISSION_PHASE_WORD: Record<string, string> = {
 /**
  * The screens the rail is drawn on.
  *
- * **Not** the world ones any more (board request). Between the standing bar and the scenery
+ * **Not** the world ones any more (maintainer request). Between the standing bar and the scenery
  * switcher, the rail is a third horizontal band, and on the city and district screens the only
  * thing under it is the painting: a crew being out cost the artwork a strip of its height, and the
  * strip appeared and disappeared as missions came and went, so the picture moved.
@@ -249,7 +282,9 @@ export function QueueRail() {
         </span>
       )}
 
-      {open !== undefined && <QueueDetail entry={open} now={now} onClose={() => setOpened(null)} />}
+      {open !== undefined && (
+        <QueueDetail entry={open} baseId={base.id} now={now} onClose={() => setOpened(null)} />
+      )}
     </aside>
   );
 }
@@ -258,18 +293,29 @@ export function QueueRail() {
  * One clock, opened.
  *
  * The rail has room for a countdown and four words. This is where the rest goes: what exactly is
- * happening, where, when it lands as a wall-clock time rather than a duration, and, for a crew
- * that is still out: the one button that changes any of it.
+ * happening, where, when it lands as a wall-clock time rather than a duration, and, while its
+ * first tenth is still running, the one control that changes any of it.
  *
- * Recall is deliberately not a "cancel". Nothing is undone: the crew turns around and walks back
- * the way they came, which takes exactly as long as getting that far did, and they arrive with
- * nothing. Saying so on the button is the difference between a player using it once and a player
- * feeling cheated by it once.
+ * What a cancel costs is said beside the X, because the two kinds are not the same. A spend
+ * called off comes back at ninety percent. A journey has no bill: the crew turns round and walks
+ * back the way they came, which takes exactly as long as getting that far did, and they arrive
+ * with nothing. Saying so is the difference between a player using it once and a player feeling
+ * cheated by it once.
  */
-function QueueDetail({ entry, now, onClose }: { entry: Entry; now: Date; onClose: () => void }) {
-  const recall = useRecallMission();
+function QueueDetail({
+  entry,
+  baseId,
+  now,
+  onClose,
+}: {
+  entry: Entry;
+  baseId: string;
+  now: Date;
+  onClose: () => void;
+}) {
   const left = Math.max(0, entry.endsAt - now.getTime());
   const arrival = new Date(entry.endsAt);
+  const open = entry.cancel.windowMs > 0;
 
   return (
     <Modal onClose={onClose} labelledBy="queue-detail-title" className="max-w-md">
@@ -312,10 +358,11 @@ function QueueDetail({ entry, now, onClose }: { entry: Entry; now: Date; onClose
           <Field label="Done">{Math.round(entry.progress * 100)}%</Field>
         </dl>
 
-        {entry.missionId !== null && (
+        {open && (
           <p className="rounded-sm border-l-2 border-oxblood-300 bg-oxblood-500/10 px-3 py-2 font-body text-[13px] leading-relaxed text-ink-200">
-            Call them back and they turn around where they stand. The walk home takes as long as the
-            walk out took, and they arrive with nothing.
+            {entry.cancel.route === 'mission'
+              ? 'Call them back and they turn around where they stand. The walk home takes as long as the walk out took, and they arrive with nothing.'
+              : 'Call it off and ninety percent of what it took comes back. The missing tenth is the material already cut up.'}
           </p>
         )}
       </div>
@@ -328,24 +375,67 @@ function QueueDetail({ entry, now, onClose }: { entry: Entry; now: Date; onClose
         >
           Go there
         </Link>
-        {entry.missionId !== null && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={recall.isPending}
-            data-testid="queue-recall"
-            onClick={() => {
-              recall.mutate({ missionId: entry.missionId ?? '' }, { onSuccess: onClose });
-            }}
-          >
-            Call them back
-          </Button>
-        )}
+        <RailCancel entry={entry} baseId={baseId} onDone={onClose} />
         <Button size="sm" onClick={onClose}>
           Leave it
         </Button>
       </footer>
     </Modal>
+  );
+}
+
+/**
+ * The X for whichever kind of thing the detail is open on.
+ *
+ * Four writes, one control. The hooks are all called (a hook cannot be picked at render time)
+ * and the entry's route says which one the press goes to; the refusal, if the server gives one,
+ * is the one from that write.
+ */
+function RailCancel({
+  entry,
+  baseId,
+  onDone,
+}: {
+  entry: Entry;
+  baseId: string;
+  onDone: () => void;
+}) {
+  const build = useCancelBuild(baseId);
+  const training = useCancelTraining(baseId);
+  const research = useCancelResearch();
+  const mission = useRecallMission();
+  const writes = { build, training, research, mission } as const;
+  const write = writes[entry.cancel.route];
+
+  const press = () => {
+    const settle = { onSuccess: onDone };
+    switch (entry.cancel.route) {
+      case 'build':
+        return build.mutate({ orderId: entry.cancel.id }, settle);
+      case 'training':
+        return training.mutate({ orderId: entry.cancel.id }, settle);
+      case 'research':
+        return research.mutate({}, settle);
+      case 'mission':
+        return mission.mutate({ missionId: entry.cancel.id }, settle);
+    }
+  };
+
+  return (
+    <span className="mr-auto flex min-w-0 flex-col gap-1">
+      <CancelMark
+        windowMs={entry.cancel.windowMs}
+        label={`Call off ${entry.what}`}
+        pending={write.isPending}
+        onCancel={press}
+        data-testid="queue-cancel"
+      />
+      {write.error && (
+        <span role="alert" className="font-body text-[12px] text-oxblood-300">
+          {write.error.message}
+        </span>
+      )}
+    </span>
   );
 }
 

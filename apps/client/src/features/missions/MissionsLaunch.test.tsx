@@ -1,11 +1,16 @@
 import {
-  MISSION_STANCE_SPECS,
+  TRAVEL_BAND_MINUTES,
+  LEANING_PROFILES,
+  MISSION_LEANING_LABELS,
+  MISSION_LEANING_REASONS,
   MISC_AREA_ID,
+  battleTierFor,
+  leaningsFor,
   missionOffers,
   playerLevelGrants,
   templateTimings,
-  type CrewResponse,
   type LaunchMissionRequest,
+  type MissionLeader,
   type LaunchMissionResponse,
   type MissionArea,
   type MissionOffer,
@@ -15,6 +20,7 @@ import {
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissionsPage } from './MissionsPage';
 import { useSession } from '../../store/session';
@@ -24,9 +30,10 @@ import { useSession } from '../../store/session';
  *
  * Mocked at `fetch` rather than at `lib/queries` on purpose. What this covers is a set of
  * *required request fields*: a launch has to name the board it came off, the units going and,
- * for a hard job, the officer leading it. A hook-level mock asserts only that some object reached
- * `mutate`: it cannot see what went on the wire, which is exactly how a client that never sent
- * `officerId` once passed every gate while half the board was unlaunchable.
+ * unless the crew has researched going without, whoever leads it. A hook-level mock asserts only
+ * that some object reached `mutate`: it cannot see what went on the wire, which is exactly how a
+ * client that never sent the leader at all once passed every gate while half the board was
+ * unlaunchable.
  */
 
 const NOW = '2026-08-13T12:00:00.000Z';
@@ -45,19 +52,67 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
       brief: template.brief,
       kind: template.kind,
       difficulty: template.difficulty,
-      stance: template.stance,
       travelMinutes: templateTimings(template).travelMinutes,
       durationMinutes: template.durationMinutes,
       totalMinutes: templateTimings(template).totalMinutes,
+      // The clock before anything is taken off it: what the send dialog runs the launch's own
+      // arithmetic on. See `MissionOfferSchema.rawTravelMinutes`.
+      rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
+      rawDurationMinutes: template.durationMinutes,
+      speedPercent: 0,
       rewards: template.spoils,
       payoutSlots: 40,
       xp: 240,
       failedXp: 48,
       pagePrize: null,
+      // Off the template, not typed in: what a job leans on and what a battle fields are
+      // `leaningsFor` and `battleTierFor`, and a fixture that made them up would let the picker
+      // agree with itself while disagreeing with the maintainer.
+      authoredChance: template.successChance,
+      leanings: [...leaningsFor(template)],
+      battleTier: battleTierFor(template),
     })),
     activeMissionId: null,
   };
 }
+
+/**
+ * Who may lead a run, off the board itself rather than off a second read of the crew.
+ *
+ * Three sheets that differ, because two of the assertions below are about *which* of them the
+ * screen picks: a roster where everybody scores the same cannot tell a working "most suitable"
+ * button from one that returns the first name it sees. Odile is out on another run, which is the
+ * state the picker has to draw and refuse.
+ */
+const LEADERS: MissionLeader[] = [
+  {
+    id: 'ov-1',
+    name: 'Rook',
+    kind: 'overseer',
+    arrivalPercent: 0,
+    attributes: makeAttributes(22),
+    held: null,
+    heldUntil: null,
+  },
+  {
+    id: 'off-1',
+    name: 'Reza Malik',
+    kind: 'officer',
+    arrivalPercent: 0,
+    attributes: makeAttributes(15, { logistics: 82, organization: 70, navigation: 66 }),
+    held: null,
+    heldUntil: null,
+  },
+  {
+    id: 'off-2',
+    name: 'Odile Marchetti',
+    kind: 'officer',
+    arrivalPercent: 0,
+    attributes: makeAttributes(15, { logistics: 95, organization: 95, navigation: 95 }),
+    held: 'run',
+    heldUntil: null,
+  },
+];
 
 const MISC = areaOf(MISC_AREA_ID, 'Miscellaneous Missions');
 const RUSTYARD = areaOf('rustyard', 'The Rustyard', 27);
@@ -70,31 +125,11 @@ const board: MissionsResponse = {
   areas: [MISC, RUSTYARD],
   army: { razors: 6, scavengers: 4 },
   serverNow: NOW,
-};
-
-const officer = (officerId: string, name: string) => ({
-  officerId,
-  name,
-  role: 'raid_boss' as const,
-  attributes: makeAttributes(15),
-  perks: [],
-  weeklyWage: 40,
-  injuredUntil: null,
-  mark: 'C' as const,
-});
-
-/** §G: a roster with people on the books, so a hard run has somebody to lead it. */
-const staffed: CrewResponse = {
-  level: 6,
-  housing: { used: 0, capacity: 8 },
-  officers: [officer('off-1', 'Reza Malik'), officer('off-2', 'Odile Marchetti')],
-};
-
-/** The starting state: a base with no officers at all (§H: you hire them at the Bar). */
-const unstaffed: CrewResponse = {
-  ...staffed,
-  level: 1,
-  officers: [],
+  leaders: LEADERS,
+  // The crew has the first rung: a run may go out unled, at a price. The forbidden half of that
+  // gate has a group of its own below.
+  unledRule: 'penalised',
+  level: 12,
 };
 
 /**
@@ -117,7 +152,11 @@ const accepted: LaunchMissionResponse = {
     startedAt: NOW,
     travelMinutes: 5,
     durationMinutes: 3,
-    officerId: null,
+    officerId: 'off-1',
+    overseerLed: false,
+    lost: {},
+    found: {},
+    reported: true,
     status: 'active',
     outcome: null,
     rewards: {},
@@ -157,27 +196,22 @@ const REFUSED_AFTER_LEVELLING = {
 };
 
 interface Stubbed {
-  crew: CrewResponse;
   /** How `POST /missions` answers. Defaults to accepting the launch. */
   launch?: { ok: boolean; status: number; body: unknown };
-  /** Hold the roster back this long, so the board renders before the officers arrive. */
-  rosterDelayMs?: number;
   /** How `GET /missions` answers. Defaults to the plain two-area board above. */
   missions?: MissionsResponse;
 }
 
-function stubApi({ crew, launch, rosterDelayMs = 0, missions = board }: Stubbed): void {
-  const reply = (body: unknown, { ok = true, status = 200, delay = 0 } = {}) =>
-    new Promise<Response>((resolve) =>
-      setTimeout(
-        () =>
-          resolve({ ok, status, statusText: '', json: () => Promise.resolve(body) } as Response),
-        delay,
-      ),
-    );
+function stubApi({ launch, missions = board }: Stubbed = {}): void {
+  const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
+    Promise.resolve({
+      ok,
+      status,
+      statusText: '',
+      json: () => Promise.resolve(body),
+    } as Response);
 
   fetchMock.mockImplementation((path: string, init?: RequestInit) => {
-    if (path.endsWith('/crew')) return reply(crew, { delay: rosterDelayMs });
     if (path.endsWith('/missions') && init?.method === 'POST') {
       return launch
         ? reply(launch.body, { ok: launch.ok, status: launch.status })
@@ -203,7 +237,9 @@ function renderBoard() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MissionsPage />
+      <MemoryRouter>
+        <MissionsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -247,7 +283,7 @@ afterEach(() => {
 
 describe('what a launch puts on the wire (§E, §G6)', () => {
   it('names the board, the crew and the leader', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -263,7 +299,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
         areaId: MISC_AREA_ID,
         force: { razors: 2 },
         vehicles: {},
-        officerId: 'off-1',
+        leaderId: 'off-1',
       }),
     );
   });
@@ -273,7 +309,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * one the player arrowed to, or the pay premium on screen belongs to somewhere else.
    */
   it('sends to the area the player arrowed to, not the one it opened on', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -298,7 +334,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * greyed out correctly and still changed the area would fail here.
    */
   it('stops at both ends of the boards rather than wrapping round', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -318,7 +354,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
   });
 
   it('will not send a crew that is nobody at all', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -331,7 +367,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
    * is refused in the window rather than on the wire, so the player is told before they commit.
    */
   it('refuses a battle job crewed entirely by porters', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -348,17 +384,25 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
     expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
   });
 
-  it('says a hard job cannot go out with nobody on the books', async () => {
-    stubApi({ crew: unstaffed });
+  /**
+   * The unled gate, on the button rather than on the wire.
+   *
+   * Both halves, because a fix applied to one of them alone is the failure this shape of test
+   * exists to catch: a dead button that stays dead once somebody is put in charge is a screen
+   * nobody can launch from, and it would pass an assertion that only checked the refusal.
+   */
+  it('will not send a run nobody is leading until the crew has researched it', async () => {
+    stubApi({ missions: { ...board, unledRule: 'forbidden' } });
     renderBoard();
+    await screen.findByTestId('board-area');
 
-    const hard = MISC.offers.find((offer) => offer.difficulty === 'hard');
-    if (!hard) throw new Error('fixture error: no hard job on the miscellaneous board');
-
-    const dialog = await openSend(hard);
+    const dialog = await openSend(firstOffer(MISC));
     take(dialog, 'Razors', 2);
-    await within(dialog).findByText(/without an officer leading it/);
+    await within(dialog).findByText('Nobody leads this. Research unled runs, or send somebody.');
     expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
+
+    await lead(dialog, /Reza Malik/);
+    expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
   });
 });
 
@@ -371,7 +415,7 @@ describe('a refused launch', () => {
   };
 
   it('tells the player why instead of returning the board to normal', async () => {
-    stubApi({ crew: staffed, launch: NEEDS_OFFICER });
+    stubApi({ launch: NEEDS_OFFICER });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -382,7 +426,7 @@ describe('a refused launch', () => {
   });
 
   it('says nothing while every launch is succeeding', async () => {
-    stubApi({ crew: staffed });
+    stubApi();
     renderBoard();
 
     await screen.findByTestId('board-area');
@@ -395,7 +439,7 @@ describe('a refused launch', () => {
    * that will ever carry that level-up: dropping it here loses the moment outright.
    */
   it('still announces a level-up the refused launch had already banked', async () => {
-    stubApi({ crew: staffed, launch: REFUSED_AFTER_LEVELLING });
+    stubApi({ launch: REFUSED_AFTER_LEVELLING });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -406,7 +450,7 @@ describe('a refused launch', () => {
   });
 
   it('shows no level-up banner when the refusal banked nothing', async () => {
-    stubApi({ crew: staffed, launch: NEEDS_OFFICER });
+    stubApi({ launch: NEEDS_OFFICER });
     renderBoard();
     await screen.findByTestId('board-area');
     await sendAnything();
@@ -416,36 +460,43 @@ describe('a refused launch', () => {
   });
 });
 
-describe('the board says which way a job points at the Combine (§A3, §D8)', () => {
-  it('badges a job that points at the state, and says what the word means', async () => {
-    stubApi({ crew: staffed });
+/*
+ * What a job leans on, and why (maintainer request, 2026-09-12).
+ *
+ * The card used to carry a `Anti-Combine` / `Combine Contract` badge, which nothing in the game
+ * read back and which told a player nothing about how to run the job. It is gone. What is left is
+ * the leaning chips, and they now explain themselves: hovering one says which attributes the job
+ * reads and what each of them is for, so a player can go and look at the sheet of whoever they
+ * were about to send.
+ */
+describe('the board says what a job leans on, and why', () => {
+  it('explains a leaning chip in the game’s own window', async () => {
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
-    const pointed = MISC.offers.find((offer) => offer.stance !== 'unaligned');
-    if (!pointed) throw new Error('fixture error: no aligned job on the miscellaneous board');
-    const spec = MISSION_STANCE_SPECS[pointed.stance];
+    const job = MISC.offers.find((offer) => offer.battleTier === null && offer.leanings.length > 0);
+    if (!job) throw new Error('fixture error: no job with leanings on the miscellaneous board');
+    const leaning = job.leanings[0]!;
 
-    const card = within(screen.getByTestId(`offer-${pointed.templateId}`));
-    const badge = card.getByText(spec.label);
-    expect(badge).toBeInTheDocument();
+    const card = within(screen.getByTestId(`offer-${job.templateId}`));
+    const chip = card.getByText(MISSION_LEANING_LABELS[leaning]);
+    fireEvent.focus(chip);
 
-    // And the keyword explains itself in the game's own window rather than in a browser tooltip.
-    fireEvent.focus(badge);
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(spec.description);
+    const tip = await screen.findByRole('tooltip');
+    expect(tip).toHaveTextContent(MISSION_LEANING_REASONS[leaning]);
+    // And it names at least one attribute, because "it is a difficult job" is not guidance.
+    const named = Object.keys(LEANING_PROFILES[leaning]).filter((attribute) =>
+      MISSION_LEANING_REASONS[leaning].toLowerCase().includes(attribute.toLowerCase()),
+    );
+    expect(named.length).toBeGreaterThan(0);
   });
 
-  it('leaves unaligned work unbadged rather than labelling every card', async () => {
-    stubApi({ crew: staffed });
+  it('carries no stance badge any more', async () => {
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
-
-    const plain = MISC.offers.find((offer) => offer.stance === 'unaligned');
-    if (!plain) throw new Error('fixture error: no unaligned job on the miscellaneous board');
-    const card = within(screen.getByTestId(`offer-${plain.templateId}`));
-    for (const spec of Object.values(MISSION_STANCE_SPECS)) {
-      expect(card.queryByText(spec.label)).toBeNull();
-    }
+    expect(screen.queryByText(/Anti-Combine|Combine Contract/)).toBeNull();
   });
 });
 
@@ -479,7 +530,7 @@ describe('a job carrying a blueprint page (§F1b)', () => {
   it('names the category on the card and never the page', async () => {
     const [first] = MISC.offers;
     if (!first) throw new Error('fixture error: the miscellaneous board is empty');
-    stubApi({ crew: staffed, missions: withPrize() });
+    stubApi({ missions: withPrize() });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -499,7 +550,7 @@ describe('a job carrying a blueprint page (§F1b)', () => {
       rest.length,
       'fixture error: nothing to compare the badged card against',
     ).toBeGreaterThan(0);
-    stubApi({ crew: staffed, missions: withPrize() });
+    stubApi({ missions: withPrize() });
     renderBoard();
     await screen.findByTestId('board-area');
 
@@ -509,7 +560,7 @@ describe('a job carrying a blueprint page (§F1b)', () => {
   });
 
   it('keeps its test id out of the `offer-` namespace the card count reads', async () => {
-    stubApi({ crew: staffed, missions: withPrize() });
+    stubApi({ missions: withPrize() });
     const { container } = renderBoard();
     await screen.findByTestId('board-area');
 

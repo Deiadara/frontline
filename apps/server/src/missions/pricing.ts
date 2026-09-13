@@ -33,15 +33,15 @@ import {
  *     `rewardScale` is monotonic in the minutes, so folding a Short Way in here paid a crew *less*
  *     for bringing their fastest leader. That is the §A4 bug this function's shape was written
  *     against, one channel along.
- *   * **§G6's delegation penalty.** A run with nobody in charge takes half again as long
- *     (`delegatedMinutes`), and pricing off that paid an unled crew *more* for being short-staffed.
- *     `delegation.ts` says leading is always better than not leading; this is what makes that true
- *     of the cheque as well as of the clock.
  *   * **Admin mode.** The card is not admin-aware and quotes the real clock, so the price is the
  *     real price. The testing build skips the wait, not the economy (`admin/mode.ts`).
  *
- * All four still shorten or lengthen the clock the crew actually runs on: see `launchMission`'s
+ * All three still shorten or lengthen the clock the crew actually runs on: see `launchMission`'s
  * `timings`, which is what the countdown and the settle's due check read.
+ *
+ * There was a fourth, §G6's old officerless penalty, which made an unled run half again as long.
+ * Leading a job moves its odds now and not its clock (`missions.leading.ts`), so there is nothing
+ * left to leave out.
  */
 export function pricedTimings(template: MissionTemplate, speedPercent: number): MissionTimings {
   return missionTimings({

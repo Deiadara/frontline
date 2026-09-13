@@ -20,30 +20,79 @@ import {
 } from './wage.js';
 
 describe('§H3, who will talk to you', () => {
-  const crew = (notoriety: number, level: number) => ({ notoriety, level });
+  /** A crew that has whatever the door under test is not about: only one thing is ever short. */
+  const crew = (
+    notoriety: number,
+    level: number,
+    infamy = 1_000_000,
+    factionInfamy = 1_000_000,
+  ) => ({
+    notoriety,
+    level,
+    infamy,
+    factionInfamy,
+  });
+  /** A recruit asking only what the case is about. The two wide doors are the standouts' own. */
+  const asking = (minNotoriety: number, minLevel: number) => ({
+    minNotoriety,
+    minLevel,
+    minInfamy: 0,
+    minFactionInfamy: 0,
+  });
 
   it('shuts the door on a crew below the rank the character demands', () => {
-    const wants = { minNotoriety: 3, minLevel: 1 };
+    const wants = asking(3, 1);
     expect(assessJoin(wants, crew(2, 40)).interested).toBe(false);
     expect(assessJoin(wants, crew(2, 40)).blockers).toEqual(['notoriety']);
     expect(assessJoin(wants, crew(3, 1)).interested).toBe(true);
   });
 
   it('shuts it on a crew that has not been around long enough, whatever its rank', () => {
-    const wants = { minNotoriety: 0, minLevel: 12 };
+    const wants = asking(0, 12);
     expect(assessJoin(wants, crew(9, 11)).blockers).toEqual(['level']);
     expect(assessJoin(wants, crew(0, 12)).interested).toBe(true);
   });
 
   it('reports both doors when both are shut, rank first', () => {
-    const assessment = assessJoin({ minNotoriety: 4, minLevel: 20 }, crew(1, 3));
+    const assessment = assessJoin(asking(4, 20), crew(1, 3));
     expect(assessment.blockers).toEqual(['notoriety', 'level']);
     expect(assessment.meetsNotoriety).toBe(false);
     expect(assessment.meetsLevel).toBe(false);
   });
 
   it('lets an open door through for a crew with nothing at all', () => {
-    expect(assessJoin({ minNotoriety: 0, minLevel: 1 }, crew(0, 1)).interested).toBe(true);
+    expect(assessJoin(asking(0, 1), crew(0, 1, 0, 0)).interested).toBe(true);
+  });
+
+  /**
+   * The two doors the Bar's standout seats ask about (maintainer request, 2026-09-11).
+   *
+   * The wallet is not the rank: a crew that spent everything it had on a title has the title and
+   * an empty account, and this is the door that can tell. The badge is the one a player cannot
+   * open alone, so a crew in no faction reads as zero and stays outside it.
+   */
+  it('asks the wallet and the badge, and reads them after the two on the HUD', () => {
+    const wants = { minNotoriety: 2, minLevel: 5, minInfamy: 4000, minFactionInfamy: 1500 };
+
+    const spentUp = assessJoin(wants, crew(5, 40, 100, 9000));
+    expect(spentUp.blockers).toEqual(['infamy']);
+    expect(spentUp.meetsNotoriety).toBe(true);
+    expect(spentUp.meetsInfamy).toBe(false);
+
+    // No faction at all is zero, which is what shuts the last door on somebody playing alone.
+    const alone = assessJoin(wants, crew(5, 40, 9000, 0));
+    expect(alone.blockers).toEqual(['faction']);
+    expect(alone.meetsFaction).toBe(false);
+
+    // All four shut, in the order a player should read them.
+    expect(assessJoin(wants, crew(0, 1, 0, 0)).blockers).toEqual([
+      'notoriety',
+      'level',
+      'infamy',
+      'faction',
+    ]);
+
+    expect(assessJoin(wants, crew(5, 40, 4000, 1500)).interested).toBe(true);
   });
 });
 

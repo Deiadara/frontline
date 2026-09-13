@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tallyContrabandTaken, tallyPagesIn } from '../feats/tally.js';
 import {
   addItems,
   addToStash,
@@ -19,6 +20,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { tellPagesFound } from '../social/pages.js';
 
 /**
  * The back room, server-side.
@@ -155,13 +157,11 @@ export function takeFromBlackMarket(
   if (!spec) return { kind: 'refused', reason: 'unknown_slot' };
   // The same weighted figure the shelf quoted, from the same function: a screen that offered one
   // price and a door that charged another is the one failure this cannot have.
-  const left = spendInfamy(
-    infamyOf(base),
-    discountedInfamy(
-      blackMarketPrice(spec, cityLevel),
-      standingEffectsFor(repos, base).blackMarketDiscountPercent,
-    ),
+  const price = discountedInfamy(
+    blackMarketPrice(spec, cityLevel),
+    standingEffectsFor(repos, base).blackMarketDiscountPercent,
   );
+  const left = spendInfamy(infamyOf(base), price);
   if (left === null) return { kind: 'refused', reason: 'not_enough_infamy' };
 
   const paid: Base = {
@@ -181,10 +181,40 @@ export function takeFromBlackMarket(
     day,
     slotIndex,
     goodId: spec.id,
-    infamySpent: spec.infamy,
+    /*
+     * What actually left the wallet, not the catalogue's figure.
+     *
+     * This recorded `spec.infamy`, the unweighted number off the shelf's own entry, while the door
+     * charged that figure scaled by the city's mean level (six per cent a level) and then
+     * discounted by the crew's standing. At a mid-game city the two are out by most of a half in
+     * one direction and the discount pulls the other way, so the receipt could be wrong either
+     * side and was never right by accident.
+     *
+     * Nothing reads the column today, which is why nobody had noticed. That is the reason to fix
+     * it rather than a reason not to: the repo's own note calls this "everything this crew has
+     * ever taken", so the first screen or balance pass built on it would have inherited a ledger
+     * that never matched the ledger beside it.
+     */
+    infamySpent: price,
     takenAt: now.toISOString(),
   });
   repos.blackMarket.bumpGeneration(day, slotIndex);
+
+  // Feats: the take itself, and any pages that came off the shelf with it. The pages ladder counts
+  // where a page is *found*, and a fence is one of the three places that happens.
+  tallyContrabandTaken(repos, paid.id);
+  tallyPagesIn(repos, paid.id, spec.grants ?? {});
+
+  // §F2: the fence sells named pages, so a taking can be the moment a document moves a square
+  // closer. Rung off the diff rather than off `spec.grants`, so a shelf entry that starts handing
+  // over two of something is covered without a second rule here.
+  tellPagesFound(repos, {
+    userId: base.ownerId,
+    before: base.inventory,
+    after: paid.inventory,
+    source: { kind: 'blackmarket' },
+    now,
+  });
 
   return { kind: 'taken', base: paid, goodId: spec.id };
 }

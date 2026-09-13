@@ -109,7 +109,7 @@ export function scheduleRefusal(at: Date, now: Date): ScheduleRefusal | null {
 /**
  * The last instant reinforcements may still arrive.
  *
- * One second before the mark, which is the board's rule stated literally. It exists as a named
+ * One second before the mark, which is the maintainer's rule stated literally. It exists as a named
  * function rather than as `scheduledFor - 1000` at three call sites because "can I still send
  * people" is asked by the route, the settler and the screen, and three copies of a subtraction is
  * how two of them end up disagreeing by a second.

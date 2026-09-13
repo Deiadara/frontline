@@ -19,7 +19,7 @@ import { buildingLevel, type Building } from './state.js';
  *
  * ## Work already queued is re-timed once, at purchase
  *
- * The board asked for the boost to reach work already under way as well as work ordered during it.
+ * The maintainer asked for the boost to reach work already under way as well as work ordered during it.
  * A queue entry's `durationSeconds` is frozen at order time on purpose (raising anything must never
  * silently re-time work in flight), so the boost cannot be a multiplier applied at read time
  * without every consumer of the queue learning about it. Instead the purchase itself rewrites the
@@ -29,7 +29,7 @@ import { buildingLevel, type Building } from './state.js';
  *
  * The consequence worth stating: buying a second burn while one runs would re-time the queue a
  * second time, which is a quarter off a quarter. That is why buying one is refused rather than
- * extending, which is also what the board asked for.
+ * extending, which is also what the maintainer asked for.
  */
 
 /** How long one burn lasts. */

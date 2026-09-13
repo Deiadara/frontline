@@ -20,7 +20,7 @@ import { cn } from '../../lib/cn';
  * **ledger** is what it cost, per unit, ranked by what each of them actually put out, which is the
  * half a player reads when they are deciding what to build next.
  *
- * Nothing here is optional decoration. Every column answers a question the board asked for by name:
+ * Nothing here is optional decoration. Every column answers a question the maintainer asked for by name:
  * what fled, what the casualties were, which units did the most damage, and how the legends did.
  *
  * ## The template

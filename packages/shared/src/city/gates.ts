@@ -9,7 +9,7 @@ import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import type { PartialResources } from '../resources.js';
 
 /**
- * The gate on a district somebody has taken whole (board request, §B7).
+ * The gate on a district somebody has taken whole (maintainer request, §B7).
  *
  * ## Why it belongs to the ground rather than to the crew
  *
@@ -33,7 +33,7 @@ import type { PartialResources } from '../resources.js';
 /** A gate that has just come into somebody's hands is a gate, not a hole. */
 export const CAPTURED_GATE_START_LEVEL = 1;
 
-/** The same ceiling every structure has. The board asked for "up to MAX level". */
+/** The same ceiling every structure has. The maintainer asked for "up to MAX level". */
 export const CAPTURED_GATE_MAX_LEVEL = BUILDING_MAX_LEVEL;
 
 export const CapturedGateSchema = z.object({
@@ -43,13 +43,15 @@ export const CapturedGateSchema = z.object({
   upgradingTo: z.number().int().min(1).max(CAPTURED_GATE_MAX_LEVEL).nullable().default(null),
   /** When that work lands. Settled lazily, like every other clock in this game. */
   upgradingUntil: IsoDateTimeSchema.nullable().default(null),
+  /** When it began, so the first tenth of it can be called off (`time/cancel.ts`). */
+  upgradingSince: IsoDateTimeSchema.nullable().default(null),
 });
 export type CapturedGate = z.infer<typeof CapturedGateSchema>;
 
 /**
  * What raising a captured gate costs and takes.
  *
- * The Gate's own curve, unchanged, which is the board's rule: "costs pretty much the same things
+ * The Gate's own curve, unchanged, which is the maintainer's rule: "costs pretty much the same things
  * to upgrade". Priced against an empty district rather than the crew's own, because the discounts
  * a home district earns (its Generator, its perks) are improvements to *that* district's yard and
  * do not reach a wall four districts away.

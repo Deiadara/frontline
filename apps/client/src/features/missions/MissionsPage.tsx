@@ -1,5 +1,4 @@
 import {
-  findBlueprintPage,
   findMissionTemplate,
   formatCountdown,
   formatDuration,
@@ -8,21 +7,26 @@ import {
   missionProgressAt,
   missionRemainingMs,
   missionTimings,
-  type CrewOfficer,
+  recallWindowMs,
   type LevelUp,
   type Mission,
+  type MissionLeader,
   type MissionPhase,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
-import { useCrew, useLaunchMission, useMe, useMissions } from '../../lib/queries';
+import { useLaunchMission, useMe, useMissions, useRecallMission } from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
+import { MissionReportWindow } from './MissionReportWindow';
+import { ledBy } from './missionLines';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
 
@@ -50,82 +54,180 @@ function Tag({ label, className }: { label: string; className?: string }) {
  * §E4: travel and mission time are shown as two separate figures, never rolled into one, with
  * the §E8 total spelled out underneath so the player can see where it came from.
  */
-type Roster =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'ready'; officers: readonly CrewOfficer[] };
 
 /** One crew currently away, with its live countdown (§E3). */
-function InFlightRow({ mission, now }: { mission: Mission; now: Date }) {
+function InFlightRow({
+  mission,
+  now,
+  leaders,
+  overseerName,
+  pending,
+  onRecall,
+}: {
+  mission: Mission;
+  now: Date;
+  leaders: readonly MissionLeader[];
+  overseerName: string;
+  pending: boolean;
+  onRecall: () => void;
+}) {
   const template = findMissionTemplate(mission.templateId);
+  const name = template?.name ?? mission.templateId;
   const phase = missionPhaseAt(mission, now);
   const progress = missionProgressAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
   const done = remaining === 0;
+  const recallLeft = recallWindowMs(mission, now);
 
   return (
-    <li className="flex min-w-0 flex-col gap-2 px-4 py-3">
-      <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-100">
-          {template?.name ?? mission.templateId}
-        </span>
+    <li className="flex min-w-0 flex-col">
+      {/*
+       * The row is a door to the Actions tab (maintainer, 2026-09-12), where the live column positions
+       * are drawn: this panel says a crew is two hours out and that screen says where on the road.
+       *
+       * A `Link` around the readout only, with the recall control as its sibling rather than
+       * inside it. An anchor with a button in it is invalid, and `stopPropagation` on the button
+       * does not save it: stopping the synthetic event before it reaches the anchor's handler
+       * means react-router never calls `preventDefault`, so the browser follows the href for real
+       * and reloads the app. Two siblings cannot have that argument.
+       */}
+      <Link
+        to="/game/actions"
+        aria-label={`${name}: where this crew is on the road`}
+        data-testid={`mission-track-${mission.id}`}
+        className="flex min-w-0 flex-col gap-2 px-4 py-3 transition-colors hover:bg-surface-800/40 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300"
+      >
+        <div className="flex min-w-0 items-baseline justify-between gap-3">
+          <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-100">
+            {name}
+          </span>
+          <span
+            className={cn(
+              'shrink-0 font-display text-base font-semibold tabular-nums',
+              done ? 'text-bile-300' : 'text-brass-300',
+            )}
+          >
+            {done ? 'READY' : formatCountdown(remaining)}
+          </span>
+        </div>
+
+        {/* The painted bar, so a crew in flight reads the same as a build, a batch and a project. */}
+        <ProgressBar progress={progress} label={name} tone={done ? 'verdigris' : 'brass'} />
+
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="truncate font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+            {PHASE_LABEL[phase]}
+          </span>
+          <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+            {formatDuration(missionTimings(mission).totalMinutes)} round trip
+          </span>
+        </div>
+
+        {/* Who took them out. A run is somebody's now, and which of your people is unavailable for
+            the next job is read off this line rather than guessed at from the picker. */}
         <span
-          className={cn(
-            'shrink-0 font-display text-base font-semibold tabular-nums',
-            done ? 'text-bile-300' : 'text-brass-300',
-          )}
+          className="truncate font-display text-[10px] uppercase tracking-[0.16em] text-brass-300"
+          data-testid={`mission-leader-${mission.id}`}
         >
-          {done ? 'READY' : formatCountdown(remaining)}
+          {ledBy(mission, leaders, overseerName)}
         </span>
-      </div>
+      </Link>
 
-      {/* The painted bar, so a crew in flight reads the same as a build, a batch and a project. */}
-      <ProgressBar
-        progress={progress}
-        label={template?.name ?? mission.templateId}
-        tone={done ? 'verdigris' : 'brass'}
-      />
-
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="truncate font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-          {PHASE_LABEL[phase]}
-        </span>
-        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          {formatDuration(missionTimings(mission).totalMinutes)} round trip
-        </span>
-      </div>
+      {/* The first tenth of the road out (maintainer request, 2026-09-12): call them back and they
+          walk home the distance covered, arriving with nothing. Gone once the window shuts, and
+          the padding goes with it so a shut window leaves no empty band under the row. */}
+      {recallLeft > 0 && (
+        <div className="px-4 pb-3">
+          <CancelMark
+            windowMs={recallLeft}
+            label={`Call the ${name} crew back`}
+            pending={pending}
+            onCancel={onRecall}
+            data-testid={`recall-mission-${mission.id}`}
+          />
+        </div>
+      )}
     </li>
   );
 }
 
 /** A crew that has come home, with what it actually banked. */
-function ReturnedRow({ mission }: { mission: Mission }) {
+function ReturnedRow({
+  mission,
+  leaders,
+  overseerName,
+}: {
+  mission: Mission;
+  leaders: readonly MissionLeader[];
+  overseerName: string;
+}) {
   const template = findMissionTemplate(mission.templateId);
+  const name = template?.name ?? mission.templateId;
   const failed = mission.outcome === 'failure';
-  return (
-    <li className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
-      <div className="flex min-w-0 items-center justify-between gap-3">
+  const [open, setOpen] = useState(false);
+
+  /*
+   * Nobody came back to tell it.
+   *
+   * A battle that loses the whole force sends no report: there is no outcome to print and no haul
+   * to print, and printing "Lost" beside an empty reward line would be the game answering a
+   * question nobody survived to ask. The row is one sentence, and the player learns the rest from
+   * the gap in their army.
+   */
+  if (!mission.reported) {
+    return (
+      <li className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
         <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
-          {template?.name ?? mission.templateId}
+          {name}
         </span>
-        <Tag
-          label={failed ? 'Lost' : 'Success'}
-          className={
-            failed ? 'border-oxblood-500/50 text-oxblood-300' : 'border-bile-300/50 text-bile-300'
-          }
-        />
-      </div>
-      <RewardLine rewards={mission.rewards} />
-      {/* §F1f: and the page, by name. The card that offered this run said only "a unit blueprint's
-          page"; this is where the player finds out which sheet they actually came home with, which
-          is the half of the mechanic that pays off the anticipation. */}
-      {mission.pageWon !== null && (
         <span
-          className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-brass-300"
-          data-testid={`mission-page-${mission.id}`}
+          className="font-display text-[11px] uppercase tracking-[0.16em] text-oxblood-300"
+          data-testid={`mission-silent-${mission.id}`}
         >
-          {findBlueprintPage(mission.pageWon)?.name ?? mission.pageWon}
+          Nobody came back
         </span>
+      </li>
+    );
+  }
+
+  /*
+   * Three things and a door (maintainer, 2026-09-12): which job, what it paid, whether it worked.
+   *
+   * Who led it, what it cost in bodies and which sheet came home are all still recorded, in the
+   * window this row opens. They were on the row itself, four lines deep, and six crews of it
+   * filled the left column with small capitals that nobody read: the detail was there and
+   * unreadable, which is the same as not being there.
+   */
+  return (
+    <li className="flex min-w-0 flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={`${name}: what happened`}
+        data-testid={`mission-open-${mission.id}`}
+        className="flex min-w-0 flex-col gap-1.5 px-4 py-3 text-left transition-colors hover:bg-surface-800/40 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300"
+      >
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
+            {name}
+          </span>
+          <Tag
+            label={failed ? 'Lost' : 'Success'}
+            className={
+              failed ? 'border-oxblood-500/50 text-oxblood-300' : 'border-bile-300/50 text-bile-300'
+            }
+          />
+        </div>
+        <RewardLine rewards={mission.rewards} />
+      </button>
+      {open && (
+        <MissionReportWindow
+          mission={mission}
+          leaders={leaders}
+          overseerName={overseerName}
+          onClose={() => setOpen(false)}
+        />
       )}
     </li>
   );
@@ -164,7 +266,6 @@ function EmptyRow({ text }: { text: string }) {
  */
 export function MissionsPage() {
   const missionsQuery = useMissions();
-  const crewQuery = useCrew();
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
   const me = useMe();
@@ -172,11 +273,30 @@ export function MissionsPage() {
 
   const data = missionsQuery.data;
   const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
-  const roster: Roster = crewQuery.data
-    ? { status: 'ready', officers: crewQuery.data.officers }
-    : crewQuery.isError
-      ? { status: 'error' }
-      : { status: 'loading' };
+  const recall = useRecallMission();
+  /*
+   * The leaders ride in on the board itself, not on a second read of the crew.
+   *
+   * They used to come from `GET /crew`, which put a §G6 gate behind a request this screen made
+   * only for the picker, and made "the roster is still loading" and "you have nobody" two states
+   * this page had to tell apart and once got wrong. The Overseer is not on that roster at all.
+   * One payload answers who may lead, who is already out, and on what terms a crew may go unled.
+   */
+  const leaders = data?.leaders ?? [];
+  /*
+   * And the Overseer's name off that same payload, not off `/me`.
+   *
+   * `leadersFor` puts them first on the board with the name the player gave them, so the row that
+   * says who led a run is reading the response that carried the run. `/me` is a separate query
+   * with a 30s `staleTime` and no poll: on a cold load of this URL it can land after the board,
+   * and every Overseer-led row in the list read `The Overseer` while the picker beside it was
+   * already showing the real name. It stays as the fallback for a board old enough to have no
+   * Overseer on it.
+   */
+  const overseerName =
+    leaders.find((one) => one.kind === 'overseer')?.name ??
+    me.data?.overseer?.name ??
+    'The Overseer';
 
   /*
    * A crew can level the player up while this page is simply *open*, and the server announces that
@@ -272,12 +392,25 @@ export function MissionsPage() {
                 <ul
                   aria-label="Crews in flight"
                   data-testid="crews-in-flight"
-                  className="flex flex-col divide-y divide-surface-700 xl:min-h-0 xl:overflow-y-auto"
+                  className="flex flex-col divide-y divide-surface-700 xl:mb-2 xl:min-h-0 xl:overflow-y-auto"
                 >
                   {landing.map((mission) => (
-                    <InFlightRow key={mission.id} mission={mission} now={now} />
+                    <InFlightRow
+                      key={mission.id}
+                      mission={mission}
+                      now={now}
+                      leaders={leaders}
+                      overseerName={overseerName}
+                      pending={recall.isPending}
+                      onRecall={() => recall.mutate({ missionId: mission.id })}
+                    />
                   ))}
                 </ul>
+              )}
+              {recall.error && (
+                <p role="alert" className="px-4 pb-3 font-body text-[13px] text-oxblood-300">
+                  {recall.error.message}
+                </p>
               )}
             </Panel>
 
@@ -287,10 +420,18 @@ export function MissionsPage() {
               ) : (
                 <ul
                   aria-label="Crews returned"
-                  className="flex flex-col divide-y divide-surface-700 xl:min-h-0 xl:overflow-y-auto"
+                  // The scroller stops at the panel's ruled line rather than at its outer edge
+                  // (maintainer, 2026-09-10): a row half-scrolled off the bottom was cut at the frame's
+                  // outside, so its last line showed under the line that is meant to be the edge.
+                  className="flex flex-col divide-y divide-surface-700 xl:mb-2 xl:min-h-0 xl:overflow-y-auto"
                 >
                   {returned.map((mission) => (
-                    <ReturnedRow key={mission.id} mission={mission} />
+                    <ReturnedRow
+                      key={mission.id}
+                      mission={mission}
+                      leaders={leaders}
+                      overseerName={overseerName}
+                    />
                   ))}
                 </ul>
               )}
@@ -325,7 +466,13 @@ export function MissionsPage() {
                   army={data?.army ?? {}}
                   fleet={me.data?.base?.fleet ?? {}}
                   loadouts={me.data?.base?.unitLoadouts ?? {}}
-                  roster={roster}
+                  leaders={leaders}
+                  unledRule={data?.unledRule ?? 'forbidden'}
+                  // What a battle job fields scales with the player's level, and the level lives
+                  // on the base rather than on the board. One short of nothing is level 1, which
+                  // is the gentlest reading of a tier and the safe fallback.
+                  level={data.level}
+                  now={now}
                   atCapacity={atCapacity}
                   pendingTemplateId={
                     launch.isPending ? (launch.variables?.templateId ?? null) : null
@@ -335,14 +482,14 @@ export function MissionsPage() {
                       ? { templateId: launch.variables.templateId, message: launch.error.message }
                       : null
                   }
-                  onLaunch={(areaId, templateId, force, officerId, vehicles) =>
+                  onLaunch={(areaId, templateId, force, leaderId, vehicles) =>
                     launch.mutate(
                       {
                         areaId,
                         templateId,
                         force,
                         vehicles: vehicles ?? {},
-                        ...(officerId ? { officerId } : {}),
+                        ...(leaderId ? { leaderId } : {}),
                       },
                       // A launch settles the board first, so this response is the only place a crew
                       // that landed on it is ever reported: including when the launch is then

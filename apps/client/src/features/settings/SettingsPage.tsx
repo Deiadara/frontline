@@ -176,7 +176,7 @@ function ProfilePanel({
                 aria-pressed={glyph === option}
                 onClick={() => setGlyph(option)}
                 className={cn(
-                  'flex h-11 w-11 items-center justify-center rounded-sm border transition-all duration-100',
+                  'brushed relative flex h-11 w-11 items-center justify-center rounded-sm border transition-all duration-100',
                   glyph === option
                     ? 'border-brass-300/80 bg-brass-300/20 text-brass-100 shadow-brass'
                     : 'border-surface-600 bg-surface-800/70 text-ink-300 hover:border-iris-300/70 hover:text-iris-100',
@@ -620,7 +620,7 @@ export function SettingsPage() {
         <SoundsPanel soundVolume={data.user.soundVolume} />
       </div>
 
-      {/* The board asked for the filter to live here. It is the same control the bell's own second
+      {/* The maintainer asked for the filter to live here. It is the same control the bell's own second
           tab draws, sharing one query rather than a second copy of the state: a player annoyed by a
           category is usually looking at it, and a player hunting for a switch comes here. */}
       <Panel title="What you hear about">

@@ -1,7 +1,7 @@
 /**
  * Raiding a crew's home: the door, the day it is open for, and whose home is off limits.
  *
- * §A4, board 2026-09-09. Two rules meet here and neither worked before it:
+ * §A4, maintainer 2026-09-09. Two rules meet here and neither worked before it:
  *
  *   * **A home is shut.** A residential district holds no locations, so `districtHolder` answers
  *     null for one and `gateArmed` therefore answered false. Every crew's home was open ground:

@@ -38,7 +38,7 @@ export function deliveredTexture(ref: AssetRef, loader: ArtLoader = artLoader): 
  * building, which is what they were reported as.
  *
  * Not routed through the manifest on purpose. These are **derived** from a delivered asset rather
- * than delivered themselves: there is nothing for the board to draw and nothing to order, and a
+ * than delivered themselves: there is nothing for the maintainer to draw and nothing to order, and a
  * manifest entry would put twelve rows on the art order sheet asking for work that already exists.
  */
 export function buildingPortraitUrl(kind: BuildingKind): string | null {

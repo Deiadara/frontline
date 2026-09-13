@@ -61,7 +61,7 @@ export const ramps = {
  * The **chrome** palette: everything the app draws that is not artwork.
  *
  * Separate from `ramps` on purpose. The ramps are the ART-BIBLE's description of the *paintings*,
- * and the board's masters are made against them; retuning those to change the interface would be
+ * and the maintainer's masters are made against them; retuning those to change the interface would be
  * repainting the game to restyle a button. These are the surfaces, rules and type colours the UI
  * itself is built from, and they answer to the art rather than the other way round.
  *
@@ -115,7 +115,7 @@ export const chrome = {
    *
    * The back room used to be the front of the market wearing a red badge, which is exactly wrong:
    * it is not a shop, nothing in it is priced in caps, and walking through the door is supposed to
-   * feel like walking somewhere you should not be. Black and orange is the board's own call and it
+   * feel like walking somewhere you should not be. Black and orange is the maintainer's own call and it
    * is a good one. It is the colour language of a hazard placard, and it is the one combination
    * nothing else in the interface uses.
    *
@@ -154,7 +154,7 @@ export const hex = (value: string): number => Number.parseInt(value.replace('#',
  * quotation, a line of dialogue, the name of a person, the label on a dropdown. It is a
  * *distressed* face, drawn with the ink-spread and misalignment of a real ribbon, with no weight
  * axis and no italic. That is texture on a name and a legibility tax across a table, so it stays
- * off the dense work: an earlier pass put it there and the board's note was blunt and correct, the
+ * off the dense work: an earlier pass put it there and the maintainer's note was blunt and correct, the
  * game was harder to read than it needed to be.
  *
  * ### Sizing the stamp

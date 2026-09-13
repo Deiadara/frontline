@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { tallyScoutingRun } from '../feats/tally.js';
 import {
+  LEADER_HOLD_MESSAGES,
   findDistrict,
   officerBattleStats,
   scoutMinutesFor,
+  scoutRecallable,
+  scoutRecalledReturnsAt,
   scoutRunMinutes,
   travelMinutesBetween,
   type Base,
@@ -16,7 +20,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 
 /**
- * Sending somebody to look at a district, and having them come back (§A4, board rework).
+ * Sending somebody to look at a district, and having them come back (§A4, maintainer rework).
  *
  * The old scout was `markScouted` on a button press. What replaced it is the smallest journey the
  * game has: one officer, out and back, no units and no fight. See the note in
@@ -35,6 +39,8 @@ const MINUTE_MS = 60_000;
 export interface ScoutPlan {
   officer: Commander;
   minutes: number;
+  /** The walk out on its own: frozen onto the run, because a recall is measured against it. */
+  travelMinutes: number;
   returnsAt: Date;
 }
 
@@ -78,19 +84,35 @@ export function planScout(
    */
   const speed = officerBattleStats(officer.attributes).speed;
   const effects = standingEffectsFor(repos, base);
-  const minutes = scoutRunMinutes(
-    travelMinutesBetween(from, to, {
-      speed,
-      reductionPercent: effects.travelSpeedPercent,
-      flatMinutesOff: effects.roadMinutesOff,
-    }),
-    officer.attributes,
-  );
-  return { officer, minutes, returnsAt: new Date(now.getTime() + minutes * MINUTE_MS) };
+  const travelMinutes = travelMinutesBetween(from, to, {
+    speed,
+    reductionPercent: effects.travelSpeedPercent,
+    flatMinutesOff: effects.roadMinutesOff,
+  });
+  const minutes = scoutRunMinutes(travelMinutes, officer.attributes);
+  return {
+    officer,
+    minutes,
+    travelMinutes,
+    returnsAt: new Date(now.getTime() + minutes * MINUTE_MS),
+  };
 }
 
 export type SendScoutResult =
-  { kind: 'refused'; reason: ScoutRefusal } | { kind: 'sent'; run: ScoutingRun; plan: ScoutPlan };
+  | {
+      kind: 'refused';
+      reason: ScoutRefusal;
+      /**
+       * The refusal in this officer's own case, where there is one worth saying.
+       *
+       * `officer_busy` covers three different jobs and a fixed "they are already out" told a
+       * player nothing about which of them to go and undo. When the hold is known the route says
+       * it in the same words the launch and the fight use (`LEADER_HOLD_MESSAGES`), so one person
+       * held one way reads the same at every door.
+       */
+      message?: string;
+    }
+  | { kind: 'sent'; run: ScoutingRun; plan: ScoutPlan };
 
 /**
  * Puts an officer on the road.
@@ -135,8 +157,13 @@ export function sendScout(
    * questions in one place so the three dispatch doors cannot answer them differently.
    */
   const duty = officerDuty(repos, base, officer, now);
-  if (duty === 'injured') return { kind: 'refused', reason: 'officer_injured' };
-  if (duty !== null) return { kind: 'refused', reason: 'officer_busy' };
+  if (duty !== null) {
+    return {
+      kind: 'refused',
+      reason: duty.held === 'injury' ? 'officer_injured' : 'officer_busy',
+      message: `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}`,
+    };
+  }
 
   const plan = planScout(repos, base, districtId, officer, now);
   if (!plan) return { kind: 'refused', reason: 'no_officer' };
@@ -148,6 +175,9 @@ export function sendScout(
     officerId: officer.id,
     departedAt: now.toISOString(),
     returnsAt: plan.returnsAt.toISOString(),
+    // The leg the recall window is measured against, frozen here with the mark.
+    travelMinutes: plan.travelMinutes,
+    recalledAt: null,
   };
   repos.scouting.insert(run);
   return { kind: 'sent', run, plan };
@@ -161,13 +191,38 @@ export function sendScout(
  * when it arrives. A player who sent somebody out at nine and closed the tab should find the
  * ground open and the bell rung, not find both the moment they next open the city screen.
  */
+export type RecallScoutResult =
+  | { kind: 'refused'; reason: 'nobody_out' | 'window_closed' }
+  | { kind: 'recalled'; run: ScoutingRun };
+
+/**
+ * Turn the scout round (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first tenth of
+ * the way out. They walk home the distance they have covered, and the ground does not open.
+ */
+export function recallScout(repos: Repositories, base: Base, now: Date): RecallScoutResult {
+  const run = repos.scouting.activeFor(base.id).find((active) => active.recalledAt === null);
+  if (!run) return { kind: 'refused', reason: 'nobody_out' };
+  if (!scoutRecallable(run, now)) return { kind: 'refused', reason: 'window_closed' };
+  const returnsAt = scoutRecalledReturnsAt(run, now).toISOString();
+  repos.scouting.markRecalled(run.id, now.toISOString(), returnsAt);
+  return { kind: 'recalled', run: { ...run, recalledAt: now.toISOString(), returnsAt } };
+}
+
 export function settleScouting(repos: Repositories, now: Date): number {
   const due = repos.scouting.due(now.toISOString());
   for (const run of due) {
+    // A scout turned round never got there: they are home, and the ground stays shut.
+    if (run.recalledAt !== null) {
+      repos.scouting.markSettled(run.id, now.toISOString());
+      continue;
+    }
     // The ground is open from the moment they are home, and the run is marked in the same breath:
     // `due` filters on `settled_at`, so a second pass finds nothing and cannot open it twice.
     repos.city.markScouted(run.baseId, run.districtId, now.toISOString());
     repos.scouting.markSettled(run.id, now.toISOString());
+    // Feats: a run that got there and opened the ground. A recall is handled above and is
+    // deliberately not counted: the ladder is about the ground seen, not about the officer sent.
+    tallyScoutingRun(repos, run.baseId);
     notifyBase(repos, run.baseId, {
       kind: 'scout_home',
       title: 'Your scout is back',

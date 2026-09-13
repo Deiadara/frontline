@@ -4,7 +4,7 @@ import { BadgeSchema } from '../factions/badge.js';
 import { FactionNameSchema } from '../factions/factions.js';
 
 /**
- * The standings (board request): who is ahead, of the players and of the factions.
+ * The standings (maintainer request): who is ahead, of the players and of the factions.
  *
  * Two boards rather than one list with a filter, because they rank different things and the row
  * shapes differ: a player has a district and a level, a faction has a badge and a seat count.
@@ -49,8 +49,18 @@ export const PlayerStandingSchema = z.object({
   districtName: z.string().min(1),
   level: z.number().int().positive(),
   infamy: z.number().nonnegative(),
+  /**
+   * Everything they have ever been paid, spent or not (maintainer request, 2026-09-12).
+   *
+   * `infamy` is the wallet, which a player empties every time they buy a rank, so a board ranked
+   * on it puts the crew that never spent above the crew that earned twice as much and used it.
+   * This is the wallet plus every point already sunk into the ladder, which is what "who has done
+   * the most" actually means, and it is the second thing the standings may be sorted by.
+   */
+  totalInfamy: z.number().nonnegative(),
   notoriety: z.number().int().nonnegative(),
   /** The faction they fight for, drawn beside them. Null for somebody at no table. */
+  factionId: IdSchema.nullable(),
   factionName: FactionNameSchema.nullable(),
   factionBadge: BadgeSchema.nullable(),
   /** A hardcoded neighbour who does not play. Shown, and marked. */
@@ -68,6 +78,15 @@ export const FactionStandingSchema = z.object({
   infamy: z.number().nonnegative(),
   /** The highest level at the table, which is the other thing a rival wants to know. */
   topLevel: z.number().int().nonnegative(),
+  /**
+   * The mean level at the table, rounded to a whole number (maintainer request, 2026-09-12).
+   *
+   * `topLevel` says how good the best of them is, which a faction of one and a faction of five can
+   * both answer with the same number. This says what the table is *worth walking into*, and it
+   * moves the moment somebody joins or leaves, because it is computed off the roster on every read
+   * rather than stored. See {@link averageLevel}.
+   */
+  averageLevel: z.number().int().nonnegative(),
 });
 export type FactionStanding = z.infer<typeof FactionStandingSchema>;
 
@@ -122,4 +141,18 @@ export function ranked<T>(
     }
     return { ...entry, rank: lastRank };
   });
+}
+
+/**
+ * The mean level of a roster, as a whole number. Empty is 0, which is what a table nobody sits at
+ * is worth.
+ *
+ * Rounded rather than truncated, so a table of a 4 and a 5 reads as 5 and not as 4: the number is
+ * a description of the room, and truncation makes every mixed table look worse than it is. One
+ * function because the standings row and the faction's own profile both print it, and two screens
+ * rounding one number differently is a bug report nobody can reproduce.
+ */
+export function averageLevel(levels: readonly number[]): number {
+  if (levels.length === 0) return 0;
+  return Math.round(levels.reduce((sum, level) => sum + level, 0) / levels.length);
 }

@@ -17,7 +17,7 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
  * the salvage land. Every step is captured at both supported viewports.
  */
 
-/** The viewports the board reviews the build at. */
+/** The viewports the maintainer reviews the build at. */
 const VIEWPORTS = [
   { width: 1280, height: 720 },
   { width: 1920, height: 1080 },
@@ -255,7 +255,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await card.getByRole('button', { name: 'Call a fight' }).click();
   const caller = page.getByRole('dialog');
   await expect(caller.getByRole('heading', { name: firstPlace.name })).toBeVisible();
-  // The occupation flag the board asked for, on the real screen.
+  // The occupation flag the maintainer asked for, on the real screen.
   await expect(caller.getByTestId('declare-hold')).toBeVisible();
   await caller.getByTestId('declare-hold').click();
   await caller.getByTestId('declare-confirm').click();
@@ -272,7 +272,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.getByRole('link', { name: 'Units', exact: true }).click();
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
   await expect(page.getByTestId('supply')).toBeVisible();
-  // The catalogue opens on the carriers (board request), so the fighting tier is one click away.
+  // The catalogue opens on the carriers (maintainer request), so the fighting tier is one click away.
   await page.getByRole('button', { name: 'Rabble' }).click();
   /*
    * §B6: on day one the fighting tier is locked, and the card says what would open it.
@@ -280,7 +280,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * This asserted that Razors could be trained immediately, on the grounds that they "need nothing
    * at all". That stopped being true when the Gauntlet became the gate for the twelve units it
    * trains: a new crew now runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
-   * Razor. That is a real change to the opening and it is the board's to keep or revert.
+   * Razor. That is a real change to the opening and it is the maintainer's to keep or revert.
    *
    * The assertion is kept pointed at the same card, because what it is really guarding is that the
    * roster renders against the live backend and explains itself. A locked unit that says nothing

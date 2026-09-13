@@ -64,10 +64,7 @@ export function OffersPage() {
   const pending = accept.isPending || withdraw.isPending;
 
   return (
-    <PageShell
-      wide
-      quote="A crew never sells what it needs. It sells what somebody else needs more."
-    >
+    <PageShell wide quote="Put a price on it. Someone out there is desperate enough.">
       <MarketTabs
         active="offers"
         action={
@@ -334,7 +331,7 @@ function OfferComposer({
     setWantRes({});
   };
 
-  // Materials only (board request, 2026-09-09): the item slot went with the verdict badges. The
+  // Materials only (maintainer request, 2026-09-09): the item slot went with the verdict badges. The
   // wire still carries items so a listing is one shape everywhere; this screen just never fills it.
   const give = { resources: giveRes, items: {} };
   const want = { resources: wantRes, items: {} };

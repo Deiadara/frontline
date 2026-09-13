@@ -45,7 +45,7 @@ describe('unit upgrade slots', () => {
   });
 
   /**
-   * §D5c: one of a thing is one of a thing (board rule).
+   * §D5c: one of a thing is one of a thing (project rule).
    *
    * This test used to assert the opposite, and it was right about the code: `already_slotted` only
    * looked at the unit being fitted, so a single Scrap Plate could be bolted to the Razors, the

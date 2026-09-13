@@ -11,7 +11,7 @@ import { NotificationDetail } from './NotificationDetail';
 import { NotificationFilters } from './NotificationFilters';
 
 /**
- * The bell (board request).
+ * The bell (maintainer request).
  *
  * **The list is the screen.** It used to be two equal tabs, "What happened" and "What reaches you",
  * which made a player choose between the news and the settings every time they opened the bell:

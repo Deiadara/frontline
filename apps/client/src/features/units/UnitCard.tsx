@@ -96,7 +96,7 @@ export interface UnitCardTraining {
  *   3. The action. Price and Train, or the padlock and what is in the way. Same box, same place,
  *      whichever it is.
  *
- * The one part that is allowed to grow is the marks (board request, 2026-09-08): every rule, every
+ * The one part that is allowed to grow is the marks (maintainer request, 2026-09-08): every rule, every
  * modifier and every characteristic this unit notices is printed, wrapping into as many rows as it
  * takes, because a `+3` chip hides exactly the thing a player opened the roster to compare. So the
  * frame carries a floor rather than a height, and the grid stretches every card in a row to the
@@ -127,7 +127,7 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
         // box shorter and nothing else moves, so the card a hover shows is the card the roster
         // shows with its last row taken off.
         //
-        // The picture fills the frame with the same 12px over it and under it (board request,
+        // The picture fills the frame with the same 12px over it and under it (maintainer request,
         // 2026-09-08; it had a 30px strip of card under it, which was the marks band's headroom
         // showing through a capped portrait). So the frame is the column beside the picture,
         // budgeted to the pixel for the tallest card in the game, and the sheet (`flex-1`, below)
@@ -254,8 +254,14 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
           less to say than a card with two, and the room goes under the marks, inside the sheet's
           own rules, rather than between the brackets and the price box, so those two sit at the
           same height on every card and the price box lands on the portrait's bottom edge.
+
+          A column, so the leftover goes to the marks rather than below them (maintainer request,
+          2026-09-12). A unit whose keywords fit one line had the row pinned to the top of a band
+          sized for two, and the rest of the band was a hole between the chips and the brackets.
+          The chips now sit in the middle of whatever room the card has, which reads as a row with
+          air around it rather than as a row that lost an argument with the layout.
         */}
-        <div className="flex-1 border-y border-surface-600/50 py-2">
+        <div className="flex flex-1 flex-col border-y border-surface-600/50 py-2">
           <dl className="grid grid-cols-2 gap-2">
             {UNIT_HEADLINE_KEYS.map((key) => (
               <div
@@ -313,8 +319,10 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
             })}
           </dl>
 
-          {/* Every keyword the unit carries, wrapping: one row on most cards, two on the widest. */}
-          <div className="mt-1 border-t border-surface-700/70 pt-1">
+          {/* Every keyword the unit carries, wrapping: one row on most cards, two on the widest.
+              `flex-1` with the chips centred, so a one-line row is centred in the band's spare
+              height and a two-line row simply takes it. */}
+          <div className="mt-1 flex flex-1 flex-col justify-center border-t border-surface-700/70 pt-1">
             <Marks unit={unit} />
           </div>
         </div>
@@ -467,7 +475,7 @@ function StatLabel({ statKey }: { statKey: StatKey }) {
 
 /**
  * Every mark this unit carries: what it does, what it cannot do, and where it is unusually good or
- * bad (board request, 2026-09-08).
+ * bad (maintainer request, 2026-09-08).
  *
  * All of them, wrapping. It used to print two and count the rest into a `+N` chip, which kept the
  * card a fixed height and hid the one thing a player opens a roster to compare: a Colossus reading
@@ -642,7 +650,7 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  *
  * It was a `DescribedTag`, which is the small tooltip: a heading, two lines and out. That is the
  * right shape for a trait on a recruit card and the wrong one here, because a modifier is a *rule*,
- * a condition and an effect, and the board asked for these specifically. The window gives the
+ * a condition and an effect, and the maintainer asked for these specifically. The window gives the
  * two halves their own labelled sections, so "when does this happen" and "what does it do" stop
  * being one run-on sentence a player has to parse.
  *
@@ -657,7 +665,7 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * which is the chrome the interface already uses for "this is a mechanism", and always first in the
  * row: a rule outranks a percentage.
  *
- * A rule can also take something away, and then it is oxblood (board request, 2026-09-08): the
+ * A rule can also take something away, and then it is oxblood (maintainer request, 2026-09-08): the
  * Colossus is too big to ride, and a red chip is the difference between reading that as a perk and
  * reading it as the reason the column is walking. Same red as the locked box and the missing
  * clauses, so the card has one colour for "this is against you".

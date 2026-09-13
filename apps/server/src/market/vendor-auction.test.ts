@@ -24,7 +24,7 @@ import {
 import { marketRefusalText, projectMarket } from './board.js';
 
 /**
- * The Runner's barrow, as an auction (board 2026-09-08).
+ * The Runner's barrow, as an auction ( maintainer 2026-09-08).
  *
  * The ranking and the visit are pinned in `packages/shared`; what is here is the part only a server
  * can be wrong about: that a bid is stored against the right visit, that the close moves goods and
@@ -235,7 +235,9 @@ describe('bidding on a lot', () => {
   it('refuses a line the city has already cleared out', async () => {
     const app = await makeApp();
     const ana = await signIn(app, 'ana');
-    const day = aDayWhere(() => true);
+    // A day with a one-off on the barrow: the pool has no line that is always rationed to one now
+    // that the finished blueprints are off it, so the day is chosen rather than assumed.
+    const day = aDayWhere((lines) => lines.some((line) => line.stock === 1));
     const line = rationedLine(day);
     const now = duringVisit(day, 0);
     app.repos.market.recordVendorSale(day, line.id, line.stock, now.toISOString());

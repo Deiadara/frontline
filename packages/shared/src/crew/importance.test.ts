@@ -23,7 +23,7 @@ const sheet = (over: Partial<Attributes> = {}): Attributes =>
   ({ ...Object.fromEntries(ATTRIBUTE_NAMES.map((n) => [n, 0])), ...over }) as Attributes;
 
 /**
- * The scoring rule, pinned to the board's own worked examples.
+ * The scoring rule, pinned to the maintainer's own worked examples.
  *
  * Both of them are transcribed rather than paraphrased, because a scoring table is the kind of
  * thing a test can agree with while being wrong: any monotonic function of the sheet passes "more
@@ -205,12 +205,14 @@ describe('who wears which face', () => {
     expect(lone).not.toContain('43');
   });
 
-  /** The art still describes them, so the board's order sheet does not lose two entries. */
+  /** The art still describes them, so the maintainer's order sheet does not lose two entries. */
   it('still lists the duplicates as art that exists', () => {
     expect(OFFICER_PORTRAIT_IDS).toContain('42');
     expect(OFFICER_PORTRAIT_IDS).toContain('43');
-    expect(OFFICER_PORTRAIT_IDS).toHaveLength(99);
-    expect(ASSIGNABLE_OFFICER_PORTRAIT_IDS).toHaveLength(97);
+    // Forty faces added by the board on 2026-09-11. The assignable pool stays prime, which is
+    // what lets the probe in `officerPortraits` walk the whole of it whatever stride it draws.
+    expect(OFFICER_PORTRAIT_IDS).toHaveLength(139);
+    expect(ASSIGNABLE_OFFICER_PORTRAIT_IDS).toHaveLength(137);
     expect(DUPLICATE_OFFICER_PORTRAIT_IDS).toEqual(['42', '43']);
   });
 

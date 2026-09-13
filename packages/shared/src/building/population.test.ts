@@ -56,7 +56,7 @@ describe('what a district can house (§A1)', () => {
   });
 
   /**
-   * §B5: the board's rule, through the real fold: taking a location is worth twenty people, and
+   * §B5: the maintainer's rule, through the real fold: taking a location is worth twenty people, and
    * a few locations are worth a good deal more on top.
    */
   it('pays twenty for any location held, and more for the ones people live on', () => {
@@ -141,7 +141,7 @@ describe('who is drawing on it', () => {
   };
 
   /**
-   * §A1 as the board rewrote it: the army and the bench draw on the pool, the officers do not.
+   * §A1 as the maintainer rewrote it: the army and the bench draw on the pool, the officers do not.
    *
    * They are still counted, because "how many are on the books" is worth reporting. They are simply
    * not charged: the crew is who you are and the army is what you can field, and hiring somebody

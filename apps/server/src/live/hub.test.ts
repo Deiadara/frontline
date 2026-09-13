@@ -74,6 +74,24 @@ describe('the live switchboard', () => {
     expect(good).toHaveBeenCalledOnce();
   });
 
+  /** The shared world: a location changing hands is everybody's map, whoever moved on it. */
+  it('broadcasts a world nudge to every account with a tab open, once per tab', () => {
+    const hub = new LiveHub();
+    const mine: LiveEvent[] = [];
+    const theirs: LiveEvent[] = [];
+    const theirSecond: LiveEvent[] = [];
+    hub.subscribe('me', (event) => mine.push(event));
+    hub.subscribe('them', (event) => theirs.push(event));
+    hub.subscribe('them', (event) => theirSecond.push(event));
+
+    hub.broadcast('world', NOON);
+
+    const nudge = { kind: 'world', at: NOON.toISOString() };
+    expect(mine).toEqual([nudge]);
+    expect(theirs).toEqual([nudge]);
+    expect(theirSecond).toEqual([nudge]);
+  });
+
   it('costs nothing when nobody is listening', () => {
     const hub = new LiveHub();
     expect(() => hub.publish('nobody', 'battle', NOON)).not.toThrow();

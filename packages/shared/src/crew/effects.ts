@@ -181,10 +181,12 @@ export interface CrewOnlyEffects {
   missionSlotsFlat: number;
   recruitSlotsFlat: number;
   declarationsFlat: number;
+  /** §D7: names a crew may burn on one fight, on top of the one everybody gets. */
+  battleBoostsFlat: number;
 }
 
 /**
- * The channels that only pay when something is true (board request).
+ * The channels that only pay when something is true (maintainer request).
  *
  * Kept together and named for their condition, so a consumer reading one is reminded that it has a
  * gate on it. Every one of them is folded like any other channel and then *applied* by whichever
@@ -313,6 +315,7 @@ export function noCrewEffects(): CrewEffects {
     missionSlotsFlat: 0,
     recruitSlotsFlat: 0,
     declarationsFlat: 0,
+    battleBoostsFlat: 0,
     officerAttributeAtLeast: {},
     leadOffensePercent: 0,
     leadEvasionFlat: 0,
@@ -351,7 +354,7 @@ export const PERCENT_EFFECT_CHANNELS: readonly PercentEffectChannel[] = Object.e
  *     and needs no exemption. If it ever becomes a flat channel it belongs on this list.
  *   * `storageCapacityPercent` is read by the walk and is **not** exempt. It sets the warehouse
  *     ceiling rather than the output, and the hour cut does not touch a ceiling, so cutting it is
- *     one effect applied once: a raided crew's store is tighter, which is what the board asked for.
+ *     one effect applied once: a raided crew's store is tighter, which is what the maintainer asked for.
  */
 export const DISRUPTION_EXEMPT_CHANNELS = ['productionPercent'] as const;
 
@@ -722,7 +725,7 @@ export interface CrewMember {
    */
   role: OfficerRole | null;
   /**
-   * On the books, in no chair (§C2, board request).
+   * On the books, in no chair (§C2, maintainer request).
    *
    * Paid {@link OFF_DUTY_SHARE} of everything, the same share a seated officer gets in the skills
    * their own chair does not use. So a benched specialist is still worth something, and putting
@@ -995,7 +998,7 @@ export function peerLift(perkIds: readonly string[]): CrewEffects {
  *
  * Three sources, and the rule that ties them together is **never yourself**. An officer's own
  * perks do not touch their own attributes: a perk that raised the number printed on the card it is
- * printed on is not a perk, it is a different number, and the board said so. Every one of these is
+ * printed on is not a perk, it is a different number, and the maintainer said so. Every one of these is
  * a thing a person does *for the people around them*.
  *
  * - `fromGround`, per attribute group, from held locations. Applies to everyone equally.

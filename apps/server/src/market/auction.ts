@@ -24,9 +24,10 @@ import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { VendorBid, VendorLotResult } from '../db/repos/vendor-auctions.js';
 import { notify } from '../social/notify.js';
+import { tellPagesFound } from '../social/pages.js';
 
 /**
- * The Runner's lots (market extension, board 2026-09-08), server side.
+ * The Runner's lots (market extension, maintainer 2026-09-08), server side.
  *
  * The rules, the visit and the ranking live in `@frontline/shared`'s `market/auction.ts`, which
  * both ends of the wire read. What is here is the three things a server has to own: **taking a
@@ -257,10 +258,14 @@ interface LotWinner {
  * otherwise leave the lot due again, and the second pass would hand a second unit off a line the
  * catalogue rations to one.
  */
-export function settleVendorAuctions(repos: Repositories, now: Date): void {
+export function settleVendorAuctions(repos: Repositories, now: Date): number {
+  // Counted, so the world settle can tell every open tab the barrow changed. See `world/settle.ts`.
+  let closed = 0;
   for (const lot of repos.vendorAuctions.unsettled(now)) {
     repos.tx(() => closeLot(repos, lot, now));
+    closed += 1;
   }
+  return closed;
 }
 
 function closeLot(
@@ -318,12 +323,19 @@ function award(
     const charge = chargeFor(repos, base, entry.amount, now);
     if (base.resources.caps < charge) continue;
 
-    repos.bases.updateHoldings(
-      base.id,
-      spendResources(base.resources, { caps: charge }),
-      addItems(base.inventory, { [line.item as ItemId]: 1 }),
-    );
+    const held = addItems(base.inventory, { [line.item as ItemId]: 1 });
+    repos.bases.updateHoldings(base.id, spendResources(base.resources, { caps: charge }), held);
     repos.market.recordVendorSale(day, line.id, 1, now.toISOString());
+    // Rung here rather than in `tellTheBarrow`, which is where the lot's own bells are: this one
+    // is about the satchel, and the satchel is only in scope at the moment the goods change hands.
+    // The winner gets both, and they say different things: one closed a lot, one found a page.
+    tellPagesFound(repos, {
+      userId: entry.userId,
+      before: base.inventory,
+      after: held,
+      source: { kind: 'runner' },
+      now,
+    });
     return { userId: entry.userId, price: entry.amount };
   }
   return null;

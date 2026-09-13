@@ -1,4 +1,11 @@
-import { UNIT_CATALOG, findUnit, type AllyBattle, type Army } from '@frontline/shared';
+import {
+  UNIT_CATALOG,
+  dayInZone,
+  findUnit,
+  formatClock,
+  type AllyBattle,
+  type Army,
+} from '@frontline/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
@@ -7,6 +14,7 @@ import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
 import { useUnits } from '../../lib/queries';
+import { usePlayerZone } from '../settings/usePlayerZone';
 import { fightOrder } from './order';
 import { EmptyPlate, Figure, WindowHead } from './parts';
 
@@ -148,6 +156,10 @@ function FightCard({
   const [wanted, setWanted] = useState(1);
   const count = Math.max(1, Math.min(wanted, Math.max(1, held)));
   const attacking = battle.side === 'attacker';
+  // On the player's clock. This sliced the ISO string, which is UTC, so everybody outside London
+  // in winter was shown a mark some hours off the one the chips over the room count down to.
+  const zone = usePlayerZone();
+  const mark = new Date(battle.scheduledFor);
 
   return (
     <li className="flex min-w-[16rem] max-w-[30rem] flex-1 basis-[21rem]">
@@ -180,10 +192,10 @@ function FightCard({
           <span className="flex min-w-0 items-center gap-2 rounded-sm border border-surface-600/80 bg-surface-950/50 px-2 py-1">
             <Icon name="clock" aria-hidden className="h-3.5 w-3.5 shrink-0 text-brass-300" />
             <span className="font-display text-[15px] font-bold tabular-nums leading-none text-ink-100">
-              {battle.scheduledFor.slice(11, 16)}
+              {formatClock(mark, zone)}
             </span>
             <span className="font-body text-[11px] tabular-nums text-ink-400">
-              {battle.scheduledFor.slice(0, 10)}
+              {dayInZone(mark, zone)}
             </span>
           </span>
           <Figure

@@ -1,11 +1,15 @@
 import {
+  TRAVEL_BAND_MINUTES,
   pagePrizeFor,
   FAILED_MISSION_XP_SHARE,
   MISC_AREA_ID,
   RESOURCE_KG,
   areaPayPercent,
+  battleTierFor,
+  leaningsFor,
   levelPayPercent,
   missionXp,
+  scaledSuccessChance,
   CITY_DISTRICTS,
   isHeldBy,
   missionOffers,
@@ -111,10 +115,14 @@ export function offerFor(
     brief: template.brief,
     kind: template.kind,
     difficulty: template.difficulty,
-    stance: template.stance,
     travelMinutes: timings.travelMinutes,
     durationMinutes: timings.durationMinutes,
     totalMinutes: timings.totalMinutes,
+    // The same numbers before anything was taken off them, so the send dialog can run the launch's
+    // own arithmetic rather than approximating it on figures already reduced and rounded once.
+    rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
+    rawDurationMinutes: template.durationMinutes,
+    speedPercent,
     rewards,
     payoutSlots: Math.round(payoutSlots(rewards, RESOURCE_KG)),
     xp,
@@ -123,6 +131,17 @@ export function offerFor(
       board === undefined
         ? null
         : pagePrizeFor(board.areaId, board.day, template.id, template.difficulty),
+    /*
+     * What the gauge starts from, before anybody is put at the head of the crew.
+     *
+     * The odds themselves are still not on the card: this is the authored figure at this crew's
+     * level, and the screen adds whichever leader the player is looking at through `missionOdds`,
+     * the same function the launch prices with. So the needle the player watches while they scroll
+     * the bench and the number frozen onto the row cannot disagree.
+     */
+    authoredChance: scaledSuccessChance(template.successChance, level),
+    leanings: [...leaningsFor(template)],
+    battleTier: battleTierFor(template),
   };
 }
 

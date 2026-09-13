@@ -17,7 +17,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * One write, and it does three things at once because they have to happen together: it takes the
  * oil, it stamps the district's `buildBoostUntil`, and it re-times everything already in the build
- * queue. The third is the part that would be easy to leave out and is exactly what the board asked
+ * queue. The third is the part that would be easy to leave out and is exactly what the maintainer asked
  * for: "the boost applies to work already in the queue as well as work queued during it".
  *
  * Buying a second burn while one runs is **refused**, not stacked and not extended. The refusal is

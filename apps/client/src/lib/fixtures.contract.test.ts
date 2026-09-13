@@ -36,7 +36,7 @@ describe('the e2e fixtures still describe what the server sends', () => {
     ['trainingResponse', F.trainingResponse, S.TrainingResponseSchema],
     ['crewStanding', F.crewStanding, S.CrewStandingResponseSchema],
     ['market', F.market, S.MarketResponseSchema],
-    ['workshop', F.workshop, S.WorkshopResponseSchema],
+    ['scrapyard', F.scrapyard, S.ScrapyardResponseSchema],
     ['blackMarket', F.blackMarket, S.BlackMarketResponseSchema],
     ['blackMarketSpent', F.blackMarketSpent, S.BlackMarketResponseSchema],
     ['settings', F.settings, S.SettingsResponseSchema],

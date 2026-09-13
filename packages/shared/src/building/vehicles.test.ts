@@ -310,7 +310,7 @@ describe('units against machines', () => {
     expect(speedOf('road_reavers')).toBe(findVehicle('motorcycle')!.speed);
   });
 
-  /** The board named these: the sheets a machine is not an upgrade for. */
+  /** The maintainer named these: the sheets a machine is not an upgrade for. */
   it('puts the named exceptions above every machine but the Heli Porter', () => {
     const topOfTheYard = Math.max(...machines.map((spec) => spec.speed));
     for (const unitId of [

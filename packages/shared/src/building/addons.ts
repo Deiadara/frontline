@@ -16,7 +16,7 @@ import { UNIT_UPGRADES, findUpgrade, type UpgradeSpec } from '../units/upgrades.
 /**
  * The Scrapyard's add-ons (§B9) and the slots they go in (§E).
  *
- * Two things the board asked for that turn out to be one mechanic seen from either end. §B9 is the
+ * Two things the maintainer asked for that turn out to be one mechanic seen from either end. §B9 is the
  * shop: the Scrapyard builds add-ons, they cost scrap and, for the advanced ones, high-quality
  * metal, and most of them want a blueprint researched first. §E is the fitting: every structure
  * has three slots, and a slot is filled and emptied **on the structure's own dialog** rather than
@@ -369,7 +369,6 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
   faction_xp_percent: 'faction experience',
   research_time_reduction: 'off how long research takes',
   housing_percent: 'beds',
-  character_xp_percent: 'experience',
   payroll_percent: 'room on the payroll',
   raid_loot_percent: 'what a raid brings home',
   training_time_reduction: 'off how long training takes',

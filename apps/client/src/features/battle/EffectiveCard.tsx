@@ -38,7 +38,7 @@ import { UnitPortrait } from '../units/UnitPortrait';
  * the card rather than left for a player to discover from a report that disagrees with it.
  */
 
-/** The seven the board asked for, in the order a player reads a sheet. */
+/** The seven the maintainer asked for, in the order a player reads a sheet. */
 type ShownStat = Extract<
   StatKey,
   'offense' | 'vitality' | 'armor' | 'speed' | 'evasion' | 'stealth' | 'morale'

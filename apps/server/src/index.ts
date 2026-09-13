@@ -3,6 +3,7 @@ import { assertDeployable, loadConfig } from './config.js';
 import { BACKUP_INTERVAL_MS, startBackupSchedule } from './db/backup.js';
 import { openDatabase, runMigrations } from './db/index.js';
 import { WORLD_TICK_MS, startWorldClock } from './live/clock.js';
+import { backfillPortraits } from './crew/faces.js';
 import { seedMvpWorld } from './seed/index.js';
 import { MVP_PLAYER } from './seed/constants.js';
 import { applyUnlockedSandbox } from './seed/sandbox.js';
@@ -24,6 +25,12 @@ async function main(): Promise<void> {
   // Deliberately outside buildApp: tests need to build an unseeded app.
   const seeded = await seedMvpWorld({ db, repos: app.repos });
   app.log.info(seeded, 'seeded MVP world');
+
+  // Every officer in the city wears a face of their own (maintainer, 2026-09-11). After the seed, so
+  // the bots' officers are placed too; idempotent, so a second boot assigns nothing.
+  const faced = backfillPortraits(app.repos);
+  if (faced > 0)
+    app.log.info({ faced }, 'gave a face to officers written before faces were stored');
 
   // Announced loudly, because a server that has quietly maxed an account is a server whose
   // numbers mean nothing, and the one thing worse than not having a sandbox switch is not

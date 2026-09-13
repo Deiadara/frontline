@@ -4,50 +4,38 @@ import {
   type DistrictDetailResponse,
   formatCountdown,
   districtDisplayName,
-  FORTIFY_DIFFICULTY_LABELS,
-  LOCATION_CATALOG,
-  MAX_LOCATION_LEVEL,
-  fortifyCost,
-  fortifyBonusPercent,
   garrisonOf,
-  maxFortifyBonusPercent,
-  quoteFortify,
-  weatherAt,
+  scoutRecallWindowMs,
   type Army,
   type BattleTarget,
   type Building,
   type BuildingKind,
-  type LocationView,
   type Resources,
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { usePlayerZone } from '../settings/usePlayerZone';
-import { CostLine } from '../../components/Resources';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { Modal } from '../../components/ui/Modal';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
-import { FortifyMeter } from '../../components/ui/FortifyMeter';
-import { Characteristics } from '../../components/ui/LabelChip';
-import { whenItHolds } from './characteristics';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { ContestedScene, hasPainting } from './ContestedScene';
+import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSheet';
+import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
 import { DistrictScene } from '../base/DistrictScene';
 import { cn } from '../../lib/cn';
 import {
   useBattles,
   useDeclareBattle,
   useDistrict,
-  useFortify,
-  useUpgradeLocation,
   useMe,
+  useRecallScout,
   useScout,
-  useSetGarrison,
 } from '../../lib/queries';
-import { formatDuration, formatRemaining } from '../base/format';
-import { ForcePicker } from './ForcePicker';
+import { formatRemaining } from '../base/format';
 import { DeclareDialog } from '../battle/DeclareDialog';
 import { useServerClock } from '../missions/useServerClock';
 
@@ -127,7 +115,7 @@ export function DistrictView() {
   }
 
   /*
-   * Another crew's ground opens as a screen, not as a thumbnail in a column (board request).
+   * Another crew's ground opens as a screen, not as a thumbnail in a column (maintainer request).
    *
    * It used to be a small preview inside a panel, which made a neighbour's district a picture of a
    * place rather than a place: you could see the roofs and there was nothing to do with them. It is
@@ -136,10 +124,10 @@ export function DistrictView() {
    * offer somebody else's building, which is a fight.
    */
   /*
-   * Contested ground opens as a screen too (board request).
+   * Contested ground opens as a screen too (maintainer request).
    *
    * It was the painting in a panel with a column of cards scrolling under it, which is the shape
-   * the board rejected: "not a scrollable box with info, the entire screen is the district". Same
+   * the maintainer rejected: "not a scrollable box with info, the entire screen is the district". Same
    * rule as a lived-in district and as your own, so all three are one screen with one painting and
    * a plate under each thing on it, and clicking a plate opens what you can do about that thing.
    */
@@ -317,12 +305,9 @@ export function DistrictView() {
 
             {data.unified && (
               <Panel title="Take every location here">
-                <p className="p-4 font-body text-xs leading-relaxed text-ink-300">
-                  <span className="font-display uppercase tracking-[0.15em] text-brass-300">
-                    {data.unified.title}
-                  </span>{' '}
-                  {data.unified.effect}, on top of what the locations themselves pay.
-                </p>
+                <div className="p-4">
+                  <UnifiedBonusLines unified={data.unified} />
+                </div>
               </Panel>
             )}
 
@@ -351,7 +336,7 @@ export function DistrictView() {
 
             <div className="grid gap-4 lg:grid-cols-2" data-testid="locations">
               {data.locations.map((view) => (
-                <LocationCard
+                <LocationSheet
                   key={view.location.id}
                   id={cardId(view.location.id)}
                   picked={picked === view.location.id}
@@ -402,291 +387,6 @@ export function DistrictView() {
   );
 }
 
-interface PlaceCardProps {
-  /** Anchor for the painting's signs to scroll to. */
-  id: string;
-  /** Just arrived here from a sign, so say so for a beat. */
-  picked: boolean;
-  view: LocationView;
-  mine: boolean;
-  districtId: string;
-  baseId: string | undefined;
-  army: Army;
-  resources: Resources;
-  /** The district is held end to end, so nothing in it can be called until the gate is down. */
-  shut: boolean;
-  /** The server's clock, corrected and ticking, for the card's countdowns. */
-  now: Date;
-  onCall: () => void;
-}
-
-/** One id scheme, used by the sign that scrolls and the card that is scrolled to. */
-function cardId(locationId: string): string {
-  return `location-card-${locationId}`;
-}
-
-/** The heading inside that card, so a dialog holding one can point `aria-labelledby` at it. */
-function cardHeadingId(locationId: string): string {
-  return `${cardId(locationId)}-name`;
-}
-
-function LocationCard({
-  id,
-  picked,
-  view,
-  mine,
-  districtId,
-  baseId,
-  army,
-  resources,
-  shut,
-  now,
-  onCall,
-}: PlaceCardProps) {
-  const spec = LOCATION_CATALOG[view.location.kind];
-  const fortify = useFortify(baseId, districtId);
-  const garrison = useSetGarrison(baseId, districtId);
-  const [staging, setStaging] = useState(false);
-
-  const upgrade = useUpgradeLocation(baseId, districtId);
-  const quote = quoteFortify(view.location, view.fortification);
-  const digging = view.fortifyingUntil !== null;
-  const upgrading = view.upgradingUntil !== null;
-
-  return (
-    <section
-      id={id}
-      data-testid={`location-${view.location.id}`}
-      // `scroll-mt` clears the standing bar, which is fixed: without it the browser scrolls the
-      // card to the top of the *document* and the bar covers the header the sign was pointing at.
-      className={cn(
-        'flex scroll-mt-24 flex-col gap-3 border p-4 transition-colors duration-300',
-        mine ? 'border-brass-500/60 bg-brass-300/5' : 'border-surface-700 bg-surface-900',
-        picked && 'ring-1 ring-inset ring-brass-300',
-      )}
-    >
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
-            {spec.label}
-          </p>
-          <h3
-            id={cardHeadingId(view.location.id)}
-            className="font-display text-sm font-bold tracking-[0.08em] text-ink-100"
-          >
-            {view.location.name}
-          </h3>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {/* The level, as pips rather than a number: a player scanning a district is asking
-              "which of these has somebody poured work into", and four filled squares answer that
-              without being read. It is also what they are taking if they win: a capture puts it
-              back to one. */}
-          <span
-            className="flex items-center gap-0.5"
-            data-testid={`level-${view.location.id}`}
-            data-level={view.level}
-            data-tip={`Level ${view.level} of ${MAX_LOCATION_LEVEL}`}
-            aria-label={`Level ${view.level} of ${MAX_LOCATION_LEVEL}`}
-          >
-            {Array.from({ length: MAX_LOCATION_LEVEL }, (_, index) => (
-              <span
-                key={index}
-                aria-hidden
-                className={cn(
-                  'block h-2 w-2 rounded-[1px] border',
-                  index < view.level
-                    ? 'border-brass-300/70 bg-brass-300'
-                    : 'border-surface-600 bg-surface-950',
-                )}
-              />
-            ))}
-          </span>
-          <span
-            className={cn(
-              'border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
-              mine ? 'border-brass-300/50 text-brass-300' : 'border-surface-600 text-ink-300',
-            )}
-          >
-            {mine ? 'Yours' : view.holderName}
-          </span>
-        </div>
-      </header>
-
-      <p className="font-body text-xs leading-relaxed text-ink-300">{spec.blurb}</p>
-      <p className="font-body text-xs leading-relaxed text-brass-300/80">{view.reward}</p>
-
-      {/* §A4: the location's own character folded with today's sky, titled, because this is the
-          section that decides *what to bring*. A player who reads nothing else on the card should
-          still see that a tunnel is Crammed IV and Dark II. Each chip carries its tier as a numeral
-          and its own hover; the ones the sky put there say so, so nobody plans tomorrow around
-          rain that will have stopped. */}
-      <Characteristics
-        labels={view.labels}
-        when={whenItHolds(view.location.kind, weatherAt(now))}
-        data-testid={`characteristics-${view.location.id}`}
-      />
-
-      <dl className="flex flex-col divide-y divide-surface-700 border-y border-surface-700">
-        <Row label="Pays" value={view.bonuses.join(' · ')} />
-        <Row label="Defence" value={String(view.defense)} />
-        <Row label="Standing there" value={`${view.garrisonSize}`} />
-        {/* Drawn rather than counted: see `FortifyMeter`. The ground's difficulty stays in words
-            beside it, because it is what decides whether digging here is worth the materials. */}
-        <div className="flex items-center justify-between gap-3 py-1.5">
-          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            Dug in
-          </span>
-          <span className="flex items-center gap-2.5">
-            <span className="font-body text-[11px] text-ink-300">
-              {FORTIFY_DIFFICULTY_LABELS[view.location.fortifyDifficulty]}
-            </span>
-            <FortifyMeter
-              level={view.fortification}
-              percent={fortifyBonusPercent(view.location.fortifyDifficulty, view.fortification)}
-              size="sm"
-            />
-          </span>
-        </div>
-      </dl>
-
-      {view.unlocks.length > 0 && (
-        <p className="font-body text-[12px] leading-relaxed text-ink-300">
-          Holding it opens up: <span className="text-ink-200">{view.unlocks.join(', ')}</span>
-        </p>
-      )}
-
-      {mine ? (
-        <div className="flex flex-col gap-2">
-          {/*
-           * Working it up (§A4): the board-game half of holding ground, and the first thing
-           * offered because it is the decision the screen exists for. Fortifying makes a location
-           * *harder to take*; a level makes it *worth more*. Both are lost on capture, which is
-           * what makes pouring into a location you cannot hold a real mistake.
-           *
-           * The authored sentence is shown, not the percentage: "you get the underground tanks
-           * pumping again" is a thing that happens to a petrol station you own, and "+50% oil" is
-           * a number going up.
-           */}
-          {upgrading ? (
-            <p
-              className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300"
-              data-testid={`upgrading-${view.location.id}`}
-            >
-              Work under way,{' '}
-              {formatRemaining(Date.parse(view.upgradingUntil ?? '') - now.getTime())} left
-            </p>
-          ) : view.upgrade === null ? (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              Worked up as far as it goes
-            </p>
-          ) : (
-            <div className="flex flex-col gap-1.5 border border-brass-500/30 bg-brass-300/5 p-2.5">
-              <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
-                Level {view.upgrade.toLevel} · {formatDuration(view.upgrade.seconds)}
-              </span>
-              <p className="font-body text-[12px] leading-relaxed text-ink-200">
-                {view.upgrade.note}
-              </p>
-              <CostLine cost={view.upgrade.cost} stock={resources} />
-              <div>
-                <Button
-                  size="sm"
-                  disabled={upgrade.isPending}
-                  data-testid={`upgrade-${view.location.id}`}
-                  onClick={() => upgrade.mutate({ locationId: view.location.id })}
-                >
-                  {upgrade.isPending ? 'Working…' : 'Work it up'}
-                </Button>
-              </div>
-            </div>
-          )}
-          {digging ? (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ember-300">
-              Digging in, {formatRemaining(Date.parse(view.fortifyingUntil ?? '') - now.getTime())}{' '}
-              left
-            </p>
-          ) : quote === null ? (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              As dug in as this ground allows (
-              {maxFortifyBonusPercent(view.location.fortifyDifficulty)}
-              %)
-            </p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-                Fortify to level {quote.level} · +{quote.bonusPercent}% ·{' '}
-                {formatDuration(quote.seconds)}
-              </span>
-              <CostLine cost={fortifyCost(quote.level)} stock={resources} />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  disabled={fortify.isPending}
-                  onClick={() => fortify.mutate({ locationId: view.location.id })}
-                >
-                  {fortify.isPending ? 'Working…' : 'Dig in'}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setStaging(true)}>
-                  Garrison
-                </Button>
-              </div>
-            </div>
-          )}
-          {!digging && quote === null && (
-            <Button size="sm" variant="ghost" onClick={() => setStaging(true)}>
-              Garrison
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {/* One button, because there is one way to take ground now: call it, and turn up.
-              "Take it" used to resolve a fight on the spot beside this, which meant nobody ever
-              pressed this one. */}
-          <Button
-            size="sm"
-            variant="danger"
-            disabled={shut}
-            onClick={onCall}
-            data-testid={`call-${view.location.id}`}
-          >
-            {shut ? 'Behind the gate' : 'Call a fight'}
-          </Button>
-        </div>
-      )}
-
-      {staging && (
-        <ForcePicker
-          title={`Garrison ${view.location.name}`}
-          blurb="Units left here hold the location. If it falls, half of them run and half do not. A number below zero brings that many home."
-          army={army}
-          standing={view.garrison ?? {}}
-          pending={garrison.isPending}
-          error={garrison.error}
-          confirmLabel="Leave them"
-          onClose={() => setStaging(false)}
-          onConfirm={(changes) =>
-            garrison.mutate(
-              { locationId: view.location.id, changes },
-              { onSuccess: () => setStaging(false) },
-            )
-          }
-        />
-      )}
-    </section>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <dt className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">{label}</dt>
-      <dd className="font-display text-xs tabular-nums text-ink-200">{value}</dd>
-    </div>
-  );
-}
-
 function Tag({
   label,
   tone = 'plain',
@@ -714,7 +414,7 @@ function Tag({
 }
 
 /**
- * What it takes to open a district (§A4, board rework).
+ * What it takes to open a district (§A4, maintainer rework).
  *
  * Scouting used to be a button that did it. It is a journey now, so this panel has three states
  * and the middle one is the whole point of the change: **somebody is walking there**, and until
@@ -745,16 +445,49 @@ function ScoutPanel({
 }) {
   const now = useServerClock(data.serverNow, receivedAt);
   const run = data.scoutingRun;
+  const recall = useRecallScout(data.district.id);
 
-  // Somebody is out, and it is this district: a countdown, and nothing to press.
+  /*
+   * The one thing a player can do about a scout on the road, and only in the first tenth of the
+   * way out (maintainer request, 2026-09-12): turn them round. They walk home the distance covered and
+   * the ground stays shut, so the panel says so once they have.
+   */
+  const turnRound = run && (
+    <>
+      <CancelMark
+        windowMs={scoutRecallWindowMs(run, now)}
+        label={`Turn ${run.officerName} round`}
+        pending={recall.isPending}
+        onCancel={() => recall.mutate({})}
+        data-testid="recall-scout"
+      />
+      {recall.error && (
+        <p role="alert" className="font-body text-xs text-oxblood-300">
+          {recall.error.message}
+        </p>
+      )}
+    </>
+  );
+
+  // Somebody is out, and it is this district: a countdown, and the X while it is still open.
   if (run && run.districtId === data.district.id) {
     return (
       <div className="flex flex-col gap-2 p-4" data-testid="scout-underway">
         <p className="font-body text-xs leading-relaxed text-ink-300">
-          <span className="text-ink-100">{run.officerName}</span> is on the road. The street opens
-          when they are back.
+          {run.recalledAt === null ? (
+            <>
+              <span className="text-ink-100">{run.officerName}</span> is on the road. The street
+              opens when they are back.
+            </>
+          ) : (
+            <>
+              <span className="text-ink-100">{run.officerName}</span> turned round and is walking
+              home. The street stays shut: they never got here.
+            </>
+          )}
         </p>
         <Waiting until={run.returnsAt} now={now} />
+        {turnRound}
       </div>
     );
   }
@@ -769,6 +502,7 @@ function ScoutPanel({
           <span className="text-ink-100">{run.districtName}</span>. One scout at a time.
         </p>
         <Waiting until={run.returnsAt} now={now} />
+        {turnRound}
       </div>
     );
   }
@@ -924,10 +658,25 @@ function VisitedDistrict({
             ← Back to the city
           </button>
           {/* Their name on their wall, on the same plate yours is drawn on in the standing bar
-              (`DistrictPlaque`). A sign, not a heading: this is a place you are standing in. */}
-          <div className={PLAQUE_PLATE} data-testid="visited-district-name">
-            <PlaqueFace name={name} />
-          </div>
+              (`DistrictPlaque`). A sign, not a heading: this is a place you are standing in.
+
+              And a door (maintainer request, 2026-09-11): the plate opens the resident's file, the same
+              page a location's holder opens. `data.base` is the crew on the plot; a plot nobody has
+              settled has no file to open and the plate stays a plate. */}
+          {data.base ? (
+            <Link
+              to={crewFileHref(data.base.id)}
+              className={cn(PLAQUE_PLATE, 'group transition-transform hover:-translate-y-0.5')}
+              data-testid="visited-district-name"
+              aria-label={`${name}: open this crew's file`}
+            >
+              <PlaqueFace name={name} />
+            </Link>
+          ) : (
+            <div className={PLAQUE_PLATE} data-testid="visited-district-name">
+              <PlaqueFace name={name} />
+            </div>
+          )}
           {/* One call, and which one it is is a fact about the door rather than a choice. While
               their Gate stands there is nothing behind it to reach; inside a breach the raid is
               the whole district at once and the clock says how long that lasts. */}
@@ -988,7 +737,7 @@ function VisitedDistrict({
  *
  * The mirror of `StructureDialog` on your own ground, and the difference is the whole point of the
  * screen: there it says what the next level costs, and here it says what is standing and how far
- * along it is. It carried a `Call a fight here` button until the board made a raid one call on the
+ * along it is. It carried a `Call a fight here` button until the maintainer made a raid one call on the
  * whole district (§A4): thirteen roofs meant thirteen declarations against a cap of three, so the
  * per-roof fight was a control almost nobody could afford to press. The one call lives on the
  * screen behind this dialog now.
@@ -1161,15 +910,6 @@ function ContestedDistrict({
               The gate is armed
             </span>
           )}
-          <button
-            type="button"
-            onClick={() => setStanding((open) => !open)}
-            data-testid="district-standing-toggle"
-            aria-expanded={standing}
-            className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300 hover:underline"
-          >
-            {standing ? 'Hide the ground' : 'The ground'}
-          </button>
         </div>
       </div>
 
@@ -1185,32 +925,30 @@ function ContestedDistrict({
        * Bone Market, and a panel over a sign does not merely hide it: the panel is a real box and
        * eats the pointer, so the plate underneath stops working. There is no free corner to move it
        * to either, because the signs are spread across the whole painting by construction. So
-       * nothing sits on the picture unless the player asks for it, and asking is one press in the
-       * strip that is already there.
+       * nothing sits on the picture unless the player asks for it.
+       *
+       * **The toggle and the box are one column** (maintainer request, 2026-09-11). The button used to
+       * sit in the strip at the top left and the box opened at the top right, the width of the
+       * screen away from the thing that opened it. The button is the head of the column now and the
+       * box hangs directly under it, so what you pressed and what appeared are one shape.
        */}
-      {standing && (
-        <div
-          className="absolute right-4 z-20 flex w-[16rem] max-w-[38vw] flex-col gap-2"
-          style={{ top: 'calc(var(--hud-h, 64px) + 56px)' }}
-          data-testid="district-standing"
-        >
-          <WeatherBanner at={new Date(data.serverNow)} />
-          <div className="rounded-sm bg-surface-950/85 px-3 py-2 backdrop-blur-sm">
-            <p className="font-body text-[12px] leading-relaxed text-ink-300">
-              Garrison: {garrisonOf(data.district)}.
-            </p>
-            {data.unified && (
-              <p className="mt-1.5 font-body text-[12px] leading-relaxed text-ink-300">
-                <span className="font-display uppercase tracking-[0.15em] text-brass-300">
-                  {data.unified.title}
-                </span>{' '}
-                {data.unified.effect}, on top of what the locations themselves pay. Take every
-                location here to earn it.
-              </p>
-            )}
-          </div>
+      <div
+        className="pointer-events-none absolute right-4 z-20 flex w-[17rem] max-w-[40vw] flex-col items-end gap-2"
+        style={{ top: 'calc(var(--hud-h, 64px) + 12px)' }}
+        data-testid="district-standing-column"
+      >
+        <div className="pointer-events-auto">
+          <GroundToggle open={standing} onToggle={() => setStanding((open) => !open)} />
         </div>
-      )}
+        {standing && (
+          <GroundBox
+            district={data.district}
+            unified={data.unified}
+            at={new Date(data.serverNow)}
+            className="pointer-events-auto w-full"
+          />
+        )}
+      </div>
 
       {picked && (
         <Modal
@@ -1223,7 +961,7 @@ function ContestedDistrict({
           data-testid="location-window"
         >
           <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
-            <LocationCard
+            <LocationSheet
               id={cardId(picked.location.id)}
               picked={false}
               view={picked}

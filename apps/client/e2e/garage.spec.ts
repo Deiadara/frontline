@@ -4,7 +4,7 @@ import { garage, lateGame } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
 /**
- * The Garage is a door and the machines are on the roster (board request, 2026-09-08).
+ * The Garage is a door and the machines are on the roster (maintainer request, 2026-09-08).
  *
  * The yard's page says what the building is and what stands in it, and one button leads to the
  * roster's Vehicles tab, where every machine is listed beside the units it carries. Both halves

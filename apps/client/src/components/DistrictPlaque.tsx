@@ -103,7 +103,7 @@ export function PlaqueFace({ name }: { name: string }) {
  *
  * `DISTRICT_NAME_MAX` is 28 and every fixture uses about 20, so a name at the ceiling set at the
  * short name's size pushes the standing bar onto a second line, which costs the world underneath
- * it fifty pixels. **Ellipsis is not an option**: a cut label is what the board's bar forbids
+ * it fifty pixels. **Ellipsis is not an option**: a cut label is what the maintainer's bar forbids
  * outright. See the note on `DISTRICT_NAME_MAX`.
  *
  * Three rungs rather than two. The ceiling itself stays at 28 and is not negotiable from here:
@@ -116,7 +116,7 @@ function plaqueType(length: number): string {
   if (length <= 22) return 'tracking-[0.06em] text-sm [@media(min-width:1500px)]:text-base';
   // The last rung, for names in the top six characters of the range. The bar has to hold six
   // stockpiles, two meters, five doors and this at once, and a 28-character name set at the
-  // 22-character size is what put the stockpile through the plaque in the board's screenshot.
+  // 22-character size is what put the stockpile through the plaque in the maintainer's screenshot.
   //
   // The tracking goes with the size. A plaque is letter-spaced because it is a sign, but at 28
   // characters that spacing is 28 gaps: about 47px of pure air, which is more than the whole

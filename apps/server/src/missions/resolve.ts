@@ -13,19 +13,32 @@ import {
   findMissionTemplate,
   isMissionDue,
   missionRewards,
+  battleTierFor,
   pricedTotalMinutes,
+  type BattleOfficer,
   type Base,
+  type Overseer,
   type Mission,
   type MissionOutcome,
   addItems,
   rollSalvage,
 } from '@frontline/shared';
-import { mergeArmies } from '../battle/forces.js';
+import { forceSize, mergeArmies } from '../battle/forces.js';
 import { createRng } from '../characters/rng.js';
+import { standingEffectsFor } from '../crew/standing.js';
+import { overseerOf } from '../crew/training.js';
+import { fightMissionBattle } from './battle.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
+import { tellPagesFound } from '../social/pages.js';
 import type { StoredMission } from '../db/repos/missions.js';
 import { awardPlayerXp } from '../progression/award.js';
+import {
+  tallyInfamyEarned,
+  tallyMissionHome,
+  tallyPagesIn,
+  tallyResourcesEarned,
+} from '../feats/tally.js';
 
 /**
  * The roll, taken from the seed frozen at launch.
@@ -37,6 +50,33 @@ import { awardPlayerXp } from '../progression/award.js';
  */
 export function rollMissionOutcome(stored: StoredMission): MissionOutcome {
   return createRng(stored.seed)() < stored.successChance ? 'success' : 'failure';
+}
+
+/**
+ * §D1: the sheet whoever led the run brings to the fight, or nobody for an unled crew.
+ *
+ * The engine takes one officer per side and folds their attributes into eleven combat numbers
+ * (`battle/officer.ts`), which is exactly what "what the leader is worth" means once a battle job
+ * is a real fight. The Overseer reaches it the same way an officer does.
+ *
+ * What a mission does **not** do is §D4's stretcher: an officer who falls here is not laid up.
+ * That roll needs the day's margin and a stream the battle settler owns, and a mission has
+ * neither. A leader is out for the length of the run and free the moment the crew is home.
+ */
+function leaderOf(
+  stored: StoredMission,
+  base: Base,
+  overseer: Overseer | undefined,
+): BattleOfficer | undefined {
+  if (stored.mission.overseerLed) {
+    return overseer
+      ? { officerId: overseer.id, name: overseer.name, attributes: overseer.attributes }
+      : undefined;
+  }
+  const officer = base.commanders.find((held) => held.id === stored.mission.officerId);
+  return officer
+    ? { officerId: officer.id, name: officer.name, attributes: officer.attributes }
+    : undefined;
 }
 
 export interface MissionSettlement {
@@ -60,6 +100,21 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   if (due.length === 0) return { base, resolved: [] };
 
   const resolvedAt = now.toISOString();
+  /*
+   * What a battle job needs and a scrap run does not, read once for the whole settlement.
+   *
+   * Both are folds over the crew as it stands now rather than as it stood at launch, and both are
+   * behind the `fights` guard because a settlement with no battle in it should not pay for either:
+   * `standingEffectsFor` walks every holding and every sheet the crew owns.
+   */
+  const fights = due.some(
+    (stored) =>
+      stored.mission.recalledAt === null &&
+      findMissionTemplate(stored.mission.templateId)?.kind === 'battle',
+  );
+  const anyRide = fights ? standingEffectsFor(repos, base, now).anyRide : false;
+  const overseer = fights ? overseerOf(repos, base) : undefined;
+
   const settlements = due.map((stored) => {
     /*
      * A recalled crew never reached the site.
@@ -71,10 +126,46 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      * not is a way to dodge the consequences of having gone.
      */
     const recalled = stored.mission.recalledAt !== null;
-    const outcome = recalled ? ('failure' as const) : rollMissionOutcome(stored);
     // A template retired from the board after this run launched: bring the crew home empty
     // rather than stranding them on the timers page forever.
     const template = findMissionTemplate(stored.mission.templateId);
+
+    /*
+     * A battle job fights instead of rolling (`missions/battle.ts`).
+     *
+     * The tier is read off the template rather than frozen on the row, which is the one place this
+     * departs from the freeze-at-launch rule and does so knowingly: `battleTierFor` is authored
+     * content, the row has nowhere to keep it, and a retune that moved a job from a fight to a
+     * siege mid-flight is a balance change landing on one crew rather than a re-price of a
+     * promise. Same for the level: the figure the tier fields scales on the crew's level, and the
+     * crew's level is what it is when the fight happens.
+     */
+    const tier = recalled || !template ? null : battleTierFor(template);
+    const battle =
+      template && tier !== null
+        ? fightMissionBattle({
+            seed: stored.seed,
+            jobName: template.name,
+            force: stored.mission.force,
+            vehicles: stored.mission.vehicles,
+            tier,
+            level: base.level,
+            leader: leaderOf(stored, base, overseer),
+            anyRide,
+          })
+        : null;
+    const outcome = recalled
+      ? ('failure' as const)
+      : (battle?.outcome ?? rollMissionOutcome(stored));
+    /*
+     * Whether anybody came back to tell it.
+     *
+     * A crew that was wiped out banks nothing: no pay, no salvage, no page, no XP, and no report.
+     * A run that fielded nobody at all is a row written before missions took units, and it reports
+     * the way it always did.
+     */
+    const reported =
+      battle === null || forceSize(stored.mission.force) === 0 ? true : forceSize(battle.home) > 0;
     // Priced off the clock frozen on the row, not the template's current timings: a retune that
     // lands mid-flight must not re-price a crew that is already out.
     /*
@@ -99,7 +190,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     // salvage than the card quoted, which is exactly the bug X4 was written to close.
     const pricedMinutes = pricedTotalMinutes(stored.mission);
     const paid =
-      template && !recalled
+      template && !recalled && reported
         ? scaledSpoils(missionRewards(template, outcome, pricedMinutes), stored.mission.payPercent)
         : {};
     const rewards = carriedHome(paid, missionCarry(stored.mission.force), RESOURCE_KG);
@@ -114,7 +205,8 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      */
     const rng = createRng(stored.seed);
     rng(); // The outcome's own draw, consumed so the finds do not reuse it.
-    const found = recalled ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng);
+    const found =
+      recalled || !reported ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng);
     /*
      * §F1e/§F1f: the page, decided on arrival rather than when the card was drawn.
      *
@@ -124,7 +216,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      * Duplicates are deliberate (§F1d): a spare page is what Reimagining spends.
      */
     const pageWon =
-      stored.mission.pagePrize !== null && outcome === 'success' && !recalled
+      stored.mission.pagePrize !== null && outcome === 'success' && !recalled && reported
         ? pageWonFrom(stored.mission.pagePrize, stored.seed)
         : null;
 
@@ -137,47 +229,53 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         spoils: paid,
         resolvedAt,
         pageWon,
+        lost: battle?.lost ?? {},
+        reported,
+        // What they turned up, named by the report rather than only added to the satchel.
+        found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
       } satisfies Mission,
       outcome,
       rewards,
       spoils: paid,
       found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
-      // §D7/§A3: a blow that lands on the state is heard on the street. Keyed off the same
-      // retired-template fallback as the rest: a run whose template is gone comes home silent.
-      infamyDelta: template ? MISSION_INFAMY_DELTA[template.stance][outcome] : 0,
+      // §D7: a fight that lands is heard on the street. Keyed off the same retired-template
+      // fallback as the rest: a run whose template is gone comes home silent.
+      infamyDelta: template && reported ? MISSION_INFAMY_DELTA[template.kind][outcome] : 0,
       /*
        * And the people walk back through the gate (§A5).
        *
-       * Everyone, whatever happened out there. A mission is not a battle and does not resolve as
-       * one: what a failed run costs is the clock and the pay, not the crew. Losing units on a
-       * failed battle mission would need the engine and a garrison to fight, and a mission has
-       * neither; the risk §E5 prices is the empty bag.
+       * Everyone, on a standard run: what a failed scrap run costs is the clock and the pay, not
+       * the crew. A battle job is the exception the board added on 2026-09-10, and it is the whole
+       * of §E5's "risks your people": whoever the engine did not kill comes home, including
+       * everybody who broke and ran, because nothing pursues them.
        */
-      returning: stored.mission.force,
+      returning: battle?.home ?? stored.mission.force,
       /*
        * §C3: and so do the machines, every time.
        *
-       * A vehicle is destroyed when everybody riding it dies, and nobody dies on a mission (see
-       * the note just above): what a failed run costs is the clock and the pay. So the yard gets
-       * them back on a clean run and on a disaster alike, and a recalled crew brings them home
-       * having never reached the site.
+       * A vehicle is destroyed when everybody riding it dies, which on a standard run is nobody:
+       * what a failed scrap run costs is the clock and the pay, so the yard gets them all back on
+       * a clean run and on a disaster alike, and a recalled crew brings them home having never
+       * reached the site. A battle job settles them the way the battle settler does.
        */
-      returningVehicles: stored.mission.vehicles,
+      returningVehicles: battle?.vehicles ?? stored.mission.vehicles,
       /*
        * §I1: what the crew learned out there.
        *
        * A clean run pays the figure the card quoted; one that came home empty pays
-       * `FAILED_MISSION_XP_SHARE` of it, which is the board's rule and the reason a bad day is a
+       * `FAILED_MISSION_XP_SHARE` of it, which is the maintainer's rule and the reason a bad day is a
        * setback rather than a wasted one. A retired template pays nothing, like everything else on
        * this row. A recalled crew never reached the site, so it settles as a failure and pays the
        * failure's share.
        */
-      xp: Math.round(
-        // The figure frozen at launch. A row written before missions priced their own XP carries
-        // zero, which falls back to the table entry the settler used to pay.
-        (stored.mission.xp > 0 ? stored.mission.xp : PLAYER_XP_AWARDS.missionCompleted) *
-          (outcome === 'success' ? 1 : FAILED_MISSION_XP_SHARE),
-      ),
+      xp: reported
+        ? Math.round(
+            // The figure frozen at launch. A row written before missions priced their own XP
+            // carries zero, which falls back to the table entry the settler used to pay.
+            (stored.mission.xp > 0 ? stored.mission.xp : PLAYER_XP_AWARDS.missionCompleted) *
+              (outcome === 'success' ? 1 : FAILED_MISSION_XP_SHARE),
+          )
+        : 0,
     };
   });
 
@@ -191,6 +289,11 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       spoils,
       resolvedAt,
       pageWon: mission.pageWon,
+      found: mission.found,
+      // Both only ever move on a battle job, and both have to survive the read: `lost` is what the
+      // report draws the casualty list from, and `reported` is why there is no report to draw.
+      lost: mission.lost,
+      reported: mission.reported,
     });
   }
 
@@ -226,6 +329,45 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // writes the fleet back unchanged rather than branching.
   repos.bases.updateFleet(settled.id, settled.fleet);
 
+  /*
+   * Feats: what this settlement is worth to the lifetime counters (maintainer request, 2026-09-13).
+   *
+   * After the writes above and before the receipts, so a crash between them loses a counter rather
+   * than a payout. One pass per run that came home, because a settlement can resolve several at
+   * once and each is a separate job on the board.
+   *
+   * `s.rewards` is what was actually banked, not what the template quoted: a haul trimmed by what
+   * the crew could carry counts as what came through the gate, which is what "caps ever earned"
+   * has to mean for the number to match the stockpile it went into.
+   */
+  for (const settlement of settlements) {
+    const template = findMissionTemplate(settlement.mission.templateId);
+    /*
+     * A run the crew was turned round on is not a run.
+     *
+     * This matters more than it looks. Cancelling inside the window refunds ninety per cent and
+     * costs only the minutes already walked, so counting a recalled mission would make
+     * launch-and-cancel the fastest way to finish every mission ladder in the catalogue, including
+     * the per-district ones. The pay, the salvage and the page already treat a recall as having
+     * never happened (see `recalled` above); the counters have to agree with them.
+     *
+     * The other tallies below are safe without this check because they are paid off what actually
+     * arrived, and a recalled crew arrives with nothing.
+     */
+    if (settlement.mission.recalledAt === null) {
+      tallyMissionHome(repos, base.id, {
+        areaId: settlement.mission.areaId,
+        kind: template?.kind ?? 'standard',
+        succeeded: settlement.outcome === 'success',
+      });
+    }
+    tallyResourcesEarned(repos, base.id, settlement.rewards);
+    tallyInfamyEarned(repos, base.id, settlement.infamyDelta);
+    // Pages only. `found` is the whole satchel haul, so it carries salvaged components too, and
+    // counting those as pages would finish the blueprint chain off scrap servos.
+    tallyPagesIn(repos, base.id, settlement.found);
+  }
+
   // INTERFACES R7: §I1 makes a mission completing an XP source. W6 owns the whole XP side, so this
   // only names what happened: one award per crew that came home, success or failure, priced by
   // `PLAYER_XP_AWARDS` and levelled by W6's engine. Threaded through `awardPlayerXp` so a
@@ -248,15 +390,32 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   // The receipts. One per run that landed, so a player who was on another screen finds out that
   // the crew is back and what they brought, rather than noticing the roster changed.
   for (const settled of settlements) {
+    // A battle job that nobody walked away from is still a receipt, and it is the one receipt a
+    // player must not miss. It says the only thing there is to say: the report is what the
+    // survivors tell you, and there are none.
+    const name = findMissionTemplate(settled.mission.templateId)?.name;
     notifyBase(repos, base.id, {
       kind: 'mission_home',
-      title: 'A crew is home',
-      body: findMissionTemplate(settled.mission.templateId)?.name ?? 'The job is finished.',
+      title: settled.mission.reported ? 'A crew is home' : 'Nobody came back',
+      body: settled.mission.reported
+        ? (name ?? 'The job is finished.')
+        : `Nobody came back from ${name ?? 'the job'}`,
       link: '/game/missions',
       subjectId: settled.mission.id,
       now,
     });
   }
+
+  // §F1e: the sheet itself, named. `mission_home` says a crew is back and which job it was; this
+  // says what came home in the satchel and points at the document the page belongs to. Diffed
+  // against the satchel as it stood, so every crew that landed on this call is covered at once.
+  tellPagesFound(repos, {
+    userId: base.ownerId,
+    before: base.inventory,
+    after: settled.inventory,
+    source: { kind: 'mission' },
+    now,
+  });
 
   /*
    * The level-up, if this settlement crossed one, is **not** returned.

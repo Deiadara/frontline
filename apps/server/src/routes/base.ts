@@ -30,9 +30,16 @@ import {
   type BuildBoostResponse,
   type ClearSlotRefusal,
   type ModificationSlotResponse,
+  CancelBuildRequestSchema,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { nexusGate, queueBuild, type BuildRefusal } from '../district/build.js';
+import {
+  cancelBuild,
+  nexusGate,
+  queueBuild,
+  type BuildCancelRefusal,
+  type BuildRefusal,
+} from '../district/build.js';
 import { buyBuildBoost } from '../district/boost.js';
 import { clearSlot, fitIntoSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
@@ -56,7 +63,36 @@ const REFUSAL_ERRORS: Record<BuildRefusal, ErrorCode> = {
   missing_parts: 'MISSING_PARTS',
 };
 
+const CANCEL_ERRORS: Record<BuildCancelRefusal, { code: ErrorCode; message: string }> = {
+  unknown_order: { code: 'NOT_FOUND', message: 'Nothing on the queue by that name' },
+  window_closed: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'The work has gone too far to stop. It finishes now',
+  },
+};
+
 export function registerBaseRoutes(app: FastifyInstance): void {
+  /**
+   * Take an order off the queue (maintainer request, 2026-09-12): the first tenth of its clock, or
+   * before it has started, with ninety percent of the materials and every part back.
+   */
+  app.post('/base/cancel', { preHandler: app.authenticate }, (request): BuildStructureResponse => {
+    const { orderId } = parseBody(CancelBuildRequestSchema, request.body);
+    const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
+    if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
+    const now = new Date();
+    const result = app.db.transaction(() => {
+      // Settled first, so an order whose clock has already run out lands rather than refunds.
+      const settled = settleBase(app.repos, owned, now);
+      return cancelBuild(app.repos, settled.base, orderId, now);
+    })();
+    if (result.kind === 'refused') {
+      const { code, message } = CANCEL_ERRORS[result.reason];
+      throw new AppError(code, message);
+    }
+    return { base: result.base, levelUp: takeLevelUp(app.repos, result.base.id) };
+  });
+
   app.get<{ Params: { id: string } }>(
     '/base/:id',
     { preHandler: app.authenticate },
@@ -68,7 +104,8 @@ export function registerBaseRoutes(app: FastifyInstance): void {
       if (base.ownerId !== request.currentUser.id) {
         throw new AppError('FORBIDDEN', 'You do not have access to this base');
       }
-      return { base: settleBase(app.repos, base, new Date()).base };
+      const now = new Date();
+      return { base: settleBase(app.repos, base, now).base, serverNow: now.toISOString() };
     },
   );
 

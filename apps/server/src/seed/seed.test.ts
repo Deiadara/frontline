@@ -64,16 +64,18 @@ function countUsers(db: AppDatabase, username: string): number {
 /**
  * Every non-playing crew in the world.
  *
- * Two now, and the number is the point of the assertions below: the **rival** you fight and the
- * **ally** you fight beside. Both are `is_bot = 1` because neither is driven by a person, so a
- * count of one here was the old world and a count of three would mean the seeder had run twice.
+ * Three now, and the number is the point of the assertions below: the **rival** you fight, the
+ * **ally** you fight beside, and the **rival's second**, who sits at the rival's table so there is
+ * a faction in the world that is somebody else's (maintainer request, 2026-09-12). All three are
+ * `is_bot = 1` because none of them is driven by a person, so a count of one here was the world
+ * before the ally, and a count of six would mean the seeder had run twice.
  */
 function countBotBases(db: AppDatabase): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM bases WHERE is_bot = 1').get() as { n: number };
   return row.n;
 }
 
-const SEEDED_BOTS = 2;
+const SEEDED_BOTS = 3;
 
 async function login(app: FastifyInstance, password: string) {
   return app.inject({

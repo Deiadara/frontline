@@ -25,6 +25,7 @@ import {
   type BidResponse,
   type Commander,
   type CrewResponse,
+  type JoinRequirement,
   type Notification,
   startingTraining,
 } from '@frontline/shared';
@@ -37,7 +38,14 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { projectRecruit } from './project.js';
-import { bidCeilingFor, committedWage, releaseOfficer, signRecruit, wageAskedOf } from './hire.js';
+import {
+  bidCeilingFor,
+  committedWage,
+  releaseOfficer,
+  signRecruit,
+  wageAskedOf,
+  type HireRefusal,
+} from './hire.js';
 import { reserveFor, settleBarAuctions } from './auction.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
@@ -248,6 +256,15 @@ function fakeRepos(): {
   const sieges = { deploymentsFor: () => [] };
   const movements = { forBase: () => [] };
   const missions = { listActiveByBaseId: () => [] };
+  /*
+   * A crew in no faction, which is the state these cases are written for.
+   *
+   * §H3's faction door reads `Faction.infamyEarned` through this repo (`factionInfamyOf`), so a
+   * double that omits it is a double the code under test cannot run against. Answering "no
+   * membership" is what a crew that has not joined anything actually looks like, and it is the
+   * standout seats' hardest door left shut.
+   */
+  const factions = { membershipOf: () => undefined, find: () => undefined };
   return {
     repos: {
       bases,
@@ -258,6 +275,7 @@ function fakeRepos(): {
       sieges,
       movements,
       missions,
+      factions,
     } as unknown as Parameters<typeof signRecruit>[0],
     written,
   };
@@ -338,7 +356,13 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
       for (const cityLevel of [0, 8, 30]) {
         const roster = barRoster(key, BAR_ROSTER_SIZE, cityLevel);
         const willing = roster.filter(
-          (r) => assessJoin(r.requirement, { notoriety: 0, level: 1 }).interested,
+          (r) =>
+            assessJoin(r.requirement, {
+              notoriety: 0,
+              level: 1,
+              infamy: 0,
+              factionInfamy: 0,
+            }).interested,
         );
         expect(
           willing.length,
@@ -439,6 +463,58 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
   const sign = (repos: Parameters<typeof signRecruit>[0], base: Base, price: number) =>
     signRecruit(repos, { base, userId: 'user-1', recruit: recruit(), price, now: NOW });
 
+  /**
+   * Every §H3 door refuses at the close, not only the two on the HUD.
+   *
+   * `refusalFor` used to name `notoriety` and `level` in two `if`s, so when the standout seats
+   * added the wallet and the badge (2026-09-11) the close stopped reading them: the bid gate
+   * refused the crew at the table and the close handed the officer over at midnight anyway. It is
+   * reachable without doing anything strange, because infamy is a wallet that goes down: bid while
+   * you are holding it, spend it on a tier or in the back room, and win them at the close.
+   */
+  it('refuses at the close for every door, including the wallet and the badge', () => {
+    const hire = recruit();
+    const doors: [string, JoinRequirement, HireRefusal][] = [
+      ['rank', { ...hire.requirement, minNotoriety: 4 }, 'requirement'],
+      ['level', { ...hire.requirement, minLevel: 40 }, 'level'],
+      ['wallet', { ...hire.requirement, minInfamy: 500 }, 'infamy'],
+      ['badge', { ...hire.requirement, minFactionInfamy: 250 }, 'faction'],
+    ];
+    for (const [label, requirement, reason] of doors) {
+      const { repos } = fakeRepos();
+      // A crew that clears everything except the one door under test. `fakeRepos` answers "no
+      // faction", so the badge case needs nothing else set up.
+      const base: Base = {
+        ...makeBase(),
+        level: 30,
+        economy: { ...makeBase().economy, notoriety: 3, infamy: 0 },
+      };
+      const result = signRecruit(repos, {
+        base,
+        userId: 'user-1',
+        recruit: { ...hire, requirement },
+        price: reserveFor(hire),
+        now: NOW,
+      });
+      expect(result, `${label} was not refused at the close`).toEqual({
+        kind: 'refused',
+        reason,
+      });
+    }
+
+    // The control: the same crew and the same price with every door open really does sign, so the
+    // four refusals above are the doors rather than some other clause biting first.
+    const { repos } = fakeRepos();
+    const open = signRecruit(repos, {
+      base: { ...makeBase(), level: 30, economy: { ...makeBase().economy, notoriety: 3 } },
+      userId: 'user-1',
+      recruit: hire,
+      price: reserveFor(hire),
+      now: NOW,
+    });
+    expect(open.kind).toBe('signed');
+  });
+
   it('signs at the closing price, banks the officer and commits it against the payroll book', () => {
     const { repos, written } = fakeRepos();
     const hire = recruit();
@@ -461,7 +537,7 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
   });
 
   /**
-   * §A1, as the board rewrote it: an officer needs no bed, so a packed district still signs.
+   * §A1, as the maintainer rewrote it: an officer needs no bed, so a packed district still signs.
    *
    * This test asserted the opposite until the rule changed. It is kept, pointed the other way,
    * because "a full district can still sign somebody" is exactly the property that would quietly

@@ -140,8 +140,14 @@ export const BattleViewSchema = z.object({
   battlefield: BattlefieldSchema,
   /** §D7: every boost this crew could put on this fight. Empty for a bystander. */
   boosts: z.array(BattleBoostOptionSchema),
-  /** The one already bought for this fight, or null. One per battle, and it is not refundable. */
-  boostId: z.string().nullable(),
+  /**
+   * The names already burned on this fight. Locked: nothing here can be given back.
+   *
+   * A list since the maintainer's 2026-09-12 call. `boostSlots` is how many this crew may burn at all,
+   * which is one plus whatever the Field Commander's track has bought.
+   */
+  boostIds: z.array(z.string()).default([]),
+  boostSlots: z.number().int().positive().default(1),
   /**
    * §D1: the officer this crew is sending to lead, or null for a fight nobody leads.
    *
@@ -201,6 +207,15 @@ export const StructureDefenceSchema = z.object({
   damage: z.number().min(0).max(100),
   /** 0..1: how much of its job it is still doing. */
   effectiveness: z.number().min(0).max(1),
+  /**
+   * What it is worth to a defence right now, for the one structure that is bought *for* that.
+   *
+   * Only the Gate carries these (maintainer request, 2026-09-12: the section says what the gate
+   * provides rather than only what level it is). Null on everything else, which defends a
+   * district by standing in it rather than by a percentage of its own.
+   */
+  defensePercent: z.number().nullable().default(null),
+  intelResistancePercent: z.number().nullable().default(null),
 });
 export type StructureDefence = z.infer<typeof StructureDefenceSchema>;
 
@@ -305,7 +320,7 @@ export type DeclareBattleRequest = z.infer<typeof DeclareBattleRequestSchema>;
  *
  * Deltas rather than an absolute force, the same shape the garrison call uses. Two crews' worth of
  * reasons: a client that sends absolutes overwrites whatever a second tab did, and a delta of `-3`
- * is the withdraw the board asked for without a second endpoint for it.
+ * is the withdraw the maintainer asked for without a second endpoint for it.
  */
 /**
  * §D1: put one officer at the front of this column, or take them back off it.
@@ -356,10 +371,12 @@ export const LayTrapRequestSchema = z.object({
 export type LayTrapRequest = z.infer<typeof LayTrapRequestSchema>;
 
 /**
- * Buying the one boost a fight is allowed (§D7).
+ * Burning a name on a fight (§D7).
  *
- * `boostId` is never null: there is no un-buying. A crew that has picked one has already spent the
- * name, and offering a refund would make the drop-down a browser rather than a decision.
+ * There is no un-buying: a crew that has taken one has already spent the name, and a boost cannot
+ * be swapped, cleared or refunded. That is what makes the drop-down a decision rather than a
+ * browser, and it is why the screen asks before it sends. How many a crew may burn on one fight is
+ * `BattleView.boostSlots`: one, plus whatever the Field Commander's track has bought.
  */
 export const BuyBattleBoostRequestSchema = z.object({
   battleId: IdSchema,

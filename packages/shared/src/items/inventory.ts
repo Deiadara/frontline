@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ItemIdSchema, type ItemId } from './catalog.js';
+import { ITEM_CATALOG, ItemIdSchema, type ItemId } from './catalog.js';
 
 /**
  * What a crew is holding that is not a resource.
@@ -77,4 +77,25 @@ export function removeItems(inventory: Inventory, spent: ItemCost): Inventory {
 /** How many distinct kinds of thing are being held: the number the Inventory tab shows. */
 export function inventorySize(inventory: Inventory): number {
   return heldItems(inventory).length;
+}
+
+/**
+ * Which blueprint pages arrived between two reads of a satchel, and how many of each.
+ *
+ * A diff rather than a return value from each of the paths that hand a page over, because there
+ * are six of them (a mission's prize, the Runner's close, the fence's shelf, the Lab's trade, and
+ * both sides of a settled offer) and every one of them already writes the whole inventory back.
+ * Asking what changed is one rule in one place; asking each caller to also announce what it gave
+ * is six chances for a new path to hand over a page in silence.
+ *
+ * Only pages, and only upward. An item spent is not news, and a component is not a document.
+ */
+export function pagesGained(before: Inventory, after: Inventory): ItemCost {
+  const gained: ItemCost = {};
+  for (const [id, count] of heldItems(after)) {
+    if (ITEM_CATALOG[id].kind !== 'page') continue;
+    const delta = count - itemCount(before, id);
+    if (delta > 0) gained[id] = delta;
+  }
+  return gained;
 }

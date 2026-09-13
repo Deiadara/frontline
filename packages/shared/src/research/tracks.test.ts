@@ -4,6 +4,7 @@ import { BATTLE_BOOSTS } from '../battle/boosts.js';
 import { noCrewEffects } from '../crew/effects.js';
 import { findUnit } from '../units/catalog.js';
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
+import { RESEARCH_UNLED_FREE, RESEARCH_UNLED_PENALISED, unledRule } from '../missions.leading.js';
 import { OFFICER_ROLES } from '../roles.js';
 import { ResearchStateSchema } from './state.js';
 import {
@@ -40,7 +41,7 @@ import {
  *
  * Almost every number below is written out rather than recomputed from the function under test.
  * A test that derives `requiredTrackMark(4)` by calling `requiredTrackMark(4)` passes whatever the
- * ladder is, which is the one thing the board asked to be able to check.
+ * ladder is, which is the one thing the maintainer asked to be able to check.
  */
 
 /** Nobody in either chair: the state every crew starts in. */
@@ -107,7 +108,7 @@ describe('§C1: the shape of the tree', () => {
     for (const id of stored) expect(findResearchItem(id), id).toBeDefined();
 
     /*
-     * What each of these pays was re-dealt on 2026-09-04, on purpose: the board asked for rewards a
+     * What each of these pays was re-dealt on 2026-09-04, on purpose: the maintainer asked for rewards a
      * crew is planned around rather than a percentage per rung. A save that paid for Field Triage
      * still holds Field Triage; what it is worth is whatever the catalogue says today, the same way
      * every other retune has landed.
@@ -334,6 +335,30 @@ describe('§C4a: what a rung pays', () => {
         expect(last.percent, role).toBeGreaterThan(first.percent);
       }
     }
+  });
+});
+
+describe('the two rungs that open an unled run (maintainer, 2026-09-10)', () => {
+  it(`puts both on the Right Hand's track, the penalised one first`, () => {
+    const rungs = itemsInTrack('right_hand');
+    const penalised = rungs.find((spec) => spec.id === RESEARCH_UNLED_PENALISED);
+    const free = rungs.find((spec) => spec.id === RESEARCH_UNLED_FREE);
+    if (!penalised || !free) throw new Error('the unled rungs are not on the Right Hand track');
+    expect(penalised.step).toBe(2);
+    expect(free.step).toBe(6);
+    expect(penalised.payout.unlocks).toBe(
+      'sending a crew out with nobody leading it, at a cost to the odds',
+    );
+    expect(free.payout.unlocks).toBe('unled runs at full odds');
+  });
+
+  it('is what `unledRule` reads, in the order the track climbs', () => {
+    const rungs = itemsInTrack('right_hand');
+    const upTo = (step: number) => rungs.filter((spec) => spec.step <= step).map((spec) => spec.id);
+    expect(unledRule(upTo(1))).toBe('forbidden');
+    expect(unledRule(upTo(2))).toBe('penalised');
+    expect(unledRule(upTo(5))).toBe('penalised');
+    expect(unledRule(upTo(6))).toBe('free');
   });
 });
 

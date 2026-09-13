@@ -1,4 +1,10 @@
-import { BLUEPRINTS, findBlueprint, pageRarity, type BlueprintSpec } from '@frontline/shared';
+import {
+  BLUEPRINTS,
+  BLUEPRINT_MOTIF_IDS,
+  findBlueprint,
+  pageRarity,
+  type BlueprintSpec,
+} from '@frontline/shared';
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { BlueprintGlyph, PageGlyph, type GlyphSize } from './BlueprintGlyph';
@@ -12,9 +18,11 @@ import { BlueprintGlyph, PageGlyph, type GlyphSize } from './BlueprintGlyph';
  * player. A drawing that shuffles when a list re-renders is not a drawing of that page, it is
  * noise, and it would fail nowhere except in somebody's eyes.
  *
- * **Distinct**: two hundred and one glyphs, no two alike. This is the reason the work was done,
- * and it is the one thing a hand-written motif table can quietly lose by picking off a category
- * instead of an id.
+ * **Right**: a sheet draws what the catalogue says it draws, and the catalogue's rules hold on
+ * screen. Two documents never draw the same cover, and no page of a document draws another page of
+ * it or the cover above it. `motifs.test.ts` checks the assignment; this file checks that the
+ * assignment is what reaches the paper, which is a different failure: a component that drew one
+ * motif for everything would pass every test in shared.
  *
  * The markup compared is the svg's children, never its attributes: the root carries `data-rarity`
  * and the caller's classes, so comparing the whole element would let two identical drawings pass
@@ -53,21 +61,43 @@ function requireBlueprint(id: string): BlueprintSpec {
 
 /** The motifs on the sheet, primary first. */
 function motifs(markup: string): string[] {
-  return [...markup.matchAll(/data-motif="([a-z]+)"/g)].map((match) => match[1] ?? '');
+  return [...markup.matchAll(/data-motif="([a-z_]+)"/g)].map((match) => match[1] ?? '');
+}
+
+/** The one motif on the sheet. Throws rather than returning a default: an empty sheet is the bug. */
+function motifOf(markup: string): string {
+  const [first] = motifs(markup);
+  if (first === undefined) throw new Error('the sheet drew nothing');
+  return first;
 }
 
 /**
- * The drawing proper: which motifs, at what size, turned which way, in which corner.
+ * The line work inside the drawing group: the strokes a player actually sees.
  *
- * Compared instead of the whole sheet because the whole sheet is too easy to pass. The tear down
- * the left edge and the drafting ticks are seeded off the id too, so a glyph whose *picture* had
- * stopped depending on the id at all would still hand back a hundred and sixty different strings
- * on the strength of its fraying. This is the part a player would call the drawing.
+ * Read separately from the `data-motif` label because the label is not the picture, and a mutant
+ * proved it. Pointing every sheet at one motif's art while leaving the labels alone passed every
+ * test in this file: each sheet still *said* it drew a rifle or a bore, and the whole archive
+ * rendered as two hundred and four tables. Nothing below compares labels alone any more.
+ */
+function lineWork(markup: string): string {
+  const mark = /<g data-motif="[a-z_]+" transform="[^"]+">(.*)<\/g>/s.exec(markup);
+  if (mark === null) throw new Error('the sheet drew nothing');
+  const drawn = mark[1] ?? '';
+  if (drawn.length === 0) throw new Error('the drawing group is empty');
+  return drawn;
+}
+
+/**
+ * The drawing proper, and nothing else on the sheet: what it says it is, where, and the strokes.
+ *
+ * Compared instead of the whole sheet because the whole sheet is too easy to pass: the tear down
+ * the left edge is seeded off the id, so a glyph whose *picture* had stopped depending on the sheet
+ * at all would still hand back two hundred and four different strings on the strength of its
+ * fraying. This is the part a player would call the drawing.
  */
 function composition(markup: string): string {
-  return [...markup.matchAll(/<g data-motif="[a-z]+" transform="[^"]+"/g)]
-    .map((match) => match[0])
-    .join('|');
+  const mark = /<g data-motif="[a-z_]+" transform="[^"]+"/.exec(markup);
+  return `${mark?.[0] ?? ''}|${lineWork(markup)}`;
 }
 
 describe('a glyph is the drawing for that page, not a drawing', () => {
@@ -77,74 +107,169 @@ describe('a glyph is the drawing for that page, not a drawing', () => {
     expect(coverDrawing(colossus)).toBe(coverDrawing(colossus));
   });
 
-  it('gives every page and every document its own drawing', () => {
-    const seen = new Map<string, string>();
+  /**
+   * How many different pictures the catalogue actually draws.
+   *
+   * "No two sheets alike" was the old rule and it is not this one: two Hydraulics pages on two
+   * machines should both draw a manifold, so two hundred and four sheets deliberately come out of a
+   * smaller set. What is worth pinning is the size of that set, because the way this feature dies
+   * is by shrinking: a component that fell back to one default for anything it did not recognise
+   * would still pass every rule about documents and still turn the archive into wallpaper.
+   */
+  it('draws a hundred and ten different pictures across the two hundred and four sheets', () => {
+    const drawn = new Set<string>();
     for (const blueprint of BLUEPRINTS) {
-      const cover = composition(coverDrawing(blueprint));
-      expect(seen.get(cover), `${blueprint.id} draws what ${seen.get(cover) ?? ''} draws`).toBe(
-        undefined,
-      );
-      seen.set(cover, blueprint.id);
-      for (const [index, page] of blueprint.pages.entries()) {
-        const drawn = composition(pageDrawing(blueprint, index));
-        expect(seen.get(drawn), `${page.id} draws what ${seen.get(drawn) ?? ''} draws`).toBe(
-          undefined,
-        );
-        seen.set(drawn, page.id);
+      drawn.add(composition(coverDrawing(blueprint)));
+      for (const index of blueprint.pages.keys()) {
+        drawn.add(composition(pageDrawing(blueprint, index)));
       }
     }
-    expect(seen.size).toBe(BLUEPRINTS.length + BLUEPRINTS.reduce((n, b) => n + b.pages.length, 0));
+    // The cover and the page place their drawing differently, so one motif can arrive here as two
+    // strings; what matters is that neither number has collapsed.
+    expect(drawn.size).toBeGreaterThanOrEqual(BLUEPRINT_MOTIF_IDS.length);
+    expect(BLUEPRINT_MOTIF_IDS.length).toBe(110);
   });
 
   /**
-   * The one a family motif could hide.
+   * The strokes, counted, with the labels ignored entirely.
    *
-   * Every page of one document shares a subject, so if only the subject were drawn, eight Colossus
-   * pages would be eight copies. The margin motifs are what separate them and they come off the
-   * page's own id.
+   * This is the one that catches a component drawing one motif's art under every motif's name. It
+   * counts *line work* rather than `data-motif`, and it counts covers and pages apart because the
+   * two plates place the same drawing at different scales: forty-one covers must produce forty-one
+   * different pictures, and the pages must produce one per motif the pages actually use.
    */
-  it('separates the eight pages of one document', () => {
+  it('draws different line work for every motif, not one picture under many names', () => {
+    const covers = new Set(BLUEPRINTS.map((blueprint) => lineWork(coverDrawing(blueprint))));
+    expect(covers.size, 'two covers draw the same line work').toBe(BLUEPRINTS.length);
+
+    const pages = new Set<string>();
+    const motifsUsed = new Set<string>();
+    for (const blueprint of BLUEPRINTS) {
+      for (const [index, page] of blueprint.pages.entries()) {
+        pages.add(lineWork(pageDrawing(blueprint, index)));
+        motifsUsed.add(page.motif);
+      }
+    }
+    expect(pages.size, 'the pages draw fewer pictures than they name motifs').toBe(motifsUsed.size);
+  });
+
+  /**
+   * The one the old family motifs hid.
+   *
+   * Every page of one document used to share a subject and differ only in a seeded margin note, so
+   * eight Colossus sheets were eight copies with a smudge in eight places. Every page of a document
+   * is now a different object, and its own cover is a ninth.
+   */
+  it('separates the eight pages of the Colossus, and its cover from all of them', () => {
     const colossus = requireBlueprint('bp_the_colossus');
-    const drawings = colossus.pages.map((_, index) => composition(pageDrawing(colossus, index)));
-    expect(new Set(drawings).size).toBe(colossus.pages.length);
+    const pages = colossus.pages.map((_, index) => motifOf(pageDrawing(colossus, index)));
+    expect(new Set(pages).size).toBe(colossus.pages.length);
+    expect(pages).not.toContain(motifOf(coverDrawing(colossus)));
+  });
+
+  /** The whole catalogue, under the same two rules, because one document proves nothing. */
+  it('never draws one document cover twice, and never repeats inside a document', () => {
+    const covers = new Map<string, string>();
+    for (const blueprint of BLUEPRINTS) {
+      const cover = motifOf(coverDrawing(blueprint, 'sm'));
+      const clash = covers.get(cover);
+      expect(clash, `${blueprint.id} draws the cover of ${clash ?? ''}`).toBeUndefined();
+      covers.set(cover, blueprint.id);
+
+      const pages = blueprint.pages.map((_, index) => motifOf(pageDrawing(blueprint, index, 'sm')));
+      expect(new Set(pages).size, `${blueprint.id} draws a page twice`).toBe(pages.length);
+      expect(pages, `a page of ${blueprint.id} draws its cover`).not.toContain(cover);
+    }
+    expect(covers.size).toBe(BLUEPRINTS.length);
   });
 });
 
-describe('what is on the sheet comes from what the document builds', () => {
-  it('draws a rotor for the machines that fly and an elevation for a building', () => {
-    expect(motifs(coverDrawing(requireBlueprint('bp_rotorcraft')))[0]).toBe('rotor');
-    expect(motifs(coverDrawing(requireBlueprint('bp_heli_porter')))[0]).toBe('rotor');
-    expect(motifs(coverDrawing(requireBlueprint('bp_nexus_retrofit')))[0]).toBe('schematic');
+/**
+ * The sheet draws what the catalogue says, and it is the only thing on it.
+ *
+ * Written out by hand rather than read back off `page.motif`, on purpose: a test that asked the
+ * catalogue what to expect would pass whatever the catalogue happened to say, including a catalogue
+ * that had lost the lot to one default. These are the sheets the maintainer named in the brief, spelled
+ * out, so a re-assignment has to be a deliberate edit here too.
+ */
+describe('what is on the sheet is what the catalogue says is on it', () => {
+  it('draws the Sniper as a rifle, its bore, its ruled card and its net', () => {
+    const snipers = requireBlueprint('bp_snipers');
+    expect(motifOf(coverDrawing(snipers))).toBe('rifle');
+    expect(snipers.pages.map((_, index) => motifOf(pageDrawing(snipers, index)))).toEqual([
+      'bore',
+      'card',
+      'net',
+    ]);
   });
 
-  it('draws a body for a unit, a chassis for a machine that drives, a plate for a trap', () => {
-    expect(motifs(coverDrawing(requireBlueprint('bp_snipers')))[0]).toBe('figure');
-    expect(motifs(coverDrawing(requireBlueprint('bp_scrap_car')))[0]).toBe('hull');
-    expect(motifs(coverDrawing(requireBlueprint('bp_prepared_collapse')))[0]).toBe('bolts');
+  it('draws the Colossus as a walking hull, with a piston for its legs and a core for its reactor', () => {
+    const colossus = requireBlueprint('bp_the_colossus');
+    expect(motifOf(coverDrawing(colossus))).toBe('walking_hull');
+    expect(motifOf(pageDrawing(colossus, 1))).toBe('piston');
+    expect(motifOf(pageDrawing(colossus, 3))).toBe('core_vessel');
   });
 
-  it('gives every page of a document the document subject, and its own margin notes', () => {
+  it('draws the machines that fly as themselves rather than as one rotor', () => {
+    expect(motifOf(coverDrawing(requireBlueprint('bp_rotorcraft')))).toBe('rotor_head');
+    expect(motifOf(coverDrawing(requireBlueprint('bp_heli_porter')))).toBe('helicopter');
     const rotorcraft = requireBlueprint('bp_rotorcraft');
-    const margins = rotorcraft.pages.map((_, index) => {
-      const drawn = motifs(pageDrawing(rotorcraft, index));
-      expect(drawn[0]).toBe('rotor');
-      return drawn.slice(1).join('+');
-    });
-    // Seven pages, and no motif is ever the subject twice on one sheet.
-    for (const pair of margins) expect(pair).not.toContain('rotor');
-    expect(new Set(margins).size).toBeGreaterThan(1);
+    expect(motifOf(pageDrawing(rotorcraft, 1))).toBe('swashplate');
+  });
+
+  it('draws a bus for the Cheese Wagon and a mortar and pestle for the primer mixes', () => {
+    expect(motifOf(coverDrawing(requireBlueprint('bp_armoured_car')))).toBe('bus');
+    expect(motifOf(pageDrawing(requireBlueprint('bp_munitions'), 1))).toBe('mortar_pestle');
+  });
+
+  /** One drawing per sheet. The seeded second and third marks are gone and stay gone. */
+  it('puts exactly one drawing on every sheet, at every size', () => {
+    const garage = requireBlueprint('bp_garage_retrofit');
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      expect(motifs(pageDrawing(garage, 0, size))).toHaveLength(1);
+      expect(motifs(coverDrawing(garage, size))).toHaveLength(1);
+    }
+  });
+
+  /** Every id in the set is drawable: a motif with no art renders an empty group. */
+  it('has art for every motif the catalogue can name', () => {
+    for (const blueprint of BLUEPRINTS) {
+      expect(coverDrawing(blueprint, 'md')).toContain(`data-motif="${blueprint.motif}"`);
+    }
+    const drawn = new Set(BLUEPRINTS.flatMap((b) => [b.motif, ...b.pages.map((p) => p.motif)]));
+    expect(drawn.size).toBe(BLUEPRINT_MOTIF_IDS.length);
   });
 });
 
 describe('detail is dropped rather than redrawn as the glyph gets smaller', () => {
-  it('draws one motif at 16px, two at 32px and three at 64px', () => {
-    const specter = requireBlueprint('bp_the_specter');
-    expect(motifs(pageDrawing(specter, 0, 'sm'))).toHaveLength(1);
-    expect(motifs(pageDrawing(specter, 0, 'md'))).toHaveLength(2);
-    expect(motifs(pageDrawing(specter, 0, 'lg'))).toHaveLength(3);
+  /**
+   * Every motif, at every size, because one sample is not the rule.
+   *
+   * A motif whose `detail` is empty draws the same picture at 16px and 36px, which is the quiet way
+   * this rule rots: the sheet still renders, the tests on distinctness still pass, and the only
+   * symptom is a glyph that never gets any better as it gets bigger. Measured over all two hundred
+   * and four sheets so a new motif cannot be added without one.
+   */
+  it('gives every sheet in the catalogue more line at 36px than at 16px', () => {
+    const strokes = (markup: string) =>
+      markup.split('<path').length +
+      markup.split('<circle').length +
+      markup.split('<ellipse').length;
+    for (const blueprint of BLUEPRINTS) {
+      expect(
+        strokes(coverDrawing(blueprint, 'sm')),
+        `${blueprint.id} draws the same cover at both sizes`,
+      ).toBeLessThan(strokes(coverDrawing(blueprint, 'md')));
+      for (const [index, page] of blueprint.pages.entries()) {
+        expect(
+          strokes(pageDrawing(blueprint, index, 'sm')),
+          `${page.id} draws the same sheet at both sizes`,
+        ).toBeLessThan(strokes(pageDrawing(blueprint, index, 'md')));
+      }
+    }
   });
 
-  it('says on the element which of the three it drew', () => {
+  it('says on the element which of the three sizes it drew', () => {
     const page = requireBlueprint('bp_the_specter').pages[0];
     if (page === undefined) throw new Error('the Specter lost a page');
     const { container } = render(
@@ -155,14 +280,15 @@ describe('detail is dropped rather than redrawn as the glyph gets smaller', () =
 
   it('keeps the same subject in the same place at all three sizes', () => {
     const specter = requireBlueprint('bp_the_specter');
-    const subject = /<g data-motif="[a-z]+" transform="[^"]+"/;
+    const subject = /<g data-motif="[a-z_]+" transform="[^"]+"/;
     const small = subject.exec(pageDrawing(specter, 2, 'sm'))?.[0];
     expect(small).toBeDefined();
     expect(pageDrawing(specter, 2, 'md')).toContain(small);
     expect(pageDrawing(specter, 2, 'lg')).toContain(small);
   });
 
-  it('draws fewer strokes the smaller it gets', () => {
+  /** And 72px adds the sheet's own furniture on top of that, rather than a third drawing. */
+  it('draws fewer strokes the smaller it gets, and adds no motif on the way up', () => {
     const garage = requireBlueprint('bp_garage_retrofit');
     const strokes = (markup: string) =>
       markup.split('<path').length + markup.split('<circle').length;
@@ -172,6 +298,7 @@ describe('detail is dropped rather than redrawn as the glyph gets smaller', () =
     expect(strokes(pageDrawing(garage, 0, 'md'))).toBeLessThan(
       strokes(pageDrawing(garage, 0, 'lg')),
     );
+    expect(motifs(pageDrawing(garage, 0, 'lg'))).toHaveLength(1);
   });
 });
 
@@ -231,41 +358,38 @@ describe('a drawing on a dark plate, at one weight', () => {
   /**
    * The pen, measured rather than trusted.
    *
-   * A mark placed at `scale(0.85)` has to ask for a heavier line so the line that lands is the
-   * same one the subject drew. The check is on the *product*, which is the width as it reaches the
-   * paper: a motif that had gone back to writing plain widths would show the band at 0.85 of the
-   * subject and fail here.
+   * A motif is placed with a `scale()`, so it has to ask for a *lighter* number to land the weight
+   * it means: the page's drawing is at 1.85, so the authored 1.5 is written as 0.81 and reaches the
+   * paper at 1.5. The check is on the product. A motif that had gone back to writing plain widths
+   * would land its outline at 2.8 on a page and 2.6 on a cover, and the whole catalogue would go
+   * from crisp to woolly with nothing failing.
    */
-  it('draws the second motif at the weight the first one is drawn at', () => {
+  it('lands the outline at the authored weight whatever it is scaled by', () => {
     const colossus = requireBlueprint('bp_the_colossus');
-    const marks = [
-      ...pageDrawing(colossus, 0).matchAll(
-        /<g data-motif="[a-z]+" transform="[^"]*scale\(([\d.]+)\)"[^>]*>(.*?)<\/g>/gs,
-      ),
-    ];
-    expect(marks.length).toBeGreaterThanOrEqual(2);
-    const onPaper = marks.map((mark) => {
-      const scale = Number(mark[1]);
-      const widths = [...(mark[2] ?? '').matchAll(/stroke-width="([\d.]+)"/g)].map((m) =>
+    const heaviest = (markup: string) => {
+      const mark =
+        /<g data-motif="[a-z_]+" transform="[^"]*scale\(([\d.]+)\)"[^>]*>(.*?)<\/g>/s.exec(markup);
+      expect(mark, 'no drawing on the sheet').not.toBeNull();
+      const widths = [...(mark?.[2] ?? '').matchAll(/stroke-width="([\d.]+)"/g)].map((m) =>
         Number(m[1]),
       );
-      return Math.max(...widths) * scale;
-    });
-    const [subject, band] = onPaper;
-    expect(subject).toBeDefined();
-    expect(band).toBeDefined();
-    if (subject === undefined || band === undefined) return;
-    expect(band).toBeCloseTo(subject, 1);
+      return Math.max(...widths) * Number(mark?.[1]);
+    };
+    // The page is drawn at 1.85 and the cover at 1.75, so the two scales disagree and the two
+    // outlines still have to arrive at the same 1.5.
+    expect(heaviest(pageDrawing(colossus, 0))).toBeCloseTo(1.5, 1);
+    expect(heaviest(coverDrawing(colossus))).toBeCloseTo(1.5, 1);
   });
 
-  /** A motif's own line is heavier than the draughtsman's ticks around it, at every size. */
-  it('keeps the motif strokes heavier than the drafting ticks', () => {
+  /** A motif's own line is heavier than the sheet's furniture around it. */
+  it('keeps the motif strokes heavier than the dimension run under them', () => {
     const sheet = pageDrawing(requireBlueprint('bp_snipers'), 0, 'lg');
-    const ticks = [...sheet.matchAll(/d="M[\d.]+ [\d.]+h[\d.]+" stroke-width="([\d.]+)"/g)].map(
-      (m) => Number(m[1]),
-    );
-    expect(ticks.length).toBeGreaterThan(0);
-    expect(Math.max(...ticks)).toBeLessThan(1.15);
+    // The run at the foot of the page, which only the largest size draws.
+    const run = /d="M16 38.6h19[^"]*" stroke-width="([\d.]+)"/.exec(sheet);
+    expect(run, 'the largest size drew no dimension run').not.toBeNull();
+    expect(Number(run?.[1])).toBeLessThan(0.9);
+    // ...and the same run is not on the smaller sheets, where it would be grain.
+    expect(pageDrawing(requireBlueprint('bp_snipers'), 0, 'md')).not.toContain('M16 38.6h19');
   });
 });
 

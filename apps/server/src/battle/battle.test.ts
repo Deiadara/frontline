@@ -9,6 +9,7 @@ import {
   capturedGateDefensePercent,
   gateDefensePercent,
   BATTLE_BOOSTS,
+  RESEARCH_ITEMS,
   NOTORIETY_FIRST_COST,
   findBattleBoost,
   NOTORIETY_TO_FIELD,
@@ -384,6 +385,25 @@ describe('calling a fight (§A4)', () => {
     expect(res.statusCode).toBe(409);
   });
 
+  /**
+   * The location has to be in the district the target names.
+   *
+   * The two ids arrived separately and nothing tied them together: the visibility and gate rules
+   * read the district, the capture read the location. Naming a shut, unscouted district's
+   * location under the open Rustyard's id walked the shorter road and took the location behind a
+   * gate the caller was never allowed through.
+   */
+  it('refuses a location named under a district it is not in', async () => {
+    const stack = await makeStack();
+    const res = await declare(stack, {
+      kind: 'location',
+      districtId: 'rustyard',
+      locationId: 'blacksite-7-armory',
+    });
+    expect(res.statusCode).toBe(409);
+    expect(stack.repos.sieges.pending()).toHaveLength(0);
+  });
+
   it('caps how many calls one crew can have out at once', async () => {
     const stack = await makeStack();
     const results = [];
@@ -417,7 +437,7 @@ describe('calling a fight (§A4)', () => {
   });
 
   /**
-   * A consequence of the board's rule that is worth stating out loud: a fresh map is *entirely*
+   * A consequence of the maintainer's rule that is worth stating out loud: a fresh map is *entirely*
    * shut, because every district starts held end to end by the looters or the Combine. The opening
    * move against any district is therefore a gate assault, and the locations inside it only become
    * declarable during the breach that follows.
@@ -620,6 +640,44 @@ describe('resolving it (§A4)', () => {
   });
 
   /**
+   * A column that lands after the mark was not at the fight.
+   *
+   * Deployment shuts a second before the mark, but the settle that runs the fight is the next tick
+   * or read, and a server asleep between the two folded in every column with `arrivesAt` up to
+   * `now`: a column that arrived minutes after the hour the fight was called for fought in it.
+   * It turns round instead, and the bodies are back on the books.
+   */
+  it('turns round a column that lands after the mark, rather than folding it into the fight', async () => {
+    const stack = await makeStack('late', decided('attacker'));
+    const declared = await declare(stack);
+    const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
+    const before = stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
+    await deploy(stack, battle.id, { razors: 3 });
+
+    // The mark is two minutes gone; the column got there a minute after it.
+    const mark = new Date(Date.now() - 120_000);
+    stack.db
+      .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
+      .run(mark.toISOString(), battle.id);
+    stack.db
+      .prepare('UPDATE troop_movements SET departed_at = ?, arrives_at = ? WHERE battle_id = ?')
+      .run(
+        new Date(mark.getTime() - 60_000).toISOString(),
+        new Date(mark.getTime() + 60_000).toISOString(),
+        battle.id,
+      );
+
+    settleMovements(stack.app.repos, new Date());
+
+    expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(0);
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
+    // And nothing of theirs is on the ground for the fight to spend.
+    expect(stack.repos.sieges.deployment(battle.id, 'attacker', stack.baseId)?.army ?? {}).toEqual(
+      {},
+    );
+  });
+
+  /**
    * A deployment names units, and only units.
    *
    * `changes` was `z.record(z.string(), z.number().int())`, so any string was a key. Zod drops
@@ -734,7 +792,7 @@ describe('resolving it (§A4)', () => {
   });
 
   /**
-   * A breach is a door off its hinges, not a demolition (board request).
+   * A breach is a door off its hinges, not a demolition (maintainer request).
    *
    * A gate's strength is its level and nothing else now, so a breach has exactly one thing it can
    * take: the way in, for {@link GATE_BREACH_HOURS} hours. The level survives it, the way a
@@ -806,7 +864,7 @@ describe('resolving it (§A4)', () => {
 });
 
 /**
- * §A4: the gate rule that only fires while the door is off its hinges (board request).
+ * §A4: the gate rule that only fires while the door is off its hinges (maintainer request).
  *
  * Driven through the settler rather than through `resetGateOnDistrictLost` directly, because what
  * is under test here is the *wiring*: the rule lives in `city/gates.ts` and would pass its own
@@ -829,6 +887,7 @@ describe('losing a location behind a broken gate (§A4)', () => {
       level: gateLevel,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
   }
 
@@ -910,7 +969,7 @@ describe('what a name buys (§D7)', () => {
     expect(paid.statusCode).toBe(200);
     const after = paid.json<BattleMutationResponse>();
     expect(after.base.economy.infamy).toBe(10);
-    expect(after.battles.coming[0]!.boostId).toBe(spec.id);
+    expect(after.battles.coming[0]!.boostIds).toEqual([spec.id]);
   });
 
   it('offers nothing an officer or the Lab has not put on the table', async () => {
@@ -928,33 +987,37 @@ describe('what a name buys (§D7)', () => {
     expect(refused.statusCode).toBe(403);
   });
 
-  it('replaces the boost rather than stacking it, and charges again for the change of mind', async () => {
+  /**
+   * A name is taken, never swapped (maintainer request, 2026-09-12).
+   *
+   * The route used to write the new id over the old one and charge for it, so the drop-down was a
+   * shop a player browsed at the mark and a change of mind cost only the second name's price. One
+   * to a fight is the rule, the screen asks before it sends, and a second name is refused here.
+   */
+  it('refuses a second name on a fight that already has one, and charges nothing for it', async () => {
     const stack = await makeStack();
     const [first, second] = BATTLE_BOOSTS.filter((spec) => spec.unlock.kind === 'open');
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
     const base = stack.repos.bases.findById(stack.baseId)!;
-    const purse = first!.cost + second!.cost + 5;
-    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: purse });
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: first!.cost + second!.cost + 5,
+    });
 
     expect((await buy(stack, battleId, first!.id)).statusCode).toBe(200);
-    const changed = await buy(stack, battleId, second!.id);
-    expect(changed.statusCode).toBe(200);
-    const after = changed.json<BattleMutationResponse>();
-    expect(after.battles.coming[0]!.boostId).toBe(second!.id);
-    expect(after.base.economy.infamy).toBe(5);
+    const spent = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
+
+    const refused = await buy(stack, battleId, second!.id);
+    expect(refused.statusCode).toBe(409);
+    expect(errorCode(refused)).toBe('BOOST_REFUSED');
+    const after = await board(stack);
+    expect(after.coming[0]!.boostIds).toEqual([first!.id]);
+    expect(after.coming[0]!.boostSlots).toBe(1);
+    expect(stack.repos.bases.findById(stack.baseId)!.economy.infamy).toBe(spent);
   });
 
-  /**
-   * §D7: pressing "Burn the name" twice on the same boost is not a change of mind.
-   *
-   * The route charged `spec.cost` on every call and wrote the same `boostId` back, so a double
-   * click, a retried request, or a player re-picking the boost they already hold (the dropdown
-   * lists it and does not disable it) paid full price for a deployment row that did not move. The
-   * test above pins that *changing* boost costs twice, which is the rule; this pins that not
-   * changing it costs once.
-   */
-  it('charges nothing to buy the boost it already has', async () => {
+  it('refuses the name it already has rather than charging twice for it', async () => {
     const stack = await makeStack();
     const spec = open();
     const declared = await declare(stack);
@@ -966,9 +1029,38 @@ describe('what a name buys (§D7)', () => {
     const once = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
 
     const again = await buy(stack, battleId, spec.id);
-    expect(again.statusCode).toBe(200);
-    expect(again.json<BattleMutationResponse>().battles.coming[0]!.boostId).toBe(spec.id);
+    expect(again.statusCode).toBe(409);
+    expect(errorCode(again)).toBe('BOOST_REFUSED');
+    expect((await board(stack)).coming[0]!.boostIds).toEqual([spec.id]);
     expect(stack.repos.bases.findById(stack.baseId)!.economy.infamy).toBe(once);
+  });
+
+  /** The Field Commander's last rung buys a second name, and the cap on the wire says so. */
+  it('lets a crew that has researched it burn a second name', async () => {
+    const stack = await makeStack();
+    const [first, second, third] = BATTLE_BOOSTS.filter((spec) => spec.unlock.kind === 'open');
+    const declared = await declare(stack);
+    const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: first!.cost + second!.cost + 5,
+    });
+    const rung = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'battle_boosts')!;
+    stack.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, rung.id],
+    });
+
+    expect((await buy(stack, battleId, first!.id)).statusCode).toBe(200);
+    expect((await buy(stack, battleId, second!.id)).statusCode).toBe(200);
+    const after = await board(stack);
+    expect(after.coming[0]!.boostSlots).toBe(2);
+    expect(after.coming[0]!.boostIds).toEqual([first!.id, second!.id]);
+    expect(stack.repos.bases.findById(stack.baseId)!.economy.infamy).toBe(5);
+
+    // Two is the cap it bought, not a door left open.
+    if (third) expect((await buy(stack, battleId, third.id)).statusCode).toBe(409);
   });
 
   it('prices a boost against the force actually standing on the ground', async () => {
@@ -1018,11 +1110,42 @@ describe('what a name buys (§D7)', () => {
     expect(errorCode(short)).toBe('NOT_ENOUGH_INFAMY');
     expect(stack.repos.bases.findById(stack.baseId)!.economy.notoriety).toBe(1);
   });
+
+  /**
+   * Two presses that both named the old rung buy one rank, not two.
+   *
+   * A rank is irreversible and the route bought "the next one" blind, so a double click or two
+   * tabs each landing "buy from rank 0" bought ranks 1 and 2. The screen names the rung it was
+   * showing; the second press names a rung the row has left, and is refused with the wallet
+   * untouched.
+   */
+  it('refuses a press that named a rung already bought, and buys nothing for it', async () => {
+    const stack = await makeStack('doubled');
+    const base = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 100_000 });
+    const climbFrom = (fromNotoriety: number) =>
+      stack.app.inject({
+        method: 'POST',
+        url: '/api/battles/notoriety',
+        headers: auth(stack.token),
+        payload: { fromNotoriety },
+      });
+
+    expect((await climbFrom(0)).statusCode).toBe(200);
+    const again = await climbFrom(0);
+    expect(again.statusCode).toBe(409);
+    expect(errorCode(again)).toBe('STALE_STATE');
+    const after = stack.repos.bases.findById(stack.baseId)!.economy;
+    expect(after.notoriety).toBe(1);
+    expect(after.infamy).toBe(100_000 - NOTORIETY_FIRST_COST);
+    // Naming the rung the row is now on buys the next one, as it should.
+    expect((await climbFrom(1)).statusCode).toBe(200);
+  });
 });
 
 describe('holding a district (§A4)', () => {
   /**
-   * A gate cannot be dug in at all (board request).
+   * A gate cannot be dug in at all (maintainer request).
    *
    * Watches came first: a count on every structure that bought 5% each and cost nothing, so an
    * empty roster could click a district 15% harder to enter. Fortification replaced them and made
@@ -1057,18 +1180,39 @@ describe('holding a district (§A4)', () => {
     const stack = await makeStack();
     const gate = raiseGate(stack);
 
-    const row = (await board(stack)).structures.find((entry) => entry.buildingId === gate.id)!;
+    const structures = (await board(stack)).structures;
+    const row = structures.find((entry) => entry.buildingId === gate.id)!;
     expect(row.level).toBe(1);
     expect(Object.keys(row).sort()).toEqual(
-      ['buildingId', 'damage', 'effectiveness', 'kind', 'label', 'level'].sort(),
+      [
+        'buildingId',
+        'damage',
+        'defensePercent',
+        'effectiveness',
+        'intelResistancePercent',
+        'kind',
+        'label',
+        'level',
+      ].sort(),
     );
+    /*
+     * The two figures are the Gate's alone (maintainer request, 2026-09-12: the section says what the
+     * gate provides). Everything else defends a district by standing in it rather than by a
+     * percentage of its own, and a zero there would read as a Gate that is worth nothing.
+     */
+    expect(row.defensePercent).toBeGreaterThan(0);
+    expect(row.intelResistancePercent).toBeGreaterThan(0);
+    for (const other of structures.filter((entry) => entry.kind !== 'gate')) {
+      expect(other.defensePercent, other.kind).toBeNull();
+      expect(other.intelResistancePercent, other.kind).toBeNull();
+    }
   });
 
   /**
    * §B7: what a gate is worth is its level, wherever it stands.
    *
    * The same number for a wall raised at home and a wall taken with the district it sits in, which
-   * is the board's rule that the two are on the same footing. Asserted against the captured gate's
+   * is the maintainer's rule that the two are on the same footing. Asserted against the captured gate's
    * own function rather than against a figure typed here, so the two cannot drift apart.
    */
   it('is worth the same per level at home as on ground it took', async () => {

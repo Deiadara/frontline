@@ -164,7 +164,7 @@ export function WindowHead({
         onClick={onClose}
         aria-label="Close"
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-surface-600',
+          'brushed relative flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border border-surface-600',
           'text-ink-300 transition-colors hover:border-brass-300/60 hover:text-brass-100',
         )}
       >

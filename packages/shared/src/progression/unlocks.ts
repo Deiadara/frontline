@@ -5,7 +5,7 @@ import { PLAYER_LEVEL_MIN } from './curve.js';
  * What levelling opens (GDD §I3).
  *
  * §I3 shipped as an empty extension point for a long time, on the rule that the catalogue was the
- * board's to file rather than an agent's to invent. The board filed it: four screens behind a
+ * board's to file rather than an agent's to invent. The maintainer filed it: four screens behind a
  * gentle early gate, and a run of milestones at the round numbers that give a high level something
  * to be *for*. This is that catalogue, and it is still the only place an unlock is declared: a
  * system that wants to know whether something is open asks {@link isPlayerUnlockActive} rather than

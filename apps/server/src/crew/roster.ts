@@ -24,6 +24,7 @@ export function projectCrewOfficer(officer: Commander): CrewOfficer {
   return {
     officerId: officer.id,
     name: officer.name,
+    portraitId: officer.portraitId ?? null,
     role: officer.role,
     attributes: officer.attributes,
     perks: officer.perks,

@@ -7,6 +7,7 @@ import { settleFortifications } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
 import { settleScouting } from '../scouting/scouting.js';
 import type { Repositories } from '../db/repos/index.js';
+import { liveHub } from '../live/hub.js';
 
 /**
  * The order the shared world settles in, in one place.
@@ -55,12 +56,24 @@ export function settleWorld(
   bringCrewsHome?: (repos: Repositories, now: Date) => void,
 ): number {
   settleFortifications(repos, now);
-  settleMovements(repos, now);
-  settleCapturedGates(repos, now);
+  const landed = settleMovements(repos, now);
+  const gates = settleCapturedGates(repos, now);
   const fights = settleBattles(repos, engine, now).length;
   bringCrewsHome?.(repos, now);
   settleScouting(repos, now);
-  settleBarAuctions(repos, now);
-  settleVendorAuctions(repos, now);
+  const tables = settleBarAuctions(repos, now);
+  const lots = settleVendorAuctions(repos, now);
+  /*
+   * Tell every open tab what the clock just moved, **after** every settle above has committed.
+   *
+   * These are the changes nobody pressed a button for: a fight going off, a column landing, a
+   * gate coming up, a table closing at the Bar. Before this, another player learned of them on
+   * their next poll, five to fifteen seconds later, and two players looking at the same street
+   * saw two different streets for that long. A nudge costs nothing when nobody is connected and
+   * is only sent when something actually settled, so a quiet world stays quiet.
+   */
+  if (fights > 0 || landed > 0 || gates > 0) liveHub.broadcast('world', now);
+  if (tables > 0) liveHub.broadcast('bar', now);
+  if (lots > 0) liveHub.broadcast('market', now);
   return fights;
 }

@@ -201,6 +201,22 @@ export const FactionMemberSchema = z.object({
    */
   card: FactionCardSchema,
   cardMark: OfficerMarkSchema,
+  /**
+   * The face on their file (maintainer request, 2026-09-12).
+   *
+   * The roster used to draw a member as their seat's card glyph, and the member window drew a
+   * generated sigil. Both are decorations of the *seat*, so five people at a table looked like
+   * five playing cards rather than five people, and the one picture of somebody that already
+   * exists in the game was the one picture the faction screen did not use. This is their own
+   * Overseer's portrait, the same id `/crews/:id` and the Bar already serve.
+   *
+   * Null only for an account that registered and never chose an Overseer, which cannot hold a
+   * district and therefore cannot hold a seat, so in practice every row has one. Nullable anyway,
+   * because a roster that threw on that row would take the whole screen down for everybody else.
+   */
+  portraitId: z.string().min(1).nullable().default(null),
+  /** What their Overseer is called, which is not their account name. Null on the same account. */
+  overseerName: z.string().min(1).nullable().default(null),
 });
 export type FactionMember = z.infer<typeof FactionMemberSchema>;
 

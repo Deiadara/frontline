@@ -150,7 +150,7 @@ move it 20, Home and End go to the ends.
 
 ## 4. Adding a sound
 
-Do not, unless the board asks. Six is the budget and the reason is §2's last point. If one is
+Do not, unless the maintainer asks. Six is the budget and the reason is §2's last point. If one is
 genuinely needed:
 
 1. Add the kind to `SOUND_KINDS`, `KIND_GAIN` and `MIN_GAP_MS`.

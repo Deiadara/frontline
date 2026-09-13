@@ -15,7 +15,7 @@ import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { CardGlyph } from './CardGlyph';
-import { MemberSigil } from './MemberSigil';
+import { MemberFace } from './MemberFace';
 import { RankStamp } from './RankStamp';
 import { ArmyTags, Heading, WindowHead } from './parts';
 
@@ -77,27 +77,19 @@ export function MemberWindow({
       data-testid={`member-window-${member.username}`}
     >
       <WindowHead id="member-window-title" title={member.username} onClose={onClose}>
-        <span className="icon-plate flex h-11 w-10 shrink-0 items-center justify-center rounded-sm text-brass-300">
-          <MemberSigil
-            seed={member.userId}
-            name={`${member.username}, drawn`}
-            className="h-8 w-8"
-          />
-        </span>
+        <div className="h-10 w-10 shrink-0">
+          <MemberFace member={member} size="sm" />
+        </div>
       </WindowHead>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
         <div className="flex flex-wrap items-start gap-4">
-          <span className="icon-plate relative flex h-[8.5rem] w-[7rem] shrink-0 items-center justify-center rounded-sm text-brass-300">
-            <MemberSigil
-              seed={member.userId}
-              name={`${member.username}, drawn`}
-              className="h-[7rem] w-[7rem]"
-            />
+          <div className="relative aspect-[3/4] w-[7rem] shrink-0">
+            <MemberFace member={member} size="lg" />
             {/* Across the foot of the portrait, never off its right corner: hung there, `Leader`
                 is wide enough to land on the readings beside it. */}
             <RankStamp rank={member.rank} className="absolute -bottom-2 left-0 right-0 block h-7" />
-          </span>
+          </div>
 
           <div className="flex min-w-[14rem] flex-1 flex-col gap-2">
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-brass-300">

@@ -5,7 +5,7 @@
  * aspect and positions the signs inside *that*, so they hold at every window width. This is the
  * same arrangement `plots.ts` uses for the twelve structures on the home district's ground, and
  * the signs follow the same rule as those plot labels: a plate hung just under the thing it names,
- * on open ground, with no dot and no leader line. The lines went at the board's request; a sign
+ * on open ground, with no dot and no leader line. The lines went at the maintainer's request; a sign
  * that has to be joined to its subject by a thread is a sign standing in the wrong place.
  *
  * A location with no mark is not an error and is not dropped: {@link ContestedScene} lists it
@@ -42,6 +42,14 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // Chrome Row's timber gate closes the bottom of the plaza; the sign stands on the stone just
   // above its beam, clear of the two guards under it.
   'chrome-row': { x: 0.53, y: 0.705 },
+  // The Undergrid's timber gate and watch platform close the bottom edge. The sign stands on the
+  // wet stone *above* the beam rather than over the gateway, so it names the gate without sitting
+  // on it or on the two figures walking through it (board mark-up, 2026-09-11).
+  undergrid: { x: 0.515, y: 0.715 },
+  // The Annexes' stone gate and its two towers close the bottom of the square. Down and to the
+  // left of the arch, on the lit road, so it covers the gate as little as it can and still reads
+  // as its sign. Not lower: the plate room crops the bottom tenth at 1024x768.
+  'datavault-sigma': { x: 0.425, y: 0.83 },
 };
 
 export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
@@ -56,7 +64,14 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'neon-docks-pumphouse': { x: 0.595, y: 0.585 },
   'neon-docks-galley': { x: 0.74, y: 0.76 },
   'neon-docks-barges': { x: 0.22, y: 0.89 },
-  'neon-docks-chandler': { x: 0.92, y: 0.43, side: 'left' },
+  /*
+   * Down the quay from the gate rather than level with it (2026-09-11).
+   *
+   * It sat at y 0.43 against the gate's 0.40, which was clear only while a sign could wrap: once
+   * every plate became a single line this one grew left into the gate's right-hand corner.
+   * Measured at 1024x768, the two overlapped across x 0.823 to 0.837.
+   */
+  'neon-docks-chandler': { x: 0.92, y: 0.49, side: 'left' },
 
   /*
    * Steelbelt, the same way. The Breaker's Yard sign stands on the dirt between the gantry and
@@ -92,4 +107,39 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'chrome-row-regal': { x: 0.58, y: 0.47 },
   'chrome-row-anvil': { x: 0.885, y: 0.64 },
   'chrome-row-coinop': { x: 0.7, y: 0.62 },
+
+  /*
+   * The Undergrid, read off the board's labelled copy (`images/undergrid-portrait-labels.png`,
+   * 2026-09-11). Each sign sits on the platform or the floor under the thing it names, on open
+   * ground: the substation's scaffold deck, the walkway below the customs tunnel, the vault's
+   * platform, the junction's footbridge, the depot's forecourt, the stair tower's foot, and the
+   * floor in front of the reagent tanks. The stair is the one that would run off the right edge.
+   */
+  'undergrid-substation': { x: 0.245, y: 0.5 },
+  'undergrid-customs': { x: 0.53, y: 0.215 },
+  // Both of these were moved at the board's mark-up (2026-09-11). The vault's sign sat on the
+  // walkway below and left of the structure, where it read as a label for the bridge; it stands on
+  // the vault's own deck now, at the right-hand end of the housing. The depot's sat under the
+  // reagent tanks rather than under the tram, and has come back up the steps to the platform it
+  // names.
+  'undergrid-vault9': { x: 0.8, y: 0.205 },
+  'undergrid-junction': { x: 0.49, y: 0.51 },
+  'undergrid-depot': { x: 0.715, y: 0.49 },
+  'undergrid-lair': { x: 0.935, y: 0.5, side: 'left' },
+  'undergrid-reagent': { x: 0.855, y: 0.78 },
+
+  /*
+   * The Annexes, read off the plate against a twentieth grid (2026-09-11). The board's labelled
+   * copy names the buildings and these follow it: each sign sits at the foot of the thing it names
+   * or on its own roof where the ground in front of it is people, trees or steps somebody is on.
+   * The square in the middle is left clear, because it is the one part of this painting a player
+   * reads the whole shape of.
+   */
+  'datavault-sigma-uplink': { x: 0.215, y: 0.195 },
+  'datavault-sigma-ward': { x: 0.39, y: 0.335 },
+  'datavault-sigma-orrery': { x: 0.55, y: 0.29 },
+  'datavault-sigma-coldrow': { x: 0.725, y: 0.35 },
+  'datavault-sigma-faculty': { x: 0.275, y: 0.635 },
+  'datavault-sigma-loft': { x: 0.585, y: 0.615 },
+  'datavault-sigma-scaffold': { x: 0.77, y: 0.73 },
 };

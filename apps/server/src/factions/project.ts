@@ -40,6 +40,8 @@ function projectMember(
   if (!user || !base) return null;
 
   const army = base.army;
+  // The one picture of this person that already exists. Their own Overseer, not their seat's card.
+  const overseer = user.overseerId ? repos.overseers.findById(user.overseerId) : undefined;
   return {
     userId,
     baseId: base.id,
@@ -54,6 +56,8 @@ function projectMember(
     armySize: Object.values(army).reduce((total, count) => total + count, 0),
     supplyUsed: supplyUsed(army),
     isBot: base.isBot,
+    portraitId: overseer?.portraitId ?? null,
+    overseerName: overseer?.name ?? null,
   };
 }
 

@@ -5,7 +5,7 @@ import { seedFrom } from '../rng.js';
 import { GAME_TIMEZONE, dayInZone, nextDayBoundary } from '../time/zone.js';
 
 /**
- * Bidding for people (GDD §H7, reworked by the board 2026-09-07).
+ * Bidding for people (GDD §H7, reworked by the maintainer 2026-09-07).
  *
  * The Bar used to be a haggle: one crew, one recruit, a conversation with patience in it. It is an
  * auction now, and the room is the whole city's. Everybody sees the same eight people at the same

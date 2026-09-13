@@ -13,7 +13,7 @@ import { cn } from '../../lib/cn';
  * **Speed** is the stat a unit's own sheet carries, on the same scale, so a player can compare a
  * machine with the legs of the people they were going to put in it. That comparison is the whole
  * reason the machines sit on the roster beside the units rather than on the Garage's own page
- * (board request, 2026-09-08).
+ * (maintainer request, 2026-09-08).
  */
 export function VehicleCard({
   vehicle,
@@ -30,14 +30,14 @@ export function VehicleCard({
     <article
       data-testid={`vehicle-${vehicle.id}`}
       className={cn(
-        // The units tab's shape (board request): picture on the left at the card's own height,
+        // The units tab's shape (maintainer request): picture on the left at the card's own height,
         // the sheet beside it. It was picture *over* sheet, which put a 615px-wide crop of a
         // square painting across the top of every row and pushed the Build control below the fold.
         //
         // A fixed height is what makes the picture resolvable in CSS: with a definite height the
         // portrait can be `h-full` at its own 1:1 and let the width follow, so the frame is exactly
         // the shape of the painting and nothing is cropped. 13rem is about half the units card,
-        // which is the size the board asked for: these are machines in a list, not the twelve-row
+        // which is the size the maintainer asked for: these are machines in a list, not the twelve-row
         // stat sheets a unit gets.
         'flex h-[13rem] gap-3 rounded-sm border p-3',
         vehicle.owned > 0
@@ -111,7 +111,7 @@ export function VehicleCard({
  * The view names the *machine*, never a file: `vehicle-<id>` is on the manifest, so a painting
  * the board drops into `assets/` starts drawing here with no TypeScript edit. A square portrait
  * once one is delivered, and a lettered plate until then. Both are the card's full height at 1:1,
- * which is what the board asked for by "have the portraits work as is, with those dimensions": the
+ * which is what the maintainer asked for by "have the portraits work as is, with those dimensions": the
  * delivery is a square painting of a machine standing on wet ground, and the frame is the shape of
  * the painting rather than a strip cut out of the middle of it.
  */

@@ -16,6 +16,7 @@ import { createUsersRepo, type UsersRepo } from './users.js';
 import { createFactionsRepo, type FactionsRepo } from './factions.js';
 import { createSocialRepo, type SocialRepo } from './social.js';
 import { createScoutingRepo, type ScoutingRepo } from './scouting.js';
+import { createFeatsRepo, type FeatsRepo } from './feats.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
 export interface Repositories {
@@ -47,6 +48,8 @@ export interface Repositories {
   history: HistoryRepo;
   /** §A4: officers out casing a district, and the ground they have opened. */
   scouting: ScoutingRepo;
+  /** Feats: the lifetime counters a feat asks about, and what each crew has collected. */
+  feats: FeatsRepo;
   /**
    * Runs `work` so that either all of its writes land or none of them do.
    *
@@ -81,6 +84,7 @@ export function createRepositories(
     blackMarket: createBlackMarketRepo(db),
     capturedGates: createCapturedGatesRepo(db),
     history: createHistoryRepo(db),
+    feats: createFeatsRepo(db),
     scouting: createScoutingRepo(db),
     tx: (work) => db.transaction(work)(),
   };

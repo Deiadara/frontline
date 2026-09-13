@@ -139,15 +139,23 @@ describe('the Runner', () => {
       }
     });
 
-    it('never carries more than two blueprints, and only ever one of each', () => {
+    /** Board request, 2026-09-10: the only paper on the barrow is a page, and one of it. */
+    it('never carries a finished blueprint, and only ever one of a page', () => {
+      let pages = 0;
       for (const day of DAYS) {
         const stock = vendorStockFor(day);
-        const blueprints = stock.filter(
-          (line) => ITEM_CATALOG[line.item as ItemId].kind === 'blueprint',
-        );
-        expect(blueprints.length, day).toBeLessThanOrEqual(2);
-        for (const line of blueprints) expect(line.stock, day).toBe(1);
+        for (const line of stock) {
+          const spec = ITEM_CATALOG[line.item as ItemId];
+          expect(spec.kind, `${day} ${line.item}`).not.toBe('blueprint');
+          if (spec.kind === 'page') {
+            pages++;
+            expect(line.stock, day).toBe(1);
+          }
+        }
       }
+      // The pool without the blueprints still finds a page once in a while: the odds are on the
+      // day rather than on the pool, so removing six goods cannot have removed the pages with them.
+      expect(pages).toBeGreaterThan(0);
     });
 
     /** He is not a charity and not a robbery: every price is above the item's worth, and sane. */

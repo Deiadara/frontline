@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { InventorySchema } from '../items/inventory.js';
+import { PartialResourcesSchema } from '../resources.js';
+import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
 import {
   BUILDING_MAX_LEVEL,
   BuildingKindSchema,
@@ -47,6 +50,14 @@ export const BuildQueueEntrySchema = z.object({
    * work already under way: in either direction.
    */
   durationSeconds: z.number().int().positive(),
+  /**
+   * What the order took out of the stockpile, so a cancel can hand ninety percent of it back
+   * (`time/cancel.ts`). Defaulted empty: an order written before this field existed refunds
+   * nothing, which is what it did.
+   */
+  paid: PartialResourcesSchema.default({}),
+  /** The parts the level asked for, handed back whole on a cancel: half a servo is nothing. */
+  parts: InventorySchema.default({}),
 });
 export type BuildQueueEntry = z.infer<typeof BuildQueueEntrySchema>;
 
@@ -69,6 +80,23 @@ export function queueRemainingMs(entry: BuildQueueEntry, now: Date): number {
 }
 
 /** Fraction complete, clamped to 0..1: the progress bar on a queue row. */
+/** Whether the order can still be called off: not yet started, or inside its first tenth. */
+export function queueCancellable(entry: BuildQueueEntry, now: Date): boolean {
+  return cancelWindowOpen(
+    Date.parse(entry.startedAt),
+    entry.durationSeconds * SECOND_MS,
+    now.getTime(),
+  );
+}
+
+export function queueCancelWindowMs(entry: BuildQueueEntry, now: Date): number {
+  return cancelWindowMs(
+    Date.parse(entry.startedAt),
+    entry.durationSeconds * SECOND_MS,
+    now.getTime(),
+  );
+}
+
 export function queueProgressAt(entry: BuildQueueEntry, now: Date): number {
   const elapsedMs = now.getTime() - Date.parse(entry.startedAt);
   return Math.min(1, Math.max(0, elapsedMs / (entry.durationSeconds * SECOND_MS)));

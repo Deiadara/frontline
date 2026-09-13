@@ -1,4 +1,4 @@
--- The Bar becomes a city-wide daily auction (GDD §H7, board 2026-09-07).
+-- The Bar becomes a city-wide daily auction (GDD §H7, maintainer 2026-09-07).
 --
 -- Number allocated under INTERFACES.md R6/R9: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.

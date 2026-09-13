@@ -11,7 +11,7 @@ import type { Building } from './state.js';
 /**
  * §A4: a wrecked structure repairs itself, and a bad night stops being a permanent tax.
  *
- * The rule the board asked for is "buildings automatically repair after 24 hours", and the shape it
+ * The rule the maintainer asked for is "buildings automatically repair after 24 hours", and the shape it
  * is built in is the one every other clock in this game uses: a rate, a stored timestamp, and no
  * scheduler. A district nobody has looked at for a week owes exactly the same repair whenever it is
  * next read.
@@ -54,7 +54,7 @@ describe('a structure putting itself right (§A4)', () => {
     expect(second.damagedAt).toBe(at(6).toISOString());
   });
 
-  it('clears a total wreck in exactly the hours the board asked for', () => {
+  it('clears a total wreck in exactly the hours the maintainer asked for', () => {
     const wrecked = structure(100);
     expect(repairedByTime(wrecked, at(REPAIR_HOURS - 1)).damage).toBeGreaterThan(0);
     expect(repairedByTime(wrecked, at(REPAIR_HOURS)).damage).toBe(0);

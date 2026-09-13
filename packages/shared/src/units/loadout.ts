@@ -76,7 +76,7 @@ export function fittedOn(loadouts: UnitLoadouts, upgradeId: string): string[] {
  * `already_slotted` used to mean "already in another bracket **on this unit**", so the same
  * upgrade could be fitted to every unit type in the game off a single build: one Scrap Plate on
  * the Razors, the Breakers, the Wardens and the Ironsides at once. It now means fitted anywhere,
- * which is the board's rule ("you can only have each modification once") and the thing that makes
+ * which is the maintainer's rule ("you can only have each modification once") and the thing that makes
  * choosing *which* unit gets it a decision at all.
  *
  * ## And it does not come off
@@ -105,7 +105,7 @@ export function slotRefusal(
 export type BurnRefusal = 'unknown_upgrade' | 'not_fitted';
 
 /**
- * Burns a fitted modification off the roster (§D5c, board request).
+ * Burns a fitted modification off the roster (§D5c, maintainer request).
  *
  * The only way one ever comes off. It is destroyed rather than returned: gone from the bracket it
  * was in *and* from what the crew has built, so getting it back means building or finding another.

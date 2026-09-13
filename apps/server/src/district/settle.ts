@@ -1,4 +1,5 @@
 import {
+  RESOURCE_KEYS,
   type PartialResources,
   accrueProduction,
   applyQueueEntry,
@@ -7,6 +8,7 @@ import {
   findUnit,
   queueCompletesAt,
   splitDueQueue,
+  repairCompletesAt,
   repairedDistrict,
   xpForClock,
   type Base,
@@ -18,6 +20,7 @@ import {
   type ProductionCarry,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { tallyBuildingRaised, tallyResourcesEarned } from '../feats/tally.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
@@ -137,14 +140,45 @@ function walk(
     }
   };
 
-  for (const entry of due) {
-    const mark = queueCompletesAt(entry).getTime();
-    if (disruptionEnds !== null && disruptionEnds < mark) advanceTo(disruptionEnds);
+  /*
+   * The next instant before `mark` at which the district stops being the district it is.
+   *
+   * Two things move without anybody doing anything: a raid's disruption expires, and a wrecked
+   * structure finishes repairing itself. Both are the same problem the completed builds above are:
+   * `advanceTo` prices a stretch at its midpoint, which is exact only while the factors are
+   * constant or linear across it, and both of these are neither. The disruption is a step; the
+   * repair is linear right up to the moment the damage hits zero and flat afterwards, so a stretch
+   * that straddles that moment is priced at whatever the line says halfway through and the line is
+   * wrong on one side of it. A district settled once after three days away, raided at the start of
+   * them, read zero damage at the midpoint and banked all three days at full rate: measured at 9%
+   * over what the same seventy-two hours pay when they are read hour by hour.
+   *
+   * Read from the current `buildings` rather than worked out once up front, because a level landing
+   * mid-window puts its structure right (`repairedByBuilding`) and moves that structure's own mark
+   * earlier.
+   */
+  const nextCut = (before: number): number | null => {
+    let soonest: number | null = null;
+    const consider = (at: number | null): void => {
+      if (at === null || at <= cursor || at >= before) return;
+      if (soonest === null || at < soonest) soonest = at;
+    };
+    consider(disruptionEnds);
+    for (const building of buildings) consider(repairCompletesAt(building));
+    return soonest;
+  };
+
+  /** Everything up to `mark`, stopping at each cut on the way so no stretch straddles one. */
+  const advanceThrough = (mark: number): void => {
+    for (let cut = nextCut(mark); cut !== null; cut = nextCut(mark)) advanceTo(cut);
     advanceTo(mark);
+  };
+
+  for (const entry of due) {
+    advanceThrough(queueCompletesAt(entry).getTime());
     buildings = applyQueueEntry(buildings, entry);
   }
-  if (disruptionEnds !== null) advanceTo(disruptionEnds);
-  advanceTo(now.getTime());
+  advanceThrough(now.getTime());
 
   return { buildings, resources, carry };
 }
@@ -223,6 +257,27 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
   }
   repos.bases.updateResources(settled.id, settled.resources);
   repos.bases.updateEconomy(settled.id, settled.economy);
+
+  /*
+   * Feats (maintainer request, 2026-09-13): the levels that landed, and what the district earned.
+   *
+   * Production is the biggest faucet in the game and the only one with no record of its own, so
+   * "caps ever earned" would be badly wrong without this: a crew that never sells anything still
+   * earns most of its money here. The figure is the *difference* the walk produced rather than the
+   * new total, and it is not rounded, because a settle can be a few seconds long and rounding each
+   * one down would lose a steady trickle forever.
+   */
+  tallyBuildingRaised(repos, settled.id, due.length);
+  tallyResourcesEarned(
+    repos,
+    settled.id,
+    Object.fromEntries(
+      RESOURCE_KEYS.map((key) => [
+        key,
+        Math.max(0, (settled.resources[key] ?? 0) - (base.resources[key] ?? 0)),
+      ]),
+    ),
+  );
 
   // XP last, and once per order: `awardPlayerXp` is the only writer of `Base.level` (INTERFACES
   // R7), and two builds landing on one read is two awards that may cross two thresholds.

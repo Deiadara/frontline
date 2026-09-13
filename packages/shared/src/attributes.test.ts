@@ -77,7 +77,7 @@ describe('PERK_CATALOG', () => {
   });
 
   /**
-   * The kinds that carry no number, because what they grant is a rule (board brief, 2026-09-09).
+   * The kinds that carry no number, because what they grant is a rule (maintainer brief, 2026-09-09).
    *
    * Written out rather than inferred from "has no numeric field", which is the version that passes
    * on the day somebody authors `{ kind: 'unit_offense', percent: undefined }`. A kind added to the

@@ -1,12 +1,23 @@
 import {
   AdminFogRequestSchema,
+  AdminGrantRequestSchema,
+  BLUEPRINTS,
+  BLUEPRINT_PAGE_IDS,
   CITY_DISTRICTS,
+  ITEM_CATALOG,
+  ITEM_IDS,
+  findBlueprint,
+  RESEARCH_ITEMS,
   findDistrict,
   AdminKnobsRequestSchema,
   BUILDING_KINDS,
   RESOURCE_KEYS,
+  addItems,
   buildingLevel,
   startingProgression,
+  type ItemCost,
+  type ItemId,
+  type AdminGrantRequest,
   type AdminMutationResponse,
   type AdminSnapshot,
   type Base,
@@ -110,7 +121,7 @@ function buildingsAt(
 }
 
 /**
- * A fight called on the reviewer, by whoever else is in the city (board request, 2026-09-08).
+ * A fight called on the reviewer, by whoever else is in the city (maintainer request, 2026-09-08).
  *
  * Through the real declaration and nothing else: the same gates, the same bell, the same mark on
  * the bottom bar, the same settle at the mark. What the console adds is only the two things a
@@ -178,7 +189,80 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
   );
 }
 
+/**
+ * What one grant puts in the satchel (maintainer request, 2026-09-11).
+ *
+ * Documents rather than pages for `blueprints`, because the point is to open the yard's benches
+ * and a document is what opens them; `pages` is the other screen's fixture. Both go through
+ * `addItems`, the same door a mission haul uses, so a granted document is exactly what an
+ * assembled one is.
+ */
+function grantedItems(body: AdminGrantRequest): ItemCost {
+  const items: ItemCost = {};
+  if (body.blueprints !== undefined) {
+    const wanted =
+      body.blueprints === 'all'
+        ? BLUEPRINTS
+        : Array.isArray(body.blueprints)
+          ? BLUEPRINTS.filter((spec) => body.blueprints!.includes(spec.id))
+          : BLUEPRINTS.filter((spec) => spec.category === body.blueprints);
+    for (const spec of wanted) items[spec.id as ItemId] = 1;
+  }
+  if (body.pages === 'all') {
+    for (const pageId of BLUEPRINT_PAGE_IDS) items[pageId as ItemId] = 1;
+  }
+  if (body.parts !== undefined) {
+    for (const id of ITEM_IDS) {
+      if (ITEM_CATALOG[id].kind === 'component') items[id] = body.parts;
+    }
+  }
+  return items;
+}
+
 export function registerAdminRoutes(app: FastifyInstance): void {
+  app.post('/admin/grant', { preHandler: app.authenticate }, (request): AdminMutationResponse => {
+    requireAdmin(app);
+    const body = parseBody(AdminGrantRequestSchema, request.body);
+    return app.db.transaction(() => {
+      const base = ownBase(app, request.currentUser.id);
+      let next: Base = base;
+
+      const items = grantedItems(body);
+      if (Object.keys(items).length > 0) {
+        // Added, never set: a grant on top of a satchel is a satchel with more in it. A document
+        // the crew already holds is not doubled, since holding it is a yes or no.
+        //
+        // The clamp walks the **granted** documents rather than every document in the catalogue.
+        // Walking all of them was a no-op today, because nothing else can put a second copy of one
+        // in a satchel, but it would have silently destroyed a spare the day something could.
+        const inventory = addItems(next.inventory, items);
+        for (const id of Object.keys(items) as ItemId[]) {
+          if (findBlueprint(id) !== undefined) inventory[id] = 1;
+        }
+        next = { ...next, inventory };
+        app.repos.bases.updateHoldings(next.id, next.resources, inventory);
+      }
+
+      if (body.technologies !== undefined) {
+        const rungs = RESEARCH_ITEMS.filter(
+          (spec) => body.technologies === 'all' || spec.track === body.technologies,
+        ).map((spec) => spec.id);
+        const technologies = [...new Set([...next.research.technologies, ...rungs])];
+        const research = { ...next.research, technologies };
+        next = { ...next, research };
+        app.repos.bases.updateResearch(next.id, research);
+      }
+
+      app.repos.history.record({
+        actorId: request.currentUser.id,
+        baseId: next.id,
+        kind: 'admin.grant',
+        payload: body,
+      });
+      return { admin: snapshot(app, next) };
+    })();
+  });
+
   app.get('/admin', { preHandler: app.authenticate }, (request): AdminSnapshot => {
     requireAdmin(app);
     return snapshot(app, ownBase(app, request.currentUser.id));

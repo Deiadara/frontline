@@ -1,4 +1,5 @@
 import {
+  supplyUsed,
   isCombatUnit,
   deploymentIsOpen,
   emptyDeployment,
@@ -15,6 +16,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
+import { tallyDeployed } from '../feats/tally.js';
 import { sideForce } from './side.js';
 import { sendColumn } from './movement.js';
 
@@ -28,7 +30,7 @@ import { sendColumn } from './movement.js';
  * - Units on the ground have **left the roster**. That is what makes the freedom safe: a crew that
  *   promised the same twenty Razors to three fights would be discovering which one they turned up
  *   at, and the answer would be a bug rather than a decision.
- * - Pulling people back is **not free** if the other side has a ring out. The board asked for this
+ * - Pulling people back is **not free** if the other side has a ring out. The maintainer asked for this
  *   explicitly: a perimeter takes anybody "pulled back after it was already deployed but taken out
  *   before combat itself". So a late withdrawal past a well-set ring costs bodies, and a crew that
  *   commits early is committing for real.
@@ -202,6 +204,18 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
 
   const next: Base = { ...base, army };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
+  /*
+   * Feats: what this crew has ever put on the ground (maintainer request, 2026-09-13).
+   *
+   * `sending` is the positive half of both change sets, so pulling people back counts for nothing
+   * and adding to a muster twice counts twice. Both are right: the ladder asks how much has ever
+   * been committed, and a crew that withdrew and re-committed did commit twice.
+   *
+   * Counted here, at the muster, rather than when the fight resolves. That is when the decision
+   * was made, and a fight later called off still cost the crew the days its people spent standing
+   * on somebody else's street.
+   */
+  tallyDeployed(repos, base.id, { bodies: forceSize(sending), supply: supplyUsed(sending) });
   return { kind: 'ok', base: next, deployment, lostOnTheWayOut, departed: walking };
 }
 

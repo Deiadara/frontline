@@ -1,8 +1,10 @@
 import {
   DEFAULT_CITY_ID,
   LEADERBOARD_LIMIT,
+  averageLevel,
   cityOf,
   LeaderboardBoardSchema,
+  notorietySpentTo,
   ranked,
   type FactionStanding,
   type LeaderboardResponse,
@@ -14,7 +16,7 @@ import { parseBody } from '../errors.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * The standings (board request, §J9).
+ * The standings (maintainer request, §J9).
  *
  * One read-only route serving two boards, because they are one screen with two tabs and the scope
  * toggle applies to both. Nothing here settles anything: infamy does not tick, it is only ever
@@ -42,7 +44,7 @@ const QuerySchema = z.object({
 });
 
 /** Every player's row, before ranking: the shape both boards are derived from. */
-function standings(repos: Repositories): PlayerStanding[] {
+export function standings(repos: Repositories): PlayerStanding[] {
   const factions = new Map(repos.factions.all().map((faction) => [faction.id, faction]));
   return repos.bases.listStandings().flatMap((base) => {
     const user = repos.users.findById(base.ownerId);
@@ -62,13 +64,31 @@ function standings(repos: Repositories): PlayerStanding[] {
         districtName: base.name,
         level: base.level,
         infamy: base.infamy,
+        // The wallet plus everything already spent climbing the ladder, which is what the board's
+        // "total infamy" sort means. The ladder is the only thing infamy is ever spent on, so the
+        // tier a crew stands on is a complete record of what left the wallet.
+        totalInfamy: base.infamy + notorietySpentTo(base.notoriety),
         notoriety: base.notoriety,
+        factionId: faction?.id ?? null,
         factionName: faction?.name ?? null,
         factionBadge: faction?.badge ?? null,
         isBot: base.isBot,
       },
     ];
   });
+}
+
+/**
+ * The players' board in rank order, from whichever rows the caller has scoped.
+ *
+ * One sort for the board and for a crew's file (`/crews/:id`): a file quoting a rank the standings
+ * would not agree with is two screens arguing about one number.
+ */
+export function rankedPlayers(rows: readonly PlayerStanding[]): PlayerStanding[] {
+  const sorted = [...rows].sort(
+    (a, b) => b.infamy - a.infamy || b.level - a.level || a.username.localeCompare(b.username),
+  );
+  return ranked(sorted, (entry) => entry.infamy);
 }
 
 export function registerLeaderboardRoutes(app: FastifyInstance): void {
@@ -86,12 +106,9 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
     const players = local ? all.filter((entry) => entry.cityId === city) : all;
 
     if (board === 'players') {
-      const sorted = [...players].sort(
-        (a, b) => b.infamy - a.infamy || b.level - a.level || a.username.localeCompare(b.username),
-      );
       // Ranked once. `yourRank` reads off the *whole* list rather than the page, so somebody in
       // 140th place is still told where they are, which is the one number they came for.
-      const withRanks = ranked(sorted, (entry) => entry.infamy);
+      const withRanks = rankedPlayers(players);
       const you = withRanks.find((entry) => entry.userId === userId);
       return {
         board,
@@ -118,6 +135,7 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
           // Off the faction, not summed over the roster: what a leaver won stays won (§J8).
           infamy: faction.infamyEarned,
           topLevel: levels.length > 0 ? Math.max(...levels) : 0,
+          averageLevel: averageLevel(levels),
         },
       ];
     });

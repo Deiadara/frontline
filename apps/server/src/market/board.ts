@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tallyMarketBuy, tallyMarketSale, tallyResourcesEarned } from '../feats/tally.js';
 import {
   addItems,
   barterQuote,
@@ -36,6 +37,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { seatedRoles } from '../crew/roster.js';
+import { tellPagesFound } from '../social/pages.js';
 import {
   bidderNames,
   latestLotResultsFor,
@@ -77,6 +79,22 @@ export function sweepExpiredOffers(repos: Repositories, now: Date): void {
     if (!offerHasExpired(offer, now)) continue;
     repos.market.setStatus(offer.id, 'expired');
     releaseEscrow(repos, offer);
+    releaseCounters(repos, offer.id);
+  }
+}
+
+/**
+ * A counter is a bid on one particular listing, so it goes when the listing goes.
+ *
+ * Accepting a listing released its counters from the start; withdrawing one or letting it expire
+ * did not, so a counter's escrow stayed locked for its own two days against a listing nobody could
+ * take any more. One function for the three ways a listing closes.
+ */
+function releaseCounters(repos: Repositories, offerId: string): void {
+  for (const counter of repos.market.countersTo(offerId)) {
+    if (counter.status !== 'open') continue;
+    repos.market.setStatus(counter.id, 'withdrawn');
+    releaseEscrow(repos, counter);
   }
 }
 
@@ -207,6 +225,8 @@ export function buySupply(
   );
   repos.bases.updateHoldings(base.id, resources, base.inventory);
   repos.market.recordSupply(base.id, day, units, now.toISOString());
+  tallyMarketBuy(repos, base.id);
+  tallyResourcesEarned(repos, base.id, { [key]: units });
   return { kind: 'done', base: { ...base, resources } };
 }
 
@@ -259,6 +279,9 @@ export function barter(
     [want]: gained,
   });
   repos.bases.updateHoldings(base.id, resources, base.inventory);
+  // A barter is a deal and the far side of it is a vendor, so only this crew is counted.
+  tallyMarketBuy(repos, base.id);
+  tallyResourcesEarned(repos, base.id, { [want]: gained });
   return { kind: 'done', base: { ...base, resources } };
 }
 
@@ -317,6 +340,7 @@ export function withdrawOffer(repos: Repositories, base: Base, offerId: string):
   const resources = creditResources(base.resources, offer.give.resources);
   const inventory = addItems(base.inventory, offer.give.items);
   repos.bases.updateHoldings(base.id, resources, inventory);
+  releaseCounters(repos, offer.id);
   return { kind: 'done', base: { ...base, resources, inventory } };
 }
 
@@ -367,17 +391,62 @@ export function acceptOffer(
   repos.bases.updateHoldings(base.id, buyerResources, buyerInventory);
 
   // Seller: receives `want`. Their `give` left when they posted.
+  const sellerInventory = addItems(seller.inventory, offer.want.items);
   repos.bases.updateHoldings(
     seller.id,
     creditResources(seller.resources, offer.want.resources),
-    addItems(seller.inventory, offer.want.items),
+    sellerInventory,
   );
 
+  /*
+   * Feats, both sides of the deal (maintainer request, 2026-09-13).
+   *
+   * The seller's half of the board has been recordable since `market_offers` existed; the buyer's
+   * has not, because `acceptOffer` writes no row naming who took it. Counting it here is what
+   * makes a buying ladder possible at all without a schema change.
+   *
+   * ## The deal is counted; what changed hands is not
+   *
+   * Neither side's `resources_earned` moves here, and this is the only faucet in the game left out
+   * of that figure. A trade between two players is a **closed loop**: two accounts can pass one
+   * listing back and forth all afternoon, each pass crediting both of them with everything in it,
+   * at no net cost to either. The lifetime-caps ladder tops out at three million and pays the
+   * largest reward in the catalogue, so that loop is worth running.
+   *
+   * Every other faucet is bounded by something real. Production is bounded by the clock, a job by
+   * the road, a fight by bodies, and the two vendor doors below by what they charge, since the
+   * Broker and the supplier are the house rather than another player and take their cut. Trading
+   * still moves wealth, and a crew that lives by it still earns through what it does with the
+   * goods; what it cannot do is manufacture a lifetime record out of a handshake.
+   */
+  tallyMarketBuy(repos, base.id);
+  tallyMarketSale(repos, seller.id);
+
+  /*
+   * Both sides, and each names the other crew.
+   *
+   * A settlement can move pages in either direction: a listing that gives one, a listing that asks
+   * for one, or both at once. The seller is the half that needs telling most, because nobody was
+   * on their screen when it happened. The escrow that came out of their satchel at posting is not
+   * a page arriving, so it rings nothing; only what the trade actually brought in does.
+   */
+  tellPagesFound(repos, {
+    userId: base.ownerId,
+    before: base.inventory,
+    after: buyerInventory,
+    source: { kind: 'offer', from: offer.sellerName },
+    now,
+  });
+  tellPagesFound(repos, {
+    userId: seller.ownerId,
+    before: seller.inventory,
+    after: sellerInventory,
+    source: { kind: 'offer', from: base.name },
+    now,
+  });
+
   repos.market.setStatus(offer.id, 'accepted');
-  for (const counter of repos.market.countersTo(offer.id)) {
-    repos.market.setStatus(counter.id, 'withdrawn');
-    releaseEscrow(repos, counter);
-  }
+  releaseCounters(repos, offer.id);
 
   return { kind: 'done', base: { ...base, resources: buyerResources, inventory: buyerInventory } };
 }

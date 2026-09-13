@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tallyMessageSent } from '../feats/tally.js';
 import type { MessageAudience, NotificationKind } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { notify } from './notify.js';
@@ -76,5 +77,18 @@ export function sendMessage(repos: Repositories, outgoing: Outgoing): void {
       recipientUserId: outgoing.sender.id,
       isSentCopy: true,
     });
+    /*
+     * Feats: a letter this player wrote.
+     *
+     * Gated on the sent copy rather than counted at the top, because this function is also how the
+     * game itself writes to people: an invitation, a receipt, a notice about a fight. Those have no
+     * sent copy and are nobody's correspondence, and counting them would finish the ladder for a
+     * player who never opened the mailbox.
+     *
+     * Keyed by base because every tally is, and a sender with no district cannot have one: the
+     * lookup is one indexed read and a miss simply counts nothing.
+     */
+    const senderBase = repos.bases.findByOwnerId(outgoing.sender.id);
+    if (senderBase) tallyMessageSent(repos, senderBase.id);
   }
 }

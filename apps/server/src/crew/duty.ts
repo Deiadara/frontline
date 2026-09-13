@@ -1,4 +1,10 @@
-import { officerIsInjured, type Base, type Commander } from '@frontline/shared';
+import {
+  missionCompletesAt,
+  officerIsInjured,
+  type Base,
+  type Commander,
+  type LeaderHold,
+} from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -18,11 +24,30 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * §D4 is here too, because "injured" is the same question wearing a different hat: an officer whose
  * services and bonuses are inactive is not somebody a crew can send anywhere.
+ *
+ * The answer is a {@link LeaderHold}, the same four the wire hands the screen and the same four
+ * `LEADER_HOLD_MESSAGES` puts into a refusal, so a name the picker draws dimmed and a name a route
+ * turns away are held for the same stated reason.
  */
-export type OfficerDuty = 'injured' | 'battle' | 'mission' | 'scouting';
+export interface OfficerHold {
+  readonly held: LeaderHold;
+  /**
+   * When they are free again, or null.
+   *
+   * Known for three of the four: the run comes home at `missionCompletesAt`, the scouting party at
+   * `returnsAt`, the injury ends at `injuredUntil`. A declared fight has no such mark, because what
+   * frees the officer is the fight resolving and that is the world clock's business, not a clock
+   * the crew can read off the row.
+   */
+  readonly until: string | null;
+}
 
 /**
  * What is already claiming this officer, or `null`.
+ *
+ * Asked in one order and answered with one reason: a person is in one place, so the first thing
+ * that holds them is the thing that holds them. Injury first because it holds them wherever they
+ * are, then the three doors in the order they came.
  *
  * `exceptBattleId` is for the lead route itself: naming the officer who is already leading *this*
  * fight is a no-op, not a double booking.
@@ -33,24 +58,20 @@ export function officerDuty(
   officer: Commander,
   now: Date,
   exceptBattleId?: string,
-): OfficerDuty | null {
-  if (officerIsInjured(officer.injuredUntil, now)) return 'injured';
-  if (repos.sieges.leadingElsewhere(officer.id, exceptBattleId ?? '').length > 0) return 'battle';
-  if (
-    repos.missions.listActiveByBaseId(base.id).some((run) => run.mission.officerId === officer.id)
-  ) {
-    return 'mission';
+): OfficerHold | null {
+  if (officerIsInjured(officer.injuredUntil, now)) {
+    return { held: 'injury', until: officer.injuredUntil };
   }
-  if (repos.scouting.activeFor(base.id).some((run) => run.officerId === officer.id)) {
-    return 'scouting';
+  if (repos.sieges.leadingElsewhere(officer.id, exceptBattleId ?? '').length > 0) {
+    return { held: 'fight', until: null };
   }
+  const run = repos.missions
+    .listActiveByBaseId(base.id)
+    .find((entry) => entry.mission.officerId === officer.id);
+  if (run) return { held: 'run', until: missionCompletesAt(run.mission).toISOString() };
+  const scouting = repos.scouting
+    .activeFor(base.id)
+    .find((entry) => entry.officerId === officer.id);
+  if (scouting) return { held: 'scouting', until: scouting.returnsAt };
   return null;
 }
-
-/** The same answer in the player's words, for a route that has to say why. */
-export const OFFICER_DUTY_MESSAGES: Record<OfficerDuty, string> = {
-  injured: 'is still laid up',
-  battle: 'is already leading another fight. Stand them down there first',
-  mission: 'is already out on a job',
-  scouting: 'is already out scouting',
-};

@@ -7,16 +7,19 @@ import type {
   NotificationMutationResponse,
   SettingsResponse,
   MarketMutationResponse,
-  WorkshopMutationResponse,
   LaunchMissionInput,
   LaunchMissionResponse,
   MeResponse,
   TrainUnitsResponse,
   UnitsResponse,
   FitSlotRequest,
+  BuildStructureResponse,
+  ResearchResponse,
+  TrainingResponse,
+  CityResponse,
 } from '@frontline/shared';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
   burnUpgrade,
@@ -26,6 +29,11 @@ import {
   deleteMessage,
   disbandFaction,
   getLeaderboard,
+  claimAllFeats,
+  claimFeat,
+  getCrewProfile,
+  getFeats,
+  getFactionProfile,
   editFactionDescription,
   editFactionIdentity,
   factionMemberAction,
@@ -91,8 +99,7 @@ import {
   mockBattleOnMe,
   setAdminFog,
   setAdminKnobs,
-  getWorkshop,
-  fitUpgrade,
+  grantAdmin,
   buildVehicle,
   recallMission,
   reassignOfficer,
@@ -108,6 +115,13 @@ import {
   leadBattle,
   takeVehicles,
   upgradeNotoriety,
+  cancelBuild,
+  cancelResearch,
+  cancelLocationUpgrade,
+  cancelLocationFortify,
+  recallScout,
+  cancelGateRaise,
+  cancelDrill,
 } from './api';
 import { useSession } from '../store/session';
 
@@ -128,13 +142,15 @@ export const queryKeys = {
   blackMarket: ['black-market'] as const,
   settings: ['settings'] as const,
   admin: ['admin'] as const,
-  workshop: ['workshop'] as const,
   garage: ['garage'] as const,
   scrapyard: ['scrapyard'] as const,
   battles: ['battles'] as const,
   actions: ['actions'] as const,
   faction: ['faction'] as const,
+  feats: ['feats'] as const,
   leaderboard: (board: string, localOnly: boolean) => ['leaderboard', board, localOnly] as const,
+  crewProfile: (id: string) => ['crew-profile', id] as const,
+  factionProfile: (id: string) => ['faction-profile', id] as const,
   messages: ['messages'] as const,
   notifications: ['notifications'] as const,
 };
@@ -153,6 +169,31 @@ export const queryKeys = {
 function invalidateLevelSensitive(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.me });
   void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
+}
+
+/**
+ * Write a base a write route answered with over the district cache.
+ *
+ * The base writes answer with the whole settled district and none of them carries a clock, while
+ * `BaseDetailResponse` does: `useServerClock` reads its `serverNow` against `dataUpdatedAt`, and
+ * this write moves `dataUpdatedAt` to now. So the last read's clock is advanced by the time since
+ * it arrived rather than copied, or every build countdown on the district would jump back by up to
+ * a poll until the refetch behind this write landed. Nothing is written when the key has never
+ * been read: there is nothing on screen to overwrite, and the caller's invalidation fetches it.
+ *
+ * Every caller invalidates the same key right after. A poll that left before the write answered
+ * still resolves to the pre-write district, and `setQueryData` has no way to say "newer than
+ * that"; invalidating cancels the read in flight and asks again. `useFitSlot` says the same.
+ */
+function setBase(queryClient: QueryClient, baseId: string, base: BaseDetailResponse['base']): void {
+  const key = queryKeys.base(baseId);
+  const state = queryClient.getQueryState<BaseDetailResponse>(key);
+  if (state?.data === undefined) return;
+  const carried = Date.parse(state.data.serverNow) + (Date.now() - state.dataUpdatedAt);
+  queryClient.setQueryData<BaseDetailResponse>(key, {
+    base,
+    serverNow: new Date(carried).toISOString(),
+  });
 }
 
 /**
@@ -272,7 +313,8 @@ export function useRenameDistrict(baseId: string | undefined) {
     mutationFn: renameDistrict,
     onSuccess: (data) => {
       if (baseId !== undefined) {
-        queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
+        setBase(queryClient, baseId, data.base);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.city });
@@ -504,19 +546,35 @@ export function useCreateOverseer() {
  * this one call. `me` is invalidated because the HUD reads its resources from there.
  */
 export function useBuildStructure(baseId: string | undefined) {
+  return useBaseOrder(buildStructure, baseId);
+}
+
+/**
+ * Call an order off inside its first tenth (maintainer request, 2026-09-12). Ninety percent of what it
+ * took comes back and the parts come back whole, so the same caches the order moved move again.
+ */
+export function useCancelBuild(baseId: string | undefined) {
+  return useBaseOrder(cancelBuild, baseId);
+}
+
+function useBaseOrder<TArgs>(
+  mutationFn: (args: TArgs) => Promise<BuildStructureResponse>,
+  baseId: string | undefined,
+) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: buildStructure,
+  return useMutation<BuildStructureResponse, ApiRequestError, TArgs>({
+    mutationFn,
     onSuccess: (data) => {
-      if (baseId !== undefined) {
-        queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), { base: data.base });
-      }
+      if (baseId !== undefined) setBase(queryClient, baseId, data.base);
     },
     // `onSettled`, not `onSuccess`: "settle first, refuse second", at the top of this file. A build
     // refuses has still banked an hour of production and can have crossed a level on the way to
     // the refusal, which the route says out loud by putting a `levelUp` on the *error*.
-    onSettled: () => invalidateLevelSensitive(queryClient),
-    onError: () => {
+    //
+    // The district on both paths too. It used to be re-read only on a refusal, which left the
+    // written base alone against a poll already in flight: see `setBase`.
+    onSettled: () => {
+      invalidateLevelSensitive(queryClient);
       if (baseId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }
@@ -585,6 +643,28 @@ export const useFortify = (baseId: string | undefined, districtId: string | unde
 /** §A4: work a location up a level. Same write path as fortifying; same invalidations. */
 export const useUpgradeLocation = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(upgradeLocation, baseId, () => districtId ?? null);
+
+/*
+ * Changing your mind on the ground (maintainer request, 2026-09-12). The same write path as the
+ * orders they undo, so the district, the crew and the map are re-read exactly as they were when
+ * the work was started; the stockpile moved both times.
+ */
+export const useCancelLocationUpgrade = (
+  baseId: string | undefined,
+  districtId: string | undefined,
+) => useCityWrite(cancelLocationUpgrade, baseId, () => districtId ?? null);
+
+export const useCancelLocationFortify = (
+  baseId: string | undefined,
+  districtId: string | undefined,
+) => useCityWrite(cancelLocationFortify, baseId, () => districtId ?? null);
+
+/**
+ * Turn the scout round. The body is empty (a crew has one scout out at a time), so the district
+ * to re-read is the one the caller is looking at rather than one named in the request.
+ */
+export const useRecallScout = (districtId: string | undefined) =>
+  useCityWrite(recallScout, undefined, () => districtId ?? null);
 
 /**
  * The unit roster (GDD §A5). Polled for the same reason the district page is: a training batch
@@ -682,11 +762,24 @@ export function useTraining() {
  * ever going to correct it.
  */
 export function useStartTraining() {
+  return useTrainingWrite(startTraining);
+}
+
+/** Take a drill off the board inside its first tenth: the day's session comes back whole. */
+export function useCancelDrill() {
+  return useTrainingWrite(cancelDrill);
+}
+
+function useTrainingWrite<TArgs>(mutationFn: (args: TArgs) => Promise<TrainingResponse>) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: startTraining,
-    onSuccess: (training) => {
-      queryClient.setQueryData(queryKeys.training, training);
+  return useMutation<TrainingResponse, ApiRequestError, TArgs>({
+    mutationFn,
+    onSuccess: (training) => queryClient.setQueryData(queryKeys.training, training),
+    // `onSettled`: `POST /training` settles the board before it refuses, so a refusal has still
+    // finished whatever hour was running. The board itself is dropped as well as written, so a
+    // poll already in flight cannot land the pre-write board on top of the response.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.training });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
@@ -733,8 +826,11 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
       mutationFn,
       onSuccess: (response) => {
         queryClient.setQueryData(queryKeys.market, response.market);
+        // Dropped as well as set: a 5s poll that left before the trade answered would otherwise
+        // land the pre-trade board on top of it. See `usePlaceVendorBid`.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.market });
         void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
         void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       },
     });
@@ -762,7 +858,7 @@ export function usePlaceVendorBid() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
     },
   });
@@ -776,7 +872,7 @@ export function usePlaceVendorBid() {
  */
 export const useUnlockBlueprint = marketMutation(unlockBlueprint);
 /**
- * §G2: three spare pages to the Lab for one you do not have.
+ * §G2: the three pages the player put in the machine, for one they do not have.
  *
  * Not folded into `marketMutation` because the answer carries more than the board: the panel says
  * what went and what came back, and that report is the only place a player ever learns which page
@@ -788,6 +884,7 @@ export function useReimagine() {
     mutationFn: reimagine,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.market, response.market);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
@@ -820,9 +917,11 @@ export function useBlackMarket() {
 /**
  * Taking something off the shelf.
  *
- * The response is the whole refreshed shelf, so it is set rather than invalidated: a refetch would
- * flash the pre-purchase board. The satchel and the HUD both moved (a blueprint landed, infamy was
- * spent), so `me` and the workshop are dropped.
+ * The response is the whole refreshed shelf, so it is set first: a refetch alone would flash the
+ * pre-purchase board. It is dropped as well, so a poll already in flight cannot land that board on
+ * top of the response. The satchel and the HUD both moved (a blueprint landed, infamy was spent),
+ * so `me` and the yard are dropped, and so are the battle board and the roster: contraband bought
+ * here is what `BattleView.boosts` lists, and a crate can put units on the roster.
  */
 export function useTakeFromBlackMarket() {
   const queryClient = useQueryClient();
@@ -830,9 +929,12 @@ export function useTakeFromBlackMarket() {
     mutationFn: takeFromBlackMarket,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.blackMarket, response.blackMarket);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
     },
   });
 }
@@ -956,6 +1058,9 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
       // Settled rather than success: these routes settle before they validate, so a refusal can
       // still have banked a resolved fight, a levelled crew and a district that changed hands.
       onSettled: () => {
+        // The board itself, though it was just written: a 5s poll that left before the write
+        // answered would otherwise land the pre-write board on top of it. See `useFitSlot`.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
         void queryClient.invalidateQueries({ queryKey: queryKeys.city });
         void queryClient.invalidateQueries({ queryKey: queryKeys.units });
         /*
@@ -1038,6 +1143,18 @@ export function useAdmin() {
   });
 }
 
+/** A grant moves the satchel and the Lab's finished rungs, and the yard reads both: drop it all. */
+export function useAdminGrant() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: grantAdmin,
+    onSuccess: (response) => {
+      queryClient.setQueryData(queryKeys.admin, response.admin);
+      void queryClient.invalidateQueries();
+    },
+  });
+}
+
 /** Turning a knob. Everything on screen may have moved, so the whole cache is dropped. */
 export function useAdminKnobs() {
   const queryClient = useQueryClient();
@@ -1083,35 +1200,6 @@ export function useAdminFog() {
   });
 }
 
-/** The workshop and the yard. */
-export function useWorkshop() {
-  const token = useSession((s) => s.token);
-  return useQuery({
-    queryKey: queryKeys.workshop,
-    queryFn: getWorkshop,
-    enabled: token !== null,
-  });
-}
-
-function workshopMutation<TArgs>(mutationFn: (args: TArgs) => Promise<WorkshopMutationResponse>) {
-  return function useWorkshopMutation() {
-    const queryClient = useQueryClient();
-    return useMutation({
-      mutationFn,
-      onSuccess: (response) => {
-        queryClient.setQueryData(queryKeys.workshop, response.workshop);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-        // A fitted upgrade changes every unit's sheet, and the roster is where a player looks to
-        // see whether it did.
-        void queryClient.invalidateQueries({ queryKey: queryKeys.units });
-        void queryClient.invalidateQueries({ queryKey: queryKeys.market });
-      },
-    });
-  };
-}
-
-export const useFitUpgrade = workshopMutation(fitUpgrade);
-
 /** §B9: the Scrapyard, on its own page and its own key. */
 export function useScrapyard() {
   const token = useSession((s) => s.token);
@@ -1128,9 +1216,7 @@ export function useBuildAddon() {
     mutationFn: buildAddon,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.scrapyard, response.scrapyard);
-      queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(response.base.id), {
-        base: response.base,
-      });
+      setBase(queryClient, response.base.id, response.base);
     },
     // `onSettled`: "settle first, refuse second", at the top of this file. `POST /scrapyard/build`
     // calls `settled()` on its first line and refuses on its third, so a "you cannot cover that"
@@ -1141,7 +1227,13 @@ export function useBuildAddon() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
       // A built refit changes every unit's sheet, and the roster is where a player looks for it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.workshop });
+      // The satchel is read off the market payload, and every build moves it: a refit spends its
+      // parts and a trap lands in the bag. Without this the Satchel and the Blueprints page kept
+      // quoting the pre-build counts until the next poll.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
+      // The district that was just written, against a poll already in flight (see `setBase`).
+      // Prefix-matched: the id is only on the success payload.
+      void queryClient.invalidateQueries({ queryKey: ['base'] });
     },
   });
 }
@@ -1160,16 +1252,13 @@ function districtMutation<TArgs, TResponse extends { base: BaseDetailResponse['b
     return useMutation({
       mutationFn,
       onSuccess: (response) => {
-        if (baseId !== undefined) {
-          queryClient.setQueryData<BaseDetailResponse>(queryKeys.base(baseId), {
-            base: response.base,
-          });
-        }
+        if (baseId !== undefined) setBase(queryClient, baseId, response.base);
       },
       // `onSettled`, not `onSuccess`: see the note at the top of this file. Every one of these
       // routes settles the district before it decides, so a refusal has still banked production.
-      onSettled: () => invalidateLevelSensitive(queryClient),
-      onError: () => {
+      // The district is re-read on both paths: see `setBase` for why the written one is dropped.
+      onSettled: () => {
+        invalidateLevelSensitive(queryClient);
         if (baseId !== undefined) {
           void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
         }
@@ -1214,6 +1303,7 @@ export function useRecallMission() {
     mutationFn: recallMission,
     onSuccess: (missions) => {
       queryClient.setQueryData(queryKeys.missions, missions);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
@@ -1232,8 +1322,14 @@ export function useReassignOfficer() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: reassignOfficer,
-    onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.crew, response.crew);
+    onSuccess: (response) => queryClient.setQueryData(queryKeys.crew, response.crew),
+    // `onSettled`: the route settles the crew before it decides, so a refusal has still moved the
+    // books. The roster is dropped as well as written (a poll in flight would otherwise land the
+    // pre-move roster on top of it), and `me` with it: the chair an officer sits in is folded into
+    // the effects the HUD quotes.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.crew });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.bar });
       void queryClient.invalidateQueries({ queryKey: queryKeys.training });
       void queryClient.invalidateQueries({ queryKey: queryKeys.crewStanding });
@@ -1248,9 +1344,18 @@ export function useReassignOfficer() {
  * stockpile, the satchel and every screen that reads a crew effect moved with it.
  */
 export function useStartTech() {
+  return useLabWrite(startTech);
+}
+
+/** Take the running project off the bench inside its first tenth; ninety percent comes back. */
+export function useCancelResearch() {
+  return useLabWrite(cancelResearch);
+}
+
+function useLabWrite<TArgs>(mutationFn: (args: TArgs) => Promise<ResearchResponse>) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: startTech,
+  return useMutation<ResearchResponse, ApiRequestError, TArgs>({
+    mutationFn,
     onSuccess: (research) => {
       queryClient.setQueryData(queryKeys.research, research);
     },
@@ -1266,7 +1371,7 @@ export function useStartTech() {
   });
 }
 
-// --- factions, messages and notifications (board request) ---
+// --- factions, messages and notifications (maintainer request) ---
 
 /**
  * The faction screen.
@@ -1304,6 +1409,8 @@ function useFactionMutation<TInput>(
     // `POST /factions/reinforce` settles the base and only then asks whether the fight is still
     // open, and "they are already through the gate" is the answer it gives most often.
     onSettled: () => {
+      // The screen that was just written, against a poll already in flight. See `useFitSlot`.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.faction });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       // A reinforcement takes units off the roster and puts a column on the road.
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
@@ -1326,11 +1433,122 @@ export const useDisbandFaction = () => useFactionMutation(() => disbandFaction()
  * board on screen while the next one loads, which is what stops the page collapsing to nothing on
  * every click.
  */
+/**
+ * Re-read the crew, on demand.
+ *
+ * For the one caller that has to refresh `/me` without writing anything: the roster notices a
+ * training batch land on its own clock, and the settle that stood the unit up also paid the §I1
+ * experience for it. Both readings have to move together or the meter at the top of the screen
+ * announces the experience up to a poll after the body appeared. A hook rather than a
+ * `useQueryClient` at the call site, so every invalidation in this app is still declared in this
+ * file and a screen that mocks this module gets it for free.
+ */
+export function useRefreshCrew(): () => void {
+  const queryClient = useQueryClient();
+  return useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+  }, [queryClient]);
+}
+
+/** A crew's file. Keyed by whichever id the link carried; the server answers to both. */
+export function useCrewProfile(id: string | undefined) {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.crewProfile(id ?? ''),
+    queryFn: () => getCrewProfile(id ?? ''),
+    enabled: token !== null && id !== undefined,
+  });
+}
+
+/**
+ * The feats screen.
+ *
+ * Refetched on the same live nudges as the rest of the crew: almost everything a feat counts is
+ * something that also moves the district, so `base` is the kind that matters. See `live.ts`.
+ */
+export function useFeats() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.feats,
+    queryFn: getFeats,
+    enabled: token !== null,
+  });
+}
+
+/**
+ * Collecting one.
+ *
+ * Invalidates `me` as well as the feats list, because a claim pays into the stockpile, the roster
+ * and sometimes a level, all of which the shell draws from `/me`, and because the badge on the
+ * bottom bar is a field on that response.
+ */
+export function useClaimFeat() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: claimFeat,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      // The satchel and the back room, because a feat can pay in pages, parts and one-time
+      // boosts. Neither screen polls, so without these a reward lands in a store the player is
+      // looking at and does not appear until something else happens to refresh it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
+    },
+  });
+}
+
+/**
+ * Collecting everything at once.
+ *
+ * Shares the mutation's invalidations with `useClaimFeat`, because it moves exactly the same
+ * stores. Separate hooks rather than one taking an optional id: the two answer with different
+ * shapes, and a caller that had to narrow the response would be doing the branching this avoids.
+ */
+export function useClaimAllFeats() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: claimAllFeats,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.market });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
+    },
+  });
+}
+
+/** A faction's file, as anybody reads it. Keyed by faction id. */
+export function useFactionProfile(id: string | undefined) {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.factionProfile(id ?? ''),
+    queryFn: () => getFactionProfile(id ?? ''),
+    enabled: token !== null && id !== undefined,
+  });
+}
+
 export function useLeaderboard(board: LeaderboardBoard, localOnly: boolean) {
+  const token = useSession((s) => s.token);
   return useQuery({
     queryKey: queryKeys.leaderboard(board, localOnly),
     queryFn: () => getLeaderboard(board, localOnly),
-    placeholderData: (previous) => previous,
+    enabled: token !== null,
+    /*
+     * The previous answer holds the screen, but only while it is an answer to the same question.
+     *
+     * The key carries the board as well as the scope, and `(previous) => previous` handed back the
+     * *other board's* rows across a key change: pressing Factions lit the Factions tab, hid the
+     * player search, and left the ranked player table and "You are #3" on screen until the faction
+     * request landed. `LeaderboardResponse` is a union discriminated on `board`, so the page
+     * narrowed on the stale payload and drew the wrong table under the right tab.
+     *
+     * Kept for the scope toggle, which is the same board asked a narrower question and is what
+     * this is for: that one still swaps without the sheet blanking.
+     */
+    placeholderData: (previous) => (previous?.board === board ? previous : undefined),
   });
 }
 export const useInviteToFaction = () => useFactionMutation(inviteToFaction);
@@ -1357,6 +1575,7 @@ function useMessageMutation<TInput>(
     mutationFn,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.messages, response.messages);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.messages });
       // The HUD badge is on `/me`, so reading a message has to move it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
@@ -1387,6 +1606,7 @@ function useNotificationMutation<TInput>(
     mutationFn,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.notifications, response.notifications);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
@@ -1404,9 +1624,18 @@ export const useNotificationSettings = () => useNotificationMutation(setNotifica
  * caps is a screen that looks like the order was free.
  */
 export function useRaiseGate() {
+  return useGateWrite(raiseGate);
+}
+
+/** Call the level being raised off inside its first tenth. Same two caches, moved back. */
+export function useCancelGateRaise() {
+  return useGateWrite(cancelGateRaise);
+}
+
+function useGateWrite<TArgs>(mutationFn: (args: TArgs) => Promise<CityResponse>) {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: raiseGate,
+  return useMutation<CityResponse, ApiRequestError, TArgs>({
+    mutationFn,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.city });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });

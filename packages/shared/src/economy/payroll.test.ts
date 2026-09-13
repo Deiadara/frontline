@@ -108,7 +108,7 @@ describe('nothing recurs', () => {
 /**
  * §H7: what walking a commitment back costs.
  *
- * Pinned to the board's own arithmetic rather than to the constant, because a test that reads
+ * Pinned to the maintainer's own arithmetic rather than to the constant, because a test that reads
  * `DISMISSAL_WEEKS` to compute what it expects agrees with any value of it, including a wrong one.
  * The board's example is the anchor: an officer on 30 caps a week costs 300 to release.
  *

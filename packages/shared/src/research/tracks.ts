@@ -8,11 +8,12 @@ import {
   markIndex,
   type OfficerMark,
 } from '../crew/marks.js';
+import { RESEARCH_UNLED_FREE, RESEARCH_UNLED_PENALISED } from '../missions.leading.js';
 import { OFFICER_ROLES, OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import type { PartialResources } from '../resources.js';
 
 /**
- * Research, as nineteen tracks (board brief 2026-09-03, §C).
+ * Research, as nineteen tracks (maintainer brief 2026-09-03, §C).
  *
  * One track per officer role, ten rungs each. A track is that officer's trade written down: what
  * the Cartographer knows about crossing the city, what the Chief Medic knows about who comes back.
@@ -112,7 +113,7 @@ export function requiredHeadMark(step: number): OfficerMark | null {
  * ## Why not a percentage on every rung
  *
  * It was one channel and one percentage per rung, sized by depth. Ten rungs of `+N% build speed`
- * is a slider, and a slider is not a reason to climb: the board asked for rewards a player would
+ * is a slider, and a slider is not a reason to climb: the maintainer asked for rewards a player would
  * plan a crew around. So the deep rungs open doors (a second crew out, a fourth fight called), the
  * middle ones favour a kind of unit or lift the other officers, and the percentages are kept where
  * a percentage is the honest shape of the thing.
@@ -124,7 +125,9 @@ export type ResearchBonus =
   /** Another chair at the Bar: one more officer on the books. */
   | { kind: 'recruit_slots'; flat: number }
   /** Another fight called and pending at once. */
-  | { kind: 'declarations'; flat: number };
+  | { kind: 'declarations'; flat: number }
+  /** §D7: another name a crew may burn on one fight. */
+  | { kind: 'battle_boosts'; flat: number };
 
 export interface ResearchPayout {
   bonus: ResearchBonus;
@@ -222,6 +225,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
 
   mission_slots: 'command',
   declarations: 'command',
+  battle_boosts: 'command',
 
   // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
@@ -283,6 +287,14 @@ interface TrackEntry {
   bonus: ResearchBonus;
   /** Set on the rungs that also open something. The words are the thing's own name. */
   unlocks?: string;
+  /**
+   * The id, when the rung's name is not what the rest of the game calls the thing it opens.
+   *
+   * Only the two unled-run rungs use it. Their ids are declared in `missions.leading.ts`, because
+   * that is where the rule reading them lives, and a name derived from `tech_unled_runs_free`
+   * would be a rung called "Unled Runs Free" on a rail full of prose.
+   */
+  id?: string;
 }
 
 /** `Dead Drops` becomes `tech_dead_drops`, which is how the fifteen older ids were already spelled. */
@@ -297,7 +309,7 @@ function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): Researc
   return entries.map((entry, index) => {
     const step = index + 1;
     return {
-      id: idOf(entry.name),
+      id: entry.id ?? idOf(entry.name),
       track,
       step,
       name: entry.name,
@@ -608,9 +620,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'allied_offense', percent: 10 },
     },
     {
-      name: 'The Whole Force',
-      blurb: 'Every body you brought is in the fight, which almost never happens.',
-      bonus: { kind: 'declarations', flat: 1 },
+      name: 'Two Names',
+      blurb: 'Enough people owe you that you can call in twice before one fight.',
+      bonus: { kind: 'battle_boosts', flat: 1 },
     },
   ]),
 
@@ -842,9 +854,20 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
-      name: 'Duty Roster',
-      blurb: 'Everybody knows what they are doing tomorrow.',
+      /*
+       * The first half of the unled rule (`missions.leading.ts`).
+       *
+       * The Right Hand's track is the one that says the room runs whether you are in it or not, so
+       * this is where a crew learns to send people out with nobody at the head of them. It is the
+       * second rung on purpose: a crew that has to put the Overseer on every scrap run has one
+       * decision to make all game, and the rule is meant to be a cost rather than a wall. What it
+       * costs is `UNLED_PENALTY` off the odds until the sixth rung takes that off too.
+       */
+      id: RESEARCH_UNLED_PENALISED,
+      name: 'Written Orders',
+      blurb: 'Where to go, what to bring back, and what to do when it goes wrong.',
       bonus: { kind: 'cohesion', percent: 5 },
+      unlocks: 'sending a crew out with nobody leading it, at a cost to the odds',
     },
     {
       name: 'The Open Door',
@@ -862,9 +885,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'wage_discount', percent: 8 },
     },
     {
-      name: 'Grievance Process',
-      blurb: 'It goes somewhere. That is most of what people want.',
+      /* ...and the second half: the same crew, out on the same job, with nothing docked for it. */
+      id: RESEARCH_UNLED_FREE,
+      name: 'They Have Done It Before',
+      blurb: 'The fourth time nobody has to be told anything.',
       bonus: { kind: 'recruit_pool', percent: 10 },
+      unlocks: 'unled runs at full odds',
     },
     {
       name: 'The Word Goes Round',
@@ -1012,11 +1038,13 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Watch Schedules',
       blurb: 'Somebody awake, always, and never the same somebody.',
       bonus: { kind: 'intel_resistance', percent: 6 },
+      unlocks: 'the Razor Wire trap',
     },
     {
       name: 'Sally Ports',
       blurb: 'A door you can come out of, which is not the same as a door.',
       bonus: { kind: 'unit_tier', tier: 'rabble', stat: 'armor', percent: 6 },
+      unlocks: 'the Fuel Fougasse trap',
     },
     {
       name: 'Shaped Charges',
@@ -1047,6 +1075,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Layered Defence',
       blurb: 'The wall is the third thing they hit, not the first.',
       bonus: { kind: 'gate_defense', percent: 18 },
+      unlocks: 'the Flooded Cellar trap',
     },
     {
       name: 'Counter-Surveillance',
@@ -1450,6 +1479,9 @@ export function applyResearchBonus(into: CrewEffects, bonus: ResearchBonus): Cre
     case 'declarations':
       into.declarationsFlat += bonus.flat;
       return into;
+    case 'battle_boosts':
+      into.battleBoostsFlat += bonus.flat;
+      return into;
     default:
       return applyPerkBonus(into, bonus);
   }
@@ -1464,6 +1496,8 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `+${bonus.flat} ${bonus.flat === 1 ? 'chair' : 'chairs'} at the Bar`;
     case 'declarations':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'fight' : 'fights'} called at once`;
+    case 'battle_boosts':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'name' : 'names'} burned on one fight`;
     default:
       return describePerkBonus(bonus);
   }

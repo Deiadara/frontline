@@ -23,8 +23,15 @@ import {
   type BidRequest,
   type BidResult,
 } from '../bar/auction.js';
-import { bidCeilingFor, ledgerFor, recruitSlotsFor, releaseOfficer } from '../bar/hire.js';
+import {
+  bidCeilingFor,
+  factionInfamyOf,
+  ledgerFor,
+  recruitSlotsFor,
+  releaseOfficer,
+} from '../bar/hire.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
+import { rosterFaces } from '../crew/faces.js';
 import { barSeatsFor, barDay, barRoster, findBarRecruit } from '../bar/roster.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
@@ -213,6 +220,14 @@ export function registerBarRoutes(app: FastifyInstance): void {
     // §H2: the room scales with the city. Averaged across every base standing in it, so it is the
     // whole city's standing that raises the calibre rather than the reader's own.
     const roster = barRoster(day, seats, app.repos.bases.averageLevel());
+    // One face each, free of every crew's in the city: the face the contract will keep.
+    const faces = rosterFaces(
+      app.repos,
+      roster.map((recruit) => recruit.id),
+    );
+    // §J8: read once for the room rather than once per recruit. Every standout seat's faction door
+    // asks the same question of the same badge.
+    const factionInfamy = factionInfamyOf(app.repos, base);
     const bids = app.repos.bar.bidsOn(day);
     const usernames = usernamesFor(app, bids);
     // Read once: the book and the discount feed the ledger, the bid ceiling and the payroll gate.
@@ -222,7 +237,9 @@ export function registerBarRoutes(app: FastifyInstance): void {
     return {
       day,
       serverNow: now.toISOString(),
-      recruits: roster.map((recruit) => projectRecruit(base, recruit)),
+      recruits: roster.map((recruit) =>
+        projectRecruit(base, recruit, faces.get(recruit.id), factionInfamy),
+      ),
       officers: base.commanders.map((officer) => projectOfficer(base, officer)),
       slotsUsed: base.commanders.length,
       slotsTotal: recruitSlotsFor(app.repos, base),
@@ -304,9 +321,17 @@ export function registerBarRoutes(app: FastifyInstance): void {
    * moves the caps.
    */
   app.post('/bar/payroll', { preHandler: app.authenticate }, (request): IncreasePayrollResponse => {
-    parseBody(IncreasePayrollRequestSchema, request.body ?? {});
+    const { fromSteps } = parseBody(IncreasePayrollRequestSchema, request.body ?? {});
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
+    // Same guard as the notoriety ladder: the step the screen showed has to be the step the row
+    // is on, or a second press buys a second step nobody asked for.
+    if (fromSteps !== undefined && fromSteps !== base.economy.payroll.purchasedSteps) {
+      throw new AppError(
+        'STALE_STATE',
+        'The book has already widened. Read it again before buying.',
+      );
+    }
 
     // §B7: officers who make widening the book cheaper (`payrollStepDiscountPercent`).
     const cost = payrollStepCost(

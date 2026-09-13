@@ -6,6 +6,9 @@ import {
   SCOUT_PEAK_TOTAL,
   scoutMinutesFor,
   scoutRating,
+  scoutRecallWindowMs,
+  scoutRecallable,
+  scoutRecalledReturnsAt,
   scoutRunMinutes,
 } from './scouting.js';
 
@@ -84,5 +87,69 @@ describe('the whole run', () => {
 
   it('still costs the looking when the ground is next door', () => {
     expect(scoutRunMinutes(0, makeAttributes(100))).toBe(SCOUT_MINUTES_MIN);
+  });
+});
+
+/**
+ * Turning a scout round (maintainer request, 2026-09-12; `time/cancel.ts`).
+ *
+ * The rule is the same one a mission recall keeps: the first tenth **of the way out**, and the
+ * walk home is the distance already covered. The way out is `travelMinutes`, which is not half the
+ * round trip: the round trip is the walk twice plus the hours spent looking, and the looking is
+ * anything from forty minutes to four hours. Deriving the leg from the mark left the window open
+ * long after the scout had arrived, which is a recall of somebody who is already standing there.
+ */
+describe('turning a scout round', () => {
+  const DEPART = Date.parse('2026-09-13T12:00:00.000Z');
+  /** Nothing on the sheet, so the looking is the full four hours: the worst case for the split. */
+  const slow = makeAttributes(0);
+  const TRAVEL = 5;
+
+  const run = {
+    departedAt: new Date(DEPART).toISOString(),
+    travelMinutes: TRAVEL,
+    returnsAt: new Date(DEPART + scoutRunMinutes(TRAVEL, slow) * 60_000).toISOString(),
+    recalledAt: null,
+  };
+
+  it('shuts the window a tenth of the way out, not a tenth of the whole run', () => {
+    // Half a minute: a tenth of the five minute walk, and nothing to do with the four hours of
+    // looking that follow it.
+    expect(scoutRecallWindowMs(run, new Date(DEPART))).toBe(0.1 * TRAVEL * 60_000);
+    expect(scoutRecallable(run, new Date(DEPART + 29_000))).toBe(true);
+    expect(scoutRecallable(run, new Date(DEPART + 31_000))).toBe(false);
+  });
+
+  it('never leaves the window open once the scout has arrived', () => {
+    expect(scoutRecallable(run, new Date(DEPART + TRAVEL * 60_000))).toBe(false);
+  });
+
+  /**
+   * The looking is the half the officer changes, so a poor scout has a much longer run and must
+   * not get a longer window for it: what they can undo is the walk they have started.
+   */
+  it('gives the same window whoever is doing the looking', () => {
+    const quick = makeAttributes(100);
+    const quickRun = {
+      ...run,
+      returnsAt: new Date(DEPART + scoutRunMinutes(TRAVEL, quick) * 60_000).toISOString(),
+    };
+    expect(scoutRecallWindowMs(quickRun, new Date(DEPART))).toBe(
+      scoutRecallWindowMs(run, new Date(DEPART)),
+    );
+  });
+
+  /**
+   * The walk home is the distance covered, so the window has to keep the recall inside the way
+   * out: a scout turned round at the last legal moment cannot take longer to get home than the
+   * whole walk out was going to take.
+   *
+   * The instant is taken from the window helper rather than written down, because the claim is
+   * about the two agreeing: an open window that lands somebody home after they would have arrived
+   * is the bug, whatever the window is set to.
+   */
+  it('brings them home no later than the walk out would have finished', () => {
+    const last = new Date(DEPART + scoutRecallWindowMs(run, new Date(DEPART)) - 1);
+    expect(scoutRecalledReturnsAt(run, last).getTime()).toBeLessThan(DEPART + TRAVEL * 60_000);
   });
 });

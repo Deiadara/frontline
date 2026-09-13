@@ -139,18 +139,24 @@ export const FRAMING = {
 /**
  * ART-PROMPTS §1b: the officer pool, keyed by `OFFICER_PORTRAIT_IDS`.
  *
- * Forty-three faces the crew's officers are drawn from. Written as descriptions of paintings that
- * already exist rather than as directions for ones that do not: the board delivered these, and what
- * these lines are for is the record of *which* painting each key is, so a re-encode or a re-order
- * can be checked against something.
+ * A hundred and thirty-nine faces the crew's officers are drawn from. Written as descriptions of
+ * paintings that already exist rather than as directions for ones that do not: the maintainer delivered
+ * these, and what these lines are for is the record of *which* painting each key is, so a re-encode
+ * or a re-order can be checked against something.
  *
  * One shared instruction runs under all of them (`FRAMING.officer`); each line here is only what
- * makes that face different from the other forty-two.
+ * makes that face different from the other hundred and thirty-eight.
  *
  * `34` to `43` were delivered later, off the ten administrative portraits sitting unused in the
  * inbox. Appended rather than filed among the others: `officerPortraitId` indexes
  * `OFFICER_PORTRAIT_IDS` by hash, so inserting in the middle would move every face after it onto a
  * different officer.
+ *
+ * `100` to `139` are the maintainer's 2026-09-11 drop (`images/officers/resident-156-*` through
+ * `resident-195-*`), appended for the same reason and in resident order, so `resident-156` is
+ * `officer-100` and `resident-195` is `officer-139`. Each is named by the trade the maintainer painted
+ * them at, because that is what the filename records and it is the one thing about the picture
+ * that cannot be read off the face.
  */
 export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
   '01': block(`
@@ -490,6 +496,166 @@ export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
   '99': block(`
     A young woman with cropped fair hair and a pale lilac coat, a bleached-out street behind her.
   `),
+  '100': block(`
+    An apothecary's clerk in her forties, dark hair cut short with a red streak, a purple coat
+    over a green work apron, shelves of glass herb jars and a copper still behind her.
+  `),
+  '101': block(`
+    A lift mechanic in his sixties, grey beard under a flat cap, an oil-soaked leather apron,
+    hoist chains and a lit cage descending behind him.
+  `),
+  '102': block(`
+    A message courier in their twenties, cropped black hair and an earpiece, a satchel strap
+    across the chest, wet iron catwalks and green lamps behind.
+  `),
+  '103': block(`
+    A bathhouse attendant in her fifties, a greying auburn braid over one shoulder, towels across
+    her arm, steam and a tiled arch behind her.
+  `),
+  '104': block(`
+    A pawnshop appraiser in his forties, black curls and a trimmed beard, a jeweller's loupe
+    pushed up on his brow, clocks and gilded cases behind him.
+  `),
+  '105': block(`
+    A teahouse proprietor in her sixties, silver hair pinned up, a flowered jacket under a dark
+    apron, brass urns, a red lantern and steam behind her.
+  `),
+  '106': block(`
+    A ventilation inspector in his forties, dark curls shaved at the sides, a respirator hanging
+    at his throat, a great fan and steaming ducts behind him.
+  `),
+  '107': block(`
+    A tram conductor in her forties, short curls under a peaked cap, a brass-buttoned coat and a
+    red scarf, a lit tram on wet rails behind her.
+  `),
+  '108': block(`
+    A foundry bookkeeper in his seventies, bald with a white moustache, ledgers open across his
+    desk, the furnace floor glowing orange behind him.
+  `),
+  '109': block(`
+    A salvage-market broker in her forties, dark curls under a plum shawl, brass chains at her
+    collar, a rainy arcade of lit stalls behind her.
+  `),
+  '110': block(`
+    A neighbourhood baker in his forties, sandy hair and a short beard, flour over a canvas apron,
+    grinning, loaves and an open oven behind him.
+  `),
+  '111': block(`
+    A water-quality technician in her forties, short dark curls, a sample tube held up to the
+    light, a green canal and a weir behind her.
+  `),
+  '112': block(`
+    A radio repairer in his thirties, locs tied back under a headset, a bench of valve sets around
+    him and a dusk skyline through the glass.
+  `),
+  '113': block(`
+    A boarding-house keeper in her sixties, a grey braid and an embroidered shawl, a ring of keys
+    at her belt, a lamplit corridor of doors behind her.
+  `),
+  '114': block(`
+    A printshop compositor in her forties, head shaved, small inked marks on her cheek, type cases
+    and a press behind her.
+  `),
+  '115': block(`
+    A canal messenger in her twenties, black hair shaved at one side, freckles, a satchel on her
+    back, wet steps and a canal under a pink sign behind.
+  `),
+  '116': block(`
+    A boiler tender in his fifties, bald with a grizzled beard, a towel over one shoulder, a
+    copper boiler with its firebox open behind him.
+  `),
+  '117': block(`
+    A tailor in her fifties, fair hair pinned loose, a brass forearm on her right arm, a sewing
+    machine and dress forms behind her.
+  `),
+  '118': block(`
+    A dockside cook in his forties, black curls and a tattooed forearm over a stained apron, pots
+    steaming and a misty wharf behind him.
+  `),
+  '119': block(`
+    An oral historian in her seventies, silver braids and brass rings, a purple brocade robe, a
+    lamplit room of photographs behind her.
+  `),
+  '120': block(`
+    A transit trainee in her twenties, short natural curls, an orange and blue rain jacket with an
+    ID card clipped to it, a tram and a lit route map behind.
+  `),
+  '121': block(`
+    A drone-repair apprentice in his twenties, untidy brown hair and a magnifier over one eye,
+    half-built drones and teal screens behind him.
+  `),
+  '122': block(`
+    A hydroponics technician in her thirties, an undercut and a dark topknot, an oilcloth apron,
+    glass grow-columns under violet lamps behind her.
+  `),
+  '123': block(`
+    A night-market courier in her twenties, beaded braids and an earpiece, a red and yellow
+    jacket, wet stalls and signage behind her.
+  `),
+  '124': block(`
+    An energy monitor in his thirties, black curls and a short beard, a scarf at his throat,
+    stacked cells and a lit charge readout behind him.
+  `),
+  '125': block(`
+    A clinic intake worker in her thirties, a silver-white bob, a coat with a card clipped to it,
+    lit cabinets and beds behind her.
+  `),
+  '126': block(`
+    A projection scavenger in his twenties, short locs and a scavenged jacket, salvaged projectors
+    throwing violet light across cracked glass behind him.
+  `),
+  '127': block(`
+    A filtration mapper in her thirties, a long dark braid, a slate strapped to her chest, a
+    flooded arcade of arches and cyan water behind her.
+  `),
+  '128': block(`
+    A capsule-housing attendant in his twenties, fair hair and freckles, a yellow and grey jacket,
+    a wall of berths and a lit floor plan behind him.
+  `),
+  '129': block(`
+    A synthetic-fabric cutter in her thirties, head shaved, a plum scarf, looms of patterned cloth
+    and jointed arms working behind her.
+  `),
+  '130': block(`
+    A recycler sorter in his thirties, long wet hair and goggles at his throat, belts of sorted
+    scrap and a lit crane claw behind him.
+  `),
+  '131': block(`
+    A data-kiosk attendant in her twenties, red curls and a dark red waistcoat, a glass screen
+    open on the counter, a pale hall behind her.
+  `),
+  '132': block(`
+    An atmospheric-sensor maintainer in her twenties, braids and an undercut, a yellow-striped
+    work coat, sensor masts and chimneys behind her.
+  `),
+  '133': block(`
+    A ferry dispatcher in her thirties, dark curls tied back, half smiling, a chart screen at her
+    elbow and a ferry on green water behind her.
+  `),
+  '134': block(`
+    An archive digitiser in his thirties, shaved head and a canvas apron, stacked paper and a lit
+    scanning case behind him.
+  `),
+  '135': block(`
+    A battery tester in her thirties, dark curls and goggles at her collar, racks of glowing cells
+    and a violet street behind her.
+  `),
+  '136': block(`
+    A pump operator in his twenties, wet black hair, grinning in a work harness, a sluice pouring
+    and a gantry behind him.
+  `),
+  '137': block(`
+    A communications rigger in her thirties, long black curls shaved at one side, a dish behind
+    her and magenta aerial diagrams at dusk.
+  `),
+  '138': block(`
+    A machine-school tutor in his forties, round glasses and a work apron, a chalked machine
+    diagram and benches of students behind him.
+  `),
+  '139': block(`
+    A greenhouse worker in her twenties, a black fringe and a green scarf over a wet apron, rows
+    of planting under warm lamps behind her.
+  `),
 };
 
 /** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
@@ -692,6 +858,32 @@ export const PLATE_SUBJECTS = {
     pinboard of photographs and red string covers the wall at the left, and lit screens, a
     gantry and figures at consoles fill the hall beyond. Cold #22d3ee monitor light against warm
     sodium lamps. Nothing that reads as a label for a game object.
+  `),
+  'plate-district-undergrid': block(`
+    The Undergrid from above and slightly forward, the same camera as the other contested plates
+    and **no sky**: a vast utility cavern under the city, rock walls hung with bundled conduit,
+    lit by toxic green coolant seams and sodium lamps. Seven places a player can stand, each
+    recognisable at a glance: a transformer substation on a scaffold platform at upper left with
+    lightning arcing off its insulators, a second transformer vault on its own platform at upper
+    right, a brick tunnel mouth with a customs booth at top centre, a flooded junction of arched
+    culverts and a footbridge in the middle, a tram depot with a stranded tram at right, a lattice
+    stair tower climbing off the right edge with a lit lamp room at its top, and a reagent works of
+    tanks and pipework at lower right venting steam. A shanty of huts at lower left, and a timber
+    gate with a watch platform closes the bottom edge. Wet stone, standing water, green and amber
+    light. Painted signage is part of the street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-datavault-sigma': block(`
+    The Annexes from above and slightly forward, the same camera as the other contested plates and
+    **no sky**: a fogged faculty quarter of wet stone under cold grey-green light. Eight places a
+    player can stand, each recognisable at a glance: a satellite dish bolted to the roof of a
+    stone faculty building at upper left, a glass-fronted hall lit green from inside next along, a
+    copper-domed observatory with a brass orrery turning under the dome at top centre, a foundry
+    of smokestacks and teal cooling tanks at upper right, a scaffolded half-built tower under a
+    yellow crane at the right, a mansion roofed with a thicket of antenna spikes in the centre, a
+    huge columned faculty building with grand steps at the left, and a stone gate between two
+    towers closing the bottom edge. Fog between the roofs, standing water on the flagstones, lit
+    windows the only warm notes. Painted signage is part of the street; nothing that reads as a
+    label for a game object.
   `),
   'plate-district-rustyard': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press

@@ -3,9 +3,12 @@ import {
   findResearchItem,
   researchItemRefusal,
   spendResources,
+  addResources,
+  cancelRefund,
+  researchCancellable,
+  type PartialResources,
   type ActiveResearch,
   type Base,
-  type PartialResources,
   type ResearchProject,
 } from '@frontline/shared';
 import { adminCost, adminMinutes, adminWaives } from '../admin/mode.js';
@@ -110,19 +113,46 @@ export function startResearch(repos: Repositories, input: StartInput): StartResu
     return { kind: 'refused', reason: refusal };
 
   const { base, project, id, now, admin = false } = input;
+  const paid = adminCost(projectCost(base, project), admin);
   const active: ActiveResearch = {
     id,
     project,
     startedAt: now.toISOString(),
     durationMinutes: adminMinutes(projectMinutes(repos, input), admin),
+    // So a cancel in the first tenth can hand ninety percent of it back (`time/cancel.ts`).
+    paid,
   };
   const started: Base = {
     ...base,
-    resources: spendResources(base.resources, adminCost(projectCost(base, project), admin)),
+    resources: spendResources(base.resources, paid),
     research: { ...base.research, active },
   };
 
   repos.bases.updateResources(started.id, started.resources);
   repos.bases.updateResearch(started.id, started.research);
   return { kind: 'started', base: started, active };
+}
+
+export type ResearchCancelRefusal = 'nothing_running' | 'window_closed';
+export type CancelResult =
+  | { kind: 'refused'; reason: ResearchCancelRefusal }
+  | { kind: 'cancelled'; base: Base; refund: PartialResources };
+
+/**
+ * Take the project off the bench (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first
+ * tenth of its clock, with ninety percent of what it cost back on the stockpile.
+ */
+export function cancelResearch(repos: Repositories, base: Base, now: Date): CancelResult {
+  const active = base.research.active;
+  if (!active) return { kind: 'refused', reason: 'nothing_running' };
+  if (!researchCancellable(active, now)) return { kind: 'refused', reason: 'window_closed' };
+  const refund = cancelRefund(active.paid);
+  const cancelled: Base = {
+    ...base,
+    resources: addResources(base.resources, refund),
+    research: { ...base.research, active: null },
+  };
+  repos.bases.updateResources(cancelled.id, cancelled.resources);
+  repos.bases.updateResearch(cancelled.id, cancelled.research);
+  return { kind: 'cancelled', base: cancelled, refund };
 }

@@ -11,7 +11,7 @@ import { BLUEPRINTS, pageRarity, type BlueprintPage, type BlueprintSpec } from '
  * those failures are silent: a missing description prints an empty hover, a rarity that disagrees
  * with the document paints the row the wrong colour. So the checks here are over the whole
  * catalogue rather than over a sample, because the failure mode is one entry out of a hundred and
- * sixty rather than a broken rule.
+ * seventy rather than a broken rule.
  */
 
 /**
@@ -35,7 +35,7 @@ function tally(rarities: readonly ItemRarity[]): Record<ItemRarity, number> {
 }
 
 describe('every page says what is on it', () => {
-  it('gives all one hundred and sixty a description', () => {
+  it('gives all one hundred and seventy-four a description', () => {
     for (const { blueprint, page } of ALL_PAGES) {
       expect(
         page.description.length,
@@ -43,7 +43,7 @@ describe('every page says what is on it', () => {
       ).toBeGreaterThan(20);
       expect(page.description.trim(), `${page.id} is padded`).toBe(page.description);
     }
-    expect(ALL_PAGES.length).toBe(160);
+    expect(ALL_PAGES.length).toBe(174);
   });
 
   /**

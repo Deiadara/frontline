@@ -1,4 +1,4 @@
--- One raid on a district, instead of thirteen fights on thirteen roofs (GDD §A4, board 2026-09-09).
+-- One raid on a district, instead of thirteen fights on thirteen roofs (GDD §A4, maintainer 2026-09-09).
 --
 -- A `building` target was a call on one structure behind a broken gate. A crew who wanted a home
 -- properly turned over had to declare against each roof in turn, which is thirteen declarations

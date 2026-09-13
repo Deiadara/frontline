@@ -1,7 +1,7 @@
 # Patch spec: buildings, garage, officers in battle
 
 Board request, transcribed requirement by requirement. Every line here is a thing that must be
-true when the patch lands. Where the board's wording left a number open, the number chosen is
+true when the patch lands. Where the maintainer's wording left a number open, the number chosen is
 marked **(chosen)** and is a decision to be reviewed, not a quote.
 
 Current state was surveyed before writing this; "today" below means what the code does now.

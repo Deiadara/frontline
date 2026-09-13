@@ -1,11 +1,11 @@
 /**
- * §C: the research page, rebuilt as nineteen trades on a rail.
+ * §C: the research page, rebuilt as nineteen trades on a rail under a strip of three tabs.
  *
- * What only a browser answers is the geometry and the ink. Three things are asserted here that a
- * unit test cannot see: the rail sits beside the ten rungs rather than above them, nothing on the
- * densest track is cut off or pushed past the frame at any of the sizes the game supports, and the
- * track sigils actually draw. A sigil that failed to render is invisible in every green unit test
- * and is the whole of §C4b.
+ * What only a browser answers is the geometry and the ink. Four things are asserted here that a
+ * unit test cannot see: the three tabs sit side by side across the top, the rail sits beside the
+ * ten rungs rather than above them, nothing on the densest track is cut off or pushed past the
+ * frame at any of the sizes the game supports, and the track sigils actually draw. A sigil that
+ * failed to render is invisible in every green unit test and is the whole of §C4b.
  */
 import { expect, test, type Page } from '@playwright/test';
 import { OFFICER_ROLES, RESEARCH_TRACK_STEPS } from '@frontline/shared';
@@ -33,8 +33,8 @@ async function openTracks(page: Page, size: Size = VIEWPORTS[3]): Promise<void> 
   await page.setViewportSize(size);
   await installApi(page, lateGame);
   await page.goto('/game/research');
-  await expect(page.getByTestId('research-sections')).toBeVisible();
-  await page.getByTestId('research-section-programmes').click();
+  await expect(page.getByTestId('research-tabs')).toBeVisible();
+  await page.getByTestId('research-tab-programmes').click();
   await expect(page.getByTestId('research-tracks')).toBeVisible();
   await settleFonts(page);
 }
@@ -57,6 +57,40 @@ test('lists all nineteen trades, beside the rungs rather than above them', async
   const panelBox = await box(page, `tech-track-${FIRST_TRACK}`);
   expect(railBox.x + railBox.width).toBeLessThanOrEqual(panelBox.x + 1);
   expect(panelBox.width).toBeGreaterThan(railBox.width);
+});
+
+/**
+ * The strip, across the top, with the workspace under the whole of it.
+ *
+ * The rail of doors this replaced took 17rem off the left of the frame at every width. Measured
+ * rather than counted: three tabs stacked into a column would still be three tabs, and the sheet
+ * would still say Programmes.
+ */
+test('puts three tabs side by side over the workspace', async ({ page }) => {
+  await openTracks(page);
+
+  const tabs = page.getByTestId('research-tabs').getByRole('link');
+  await expect(tabs).toHaveCount(3);
+  const strip = await tabs.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return { top: Math.round(rect.top), left: Math.round(rect.left) };
+    }),
+  );
+  expect(
+    [...new Set(strip.map((tab) => tab.top))],
+    'the tabs wrapped onto more than one line',
+  ).toHaveLength(1);
+  expect(strip.map((tab) => tab.left)).toEqual(
+    [...strip.map((tab) => tab.left)].sort((a, b) => a - b),
+  );
+
+  const workspace = await box(page, 'research-workspace');
+  const first = strip[0];
+  if (!first) throw new Error('no tabs');
+  expect(workspace.y).toBeGreaterThan(first.top);
+  // The workspace starts at the left edge of the strip: nothing is holding a column beside it.
+  expect(Math.abs(workspace.x - first.left)).toBeLessThanOrEqual(2);
 });
 
 test('opens on the first trade and swaps the whole panel for another', async ({ page }) => {
@@ -172,6 +206,6 @@ test('shuts every trade at once when nobody holds the research post', async ({ p
     }),
   );
   await page.goto('/game/research');
-  await page.getByTestId('research-section-programmes').click();
+  await page.getByTestId('research-tab-programmes').click();
   await expect(page.getByText('Every track on every trade is shut without one.')).toBeVisible();
 });

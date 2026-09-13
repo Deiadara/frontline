@@ -1253,7 +1253,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       offense: 5,
       evasion: 20,
       stealth: 45,
-      // Ten slots, which is the board's figure. Twice a Razor's and half again a Scraper's.
+      // Ten slots, which is the maintainer's figure. Twice a Razor's and half again a Scraper's.
       lootCapacity: 10,
       intimidation: 0,
     }),
@@ -1549,7 +1549,7 @@ export function locationsTraining(unit: UnitSpec): LocationKind[] {
 /**
  * §B6: the twelve the Gauntlet unlocks, and nothing else.
  *
- * The board named these by hand, so the list is transcribed by hand and then *asserted* against the
+ * The maintainer named these by hand, so the list is transcribed by hand and then *asserted* against the
  * catalogue at module load. The alternative, deriving the list from the requirements, would make
  * the assertion tautological: it would agree with whatever the catalogue happened to say, which is
  * exactly the mistake it exists to catch. Two independent statements, checked against each other.
@@ -1640,7 +1640,7 @@ for (const unit of UNIT_CATALOG) {
 if (BY_ID.size !== UNIT_CATALOG.length) throw new Error('two units share an id');
 
 /**
- * §B6, both halves: the Gauntlet gates exactly the twelve the board named, and every one of them
+ * §B6, both halves: the Gauntlet gates exactly the twelve the maintainer named, and every one of them
  * carries a level.
  *
  * The second half is the one worth spelling out. "Unlocked by the Gauntlet" is meaningless without

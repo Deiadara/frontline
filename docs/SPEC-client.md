@@ -41,31 +41,64 @@ message}`; on `401` also clear the session (logout).
 
 ## Routes (react-router-dom)
 
-| Path                  | Screen                 | Guard                                                                 |
-| --------------------- | ---------------------- | --------------------------------------------------------------------- |
-| `/auth`               | Auth (login/register)  | Redirect to `/game` if authenticated                                  |
-| `/overseer`           | Character Select       | Requires session; redirect to `/game` if user already has an overseer |
-| `/game`               | Game shell (city map)  | Requires session; redirect to `/overseer` if no overseer yet          |
-| `/game/base`          | The district (§A1)     | as `/game`                                                            |
-| `/game/missions`      | Mission board (§E)     | as `/game`                                                            |
-| `/game/bar`           | The Bar (§H)           | as `/game`                                                            |
-| `/game/research`      | Research (§B9, §F2)    | as `/game`                                                            |
-| `/game/assignees`     | Assignees (§G)         | as `/game`                                                            |
-| `/game/market`        | The Market (§Market)   | as `/game`, plus `RequireLevel area="market"`                         |
-| `/game/market/offers` | The board (§Market)    | as `/game/market`                                                     |
-| `/game/market/black`  | Black Market (§Market) | as `/game/market`                                                     |
-| `*`                   | Redirect to `/game`    |                                                                       |
+| Path                         | Screen                 | Guard                                                                 |
+| ---------------------------- | ---------------------- | --------------------------------------------------------------------- |
+| `/auth`                      | Auth (login/register)  | Redirect to `/game` if authenticated                                  |
+| `/overseer`                  | Character Select       | Requires session; redirect to `/game` if user already has an overseer |
+| `/game`                      | Game shell (city map)  | Requires session; redirect to `/overseer` if no overseer yet          |
+| `/game/base`                 | The district (§A1)     | as `/game`                                                            |
+| `/game/missions`             | Mission board (§E)     | as `/game`                                                            |
+| `/game/bar`                  | The Bar (§H)           | as `/game`                                                            |
+| `/game/research`             | Research (§B9, §F2)    | as `/game`, plus `RequireLevel area="research"`                       |
+| `/game/research/blueprints`  | Blueprints (§D)        | as `/game/research`                                                   |
+| `/game/research/reimagining` | Reimagining (§G2)      | as `/game/research`                                                   |
+| `/game/assignees`            | Assignees (§G)         | as `/game`                                                            |
+| `/game/market`               | The Market (§Market)   | as `/game`, plus `RequireLevel area="market"`                         |
+| `/game/market/offers`        | The board (§Market)    | as `/game/market`                                                     |
+| `/game/market/black`         | Black Market (§Market) | as `/game/market`                                                     |
+| `*`                          | Redirect to `/game`    |                                                                       |
+
+The archive is three tabs of one screen (`ResearchPage`, maintainer 2026-09-10): the officer tracks on
+`/game/research`, the documents on `/game/research/blueprints`, and the Lab's bench on
+`/game/research/reimagining`. The strip is the market's, and which tab is open is the URL, so a
+link into a document lands on the document. **Only Programmes carries a count** (rungs finished over
+rungs in the game); the other two are their label alone, because a document count next to Blueprints
+reads as progress through the catalogue when it is progress through a satchel, and a page count next
+to Reimagining is the size of a bag rather than of anything the tab does. Programmes also takes
+`?track=<role>`, so a link can open one of the nineteen trades; an unknown value falls back to the
+first.
+
+Blueprints is one document per row: the cover, name, rarity and blurb in a fixed 14rem column, the
+pages across the middle as `PageGlyph` sheets 88px wide, and "N of M pages" over an Unlock button on
+the right that is live only on a complete set. The Colossus has eight pages and they sit on one line
+at 1280; under that the strip wraps and `auto-rows-fr` squares the rows back up. A drawn switch,
+**Show unlocked**, adds the finished documents to the list (stamped, no button); three drawer
+buttons under it choose the category, and only the chosen one is rendered. Neither is persisted.
+
+Reimagining is the bench: a triangle of three brass sockets with gearing and an outfeed beside it,
+and the satchel's pages as a tray to its right. Shut, it is a door rather than a dead end: a crew
+with no Head of Research is sent to the Bar to hire one, because an empty chair shuts every rung on
+every trade, and a crew with the chair but not the rung is sent to `/game/research?track=` on the
+trade the rung actually sits on, read off the catalogue rather than written down. A tray tile puts its page in the first empty socket
+and a filled socket gives it back; a page can go in as many times as it is held. With all three in,
+the machinery lights and `Reimagine` posts `ReimagineRequestSchema` with the three page ids, the
+sheets are drawn into the gearing, and the new page lands in the outfeed. The travel is off under
+`prefers-reduced-motion`, and the states still change on the same presses. The screen's own
+furniture (`.drafting-grid`, `.index-tab`, `.rubber-stamp`, `.brass-socket`, `.lab-bench`,
+`.lab-gear`) lives in the research section at the foot of `index.css` and is used on no other screen.
 
 The Market is three tabs of one place: the Runner, the Broker and the supply run on
 `/game/market`, trading between crews on `/game/market/offers`, and the back room on
 `/game/market/black`. The board is a page of its own rather than a panel on the front, because a
 listing is two piles of goods and a verdict on them, which does not read in a shared column.
 
-The front of the market fits one frame (`PageShell fills`, board 2026-09-08): the tab strip with
+The front of the market fits one frame (`PageShell fills`, maintainer 2026-09-08): the tab strip with
 the Runner's hours as its standing note on the right, a tape of the street's figures
 (`.market-ticker`, hidden under 800px tall), then two columns, the Runner over the supply run and
-the Broker beside them on the centre line. The Runner's row has a floor of one row of lots and the
-supply run is what gives on a short screen, behind its own scroller; `visual.spec.ts` measures
+the Broker beside them on the centre line. The Runner's six lots are a board split in six (three by
+two from 860px tall, one row of six below that, never a finished blueprint: pages only, maintainer
+2026-09-10), the row has a floor of one row of lots and the supply run is what gives on a short
+screen, behind its own scroller; `visual.spec.ts` measures
 that nothing on the sheet scrolls at 1280x720 and up, and only the barrow at 1024. Every line on
 the barrow is a lot (`market/auction.ts`): the card carries the leading bid on a lit tag whose
 edge is the reader's standing, and its button reads Bid, Raise or Your table. The button opens
@@ -124,7 +157,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      the crew leaves the progress figure lower than it was. No trickle and no floor, since nothing
      pays XP passively.
    - **Scenery switcher** (floating, along the bottom): City / District / Units / Missions / The
-     Bar / Research / Crew / Training / Market / Workshop / Satchel, with Settings pinned to the
+     Bar / Research / Crew / Training / Market / Scrapyard / Satchel, with Settings pinned to the
      right of the row and the Console appearing only in an admin build. Each entry is a _place_, with
      an icon large enough to read as a destination and its label under it. The row wraps rather
      than shrinking, and the shell measures whatever height that comes to. Gated doors (§I3) still
@@ -132,7 +165,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    - **Backdrop**: one `SceneBackdrop` for the whole shell: the district plate, blurred and dimmed.
      The district and the city map paint over it completely; every document screen lets it show
      through, so the location never disappears between clicks.
-   - **The city**: the board's painted aerial (`plate-city`, 21:10), drawn whole inside the frame
+   - **The city**: the maintainer's painted aerial (`plate-city`, 21:10), drawn whole inside the frame
      by `PlateRoom` and never cropped or stretched, with one hand-drawn tag per district taped onto
      the roof it names (`CityView`). It is not a map and not a canvas: the pan-and-zoom Pixi
      version was a diagram of a place, and a player standing over a city does not read a diagram.
@@ -221,7 +254,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      built. The Bar polls every ten seconds because the tables are other people's; the clock ticks
      locally in between.
 
-7. **Location characteristics** (§A4), the board's name for what the code calls environment labels.
+7. **Location characteristics** (§A4), the maintainer's name for what the code calls environment labels.
    Wet, Windy, Eerie, Dark and the rest, each at a tier in Latin numerals. Every screen that names
    the concept uses that name: the unit card's section is **Characteristics they notice**, and the
    two screens where they decide something carry a titled **Characteristics** row
@@ -240,7 +273,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      the effective figure and the percent change coloured by direction, and under it the `reasons`
      the shared `effectiveStats` returns. It is the engine's own function, so the card and the fight
      cannot disagree. Two inputs are not on `BattleView` and the card says so rather than guessing:
-     the crew's territory effects (it passes `noTerritoryEffects()`) and the workshop's refit.
+     the crew's territory effects (it passes `noTerritoryEffects()`) and the Scrapyard's refit.
 
 8. **The yard and the road** (§C3). A vehicle carries a **speed**, 0 to 100, on the same scale a
    unit's sheet uses, never a percentage off a clock: the machine's card reads `Speed 65` beside
@@ -258,7 +291,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      out and the one that makes the name wrong: **nobody boards a machine slower than their own
      legs**, so a Scrappy on 65 in front of two Road Reavers on 65 is carrying nobody and the
      Reavers are what the column is waiting for.
-   - Every one of these quotes reads a unit off the sheet **the workshop left it with**
+   - Every one of these quotes reads a unit off the sheet **the Scrapyard left it with**
      (`fittedFor(base.unitLoadouts, unitId)`, which is what the server folds in), because the
      armour line takes speed away: Scrap Plate is -2 and Hardshell Rig is -3. The printed sheet
      would quote a road the crew then overruns.
@@ -272,6 +305,53 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    - A unit whose sheet carries `no_ride` never boards. The row that offers it shows a small red
      **walks** note beside its count, and only while something is actually loaded: with an empty
      yard everybody walks and a note on every row says nothing.
+
+9. **The mission board** (§E3, §E4), and who takes a job out. Every job on the board carries what
+   it leans on (`leanings`), its odds before anybody is considered (`authoredChance`) and, if it
+   is a fight, its tier; the payload also carries `leaders` (the Overseer first, then the officers,
+   each with `held` naming what is holding them, and `heldUntil` the mark they are free at) and
+   `unledRule`, the crew's research on going out with nobody in charge. **No arithmetic on this screen is the screen's own**:
+   `missions.leading.ts` is what the launch is priced with, and the dial reads the same functions.
+
+   - **The card** says what the job leans on, as chips off `MISSION_LEANING_LABELS`
+     (`A haul`, `Salvage`, `A long road`). A battle says its tier instead (`A skirmish`, `A fight`,
+     `A siege`) and nothing else: what a fight actually fields is the job's secret. The band is a
+     fixed height like every other band on the card, so three offers stay comparable line for line.
+   - **The leader picker** in the send window lists everybody with their kind and their fit for
+     _this_ job (`leaderFit(attributes, composeProfile(offer.leanings))` as a percentage). Somebody
+     who is held is drawn dimmed, cannot be picked, and carries the reason in the server's own
+     words off `LEADER_HOLD_LABELS`: `out leading a run`, `at a fight`, `out scouting`, `laid up`.
+     Where `heldUntil` is set the row counts down to it (`out scouting, back in 1h 35m`), so a
+     player deciding whether to wait can see the wait; a fight has no such mark until it settles
+     and the row says only what it is. Beside it, **Use the most suitable leader for this job**
+     takes `bestLeader` over the ones who are free (`held === null`), never over the whole list.
+     The launch sends `leaderId`, and the server refuses a held leader in the same words the row
+     was dimmed with.
+   - **The dial** (`MissionGauge`, the `.mission-gauge` block at the foot of `index.css`) is a
+     brass-bezelled speedometer: five arcs of twenty points, red through blue, tick marks at each
+     band edge, a needle that travels to the chance and the figure struck in the well in the
+     colour of the band it is in. It reads
+     `missionOdds({ authored, leader, profile, unled })`, so it moves as the player picks. The
+     needle's travel is a transition and it is off under `prefers-reduced-motion`. Whole points is
+     the precision it prints and therefore the precision it reads: the chance is rounded once and
+     the needle, the band and the figure all take that one number, so two jobs quoting `60%` are
+     never struck in two different colours.
+   - **A battle shows no number.** Same bezel, four bands, and the band from
+     `battleOdds({ ours: fieldStrength(force), theirs: enemyStrength(tier, level), edge })` named
+     in the well (`BATTLE_ODDS_LABELS`), recomputed as units are picked. The edge is the leader's,
+     or the unled penalty when there is none.
+   - **Going unled**, in the three states `unledRule` leaves it in. `forbidden`: the send button is
+     dead and the window says `Nobody leads this. Research unled runs, or send somebody.`
+     `penalised`: the dial already has `UNLED_PENALTY` off it and a line says so.
+     `free`: nothing is said.
+   - **In flight and returned.** Every run names who took it out: the Overseer (`overseerLed`), the
+     officer (`officerId`), or `Nobody leading them`. The Overseer's name comes off the board's own
+     `leaders`, which is where the row that needs it arrives from; `/me` is only the fallback, and
+     reading it first left every such row saying `The Overseer` until that query landed. A returned
+     battle says what came home and
+     what did not (`force` less `lost`, and `lost`), or `Everybody came home`. A run with
+     `reported: false` reads `Nobody came back`, with no outcome tag and no haul: there is nobody
+     to have reported either.
 
 ## Layout rules (STRICT: these prevent the classic visual bugs)
 

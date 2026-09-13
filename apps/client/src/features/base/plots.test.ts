@@ -277,7 +277,7 @@ describe('fitting the painting into the room the chrome leaves', () => {
   /**
    * The margins are what slide under the bars, and only the margins, whenever there is room for
    * that. A frame with more clear band than the buildings need puts them squarely in the middle of
-   * it, which is the arrangement the board asked for.
+   * it, which is the arrangement the maintainer asked for.
    */
   it('centres the buildings in the clear band when they fit in it', () => {
     const box = fitted(room(1440, 900), room(1440, 810));
@@ -303,7 +303,7 @@ describe('fitting the painting into the room the chrome leaves', () => {
     expect(band.bottom).toBeGreaterThan(400);
   });
 
-  /** And with room to spare it is centred, which is the arrangement the board asked for. */
+  /** And with room to spare it is centred, which is the arrangement the maintainer asked for. */
   it('centres the band when there is room for it', () => {
     const box = fitted(room(1440, 1200), room(1440, 900));
     const band = occupies(box);

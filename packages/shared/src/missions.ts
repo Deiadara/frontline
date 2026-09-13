@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { InventorySchema } from './items/inventory.js';
+import { cancelWindowMs, cancelWindowOpen } from './time/cancel.js';
 import { FleetSchema } from './building/vehicles.js';
 import { MissionDifficultySchema } from './delegation/delegation.js';
-import { MissionStanceSchema, type MissionStance } from './allegiance.js';
+import { BattleTierSchema, MissionLeaningSchema } from './missions.leading.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
@@ -64,18 +66,15 @@ export const MissionTemplateSchema = z.object({
   brief: z.string().min(1),
   kind: MissionKindSchema,
   /**
-   * §G6: hard runs require an officer; easy ones can go out with nobody leading. Authored per
-   * mission rather than derived from `kind` or length: a day-long standard expedition beyond the
-   * wire is not "easy" just because nobody shoots at you, and the board asked for a hard/easy
-   * split, not a battle/standard one.
+   * How hard the job is, authored per mission rather than derived from `kind` or length: a
+   * day-long standard expedition beyond the wire is not "easy" just because nobody shoots at you.
+   *
+   * It used to be the §G6 gate, where a hard run refused to go out without an officer at the head
+   * of it. Who leads a run is a general rule now (`missions.leading.ts`) and it asks the same
+   * question of every job. What still reads this is the card, which says what a job is asking of a
+   * crew, and `pagePrizeOdds`, which puts a blueprint page on a hard job more often.
    */
   difficulty: MissionDifficultySchema,
-  /**
-   * §A3, who the job is aimed at. The Combine is the one antagonist NPC content has, so the
-   * board is mostly work against it, some work that ignores it, and a little work *for* it. This
-   * is also the §D8 driver: `recordMissionOutcome` reads it and nothing else.
-   */
-  stance: MissionStanceSchema,
   travelBand: TravelBandSchema,
   durationMinutes: z
     .number()
@@ -93,10 +92,9 @@ export const MissionTemplateSchema = z.object({
    * job: a Timber Pull comes home with timber. **What it is worth is not.** Every bundle on the
    * board is priced so that
    *
-   *     capsOf(spoils) x successChance  =  143 x stance
+   *     capsOf(spoils) x successChance  =  143, give or take 15%
    *
-   * where `stance` is 1.15 against the Combine, 1.0 unaligned and 0.85 for the Combine, and the
-   * caps valuation is `market/offers.ts`. Expected value rather than face value, so a risky job
+   * where the caps valuation is `market/offers.ts`. Expected value rather than face value, so a risky job
    * *quotes* more and averages the same, which is what makes `successChance` a real number rather
    * than decoration.
    *
@@ -111,8 +109,15 @@ export const MissionTemplateSchema = z.object({
    * noticeably more or less than its neighbours is a balance change, not a detail of the brief.
    */
   spoils: PartialResourcesSchema,
-  /** Chance the run succeeds outright, before any officer modifier. */
+  /** Chance the run succeeds outright, before whoever leads it moves it (`missions.leading.ts`). */
   successChance: z.number().min(0).max(1),
+  /**
+   * What the job leans on in whoever leads it, when the default reading of the card is wrong
+   * (`leaningsFor`). Most jobs leave it out and are read off their kind and their distance.
+   */
+  leanings: z.array(MissionLeaningSchema).min(1).optional(),
+  /** A battle job's tier, when it is not the one its difficulty and distance suggest. */
+  battleTier: BattleTierSchema.optional(),
 });
 export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
 
@@ -120,10 +125,10 @@ export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
  * The mission board. Every distance band and both kinds are represented, and the durations span
  * §E7's full range: a three-minute scrap run at one end, a day-long expedition at the other.
  *
- * §A3: the Combine is the antagonist the board is written against: most of the paying work is a
- * blow against it, a little is honest scavenging it does not care about, and a handful of jobs
- * are the Combine's own, taken for its caps. That last pair is what makes §D8's `Collaborator` a choice a
- * player can actually make rather than a word in a table.
+ * §A3: the Combine is the antagonist the board is written against, and that lives in the briefs.
+ * It used to live in a `stance` field as well, which nothing read back: no officer cared which way
+ * a job pointed, no screen kept a tally, and the reputation system it was the driver for is gone.
+ * What a job asks of a crew is its kind, its distance and what it leans on, and those are here.
  */
 export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   {
@@ -133,7 +138,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The overpass came down in the spring and nobody has cleared it. Two blocks out. Take the crew, take the cutters, come back heavy.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 3,
     spoils: { scrap: 34, planks: 26, caps: 4 },
@@ -146,7 +150,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'There is a growing bay under the market that still has power. Whoever runs it keeps strange hours. Go while the lights are off.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 12,
     spoils: { supplies: 87, caps: 20 },
@@ -159,7 +162,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Combine ration trucks take the ring road at dusk. Four minutes of work if it goes well. The escort is paid to make sure it does not.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 25,
     spoils: { caps: 90, oil: 60 },
@@ -172,11 +174,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Shift change at the Combine tank farm leaves twenty minutes with nobody watching the valves. Bring hose. Bring somebody who can stay quiet that long.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 45,
     spoils: { oil: 69, scrap: 15 },
     successChance: 0.93,
+    leanings: ['haul', 'salvage', 'stealth'],
   },
   {
     id: 'foundry-raid',
@@ -185,7 +187,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine smelter pours at two in the morning. Walk in while the metal is still moving and walk out with it finished. The floor crew will not thank you.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 60,
     spoils: { highQualityMetal: 10, scrap: 41 },
@@ -198,11 +199,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A Combine broker wants a sealed crate carried three districts over. He is not saying what is in it and you are not asking. Late is worse than light.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 90,
     spoils: { caps: 134 },
     successChance: 0.91,
+    leanings: ['haul', 'salvage', 'talk'],
   },
   {
     id: 'curfew-sweep',
@@ -211,12 +212,12 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine is short of bodies on the lower tiers, so it is paying crews to hold its curfew for it. Good money. Your neighbours will remember who took it.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 40,
     // Combine pay: caps and the metal a state armoury can spare, never supplies it would rather ration.
     spoils: { caps: 88, highQualityMetal: 5 },
     successChance: 0.82,
+    leanings: ['fight', 'talk'],
   },
   {
     id: 'refinery-assault',
@@ -225,7 +226,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Take the outer Combine refinery and sit on it long enough to empty the alloy store. Getting in is loud. Holding it is the hard part.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 480,
     spoils: { highQualityMetal: 11, oil: 27, scrap: 21 },
@@ -238,7 +238,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A full day out, past the last checkpoint, into ground nobody has mapped since the flood. No word from them until they are back at the gate.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: MISSION_MAX_DURATION_MINUTES,
     spoils: { caps: 15, supplies: 15, oil: 11, scrap: 18, planks: 15, highQualityMetal: 2 },
@@ -249,7 +248,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   //
   // Nine jobs meant every area drew from almost the whole catalogue and two boards a district
   // apart looked much the same. What follows fills it out to something a player can read as a
-  // city: work at every distance band, both kinds, and every stance, so a three-card board is a
+  // city: work at every distance band and both kinds, so a three-card board is a
   // choice rather than a sample of the whole list.
   {
     id: 'water-run',
@@ -258,7 +257,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A standpipe two streets over runs clean for about an hour after the pumps cycle. Bring every drum you own and somebody to watch the corner.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 8,
     spoils: { supplies: 83, caps: 25 },
@@ -271,11 +269,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Half a block of Combine conduit nobody has pulled yet, because the ceiling above it is not holding much. Copper all the way down.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 18,
     spoils: { scrap: 61, highQualityMetal: 2 },
     successChance: 0.92,
+    leanings: ['haul', 'salvage', 'stealth'],
   },
   {
     id: 'timber-pull',
@@ -284,7 +282,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The old market hall is coming down whether anybody helps it or not. Take the joists before it decides for itself.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 22,
     spoils: { planks: 56, scrap: 12 },
@@ -297,7 +294,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A two-man Combine post on a road nobody official uses. They will not radio it in, because they are not supposed to be there either.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 15,
     spoils: { caps: 78, scrap: 47 },
@@ -310,7 +306,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Somebody owes a broker and the broker is paying to have it explained to them. Nothing about this is complicated.',
     kind: 'battle',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 20,
     spoils: { caps: 163 },
@@ -323,7 +318,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine meters the water pressure for four blocks out of one pump house, and it has a garrison in it for exactly that reason.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 55,
     spoils: { caps: 61, supplies: 53, scrap: 30 },
@@ -336,7 +330,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'One Combine relay mast, one night, and a district that stops being watched for a week afterwards. They will rebuild it. Let them.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 70,
     spoils: { highQualityMetal: 10, scrap: 36, caps: 24 },
@@ -349,11 +342,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A Combine records office that still has power and a clerk who has stopped caring. Walk out with the drives, not the argument.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 80,
     spoils: { caps: 107, highQualityMetal: 7 },
     successChance: 0.85,
+    leanings: ['haul', 'salvage', 'stealth'],
   },
   {
     id: 'ration-escort',
@@ -362,11 +355,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine wants its own convoy walked through ground it has stopped policing. Good pay. Everybody on that road will see whose side you took.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 65,
     spoils: { caps: 99, supplies: 35 },
     successChance: 0.8,
+    leanings: ['fight', 'talk'],
   },
   {
     id: 'census-sweep',
@@ -375,11 +368,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Knock on every door on a list and write down who answers. The Combine will not say what the list is for and you already know.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 35,
     spoils: { caps: 131 },
     successChance: 0.93,
+    leanings: ['haul', 'salvage', 'talk'],
   },
   {
     id: 'tunnel-survey',
@@ -388,7 +381,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Nobody has mapped the service tunnels since the flood and half of them go somewhere useful. Take rope. Take somebody who can swim.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 120,
     spoils: { scrap: 36, planks: 27, caps: 15 },
@@ -401,7 +393,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A yard with a working press and forty people who would rather keep it. Loud, close, and worth every minute of it.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 100,
     spoils: { scrap: 51, highQualityMetal: 4, caps: 17 },
@@ -414,11 +405,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A sealed Combine case, up the lift, into a lobby with real air in it. You will be searched twice. Do not be carrying anything.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'for_government',
     travelBand: 'furthest',
     durationMinutes: 200,
     spoils: { caps: 97, highQualityMetal: 4 },
     successChance: 0.86,
+    leanings: ['haul', 'salvage', 'talk', 'road'],
   },
   {
     id: 'hydro-farm-strike',
@@ -427,7 +418,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Combine growing decks, four floors of them, lit around the clock. Take what will travel and put the lights out on the way past.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 300,
     spoils: { supplies: 105, oil: 22, caps: 30 },
@@ -440,11 +430,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Get close enough to the Combine fence to see what is behind it and get back out again. Nobody has managed the second half yet.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 420,
     spoils: { highQualityMetal: 10, caps: 48, scrap: 17 },
     successChance: 0.79,
+    leanings: ['haul', 'salvage', 'stealth', 'road'],
   },
 
   // --- the 2026-09 intake -------------------------------------------------------------------
@@ -462,7 +452,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The arcade roof let go in the night and left a hundred metres of frame lying in the street. Get there before the glaziers do.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 6,
     spoils: { planks: 50, scrap: 15 },
@@ -475,11 +464,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A Combine clerk needs a ledger walked four streets to an office with a working stamp. Nine minutes, and nobody has to know you did it.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 9,
     spoils: { caps: 108, supplies: 13 },
     successChance: 0.95,
+    leanings: ['haul', 'salvage', 'talk'],
   },
   {
     id: 'gate-duty',
@@ -488,12 +477,12 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine is a shift short on a service gate and will pay anybody who can stand in it. You will be turning your own neighbours back.',
     kind: 'battle',
     difficulty: 'easy',
-    stance: 'for_government',
     travelBand: 'close',
     durationMinutes: 24,
     // The one fight on the board a crew with nobody on the books can take, and it is the Combine's.
     spoils: { caps: 104, supplies: 21 },
     successChance: 0.9,
+    leanings: ['fight', 'talk'],
   },
   {
     id: 'water-cart-escort',
@@ -502,7 +491,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Combine meter crews have started stopping the water carts on the ramp. Walk this one up and they will find somewhere else to be.',
     kind: 'battle',
     difficulty: 'easy',
-    stance: 'against_government',
     travelBand: 'close',
     durationMinutes: 28,
     spoils: { supplies: 92, caps: 53 },
@@ -515,11 +503,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine wants its air meters read on four blocks it no longer walks. Read them honestly and everybody on that stair pays for it.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'for_government',
     travelBand: 'further',
     durationMinutes: 30,
     spoils: { caps: 85, supplies: 32 },
     successChance: 0.92,
+    leanings: ['haul', 'salvage', 'talk'],
   },
   {
     id: 'tower-strip',
@@ -528,7 +516,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The signal tower on the co-op roof has been leaning since the storm, and the aerial gear on it is worth more than the tower. Climb light.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'close',
     durationMinutes: 45,
     spoils: { highQualityMetal: 9, scrap: 27 },
@@ -541,7 +528,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'The Combine is holding nineteen people in a yard behind the depot until somebody signs for them. Go and sign for them.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 50,
     // Nobody pays for a rescue. What comes home is what nineteen families put together for it.
@@ -555,11 +541,11 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Six charges under a Combine freight line and the ore stops moving for a fortnight. Nobody is guarding it, which is the only easy part.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 65,
     spoils: { scrap: 51, oil: 26, caps: 21 },
     successChance: 0.82,
+    leanings: ['haul', 'salvage', 'stealth'],
   },
   {
     id: 'armoury-raid',
@@ -568,7 +554,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A Combine district armoury with one road in and a duty roster that thins after midnight. Take the racks and be out before the relief comes.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'further',
     durationMinutes: 75,
     spoils: { highQualityMetal: 12, caps: 40, scrap: 20 },
@@ -581,7 +566,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'A fuel tanker went into the culvert some time last week and is still mostly full. It is also still leaking, so go today.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 95,
     spoils: { oil: 67, scrap: 13 },
@@ -594,7 +578,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Two and a half hours on your belly through flooded plant rooms, cutting out whatever the water has not finished. Take lamps and rope.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'further',
     durationMinutes: 150,
     spoils: { scrap: 31, planks: 26, highQualityMetal: 3 },
@@ -607,10 +590,9 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Machine sheds past the last checkpoint that nobody has bothered to strip, because of the walk. It is a long walk. That is the difficulty.',
     kind: 'standard',
     difficulty: 'easy',
-    stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: 240,
-    // Four hours out and nobody leading it: §G6 easy is about who is shooting, not how far it is.
+    // Four hours out and still easy: difficulty is about who is shooting, not how far it is.
     spoils: { planks: 28, scrap: 28, supplies: 19 },
     successChance: 0.9,
   },
@@ -621,7 +603,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Sit on a Combine road outpost until the garrison runs out of water. Eleven hours, and the relief column is the part nobody plans for.',
     kind: 'battle',
     difficulty: 'hard',
-    stance: 'against_government',
     travelBand: 'furthest',
     durationMinutes: 660,
     spoils: { highQualityMetal: 9, oil: 30, caps: 35, scrap: 15 },
@@ -634,7 +615,6 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
       'Twelve hours out to the high reservoir and back, on the word of one man who says the pumping station still has stores in it.',
     kind: 'standard',
     difficulty: 'hard',
-    stance: 'unaligned',
     travelBand: 'furthest',
     durationMinutes: 720,
     spoils: { supplies: 40, oil: 25, caps: 20, scrap: 15 },
@@ -737,7 +717,7 @@ export const KIND_REWARD_MULTIPLIER: Record<MissionKind, number> = {
  * What a run that came home empty pays: nothing, either kind (§E5).
  *
  * A failed standard run used to limp home with a quarter of the salvage. It does not any more:
- * the board's rule is that a failure banks **no resources at all** and pays a fifth of the XP
+ * the maintainer's rule is that a failure banks **no resources at all** and pays a fifth of the XP
  * instead (`FAILED_MISSION_XP_SHARE`), which is a cleaner trade and the one the mission cards
  * quote. Kept as a table rather than folded into `missionRewards` as a literal zero, because it
  * is the one place the rule is written down and the settler reads it through this function.
@@ -756,7 +736,7 @@ export function rewardScale(totalMinutes: number, kind: MissionKind): number {
  * the share the outcome earns. Amounts are whole units, and a share that rounds a line to zero
  * drops it rather than paying a phantom resource.
  *
- * `totalMinutes` defaults to the template's *current* timings, which is what the board wants when
+ * `totalMinutes` defaults to the template's *current* timings, which is what the maintainer wants when
  * it quotes an unlaunched mission. A run already in flight must pass the total frozen on its row
  * instead, so retuning the board cannot re-price a crew that is already out: see the invariant on
  * `MissionSchema`.
@@ -764,7 +744,7 @@ export function rewardScale(totalMinutes: number, kind: MissionKind): number {
  * Residue (deliberate, needs a schema change to close): `kind` and `spoils` are still read live off
  * the template, so a retune of either still moves an in-flight payout, as do the failure share and
  * the morale delta that hang off `kind`. Closing that needs a `kind` column on the mission row and
- * a migration number allocated by the CTO per R8, so it is out of scope here.
+ * a migration number allocated centrally per R8, so it is out of scope here.
  */
 export function missionRewards(
   template: MissionTemplate,
@@ -783,18 +763,19 @@ export function missionRewards(
 }
 
 /**
- * Infamy moved by a mission coming home (§D7, §A3): keyed on which way the job pointed at the
- * Combine rather than on how hard it was, because infamy is about *who you crossed*, not effort.
+ * Infamy moved by a mission coming home (§D7): a fight is loud, quiet work is not.
  *
- * Only anti-government work is loud, and only when it lands: a failed run at the state is already
- * priced in morale and in `Reckless`, and counting it here would let a crew build a reputation out
- * of things it did not manage to do. Work *for* the Combine moves nothing: collaboration is a
- * §D8 reputation matter, and being useful to the state does not make the street afraid of you.
+ * It used to be keyed on `stance`, paying 2 for a job aimed at the Combine and nothing for the
+ * rest. Stance is gone (2026-09-12), so this hangs off the half of it the maintainer kept, which is the
+ * better reading anyway: infamy is a name on the street, and a name is made by shooting at
+ * somebody, not by which flag the person you shot at was under.
+ *
+ * Only when it lands. A failed run is already priced in morale and in `Reckless`, and counting it
+ * here would let a crew build a reputation out of things it did not manage to do.
  */
-export const MISSION_INFAMY_DELTA: Record<MissionStance, Record<MissionOutcome, number>> = {
-  against_government: { success: 2, failure: 0 },
-  for_government: { success: 0, failure: 0 },
-  unaligned: { success: 0, failure: 0 },
+export const MISSION_INFAMY_DELTA: Record<MissionKind, Record<MissionOutcome, number>> = {
+  battle: { success: 2, failure: 0 },
+  standard: { success: 0, failure: 0 },
 };
 
 /**
@@ -876,13 +857,31 @@ export const MissionSchema = z.object({
   durationMinutes: z.number().int().positive(),
   status: MissionStatusSchema,
   /**
-   * §G6: the officer leading the run, or `null` for a delegation of assignees alone.
+   * The officer leading the run, `null` when the Overseer led it or when nobody did.
    *
    * Frozen at launch like the clock and the odds: this records *who went*, so dismissing an
-   * officer or reshuffling placements mid-flight cannot rewrite who was out. It is what
-   * `characterXpForActivity` (INTERFACES §2 R2) pays when the crew comes home.
+   * officer or reshuffling placements mid-flight cannot rewrite who was out. It is what says an
+   * officer is unavailable while the crew is away, and what the settle reads to put them in the
+   * line when the job turns out to be a fight.
    */
   officerId: IdSchema.nullable(),
+  /**
+   * Whether the Overseer led this run (maintainer, 2026-09-10). The Overseer is not on the books, so
+   * they cannot be named by `officerId`; the two together say who was in charge, and an unled
+   * run has neither. Defaulted so a row written before leaders parses as the run it was.
+   */
+  overseerLed: z.boolean().default(false),
+  /**
+   * The bodies that did not come home from a battle job, by unit. Empty on every standard run
+   * and on a battle nobody died in; `force` less this is what walked back into the district.
+   */
+  lost: ArmySchema.default({}),
+  /**
+   * Whether anybody came back to tell it. A battle job that loses the whole force sends no
+   * report: the row settles, the units are gone, and the player learns the outcome from the
+   * silence. Standard runs always report.
+   */
+  reported: z.boolean().default(true),
   /** Null until the mission resolves. */
   outcome: MissionOutcomeSchema.nullable(),
   /** What was actually banked. Empty until the mission resolves. */
@@ -898,6 +897,14 @@ export const MissionSchema = z.object({
    * rather than as "nothing was left behind".
    */
   spoils: PartialResourcesSchema,
+  /**
+   * What the crew turned up, as opposed to what it was paid: salvage, pages, the odd relic.
+   *
+   * Written so the report can name it. It went straight into the satchel and was recorded
+   * nowhere, so a player who came home with a Rotor Hub learned that by counting the satchel.
+   * Defaulted empty: a run settled before this existed found nothing it can prove.
+   */
+  found: InventorySchema.default({}),
   resolvedAt: IsoDateTimeSchema.nullable(),
   /**
    * When the crew was turned around, or `null` if they were left to finish.
@@ -1014,11 +1021,34 @@ export function missionProgressAt(mission: Mission, now: Date): number {
  * is to bank whatever they came back with, so a recall at that point would be a way of *deleting*
  * a payout rather than cancelling a trip.
  */
+/**
+ * Whether the crew can still be turned round: the first tenth of the way *out* (maintainer request,
+ * 2026-09-12; `time/cancel.ts`).
+ *
+ * It was open right up to the gate, which made a run a thing you could abandon at any moment
+ * for nothing. A run is a commitment now, the way a build and a batch are: ten percent of the
+ * outbound leg to notice the wrong job, and after that they do it. The walk home is still the
+ * distance covered (`missionCompletesAt`), so a recall in the window costs exactly the time spent.
+ */
 export function canRecall(mission: Mission, now: Date): boolean {
   return (
     mission.status === 'active' &&
     mission.recalledAt === null &&
-    now.getTime() < missionCompletesAt(mission).getTime()
+    cancelWindowOpen(
+      Date.parse(mission.startedAt),
+      mission.travelMinutes * MINUTE_MS,
+      now.getTime(),
+    )
+  );
+}
+
+/** How long is left to decide, or zero once the crew is past the tenth of the road out. */
+export function recallWindowMs(mission: Mission, now: Date): number {
+  if (mission.status !== 'active' || mission.recalledAt !== null) return 0;
+  return cancelWindowMs(
+    Date.parse(mission.startedAt),
+    mission.travelMinutes * MINUTE_MS,
+    now.getTime(),
   );
 }
 

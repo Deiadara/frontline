@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   canRecall,
+  recallWindowMs,
   FAILURE_REWARD_SHARE,
   GOVERNMENT,
   KIND_REWARD_MULTIPLIER,
   MISSION_MAX_DURATION_MINUTES,
   MISSION_MIN_DURATION_MINUTES,
-  MISSION_STANCES,
   MISSION_TEMPLATES,
   MissionTemplateSchema,
   REWARD_BASELINE_MINUTES,
@@ -28,7 +28,6 @@ import {
   rewardScale,
   templateTimings,
   type Mission,
-  type MissionStance,
   type MissionTemplate,
   type PartialResources,
   type ResourceKey,
@@ -53,6 +52,9 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     durationMinutes,
     status: 'active',
     officerId: null,
+    overseerLed: false,
+    lost: {},
+    reported: true,
     outcome: null,
     rewards: {},
     spoils: {},
@@ -60,6 +62,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     recalledAt: null,
     pagePrize: null,
     pageWon: null,
+    found: {},
   };
 }
 
@@ -98,7 +101,6 @@ describe('the mission board', () => {
       [
         template.kind,
         template.difficulty,
-        template.stance,
         template.travelBand,
         template.durationMinutes,
         template.successChance,
@@ -127,28 +129,23 @@ describe('the mission board', () => {
     expect(new Set(MISSION_TEMPLATES.map((t) => t.kind))).toEqual(new Set(['standard', 'battle']));
   });
 
-  it('is written against the Combine, but offers both other stances too (§A3)', () => {
-    const byStance = (stance: MissionStance) =>
-      MISSION_TEMPLATES.filter((t) => t.stance === stance);
-
-    expect(new Set(MISSION_TEMPLATES.map((t) => t.stance))).toEqual(new Set(MISSION_STANCES));
-    // "The main enemy": more of the board points at the government than any other way.
-    expect(byStance('against_government').length).toBeGreaterThan(byStance('unaligned').length);
-    expect(byStance('against_government').length).toBeGreaterThan(
-      byStance('for_government').length,
-    );
-    // §D8 `Collaborator` has to be a real choice rather than one repeatable errand, so state work
-    // comes in more than one flavour.
-    expect(byStance('for_government').length).toBeGreaterThan(1);
-    expect(new Set(byStance('for_government').map((t) => t.kind)).size).toBeGreaterThan(1);
-  });
-
-  it('names the Combine in the brief of every job that touches it (§A3)', () => {
-    // Mission fiction hangs off the one antagonist: a stance the brief never mentions would move a
-    // §D8 counter the player was never told about.
-    for (const template of MISSION_TEMPLATES.filter((t) => t.stance !== 'unaligned')) {
-      expect(template.brief, template.id).toContain(GOVERNMENT.adjective);
-    }
+  /*
+   * §A3, after `stance` was deleted (2026-09-12).
+   *
+   * The field used to carry this claim as data and two tests read it back. It carried nothing else:
+   * no officer asked which way a job pointed, no screen kept a tally, and the reputation system it
+   * was the driver for is gone. What is left is the fiction, which is where it always actually
+   * lived, so this reads the briefs instead. Most of the paying work is against the one antagonist
+   * NPC content has, and a board that drifted into generic scavenging would fail here.
+   */
+  it('is written against the Combine, in the briefs (§A3)', () => {
+    const named = MISSION_TEMPLATES.filter((t) => t.brief.includes(GOVERNMENT.adjective));
+    expect(named.length).toBeGreaterThan(MISSION_TEMPLATES.length / 2);
+    // And it is not the whole board: honest scavenging the state has no opinion about is what
+    // makes the rest read as a city rather than a campaign.
+    expect(named.length).toBeLessThan(MISSION_TEMPLATES.length);
+    // Both kinds of work name it, so the antagonist is not just the battle board's problem.
+    expect(new Set(named.map((t) => t.kind))).toEqual(new Set(['standard', 'battle']));
   });
 
   it('spans §E7: a couple of minutes at one end, a full day at the other', () => {
@@ -264,7 +261,6 @@ describe('reward scaling (§E5)', () => {
       brief: 'Test',
       kind: 'standard',
       difficulty: 'easy',
-      stance: 'unaligned',
       travelBand: 'close',
       durationMinutes: 2,
       spoils: { scrap: 100, highQualityMetal: 1 },
@@ -338,7 +334,6 @@ describe('mission phase (§E2)', () => {
       for (const minute of [1, 10, 20, 40, 64, 65, 70, 80, 84]) {
         const home = missionCompletesAt(recalledAt(minute)).getTime();
         const wouldHaveBeen = missionCompletesAt(mission).getTime();
-        expect(canRecall(mission, at(minute)), `recall is offered at ${minute}m`).toBe(true);
         expect(
           home,
           `recalled at ${minute}m and got home later than by finishing the job`,
@@ -358,20 +353,28 @@ describe('mission phase (§E2)', () => {
    * nor banked; an overlap would let a player delete a payout by turning a crew round at the gate,
    * which is exactly what the note on `canRecall` says it is there to stop.
    */
-  it('closes the recall on the same millisecond the payout opens, with no gap and no overlap', () => {
-    const home = missionCompletesAt(mission).getTime();
-    const oneBefore = new Date(home - 1);
-    const exactly = new Date(home);
-
-    expect(canRecall(mission, oneBefore), 'recall is open right up to the gate').toBe(true);
-    expect(isMissionDue(mission, oneBefore), 'and nothing is owed yet').toBe(false);
-
-    expect(canRecall(mission, exactly), 'they are at the gate: nothing to turn round').toBe(false);
-    expect(isMissionDue(mission, exactly), 'and the payout is owed').toBe(true);
+  /**
+   * The window is the first tenth of the way out (maintainer request, 2026-09-12; `time/cancel.ts`).
+   *
+   * It was open right up to the gate, which made a job a thing you could abandon at any moment
+   * for nothing. Twenty minutes out is a two-minute window: open at the first second, open a
+   * millisecond before two minutes, shut on the two-minute mark and for the rest of the run.
+   */
+  it('offers the recall only in the first tenth of the road out, and says how long is left', () => {
+    const start = at(0).getTime();
+    const window = 2 * 60_000;
+    expect(canRecall(mission, at(0))).toBe(true);
+    expect(canRecall(mission, new Date(start + window - 1))).toBe(true);
+    expect(recallWindowMs(mission, new Date(start + window - 30_000))).toBe(30_000);
+    expect(canRecall(mission, new Date(start + window))).toBe(false);
+    expect(recallWindowMs(mission, new Date(start + window))).toBe(0);
+    expect(canRecall(mission, at(10))).toBe(false);
+    expect(canRecall(mission, at(84))).toBe(false);
 
     // A crew already recalled cannot be recalled again, at any point on its shortened clock.
-    const turned = { ...mission, recalledAt: at(10).toISOString() };
-    expect(canRecall(turned, at(11))).toBe(false);
+    const turned = { ...mission, recalledAt: at(1).toISOString() };
+    expect(canRecall(turned, at(1))).toBe(false);
+    expect(recallWindowMs(turned, at(1))).toBe(0);
   });
 
   it('counts down to zero and never below', () => {
@@ -425,34 +428,38 @@ describe('the board is priced on one rule (§E5)', () => {
   const capsValue = (bundle: PartialResources): number =>
     RESOURCE_KEYS.reduce((total, key) => total + (bundle[key] ?? 0) * RESOURCE_CAP_VALUE[key], 0);
 
-  /** The stance premium, and the only spread on the board that is authored on purpose. */
-  const STANCE_PREMIUM: Record<string, number> = {
-    against_government: 1.15,
-    unaligned: 1,
-    for_government: 0.85,
-  };
   const BASELINE_VALUE = 143;
-  /** Generous: this is a floor under a 9.4x drift, not a tuning target. */
-  const TOLERANCE = 0.2;
+  /**
+   * The band the authored board actually occupies, measured: 0.85 to 1.18 of baseline.
+   *
+   * This used to be a flat 20% around a per-stance target of 0.85, 1.0 or 1.15. Stance is gone and
+   * the bundles were not re-priced, so the same jobs now read as one spread around one baseline,
+   * which is what they always were. The window is 25% rather than 20% so the edges are not sitting
+   * on the gate, and it is still a floor under the 9.4x drift this describes, not a tuning target.
+   */
+  const TOLERANCE = 0.25;
 
   const expectedValue = (template: MissionTemplate): number =>
     capsValue(template.spoils) * template.successChance;
 
-  it('prices every bundle on expected value, with the stance premium and nothing else', () => {
+  it('prices every bundle on expected value against one baseline', () => {
     for (const template of MISSION_TEMPLATES) {
-      const want = BASELINE_VALUE * STANCE_PREMIUM[template.stance]!;
-      expect(expectedValue(template) / want, `${template.id}`).toBeGreaterThan(1 - TOLERANCE);
-      expect(expectedValue(template) / want, `${template.id}`).toBeLessThan(1 + TOLERANCE);
+      const ratio = expectedValue(template) / BASELINE_VALUE;
+      expect(ratio, `${template.id}`).toBeGreaterThan(1 - TOLERANCE);
+      expect(ratio, `${template.id}`).toBeLessThan(1 + TOLERANCE);
     }
   });
 
-  it('pays work against the Combine better than work for it', () => {
-    const meanFor = (stance: string) => {
-      const of = MISSION_TEMPLATES.filter((template) => template.stance === stance);
-      return of.reduce((total, template) => total + expectedValue(template), 0) / of.length;
-    };
-    expect(meanFor('against_government')).toBeGreaterThan(meanFor('unaligned'));
-    expect(meanFor('unaligned')).toBeGreaterThan(meanFor('for_government'));
+  /**
+   * The tight version of the same claim, and the one that would actually catch a drift.
+   *
+   * The per-job window above allows a 1.67x spread between the two extremes it permits; the board
+   * is at 1.39x. A new job priced at either edge of the window passes the test above and widens
+   * this one, which is the shape the original failure had: no single bundle looked wrong.
+   */
+  it('keeps the whole board inside one and a half times itself', () => {
+    const values = MISSION_TEMPLATES.map(expectedValue);
+    expect(Math.max(...values) / Math.min(...values)).toBeLessThan(1.5);
   });
 
   /**

@@ -5,7 +5,7 @@ import type { PartialResources } from '../resources.js';
  * The eleven parts of a district (GDD §A1): what the crew actually builds on its own ground.
  *
  * This list *replaces* the MVP's six structures outright. The old names were a placeholder set
- * with no economy behind them; these are the ones the board named, and each one has exactly one
+ * with no economy behind them; these are the ones the maintainer named, and each one has exactly one
  * mechanical job (see `role` below) rather than a passive `output` nothing paid. Migration
  * `0011_district_buildings.sql` remaps the old kinds onto their successors and is destructive by
  * design, the same call §D9 made for resources.
@@ -224,7 +224,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
  *
  * The Nexus used to be a single rule, "nothing outgrows the Nexus", which is one number doing
  * eleven jobs: a Gate and a Lab were held at exactly the same rung, so the build order was a
- * straight line and the Nexus was a toll rather than a decision. The board asked for the opposite:
+ * straight line and the Nexus was a toll rather than a decision. The maintainer asked for the opposite:
  * a **per-building, per-level** requirement that is deliberately **asymmetric**, so a district can
  * be a fortress at Nexus 5 and a laboratory at Nexus 5 but not both.
  *

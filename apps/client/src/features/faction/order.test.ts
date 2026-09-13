@@ -24,6 +24,10 @@ const member = (username: string, rank: FactionRank, armySize: number): FactionM
   isBot: false,
   card: 'joker',
   cardMark: 'F',
+  // Nobody in these fixtures has a face: what is under test is the order and the
+  // geometry, and a portrait would be a detail neither comparator reads.
+  portraitId: null,
+  overseerName: null,
 });
 
 const fight = (battleId: string, scheduledFor: string, canReinforce: boolean): AllyBattle => ({

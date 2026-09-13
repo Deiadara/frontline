@@ -16,7 +16,7 @@ import { UnitCard } from './UnitCard';
 import { ruleTone, walksAlways } from './rules';
 
 /**
- * The marks band, and the one thing about it a class list cannot prove (board request, 2026-09-08).
+ * The marks band, and the one thing about it a class list cannot prove (maintainer request, 2026-09-08).
  *
  * Two claims, and they failed in different ways during the work:
  *
@@ -149,7 +149,7 @@ describe('walksAlways', () => {
 });
 
 /**
- * The locked box on the face of the card (board pass, 2026-09-09).
+ * The locked box on the face of the card (maintainer pass, 2026-09-09).
  *
  * It joined every clause into one string and cut it at two lines, which is a cut that lands
  * wherever the line happens to end: the Abomination read `hold the Mad Scientist'…` and the

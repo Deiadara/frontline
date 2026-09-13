@@ -16,11 +16,15 @@ import {
   type CapturedGate,
   type CapturedGateRefusal,
   type CapturedGateView,
+  addResources,
+  cancelRefund,
+  cancelWindowOpen,
+  type PartialResources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * §B7: the gate on a district a crew has taken whole (board request).
+ * §B7: the gate on a district a crew has taken whole (maintainer request).
  *
  * Three things live here: who has access, how a gate is raised, and when that work lands.
  */
@@ -78,14 +82,15 @@ export function gateFor(repos: Repositories, districtId: string): CapturedGate {
       level: CAPTURED_GATE_START_LEVEL,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     })
   );
 }
 
 /**
- * §A4: a broken gate does not survive the district being broken up (board request).
+ * §A4: a broken gate does not survive the district being broken up (maintainer request).
  *
- * The rule the board asked for, in two halves that only mean anything together. A gate that has
+ * The rule the maintainer asked for, in two halves that only mean anything together. A gate that has
  * been kicked in is down for {@link GATE_BREACH_HOURS} hours, and for those hours the holder is
  * playing without a door. If they lose so much as one location inside the district while it is
  * open, they no longer hold the district outright, and the wall goes back to where a new holder
@@ -114,6 +119,7 @@ export function resetGateOnDistrictLost(
     level: CAPTURED_GATE_START_LEVEL,
     upgradingTo: null,
     upgradingUntil: null,
+    upgradingSince: null,
   });
   return true;
 }
@@ -142,7 +148,7 @@ export function raiseCapturedGate(
 
   const toLevel = gate.level + 1;
   /*
-   * §B4: the Generator's burn reaches this gate too (board request).
+   * §B4: the Generator's burn reaches this gate too (maintainer request).
    *
    * "All building upgrades" is what the burn promises, and a captured gate is a building upgrade:
    * it is raised with the Gate's own cost and clock and it is the same work. It is not in the
@@ -152,13 +158,13 @@ export function raiseCapturedGate(
    * Applied at the order like the queue's, not at the settle: the burn buys the clock you start,
    * so a gate ordered inside the two hours keeps its short clock even if the burn runs out first.
    */
-  const off = buildBoostPercent(base.economy.buildBoostUntil, now);
-  const seconds = Math.round(capturedGateSeconds(toLevel) * (1 - off / 100));
+  const seconds = gateRaiseSeconds(base, toLevel, now);
   const started: CapturedGate = {
     districtId,
     level: gate.level,
     upgradingTo: toLevel,
     upgradingUntil: new Date(now.getTime() + seconds * 1000).toISOString(),
+    upgradingSince: now.toISOString(),
   };
   const paid = { ...base, resources: spendResources(base.resources, capturedGateCost(toLevel)) };
 
@@ -182,6 +188,7 @@ export function settleCapturedGates(repos: Repositories, now: Date): number {
       level: gate.upgradingTo ?? gate.level,
       upgradingTo: null,
       upgradingUntil: null,
+      upgradingSince: null,
     });
   }
   return due.length;
@@ -194,7 +201,19 @@ export function settleCapturedGates(repos: Repositories, now: Date): number {
  * condition: a crew looking at a district they have half-taken should see no gate to raise, which
  * is the thing that makes taking the last location worth doing.
  */
-export function capturedGatesFor(repos: Repositories, base: Base): CapturedGateView[] {
+/**
+ * The clock a raise ordered at `now` runs on: the Gate's own, with §B4's burn taken off it.
+ *
+ * One function, because the card quotes it and the raise starts it. They were two, and the card's
+ * half did not read the burn: a crew with a Generator running was shown the full clock and handed a
+ * shorter one, which is the one thing a clock on a button must not do.
+ */
+export function gateRaiseSeconds(base: Base, toLevel: number, now: Date): number {
+  const off = buildBoostPercent(base.economy.buildBoostUntil, now);
+  return Math.round(capturedGateSeconds(toLevel) * (1 - off / 100));
+}
+
+export function capturedGatesFor(repos: Repositories, base: Base, now: Date): CapturedGateView[] {
   return districtsHeldWhole(repos, base.id).map((districtId) => {
     const gate = gateFor(repos, districtId);
     const atCeiling = gate.level >= CAPTURED_GATE_MAX_LEVEL;
@@ -209,8 +228,9 @@ export function capturedGatesFor(repos: Repositories, base: Base): CapturedGateV
       districtName: findDistrict(districtId)?.name ?? districtId,
       level: gate.level,
       nextCost: atCeiling ? null : capturedGateCost(next),
-      nextSeconds: atCeiling ? null : capturedGateSeconds(next),
+      nextSeconds: atCeiling ? null : gateRaiseSeconds(base, next, now),
       upgradingUntil: gate.upgradingUntil,
+      upgradingSince: gate.upgradingSince,
       defensePercent: capturedGateDefensePercent(gate.level),
       intelResistancePercent: capturedGateIntelResistancePercent(gate.level),
       refusal: refusal === null ? null : GATE_REFUSALS[refusal],
@@ -225,3 +245,41 @@ const GATE_REFUSALS: Record<CapturedGateRefusal, string> = {
   at_ceiling: 'It will not go any higher',
   cannot_afford: 'You cannot pay for it',
 };
+
+export type GateCancelOutcome =
+  | { kind: 'refused'; reason: 'not_held' | 'nothing_running' | 'window_closed' }
+  | { kind: 'cancelled'; gate: CapturedGate; base: Base; refund: PartialResources };
+
+/**
+ * Call off the level being raised (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first
+ * tenth since it began, with ninety percent of the price back. A raise written before the start
+ * was recorded has no tenth to measure and finishes as it was going to.
+ */
+export function cancelGateRaise(
+  repos: Repositories,
+  base: Base,
+  districtId: string,
+  now: Date,
+): GateCancelOutcome {
+  if (!holdsDistrictWhole(repos, base.id, districtId))
+    return { kind: 'refused', reason: 'not_held' };
+  const gate = gateFor(repos, districtId);
+  if (gate.upgradingTo === null || gate.upgradingUntil === null || gate.upgradingSince === null) {
+    return { kind: 'refused', reason: 'nothing_running' };
+  }
+  const since = Date.parse(gate.upgradingSince);
+  if (!cancelWindowOpen(since, Date.parse(gate.upgradingUntil) - since, now.getTime())) {
+    return { kind: 'refused', reason: 'window_closed' };
+  }
+  const refund = cancelRefund(capturedGateCost(gate.upgradingTo));
+  const cleared: CapturedGate = {
+    ...gate,
+    upgradingTo: null,
+    upgradingUntil: null,
+    upgradingSince: null,
+  };
+  const repaid: Base = { ...base, resources: addResources(base.resources, refund) };
+  repos.capturedGates.put(cleared);
+  repos.bases.updateResources(repaid.id, repaid.resources);
+  return { kind: 'cancelled', gate: cleared, base: repaid, refund };
+}

@@ -10,6 +10,12 @@ import {
   type AnswerInviteRequest,
   type CreateFactionRequest,
   LeaderboardResponseSchema,
+  ClaimAllResponseSchema,
+  ClaimFeatResponseSchema,
+  CrewProfileResponseSchema,
+  FeatsResponseSchema,
+  type ClaimFeatRequest,
+  FactionProfileResponseSchema,
   type EditFactionDescriptionRequest,
   type LeaderboardBoard,
   type EditFactionIdentityRequest,
@@ -67,8 +73,6 @@ import {
   SettingsResponseSchema,
   AdminSnapshotSchema,
   AdminMutationResponseSchema,
-  WorkshopResponseSchema,
-  WorkshopMutationResponseSchema,
   type FortifyRequest,
   type UpgradeLocationRequest,
   type GarrisonRequest,
@@ -78,6 +82,7 @@ import {
   ReleaseOfficerResponseSchema,
   type FitSlotRequest,
   type IncreasePayrollRequest,
+  type UpgradeNotorietyRequest,
   type ReleaseOfficerRequest,
   type TrainUnitsRequest,
   type BuildStructureRequest,
@@ -93,6 +98,7 @@ import {
   type StartTrainingRequest,
   type StartTechRequest,
   type PlaceVendorBidRequest,
+  type ReimagineRequest,
   type UnlockBlueprintRequest,
   type BarterRequest,
   type PostOfferRequest,
@@ -101,11 +107,17 @@ import {
   type UpdateProfileRequest,
   type ChangePasswordRequest,
   type AdminFogRequest,
+  type AdminGrantRequest,
   type AdminKnobsRequest,
-  type FitUpgradeRequest,
   type BuildVehicleRequest,
   type RecallMissionRequest,
   type ReassignOfficerRequest,
+  type CancelBuildRequest,
+  type CancelResearchRequest,
+  type CancelLocationWorkRequest,
+  type RecallScoutRequest,
+  type CancelGateRaiseRequest,
+  type CancelDrillRequest,
 } from '@frontline/shared';
 import type { z } from 'zod';
 import { useSession } from '../store/session';
@@ -259,8 +271,9 @@ export const buyBattleBoost = (body: BuyBattleBoostRequest) =>
 export const leadBattle = (body: LeadBattleRequest) =>
   apiFetch('/battles/lead', BattleMutationResponseSchema, jsonBody(body));
 
-export const upgradeNotoriety = () =>
-  apiFetch('/battles/notoriety', BattleMutationResponseSchema, jsonBody({}));
+/** Names the rung the screen showed, so a second press cannot buy a second rank (`STALE_STATE`). */
+export const upgradeNotoriety = (body: UpgradeNotorietyRequest) =>
+  apiFetch('/battles/notoriety', BattleMutationResponseSchema, jsonBody(body));
 
 export const getActions = () => apiFetch('/actions', ActionsResponseSchema);
 
@@ -334,11 +347,9 @@ export const placeVendorBid = (body: PlaceVendorBidRequest) =>
 export const unlockBlueprint = (body: UnlockBlueprintRequest) =>
   apiFetch('/blueprints/unlock', MarketMutationResponseSchema, jsonBody(body));
 
-/**
- * §G2: the Reimagining trade. No body, because nothing about it is the player's to choose.
- */
-export const reimagine = () =>
-  apiFetch('/blueprints/reimagine', ReimagineResponseSchema, { method: 'POST' });
+/** §G2: the Reimagining trade. The body is the three pages the player put in the sockets. */
+export const reimagine = (body: ReimagineRequest) =>
+  apiFetch('/blueprints/reimagine', ReimagineResponseSchema, jsonBody(body));
 
 export const buySupply = (body: BuySupplyRequest) =>
   apiFetch('/market/supply', MarketMutationResponseSchema, jsonBody(body));
@@ -384,6 +395,10 @@ export const getAdmin = () => apiFetch('/admin', AdminSnapshotSchema);
 export const setAdminKnobs = (body: AdminKnobsRequest) =>
   apiFetch('/admin/knobs', AdminMutationResponseSchema, jsonBody(body));
 
+/** The Console's grants: documents, pages, parts and rungs for testing the yard at any stage. */
+export const grantAdmin = (body: AdminGrantRequest) =>
+  apiFetch('/admin/grant', AdminMutationResponseSchema, jsonBody(body));
+
 /** Show or hide one district on the Console's fog of war. */
 export const setAdminFog = (body: AdminFogRequest) =>
   apiFetch('/admin/fog', AdminMutationResponseSchema, jsonBody(body));
@@ -391,11 +406,6 @@ export const setAdminFog = (body: AdminFogRequest) =>
 /** The console's mock: somebody else in the city calls a fight on the reviewer's ground. */
 export const mockBattleOnMe = () =>
   apiFetch('/admin/mock-battle', AdminMutationResponseSchema, jsonBody({}));
-
-export const getWorkshop = () => apiFetch('/workshop', WorkshopResponseSchema);
-
-export const fitUpgrade = (body: FitUpgradeRequest) =>
-  apiFetch('/workshop/fit', WorkshopMutationResponseSchema, jsonBody(body));
 
 // §B11: the yard has its own page now.
 export const getGarage = () => apiFetch('/garage', GarageResponseSchema);
@@ -412,7 +422,7 @@ export const recallMission = (body: RecallMissionRequest) =>
 export const reassignOfficer = (body: ReassignOfficerRequest) =>
   apiFetch('/crew/reassign', CrewMutationResponseSchema, jsonBody(body));
 
-// --- factions, messages and notifications (board request) ---
+// --- factions, messages and notifications (maintainer request) ---
 
 export const getFaction = () => apiFetch('/factions', FactionResponseSchema);
 
@@ -443,6 +453,30 @@ export const getLeaderboard = (board: LeaderboardBoard, localOnly: boolean) =>
     `/leaderboard?board=${board}&localOnly=${localOnly ? 'true' : 'false'}`,
     LeaderboardResponseSchema,
   );
+
+/**
+ * A crew's file, by crew id or by owner id (maintainer request, 2026-09-11). Public: the same page for
+ * you and for everybody else, so it takes whichever id the link that led here happened to hold.
+ */
+export const getCrewProfile = (id: string) =>
+  apiFetch(`/crews/${encodeURIComponent(id)}`, CrewProfileResponseSchema);
+
+/**
+ * A faction's file, by faction id (maintainer request, 2026-09-12). Public: the same page for the table
+ * you sit at and for the one across the city, so every badge in the game has somewhere to click to.
+ */
+export const getFactionProfile = (id: string) =>
+  apiFetch(`/factions/${encodeURIComponent(id)}/profile`, FactionProfileResponseSchema);
+
+/** The feats screen: progress only, joined to the catalogue the client already has. */
+export const getFeats = () => apiFetch('/feats', FeatsResponseSchema);
+
+export const claimFeat = (body: ClaimFeatRequest) =>
+  apiFetch('/feats/claim', ClaimFeatResponseSchema, jsonBody(body));
+
+/** The whole backlog in one write. See the route: one press per rung runs into the write limiter. */
+export const claimAllFeats = () =>
+  apiFetch('/feats/claim-all', ClaimAllResponseSchema, jsonBody({}));
 
 export const disbandFaction = () =>
   apiFetch('/factions/disband', FactionMutationResponseSchema, jsonBody({}));
@@ -484,6 +518,35 @@ export const raiseGate = (body: RaiseGateRequest) =>
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+/*
+ * Changing your mind (maintainer request, 2026-09-12; `time/cancel.ts` in the shared package).
+ *
+ * Seven writes, one rule: inside the first tenth of a thing's own clock it can be called off, and
+ * a spend called off comes back at ninety percent. Each answers with the same shape its start
+ * counterpart does, so the caches the start wrote are the caches the cancel writes.
+ */
+export const cancelBuild = (body: CancelBuildRequest) =>
+  apiFetch('/base/cancel', BuildStructureResponseSchema, jsonBody(body));
+
+export const cancelResearch = (body: CancelResearchRequest) =>
+  apiFetch('/research/cancel', ResearchResponseSchema, jsonBody(body));
+
+export const cancelLocationUpgrade = (body: CancelLocationWorkRequest) =>
+  apiFetch('/city/cancel-upgrade', CityMutationResponseSchema, jsonBody(body));
+
+export const cancelLocationFortify = (body: CancelLocationWorkRequest) =>
+  apiFetch('/city/cancel-fortify', CityMutationResponseSchema, jsonBody(body));
+
+/** A journey pays back time rather than caps: the scout walks home the distance covered. */
+export const recallScout = (body: RecallScoutRequest) =>
+  apiFetch('/city/scout/recall', CityMutationResponseSchema, jsonBody(body));
+
+export const cancelGateRaise = (body: CancelGateRaiseRequest) =>
+  apiFetch('/city/gate/cancel', CityResponseSchema, jsonBody(body));
+
+export const cancelDrill = (body: CancelDrillRequest) =>
+  apiFetch('/training/cancel', TrainingResponseSchema, jsonBody(body));
 
 /** §D5c: burn a fitted modification. It is destroyed, not returned to the shelf. */
 export const burnUpgrade = (body: BurnUpgradeRequest) =>

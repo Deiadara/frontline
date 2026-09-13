@@ -125,7 +125,7 @@ why the client can render the same numbers the server enforces without a DTO for
 
 `SkirmishEngine` is an interface so the combat model is swappable, and server code depends only on
 the interface (it injects `defaultSkirmishEngine`). That seam has already paid for itself once: the
-coin flip the board asked for first was replaced wholesale without a route, a repository or a screen
+coin flip the maintainer asked for first was replaced wholesale without a route, a repository or a screen
 changing.
 
 The model is a **deterministic seeded round simulation**. A force is committed and the server runs
@@ -133,7 +133,7 @@ the fight in one shot; what changed with the battle rework is _when_ that happen
 **declared for a half-hour mark between eight and twenty-four hours out**, both sides move units
 towards it until one second before, and it resolves on the first read after its mark: lazily, like
 everything else, with no scheduler. `apps/server/src/battle/` owns that half; the engine below it is
-unchanged in shape and now reads three inputs it previously ignored: the workshop's fitted upgrades,
+unchanged in shape and now reads three inputs it previously ignored: the Scrapyard's fitted upgrades,
 the crew's cohesion (which widens usable frontage), and a held district's stealth bonus. Eight modules under
 `packages/shared/src/battle/`, each independently testable: see `docs/STATUS.md` for the table and
 for which established game each mechanic was borrowed from.

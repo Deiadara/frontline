@@ -1,9 +1,9 @@
-import {} from '@frontline/shared';
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Icon, type IconName } from '../../components/ui/Icon';
+import { Icon } from '../../components/ui/Icon';
+import { FileSection } from './FileSection';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
+import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { useCrewStanding } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 import { AttributeSheet } from './AttributeSheet';
@@ -38,48 +38,6 @@ import { PerkTags } from '../../components/PerkTags';
  * exhaustiveness worth relying on. A `?? 'district'` would have shipped the next one silently in
  * the wrong bucket.
  */
-/** A section of the file: a plated mark, a name, a drawn rule, and what is under it. */
-function FileSection({
-  icon,
-  title,
-  note,
-  action,
-  children,
-}: {
-  icon: IconName;
-  title: string;
-  note?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    // A drawn sheet rather than a heading over loose content: the file now holds one section, and
-    // a bare rule with a grid under it read as the page having failed to finish loading. Same
-    // frame the faction, standings and training screens use.
-    <section className="ink-frame card-paper washed flex min-w-0 flex-col gap-2.5 p-4">
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-2.5">
-          <span
-            aria-hidden
-            className="icon-plate flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
-          >
-            <Icon name={icon} />
-          </span>
-          <h2 className="min-w-0 flex-1 font-stamp text-[17px] leading-tight text-ink-100">
-            {title}
-          </h2>
-          {action}
-        </div>
-        <span aria-hidden className="ink-rule block w-full" />
-        {note !== undefined && (
-          <p className="font-body text-[12px] leading-snug text-ink-300">{note}</p>
-        )}
-      </header>
-      {children}
-    </section>
-  );
-}
-
 export function OverseerProfilePage() {
   const query = useCrewStanding();
 
@@ -113,20 +71,47 @@ export function OverseerProfilePage() {
              * panel's edge, which is the same bug wearing different clothes.
              *
              * Neither is a layout. The name, the rule, the biography and the perks are `shrink-0`,
-             * so they always get the height they need; the portrait is `flex-1 min-h-0` with
-             * `aspect="fill"`, so it takes exactly what is left and fits the whole image into it.
-             * On a short viewport the picture gets smaller. Nothing gets cut, at any size.
+             * so they always get the height they need; the portrait is `flex-1 min-h-0`, so it
+             * takes exactly what is left. On a short viewport the picture gets smaller. Nothing
+             * gets cut, at any size.
+             *
+             * What changed on 2026-09-13 is the frame, and where the shape lives (maintainer request:
+             * too much dead space, and no frame). The shape is on the frame now and the painting
+             * takes all of the frame, so the drawn edge is the edge of the *picture*. It used to
+             * be the edge of the panel with the picture floating in the middle of it, which at
+             * 1920 meant a 332px box round a 332px painting and at 720 a 332px box round a 120px
+             * one: the same code, and only the second one looked like a mistake.
+             *
+             * `aspect-square h-full max-w-full` is the shape, and it is a **ceiling on how wide the
+             * frame may be, not a square**: `h-full` is the specified height, the ratio fills in
+             * the width from it, and `max-w-full` clamps that to the rail. So the frame is as wide
+             * as it is tall, or as wide as the rail, whichever is less.
+             *
+             * Both ends come out right from that one line. At 1920 the rail is the narrow side, so
+             * the frame is 332 by 540 and the painting fills it and crops at the sides. At 1280x720
+             * the leftover height is 180, so the frame is 180 square and the painting is cropped to
+             * two thirds of its height from the top: the whole head, and the coat below it gone.
+             *
+             * The two things it is not are the two things that were tried first. Filling the panel
+             * unconditionally makes the frame 332 by 180 at that viewport, and cover-cropping a
+             * 2:3 painting into a box that flat is a band across the eyes. Keeping the delivery's
+             * own 2:3 makes it 120 wide, which is the dead space the maintainer reported.
+             *
+             * `p-2.5` went with the change: a drawn frame hard against the picture is a frame, and
+             * 10px of panel between the two is a mount.
              */}
             <div
               data-testid="profile-portrait"
-              className="painted washed edge-lit flex min-h-0 flex-1 justify-center border-b border-surface-600/70 p-2.5"
+              className="painted washed flex min-h-0 flex-1 justify-center border-b border-surface-600/70"
             >
-              <OverseerPortrait
-                portraitId={overseer.portraitId}
-                archetype={overseer.archetype}
-                aspect="fill"
-                showTag={false}
-              />
+              <PortraitFrame className="aspect-square h-full max-w-full">
+                <OverseerPortrait
+                  portraitId={overseer.portraitId}
+                  archetype={overseer.archetype}
+                  aspect="fill"
+                  showTag={false}
+                />
+              </PortraitFrame>
             </div>
             <div data-testid="profile-identity" className="flex shrink-0 flex-col gap-2.5 p-3.5">
               <div>
@@ -165,7 +150,7 @@ export function OverseerProfilePage() {
           data-testid="file-body"
         >
           {/*
-           * Two by two, each group in its own frame (board request).
+           * Two by two, each group in its own frame (maintainer request).
            *
            * Four groups in one row was a 34-number field read left to right, and it left the
            * bottom half of the screen empty on every viewport taller than about 800px: the sheet

@@ -1,4 +1,4 @@
--- The tag becomes a drawn badge, and an officer becomes a chief (board request).
+-- The tag becomes a drawn badge, and an officer becomes a chief (maintainer request).
 --
 -- Two changes to the same feature, in one file because the order between them matters: the
 -- messages backfill below reads `factions.tag`, and the last statement here drops it.

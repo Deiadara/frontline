@@ -133,6 +133,46 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['officer-97', 'officer-97.webp', 115097],
   ['officer-98', 'officer-98.webp', 115098],
   ['officer-99', 'officer-99.webp', 115099],
+  ['officer-100', 'officer-100.webp', 115100],
+  ['officer-101', 'officer-101.webp', 115101],
+  ['officer-102', 'officer-102.webp', 115102],
+  ['officer-103', 'officer-103.webp', 115103],
+  ['officer-104', 'officer-104.webp', 115104],
+  ['officer-105', 'officer-105.webp', 115105],
+  ['officer-106', 'officer-106.webp', 115106],
+  ['officer-107', 'officer-107.webp', 115107],
+  ['officer-108', 'officer-108.webp', 115108],
+  ['officer-109', 'officer-109.webp', 115109],
+  ['officer-110', 'officer-110.webp', 115110],
+  ['officer-111', 'officer-111.webp', 115111],
+  ['officer-112', 'officer-112.webp', 115112],
+  ['officer-113', 'officer-113.webp', 115113],
+  ['officer-114', 'officer-114.webp', 115114],
+  ['officer-115', 'officer-115.webp', 115115],
+  ['officer-116', 'officer-116.webp', 115116],
+  ['officer-117', 'officer-117.webp', 115117],
+  ['officer-118', 'officer-118.webp', 115118],
+  ['officer-119', 'officer-119.webp', 115119],
+  ['officer-120', 'officer-120.webp', 115120],
+  ['officer-121', 'officer-121.webp', 115121],
+  ['officer-122', 'officer-122.webp', 115122],
+  ['officer-123', 'officer-123.webp', 115123],
+  ['officer-124', 'officer-124.webp', 115124],
+  ['officer-125', 'officer-125.webp', 115125],
+  ['officer-126', 'officer-126.webp', 115126],
+  ['officer-127', 'officer-127.webp', 115127],
+  ['officer-128', 'officer-128.webp', 115128],
+  ['officer-129', 'officer-129.webp', 115129],
+  ['officer-130', 'officer-130.webp', 115130],
+  ['officer-131', 'officer-131.webp', 115131],
+  ['officer-132', 'officer-132.webp', 115132],
+  ['officer-133', 'officer-133.webp', 115133],
+  ['officer-134', 'officer-134.webp', 115134],
+  ['officer-135', 'officer-135.webp', 115135],
+  ['officer-136', 'officer-136.webp', 115136],
+  ['officer-137', 'officer-137.webp', 115137],
+  ['officer-138', 'officer-138.webp', 115138],
+  ['officer-139', 'officer-139.webp', 115139],
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
@@ -156,6 +196,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district-rustyard', 'plate-district-rustyard.webp', 130009],
   ['plate-district-chrome-row', 'plate-district-chrome-row.webp', 130010],
   ['plate-faction-room', 'plate-faction-room.webp', 130011],
+  ['plate-district-undergrid', 'plate-district-undergrid.webp', 130012],
+  ['plate-district-datavault-sigma', 'plate-district-datavault-sigma.webp', 130013],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -339,8 +381,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 237 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(237);
+  it('holds the 279 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(279);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -372,11 +414,11 @@ describe('ART_MANIFEST', () => {
    * widened rule.
    */
   const SIZE_EXCEPTIONS: Record<string, { width: number; height: number; aspect: string }> = {
-    // The city, at the size the board painted it. Load-bearing the same way the district plate is:
+    // The city, at the size the maintainer painted it. Load-bearing the same way the district plate is:
     // the ten district tags on `/game` are positioned as fractions of this exact image, so a
     // district slides off the roof it names if the delivery size changes under it.
     'plate-city': { width: 3780, height: 1800, aspect: '21:10' },
-    // The size the board painted it at. Written down independently of the manifest on purpose:
+    // The size the maintainer painted it at. Written down independently of the manifest on purpose:
     // this is the one asset whose delivery size is *load-bearing*: twelve building outlines are
     // positions on this exact image, so a change to it has to be made in two places by somebody
     // who meant it, rather than in one and agreed with automatically.
@@ -396,6 +438,12 @@ describe('ART_MANIFEST', () => {
     'plate-district-chrome-row': { width: 3780, height: 1800, aspect: '21:10' },
     // The faction's back room, at the same shape: five seats are fractions of this exact image.
     'plate-faction-room': { width: 3780, height: 1800, aspect: '21:10' },
+    // The Undergrid, after the room in manifest order: seven signs and a gate sit on this image.
+    'plate-district-undergrid': { width: 3780, height: 1800, aspect: '21:10' },
+    // The Annexes, last in manifest order and the one plate off the other four's size: the board's
+    // file is named 3780x1800 and measures 1817x866. Wired at the measurement, so this number is
+    // the one place a re-export at the full width has to be agreed to a second time.
+    'plate-district-datavault-sigma': { width: 1817, height: 866, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {

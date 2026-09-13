@@ -21,6 +21,7 @@ export type EventKind =
   | 'account.password_changed'
   | 'blackmarket.taken'
   | 'admin.knobs'
+  | 'admin.grant'
   | 'backup.taken';
 
 export interface GameEvent {

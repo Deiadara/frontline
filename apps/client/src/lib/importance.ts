@@ -12,7 +12,7 @@ import type { AttributeImportance } from '@frontline/shared';
  * badge costs width the four-column layout does not have, which is what cuts `Communication`. An
  * edge costs nothing and reads at a glance down the column.
  *
- * Gold, silver and blue as the board named them. Insignificant is deliberately *unmarked* rather
+ * Gold, silver and blue as the maintainer named them. Insignificant is deliberately *unmarked* rather
  * than given a grey border: a colour for "this does not matter" is still ink asking to be read.
  */
 export const IMPORTANCE_EDGE: Record<AttributeImportance, string> = {

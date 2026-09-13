@@ -201,6 +201,20 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
 
 const BY_ID = new Map(BATTLE_BOOSTS.map((spec) => [spec.id, spec]));
 
+/**
+ * Names a crew may burn on one fight before anything is researched (§D7).
+ *
+ * One, and the rule reads as one: a fight is decided by what you brought, and a name is the thumb
+ * on the scale rather than the scale. The Field Commander's last rung buys a second
+ * (`battleBoostsFlat`), which is a real reward at the end of a ten-rung track rather than a dial.
+ */
+export const BASE_BATTLE_BOOSTS = 1;
+
+/** How many a crew with these effects may burn on one fight. */
+export function battleBoostSlots(extraFlat: number): number {
+  return BASE_BATTLE_BOOSTS + Math.max(0, Math.trunc(extraFlat));
+}
+
 export function findBattleBoost(id: string): BattleBoostSpec | undefined {
   return BY_ID.get(id);
 }

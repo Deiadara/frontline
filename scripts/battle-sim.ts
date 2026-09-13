@@ -16,7 +16,7 @@ import {
  * with a 95% confidence interval, beside the mean length, what each side walked away with, and how
  * often the round cap called it. It is what "what should we expect from X against Y" is answered
  * with, and it is the check that a retune has not turned a favourite into a coin flip: the numbers
- * the board signed off on are in `docs/PLAN-research-and-blueprints.md`, Section V.
+ * the maintainer signed off on are in `docs/PLAN-research-and-blueprints.md`, Section V.
  *
  * Three more checks ride along: the win rate is monotone in numbers, the sixty-run forecast a
  * player sees agrees with the long run, and the wrapper's ledger adds up (everybody who set out is

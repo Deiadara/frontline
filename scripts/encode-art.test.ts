@@ -64,7 +64,7 @@ const SKY_PLANE = spec('plane-city-sky');
  * Both audits list the drop directory through a `readdir(...).catch(() => [])`, which cannot tell
  * "nothing is wrong" from "there is no such directory". `assets/` holds only `README.md` today, so
  * the two gates below would go on passing against a directory that had been renamed away, and
- * they are the only cases that will ever see the board's real art. Anchor them to a file that is
+ * they are the only cases that will ever see the maintainer's real art. Anchor them to a file that is
  * really there, so the gate fails loudly instead of silently auditing nothing.
  */
 async function expectDropDirectoryReal(): Promise<void> {
@@ -613,7 +613,7 @@ describe('encodeAsset', () => {
     // untouched: `[240,200,120]` here, and black for a real master that painted nothing there.
     // Nothing downstream sees it either: `minTransparency` is attached to the two planes only, and
     // `postProcessFor` never declares `matte` for an opaque delivery, so both of the gates above
-    // are structurally inert on exactly the keys the board's masters land on. `district` is one.
+    // are structurally inert on exactly the keys the maintainer's masters land on. `district` is one.
     const bytes = await master(1024, 1024, (x, y) => [240, 200, 120, y < 512 ? 255 : 0]);
 
     // Stated first: if the fixture is not actually transparent going in, the rejection below could
@@ -641,7 +641,7 @@ describe('encodeAsset', () => {
   });
 
   it('counts the pixels when a stray transparent one rounds to 0.0% (MOU-387)', async () => {
-    // A master exported with a single anti-aliased canvas-edge pixel is the case the board hits far
+    // A master exported with a single anti-aliased canvas-edge pixel is the case the maintainer hits far
     // more often than a half-transparent master, and `percent` fixes to one decimal, so the frame
     // fraction alone printed "carries alpha over 0.0% of the frame", which contradicts itself and
     // gives no way to find the pixel. The count is also what tells this apart from a master that
@@ -1179,9 +1179,9 @@ describe('delivery audit', () => {
         expect(opaqueContractBreach(cracked, SKY)).toBe(1);
       });
 
-      it('sends the board to the opacity contract, not the copyright section', async () => {
+      it('sends the maintainer to the opacity contract, not the copyright section', async () => {
         // `ADR 0001 §6.4` is "Ownership of the output": an AI-copyright note that says nothing
-        // about flattening. This message is the one the board actually reads: it reaches stderr
+        // about flattening. This message is the one the maintainer actually reads: it reaches stderr
         // through `contact-sheet`, which `assets/README.md` names as the step to run after a drop,
         // and lines 38-50 of that file state the very contract this delivery broke.
         const audited = await auditWith({ [SKY.file]: await withClearPixels(1) });
@@ -1206,7 +1206,7 @@ describe('delivery audit', () => {
 /**
  * The §6 floor above is audited against the drop directory; the §9 licence rule next to it was
  * enforced by prose alone. A correctly-named `.webp` saved straight into `assets/` renders with no
- * recorded provenance and every gate green: the board rule says it must not ship (MOU-296).
+ * recorded provenance and every gate green: the project rule says it must not ship (MOU-296).
  */
 describe('provenance audit', () => {
   const HEADER =

@@ -2,12 +2,12 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-12
-- **Deciders:** CTO (author), CEO (backend-cost decision is a board gate)
+- **Deciders:** the maintainer (the backend-cost decision is a spend gate)
 - **Supersedes:** nothing
 - **Amended:** 2026-08-13: §8.1 raises the zoom floor from 0.6 to 1.0
 - **Partly superseded:** 2026-08-29. The **city map** surface described here no longer exists. The
   pan-and-zoom Pixi scene (`CityMap.tsx`, `render/viewport.ts`, `render/layers.ts`, `render/grade.ts`)
-  was removed in favour of the board's painted 21:10 plate with DOM district tags on it
+  was removed in favour of the maintainer's painted 21:10 plate with DOM district tags on it
   (`features/game/CityView.tsx`, `PlateRoom.tsx`), so §5.1, §5.2 and §8.1 are history rather than
   guidance and the file links in them are dead. Everything this ADR says about the **asset
   pipeline** (the manifest, the `art-src/` to `assets/` encode, procedural fallback per key) is
@@ -39,7 +39,7 @@ mflux/ComfyUI/SD/InvokeAI; no OpenAI / Stability / Replicate / fal / Imagen key 
 profiles. Claude cannot render raster images. Therefore this ADR must:
 
 1. pick a stack whose **final-art drop-in requires zero code changes**, and
-2. hand the CEO **one costed decision** rather than a generated result.
+2. hand the maintainer **one costed decision** rather than a generated result.
 
 ---
 
@@ -58,7 +58,7 @@ Concretely, the stack is:
 
 **Rejected:** Phaser 3, Three.js, Excalibur. Reasoning in §4.
 
-**Image backend recommendation (for the board):** **fal.ai FLUX.2 [pro]**, with **OpenAI
+**Image backend recommendation (for the maintainer):** **fal.ai FLUX.2 [pro]**, with **OpenAI
 gpt-image-1 (high)** as the fallback for the four overseer portraits if faces need more direction.
 Full costing in §6: **the entire MVP asset set costs under $25 on the most expensive option
 considered**, so this should be decided on quality, not price.
@@ -175,7 +175,7 @@ shader library is the deciding factor. Rejected.
 
 ### 4.5 Do nothing (flat `Graphics`): rejected
 
-Explicitly ruled out by the board: "Placeholder-looking flat rectangles are not acceptable."
+Explicitly ruled out by the maintainer: "Placeholder-looking flat rectangles are not acceptable."
 
 ---
 
@@ -254,7 +254,7 @@ licensing register in `docs/ART-BIBLE.md` §9: no exceptions, no un-registered f
 
 ---
 
-## 6. Image-generation backends: the board decision
+## 6. Image-generation backends: the maintainer decision
 
 **None of these are activated. No account created, no key requested, nothing spent.**
 `scripts/gen-art.ts` selects a backend from `FRONTLINE_ART_BACKEND` and reads its key from env; with
@@ -344,11 +344,11 @@ Per company rule 8, these are **not** presented as fact:
   claim October 2026 and newer models; treat that as unconfirmed.
 - Per-game licences inside `pixijs/open-games` (see §4.1 honesty note).
 
-If the board wants Stability or Imagen seriously considered, that is a 20-minute follow-up to read
+If the maintainer wants Stability or Imagen seriously considered, that is a 20-minute follow-up to read
 their primary pricing and terms pages: worth doing **before** signing anything, not before
 deciding, given §6.5.
 
-### 6.4 Ownership of the output: flag for the board
+### 6.4 Ownership of the output: flag for the maintainer
 
 Multiple sources report that under current US law, **purely AI-generated images are not
 copyrightable** because they lack human authorship; copyright may attach only to substantial human
@@ -358,7 +358,7 @@ advice and I have not verified it against a primary legal source.**
 Practical consequence for us: hero brand assets (logo, the four overseer portraits) should get a
 human pass, overpaint, composite, colour-correct, both because it improves them and because it
 strengthens any rights claim. `gen-art.ts` records `provenance.humanEdited` per file for exactly
-this reason. **Recommend the CEO route this to the board before any public launch.**
+this reason. **Recommend the maintainer reviews this before any public launch.**
 
 ### 6.5 Total cost to generate the full MVP asset list
 
@@ -397,9 +397,9 @@ overseer portraits and any UI element containing legible text. Those are the two
 instruction-following beats texture quality. Dual-backend is already supported; `gen-art.ts` takes
 a per-asset `backend` override in the manifest.
 
-**One decision for the board:** approve a **$25 art-generation budget on fal.ai (+ optional OpenAI
+**One decision for the maintainer:** approve a **$25 art-generation budget on fal.ai (+ optional OpenAI
 for portraits)**, or direct us to generate the assets elsewhere by pasting
-[`docs/ART-PROMPTS.md`](../ART-PROMPTS.md) into a tool the board already pays for. Either path
+[`docs/ART-PROMPTS.md`](../ART-PROMPTS.md) into a tool the maintainer already pays for. Either path
 drops into the same asset tree with zero code change.
 
 ---

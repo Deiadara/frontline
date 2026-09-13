@@ -5,7 +5,7 @@ import { UNIT_TIERS, findUnit, type Army, type UnitSpec, type UnitTier } from '.
 /**
  * Infamy (GDD §D7): the score the street keeps.
  *
- * It was a 0..100 meter, which is the wrong shape for what the board wants it to be. A meter has a
+ * It was a 0..100 meter, which is the wrong shape for what the maintainer wants it to be. A meter has a
  * top, and a number with a top stops being a reason to do anything the moment it is full: a crew at
  * 100 had no reason to take another fight, and the whole "chase your name" loop was over in an
  * afternoon. This is an **uncapped point total** instead. It only ever goes up by being earned, and
@@ -89,7 +89,7 @@ export const TYPICAL_SUPPLY: Readonly<Record<UnitTier, number>> = {
 /**
  * The exceptions, where what a thing is worth to kill is not what it costs to field.
  *
- * The Colossus is the board's own example. By supply it is twelve bodies; by reputation it is the
+ * The Colossus is the maintainer's own example. By supply it is twelve bodies; by reputation it is the
  * thing a district tells stories about, and killing one is the story. Anything in here is a
  * deliberate authorial call and needs a reason beside it.
  *

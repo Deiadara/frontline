@@ -1,5 +1,6 @@
 import {
   dismissalFee,
+  officerPortraitId,
   type BarOfficer,
   type BarRecruit,
   type Base,
@@ -23,10 +24,20 @@ import type { BarCharacter } from './roster.js';
  * The asking price is the undiscounted one, because it is the number the whole city bids against:
  * see the note on `wageAskedOf` for why the crew's own negotiators do not move a table's floor.
  */
-export function projectRecruit(base: Base, recruit: BarCharacter): BarRecruit {
-  const assessment = assessAgainst(base, recruit);
+export function projectRecruit(
+  base: Base,
+  recruit: BarCharacter,
+  /** The face free for them in the city today (`crew/faces.ts`); the hashed one for a lone card. */
+  portraitId: string = officerPortraitId(recruit.id),
+  /** §J8: what this crew's badge has earned, for the standout seats' faction door. */
+  factionInfamy = 0,
+): BarRecruit {
+  const assessment = assessAgainst(base, recruit, factionInfamy);
+  // Already signed by this crew: the face on the card is the face on the books, not today's pick.
+  const signed = base.commanders.find((officer) => officer.id === recruit.id);
   return {
     id: recruit.id,
+    portraitId: signed?.portraitId ?? portraitId,
     name: recruit.name,
     attributes: recruit.attributes,
     perks: recruit.perks,

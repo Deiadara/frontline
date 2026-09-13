@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { tallyUnitsTrained } from '../feats/tally.js';
 import {
   CITY_LOCATIONS,
   MAX_TRAINING_QUEUE,
@@ -210,6 +211,14 @@ export function settleTraining(repos: Repositories, base: Base, now: Date): Trai
   );
   const settled: Base = { ...base, army, trainingQueue: pending };
   repos.bases.updateArmy(settled.id, settled.army, settled.trainingQueue);
+
+  // Feats: per body, for the same reason the XP below is per body. A read that happens to catch
+  // the last unit of a batch must not be worth more than the read before it.
+  tallyUnitsTrained(
+    repos,
+    settled.id,
+    delivered.reduce((total, batch) => total + batch.count, 0),
+  );
 
   /*
    * §I1 pays per *body*, not per order.

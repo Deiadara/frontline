@@ -40,7 +40,7 @@ export function RequireNoOverseer({ children }: { children: ReactNode }) {
  *
  * Renders the door rather than redirecting. A `<Navigate>` here would bounce a player who typed the
  * URL, or who followed a link from a level-up announcement one refresh too early, straight back to
- * the map with no explanation at all, which is the failure mode the board named: a locked door has
+ * the map with no explanation at all, which is the failure mode the maintainer named: a locked door has
  * to say what unlocks it.
  *
  * The level comes from `useMe`, which every screen behind `/game` has already resolved, so this

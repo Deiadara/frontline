@@ -21,6 +21,7 @@ import {
   type Fleet,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { tallyVehicleBuilt } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from '../routes/own-base.js';
@@ -157,6 +158,9 @@ export function registerGarageRoutes(app: FastifyInstance): void {
       const fleet = { ...base.fleet, [spec.id]: (base.fleet[spec.id] ?? 0) + 1 };
       app.repos.bases.updateResources(base.id, resources);
       app.repos.bases.updateFleet(base.id, fleet);
+      // Feats: machines built. `fleet` is a current count and a machine lost in a fight takes one
+      // off it, so the lifetime figure has to be counted here rather than read off the yard.
+      tallyVehicleBuilt(app.repos, base.id);
 
       return { garage: projectGarage(app, { ...base, resources, fleet }) };
     })();

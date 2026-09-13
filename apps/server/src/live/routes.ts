@@ -1,5 +1,6 @@
 import { LIVE_HEARTBEAT_MS, type LiveEvent } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { registerLiveBroadcast } from './broadcast.js';
 import { liveHub } from './hub.js';
 
 /**
@@ -27,6 +28,9 @@ import { liveHub } from './hub.js';
  * has to write itself (`lib/live.ts`) and keeps credentials out of URLs.
  */
 export function registerLiveRoutes(app: FastifyInstance): void {
+  // Every successful write to the shared world tells every open tab. See `broadcast.ts`.
+  registerLiveBroadcast(app);
+
   app.get('/events', { preHandler: app.authenticate }, (request, reply) => {
     const userId = request.currentUser.id;
 

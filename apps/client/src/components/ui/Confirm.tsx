@@ -40,7 +40,7 @@ export function Confirm({
           <Button variant="danger" data-testid={`${testId}-yes`} onClick={onConfirm}>
             {confirm}
           </Button>
-          <Button variant="ghost" onClick={onCancel}>
+          <Button variant="ghost" data-testid={`${testId}-no`} onClick={onCancel}>
             Never mind
           </Button>
         </div>

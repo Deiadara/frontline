@@ -21,8 +21,15 @@ const VIEWPORTS = [
   { width: 1920, height: 1080 },
 ] as const;
 
-/** The districts with a delivered painting. Named here so a third one fails loudly rather than silently. */
-const PAINTED = ['neon-docks', 'rustyard'] as const;
+/**
+ * The districts with a delivered painting.
+ *
+ * Named here rather than derived, so a new plate is a line in this list rather than a district
+ * that quietly ships with none of these sweeps run over it. That is not hypothetical: Chrome Row
+ * landed while this said `['neon-docks', 'rustyard']` and went unswept, and the Undergrid and the
+ * Annexes joined it on 2026-09-11.
+ */
+const PAINTED = ['neon-docks', 'rustyard', 'chrome-row', 'undergrid', 'datavault-sigma'] as const;
 
 interface Box {
   readonly id: string;
@@ -32,6 +39,8 @@ interface Box {
   readonly top: number;
   readonly bottom: number;
   readonly cut: boolean;
+  /** How many lines of text the name takes. One, always: a sign is a plate and a plate does not wrap. */
+  readonly lines: number;
 }
 
 async function open(page: Page, id: string, size: { width: number; height: number }) {
@@ -46,6 +55,16 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
   return page.evaluate((districtId) => {
     const box = (el: Element, cut: boolean): Box => {
       const r = el.getBoundingClientRect();
+      /*
+       * The name is the last span with no element children, which is the same element the `cut`
+       * scan above measures. Not `span:last-child`: that is a descendant search and returns the
+       * *plate*, which on a shut gate carries a lock icon and stands two lines tall without
+       * anything having wrapped. The first version of this scan reported every gate as wrapping.
+       */
+      const label =
+        [...el.querySelectorAll('span')].reverse().find((one) => one.childElementCount === 0) ??
+        null;
+      const line = label ? parseFloat(getComputedStyle(label).lineHeight) || 13 : 13;
       return {
         id: (el as HTMLElement).dataset.testid ?? '',
         text: el.textContent?.trim() ?? '',
@@ -54,6 +73,7 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
         top: r.top,
         bottom: r.bottom,
         cut,
+        lines: label ? Math.round((label.getBoundingClientRect().height / line) * 10) / 10 : 1,
       };
     };
     interface Box {
@@ -64,6 +84,7 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
       top: number;
       bottom: number;
       cut: boolean;
+      lines: number;
     }
     const plate = document.querySelector(`[data-testid="district-painting-${districtId}"]`)!;
     const signs = [...plate.querySelectorAll('[data-testid^="site-"]')].map((el) =>
@@ -79,11 +100,11 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
 }
 
 /**
- * Fog first (board request): the painting is what the district *looks like*, and a district nobody
+ * Fog first (maintainer request): the painting is what the district *looks like*, and a district nobody
  * has walked into does not look like anything yet.
  *
  * The fog has to be put over a district that **has** a painting, which is why this stubs the route
- * rather than using the fixture's own unscouted district. That one is `datavault-sigma`, which has
+ * rather than using the fixture's own unscouted district. That one is `combine-spire`, which has
  * no painting under any conditions, so asserting the painting is absent there passes against a
  * build that never draws a painting at all: the first version of this test did exactly that, and
  * survived deleting the scouted check.
@@ -215,6 +236,19 @@ for (const id of PAINTED) {
         expect(
           signs.filter((sign) => sign.cut).map((sign) => sign.text),
           `sign names cut off at ${tag}`,
+        ).toEqual([]);
+        /*
+         * And every one of them on a single line (maintainer request, 2026-09-11).
+         *
+         * The plate used to be `max-w-[9rem]`, so the two longest names in the city wrapped: "The
+         * Unfinished Faculty" and "Statue of the Revolutionary" each came out as a two-line block
+         * sitting over more of the painting than the thing it names. Measured on the *text* span
+         * rather than the plate, because a shut gate's plate carries a lock icon that makes the
+         * row taller than its line without anything having wrapped.
+         */
+        expect(
+          signs.filter((sign) => sign.lines > 1.5).map((sign) => `${sign.text} (${sign.lines})`),
+          `sign names wrapping onto two lines at ${tag}`,
         ).toEqual([]);
       });
 

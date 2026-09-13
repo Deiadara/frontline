@@ -19,6 +19,8 @@ import {
   nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
+  queueCancelWindowMs,
+  queueRemainingMs,
   structureLevelCap,
   buildingNeedsParts,
   buildingParts,
@@ -45,15 +47,16 @@ import {
 import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
-import { useCrewStanding, useIncreasePayroll } from '../../lib/queries';
+import { useCancelBuild, useCrewStanding, useIncreasePayroll } from '../../lib/queries';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
 import { structureBonus } from './bonus';
-import { formatDuration } from './format';
+import { formatDuration, formatRemaining } from './format';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 import { useServerClock } from '../missions/useServerClock';
 
@@ -85,6 +88,9 @@ interface StructureDialogProps {
   quotes?: BuildQuotes | undefined;
   /** `/me`'s `buildClocks`: how long the server would take, after the crew's speed and the burn. */
   clocks?: BuildClocks | undefined;
+  /** The district read's clock and when it arrived: `useServerClock`'s two arguments, for the burn. */
+  serverNow: string | undefined;
+  receivedAt: number | undefined;
   pending: boolean;
   error: unknown;
   onBuild: () => void;
@@ -104,6 +110,8 @@ export function StructureDialog({
   base,
   quotes,
   clocks,
+  serverNow,
+  receivedAt,
   pending,
   error,
   onBuild,
@@ -117,6 +125,11 @@ export function StructureDialog({
   const { buildings, buildQueue, resources } = base;
   const spec = BUILDING_CATALOG[kind];
   const standing = findBuilding(buildings, kind);
+  // This structure's own orders, so the window that took the order is the window that can call
+  // it off (maintainer request, 2026-09-12). The clock is the district read's, like the rail's.
+  const now = useServerClock(serverNow, receivedAt);
+  const cancel = useCancelBuild(base.id);
+  const underWay = buildQueue.filter((entry) => entry.kind === kind);
 
   const unlocked = isUnlockedForQueue(kind, buildings, buildQueue, base.level);
   const nextLevel = unlocked ? nextQueuedLevel(kind, buildings, buildQueue) : null;
@@ -262,6 +275,37 @@ export function StructureDialog({
           )}
         </Section>
 
+        {underWay.length > 0 && (
+          <Section title="Under way">
+            <ul className="flex flex-col gap-2.5" data-testid={`structure-under-way-${kind}`}>
+              {underWay.map((entry) => (
+                <li key={entry.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
+                      To level {entry.level}
+                    </span>
+                    <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
+                      {formatRemaining(queueRemainingMs(entry, now))}
+                    </span>
+                  </div>
+                  <CancelMark
+                    windowMs={queueCancelWindowMs(entry, now)}
+                    label={`Call off ${spec.name} level ${entry.level}`}
+                    pending={cancel.isPending}
+                    onCancel={() => cancel.mutate({ orderId: entry.id })}
+                    data-testid={`structure-cancel-${entry.id}`}
+                  />
+                </li>
+              ))}
+            </ul>
+            {cancel.error && (
+              <p role="alert" className="mt-2 font-body text-xs leading-relaxed text-oxblood-300">
+                {cancel.error.message}
+              </p>
+            )}
+          </Section>
+        )}
+
         {/* What the level actually buys and what it costs to run, from the same shared functions
             the server settles with: the two numbers somebody choosing between two upgrades is
             comparing, side by side rather than a column apart. */}
@@ -350,7 +394,13 @@ export function StructureDialog({
         {/* §B4: the Generator's two-hour burn, bought where it is sold. */}
         {kind === 'generator' && (
           <Section title="Burn the tanks">
-            <BuildBoost base={base} onBoost={onBoost} pending={boostPending} />
+            <BuildBoost
+              base={base}
+              serverNow={serverNow}
+              receivedAt={receivedAt}
+              onBoost={onBoost}
+              pending={boostPending}
+            />
           </Section>
         )}
 
@@ -510,7 +560,7 @@ function SlotRack({
       </ul>
 
       {/*
-       * §E: what could go in this bracket (board request).
+       * §E: what could go in this bracket (maintainer request).
        *
        * Everything on the shelf for this structure, which is everything the crew has researched
        * and built and not yet bolted somewhere. A list rather than the one-item offer this
@@ -614,7 +664,7 @@ function SlotRow({
   }
 
   /*
-   * §E: the whole shelf, not the first thing on it (board request).
+   * §E: the whole shelf, not the first thing on it (maintainer request).
    *
    * This offered `shelf[0]` and a single Fit button, so a crew holding four things they could bolt
    * to the Nexus could only ever see one of them and had no way to choose. An empty bracket is a
@@ -651,16 +701,19 @@ function SlotRow({
  */
 function BuildBoost({
   base,
+  serverNow,
+  receivedAt,
   onBoost,
   pending,
 }: {
   base: Base;
+  serverNow: string | undefined;
+  receivedAt: number | undefined;
   onBoost: () => void;
   pending: boolean;
 }) {
-  // The district's own read carries no `serverNow`, so this is the local clock: the burn is a
-  // two-hour window and a second of skew on the countdown is not a thing a player can perceive.
-  const now = useServerClock(undefined, undefined);
+  // The district read's own clock, so a skewed machine reads the same burn as everyone else.
+  const now = useServerClock(serverNow, receivedAt);
   const remainingMs = buildBoostRemainingMs(base.economy.buildBoostUntil, now);
   const oil = buildBoostOilCost(base.buildings);
   const level = buildingLevel(base.buildings, 'generator');
@@ -796,7 +849,7 @@ function PayrollBook({ base }: { base: Base }) {
       <RaisePayroll
         ledger={ledger}
         caps={base.resources.caps}
-        onRaise={() => raise.mutate({})}
+        onRaise={() => raise.mutate({ fromSteps: base.economy.payroll.purchasedSteps })}
         pending={raise.isPending}
         error={raise.error?.message ?? null}
         testId="nexus-increase-payroll"

@@ -189,7 +189,7 @@ describe('the engine', () => {
   it('keeps the interface quieter than the events', () => {
     // The point of six sounds rather than one. Measured on the source material's RMS, so this is
     // the ordering of what a player hears and not of the numbers in the table.
-    // Re-measured on 2026-09-08 when the board picked switch9, scratch_005 and error_001.
+    // Re-measured on 2026-09-08 when the maintainer picked switch9, scratch_005 and error_001.
     const rms: Record<SoundKind, number> = {
       click: 0.063,
       confirm: 0.265,

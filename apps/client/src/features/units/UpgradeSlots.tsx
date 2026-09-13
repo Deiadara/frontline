@@ -29,6 +29,7 @@ const LINE_ICON: Record<UpgradeLine, IconName> = {
   armour: 'shield',
   weapons: 'sword',
   cybernetics: 'spark',
+  discipline: 'faction',
 };
 
 /** Each line keeps the colour it has in the workshop, so a bracket is readable without its name. */
@@ -36,6 +37,7 @@ const LINE_TONE: Record<UpgradeLine, string> = {
   armour: 'border-hextech-100/50 text-hextech-100',
   weapons: 'border-oxblood-300/60 text-oxblood-300',
   cybernetics: 'border-brass-300/60 text-brass-300',
+  discipline: 'border-verdigris-300/60 text-verdigris-100',
 };
 
 /** `+6 vitality · -2 speed`, in the sheet's own words. */
@@ -109,7 +111,7 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
 
             {built.length === 0 ? (
               <p className="rounded-sm border border-surface-600/70 bg-surface-950/40 px-3 py-4 text-center font-body text-[13px] text-ink-300">
-                The workshop has not built anything yet.
+                The Scrapyard has not built anything yet.
               </p>
             ) : (
               <ul className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto">
@@ -201,14 +203,14 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
                   burn.mutate({ upgradeId: fitted }, { onSuccess: () => setOpen(null) });
                 }}
                 data-testid={`burn-${unit.id}`}
-                className="rounded-sm border border-surface-600/70 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-300 transition-colors hover:border-oxblood-300/70 hover:text-oxblood-300 disabled:opacity-40"
+                className="brushed relative rounded-sm border border-surface-600/70 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-300 transition-colors hover:border-oxblood-300/70 hover:text-oxblood-300 disabled:opacity-40"
               >
                 {burn.isPending ? 'Burning…' : 'Burn it'}
               </button>
               <button
                 type="button"
                 onClick={() => setOpen(null)}
-                className="rounded-sm border border-brass-300/60 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300 transition-colors hover:bg-brass-300/10"
+                className="brushed relative rounded-sm border border-brass-300/60 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300 transition-colors hover:bg-brass-300/10"
               >
                 Done
               </button>
@@ -241,7 +243,7 @@ function SlotBracket({
       data-testid={`slot-${index}`}
       // The name and what it does live on the hover, not in the bracket: at 60px the bracket can
       // hold an icon and a tier and nothing else, and a truncated `Composite Wea…` is the cut
-      // label the board's bar forbids outright.
+      // label the maintainer's bar forbids outright.
       data-tip={
         filled ? `${slot.name} · ${describeEffect(slot.effect)}` : `Bracket ${index + 1} · empty`
       }

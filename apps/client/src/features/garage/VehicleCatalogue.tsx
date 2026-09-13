@@ -3,7 +3,7 @@ import { useBuildVehicle, useGarage } from '../../lib/queries';
 import { VehicleCard } from './VehicleCard';
 
 /**
- * The yard's catalogue, as the roster's last tab (GDD §B11, §C; board request, 2026-09-08).
+ * The yard's catalogue, as the roster's last tab (GDD §B11, §C; maintainer request, 2026-09-08).
  *
  * One list, every machine in the catalogue always present whether or not it can be built today,
  * in the order the Garage lets them out (the catalogue's own order, which `vehicles.test.ts`

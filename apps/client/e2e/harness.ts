@@ -1,10 +1,16 @@
 import {
   BUILD_BOOST_MS,
+  LEADER_HOLD_MESSAGES,
   buildBoostOilCost,
+  cancelRefund,
+  scoutRecalledReturnsAt,
   auctionPhaseAt,
   nextLotBid,
   nextMinimumBid,
+  missionCompletesAt,
   notorietyUpgradeCost,
+  findFeat,
+  type FeatsResponse,
   type BarAuction,
   type BarResponse,
   type VendorAuction,
@@ -15,13 +21,20 @@ import {
   findUnit,
   trainingCost,
   trainingRefund,
+  unseenPages,
+  type Inventory,
   type PartialResources,
   type Resources,
+  type ResourceKey,
+  supplyPrice,
   type CrewOfficer,
   type CrewResponse,
   type ResearchResponse,
   type ScoutingRunView,
   type SettingsResponse,
+  type CityResponse,
+  type DistrictDetailResponse,
+  type TrainingResponse,
 } from '@frontline/shared';
 import { expect, type Page } from '@playwright/test';
 import {
@@ -45,6 +58,7 @@ import {
   city,
   createOverseerResponse,
   crewStanding,
+  crewProfileFor,
   trainingResponse,
   market,
   blackMarket,
@@ -52,11 +66,11 @@ import {
   adminSnapshot,
   garage,
   scrapyard,
-  workshop,
   launchResponse,
   missionsResponse,
   research,
   startedResearch,
+  featsBoard,
   TOKEN,
 } from './fixtures';
 
@@ -308,7 +322,7 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
 /**
  * No image may be drawn at nothing, spilling out of its box, or half-cut by a clipping edge.
  *
- * The board's bar is "no cut text **or images**", and only the text half was gated:
+ * the maintainer's bar is "no cut text **or images**", and only the text half was gated:
  * {@link expectNothingClippedVertically} skips every element that has children or holds no text,
  * and an `<svg>` fails both tests, so every procedural sprite and every resource glyph in the game
  * was invisible to it. `StructureSprite` is the sharp case. Its span is `min-h-0 w-full flex-1`, so
@@ -418,7 +432,44 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
  * Make a screen self-contained: seed the persisted token and intercept every
  * `/api/**` call with fixtures that satisfy the shared Zod schemas.
  */
-export async function installApi(page: Page, meResponse: MeResponse): Promise<void> {
+/**
+ * What a spec can have under way before the page opens (maintainer request, 2026-09-12).
+ *
+ * The fixtures are born idle on every clock a cancel can touch except the build queue and the
+ * bench: no location is being worked, no gate raised, and the one drill is twenty minutes into
+ * its hour. A cancel spec needs each of those *inside its first tenth*, and a spec routing the
+ * read itself could not then watch the harness's own cancel handler clear it. So the install
+ * takes them in, models them the way it models `scoutingRun`, and each handler below refunds
+ * what the spec says was paid and drops the work on the next read.
+ */
+export interface UnderWay {
+  location?: {
+    districtId: string;
+    locationId: string;
+    work: 'upgrade' | 'fortify';
+    since: string;
+    until: string;
+    paid: PartialResources;
+  };
+  /** On the first captured gate in the city fixture. */
+  gate?: { since: string; until: string; paid: PartialResources };
+  /** Re-times the first subject's running drill to this start. */
+  drill?: { startedAt: string };
+}
+
+export async function installApi(
+  page: Page,
+  meResponse: MeResponse,
+  /**
+   * The satchel this install's board is holding.
+   *
+   * Most specs route the market read to a fixture of their own and never need this. The one
+   * that does is Reimagining: the trade route below *writes* to the board's inventory, so a spec
+   * routing the read itself would watch the tray refuse to change after a press. Handing the bag
+   * in here keeps the read and the write looking at the same object.
+   */
+  options: { inventory?: Inventory; underWay?: UnderWay } = {},
+): Promise<void> {
   await page.addInitScript((token) => {
     localStorage.setItem('frontline.token', JSON.stringify({ state: { token }, version: 0 }));
   }, TOKEN);
@@ -476,6 +527,37 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
    * rather than that the lot moved.
    */
   const board: MarketResponse = structuredClone(market);
+  if (options.inventory) board.inventory = { ...options.inventory };
+
+  /*
+   * Who this install has already sent out, by leader, and when they are back.
+   *
+   * A launch is a write on the leader list: the server puts whoever led the run out on it
+   * (`leadersFor` joins them through `runLedBy`), so they cannot lead a second one until they are
+   * home. The handler rebuilt `missionsResponse()` fresh on every request and therefore forgot
+   * every launch it had just taken, which left the "already out" refusal reachable only for the
+   * one officer the fixture is *born* out on. Two runs in one test, both led by the same person,
+   * were both accepted, and no spec could have caught the client sending them.
+   *
+   * The board itself stays freshly built per request, because its countdowns are relative to the
+   * moment it is read: a frozen `serverNow` would run the clocks backwards on every poll. Only
+   * this join is carried across.
+   */
+  const sentOut = new Map<string, string>();
+  const missionBoard = () => {
+    const fresh = missionsResponse();
+    return {
+      ...fresh,
+      missions: fresh.missions.map((mission) => {
+        const at = recalled.get(mission.id);
+        return at === undefined ? mission : { ...mission, recalledAt: at };
+      }),
+      leaders: fresh.leaders.map((one) => {
+        const until = sentOut.get(one.id);
+        return until === undefined ? one : { ...one, held: 'run' as const, heldUntil: until };
+      }),
+    };
+  };
 
   /*
    * The player's own record, copied per install and mutable.
@@ -496,6 +578,64 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
    */
   let lab: ResearchResponse = research;
 
+  /*
+   * The clocks a cancel can call off, per install (see `UnderWay`). Each is mutable because the
+   * cancel is a write and the page re-reads straight after it: a handler that refunded and left
+   * the work standing would let a spec assert the button was pressed rather than that anything
+   * came off the board.
+   */
+  const underWay = options.underWay ?? {};
+  let locationWork = underWay.location ?? null;
+  let cityState: CityResponse = structuredClone(city);
+  if (underWay.gate) {
+    const { since, until } = underWay.gate;
+    cityState.capturedGates = cityState.capturedGates.map((gate, index) =>
+      index === 0 ? { ...gate, upgradingSince: since, upgradingUntil: until } : gate,
+    );
+  }
+  let training: TrainingResponse = structuredClone(trainingResponse);
+  if (underWay.drill) {
+    const { startedAt } = underWay.drill;
+    training.subjects = training.subjects.map((subject, index) =>
+      index === 0 && subject.session
+        ? { ...subject, session: { ...subject.session, startedAt } }
+        : subject,
+    );
+  }
+  /*
+   * The feats board, per install and mutable for the reason tonight's tables are.
+   *
+   * Collecting one is a write, and the screen re-reads the board straight after it. A handler that
+   * answered the write with the same board would put the CLAIM button back on the rung a frame
+   * after it was pressed, and no spec could tell that from the button doing nothing at all.
+   */
+  let feats: FeatsResponse = structuredClone(featsBoard);
+
+  /** Crews this install has called back, and when. The board is rebuilt per read; this is not. */
+  const recalled = new Map<string, string>();
+  /** The district as this install sees it: the fixture, with any work the spec put under way. */
+  const detailFor = (id: string): DistrictDetailResponse => {
+    const detail = districtDetailFor(id);
+    const work = locationWork;
+    if (!work || work.districtId !== id) return detail;
+    return {
+      ...detail,
+      locations: detail.locations.map((view) => {
+        if (view.location.id !== work.locationId) return view;
+        return work.work === 'upgrade'
+          ? { ...view, upgradingSince: work.since, upgradingUntil: work.until }
+          : { ...view, fortifyingSince: work.since, fortifyingUntil: work.until };
+      }),
+    };
+  };
+  /** Ninety percent back onto the session's stockpile: what every cancel below does first. */
+  const refund = (paid: PartialResources): Base => {
+    const own = session.base ?? baseDetail.base;
+    const refunded: Base = { ...own, resources: movedStock(own.resources, cancelRefund(paid), 1) };
+    session = { ...session, base: refunded };
+    return refunded;
+  };
+
   await page.route('**/api/**', async (route) => {
     const { pathname, searchParams } = new URL(route.request().url());
     const json = (data: unknown, status = 200) =>
@@ -513,7 +653,7 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      * The alternative is what the catch-all at the bottom of this router would have done: 404 it.
      * That is a fixture asserting the server is broken. Measured rather than assumed: with the
      * route 404ing, `live-offline` renders on the standings screen, so the HUD would carry its
-     * "Reconnecting" marker into every screenshot this suite writes for the board to look at, and
+     * "Reconnecting" marker into every screenshot this suite writes for the maintainer to look at, and
      * the hook would back off and retry for the length of every test. No *assertion* in
      * `visual.spec.ts` catches that, because this suite has no pixel baselines: it checks layout
      * invariants and files the images for review. `screens.spec.ts` carries the guard that does.
@@ -521,9 +661,27 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/events')) return new Promise<void>(() => {});
 
     if (pathname.endsWith('/api/me')) return json(session);
-    if (pathname.endsWith('/api/city')) return json(city);
+    if (pathname.endsWith('/api/city')) return json(cityState);
     // §B7: raising a captured gate answers with the whole city, like every other city write.
-    if (pathname.endsWith('/api/city/gate')) return json(city);
+    if (pathname.endsWith('/api/city/gate')) return json(cityState);
+    // Calling the raise off: the gate's two marks go back to null and ninety percent comes back.
+    if (pathname.endsWith('/api/city/gate/cancel')) {
+      const { districtId } = route.request().postDataJSON() as { districtId: string };
+      const gate = cityState.capturedGates.find((one) => one.districtId === districtId);
+      if (!gate || gate.upgradingSince === null) {
+        return json({ error: { code: 'CONFLICT', message: 'Nobody is raising that gate' } }, 409);
+      }
+      refund(underWay.gate?.paid ?? {});
+      cityState = {
+        ...cityState,
+        capturedGates: cityState.capturedGates.map((one) =>
+          one.districtId === districtId
+            ? { ...one, upgradingSince: null, upgradingUntil: null }
+            : one,
+        ),
+      };
+      return json(cityState);
+    }
     // The base screen reads `GET /base/:id`, not `/me`. Serving one fixed base regardless of the
     // session made `installApi(page, lateGame)` a half-fixture: a late-game HUD over a starting
     // base, so the detail follows whichever session was installed.
@@ -538,21 +696,46 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      */
     if (pathname.endsWith('/api/base/boost')) {
       const burning = session.base ?? baseDetail.base;
-      return json({
-        base: {
-          ...burning,
-          // The burn is *running* now. Answering with the base unchanged made a successful boost
-          // and a rejected one look identical on screen, so nothing could assert the difference:
-          // the countdown appearing is the only positive signal this write has.
-          economy: {
-            ...burning.economy,
-            buildBoostUntil: new Date(Date.now() + BUILD_BOOST_MS).toISOString(),
-          },
+      const boosted: Base = {
+        ...burning,
+        // The burn is *running* now. Answering with the base unchanged made a successful boost
+        // and a rejected one look identical on screen, so nothing could assert the difference:
+        // the countdown appearing is the only positive signal this write has.
+        economy: {
+          ...burning.economy,
+          buildBoostUntil: new Date(Date.now() + BUILD_BOOST_MS).toISOString(),
         },
-        paid: { oil: buildBoostOilCost(burning.buildings) },
-      });
+      };
+      // Kept, so the refetch the write now triggers reads the burn back: the real server persists
+      // it, and a fixture that forgot it on the next read would fail the very countdown that
+      // proves the write landed.
+      session = { ...session, base: boosted };
+      return json({ base: boosted, paid: { oil: buildBoostOilCost(burning.buildings) } });
     }
-    if (pathname.includes('/api/base/')) return json({ base: session.base ?? baseDetail.base });
+    /*
+     * Calling an order off (maintainer request, 2026-09-12): ninety percent of what it took back onto
+     * the stockpile, the parts back whole, and the order gone from the queue. The real route also
+     * re-times whatever was queued behind it; the fixture does not, since nothing here asserts
+     * the timing of the rows left standing.
+     */
+    if (pathname.endsWith('/api/base/cancel')) {
+      const { orderId } = route.request().postDataJSON() as { orderId: string };
+      const own = session.base ?? baseDetail.base;
+      const order = own.buildQueue.find((entry) => entry.id === orderId);
+      if (!order) return json({ error: { code: 'NOT_FOUND', message: 'No such order' } }, 404);
+      const refunded = refund(order.paid);
+      const settled: Base = {
+        ...refunded,
+        inventory: returnedParts(refunded.inventory, order.parts),
+        buildQueue: refunded.buildQueue.filter((entry) => entry.id !== orderId),
+      };
+      session = { ...session, base: settled };
+      return json({ base: settled });
+    }
+    if (pathname.includes('/api/base/')) {
+      // Per request, like the mission board: the district's countdowns tick off this clock.
+      return json({ base: session.base ?? baseDetail.base, serverNow: new Date().toISOString() });
+    }
     if (pathname.endsWith('/api/battle')) return json(battle);
     // §A4: the board. Every write answers with the whole board plus the crew, so one handler
     // covers the read and all five writes; a write that answered with a different shape would be
@@ -613,6 +796,10 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
           officerName: 'Vela',
           departedAt: new Date().toISOString(),
           returnsAt: new Date(Date.now() + 214 * 60_000).toISOString(),
+          // Forty-seven minutes' walk each way, two hours on the ground: the walk is what a
+          // recall can undo, so it is stored rather than read back off the mark.
+          travelMinutes: 47,
+          recalledAt: null,
         };
         return json({
           district: { ...detail, scoutPlan: null, scoutingRun },
@@ -621,8 +808,43 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       }
       return json({ district: districtDetail, base: meResponse.base ?? baseDetail.base });
     }
+    /*
+     * Turning the scout round: no bill to refund, so what comes back is time. They are home as
+     * far off as they have come (`scoutRecalledReturnsAt`, the server's own arithmetic) and the
+     * ground stays shut, which the panel reads off `recalledAt`.
+     */
+    if (pathname.endsWith('/api/city/scout/recall')) {
+      if (scoutingRun === null) {
+        return json({ error: { code: 'CONFLICT', message: 'Nobody is out' } }, 409);
+      }
+      const now = new Date();
+      scoutingRun = {
+        ...scoutingRun,
+        recalledAt: now.toISOString(),
+        returnsAt: scoutRecalledReturnsAt(scoutingRun, now).toISOString(),
+      };
+      return json({
+        district: { ...detailFor(scoutingRun.districtId), scoutPlan: null, scoutingRun },
+        base: session.base ?? baseDetail.base,
+      });
+    }
+    // Calling a location's work or dig off: the work the spec put under way comes off the sheet
+    // and ninety percent of what it says was paid comes back.
+    if (
+      pathname.endsWith('/api/city/cancel-upgrade') ||
+      pathname.endsWith('/api/city/cancel-fortify')
+    ) {
+      const { locationId } = route.request().postDataJSON() as { locationId: string };
+      const work = locationWork;
+      const kind = pathname.endsWith('cancel-upgrade') ? 'upgrade' : 'fortify';
+      if (!work || work.locationId !== locationId || work.work !== kind) {
+        return json({ error: { code: 'CONFLICT', message: 'Nothing under way there' } }, 409);
+      }
+      locationWork = null;
+      return json({ district: detailFor(work.districtId), base: refund(work.paid) });
+    }
     if (pathname.includes('/api/city/')) {
-      const detail = districtDetailFor(pathname.split('/').filter(Boolean).pop() ?? '');
+      const detail = detailFor(pathname.split('/').filter(Boolean).pop() ?? '');
       // A run under way outlives the write that started it, so the panel stays on the countdown.
       return json(scoutingRun === null ? detail : { ...detail, scoutingRun, scoutPlan: null });
     }
@@ -674,7 +896,11 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
           unitsResponse.trainingCostReduction,
           unitsResponse.trainingSuppliesReduction ?? 0,
         );
-        const charged: Base = { ...own, resources: movedStock(own.resources, bill, -1) };
+        // Admin mode waives the bill and quotes it anyway (`admin/mode.ts`): the fixture does what
+        // the server does, so a spec on the testing build sees a stockpile that did not move.
+        const charged: Base = session.admin
+          ? own
+          : { ...own, resources: movedStock(own.resources, bill, -1) };
         session = { ...session, base: charged };
         return json({ base: charged, queue: unitsResponse.queue });
       }
@@ -694,9 +920,64 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
      * e2e ever reached the §G6 officer gate and a launch path that refused half the board shipped
      * green. The fixture is the contract here; a method-blind handler is a hole in it.
      */
+    // Calling a crew back inside the first tenth of the road out: the board comes back with the
+    // run marked, and stays marked on every read after it.
+    if (pathname.endsWith('/api/missions/recall')) {
+      const { missionId } = route.request().postDataJSON() as { missionId: string };
+      recalled.set(missionId, new Date().toISOString());
+      return json(missionBoard());
+    }
     if (pathname.endsWith('/api/missions')) {
-      if (route.request().method() !== 'POST') return json(missionsResponse());
-      return json(launchResponse());
+      const board = missionBoard();
+      if (route.request().method() !== 'POST') return json(board);
+      /*
+       * Who leads it, checked rather than trusted, because the client's own gate is the thing
+       * under test and a handler that accepts anything cannot fail it.
+       *
+       * Two refusals, both of them the server's: a leader who is already out cannot be sent
+       * again until they are home, and a run with nobody in charge is refused until the crew has
+       * researched how to do without.
+       */
+      const { leaderId } = route.request().postDataJSON() as { leaderId?: string };
+      const leader = board.leaders.find((one) => one.id === leaderId);
+      // In the route's own words (`routes/missions.ts`), so a spec matching the sentence is
+      // matching what a player reads.
+      if (leaderId !== undefined && leader === undefined) {
+        return json(
+          { error: { code: 'NOT_FOUND', message: 'Nobody on your bench by that id' } },
+          404,
+        );
+      }
+      if (leader !== undefined && leader.held !== null) {
+        return json(
+          {
+            error: {
+              code: 'MISSION_REFUSED',
+              message: `${leader.name} ${LEADER_HOLD_MESSAGES[leader.held]}`,
+            },
+          },
+          409,
+        );
+      }
+      if (leaderId === undefined && board.unledRule === 'forbidden') {
+        return json(
+          {
+            error: {
+              code: 'MISSION_NEEDS_OFFICER',
+              message:
+                'Somebody has to lead this. Written Orders, on the Right Hand track, is what lets a crew go out without one',
+            },
+          },
+          409,
+        );
+      }
+      const launched = launchResponse();
+      // The write the refusal above reads on the next launch: whoever took this run out is held by
+      // it until it is home, and the board says so from here on.
+      if (leaderId !== undefined) {
+        sentOut.set(leaderId, missionCompletesAt(launched.mission).toISOString());
+      }
+      return json(launched);
     }
     /*
      * §H7: a bid, open or sealed, run against the *real* increment rule.
@@ -763,6 +1044,15 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       lab = startedResearch(techId);
       return json(lab);
     }
+    // Taking the running rung off the bench: ninety percent of what it cost back, bench empty.
+    if (pathname.endsWith('/api/research/cancel')) {
+      if (lab.active === null) {
+        return json({ error: { code: 'CONFLICT', message: 'Nothing on the bench' } }, 409);
+      }
+      refund(lab.active.paid);
+      lab = { ...lab, active: null, completesAt: null };
+      return json(lab);
+    }
     if (pathname.endsWith('/api/research')) return json(lab);
     // Keyed off the installed session for the same reason `/api/base/` is: a fixed §G payload
     // would put a twelve-pip late-game roster under a level-1 header, and the screenshot would be
@@ -784,6 +1074,12 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.includes('/api/factions/')) return json({ faction: factionScreen });
     /* The standings. Which board is answered comes off the query string, the way the route does
        it, so the tab control is exercised rather than stubbed past. */
+    /* A crew's file, by whichever id the link carried. */
+    if (pathname.includes('/api/crews/')) {
+      return json(
+        crewProfileFor(decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '')),
+      );
+    }
     if (pathname.endsWith('/api/leaderboard')) {
       const board = searchParams.get('board');
       return json(board === 'factions' ? leaderboardFactions : leaderboardPlayers);
@@ -846,7 +1142,21 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     // Before the bare `/api/overseer` handler below, which does not match a sub-path, and would
     // answer a profile read with a 201 character-creation payload if it were reordered.
     if (pathname.endsWith('/api/overseer/me')) return json(crewStanding);
-    if (pathname.endsWith('/api/training')) return json(trainingResponse);
+    // Taking a drill off the board: the session goes, and the day's allowance comes back whole.
+    if (pathname.endsWith('/api/training/cancel')) {
+      const { sessionId } = route.request().postDataJSON() as { sessionId: string };
+      const subject = training.subjects.find((one) => one.session?.id === sessionId);
+      if (!subject) return json({ error: { code: 'NOT_FOUND', message: 'No such drill' } }, 404);
+      training = {
+        ...training,
+        sessionsLeft: training.sessionsLeft + 1,
+        subjects: training.subjects.map((one) =>
+          one === subject ? { ...one, session: null } : one,
+        ),
+      };
+      return json(training);
+    }
+    if (pathname.endsWith('/api/training')) return json(training);
     // Every market write answers with the whole board, so one handler covers the read and all five
     // writes: the fixture *is* the contract, and a write that answered with a different shape
     // would be a hole in it.
@@ -882,6 +1192,62 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
       if (!wasIn) lot.bidders += 1;
       return json({ market: board });
     }
+    /*
+     * §G2: the bench, and the only fixture write in this file that has to *spend* something.
+     *
+     * The three pages named on the request come out of this install's own satchel and the page
+     * handed back goes into it, because the whole of what the Reimagining screen has to get right
+     * after a press is that the tray changed. A handler answering with the board untouched would
+     * let a tray that never re-reads its counts pass every assertion in the spec.
+     *
+     * Which page comes back is picked the way the server picks one: the first page in the
+     * catalogue this crew is not holding, off `unseenPages`, so the fixture cannot hand back
+     * something the screen would refuse to draw.
+     */
+    if (pathname.endsWith('/api/blueprints/reimagine')) {
+      const { pages } = route.request().postDataJSON() as { pages: string[] };
+      const bag: Record<string, number> = { ...(board.inventory as Record<string, number>) };
+      const gained = unseenPages(board.inventory)[0];
+      if (gained === undefined) {
+        return json(
+          { error: { code: 'REIMAGINING_REFUSED', message: 'nothing_left_to_find' } },
+          409,
+        );
+      }
+      for (const pageId of pages) {
+        const left = (bag[pageId] ?? 0) - 1;
+        if (left > 0) bag[pageId] = left;
+        else delete bag[pageId];
+      }
+      bag[gained] = (bag[gained] ?? 0) + 1;
+      board.inventory = bag;
+      return json({ market: board, spent: pages, gained });
+    }
+    /*
+     * The Broker's supply run moves the stockpile: caps out, the resource in. Moved on the
+     * session's base, so the HUD's next read diffs it and throws the two figures under Buy It the
+     * way the real server's write does. A mock that answered with the board and left the base
+     * alone would pass every market assertion and never show a receipt.
+     */
+    if (pathname.endsWith('/api/market/supply') && route.request().method() === 'POST') {
+      const { key, units } = route.request().postDataJSON() as {
+        key: ResourceKey;
+        units: number;
+      };
+      const own = session.base ?? baseDetail.base;
+      const bought: Base = {
+        ...own,
+        resources: movedStock(
+          movedStock(own.resources, { caps: supplyPrice(key, units) }, -1),
+          { [key]: units },
+          1,
+        ),
+      };
+      session = { ...session, base: bought };
+      return json({
+        market: { ...board, resources: bought.resources, caps: bought.resources.caps },
+      });
+    }
     if (pathname.includes('/api/market'))
       return json(route.request().method() === 'GET' ? board : { market: board });
     // The back room. Read and write answer with the same shape wrapped differently, exactly as the
@@ -913,8 +1279,6 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
     if (pathname.endsWith('/api/admin/knobs')) return json({ admin: adminSnapshot });
     if (pathname.endsWith('/api/admin/fog')) return json({ admin: adminSnapshot });
     if (pathname.endsWith('/api/admin/mock-battle')) return json({ admin: adminSnapshot });
-    // §B11: the yard has its own page. Checked before `/api/workshop` only for tidiness: the two
-    // prefixes do not overlap.
     /*
      * §B9: the Scrapyard's own page.
      *
@@ -932,11 +1296,49 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
           : { scrapyard, base: session.base ?? baseDetail.base },
       );
     }
+    /*
+     * The feats board, and the one button on it.
+     *
+     * The refusal path is answered rather than stubbed out, because it is half of what the screen
+     * has to draw: the route turns every one of the four down with a 409 whose message is the
+     * refusal code (`FeatClaimRefusal`), and a fixture that only ever said yes would leave the
+     * strip that reads it undrawn by any run.
+     */
+    if (pathname.endsWith('/api/feats/claim')) {
+      const { featId } = route.request().postDataJSON() as { featId: string };
+      const spec = findFeat(featId);
+      const standing = feats.progress.find((one) => one.id === featId);
+      if (!spec || !standing) {
+        return json({ error: { code: 'FEAT_REFUSED', message: 'unknown_feat' } }, 409);
+      }
+      if (standing.state !== 'ready') {
+        const refusal =
+          standing.state === 'claimed'
+            ? 'already_claimed'
+            : standing.state === 'locked'
+              ? 'locked'
+              : 'not_finished';
+        return json({ error: { code: 'FEAT_REFUSED', message: refusal } }, 409);
+      }
+      feats = {
+        ...feats,
+        progress: feats.progress.map((one) =>
+          one.id === featId ? { ...one, state: 'claimed' as const } : one,
+        ),
+        ready: feats.ready - 1,
+        claimed: feats.claimed + 1,
+      };
+      // The badge on the bottom bar reads off `/me`, and the real route recomputes it on the same
+      // write. A session left holding the old figure would let a spec assert a badge that the
+      // server had already stopped sending.
+      if (session.unread) {
+        session = { ...session, unread: { ...session.unread, featsReady: feats.ready } };
+      }
+      return json({ featId, paid: spec.reward, feats });
+    }
+    if (pathname.endsWith('/api/feats')) return json(feats);
     if (pathname.includes('/api/garage')) {
       return json(route.request().method() === 'GET' ? garage : { garage });
-    }
-    if (pathname.includes('/api/workshop')) {
-      return json(route.request().method() === 'GET' ? workshop : { workshop });
     }
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
@@ -946,6 +1348,15 @@ export async function installApi(page: Page, meResponse: MeResponse): Promise<vo
 }
 
 /** A stockpile with a bundle taken off it (`sign` -1) or added to it (+1), floored at zero. */
+/** The parts an order asked for, back on the shelf whole: half a servo is nothing. */
+function returnedParts(inventory: Inventory, parts: Inventory): Inventory {
+  const back: Inventory = { ...inventory };
+  for (const [id, count] of Object.entries(parts) as [keyof Inventory, number][]) {
+    back[id] = (back[id] ?? 0) + count;
+  }
+  return back;
+}
+
 function movedStock(stock: Resources, bundle: PartialResources, sign: 1 | -1): Resources {
   const moved = { ...stock };
   for (const [key, amount] of Object.entries(bundle) as [keyof Resources, number][]) {

@@ -8,8 +8,12 @@ export type ErrorCode =
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'FACTION_REFUSED'
+  /** A feat cannot be collected: unfinished, locked, or already in the bank. */
+  | 'FEAT_REFUSED'
   | 'MESSAGE_REFUSED'
   | 'NOT_FOUND'
+  /** The screen that pressed was showing a state the row has since left: press again from the new one. */
+  | 'STALE_STATE'
   | 'USERNAME_TAKEN'
   | 'DISTRICT_NAME_TAKEN'
   | 'INVALID_CREDENTIALS'
@@ -71,8 +75,10 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   FACTION_REFUSED: 409,
+  FEAT_REFUSED: 409,
   MESSAGE_REFUSED: 409,
   NOT_FOUND: 404,
+  STALE_STATE: 409,
   USERNAME_TAKEN: 409,
   DISTRICT_NAME_TAKEN: 409,
   INVALID_CREDENTIALS: 401,

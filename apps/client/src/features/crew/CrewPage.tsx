@@ -164,7 +164,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           // stylesheet wins. That is `.relative`, so the frame this asks for was never applied.
           className="!absolute inset-0 h-full w-full rounded-none border-0"
         />
-        {/* The mark, stamped over the picture rather than printed beside it (board brief).
+        {/* The mark, stamped over the picture rather than printed beside it (maintainer brief).
             Top right, clear of the face: the portraits are 4:5 and the head sits centre-left of
             centre, so this corner is the one part of every master that is reliably background. */}
         {officer.mark !== null && (
@@ -210,7 +210,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
           <PerkTags perks={officer.perks} tone="card" side="top" nested />
         ) : (
           <span className="font-body text-[12px] italic leading-snug text-ink-400">
-            No specialities. Just the work.
+            No specialities.
           </span>
         )}
       </span>
@@ -238,7 +238,7 @@ function BenchCard({
   return (
     <div className={cn(CARD, 'text-left hover:border-brass-300/50')}>
       {/* The picture opens the file, as every seated card does; the door under it is the one
-          thing a benched officer is for (board request, 2026-09-09): a chair, drawn as a button
+          thing a benched officer is for (maintainer request, 2026-09-09): a chair, drawn as a button
           rather than left to the file's dropdown, so finding them one is a press and not a hunt. */}
       <button
         type="button"
@@ -274,7 +274,7 @@ function BenchCard({
           <PerkTags perks={officer.perks} tone="card" side="top" nested />
         ) : (
           <span className="font-body text-[12px] italic leading-snug text-ink-400">
-            No specialities. Just the work.
+            No specialities.
           </span>
         )}
         <Button
@@ -291,7 +291,7 @@ function BenchCard({
 }
 
 /**
- * What an empty chair offers (board request).
+ * What an empty chair offers (maintainer request).
  *
  * It used to be a link straight to the Bar, which was right when the Bar was the only source of an
  * officer. With a bench there are two, and the difference matters: the Bar is an auction that only
@@ -375,7 +375,7 @@ function ChairWindow({
                       className="ink-frame card-paper washed flex w-full items-center gap-2.5 p-2 text-left transition-colors hover:border-brass-300/60 disabled:opacity-60"
                     >
                       <OfficerPortrait
-                        portraitId={faces.get(officer.officerId) ?? null}
+                        portraitId={officer.portraitId ?? faces.get(officer.officerId) ?? null}
                         name={officer.name}
                         injuredUntil={officer.injuredUntil}
                         className="aspect-[4/5] w-12 shrink-0 border border-surface-600"
@@ -441,7 +441,7 @@ function OfficerWindow({
   const BENCH = '__bench';
   const release = useReleaseOfficer();
   /*
-   * Two presses to end somebody's job (board request).
+   * Two presses to end somebody's job (maintainer request).
    *
    * The fee is ten weeks of what they are on and it is taken on the spot, so the first press only
    * *says the price* and the second is the one that pays it. A single button here would sit two
@@ -641,11 +641,11 @@ function Layout({ data }: { data: CrewResponse }) {
   const open = data.officers.find((officer) => officer.officerId === opened);
   const bench = data.officers.filter((officer) => officer.role === null);
   /*
-   * One face each, decided across the whole roster rather than per card.
+   * The stored face (maintainer, 2026-09-11), with the roster-wide derived one behind it.
    *
-   * Hashing an id on its own puts the same person on two cards on a good share of rosters: forty-
-   * three faces against a handful of officers is the birthday problem, and a crew screen showing
-   * one woman twice reads as a bug because it is one.
+   * Every officer signed since faces were stored carries `portraitId`, free of every crew's in
+   * the city. The derived map only ever answers for an officer written before the column existed
+   * and not yet backfilled by the server's boot.
    */
   const faces = officerPortraits(data.officers.map((officer) => officer.officerId));
   // Chairs, not headcount. Somebody on the bench is on the books and in no chair, so counting the
@@ -659,7 +659,7 @@ function Layout({ data }: { data: CrewResponse }) {
           {filled} of {OFFICER_ROLES.length} chairs filled
         </span>
         <span aria-hidden className="ink-rule block min-w-0 flex-1" />
-        {/* No bed count here any more (§A1, board rule): officers are not charged against the
+        {/* No bed count here any more (§A1, project rule): officers are not charged against the
             district's population, the army is, so a housing figure on the crew screen was a number
             nobody on this page can move. It lives on the screens that field units. */}
         <Link
@@ -708,7 +708,7 @@ function Layout({ data }: { data: CrewResponse }) {
       {open !== undefined && (
         <OfficerWindow
           officer={open}
-          portraitId={faces.get(open.officerId) ?? null}
+          portraitId={open.portraitId ?? faces.get(open.officerId) ?? null}
           filledRoles={seated(data.officers)}
           pending={reassign.isPending}
           onReassign={(role) => reassign.mutate({ officerId: open.officerId, role })}
@@ -729,7 +729,7 @@ function Layout({ data }: { data: CrewResponse }) {
          */
         /*
          * Every row the height of the tallest: a vacancy under the people is the same card as a
-         * vacancy beside them (board request, 2026-09-09). Without this the rows below the fold
+         * vacancy beside them (maintainer request, 2026-09-09). Without this the rows below the fold
          * shrank to the chair drawing while the first row stood at a portrait's height, and the
          * roster read as two different kinds of card.
          */
@@ -741,7 +741,9 @@ function Layout({ data }: { data: CrewResponse }) {
             key={role}
             role={role}
             officer={officer}
-            portraitId={officer ? (faces.get(officer.officerId) ?? null) : null}
+            portraitId={
+              officer ? (officer.portraitId ?? faces.get(officer.officerId) ?? null) : null
+            }
             // A filled chair opens the person's file; an empty one asks where to fill it from.
             onOpen={() => (officer ? setOpened(officer.officerId) : setChair(role))}
           />
@@ -749,7 +751,7 @@ function Layout({ data }: { data: CrewResponse }) {
       </div>
 
       {/*
-       * The bench, under the chairs (board request).
+       * The bench, under the chairs (maintainer request).
        *
        * Below rather than mixed in, because these are the same kind of thing in a different state
        * and a roster is read as nineteen posts: somebody with no post does not belong in the grid
@@ -779,7 +781,7 @@ function Layout({ data }: { data: CrewResponse }) {
               <BenchCard
                 key={officer.officerId}
                 officer={officer}
-                portraitId={faces.get(officer.officerId) ?? null}
+                portraitId={officer.portraitId ?? faces.get(officer.officerId) ?? null}
                 onOpen={() => setOpened(officer.officerId)}
               />
             ))}

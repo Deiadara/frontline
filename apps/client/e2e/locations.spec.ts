@@ -44,7 +44,7 @@ async function openDistrict(page: Page, serverNow?: string): Promise<void> {
 /**
  * Opens one location's window from the painting.
  *
- * The district is a screen rather than a column of cards (board request), so a location's card is
+ * The district is a screen rather than a column of cards (maintainer request), so a location's card is
  * behind the sign that names it. One is open at a time, which is why the sweeps below open each in
  * turn instead of iterating a grid.
  */
@@ -129,7 +129,7 @@ test.describe('a district full of locations', () => {
   });
 
   /**
-   * The board asked for the upgrade to *say what it is*.
+   * The maintainer asked for the upgrade to *say what it is*.
    *
    * So the assertion is on the sentence, not on a percentage: the card has to carry the authored
    * line about what changes on the ground, and the button has to send the write.

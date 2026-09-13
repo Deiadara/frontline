@@ -5,7 +5,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 
 /**
- * The console's mock fight (board request, 2026-09-08): somebody else in the city calls a fight
+ * The console's mock fight (maintainer request, 2026-09-08): somebody else in the city calls a fight
  * on the reviewer's ground, through the real declaration, so the bell, the red mark and the board
  * all show what a player would see.
  */

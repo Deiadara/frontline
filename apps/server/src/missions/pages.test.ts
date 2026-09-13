@@ -58,7 +58,7 @@ describe('a page won on a mission (§F1)', () => {
     // whole mechanic collapses into shopping.
     for (const blueprint of BLUEPRINTS) {
       for (const page of blueprint.pages) {
-        expect(body, `the board named ${page.name}`).not.toContain(page.name);
+        expect(body, `the maintainer named ${page.name}`).not.toContain(page.name);
       }
     }
   });
@@ -86,6 +86,9 @@ describe('a page won on a mission (§F1)', () => {
       durationMinutes: 1,
       status: 'active',
       officerId: null,
+      overseerLed: false,
+      lost: {},
+      reported: true,
       outcome: null,
       rewards: {},
       spoils: {},
@@ -93,6 +96,7 @@ describe('a page won on a mission (§F1)', () => {
       recalledAt: null,
       pagePrize: 'unit',
       pageWon: null,
+      found: {},
     };
     // A seed that rolls a success, found by asking rather than by hoping.
     const seed = [...Array(200).keys()].find(
@@ -138,6 +142,9 @@ describe('a page won on a mission (§F1)', () => {
       durationMinutes: 1,
       status: 'active',
       officerId: null,
+      overseerLed: false,
+      lost: {},
+      reported: true,
       outcome: null,
       rewards: {},
       spoils: {},
@@ -145,6 +152,7 @@ describe('a page won on a mission (§F1)', () => {
       recalledAt: null,
       pagePrize: 'unit',
       pageWon: null,
+      found: {},
     };
     const seed = [...Array(200).keys()].find(
       (candidate) =>

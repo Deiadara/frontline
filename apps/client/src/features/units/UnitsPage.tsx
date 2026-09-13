@@ -10,17 +10,24 @@ import {
   trainingCancellable,
   type TrainingOrder,
   type UnitTier,
+  trainingCost,
 } from '@frontline/shared';
 import { useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
-import { useDeltaMarks } from '../../lib/deltas';
-import { useCancelTraining, useMe, useTrainUnits, useUnits } from '../../lib/queries';
+import { announceWaived, useDeltaMarks } from '../../lib/deltas';
+import {
+  useCancelTraining,
+  useMe,
+  useRefreshCrew,
+  useTrainUnits,
+  useUnits,
+} from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { UnitCard } from './UnitCard';
@@ -28,7 +35,7 @@ import { PageShell } from '../game/PageShell';
 import { VehicleCatalogue } from '../garage/VehicleCatalogue';
 
 /**
- * The tabs across the roster: the six tiers, then the machines (board request, 2026-09-08).
+ * The tabs across the roster: the six tiers, then the machines (maintainer request, 2026-09-08).
  *
  * The Garage's catalogue is a tab here rather than a page of its own because a machine is chosen
  * against the legs of the people who will ride it, and `speed` on a vehicle card is the same 0 to
@@ -57,7 +64,7 @@ export function UnitsPage() {
   const cancel = useCancelTraining(me.data?.base?.id);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   /*
-   * Carriers first (board request).
+   * Carriers first (maintainer request).
    *
    * The tier a player opens this screen to look at is the one that decides whether a mission comes
    * home with the loot it earned, and it was four clicks down the list behind the fighting tiers.
@@ -101,9 +108,22 @@ export function UnitsPage() {
      ticks every second, so once it flipped true this refetched in a burst until the response
      shrank the bench. `refetch` is a stable reference in react-query v5. */
   const refetchUnits = query.refetch;
+  /*
+   * And the crew with it, so the experience lands on the meter at the same moment the body lands
+   * on the card (maintainer request, 2026-09-12).
+   *
+   * One settle produces both: `settleTraining` stands the unit up *and* pays the §I1 experience
+   * for having trained it. The roster and the crew are two reads, though, so re-reading only the
+   * roster showed the `+1` on the unit and left the experience waiting for the shell's own poll,
+   * up to five seconds later. A player watching a batch land saw the two halves of one event
+   * arrive separately, and the second one with nothing on screen to explain it.
+   */
+  const refreshCrew = useRefreshCrew();
   useEffect(() => {
-    if (settled) void refetchUnits();
-  }, [settled, refetchUnits]);
+    if (!settled) return;
+    void refetchUnits();
+    refreshCrew();
+  }, [settled, refetchUnits, refreshCrew]);
 
   /*
    * What each count on the roster just did.
@@ -229,7 +249,7 @@ export function UnitsPage() {
         )}
       </section>
 
-      {/* The second rule the board asked for: the bench is a different kind of thing from the
+      {/* The second rule the maintainer asked for: the bench is a different kind of thing from the
           roster under it, and a hand-drawn line is what the rest of this interface uses to say so. */}
       <span aria-hidden className="ink-rule -my-1" />
 
@@ -246,7 +266,7 @@ export function UnitsPage() {
               data-testid={`tier-${option}`}
               aria-pressed={option === tab}
               className={cn(
-                'border px-3 py-1.5 font-display text-[11px] uppercase tracking-[0.18em] transition-colors',
+                'brushed relative rounded-sm border px-3 py-1.5 font-display text-[11px] uppercase tracking-[0.18em] transition-colors',
                 option === tab
                   ? 'border-brass-300 text-brass-300'
                   : 'border-surface-600 text-ink-300 hover:border-surface-500',
@@ -300,7 +320,28 @@ export function UnitsPage() {
                   discountPercent: data.trainingCostReduction + (unit.homeCostReduction ?? 0),
                   suppliesPercent: data.trainingSuppliesReduction ?? 0,
                   pending: train.isPending,
-                  onTrain: (count) => train.mutate({ unitId: unit.id, count }),
+                  onTrain: (count) =>
+                    train.mutate(
+                      { unitId: unit.id, count },
+                      {
+                        // Admin mode quotes the bill and does not take it, so the stockpile never
+                        // moves and the HUD has no receipt to throw. The screen quoted the price;
+                        // it announces the same price, marked waived. See `announceWaived`.
+                        onSuccess: () => {
+                          const spec = findUnit(unit.id);
+                          if (me.data?.admin === true && spec !== undefined) {
+                            announceWaived(
+                              trainingCost(
+                                spec,
+                                count,
+                                data.trainingCostReduction + (unit.homeCostReduction ?? 0),
+                                data.trainingSuppliesReduction ?? 0,
+                              ),
+                            );
+                          }
+                        },
+                      },
+                    ),
                 }}
               />
             ))}
@@ -353,22 +394,20 @@ function BenchRow({
             style={{ width: `${Math.round(nextProgress * 100)}%` }}
           />
         </span>
-      </span>
-      {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first body
-          walks out, so it is there and gone. Drawn only while it is open rather than disabled: a
-          control that is dead almost all the time is a control a player stops looking at. */}
-      {trainingCancellable(order, now) && (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={pending}
-          onClick={onCancel}
+        {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first
+            body walks out, so it is there and gone. The same X every other clock in the game
+            wears (maintainer request, 2026-09-12); under the bar rather than beside the name, because
+            the bench column is narrow and the countdown beside the X is most of its width. */}
+        <CancelMark
+          className="mt-1.5"
+          windowMs={trainingCancellable(order, now) ? trainingCancelWindowMs(order, now) : 0}
+          label={`Call off the ${unit?.name ?? order.unitId} batch`}
+          pending={pending}
+          onCancel={onCancel}
+          tip={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back`}
           data-testid={`cancel-${order.id}`}
-          data-tip={`Call it off: ${Math.round(TRAINING_CANCEL_REFUND * 100)}% back, ${formatRemaining(trainingCancelWindowMs(order, now))} left to decide`}
-        >
-          Cancel
-        </Button>
-      )}
+        />
+      </span>
     </li>
   );
 }

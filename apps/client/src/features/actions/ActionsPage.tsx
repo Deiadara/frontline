@@ -6,6 +6,8 @@ import {
   missionProgressAt,
   missionRemainingMs,
   movementCancelWindowMs,
+  recallWindowMs,
+  scoutRecallWindowMs,
   type BattleView,
   type Mission,
   type MissionPhase,
@@ -14,16 +16,23 @@ import {
   type Fleet,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
-import { Button } from '../../components/ui/Button';
-import { Icon } from '../../components/ui/Icon';
+import { CancelMark } from '../../components/ui/CancelMark';
+import { Icon, type IconName } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
-import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
-import { useActions, useBattles, useMissions, useRecallColumn } from '../../lib/queries';
+import {
+  useActions,
+  useBattles,
+  useMissions,
+  useRecallColumn,
+  useRecallMission,
+  useRecallScout,
+} from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { PageShell } from '../game/PageShell';
+import { FileSection } from '../overseer/FileSection';
 import { UnitChip } from '../units/UnitChip';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './road';
 
@@ -36,18 +45,21 @@ import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './roa
  * whole army was out on missions was told nobody was out. Four reads, one clock (`useServerClock`
  * off the road's own `serverNow`), and every countdown on the page ticks.
  *
- * A column inside the first tenth of its walk can be turned around, and the units go straight
- * back onto the roster: they have not reached anybody's ring, so unlike a withdrawal from ground
- * already held, nothing is owed for leaving. A crew on a job is turned around from the board.
+ * Anything on the road can be turned round in the first tenth of its walk out (maintainer request,
+ * 2026-09-12), and every row wears the same X for it. A column's units go straight back onto the
+ * roster: they have not reached anybody's ring, so unlike a withdrawal from ground already held,
+ * nothing is owed for leaving. A crew on a job and the scout walk home the distance covered.
  */
 export function ActionsPage() {
   const query = useActions();
   const missions = useMissions();
   const battles = useBattles();
   const recall = useRecallColumn();
+  const recallJob = useRecallMission();
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const data = query.data;
   const road = onTheRoad(data, missions.data, battles.data);
+  const recallScout = useRecallScout(road.scout?.districtId);
 
   return (
     <PageShell title="On the road" icon="actions" action={data ? <Counts road={road} /> : null}>
@@ -60,27 +72,35 @@ export function ActionsPage() {
           detail="Nothing has been lost. Every column still gets where it was going."
         />
       ) : roadIsEmpty(road) ? (
-        <Panel>
-          <p className="p-6 font-body text-[13px] leading-relaxed text-ink-300">
-            Nobody is out. Every unit you have is standing in your own district, which is the only
-            place they are no use at all.
+        <FileSection icon="actions" title="Nobody is out">
+          <p className="font-body text-[13px] leading-relaxed text-ink-300">
+            Every unit you have is standing in your own district, which is the only place they are
+            no use at all.
           </p>
-        </Panel>
+        </FileSection>
       ) : (
         <div className="flex flex-col gap-4" data-testid="road">
           {/* A recall the server refuses. `movement.recallable` is computed when the response is
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
               decide" beside a live button. `DeclareDialog` renders this same mutation's error. */}
-          {recall.error !== null && (
-            <p role="alert" className="font-body text-[13px] text-oxblood-300">
-              {recall.error.message}
-            </p>
+          {[recall, recallJob, recallScout].map(
+            (write, index) =>
+              write.error && (
+                <p key={index} role="alert" className="font-body text-[13px] text-oxblood-300">
+                  {write.error.message}
+                </p>
+              ),
           )}
 
           {road.columns.length > 0 && (
-            <Section title="Walking to a fight" count={road.columns.length}>
-              <ul className="flex flex-col gap-3" data-testid="movements">
+            <Section
+              icon="battles"
+              title="Walking to a fight"
+              note="Columns on the road to a called fight. Inside the first tenth of the walk they can still be turned around."
+              count={road.columns.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="movements">
                 {road.columns.map((movement) => (
                   <Column
                     key={movement.id}
@@ -95,8 +115,13 @@ export function ActionsPage() {
           )}
 
           {road.fights.length > 0 && (
-            <Section title="At a fight" count={road.fights.length}>
-              <ul className="flex flex-col gap-3" data-testid="fights">
+            <Section
+              icon="sword"
+              title="At a fight"
+              note="Forces that have reached the ground: waiting for the mark, or in it."
+              count={road.fights.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="fights">
                 {road.fights.map((view) => (
                   <Fight key={view.battle.id} view={view} now={now} />
                 ))}
@@ -105,18 +130,41 @@ export function ActionsPage() {
           )}
 
           {road.jobs.length > 0 && (
-            <Section title="Out on a job" count={road.jobs.length}>
-              <ul className="flex flex-col gap-3" data-testid="jobs">
+            <Section
+              icon="missions"
+              title="Out on a job"
+              note="Crews on the mission board's work. Inside the first tenth of the road out they can still be called back."
+              count={road.jobs.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="jobs">
                 {road.jobs.map((mission) => (
-                  <Job key={mission.id} mission={mission} now={now} />
+                  <Job
+                    key={mission.id}
+                    mission={mission}
+                    now={now}
+                    pending={recallJob.isPending}
+                    onRecall={() => recallJob.mutate({ missionId: mission.id })}
+                  />
                 ))}
               </ul>
             </Section>
           )}
 
           {road.scout !== null && (
-            <Section title="Looking" count={1}>
-              <Scout run={road.scout} now={now} />
+            <Section
+              icon="eye"
+              title="Looking"
+              note="The one scout out. The ground opens the moment they are home, unless they were turned round in the first tenth of the way."
+              count={1}
+            >
+              <ul className="flex flex-col gap-2.5">
+                <Scout
+                  run={road.scout}
+                  now={now}
+                  pending={recallScout.isPending}
+                  onRecall={() => recallScout.mutate({})}
+                />
+              </ul>
             </Section>
           )}
         </div>
@@ -143,24 +191,88 @@ function Counts({ road }: { road: Road }) {
   );
 }
 
-/** One kind of away, headed and counted, so the page reads as four short lists rather than one. */
+/**
+ * One kind of away, framed and counted, so the page reads as four short lists rather than one.
+ *
+ * The same drawn sheet a crew's file and the district sheets use (maintainer request, 2026-09-11): a
+ * plated mark, the name, a ruled line, and the count pinned to the right of the name. It was a
+ * bare small-caps heading over a stack of panels, which on this screen read as a list somebody had
+ * not finished laying out.
+ */
 function Section({
+  icon,
   title,
+  note,
   count,
   children,
 }: {
+  icon: IconName;
   title: string;
+  note: string;
   count: number;
   children: ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="flex items-baseline gap-2 font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
-        {title}
-        <span className="font-normal tabular-nums text-ink-400">{count}</span>
-      </h2>
+    <FileSection
+      icon={icon}
+      title={title}
+      note={note}
+      action={
+        <span className="rounded-sm border border-brass-500/50 bg-brass-300/10 px-2 py-0.5 font-display text-[11px] font-bold tabular-nums tracking-[0.12em] text-brass-100">
+          {count}
+        </span>
+      }
+    >
       {children}
-    </section>
+    </FileSection>
+  );
+}
+
+/**
+ * One party on the road: who, where they are going, and how far along.
+ *
+ * Every row on this screen is the same card whatever the errand is, the way every location's
+ * window is the same sheet: the name in the stamped face, what they are doing on a plate at the
+ * right, the route and its clock, the bar, and the bodies. A row that is about to change (a
+ * column still inside its recall window, a fight settling) says so in colour on that plate.
+ */
+function Row({
+  testId,
+  name,
+  status,
+  tone = 'plain',
+  children,
+}: {
+  testId: string;
+  name: string;
+  status: string;
+  tone?: 'plain' | 'hot' | 'done';
+  children: ReactNode;
+}) {
+  return (
+    <li
+      data-testid={testId}
+      className="flex flex-col gap-2.5 rounded-sm border border-surface-700 bg-surface-950/40 p-3"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="min-w-0 break-words font-stamp text-[16px] leading-tight text-ink-100">
+          {name}
+        </h3>
+        <span
+          className={cn(
+            'shrink-0 rounded-sm border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
+            tone === 'hot'
+              ? 'border-oxblood-500/60 text-oxblood-300'
+              : tone === 'done'
+                ? 'border-verdigris-300/60 text-verdigris-100'
+                : 'border-surface-600 text-ink-300',
+          )}
+        >
+          {status}
+        </span>
+      </div>
+      {children}
+    </li>
   );
 }
 
@@ -171,7 +283,7 @@ function Route({ from, to, remaining }: { from: string; to: string; remaining: s
       <span>{from}</span>
       <Icon name="actions" aria-hidden className="h-4 w-4 text-brass-300" />
       <span>{to}</span>
-      <span className="ml-auto tabular-nums text-brass-300">{remaining}</span>
+      <span className="ml-auto font-bold tabular-nums text-brass-300">{remaining}</span>
     </div>
   );
 }
@@ -250,43 +362,32 @@ function Column({
   );
 
   return (
-    <li data-testid={`column-${movement.id}`}>
-      <Panel
-        title={movement.targetName}
-        action={
-          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            {movement.side === 'attacker' ? 'Going in' : 'Holding'}
-          </span>
-        }
-      >
-        <div className="flex flex-col gap-3 p-4">
-          <Route from={movement.fromName} to={movement.toName} remaining={formatRemaining(left)} />
-          <ProgressBar progress={progress} label={movement.targetName} tone="brass" />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Force army={movement.army} perimeter={movement.perimeter} testPrefix="walking" />
-            <Rides fleet={movement.vehicles} testPrefix="walking" />
-          </div>
-          {movement.recallable && (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={pending}
-                onClick={onRecall}
-                data-testid={`recall-${movement.id}`}
-              >
-                Turn them around
-              </Button>
-              <span
-                className={cn('font-display text-[11px] uppercase tracking-[0.14em] text-ink-300')}
-              >
-                {formatRemaining(canRecall)} left to decide
-              </span>
-            </div>
-          )}
+    <Row
+      testId={`column-${movement.id}`}
+      name={movement.targetName}
+      status={movement.side === 'attacker' ? 'Going in' : 'Holding'}
+    >
+      <Route from={movement.fromName} to={movement.toName} remaining={formatRemaining(left)} />
+      <ProgressBar progress={progress} label={movement.targetName} tone="brass" />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Force army={movement.army} perimeter={movement.perimeter} testPrefix="walking" />
+        <Rides fleet={movement.vehicles} testPrefix="walking" />
+      </div>
+      {/* The server's word on whether the window is open *and* the row's own clock: `recallable`
+          is computed when the response is built and `/actions` polls at 5s, so for up to five
+          seconds after the window shut the row used to read "0s left" beside a live button. */}
+      {movement.recallable && canRecall > 0 && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <CancelMark
+            windowMs={canRecall}
+            label={`Turn the column to ${movement.targetName} around`}
+            pending={pending}
+            onCancel={onRecall}
+            data-testid={`recall-${movement.id}`}
+          />
         </div>
-      </Panel>
-    </li>
+      )}
+    </Row>
   );
 }
 
@@ -295,43 +396,30 @@ function Fight({ view, now }: { view: BattleView; now: Date }) {
   const phase = fightPhase(view, now);
   const left = Math.max(0, Date.parse(view.battle.scheduledFor) - now.getTime());
   return (
-    <li data-testid={`fight-${view.battle.id}`}>
-      <Panel
-        title={view.targetName}
-        action={
-          <span
-            className={cn(
-              'font-display text-[11px] uppercase tracking-[0.16em]',
-              phase === 'fighting' ? 'text-oxblood-300' : 'text-ink-300',
-            )}
-          >
-            {phase === 'fighting'
-              ? 'Fighting now'
-              : view.side === 'attacker'
-                ? 'Attacking at the mark'
-                : 'Holding at the mark'}
-          </span>
-        }
-      >
-        <div className="flex flex-col gap-3 p-4">
-          <Route
-            from={view.districtName}
-            to={view.opponentName}
-            remaining={phase === 'fighting' ? 'settling' : formatRemaining(left)}
-          />
-          {view.muster && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Force
-                army={view.muster.army}
-                perimeter={view.muster.perimeter}
-                testPrefix="posted"
-              />
-              <Rides fleet={view.vehicles} testPrefix="posted" />
-            </div>
-          )}
+    <Row
+      testId={`fight-${view.battle.id}`}
+      name={view.targetName}
+      tone={phase === 'fighting' ? 'hot' : 'plain'}
+      status={
+        phase === 'fighting'
+          ? 'Fighting now'
+          : view.side === 'attacker'
+            ? 'Attacking at the mark'
+            : 'Holding at the mark'
+      }
+    >
+      <Route
+        from={view.districtName}
+        to={view.opponentName}
+        remaining={phase === 'fighting' ? 'settling' : formatRemaining(left)}
+      />
+      {view.muster && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Force army={view.muster.army} perimeter={view.muster.perimeter} testPrefix="posted" />
+          <Rides fleet={view.vehicles} testPrefix="posted" />
         </div>
-      </Panel>
-    </li>
+      )}
+    </Row>
   );
 }
 
@@ -342,69 +430,99 @@ const PHASE_LABEL: Record<MissionPhase, string> = {
   returned: 'At the gate',
 };
 
-/** A crew out on a job, with the leg it is on. */
-function Job({ mission, now }: { mission: Mission; now: Date }) {
+/** A crew out on a job, with the leg it is on, and the X while the road out is still young. */
+function Job({
+  mission,
+  now,
+  pending,
+  onRecall,
+}: {
+  mission: Mission;
+  now: Date;
+  pending: boolean;
+  onRecall: () => void;
+}) {
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
   const phase = missionPhaseAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
+  const window = recallWindowMs(mission, now);
   return (
-    <li data-testid={`job-${mission.id}`}>
-      <Panel
-        title={name}
-        action={
-          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            {mission.recalledAt !== null ? 'Turned around' : PHASE_LABEL[phase]}
-          </span>
-        }
-      >
-        <div className="flex flex-col gap-3 p-4">
-          <Route
-            from="Home"
-            to={name}
-            remaining={remaining === 0 ? 'at the gate' : formatCountdown(remaining)}
+    <Row
+      testId={`job-${mission.id}`}
+      name={name}
+      tone={remaining === 0 ? 'done' : 'plain'}
+      status={mission.recalledAt !== null ? 'Turned around' : PHASE_LABEL[phase]}
+    >
+      <Route
+        from="Home"
+        to={name}
+        remaining={remaining === 0 ? 'at the gate' : formatCountdown(remaining)}
+      />
+      <ProgressBar
+        progress={missionProgressAt(mission, now)}
+        label={name}
+        tone={remaining === 0 ? 'verdigris' : 'brass'}
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Force army={mission.force} testPrefix="working" />
+        <Rides fleet={mission.vehicles} testPrefix="working" />
+      </div>
+      {window > 0 && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <CancelMark
+            windowMs={window}
+            label={`Call the ${name} crew back`}
+            pending={pending}
+            onCancel={onRecall}
+            data-testid={`recall-job-${mission.id}`}
           />
-          <ProgressBar
-            progress={missionProgressAt(mission, now)}
-            label={name}
-            tone={remaining === 0 ? 'verdigris' : 'brass'}
-          />
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Force army={mission.force} testPrefix="working" />
-            <Rides fleet={mission.vehicles} testPrefix="working" />
-          </div>
         </div>
-      </Panel>
-    </li>
+      )}
+    </Row>
   );
 }
 
 /** The scout on the road: one person, one mark, home and the ground open at the same moment. */
-function Scout({ run, now }: { run: ScoutingRunView; now: Date }) {
+function Scout({
+  run,
+  now,
+  pending,
+  onRecall,
+}: {
+  run: ScoutingRunView;
+  now: Date;
+  pending: boolean;
+  onRecall: () => void;
+}) {
   const left = Math.max(0, Date.parse(run.returnsAt) - now.getTime());
   const total = Math.max(1, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
+  const window = scoutRecallWindowMs(run, now);
+  const turned = run.recalledAt !== null;
   return (
-    <div data-testid="scout-run">
-      <Panel
-        title={run.officerName}
-        action={
-          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-            Scouting
-          </span>
-        }
-      >
-        <div className="flex flex-col gap-3 p-4">
-          <Route from="Home" to={run.districtName} remaining={formatRemaining(left)} />
-          <ProgressBar
-            progress={Math.min(1, Math.max(0, 1 - left / total))}
-            label={run.districtName}
-            tone="brass"
+    <Row testId="scout-run" name={run.officerName} status={turned ? 'Turned round' : 'Scouting'}>
+      <Route from="Home" to={run.districtName} remaining={formatRemaining(left)} />
+      <ProgressBar
+        progress={Math.min(1, Math.max(0, 1 - left / total))}
+        label={run.districtName}
+        tone="brass"
+      />
+      <p className="font-body text-[12px] text-ink-300">
+        {turned
+          ? `Walking home, in ${formatRemaining(left)}. The ground stays shut.`
+          : `Back with the ground open in ${formatRemaining(left)}.`}
+      </p>
+      {window > 0 && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <CancelMark
+            windowMs={window}
+            label={`Turn ${run.officerName} round`}
+            pending={pending}
+            onCancel={onRecall}
+            data-testid="recall-scout"
           />
-          <p className="font-body text-[12px] text-ink-300">
-            Back with the ground open in {formatRemaining(left)}.
-          </p>
         </div>
-      </Panel>
-    </div>
+      )}
+    </Row>
   );
 }

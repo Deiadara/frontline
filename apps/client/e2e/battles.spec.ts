@@ -197,6 +197,73 @@ test('the boost picker prices one fight, and says who has not offered the rest',
   await page.screenshot({ path: 'e2e-out/battles-boost.png', fullPage: true });
 });
 
+/**
+ * Burning a name asks first, and then it is done (maintainer request, 2026-09-12).
+ *
+ * A name cannot be swapped, cleared or refunded, and the infamy is gone the moment the request
+ * lands, so the only thing between a misclick on a drop-down and a rank's worth of points is the
+ * question. Cancelling it must spend nothing and leave the fight as it was.
+ */
+test('asks before it burns a name, and takes nothing when the answer is no', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/battles');
+
+  const open = battles.coming[0]!.boosts.find((option) => option.available && !option.held)!;
+  await page.getByTestId('boost-picker').click();
+  await page.getByRole('option', { name: new RegExp(open.name) }).click();
+
+  const sent: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/api/battles/boost')) sent.push(request.postData() ?? '');
+  });
+
+  await page.getByTestId('buy-boost').click();
+  const asking = page.getByTestId('confirm-boost');
+  await expect(asking).toBeVisible();
+  // The price and the name are both in the question: it is the last place either is readable.
+  await expect(asking).toContainText(open.name);
+  await expect(asking).toContainText(open.cost.toLocaleString());
+  await expect(asking).toContainText(/cannot be swapped, cleared or refunded/i);
+
+  await page.getByTestId('confirm-boost-no').click();
+  await expect(asking).toHaveCount(0);
+  expect(sent, 'a cancelled question still sent the request').toEqual([]);
+
+  await page.getByTestId('buy-boost').click();
+  await page.getByTestId('confirm-boost-yes').click();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toContain(open.id);
+});
+
+/**
+ * One name to a fight, and the screen says so rather than offering a second.
+ *
+ * The fixture's board is served with the name already burned, which is the state a player is in
+ * for the rest of the fight: the picker is shut, the button is dead, and the note names the rule.
+ */
+test('locks the picker once the fight has its name', async ({ page }) => {
+  const open = battles.coming[0]!.boosts.find((option) => option.available && !option.held)!;
+  await installApi(page, lateGame);
+  await page.route('**/api/battles', (route) =>
+    route.fulfill({
+      json: {
+        ...battles,
+        coming: battles.coming.map((view, index) =>
+          index === 0 ? { ...view, boostIds: [open.id], boostSlots: 1 } : view,
+        ),
+      },
+    }),
+  );
+  await page.goto('/game/battles');
+
+  const buys = page.getByTestId('name-buys');
+  await expect(buys.getByTestId('boost-bought')).toContainText(open.name);
+  await expect(page.getByTestId('buy-boost')).toBeDisabled();
+  await expect(buys).toContainText('This fight has its name');
+  // And nothing offering to undo it: a burned name is not a thing the screen can take back.
+  await expect(buys.getByRole('button', { name: /clear|swap|refund/i })).toHaveCount(0);
+});
+
 /** The reports and your own ground are behind the switch now, so the switch has to work. */
 test('the tabs move between what is coming, what came back and what you hold', async ({ page }) => {
   await installApi(page, lateGame);
@@ -257,7 +324,7 @@ test('a report reads as a document, and a silent one says so instead of showing 
   // analysis from the start and drawn nowhere, so a one-round rout and a five-round grind read the
   // same.
   await expect(report.getByText('Held · Ninth Street Pawn · 5 rounds')).toBeVisible();
-  // The things the board asked a report to answer, on screen at once.
+  // The things the maintainer asked a report to answer, on screen at once.
   await expect(page.getByText('Snipers').first()).toBeVisible();
   await expect(page.getByText('61%')).toBeVisible();
 
@@ -424,13 +491,13 @@ test('a district that is held end to end offers the gate and nothing else', asyn
 });
 
 /**
- * The red mark (board request, 2026-09-08): a fight called on your ground is a mark on the left
+ * The red mark (maintainer request, 2026-09-08): a fight called on your ground is a mark on the left
  * of the bottom bar on every screen, and pressing it opens the board.
  */
 test('a fight called on you is a red mark on the bar that opens the board', async ({ page }) => {
   await installApi(page, {
     ...lateGame,
-    unread: { messages: 0, notifications: 0, fightsOnYou: 2 },
+    unread: { messages: 0, notifications: 0, fightsOnYou: 2, featsReady: 0 },
   });
   await page.goto('/game/units');
   const mark = page.getByTestId('nav-fights');

@@ -46,7 +46,9 @@ export function combinedSide(
       ...total,
       army: mergeArmies(total.army, row.army),
       perimeter: mergeArmies(total.perimeter, row.perimeter),
-      boostId: total.boostId ?? row.boostId,
+      // Every name on the side, in the order they were burned, with no duplicates: an ally who
+      // burns the same name the principal already did adds nothing to the fight.
+      boostIds: [...new Set([...total.boostIds, ...row.boostIds])],
     }),
     { ...first },
   );

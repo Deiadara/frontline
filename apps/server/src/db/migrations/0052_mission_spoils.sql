@@ -1,4 +1,4 @@
--- What the job paid, as opposed to what the crew could carry home (board request).
+-- What the job paid, as opposed to what the crew could carry home (maintainer request).
 --
 -- `rewards_json` is what was banked, which is already capped by `missionCarry`: send four porters
 -- to a job that pays ten slots and six slots are left on the ground. That is a real and deliberate

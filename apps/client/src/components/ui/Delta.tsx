@@ -1,12 +1,27 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import type { DeltaMark } from '../../lib/deltas';
+import { claimRow, releaseRow, type Press } from '../../lib/lastPress';
 
 /** Clear of the chip, and clear of the frame's edge. */
 const GAP = 10;
 const EDGE = 44;
 /** One figure's row. Tall enough that two stacked figures do not touch at this face size. */
 const LANE = 30;
+
+interface Placement {
+  top: number;
+  left: number;
+}
 
 /**
  * The figures that float off a readout when the number on it moves.
@@ -17,8 +32,17 @@ const LANE = 30;
  * and the same component has to work on a unit count inside a scrolling column, where an in-flow
  * figure would be cut by the scroller rather than float over it.
  *
- * It hangs *below* the readout rather than above it. The chips it is drawn for are the top strip
- * of the screen, so a figure that rose out of the top of one would rise off the frame.
+ * ## Where a figure lands
+ *
+ * A receipt belongs at the till (maintainer request, 2026-09-11): a figure that answers a button press
+ * is drawn under that button, whatever it is, a spend or a gain, and every readout charged by the
+ * one press stacks in one column under it, a row each. A figure nobody pressed a button for, a
+ * mission home or a fight settled, hangs below its readout at the top of the screen.
+ *
+ * Each figure carries its own press (`DeltaMark.press`, stamped when it was minted), so two
+ * presses a second apart on two cards draw two columns under two buttons. The first version held
+ * one press per readout for as long as any of its figures lived, and both columns landed under
+ * whichever button was pressed first.
  */
 export function DeltaFloat({
   marks,
@@ -39,27 +63,74 @@ export function DeltaFloat({
   'data-testid'?: string;
 }) {
   const anchor = useRef<HTMLSpanElement>(null);
-  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const owner = useId();
+  // One placement per column: the readout's own, keyed `readout`, and one per press id.
+  const [at, setAt] = useState<Record<string, Placement>>({});
   const showing = marks.length > 0;
 
+  // Memoised on the marks: `place` and the layout effect hang off it, and a fresh Map on every
+  // render would have them re-run, set state, and render again without end.
+  const groups = useMemo(() => groupByPress(marks), [marks]);
+  // The rows this readout holds under each press, so a row is given back when its column goes.
+  const held = useRef(new Set<number>());
+
   const place = useCallback(() => {
-    const box = anchor.current?.getBoundingClientRect();
-    if (!box) return;
-    setAt({
-      top: box.bottom + GAP,
-      // Centred on the chip and kept inside the frame. The figures are translated back by half
-      // their own width, so this is the centre line rather than the left edge.
-      left: Math.min(Math.max(EDGE, box.left + box.width / 2), window.innerWidth - EDGE),
-    });
-  }, []);
+    const style = anchor.current ? getComputedStyle(anchor.current) : null;
+    const band = (name: string): number => parseFloat(style?.getPropertyValue(name) ?? '') || 0;
+    const floor = window.innerHeight - band('--nav-h') - GAP;
+    const ceiling = band('--hud-h') + GAP;
+    const next: Record<string, Placement> = {};
+
+    for (const [key, group] of groups) {
+      if (group.press !== undefined) {
+        const row = claimRow(group.press.id, owner);
+        held.current.add(group.press.id);
+        /*
+         * Under the button, in this readout's row of the stack; above it when the stack would run
+         * into the switcher at the foot of the frame. The chrome's bands are read off the CSS
+         * variables the shell publishes, not guessed: a receipt drawn under a button that sits
+         * just above the nav landed *behind* the nav, which is where the first version put it.
+         */
+        const rows = row + group.marks.length;
+        const stack = rows * LANE + GAP;
+        const below = group.press.rect.bottom + GAP + row * LANE;
+        const above = group.press.rect.top - stack;
+        next[key] = {
+          top: group.press.rect.bottom + stack <= floor || above < ceiling ? below : above,
+          left: Math.min(
+            Math.max(EDGE, group.press.rect.left + group.press.rect.width / 2),
+            window.innerWidth - EDGE,
+          ),
+        };
+        continue;
+      }
+      const box = anchor.current?.getBoundingClientRect();
+      if (!box) continue;
+      next[key] = {
+        top: box.bottom + GAP,
+        // Centred on the chip and kept inside the frame. The figures are translated back by half
+        // their own width, so this is the centre line rather than the left edge.
+        left: Math.min(Math.max(EDGE, box.left + box.width / 2), window.innerWidth - EDGE),
+      };
+    }
+    setAt(next);
+  }, [groups, owner]);
 
   useLayoutEffect(() => {
+    // Rows under a press whose figures have all gone are handed back.
+    const live = new Set([...groups.values()].flatMap((g) => (g.press ? [g.press.id] : [])));
+    for (const pressId of [...held.current]) {
+      if (!live.has(pressId)) {
+        releaseRow(pressId, owner);
+        held.current.delete(pressId);
+      }
+    }
     if (!showing) {
-      setAt(null);
+      setAt({});
       return;
     }
     place();
-  }, [showing, place]);
+  }, [showing, groups, place, owner]);
 
   useEffect(() => {
     if (!showing) return;
@@ -80,22 +151,53 @@ export function DeltaFloat({
           `relative` for that; every caller here is. */}
       <span ref={anchor} aria-hidden className="pointer-events-none absolute inset-0" />
       {showing &&
-        at !== null &&
-        createPortal(
-          <div
-            data-testid={testId}
-            aria-hidden
-            className="pointer-events-none z-[210] w-0"
-            style={{ position: 'fixed', top: at.top, left: at.left }}
-          >
-            {marks.map((mark) => (
-              <DeltaFigure key={mark.id} mark={mark} icon={icon} unit={unit} />
-            ))}
-          </div>,
-          document.body,
-        )}
+        [...groups].map(([key, group]) => {
+          const placement = at[key];
+          if (placement === undefined) return null;
+          return createPortal(
+            <div
+              key={key}
+              data-testid={testId}
+              data-anchored={group.press ? 'press' : 'readout'}
+              aria-hidden
+              className="pointer-events-none z-[210] w-0"
+              style={{ position: 'fixed', top: placement.top, left: placement.left }}
+            >
+              {group.marks.map((mark, index) => (
+                <DeltaFigure
+                  key={mark.id}
+                  mark={mark}
+                  icon={icon}
+                  unit={unit}
+                  // Under a button this readout already has its own row in the press's stack, so
+                  // its figures sit from that row down; on the chip they keep the lanes they were
+                  // given when they appeared.
+                  lane={group.press ? index : mark.lane}
+                />
+              ))}
+            </div>,
+            document.body,
+          );
+        })}
     </>
   );
+}
+
+interface Group {
+  press: Press | undefined;
+  marks: DeltaMark[];
+}
+
+/** One column per press, plus one for everything that answered no press. Stable order. */
+function groupByPress(marks: readonly DeltaMark[]): Map<string, Group> {
+  const groups = new Map<string, Group>();
+  for (const mark of marks) {
+    const key = mark.press ? `press-${mark.press.id}` : 'readout';
+    const group = groups.get(key) ?? { press: mark.press, marks: [] };
+    group.marks.push(mark);
+    groups.set(key, group);
+  }
+  return groups;
 }
 
 /** `-1,200` in oxblood, `+400` in verdigris, in the chrome's display face with tabular figures. */
@@ -103,15 +205,20 @@ function DeltaFigure({
   mark,
   icon,
   unit,
+  lane,
 }: {
   mark: DeltaMark;
   icon?: ReactNode;
   unit?: string | undefined;
+  lane: number;
 }) {
   const spend = mark.amount < 0;
   return (
     <span
-      data-testid={`delta-${spend ? 'spend' : 'gain'}`}
+      // A waived bill (admin mode quoted it and did not take it) is drawn as the spend it would
+      // have been: the figure and the currency, nothing else, so it reads the same as the real
+      // thing. The test id keeps the distinction for the suite.
+      data-testid={`delta-${mark.waived ? 'waived' : spend ? 'spend' : 'gain'}`}
       data-amount={mark.amount}
       className={
         // On its own plate, at 18px. The figure floats over whatever the screen happens to be
@@ -125,7 +232,7 @@ function DeltaFigure({
           ? 'border-oxblood-500/70 text-oxblood-300'
           : 'border-verdigris-500/70 text-verdigris-300')
       }
-      style={{ top: mark.lane * LANE }}
+      style={{ top: lane * LANE }}
     >
       {icon !== undefined && (
         <span className="flex h-[18px] w-[18px] shrink-0 items-center">{icon}</span>

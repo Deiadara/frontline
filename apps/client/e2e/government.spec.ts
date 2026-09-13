@@ -1,6 +1,8 @@
 import {
   CITY_DISTRICTS,
-  MISSION_STANCE_SPECS,
+  ATTRIBUTE_LABELS,
+  MISSION_LEANING_LABELS,
+  MISSION_LEANING_REASONS,
   garrisonOf,
   isSeatOfGovernmentPower,
 } from '@frontline/shared';
@@ -125,19 +127,25 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
       await page.goto('/game/missions');
 
       /*
-       * Whichever job on the board points at the state, rather than a named one.
+       * Whichever card the board is offering, rather than a named one.
        *
        * Which three jobs an area offers is `missionOffers`' business and it is stable per area,
        * not per template: naming `Convoy Ambush` pinned content this test is not about, and the
        * card stopped existing the day the board became per-district.
+       *
+       * The tag being measured is the **kind** keyword. It used to be the anti-Combine stance
+       * badge, which shared that row and no longer exists (2026-09-12). The leaning chips are not
+       * a substitute: they sit in their own fixed-height row that clips a four-leaning job on
+       * purpose, so a chip below the fold there is the design working rather than a tag pushed
+       * out of place, and asserting it is in the viewport fails at 1024 for the right reason.
        */
-      const stance = MISSION_STANCE_SPECS.against_government.label;
-      const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: stance }).first();
+      const tag = 'Standard';
+      const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: tag }).first();
       await badged.scrollIntoViewIfNeeded();
       await expect(badged).toBeVisible();
-      // The badge has to be *in the viewport*, not merely in the DOM: a tag pushed out of its row
+      // The tag has to be *in the viewport*, not merely in the DOM: one pushed out of its row
       // renders off-panel and reads as missing.
-      await expect(badged.getByText(stance)).toBeInViewport();
+      await expect(badged.getByText(tag, { exact: true }).first()).toBeInViewport();
 
       await settleFonts(page);
 
@@ -149,7 +157,15 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
     });
   }
 
-  test('badges a Combine contract differently from a blow against it', async ({ page }) => {
+  /*
+   * What a job leans on, and why (maintainer request, 2026-09-12).
+   *
+   * This used to assert the badging rule for `Combine Contract` versus `Anti-Combine`. Both words
+   * are gone: nothing in the game read the field they came from, so the maintainer deleted it. What
+   * replaced them on the card is the leaning chips, and the rule now being asserted is that a chip
+   * explains itself: it names the attributes the job reads, in the game's own window.
+   */
+  test('explains on hover which attributes a leaning wants', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await installApi(page, lateGame);
     await page.route('**/api/missions', (route) =>
@@ -162,38 +178,28 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
     await page.goto('/game/missions');
 
     /*
-     * Found by stance rather than by name, and walked across the boards to find one.
+     * `A haul`, not `Quiet work`.
      *
-     * Which three jobs an area offers is `missionOffers`' business and it turns over daily, so
-     * naming `Courier Contract` pinned content this test is not about and stopped existing the
-     * day the board went per-district. What is being asserted is the *badging rule*: work for the
-     * Combine is marked, a blow against it is marked differently, and work it has no opinion
-     * about is not marked at all.
+     * Quiet work is authored on four templates and the board turns over daily, so a run on the
+     * wrong day finds none of them and the test fails saying nothing about the hover. Every
+     * standard job leans on a haul by default (`leaningsFor`), so there is always one to point at.
      */
-    const withStance = async (label: string): Promise<void> => {
-      const found = await walkBoards(page, async () => {
-        const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: label }).first();
-        if ((await badged.count()) === 0) return false;
-        await badged.scrollIntoViewIfNeeded();
-        await expect(badged.getByText(label)).toBeInViewport();
-        return true;
-      });
-      if (!found) throw new Error(`no job labelled "${label}" on any board today`);
-    };
+    const leaning = MISSION_LEANING_LABELS.haul;
+    const found = await walkBoards(page, async () => {
+      const chip = page.getByText(leaning, { exact: true }).first();
+      if ((await chip.count()) === 0) return false;
+      await chip.scrollIntoViewIfNeeded();
+      await chip.hover();
+      const tip = page.getByRole('tooltip');
+      await expect(tip).toContainText(MISSION_LEANING_REASONS.haul);
+      // The attribute the leaning actually reads is named, not just described in the abstract.
+      await expect(tip).toContainText(ATTRIBUTE_LABELS.logistics, { ignoreCase: true });
+      return true;
+    });
+    if (!found) throw new Error('no job leaning on a haul on any board today');
 
-    await withStance(MISSION_STANCE_SPECS.for_government.label);
-    await withStance(MISSION_STANCE_SPECS.against_government.label);
-
-    // Unaligned work carries no stance badge at all: the badge is a warning, not a label.
-    const plain = page
-      .locator('[data-testid^="offer-"]')
-      .filter({ hasNotText: MISSION_STANCE_SPECS.for_government.label })
-      .filter({ hasNotText: MISSION_STANCE_SPECS.against_government.label });
-    if ((await plain.count()) > 0) {
-      for (const spec of Object.values(MISSION_STANCE_SPECS)) {
-        await expect(plain.first().getByText(spec.label)).toHaveCount(0);
-      }
-    }
+    // And the words the stance badge used to put here are nowhere on the screen.
+    await expect(page.getByText(/Anti-Combine|Combine Contract/)).toHaveCount(0);
   });
 });
 

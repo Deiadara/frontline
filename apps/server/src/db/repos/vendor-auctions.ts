@@ -2,7 +2,7 @@ import { visitClosesAt } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
 
 /**
- * The barrow's shared state (market extension, board 2026-09-08): every bid on every lot, and how
+ * The barrow's shared state (market extension, maintainer 2026-09-08): every bid on every lot, and how
  * each lot ended.
  *
  * What the Runner carries is still never stored. `vendorSessionsFor` and `vendorStockFor` are pure

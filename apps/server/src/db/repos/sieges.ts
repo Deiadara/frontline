@@ -48,7 +48,7 @@ interface DeploymentRow {
   side: BattleSide;
   army_json: string;
   perimeter_json: string;
-  boost_id: string | null;
+  boost_ids_json: string;
   /** §D1: the one officer this crew is sending to lead. Null is nobody, which is most rows. */
   officer_id: string | null;
   /** §I4: the one trap this crew has set under this fight. Defenders only. */
@@ -101,7 +101,7 @@ function rowToDeployment(row: DeploymentRow): BattleDeployment {
     side: row.side,
     army: withoutRetiredUnits(readJson(row.army_json)),
     perimeter: withoutRetiredUnits(readJson(row.perimeter_json)),
-    boostId: row.boost_id,
+    boostIds: readJson(row.boost_ids_json),
     officerId: row.officer_id,
     trapId: row.trap_id,
     // Same repair the army and the perimeter get above, and it matters more here: this row is read
@@ -217,15 +217,24 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
        JOIN scheduled_battles b ON b.id = d.battle_id
       WHERE d.base_id = ? AND b.resolved_at IS NULL`,
   );
+  /*
+   * The Combine's and the looters' rows carry `base_id = NULL`, and SQLite's `ON CONFLICT` never
+   * fires between two NULLs: measured, two inserts with a NULL base id under the same primary key
+   * produce two rows. So the NPC row is cleared by hand before the upsert below writes it, or a
+   * second write to it would double the muster the engine reads.
+   */
+  const clearNpcDeploymentStmt = db.prepare(
+    `DELETE FROM battle_deployments WHERE battle_id = ? AND side = ? AND base_id IS NULL`,
+  );
   const putDeploymentStmt = db.prepare(
     `INSERT INTO battle_deployments
-       (battle_id, base_id, side, army_json, perimeter_json, boost_id, officer_id, trap_id,
+       (battle_id, base_id, side, army_json, perimeter_json, boost_ids_json, officer_id, trap_id,
         vehicles_json, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (battle_id, side, base_id) DO UPDATE SET
        army_json = excluded.army_json,
        perimeter_json = excluded.perimeter_json,
-       boost_id = excluded.boost_id,
+       boost_ids_json = excluded.boost_ids_json,
        officer_id = excluded.officer_id,
        trap_id = excluded.trap_id,
        vehicles_json = excluded.vehicles_json,
@@ -323,13 +332,16 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
       return (deploymentsForStmt.all(baseId) as DeploymentRow[]).map(rowToDeployment);
     },
     putDeployment(deployment) {
+      if (deployment.baseId === null) {
+        clearNpcDeploymentStmt.run(deployment.battleId, deployment.side);
+      }
       putDeploymentStmt.run(
         deployment.battleId,
         deployment.baseId,
         deployment.side,
         JSON.stringify(deployment.army),
         JSON.stringify(deployment.perimeter),
-        deployment.boostId,
+        JSON.stringify(deployment.boostIds),
         deployment.officerId,
         deployment.trapId,
         JSON.stringify(deployment.vehicles),

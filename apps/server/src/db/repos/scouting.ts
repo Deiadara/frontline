@@ -15,6 +15,8 @@ export interface ScoutingRepo {
   /** What this crew has out right now. At most one, but returned as a list so the cap is a rule. */
   activeFor(baseId: string): ScoutingRun[];
   markSettled(id: string, atIso: string): void;
+  /** Turned round: the walk home is the new mark, and the ground will not open on it. */
+  markRecalled(id: string, atIso: string, returnsAtIso: string): void;
 }
 
 interface Row {
@@ -24,7 +26,9 @@ interface Row {
   officer_id: string;
   departed_at: string;
   returns_at: string;
+  travel_minutes: number;
   settled_at: string | null;
+  recalled_at: string | null;
 }
 
 const toRun = (row: Row): ScoutingRun =>
@@ -35,12 +39,15 @@ const toRun = (row: Row): ScoutingRun =>
     officerId: row.officer_id,
     departedAt: row.departed_at,
     returnsAt: row.returns_at,
+    travelMinutes: row.travel_minutes,
+    recalledAt: row.recalled_at,
   });
 
 export function createScoutingRepo(db: AppDatabase): ScoutingRepo {
   const insertStmt = db.prepare(
-    `INSERT INTO scouting_runs (id, base_id, district_id, officer_id, departed_at, returns_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO scouting_runs
+       (id, base_id, district_id, officer_id, departed_at, returns_at, travel_minutes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const dueStmt = db.prepare(
     'SELECT * FROM scouting_runs WHERE settled_at IS NULL AND returns_at <= ? ORDER BY returns_at',
@@ -49,6 +56,10 @@ export function createScoutingRepo(db: AppDatabase): ScoutingRepo {
     'SELECT * FROM scouting_runs WHERE base_id = ? AND settled_at IS NULL ORDER BY returns_at',
   );
   const settleStmt = db.prepare('UPDATE scouting_runs SET settled_at = ? WHERE id = ?');
+  // The walk home replaces the walk out: one row, one mark, still.
+  const recallStmt = db.prepare(
+    'UPDATE scouting_runs SET recalled_at = ?, returns_at = ? WHERE id = ?',
+  );
 
   return {
     insert(run) {
@@ -59,6 +70,7 @@ export function createScoutingRepo(db: AppDatabase): ScoutingRepo {
         run.officerId,
         run.departedAt,
         run.returnsAt,
+        run.travelMinutes,
       );
     },
     due(nowIso) {
@@ -69,6 +81,9 @@ export function createScoutingRepo(db: AppDatabase): ScoutingRepo {
     },
     markSettled(id, atIso) {
       settleStmt.run(atIso, id);
+    },
+    markRecalled(id, atIso, returnsAtIso) {
+      recallStmt.run(atIso, returnsAtIso, id);
     },
   };
 }

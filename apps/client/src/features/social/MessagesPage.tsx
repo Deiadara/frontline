@@ -8,7 +8,8 @@ import {
   type Message,
   type SentMessage,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
@@ -26,7 +27,7 @@ import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
 
 /**
- * The mailbox (board request).
+ * The mailbox (maintainer request).
  *
  * The shape every game with one uses, because players arrive already knowing it: two folders, a
  * list of rows with unread in bold, a reading pane, reply and delete, and a compose form that can
@@ -88,6 +89,30 @@ export function MessagesPage() {
   const [toFaction, setToFaction] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+
+  /*
+   * `?to=<username>` opens the composer already addressed (maintainer request, 2026-09-12).
+   *
+   * The faction file and the crew file both offer a button that says "write to them", and both
+   * landed the reader on an empty mailbox with the name they had just clicked nowhere on screen.
+   * The name lives in the query string rather than in router state so the door survives a copied
+   * link, a refresh and a back button, all of which throw router state away.
+   *
+   * The parameter is consumed on arrival: it is stripped once read, so closing the composer and
+   * pressing back does not silently re-open it, and an effect that ran twice would not fight the
+   * player for the field. `replace` so the stripped URL does not become a history entry of its own.
+   */
+  const [params, setParams] = useSearchParams();
+  const addressed = params.get('to');
+  useEffect(() => {
+    if (addressed === null || addressed === '') return;
+    setTo(addressed);
+    setToFaction(false);
+    setComposing(true);
+    const next = new URLSearchParams(params);
+    next.delete('to');
+    setParams(next, { replace: true });
+  }, [addressed, params, setParams]);
 
   const data = query.data;
   /*

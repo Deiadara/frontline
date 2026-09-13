@@ -48,7 +48,7 @@ const PORTRAIT = spec('portrait-overseer-1');
 /**
  * A plate the board has *not* delivered, so its source is still the §6 class render.
  *
- * It was `plate-city`, and that stopped being the right pick when the board painted the city:
+ * It was `plate-city`, and that stopped being the right pick when the maintainer painted the city:
  * a delivered plate ships at the size it was painted, which is the one thing these two tests are
  * not about. They are about a backend refusing a size it cannot make, and for that the fixture has
  * to be an asset that is genuinely still waiting to be generated.
@@ -181,7 +181,7 @@ describe('backend selection', () => {
    * The override wins whatever the environment says.
    *
    * Asserted with the env set to the *other* backend, which is the only way the assertion means
-   * anything: the overseer portraits are pinned to `fal` (their masters are a board delivery at a
+   * anything: the overseer portraits are pinned to `fal` (their masters are a maintainer delivery at a
    * size gpt-image-1 does not render), so an env var of `fal` would have passed this test even if
    * overrides were ignored entirely.
    */
@@ -270,6 +270,8 @@ describe('backend selection', () => {
     'plate-district-rustyard',
     'plate-district-chrome-row',
     'plate-faction-room',
+    'plate-district-undergrid',
+    'plate-district-datavault-sigma',
   ];
 
   /**

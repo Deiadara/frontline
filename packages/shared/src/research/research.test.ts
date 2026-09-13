@@ -42,6 +42,7 @@ describe('a project runs on the clock frozen onto its row', () => {
     project: { kind: 'technology', techId: 'tech_field_dressing' },
     startedAt: NOW.toISOString(),
     durationMinutes: RUNS_FOR,
+    paid: {},
   };
   const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
 

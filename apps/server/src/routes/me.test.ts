@@ -54,7 +54,15 @@ describe('GET /me', () => {
     });
     const startedAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
     app.repos.bases.updateDistrict(base.id, base.buildings, [
-      { id: 'q1', kind: 'quarters', level: 1, startedAt, durationSeconds: 3_600 },
+      {
+        id: 'q1',
+        kind: 'quarters',
+        level: 1,
+        startedAt,
+        durationSeconds: 3_600,
+        paid: {},
+        parts: {},
+      },
     ]);
 
     const first = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });

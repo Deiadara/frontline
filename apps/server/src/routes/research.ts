@@ -4,11 +4,17 @@ import {
   researchCompletesAt,
   type Base,
   type ResearchResponse,
+  CancelResearchRequestSchema,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
-import { startResearch, type ResearchRefusal } from '../research/start.js';
+import {
+  cancelResearch,
+  startResearch,
+  type ResearchCancelRefusal,
+  type ResearchRefusal,
+} from '../research/start.js';
 import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
@@ -60,6 +66,14 @@ const REFUSAL_ERRORS: Record<ResearchRefusal, { code: ErrorCode; message: string
   cannot_afford: { code: 'INSUFFICIENT_CAPS', message: 'You cannot cover the costs' },
 };
 
+const CANCEL_ERRORS: Record<ResearchCancelRefusal, { code: ErrorCode; message: string }> = {
+  nothing_running: { code: 'NOT_FOUND', message: 'Nothing is on the bench' },
+  window_closed: {
+    code: 'RESEARCH_BUSY',
+    message: 'The work has gone too far to stop. It finishes now',
+  },
+};
+
 /**
  * The whole research screen, for one settled crew.
  *
@@ -93,6 +107,25 @@ export function registerResearchRoutes(app: FastifyInstance): void {
    * *time*, and the Head of Research's own sheet is what shortens it. A programme that landed the
    * instant it was paid for had nothing for their points to buy.
    */
+  /** Take the project off the bench inside its first tenth (maintainer request, 2026-09-12). */
+  app.post('/research/cancel', { preHandler: app.authenticate }, (request): ResearchResponse => {
+    parseBody(CancelResearchRequestSchema, request.body ?? {});
+    const now = new Date();
+    const user = request.currentUser;
+    return app.db.transaction(() => {
+      const result = cancelResearch(
+        app.repos,
+        settledBase(app, user.id, user.overseerId, now),
+        now,
+      );
+      if (result.kind === 'refused') {
+        const { code, message } = CANCEL_ERRORS[result.reason];
+        throw new AppError(code, message);
+      }
+      return researchScreen(app, result.base, now);
+    })();
+  });
+
   app.post('/research/tech', { preHandler: app.authenticate }, (request): ResearchResponse => {
     const { techId } = parseBody(StartTechRequestSchema, request.body);
     const now = new Date();

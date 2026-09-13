@@ -10,21 +10,24 @@ import {
   CHANNEL_LABELS,
   TRAINING_DRILLS,
   contributionOf,
+  drillCancelWindowMs,
   drillProgressAt,
   drillRemainingMs,
   type AttributeGroup,
   type AttributeName,
+  type TrainingSession,
   type TrainingSubject,
 } from '@frontline/shared';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
-import { useStartTraining, useTraining } from '../../lib/queries';
+import { useCancelDrill, useStartTraining, useTraining } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
@@ -64,7 +67,7 @@ const WHOLE: Fold = { height: undefined, hidden: 0 };
  * scrolling region already, so nothing was unreachable, but the cut landed wherever the frame
  * happened to end, which sliced the last visible row through the middle of its digits and gave a
  * player no sign at all that there was more under it. That reads as a rendering fault, which is
- * the failure the board reported.
+ * the failure the maintainer reported.
  *
  * Same move as the overseer roster on the character select screen, and for the same reason: end on
  * a boundary, so an overflowing sheet simply shows fewer whole rows, and say how many were dropped.
@@ -110,6 +113,7 @@ function measureFold(sheet: HTMLElement, hint: HTMLElement | null): Fold {
 export function TrainingPage() {
   const query = useTraining();
   const start = useStartTraining();
+  const cancel = useCancelDrill();
   // A number, because the drill clock is arithmetic on epoch milliseconds and `useServerClock`
   // hands back a Date.
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt).getTime();
@@ -323,6 +327,13 @@ export function TrainingPage() {
                     <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
                       {TRAINING_DRILLS[subject.session.attribute].detail}
                     </p>
+                    <DrillCancel
+                      session={subject.session}
+                      now={now}
+                      pending={cancel.isPending}
+                      onCancel={(sessionId) => cancel.mutate({ sessionId })}
+                      error={cancel.error?.message ?? null}
+                    />
                   </div>
                 ) : (
                   <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
@@ -349,7 +360,7 @@ export function TrainingPage() {
              * 720-tall one 219, so a cut is unavoidable below about 1600x900 and the only
              * question is whether it is an honest one. `measureFold` puts it on a row boundary
              * and the line underneath says how many rows are under it: cut content is the one
-             * thing the board's bar rules out outright, and a sliced row with no sign that
+             * thing the maintainer's bar rules out outright, and a sliced row with no sign that
              * scrolling recovers it is cut content whatever the overflow rule says.
              */}
             <div className="relative flex min-h-0 flex-1 flex-col" data-testid="training-sheet">
@@ -454,7 +465,7 @@ function SubjectRow({
        * A person's name is the one label on this rail that a player has to be able to read, and
        * `Marcus "Bulwark" Kane` does not fit on one line in the stamped face. It is a wider
        * letterform than the condensed sans around it. Ellipsising it is a cut label, which is
-       * what the layout gate is for and what the board's bar forbids; the row growing a line is
+       * what the layout gate is for and what the maintainer's bar forbids; the row growing a line is
        * free, because this rail is a list rather than a table with an aligned column.
        *
        * The name is set in the stamped face because it is a *name*, the exact category of
@@ -723,6 +734,43 @@ function DrillButton({
 }
 
 /** Why this hour cannot be spent on this attribute for this person, or `null`. */
+/**
+ * The X on a running drill (maintainer request, 2026-09-12): inside the first tenth of the hour it can
+ * be taken off the board, and the day's session comes back whole. A component rather than inline
+ * because the session is narrowed from `subject.session` and a closure over it loses that.
+ */
+function DrillCancel({
+  session,
+  now,
+  pending,
+  onCancel,
+  error,
+}: {
+  session: TrainingSession;
+  /** Epoch milliseconds, as the page keeps its clock. */
+  now: number;
+  pending: boolean;
+  onCancel: (sessionId: string) => void;
+  error: string | null;
+}) {
+  return (
+    <>
+      <CancelMark
+        windowMs={drillCancelWindowMs(session, new Date(now).toISOString())}
+        label={`Call off ${TRAINING_DRILLS[session.attribute].title}`}
+        pending={pending}
+        onCancel={() => onCancel(session.id)}
+        data-testid="cancel-drill"
+      />
+      {error !== null && (
+        <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
 function drillBlocker(
   name: AttributeName,
   subject: TrainingSubject,

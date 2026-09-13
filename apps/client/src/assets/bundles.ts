@@ -29,9 +29,18 @@ export function bundleFor(spec: AssetSpec): AssetBundleName {
       return 'splash';
     case 'portrait':
       return 'overseer';
-    // The officer pool is ninety-nine faces and it belongs to the crew and training screens, not
-    // to character select: bundling it with the four overseer heroes would put 5MB of faces in
-    // front of a player who has not chosen a character yet.
+    // The officer pool belongs to the crew and training screens, not to character select:
+    // bundling it with the four overseer heroes would put the whole roster's art in front of a
+    // player who has not chosen a character yet.
+    //
+    // It is **139 faces and 30MB** since the maintainer's 2026-09-11 delivery, measured off `assets/`,
+    // against the "5MB" this comment used to claim, which was already stale at ninety-nine.
+    //
+    // Latent rather than live: `ensure` fetches every key in a bundle on its first call
+    // (`loader.ts`), and **nothing on any screen calls it yet**, so a face is fetched today by the
+    // `<img>` that shows it and a crew only ever shows nineteen plus the Bar's eight. The day this
+    // loader is wired up, that is 30MB in front of the crew screen, and splitting the pool or
+    // fetching per face is the call to make then.
     case 'officer':
       return 'crew';
     case 'district':

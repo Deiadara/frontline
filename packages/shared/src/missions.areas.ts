@@ -54,7 +54,7 @@ export function concurrentMissionSlots(level: number): number {
  * The three jobs an area offers, and the mix they come in.
  *
  * **One battle and two standard, or two battle and one standard**, decided per area on a coin the
- * area's own id flips. That is the board's rule and it is a good one: a board of three fights is a
+ * area's own id flips. That is the maintainer's rule and it is a good one: a board of three fights is a
  * board a crew with no army cannot read, and a board of three scrap runs is a board nobody with an
  * army wants. Every board has both kinds on it, and half of them lead with the fighting.
  *
@@ -190,7 +190,7 @@ export function missionXp(template: MissionTemplate, totalMinutes: number, level
 /**
  * The share of it a run that came home empty still pays.
  *
- * A fifth, which is the board's figure. A failed run taught the crew something, and a level curve
+ * A fifth, which is the maintainer's figure. A failed run taught the crew something, and a level curve
  * that paid nothing at all for a bad day would make the safest job on the board the only one worth
  * taking. Resources are a different matter: a failure banks none, whatever kind it was.
  */

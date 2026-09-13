@@ -64,6 +64,19 @@ export class LiveHub {
     for (const userId of new Set(userIds)) this.publish(userId, kind, now);
   }
 
+  /**
+   * Tell every open tab, whoever owns it.
+   *
+   * For the kinds that name the shared world (`world`, `market`, `bar`): a location changing hands
+   * is a fact about the map, and every player looking at the map is looking at the same one. Sent
+   * to accounts, not sockets, so a player with three tabs open is told on all three and a player
+   * with none costs nothing. What is sent is a nudge with no payload, so nothing private crosses
+   * over: each tab refetches through its own reads and its own fog.
+   */
+  broadcast(kind: LiveEventKind, now: Date): void {
+    for (const userId of [...this.#listeners.keys()]) this.publish(userId, kind, now);
+  }
+
   /** How many sockets are open. Read by the tick to skip work nobody is waiting on, and by tests. */
   connectionCount(): number {
     let total = 0;

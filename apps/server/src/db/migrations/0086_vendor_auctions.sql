@@ -1,4 +1,4 @@
--- The Runner's barrow becomes an auction (market extension, board 2026-09-08).
+-- The Runner's barrow becomes an auction (market extension, maintainer 2026-09-08).
 --
 -- Number allocated under INTERFACES.md R6/R9: do not renumber, the runner keys
 -- `schema_migrations` on the file name and a rename re-applies the migration.

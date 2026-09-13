@@ -52,6 +52,7 @@ import {
   TRAINING_COST_PER_LOCATION_LEVEL,
   TRAINING_SPEED_PER_LOCATION_LEVEL,
   homeTrainingBonus,
+  TRAINING_CANCEL_REFUND,
   TRAINING_CANCEL_WINDOW,
   TRAINING_MAX_BATCH,
   TrainingQueueSchema,
@@ -316,7 +317,7 @@ describe('unlocking them (§A5)', () => {
     expect(starters.length).toBeLessThan(UNIT_CATALOG.length / 3);
   });
 
-  /** §B6: exactly the twelve the board named hang off the Gauntlet, and each on a real level. */
+  /** §B6: exactly the twelve the maintainer named hang off the Gauntlet, and each on a real level. */
   it('gates the board’s twelve on the Gauntlet and nothing else', () => {
     const gated = UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) !== null).map(
       (unit) => unit.id,
@@ -727,9 +728,10 @@ describe('changing your mind (§A5)', () => {
     expect(trainingBatchProgress(batch, done)).toMatchObject({ done: 10, nextMs: 0 });
   });
 
-  it('hands back ninety-five percent of what was actually charged, and never more', () => {
+  it('hands back ninety percent of what was actually charged, and never more', () => {
     const batch = order('a', 'razors', 4, now, 600, { caps: 160, supplies: 40 });
-    expect(trainingRefund(batch)).toEqual({ caps: 152, supplies: 38 });
+    // Ninety percent, the same share everything cancellable gives back (`time/cancel.ts`).
+    expect(trainingRefund(batch)).toEqual({ caps: 144, supplies: 36 });
     for (const [key, amount] of Object.entries(trainingRefund(batch))) {
       expect(amount, key).toBeLessThan(batch.paid[key as keyof typeof batch.paid] ?? 0);
     }
@@ -746,7 +748,9 @@ describe('changing your mind (§A5)', () => {
     const cheaperNow = trainingCost(razors, 4, 40);
     expect(cheaperNow.caps ?? 0).toBeLessThan(paidFull.caps ?? 0);
     const batch = order('a', 'razors', 4, now, 600, paidFull);
-    expect(trainingRefund(batch).caps).toBe(Math.floor((paidFull.caps ?? 0) * 0.95));
+    expect(trainingRefund(batch).caps).toBe(
+      Math.floor((paidFull.caps ?? 0) * TRAINING_CANCEL_REFUND),
+    );
   });
 
   /** A row written before the price was recorded: nothing to refund against, so nothing doing. */

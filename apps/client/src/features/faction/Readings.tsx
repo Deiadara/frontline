@@ -1,5 +1,6 @@
 import {
   MAX_FACTION_MEMBERS,
+  averageLevel,
   formatCountdown,
   type AllyBattle,
   type FactionResponse,
@@ -41,10 +42,25 @@ export function Readings({
 }) {
   const seats = data.members.length;
   const vacancies = Math.max(0, MAX_FACTION_MEMBERS - seats);
-  /* §J8: what the table has *earned*, which is not the sum of what the people at it are holding.
-     The wallet sum falls when somebody buys notoriety and jumps when a rich stranger joins; this is
-     the same figure the standings rank factions by, read off the same field. */
-  const earned = data.members.reduce((total, member) => total + member.infamyEarned, 0);
+  /*
+   * §J8: what the table has earned, off the faction itself.
+   *
+   * Not the sum of what the people at it are holding, which falls the moment somebody buys
+   * notoriety and jumps when a rich stranger sits down. And not the sum of the members' *earned*
+   * rows either, which is what this used to add up: that figure drops when somebody leaves, and
+   * the faction's own total never does, so the screen and the standings quoted two different
+   * numbers for one thing. This is the field the standings rank factions by, read off the same
+   * place they read it (maintainer request, 2026-09-12).
+   */
+  const earned = data.faction?.infamyEarned ?? 0;
+  /*
+   * The mean level at the table, as a whole number (maintainer request, 2026-09-12).
+   *
+   * Computed off the roster on every render rather than stored, which is the whole of what makes
+   * it move when a seat changes hands. `averageLevel` is shared with the standings and the public
+   * faction file so the three cannot round it differently.
+   */
+  const meanLevel = averageLevel(data.members.map((member) => member.level));
   /* The population the table's battle units take up, not a head count: every fighting body
      counts against the beds in somebody's district (`supplyUsed`), and a Juggernaut takes more of
      them than a Razor. The hover says so. */
@@ -59,7 +75,7 @@ export function Readings({
       data-testid="faction-readings"
     >
       <OnArt className="pointer-events-auto w-full p-1.5">
-        <ul className="grid grid-cols-4 gap-1" data-testid="faction-tally">
+        <ul className="grid grid-cols-5 gap-1" data-testid="faction-tally">
           <Reading
             testId="dial-seats"
             icon="faction"
@@ -80,6 +96,13 @@ export function Readings({
             label="Earned"
             value={Math.round(earned).toLocaleString()}
             note="Infamy won in battle by the people at this table. It is what the standings rank factions by, and it is not the same as what anybody is holding in their pocket."
+          />
+          <Reading
+            testId="dial-level"
+            icon="crew"
+            label="Av. level"
+            value={String(meanLevel)}
+            note="The average level of everybody at this table, rounded to a whole number. It moves the moment somebody joins or leaves, and it is what a rival reads to know what walking into this faction costs."
           />
           <Reading
             testId="dial-fights"

@@ -98,25 +98,41 @@ describe('the live channel', () => {
     expect(keys).not.toContain(JSON.stringify(['bar']));
   });
 
-  it('refetches the screen on connect, since it heard nothing while it was down', async () => {
-    const stream = fakeStream();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(stream.body, { status: 200 }));
+  /**
+   * The catch-up refetch is for the gap while the channel was down, and the first connection of
+   * a page load has no gap behind it: every screen has just been read. Firing it there doubled
+   * every request on the page at the moment the page was busiest.
+   */
+  it('refetches the screen on a reconnect, and not on the first connection', async () => {
+    const first = fakeStream();
+    const second = fakeStream();
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(first.body, { status: 200 }))
+      .mockResolvedValue(new Response(second.body, { status: 200 }));
     const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const catchUps = () =>
+      invalidate.mock.calls.filter((call) => call[0]?.refetchType === 'active').length;
 
     const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
     await waitFor(() => expect(result.current).toBe('live'));
 
-    // Nothing yet: response headers are not a connection. A proxy that accepts the request and
-    // closes the body produces exactly this state, and it is not one to refetch the game on.
+    // The server's `ready` frame, which is the first thing it writes. A first connection, so
+    // nothing was missed and nothing is refetched.
+    first.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
+    await new Promise((resolve) => setTimeout(resolve, 30));
     expect(invalidate).not.toHaveBeenCalled();
 
-    // The server's `ready` frame, which is the first thing it writes.
-    stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
-    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    first.close();
+    await waitFor(() => expect(result.current).toBe('offline'));
+    await waitFor(() => expect(result.current).toBe('live'), { timeout: 5_000 });
+    // Headers are not a connection (a proxy that accepts and closes the body produces exactly
+    // this state), so still nothing until the second stream delivers a byte.
+    expect(catchUps()).toBe(0);
 
+    second.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
     // No key, so everything is stale, but only what is mounted refetches now: the shell prefetches
     // around eight screens and a wifi handover should not fire all of them.
-    expect(invalidate.mock.calls.some((call) => call[0]?.refetchType === 'active')).toBe(true);
+    await waitFor(() => expect(catchUps()).toBe(1));
   });
 
   /**
@@ -157,12 +173,8 @@ describe('the live channel', () => {
 
     const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
     await waitFor(() => expect(result.current).toBe('live'));
-    // The catch-up refetch fires on the first frame the connection delivers, whatever that frame
-    // is, so it is spent here before the heartbeat is measured.
-    stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
-    await waitFor(() => expect(invalidate).toHaveBeenCalled());
-    invalidate.mockClear();
 
+    stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
     stream.push(': beat\n\n');
     stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
     await new Promise((resolve) => setTimeout(resolve, 30));

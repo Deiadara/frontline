@@ -32,27 +32,41 @@ describe('OverseerPortrait', () => {
 });
 
 /**
- * The `fill` box is the shape of the delivery, so `object-cover` has nothing to crop.
+ * The `fill` box takes the whole frame, and aims the crop that costs.
  *
- * `OverseerProfilePage` is the one screen that is *about* the portrait, and its comment promises
- * "nothing gets cut, at any size". The box was `aspect-[3/4]` and the delivered files are 928x1392,
- * which is 2:3, so the image was scaled by 0.75 / 0.667 = 1.125 and 11% of its height was thrown
- * away, half off the top of the head.
+ * It used to be `aspect-[2/3]`, the delivery's own shape, so `object-cover` had nothing to crop
+ * and nothing was ever cut. The board reversed that on 2026-09-13: a box shaped like the picture
+ * is a box that does not fill the panel, and on a 720-tall viewport the overseer's file showed a
+ * 227px painting sitting in the middle of a 330px rail.
  *
- * Pinned against `ASSET_CLASS_SPECS.portrait`'s own pixel dimensions rather than against the string
- * `'2:3'`: that spec is the record of what the board is asked to deliver, and its `aspect` *label*
- * says `'3:4'` beside a 1024x1536 that is 2:3, which is exactly how the box came to be wrong.
+ * So the box is the parent's, and `object-top` is the part that keeps the reversal honest. The
+ * deliveries are 928x1392 with the head in the top half; a `fill` box on a short viewport is
+ * nearly square, and a *centred* cover crop of a nearly-square box off a 2:3 picture takes its
+ * first bite out of the top of the head. Both halves are pinned: the box fills, and the crop is
+ * anchored where the faces are.
  */
-describe('the fill box against the delivered shape', () => {
-  it('is the ratio the portrait class is delivered at', () => {
+describe('the fill box', () => {
+  it('takes the whole frame and crops off the bottom rather than the head', () => {
     const { width, height } = ASSET_CLASS_SPECS.portrait;
-    expect(width / height).toBeCloseTo(2 / 3, 5);
+    expect(width / height, 'the class is still delivered taller than 3:4').toBeCloseTo(2 / 3, 5);
+    deliveredUrl.mockReturnValue('/assets/portrait-overseer-1.webp');
 
     const { container } = render(
       <OverseerPortrait portraitId="overseer-1" archetype="enforcer" aspect="fill" />,
     );
     const box = container.firstElementChild;
-    expect(box).toHaveClass(`aspect-[${width / 512}/${height / 512}]`);
+    expect(box).toHaveClass('h-full');
+    expect(box).toHaveClass('w-full');
+    expect(box?.className, 'a fixed ratio would put the dead space back').not.toMatch(/aspect-/);
+    expect(container.querySelector('img')).toHaveClass('object-top');
+  });
+
+  it('leaves the fixed-ratio crops centred, which is right for a box shaped like the picture', () => {
+    deliveredUrl.mockReturnValue('/assets/portrait-overseer-1.webp');
+    const { container } = render(
+      <OverseerPortrait portraitId="overseer-1" archetype="enforcer" aspect="portrait" />,
+    );
+    expect(container.querySelector('img')).not.toHaveClass('object-top');
   });
 
   it('leaves the avatar crops alone, which are deliberate', () => {

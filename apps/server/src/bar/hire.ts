@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { tallyOfficerHired } from '../feats/tally.js';
 import {
   askingWage,
   assessJoin,
   buildingLevel,
   dismissalFee,
+  officerPortraitId,
   payrollBonusPercent,
   payrollFits,
   payrollLedger,
@@ -41,6 +43,11 @@ export interface SignInput {
   /** §H7: the price the table closed at, which is the city's number and not this crew's. */
   price: number;
   now: Date;
+  /**
+   * The face they sign with: the one the Bar showed on their card, free in the whole city
+   * (`crew/faces.ts`). Falls back to the hashed face when a caller has none to hand.
+   */
+  portraitId?: string;
 }
 
 /** Why a crew cannot take the person they just won. */
@@ -49,6 +56,10 @@ export const HIRE_REFUSALS = [
   'no_slots',
   'requirement',
   'level',
+  // The two doors the standout seats ask about (§H3, 2026-09-11). Named rather than folded into
+  // `requirement`, because the close's reason is what the log and the bell carry.
+  'infamy',
+  'faction',
   'no_payroll',
 ] as const;
 export type HireRefusal = (typeof HIRE_REFUSALS)[number];
@@ -64,11 +75,36 @@ export type SignResult =
       payroll: PayrollLedger;
     };
 
-/** §H3 judged against this crew: the one place the two doors are read for a base. */
-export function assessAgainst(base: Base, recruit: BarCharacter): ReturnType<typeof assessJoin> {
+/**
+ * What the crew's badge has earned, ever, or zero for a crew in no faction (§J8).
+ *
+ * Read through the repositories rather than off the base, because a faction is not part of a
+ * district: it is a table of its own that a crew joins and leaves. Zero for somebody with no
+ * membership, which is what makes the faction door in `assessJoin` shut for them.
+ */
+export function factionInfamyOf(repos: Repositories, base: Base): number {
+  const membership = repos.factions.membershipOf(base.ownerId);
+  if (!membership) return 0;
+  return repos.factions.find(membership.factionId)?.infamyEarned ?? 0;
+}
+
+/**
+ * §H3 judged against this crew: the one place the four doors are read for a base.
+ *
+ * `factionInfamy` is passed rather than looked up, because the two live callers already know it and
+ * the third is a screen projecting eight recruits against one crew: reading the faction table once
+ * per room beats once per person.
+ */
+export function assessAgainst(
+  base: Base,
+  recruit: BarCharacter,
+  factionInfamy = 0,
+): ReturnType<typeof assessJoin> {
   return assessJoin(recruit.requirement, {
     notoriety: base.economy.notoriety,
     level: base.level,
+    infamy: base.economy.infamy,
+    factionInfamy,
   });
 }
 
@@ -152,6 +188,27 @@ export function ledgerFor(base: Base, stepDiscountPercent = 0): PayrollLedger {
 }
 
 /**
+ * Every §H3 door, in the order a player should be told about it, as the reason the close records.
+ *
+ * Derived from `JOIN_BLOCKERS` rather than written out, and that is the fix rather than a tidy-up.
+ * It used to be two `if`s naming `notoriety` and `level`, so when the standout seats added the
+ * wallet and the badge (2026-09-11) the close silently stopped reading them: `blockers` came back
+ * `['infamy']`, neither `if` matched, and `refusalFor` returned null. The bid gate refused the
+ * same crew at the table (`bar/auction.ts` reads `interested`), so an officer whose card says they
+ * will not work for you at any price was handed over at midnight anyway. Reachable in ordinary
+ * play, because infamy is a wallet that goes down: bid while you hold it, spend it, win them.
+ *
+ * A record over the blocker union, so a door added to `JOIN_BLOCKERS` fails to compile here until
+ * it has a reason of its own.
+ */
+const REFUSAL_FOR_BLOCKER: Readonly<Record<JoinBlocker, HireRefusal>> = {
+  notoriety: 'requirement',
+  level: 'level',
+  infamy: 'infamy',
+  faction: 'faction',
+};
+
+/**
  * §H3 and §H8: everything that has to be true before this crew can put somebody on the books.
  *
  * Ordered by what a player most wants to be told. The same list gates a *bid*
@@ -167,9 +224,10 @@ function refusalFor(
   if (base.commanders.some((officer) => officer.id === recruit.id)) return 'already_hired';
   // §H8: 2 at the start, +1 per level, read off W6's grant table rather than restated here.
   if (base.commanders.length >= slots) return 'no_slots';
-  if (blockers.includes('notoriety')) return 'requirement';
-  if (blockers.includes('level')) return 'level';
-  return null;
+  // `blockers` already arrives in the order `assessJoin` puts them in, which is the order a player
+  // should read them, so the first one is the one to report.
+  const shut = blockers[0];
+  return shut === undefined ? null : REFUSAL_FOR_BLOCKER[shut];
 }
 
 /**
@@ -183,7 +241,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
   const { base, userId, recruit, now } = input;
   const price = Math.max(0, Math.round(input.price));
 
-  const { blockers } = assessAgainst(base, recruit);
+  const { blockers } = assessAgainst(base, recruit, factionInfamyOf(repos, base));
   const refusal = refusalFor(base, recruit, blockers, recruitSlotsFor(repos, base));
   if (refusal) return { kind: 'refused', reason: refusal };
 
@@ -207,6 +265,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
     // §H7: what the book is charged and what the crew card prints, which is the closing price
     // after this crew's own negotiators have been at it. The whole of the relationship now.
     weeklyWage: wage,
+    portraitId: input.portraitId ?? officerPortraitId(recruit.id),
   };
 
   const signed: Base = {
@@ -230,6 +289,9 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
     recruitId: recruit.id,
     hiredAt: now.toISOString(),
   });
+  // Feats: the signing, counted. `bar_hires` has recorded this since 0012 and nothing has
+  // ever read it; a counter is one integer instead of a scan over a table that only grows.
+  tallyOfficerHired(repos, base.id);
 
   return {
     kind: 'signed',

@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useMe } from './lib/queries';
 import { useSoundLayer } from './lib/sound';
+import { installLastPress } from './lib/lastPress';
 import { useSession } from './store/session';
 import { TooltipLayer } from './components/ui/TooltipLayer';
 import { AuthScreen } from './screens/AuthScreen';
@@ -24,15 +26,17 @@ import { MissionsPage } from './features/missions/MissionsPage';
 import { ResearchPage } from './features/research/ResearchPage';
 import { TrainingPage } from './features/overseer/TrainingPage';
 import { OverseerProfilePage } from './features/overseer/OverseerProfilePage';
+import { CrewProfilePage } from './features/profile/CrewProfilePage';
+import { FactionProfilePage } from './features/faction/FactionProfilePage';
 import { MarketPage } from './features/market/MarketPage';
 import { OffersPage } from './features/market/OffersPage';
 import { BlackMarketPage } from './features/market/BlackMarketPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { InventoryPage } from './features/inventory/InventoryPage';
-import { WorkshopPage } from './features/workshop/WorkshopPage';
 import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
 import { GaragePage } from './features/garage/GaragePage';
+import { FeatsPage } from './features/feats/FeatsPage';
 import {
   RequireAuth,
   RequireGuest,
@@ -73,6 +77,9 @@ export default function App() {
   // autoplay policy: see `lib/sound.ts`. A hook rather than a mounted component because it also
   // has to read the account's volume off `/me`.
   useSoundLayer();
+  // And one more, for where the last press landed: a spend's receipt floats off that button
+  // rather than off the chip. See `lib/lastPress.ts`.
+  useEffect(() => installLastPress(), []);
 
   return (
     <BootGate>
@@ -130,8 +137,8 @@ export default function App() {
               </RequireLevel>
             }
           />
-          {/* §I1d: both doors of the archive are the same screen. The section follows the URL,
-              so a link into the documents lands on the documents. */}
+          {/* §I1d: all three tabs of the archive are the same screen. The section follows the
+              URL, so a link into the documents lands on the documents. */}
           <Route
             path="research"
             element={
@@ -142,6 +149,14 @@ export default function App() {
           />
           <Route
             path="research/blueprints"
+            element={
+              <RequireLevel area="research">
+                <ResearchPage />
+              </RequireLevel>
+            }
+          />
+          <Route
+            path="research/reimagining"
             element={
               <RequireLevel area="research">
                 <ResearchPage />
@@ -159,6 +174,11 @@ export default function App() {
             }
           />
           <Route path="overseer" element={<OverseerProfilePage />} />
+          <Route path="crews/:id" element={<CrewProfilePage />} />
+          {/* A faction's public file, beside a crew's and named the same way: plural noun, the id
+              the link carried. `faction` (singular) above is your own table and stays where it is,
+              so bookmarks of it keep working. */}
+          <Route path="factions/:id" element={<FactionProfilePage />} />
           <Route
             path="market"
             element={
@@ -192,11 +212,17 @@ export default function App() {
             path="inventory/blueprints"
             element={<Navigate to="/game/research/blueprints" replace />}
           />
-          <Route path="workshop" element={<WorkshopPage />} />
-          {/* §B9: the Scrapyard's own page, reached from the plot's dialog rather than the nav. */}
+          {/* The Workshop folded into the Scrapyard (maintainer request, 2026-09-10). The old path is
+              in bookmarks and in old notifications, so it redirects rather than 404s. */}
+          <Route path="workshop" element={<Navigate to="/game/scrapyard" replace />} />
+          {/* §B9: the Scrapyard's own page: the nav's door, and the plot's dialog. */}
           <Route path="scrapyard" element={<ScrapyardPage />} />
           {/* §B11: the Garage has a page rather than a dialog, because its whole value is a list. */}
           <Route path="garage" element={<GaragePage />} />
+          {/* Feats (maintainer request, 2026-09-13). No `RequireLevel`: the board is the one screen
+              that is meant to be readable from the first minute, because half of what is on it is
+              what a new crew is about to do anyway. */}
+          <Route path="feats" element={<FeatsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

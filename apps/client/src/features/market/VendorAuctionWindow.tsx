@@ -4,7 +4,7 @@ import {
   ITEM_RARITY_LABELS,
   formatClock,
   nextLotBid,
-  type ItemId,
+  type ItemSpec,
   type VendorAuction,
   type VendorOffer,
 } from '@frontline/shared';
@@ -20,7 +20,18 @@ import { countdownText, LAST_CALL_MS } from '../bar/AuctionParts';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 
 /**
- * Bidding on a lot at the barrow (market extension, board 2026-09-08).
+ * The catalogue entry behind a Runner's line, or nothing for an id the catalogue lacks.
+ *
+ * `ITEM_CATALOG` is total over `ItemId` and the line's item is a plain string off the wire. The
+ * lookups used to cast it, which turned an id the catalogue had never heard of (a build older
+ * than the item, a fixture) into `undefined.kind` and took the whole barrow down with it.
+ */
+export function lotSpec(item: string): ItemSpec | undefined {
+  return (ITEM_CATALOG as Partial<Record<string, ItemSpec>>)[item];
+}
+
+/**
+ * Bidding on a lot at the barrow (market extension, maintainer 2026-09-08).
  *
  * The Bar's bidding screen with the sealed half hour taken out, because a visit is two hours and
  * a secret last number is a game for a day. One lot, drawn as a table: what it is down the left,
@@ -42,7 +53,7 @@ export function VendorAuctionWindow({
 }) {
   const me = useMe();
   const zone = me.data?.user.timezone ?? GAME_TIMEZONE;
-  const spec = ITEM_CATALOG[offer.line.item as ItemId];
+  const name = lotSpec(offer.line.item)?.name ?? offer.line.item;
   const { auction } = offer;
 
   return (
@@ -68,7 +79,7 @@ export function VendorAuctionWindow({
             id="lot-title"
             className="neon min-w-0 break-words font-stamp text-[18px] leading-tight"
           >
-            {spec.name}
+            {name}
           </h2>
         </span>
         <LotClock auction={auction} now={now} size="lg" testId="lot-clock" />
@@ -81,7 +92,7 @@ export function VendorAuctionWindow({
         <LotDossier offer={offer} />
         <div className="flex min-w-0 flex-col gap-3">
           <LotStanding auction={auction} />
-          <LotBidPanel auction={auction} name={spec.name} caps={caps} now={now} />
+          <LotBidPanel auction={auction} name={name} caps={caps} now={now} />
           <LotHistory auction={auction} zone={zone} />
         </div>
       </div>
@@ -91,7 +102,14 @@ export function VendorAuctionWindow({
 
 /** What the thing is, on the left: the art, the rarity, the line, and what the catalogue says it is worth. */
 function LotDossier({ offer }: { offer: VendorOffer }) {
-  const spec = ITEM_CATALOG[offer.line.item as ItemId];
+  const spec = lotSpec(offer.line.item);
+  if (spec === undefined) {
+    return (
+      <p className="font-body text-[13px] italic text-ink-300">
+        The catalogue has no entry for {offer.line.item}.
+      </p>
+    );
+  }
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 gap-4">
@@ -290,7 +308,7 @@ function LotHistory({ auction, zone }: { auction: VendorAuction; zone: string })
 }
 
 /**
- * The one control: a figure and a button, with the three quick steps a player uses instead of
+ * The one control: a figure and a button, with the two quick raises a player uses instead of
  * typing. Floored at the lot's price rather than at the standing minimum, for the reason the Bar
  * gives: the minimum is a race and the server is the authority on whether a bid cleared it, so a
  * figure under it is warned about before the press and refused in the server's words after.
@@ -348,16 +366,9 @@ function LotBidPanel({
         />
         <ResourceIcon kind="caps" className="h-5 w-5 shrink-0" />
       </div>
+      {/* Two quick raises; the "+ 1 step" button went at the maintainer's request (2026-09-11), the
+          field's own arrows already step by the legal increment. */}
       <div className="flex flex-wrap gap-1.5">
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={refusal !== null}
-          onClick={() => setAmount((current) => current + stepFrom(current))}
-          data-testid="lot-step"
-        >
-          + 1 step
-        </Button>
         <Button size="sm" variant="ghost" disabled={refusal !== null} onClick={raiseBy(5)}>
           + 5%
         </Button>
