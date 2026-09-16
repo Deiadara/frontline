@@ -58,7 +58,7 @@ const bare = (unit: Parameters<typeof effectiveStats>[0]) =>
     noTerritoryEffects(),
   );
 
-/** Bodies lost as a fraction of bodies brought. */
+/** Units lost as a fraction of units brought. */
 function lossFraction(side: Simulation['attacker']): number {
   const started = side.stacks.reduce((total, stack) => total + stack.started, 0);
   const alive = side.stacks.reduce((total, stack) => total + stack.alive, 0);
@@ -105,7 +105,7 @@ describe('calibration against the reference curve', () => {
    * player from attacking for free: the cost of winning has to climb steeply as the fight gets
    * closer. These four assertions pin that and nothing else.
    */
-  it('never costs the winner more than a fight to the last body would', () => {
+  it('never costs the winner more than a fight to the last unit would', () => {
     for (const [attackers, defenders] of [
       [40, 10],
       [40, 20],
@@ -211,7 +211,7 @@ describe('the loop itself', () => {
     expect(attackerWins).toBeLessThan(45);
   });
 
-  it('never lets a side finish with more bodies than it brought', () => {
+  it('never lets a side finish with more units than it brought', () => {
     const simulation = fight(army({ razors: 30, breakers: 5 }), army({ wardens: 20 }));
     for (const side of [simulation.attacker, simulation.defender]) {
       for (const stack of side.stacks) expect(stack.alive).toBeLessThanOrEqual(stack.started);
@@ -227,7 +227,7 @@ describe('the loop itself', () => {
 
 describe('the sheet actually drives the result', () => {
   /** The whole point of replacing the coin flip: supply-for-supply, better units win. */
-  it('beats rabble with regulars at the same supply cost', () => {
+  it('beats rabble with regulars at the same unit-slot cost', () => {
     const razors = findUnit('razors');
     const wardens = findUnit('wardens');
     expect(razors && wardens).toBeTruthy();
@@ -237,8 +237,8 @@ describe('the sheet actually drives the result', () => {
     let regularsHeld = 0;
     for (let seed = 0; seed < 20; seed += 1) {
       const simulation = fight(
-        army({ razors: count * wardens.supply }),
-        army({ wardens: count * razors.supply }),
+        army({ razors: count * wardens.unitSlots }),
+        army({ wardens: count * razors.unitSlots }),
         `quality-${seed}`,
       );
       if (simulation.winner === 'defender') regularsHeld += 1;
@@ -268,7 +268,7 @@ describe('regressions', () => {
       unit: razors,
       effective: { ...bare(razors), vitality: 45 },
       alive: 10,
-      // Ten bodies at 40% health. A rebuild would put the survivors back to 45 each.
+      // Ten units at 40% health. A rebuild would put the survivors back to 45 each.
       pool: 180,
       morale: 0,
       brokeAt: 1,
@@ -289,7 +289,7 @@ describe('regressions', () => {
     expect(wounded.pool / wounded.alive).toBeCloseTo(before.perBody, 6);
   });
 
-  it('never leaves a stack holding more health than its bodies can carry', () => {
+  it('never leaves a stack holding more health than its units can carry', () => {
     for (let seed = 0; seed < 30; seed += 1) {
       const simulation = fight(
         army({ razors: 30, sparks: 10 }),
@@ -480,7 +480,7 @@ describe('medics undo part of a round before anybody counts it', () => {
    * The positive control: the same line, the same enemy, the same seed, medics or not.
    *
    * The line is held *constant* rather than traded against the medics, because this test is about
-   * whether the mechanic reaches the damage at all. Whether it is worth its supply is a different
+   * whether the mechanic reaches the damage at all. Whether it is worth its unit slots is a different
    * question and a different measurement (see the Stitchers sheet).
    */
   it('leaves a line holding more than it would have without them', () => {
@@ -604,13 +604,13 @@ describe('a tracking sheet answers an evasive one', () => {
 /**
  * §D3: intimidation silences the shakiest men before a shot is fired.
  *
- * The board's rule: a side's nerve is the morale of every body in it, the menace against it is the
- * intimidation of every body opposite, and where menace is greater the difference is spent
- * silencing bodies cheapest-first. A silenced body still stands in the line and still takes fire;
+ * The board's rule: a side's nerve is the morale of every unit in it, the menace against it is the
+ * intimidation of every unit opposite, and where menace is greater the difference is spent
+ * silencing units cheapest-first. A silenced unit still stands in the line and still takes fire;
  * it just does not shoot.
  */
 describe('who is too cowed to fight (§D3)', () => {
-  /** A stack of `alive` bodies with the morale and intimidation dictated, everything else inert. */
+  /** A stack of `alive` units with the morale and intimidation dictated, everything else inert. */
   const cowStack = (alive: number, morale: number, intimidation: number): Stack => {
     const spec = findUnit('razors');
     if (!spec) throw new Error('fixture: no razors in the catalogue');
@@ -637,10 +637,10 @@ describe('who is too cowed to fight (§D3)', () => {
     ({ stacks, luck: 0, swing: 1, name: 'side', defending: false }) as unknown as SideState;
 
   /**
-   * The board's own worked example, to the body.
+   * The board's own worked example, to the unit.
    *
-   * Two bodies at 10 morale and one at 20 is a nerve of 40. One body at 60 intimidation is a menace
-   * of 60. The excess is 20, which buys exactly the two bodies at 10. The body at 20 fights.
+   * Two units at 10 morale and one at 20 is a nerve of 40. One unit at 60 intimidation is a menace
+   * of 60. The excess is 20, which buys exactly the two units at 10. The unit at 20 fights.
    */
   it('silences exactly what the excess pays for, cheapest nerve first', () => {
     const weak = cowStack(2, 10, 0);
@@ -649,8 +649,8 @@ describe('who is too cowed to fight (§D3)', () => {
 
     expect(nerve(side)).toBe(40);
     expect(cow(side, 60)).toBe(2);
-    expect(weak.suppressed, 'the two shaky bodies should be silenced').toBe(2);
-    expect(steady.suppressed, 'the steady body should still fight').toBe(0);
+    expect(weak.suppressed, 'the two shaky units should be silenced').toBe(2);
+    expect(steady.suppressed, 'the steady unit should still fight').toBe(0);
   });
 
   it('silences nobody when the menace does not clear the nerve', () => {
@@ -661,27 +661,27 @@ describe('who is too cowed to fight (§D3)', () => {
     expect(weak.suppressed).toBe(0);
   });
 
-  it('sums both quantities over bodies, so a big army is proportionally braver', () => {
+  it('sums both quantities over units, so a big army is proportionally braver', () => {
     const small = sideOf([cowStack(2, 50, 0)]);
     const large = sideOf([cowStack(20, 50, 0)]);
-    // One terrifying body cannot cow a legion: the same menace that breaks the small side is
+    // One terrifying unit cannot cow a legion: the same menace that breaks the small side is
     // nothing against the large one.
     expect(cow(small, 150)).toBeGreaterThan(0);
     expect(cow(large, 150)).toBe(0);
   });
 
-  it('takes free bodies first and cannot stall on them', () => {
+  it('takes free units first and cannot stall on them', () => {
     const free = cowStack(3, 0, 0);
     const paid = cowStack(2, 10, 0);
     const side = sideOf([paid, free]);
-    // Nerve 20. A menace of 30 leaves 10, which takes all three zero-morale bodies and then one
+    // Nerve 20. A menace of 30 leaves 10, which takes all three zero-morale units and then one
     // more at 10.
     expect(cow(side, 30)).toBe(4);
     expect(free.suppressed).toBe(3);
     expect(paid.suppressed).toBe(1);
   });
 
-  /** The whole point: silenced bodies are alive, present, and useless. */
+  /** The whole point: silenced units are alive, present, and useless. */
   it('leaves the silenced standing rather than killing them', () => {
     const weak = cowStack(5, 10, 0);
     cow(sideOf([weak]), 100);
@@ -713,7 +713,7 @@ describe('who is too cowed to fight (§D3)', () => {
  *
  * `cow` returning a number that `simulate` threw away was the first version of this, and it is the
  * same class of defect the whole review has been finding: a value computed correctly and consumed
- * by nobody. A player whose line did a third of its damage with every body still standing needs the
+ * by nobody. A player whose line did a third of its damage with every unit still standing needs the
  * fight to say why.
  */
 describe('a fight reports who was cowed', () => {
@@ -729,7 +729,7 @@ describe('a fight reports who was cowed', () => {
 /**
  * Two ways the line was miscounted, both found by running the engine a few thousand times.
  *
- * The cowed stood in the line and took fire, and the count of them never moved: as bodies fell
+ * The cowed stood in the line and took fire, and the count of them never moved: as units fell
  * the silenced number ate the shooters, so a stack that lost half its men had nobody left firing
  * even though three of the five who fell should have been the cowed ones. And the "outnumbered"
  * reading counted porters, so forty Scavengers behind twenty Razors handed every Warden and
@@ -760,7 +760,7 @@ describe('counting the line honestly', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('does not count porters as bodies to be outnumbered by', () => {
+  it('does not count porters as units to be outnumbered by', () => {
     const lastStand = UNIT_MODIFIERS.last_stand.label;
     const reasons = (defending: Army) =>
       fight(army({ wardens: 10 }), defending, 'porters').attacker.stacks[0]?.effective.reasons ??

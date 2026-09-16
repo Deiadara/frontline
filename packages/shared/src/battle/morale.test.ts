@@ -109,7 +109,7 @@ describe('intimidation decides fights, not just morale numbers', () => {
    *
    * So the defender is one army and the only thing that moves is its morale, through the territory
    * bonus the engine already applies as a flat shift. A shaken enemy fights worse for everybody, so
-   * the bare gap proves nothing on its own: Breakers are the control at the same 30 supply, and
+   * the bare gap proves nothing on its own: Breakers are the control at the same 30 unit slots, and
    * what is asserted is that the unit carrying Terror gains *more* from the same collapse.
    */
   it('pays a terror unit more against a shaken line than a unit without it', () => {
@@ -135,7 +135,7 @@ describe('intimidation decides fights, not just morale numbers', () => {
     };
     const gap = (army: Record<string, number>) => survived(army, -30) - survived(army, 40);
 
-    // Hollow Men carry Terror. Breakers do not, and 15 of them is the same 30 supply.
+    // Hollow Men carry Terror. Breakers do not, and 15 of them is the same 30 unit slots.
     const terror = gap({ hollow_men: 6 });
     const control = gap({ breakers: 15 });
     expect(control, 'a shaken line should be easier for anybody').toBeGreaterThan(0.2);

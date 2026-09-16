@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   DEFAULT_BADGE,
   findDistrict,
   findLocation,
@@ -45,6 +46,7 @@ import { MAX_PENDING_DECLARATIONS } from './declare.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
 import { gateFor, holdsDistrictWhole } from '../city/gates.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * The declared-battle loop end to end (GDD §A4, battle rework).
@@ -93,13 +95,16 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // Infamy, losses and loot are all counted to the unit here, and several §F6 signatures move
+  // exactly those, so the crew gets a character rather than a draw.
+  pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   /*
    * Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground: it
@@ -286,7 +291,7 @@ async function deploy(
 }
 
 /**
- * §I4: one trap in a crew's satchel and that crew's name on it, on the defending side of a fight.
+ * §I4: one trap in a crew's inventory and that crew's name on it, on the defending side of a fight.
  *
  * Written onto the deployment row rather than through `/battles/trap`, because this fixture's
  * caller is the attacker and the route answers only for the caller. What `springAnyTrap` reads is
@@ -645,7 +650,7 @@ describe('resolving it (§A4)', () => {
    * Deployment shuts a second before the mark, but the settle that runs the fight is the next tick
    * or read, and a server asleep between the two folded in every column with `arrivesAt` up to
    * `now`: a column that arrived minutes after the hour the fight was called for fought in it.
-   * It turns round instead, and the bodies are back on the books.
+   * It turns round instead, and the units are back on the books.
    */
   it('turns round a column that lands after the mark, rather than folding it into the fight', async () => {
     const stack = await makeStack('late', decided('attacker'));
@@ -761,7 +766,7 @@ describe('resolving it (§A4)', () => {
   /**
    * A fight is atomic, and the trap is what proves it.
    *
-   * `springAnyTrap` takes the trap out of the defender's satchel *before* the engine runs, and
+   * `springAnyTrap` takes the trap out of the defender's inventory *before* the engine runs, and
    * `markResolved` happens after. So a fight that fails in between used to leave the world in a
    * state the rules do not describe: the trap spent, and the fight still on the board to be run
    * again later without one. The world clock is what made that worth fixing rather than noting,
@@ -958,9 +963,14 @@ describe('what a name buys (§D7)', () => {
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
 
-    const broke = await buy(stack, battleId, spec.id);
-    expect(broke.statusCode).toBe(409);
-    expect(errorCode(broke)).toBe('NOT_ENOUGH_INFAMY');
+    // Spent down to nothing *after* the call, which has its own price (§D7): the refusal this
+    // half is about is the boost's, and a crew that could not afford the call never gets to it.
+    const broke = stack.repos.bases.findById(stack.baseId)!;
+    stack.repos.bases.updateEconomy(broke.id, { ...broke.economy, infamy: 0 });
+
+    const refused = await buy(stack, battleId, spec.id);
+    expect(refused.statusCode).toBe(409);
+    expect(errorCode(refused)).toBe('NOT_ENOUGH_INFAMY');
 
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: spec.cost + 10 });
@@ -1228,7 +1238,7 @@ describe('holding a district (§A4)', () => {
 /**
  * §A1 against §A4: an army abroad is an army this crew still feeds.
  *
- * `districtPopulation` counts the roster, the bench and the garrisons on held ground, and the
+ * `districtUnitSlots` counts the roster, the bench and the garrisons on held ground, and the
  * reason it counts garrisons is written on it: leaving them out "would make emptying the district
  * into the city a way to house an army for free". A column on the road and a muster standing on a
  * battlefield are the same argument and were not in the same sum, so sending units out freed their
@@ -1242,18 +1252,18 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
     stack.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
 
     const home = await units(stack);
-    expect(home.supplyUsed).toBeGreaterThan(0);
+    expect(home.unitSlotsUsed).toBeGreaterThan(0);
 
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
     expect((await deploy(stack, battleId, { razors: 4 })).statusCode).toBe(200);
 
     // On the road: off the roster, but still eating.
-    expect((await units(stack)).supplyUsed).toBe(home.supplyUsed);
+    expect((await units(stack)).unitSlotsUsed).toBe(home.unitSlotsUsed);
 
     // Standing on the ground: same argument, same answer.
     land(stack, battleId, new Date());
-    expect((await units(stack)).supplyUsed).toBe(home.supplyUsed);
+    expect((await units(stack)).unitSlotsUsed).toBe(home.unitSlotsUsed);
   });
 
   it('refuses a training order that only fits while the army is away', async () => {
@@ -1270,7 +1280,7 @@ describe('the beds an army abroad still occupies (§A1, §A4)', () => {
     });
 
     const before = await units(stack);
-    const room = before.supplyCap - before.supplyUsed;
+    const room = before.unitSlotsCap - before.unitSlotsUsed;
 
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
@@ -1346,12 +1356,15 @@ describe('what a fight earns the faction', () => {
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 30_000 });
     await readyFight(stack);
+    // What is left of the fortune once the call has taken its price (§D7). Still a fortune, which
+    // is all this test needs: the faction is credited with the fight's pay, not with the wallet.
+    const held = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
 
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
 
     const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
-    expect(after).toBeGreaterThan(30_000);
-    expect(earned(stack, owner)).toBeCloseTo(after - 30_000, 6);
+    expect(after).toBeGreaterThan(held);
+    expect(earned(stack, owner)).toBeCloseTo(after - held, 6);
     expect(earned(stack, owner)).toBeLessThan(1_000);
   });
 
@@ -1426,12 +1439,15 @@ describe('what a fight earns the faction', () => {
     const base = stack.repos.bases.findById(stack.baseId)!;
     stack.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 30_000 });
     await readyFight(stack);
+    // What is left of the fortune once the call has taken its price (§D7). Still a fortune, which
+    // is all this test needs: the faction is credited with the fight's pay, not with the wallet.
+    const held = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
 
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
 
     const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
-    expect(after).toBeGreaterThan(30_000);
-    expect(earned(stack, owner)).toBeCloseTo(after - 30_000, 6);
+    expect(after).toBeGreaterThan(held);
+    expect(earned(stack, owner)).toBeCloseTo(after - held, 6);
     expect(earned(stack, owner)).toBeLessThan(1_000);
   });
 
@@ -1524,7 +1540,7 @@ describe('reading a battle history written by an older build', () => {
  * A single write, no report, nothing to trace it by.
  */
 describe('a district with two crews on it', () => {
-  const bodies = (army: Record<string, number>): number =>
+  const standingUnits = (army: Record<string, number>): number =>
     Object.values(army).reduce((total, count) => total + count, 0);
 
   it('never writes one crew the survivors of another crew’s roster', async () => {
@@ -1564,7 +1580,8 @@ describe('a district with two crews on it', () => {
     }
     stack.repos.bases.updateArmy(rivalId, { razors: 4 }, []);
     const bystanderBefore = stack.repos.bases.findById(bystanderId)!.army;
-    const before = bodies(stack.repos.bases.findById(rivalId)!.army) + bodies(bystanderBefore);
+    const before =
+      standingUnits(stack.repos.bases.findById(rivalId)!.army) + standingUnits(bystanderBefore);
 
     const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
     expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
@@ -1581,9 +1598,9 @@ describe('a district with two crews on it', () => {
      * the bug: it is untouched, and that is precisely the problem. What cannot survive is the sum.
      */
     const after =
-      bodies(stack.repos.bases.findById(rivalId)!.army) +
-      bodies(stack.repos.bases.findById(bystanderId)!.army);
-    expect(after, 'the settle minted bodies across the two crews').toBeLessThanOrEqual(before);
+      standingUnits(stack.repos.bases.findById(rivalId)!.army) +
+      standingUnits(stack.repos.bases.findById(bystanderId)!.army);
+    expect(after, 'the settle minted units across the two crews').toBeLessThanOrEqual(before);
 
     // And the crew that was not named kept exactly what it had: it was never in this fight.
     expect(stack.repos.bases.findById(bystanderId)!.army).toEqual(bystanderBefore);
@@ -1608,7 +1625,7 @@ describe('a district with two crews on it', () => {
  * gate.
  */
 describe('a gate held from a district you do not live in', () => {
-  const bodies = (army: Record<string, number>): number =>
+  const standingUnits = (army: Record<string, number>): number =>
     Object.values(army).reduce((total, count) => total + count, 0);
 
   /** A second real account, through the real routes, so the deploy below is a player's own. */
@@ -1623,13 +1640,9 @@ describe('a gate held from a district you do not live in', () => {
     });
     expect(registered.statusCode, registered.body.slice(0, 200)).toBe(201);
     const token = registered.json<{ token: string }>().token;
-    const chosen = await stack.app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(token),
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(stack.app, token);
     expect(chosen.statusCode, chosen.body.slice(0, 200)).toBe(201);
+    pinOverseer(stack.app, token);
     const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
     // The whole premise. If a later change plants new crews in the Rustyard this fixture stops
     // testing anything, and it should say so rather than quietly pass.
@@ -1702,7 +1715,7 @@ describe('a gate held from a district you do not live in', () => {
     // Nobody died: `decided` names a winner and no losses. The six that marched are owed back, and
     // the four that stayed home were never in it.
     expect(
-      bodies(stack.repos.bases.findById(holder.id)!.army),
+      standingUnits(stack.repos.bases.findById(holder.id)!.army),
       'the winning holder did not get their column back',
     ).toBe(10);
   });

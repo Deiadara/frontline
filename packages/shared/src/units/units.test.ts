@@ -22,12 +22,14 @@ import {
   isSupportUnit,
   unitsInTier,
   locationsTraining,
+  ridingUnitSlots,
   unitRules,
   unitsUnlockedByLocation,
   type UnitSpec,
   type UnitTier,
 } from './catalog.js';
-import { UPGRADE_LINES, upgradedStats, upgradesInLine } from './upgrades.js';
+import { modificationsForUnit } from './modifications.js';
+import { upgradedStats } from './upgrades.js';
 import {
   UNIT_FIGURE_KEYS,
   UNIT_MODIFIERS,
@@ -61,8 +63,8 @@ import {
   armySize,
   maxTrainable,
   splitDueTraining,
-  supplyQueued,
-  supplyUsed,
+  unitSlotsQueued,
+  unitSlotsUsed,
   takeFromArmy,
   trainingArrivedBy,
   trainingBatchProgress,
@@ -76,7 +78,7 @@ import {
   type Army,
 } from './training.js';
 import { BuildQueueSchema } from '../building/queue.js';
-import { POPULATION_PER_LOCATION, districtPopulationCapacity } from '../building/population.js';
+import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from '../building/unit-slots.js';
 import { MAX_LOCATION_LEVEL, noTerritoryEffects, type LocationKind } from '../city/locations.js';
 
 /**
@@ -146,7 +148,7 @@ describe('the catalogue (§A5)', () => {
       }
       expect(unit.stats.vitality, unit.id).toBeGreaterThan(0);
       expect(unit.blurb.length, unit.id).toBeGreaterThan(20);
-      expect(unit.supply, unit.id).toBeGreaterThan(0);
+      expect(unit.unitSlots, unit.id).toBeGreaterThan(0);
       expect(unit.trainSeconds, unit.id).toBeGreaterThan(0);
       expect(Object.keys(unit.cost).length, unit.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
@@ -168,7 +170,7 @@ describe('the catalogue (§A5)', () => {
    * editing content until an arbitrary ordering came out.
    *
    * Specialists and Wonders overlap on every axis: a Wonder takes longer to build and eats about
-   * the same supply while hitting slightly softer. Heavy joined them when §D12i moved the Hollow
+   * the same unit slots while hitting slightly softer. Heavy joined them when §D12i moved the Hollow
    * Men into the wonders: the Heavy tier's own mean is held down by four line-infantry sheets a
    * crew trains off a Gauntlet 4 (Breakers, Wardens, Sluggers, Ironsides), so with 840 seconds of
    * Hollow Man on the other rung the training-time axis inverted by 11%. That inversion is a fact
@@ -196,7 +198,7 @@ describe('the catalogue (§A5)', () => {
        * damage behind 168 hit points and 40 armour is a weaker unit than a Sniper with 455 damage
        * and 85 hit points, which is not what either sheet means and not how the engine settles a
        * fight. `sidePower` in `battle/engine.ts` combines the two for exactly this reason, and it
-       * is the same product Lanchester's square law puts on a body.
+       * is the same product Lanchester's square law puts on a unit.
        *
        * It matters here because the heavy tier's identity is *armour and hit points*, not damage.
        * Asserting that heavies out-damage specialists forces the roster to make a shield-bearer
@@ -205,7 +207,7 @@ describe('the catalogue (§A5)', () => {
        */
       (unit: UnitSpec) => unit.stats.offense * unit.stats.vitality,
       (unit: UnitSpec) => unit.trainSeconds,
-      (unit: UnitSpec) => unit.supply,
+      (unit: UnitSpec) => unit.unitSlots,
     ]) {
       const series = RUNGS.map((rung) => meanOfRung(rung, pick));
       expect([...series].sort((a, b) => a - b)).toEqual(series);
@@ -231,15 +233,17 @@ describe('the catalogue (§A5)', () => {
    * The three exceptions are the open figures: damage, hit points and the bag are counts of a
    * thing, none of them is drawn on a track, and nothing divides them by 100.
    */
-  it('holds every rating inside 0..100, with the whole workshop bolted on', () => {
-    const strongest = UPGRADE_LINES.map((line) => upgradesInLine(line).at(-1)?.id ?? '');
+  it('holds every rating inside 0..100, with every card the unit can take bolted on', () => {
     for (const unit of UNIT_CATALOG) {
-      const kitted = upgradedStats(unit.stats, strongest);
+      const kitted = upgradedStats(
+        unit.stats,
+        modificationsForUnit(unit.id).map((spec) => spec.id),
+      );
       for (const key of UNIT_RATING_KEYS) {
         expect(kitted[key], `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
         expect(kitted[key], `${unit.id}.${key}`).toBeLessThanOrEqual(100);
       }
-      // And the exceptions are real ones rather than stats nobody upgrades: a refit still moves
+      // And the exceptions are real ones rather than stats nobody upgrades: a card still moves
       // all three, it just moves them on a scale with no ceiling to stay under.
       for (const key of UNIT_FIGURE_KEYS) {
         expect(kitted[key], `${unit.id}.${key}`).toBeGreaterThanOrEqual(0);
@@ -508,16 +512,16 @@ const order = (
 
 describe('making them (§A5)', () => {
   /**
-   * §A1: the army comes out of the district's population, which the Quarters raise.
+   * §A1: the army comes out of the district's unit slots, which the Quarters raise.
    *
    * This used to assert a separate Gauntlet-driven army ceiling. There is one pool now, so what
    * has to hold is that a crew with nothing built can still field somebody, and that building
    * where people sleep is what makes room for more of them.
    */
   it('lets a crew with nothing built field a handful, and far more once it has Quarters', () => {
-    const nothing = districtPopulationCapacity([], noTerritoryEffects());
-    const housed = districtPopulationCapacity([building('quarters', 10)], noTerritoryEffects());
-    const wellHoused = districtPopulationCapacity([building('quarters', 20)], noTerritoryEffects());
+    const nothing = districtUnitSlotCapacity([], noTerritoryEffects());
+    const housed = districtUnitSlotCapacity([building('quarters', 10)], noTerritoryEffects());
+    const wellHoused = districtUnitSlotCapacity([building('quarters', 20)], noTerritoryEffects());
     expect(nothing).toBeGreaterThan(0);
     expect(housed).toBeGreaterThan(nothing);
     expect(wellHoused).toBeGreaterThan(housed);
@@ -525,22 +529,25 @@ describe('making them (§A5)', () => {
 
   /** And the ground raises it too, which is what makes taking a location worth beds. */
   it('houses more people for every location the crew holds', () => {
-    const bare = districtPopulationCapacity([building('quarters', 4)], noTerritoryEffects());
-    const holding = districtPopulationCapacity([building('quarters', 4)], {
+    const bare = districtUnitSlotCapacity([building('quarters', 4)], noTerritoryEffects());
+    const holding = districtUnitSlotCapacity([building('quarters', 4)], {
       ...noTerritoryEffects(),
-      populationBonus: POPULATION_PER_LOCATION * 3,
+      unitSlotBonus: UNIT_SLOTS_PER_LOCATION * 3,
     });
-    expect(holding - bare).toBe(POPULATION_PER_LOCATION * 3);
+    expect(holding - bare).toBe(UNIT_SLOTS_PER_LOCATION * 3);
   });
 
   it('counts a Colossus as rather more than one soldier', () => {
     const colossus = findUnit('the_colossus')!;
     const razors = findUnit('razors')!;
-    expect(supplyUsed({ the_colossus: 1 })).toBe(colossus.supply);
-    expect(supplyUsed({ razors: 5 })).toBe(razors.supply * 5);
-    expect(colossus.supply).toBeGreaterThan(razors.supply * 5);
+    expect(unitSlotsUsed({ the_colossus: 1 })).toBe(colossus.unitSlots);
+    expect(unitSlotsUsed({ razors: 5 })).toBe(razors.unitSlots * 5);
+    expect(colossus.unitSlots).toBeGreaterThan(razors.unitSlots * 5);
     expect(armySize({ razors: 5, ghosts: 2 })).toBe(7);
-    expect(supplyUsed({ nonexistent: 99 })).toBe(0);
+    // A retired sheet is billed one slot each, the same floor `ridingUnitSlots` charges it. The
+    // two disagreed until 2026-09-16: the beds ignored a stored row that the vehicles still seated.
+    expect(unitSlotsUsed({ nonexistent: 99 })).toBe(99);
+    expect(unitSlotsUsed({ nonexistent: 99 })).toBe(ridingUnitSlots({ nonexistent: 99 }));
   });
 
   it('discounts a batch in time but never to nothing, and floors the price at one', () => {
@@ -598,8 +605,8 @@ describe('making them (§A5)', () => {
     expect(trainingArrivedBy(batch, at(99_999))).toBe(10);
   });
 
-  /** The settle is a read, so it has to be idempotent: no body is ever handed over twice. */
-  it('hands each body over exactly once across repeated settles', () => {
+  /** The settle is a read, so it has to be idempotent: no unit is ever handed over twice. */
+  it('hands each unit over exactly once across repeated settles', () => {
     const now = new Date('2026-08-14T12:00:00.000Z');
     const at = (seconds: number) => new Date(now.getTime() + seconds * 1000);
     let queue = [order('a', 'razors', 10, now, 450)];
@@ -635,7 +642,7 @@ describe('making them (§A5)', () => {
     const { delivered, pending } = splitDueTraining(queue, now);
     expect(delivered).toEqual([{ unitId: 'razors', count: 2 }]);
     expect(pending.map((entry) => entry.id)).toEqual(['b']);
-    expect(supplyQueued(queue)).toBeGreaterThan(0);
+    expect(unitSlotsQueued(queue)).toBeGreaterThan(0);
   });
 
   /**
@@ -690,7 +697,7 @@ describe('changing your mind (§A5)', () => {
   const at = (progress: number, seconds = 600) =>
     new Date(now.getTime() + progress * seconds * 1000);
 
-  it('shuts the moment the first body walks out, whatever the clock says', () => {
+  it('shuts the moment the first unit walks out, whatever the clock says', () => {
     // A ten-strong batch hands one over at a tenth of its clock, which is the same instant the
     // window would otherwise still be open on. Refunding then would pay for a unit being kept.
     const batch = order('a', 'razors', 10, now, 600, { caps: 400 });
@@ -918,12 +925,12 @@ describe('the bench clock climbs with the campaign', () => {
   });
 
   /**
-   * Seconds per point of supply, which is the figure a player actually feels: a Colossus is one
-   * body and twelve supply, so the honest comparison with a Razor is per point of the army cap it
-   * eats rather than per body.
+   * Seconds per unit slot, which is the figure a player actually feels: a Colossus is one
+   * unit and twelve slots, so the honest comparison with a Razor is per point of the army cap it
+   * eats rather than per unit.
    */
-  it('keeps the clock per point of supply inside one order of magnitude', () => {
-    const perSupply = fighters.map((unit) => unit.trainSeconds / unit.supply);
+  it('keeps the clock per unit slot inside one order of magnitude', () => {
+    const perSupply = fighters.map((unit) => unit.trainSeconds / unit.unitSlots);
     expect(Math.max(...perSupply) / Math.min(...perSupply)).toBeLessThan(20);
   });
 });

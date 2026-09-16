@@ -224,7 +224,7 @@ describe('the hidden role requirement table', () => {
 });
 
 /**
- * INTERFACES R4: the response-body half of the guard (W5/MOU-164).
+ * INTERFACES R4: the response-unit half of the guard (W5/MOU-164).
  *
  * The scans above cover `packages/shared/src`, `apps/client/src` and `apps/client/e2e`. A server
  * route is outside all three, so nothing above would notice the Bar's roster shipping the affinity

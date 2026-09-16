@@ -6,6 +6,7 @@ import {
   type Army,
   type BattleView,
   type UnitLoadouts,
+  modificationsForUnit,
   type UnitOption,
   type UnitsResponse,
 } from '@frontline/shared';
@@ -94,7 +95,7 @@ function option(unitId: string, owned: number): UnitOption {
     affinities: [],
     cost: spec.cost,
     trainSeconds: spec.trainSeconds,
-    supply: spec.supply,
+    unitSlots: spec.unitSlots,
     unlocked: true,
     missing: [],
     owned,
@@ -104,10 +105,10 @@ function option(unitId: string, owned: number): UnitOption {
     slots: Array.from({ length: UNIT_UPGRADE_SLOTS }, () => ({
       upgradeId: null,
       name: '',
-      line: null,
-      tier: 0,
+      rarity: null,
       effect: {},
     })),
+    eligible: modificationsForUnit(unitId).map((card) => card.id),
   };
 }
 
@@ -117,8 +118,8 @@ const roster: UnitsResponse = {
   army: ARMY,
   garrisoned: {},
   abroad: {},
-  supplyUsed: 10,
-  supplyCap: 40,
+  unitSlotsUsed: 10,
+  unitSlotsCap: 40,
   queue: [],
   resources: STARTING_RESOURCES,
   trainingCostReduction: 0,
@@ -272,7 +273,7 @@ describe('a unit that will not board', () => {
   it('is marked once anything is loaded, and it alone', () => {
     open('line', { vehicles: { armoured_car: 1 } }, WALKER);
     expect(screen.getByTestId('walks-the_colossus')).toHaveTextContent('walks');
-    // The bodies that do fit are not marked: the note is about the sheet, not about the fight.
+    // The units that do fit are not marked: the note is about the sheet, not about the fight.
     expect(screen.queryByTestId('walks-razors')).toBeNull();
   });
 

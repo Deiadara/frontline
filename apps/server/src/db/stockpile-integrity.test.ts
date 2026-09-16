@@ -10,6 +10,10 @@ import {
   storageCapacity,
   type Building,
 } from '@frontline/shared';
+import { cpSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from './index.js';
 import { createRepositories, type Repositories } from './repos/index.js';
@@ -587,6 +591,31 @@ describe('a save naming content the game no longer has', () => {
     expect(buildings?.[0]?.modifications).toEqual([]);
   });
 
+  /**
+   * The tiered refits (`armour_2` and its kind) are the live case: migration 0094 clears both
+   * columns, and this is the floor under it for a row it did not reach. A bracket holding a
+   * retired id is emptied in place rather than spliced out, because brackets are positional and
+   * the route insists the next card goes into the first empty one.
+   */
+  it('drops a retired unit card from the stock and empties its bracket, keeping the rest', () => {
+    const read = load('fitted_upgrades_json', ['armour_2', 'taped_grips', 'weapons_3']);
+    expect(read?.fittedUpgrades).toEqual(['taped_grips']);
+
+    const { db, repos } = openStack();
+    const id = seed(repos);
+    db.prepare('UPDATE bases SET unit_loadouts_json = ? WHERE id = ?').run(
+      JSON.stringify({
+        razors: ['armour_2', 'taped_grips', null],
+        sparks: ['cybernetics_3'],
+      }),
+      id,
+    );
+    const loadouts = repos.bases.findById(id)?.unitLoadouts;
+    expect(loadouts?.razors).toEqual([null, 'taped_grips', null]);
+    // Every bracket emptied is a unit forgotten, the way `withSlot` forgets one.
+    expect(loadouts?.sparks).toBeUndefined();
+  });
+
   it('drops an officer whose chair no longer exists, and a perk that does not', () => {
     const officer = createCommander('c1', 'A Name', 'head_spy');
     const gone = { ...officer, id: 'c2', role: 'gone_role' };
@@ -596,6 +625,55 @@ describe('a save naming content the game no longer has', () => {
     const withGhostPerk = load('commanders_json', [{ ...officer, perks: ['gone_perk'] }]);
     expect(withGhostPerk?.commanders).toHaveLength(1);
     expect(withGhostPerk?.commanders[0]?.perks).toEqual([]);
+  });
+
+  /**
+   * Migration 0094: the refit columns are cleared, not converted (maintainer, 2026-09-15).
+   *
+   * Run up to 0093 with a crew holding refits and brackets, then let the full ladder resume, so what
+   * is measured is the migration and not the read-time floor beside it.
+   * Destructive to the save on purpose, and the test says so by asserting on the loss.
+   */
+  it('clears every refit and every bracket when migration 0094 lands', () => {
+    const MIGRATIONS = fileURLToPath(new URL('./migrations/', import.meta.url));
+    const before = mkdtempSync(path.join(tmpdir(), 'frontline-0093-'));
+    try {
+      for (const file of readdirSync(MIGRATIONS)) {
+        if (file.endsWith('.sql') && file < '0094')
+          cpSync(path.join(MIGRATIONS, file), path.join(before, file));
+      }
+      const db = openDatabase(':memory:');
+      dbs.push(db);
+      runMigrations(db, before);
+      const repos = createRepositories(db);
+      const id = seed(repos);
+      db.prepare(
+        'UPDATE bases SET fitted_upgrades_json = ?, unit_loadouts_json = ? WHERE id = ?',
+      ).run(
+        JSON.stringify(['armour_1', 'weapons_2']),
+        JSON.stringify({ razors: ['armour_1', null, 'weapons_2'] }),
+        id,
+      );
+
+      const applied = runMigrations(db);
+      // The first thing the ladder picks up, not the whole tail of it: every migration written
+      // after this one also lands here, and none of them is what this test measures.
+      expect(applied[0]).toBe('0094_unit_modifications.sql');
+      const read = repos.bases.findById(id)!;
+      expect(read.fittedUpgrades).toEqual([]);
+      expect(read.unitLoadouts).toEqual({});
+      // The columns themselves, not only the parsed base: the floor in `rowToBase` would hide a
+      // migration that did nothing.
+      const row = db
+        .prepare(
+          'SELECT fitted_upgrades_json AS stock, unit_loadouts_json AS brackets FROM bases WHERE id = ?',
+        )
+        .get(id) as { stock: string; brackets: string };
+      expect(JSON.parse(row.stock)).toEqual([]);
+      expect(JSON.parse(row.brackets)).toEqual({});
+    } finally {
+      rmSync(before, { recursive: true, force: true });
+    }
   });
 
   /** The other half. Damage is not history, and repairing it silently would hide a real fault. */

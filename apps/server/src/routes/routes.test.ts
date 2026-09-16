@@ -20,6 +20,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleScouting } from '../scouting/scouting.js';
+import { chooseOverseer, offeredOverseers } from '../testing/overseer.js';
 
 type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
 
@@ -71,19 +72,14 @@ function auth(token: string): { authorization: string } {
   return { authorization: `Bearer ${token}` };
 }
 
-async function chooseOverseer(
+async function takeOverseer(
   app: FastifyInstance,
   token: string,
-  presetId = 'enforcer',
-): Promise<{ baseId: string }> {
-  const res = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId },
-  });
-  expect(res.statusCode).toBe(201);
-  return { baseId: res.json<{ base: { id: string } }>().base.id };
+): Promise<{ baseId: string; archetype: string }> {
+  const res = await chooseOverseer(app, token);
+  expect(res.statusCode, res.body.slice(0, 200)).toBe(201);
+  const body = res.json<{ base: { id: string }; overseer: { archetype: string } }>();
+  return { baseId: body.base.id, archetype: body.overseer.archetype };
 }
 
 describe('auth', () => {
@@ -227,7 +223,7 @@ describe('GET /api/me', () => {
   it('returns the overseer and base after creation', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'commander');
-    await chooseOverseer(app, token);
+    const took = await takeOverseer(app, token);
 
     const res = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
     const body = res.json<{
@@ -236,7 +232,7 @@ describe('GET /api/me', () => {
       base: { name: string } | null;
     }>();
     expect(body.user.overseerId).toBeTruthy();
-    expect(body.overseer?.archetype).toBe('enforcer');
+    expect(body.overseer?.archetype).toBe(took.archetype);
     expect(body.base?.name).toBe("commander's Crew");
   });
 });
@@ -246,11 +242,15 @@ describe('POST /api/overseer', () => {
     const { app } = await makeApp();
     const { token, userId } = await register(app, 'commander');
 
+    // Whoever §F6 offers this account first, rather than a name: the four are a hash of the
+    // account id, so no preset is reliably on the menu.
+    const [wanted] = await offeredOverseers(app, token);
+    if (!wanted) throw new Error('fixture: the pool ran dry');
     const res = await app.inject({
       method: 'POST',
       url: '/api/overseer',
       headers: auth(token),
-      payload: { presetId: 'netrunner' },
+      payload: { presetId: wanted.presetId },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json<{
@@ -264,7 +264,7 @@ describe('POST /api/overseer', () => {
         buildings: { kind: string; level: number }[];
       };
     }>();
-    expect(body.overseer.archetype).toBe('netrunner');
+    expect(body.overseer.archetype).toBe(wanted.archetype);
     expect(body.user.overseerId).toBeTruthy();
     expect(body.base.ownerId).toBe(userId);
     // The constant, not the id it currently holds: which plot new crews get is a design decision
@@ -279,13 +279,17 @@ describe('POST /api/overseer', () => {
   it('rejects a second overseer with 409', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'commander');
-    await chooseOverseer(app, token);
+    await takeOverseer(app, token);
 
+    // Somebody this account is still offered and nobody holds, so the 409 is the once-per-account
+    // rule rather than §F6's pool refusal, which wears the same status code.
+    const [free] = await offeredOverseers(app, token);
+    if (!free) throw new Error('fixture: the pool ran dry');
     const res = await app.inject({
       method: 'POST',
       url: '/api/overseer',
       headers: auth(token),
-      payload: { presetId: 'fixer' },
+      payload: { presetId: free.presetId },
     });
     expect(res.statusCode).toBe(409);
     expect(errorCode(res)).toBe('OVERSEER_ALREADY_CHOSEN');
@@ -310,9 +314,9 @@ describe('GET /api/city', () => {
   it('lists districts and base summaries without private fields', async () => {
     const { app } = await makeApp();
     const alice = await register(app, 'alice');
-    await chooseOverseer(app, alice.token);
+    await takeOverseer(app, alice.token);
     const bob = await register(app, 'bob');
-    await chooseOverseer(app, bob.token);
+    await takeOverseer(app, bob.token);
 
     const res = await app.inject({ method: 'GET', url: '/api/city', headers: auth(alice.token) });
     expect(res.statusCode).toBe(200);
@@ -341,7 +345,7 @@ describe('GET /api/city', () => {
   it('hides what is inside a district until the crew has looked', async () => {
     const { app } = await makeApp();
     const { token, userId } = await register(app, 'scout');
-    await chooseOverseer(app, token);
+    await takeOverseer(app, token);
 
     const before = await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) });
     /*
@@ -430,7 +434,7 @@ describe('GET /api/city', () => {
   it('shows what a neighbour has built, behind the same fog as everything else', async () => {
     const { app } = await makeApp();
     const { token, userId } = await register(app, 'neighbour');
-    await chooseOverseer(app, token);
+    await takeOverseer(app, token);
 
     // A rival placed by hand rather than by the seed: `makeApp` deliberately builds an *unseeded*
     // world, and a test that quietly depended on the MVP seed would be testing the fixture.
@@ -515,7 +519,7 @@ describe('GET /api/city', () => {
   it('always shows the crew its own district, without scouting it', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'homebody');
-    await chooseOverseer(app, token);
+    await takeOverseer(app, token);
 
     const body = (
       await app.inject({ method: 'GET', url: '/api/city', headers: auth(token) })
@@ -530,7 +534,7 @@ describe('GET /api/base/:id', () => {
   it('returns the caller-owned base', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'commander');
-    const { baseId } = await chooseOverseer(app, token);
+    const { baseId } = await takeOverseer(app, token);
 
     const res = await app.inject({
       method: 'GET',
@@ -544,7 +548,7 @@ describe('GET /api/base/:id', () => {
   it('forbids reading another player base with 403', async () => {
     const { app } = await makeApp();
     const alice = await register(app, 'alice');
-    const { baseId } = await chooseOverseer(app, alice.token);
+    const { baseId } = await takeOverseer(app, alice.token);
     const bob = await register(app, 'bob');
 
     const res = await app.inject({
@@ -601,7 +605,7 @@ describe('a plot nobody lives on draws itself at level 1', () => {
   it('serves a full district at level 1, and no crew', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
-    await chooseOverseer(app, mine.token);
+    await takeOverseer(app, mine.token);
 
     // A plot that is not this crew's own and that nobody has been seeded into.
     const empty = CITY_DISTRICTS.find(
@@ -648,9 +652,9 @@ describe('crew names are unique in a city', () => {
   it('refuses a name another crew is already using, whatever the casing', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
-    await chooseOverseer(app, mine.token);
+    await takeOverseer(app, mine.token);
     const theirs = await register(app, 'rival');
-    await chooseOverseer(app, theirs.token, 'netrunner');
+    await takeOverseer(app, theirs.token);
 
     const claimed = await app.inject({
       method: 'POST',
@@ -676,7 +680,7 @@ describe('crew names are unique in a city', () => {
   it('lets a crew keep the name it already has', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
-    await chooseOverseer(app, mine.token);
+    await takeOverseer(app, mine.token);
     for (let i = 0; i < 2; i += 1) {
       const saved = await app.inject({
         method: 'POST',
@@ -692,7 +696,7 @@ describe('crew names are unique in a city', () => {
   it('refuses the names the map has reserved for the plots', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
-    await chooseOverseer(app, mine.token);
+    await takeOverseer(app, mine.token);
     for (const name of ['Player District', 'Player District II', 'player district iii']) {
       const refused = await app.inject({
         method: 'POST',
@@ -712,7 +716,7 @@ describe('crew names are unique in a city', () => {
   it('gives a new crew a free name rather than refusing to create it', async () => {
     const { app } = await makeApp();
     const first = await register(app, 'nikos');
-    await chooseOverseer(app, first.token);
+    await takeOverseer(app, first.token);
     const taken = await app.inject({
       method: 'POST',
       url: '/api/base/district-name',
@@ -722,7 +726,7 @@ describe('crew names are unique in a city', () => {
     expect(taken.statusCode).toBe(200);
 
     const second = await register(app, 'rival');
-    await chooseOverseer(app, second.token, 'netrunner');
+    await takeOverseer(app, second.token);
     const me = await app.inject({
       method: 'GET',
       url: '/api/me',

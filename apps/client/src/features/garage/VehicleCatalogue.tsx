@@ -38,6 +38,32 @@ export function VehicleCatalogue() {
 
   return (
     <>
+      {/*
+       * The yard's own standing, which had nowhere to be printed for a while.
+       *
+       * `/game/garage` used to be a page whose whole content was "Garage at level 6" and "4 seats",
+       * and it was retired as a hallway (maintainer request, 2026-09-14) because its only other
+       * control was a button through to this list. Retiring it stranded both figures: the server
+       * went on shipping `garageLevel` and `capacity` and no screen read either, which is how a
+       * payload quietly becomes dead weight. They belong here, over the machines they gate.
+       */}
+      <div
+        className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"
+        data-testid="yard-standing"
+      >
+        <p className="font-body text-[13px] leading-snug text-ink-300">
+          {data.garageLevel === 0
+            ? 'There is no Garage yet. Build one in the district before the yard is worth walking into.'
+            : `Garage at level ${data.garageLevel}. Every machine is gated on that, on the plans, and on what is in the stockpile.`}
+        </p>
+        <span
+          className="shrink-0 font-display text-[12px] font-bold uppercase tracking-[0.14em] tabular-nums text-brass-300"
+          data-testid="yard-seats"
+        >
+          {data.capacity > 0 ? `${data.capacity} unit slots` : 'nothing built'}
+        </span>
+      </div>
+
       {/* The roster's own grid, two to a row where a unit card goes two to a row, so the tabs
           switch between lists of the same shape rather than between two pages. */}
       <ul

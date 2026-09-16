@@ -102,11 +102,12 @@ import {
   UNIT_STAT_LABELS,
   UNIT_TIER_LABELS,
   UNIT_TIERS,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
+  UNIT_MODIFICATION_RARITIES,
+  UNIT_MODIFICATION_RARITY_BLURBS,
+  UNIT_MODIFICATION_RARITY_LABELS,
+  unitModificationsOfRarity,
   unitUnlockClauses,
-  UPGRADE_LINE_BLURBS,
-  UPGRADE_LINE_LABELS,
-  UPGRADE_LINES,
   VEHICLES,
   WEATHER_CATALOG,
   WEATHER_KINDS,
@@ -643,7 +644,7 @@ function unitRow(unit: UnitSpec): readonly string[] {
     unit.name,
     unit.unique ? 'yes' : 'no',
     unit.combat === false ? 'no' : 'yes',
-    String(unit.supply),
+    String(unit.unitSlots),
     String(unit.stats.offense),
     String(unit.stats.vitality),
     String(unit.stats.armor),
@@ -666,7 +667,7 @@ function unitsSection(): Section {
     'Name',
     'Unique',
     'Fights',
-    'Supply',
+    'Unit slots',
     'Damage',
     'Vitality',
     'Armour',
@@ -739,22 +740,23 @@ function statEffect(effect: Partial<UnitStats>): string {
     .join(', ');
 }
 
+/** The thirty cards, grouped by the four rarities in order, which is how the yard's bench groups them. */
 function upgradesSection(): Section {
-  const groups = UPGRADE_LINES.map((line) => {
-    const specs = UNIT_UPGRADES.filter((spec) => spec.line === line);
+  const groups = UNIT_MODIFICATION_RARITIES.map((rarity) => {
+    const specs = unitModificationsOfRarity(rarity);
     return [
-      `#### ${UPGRADE_LINE_LABELS[line]} (${specs.length})`,
-      UPGRADE_LINE_BLURBS[line],
+      `#### ${UNIT_MODIFICATION_RARITY_LABELS[rarity]} (${specs.length})`,
+      UNIT_MODIFICATION_RARITY_BLURBS[rarity],
       table(
-        ['Id', 'Tier', 'Name', 'Effect', 'Cost', 'Parts', 'Gauntlet', 'Yard level', 'Description'],
+        ['Id', 'Name', 'Effect', 'Cost', 'Parts', 'Blueprint', 'Fits', 'Yard level', 'Description'],
         specs.map((spec) => [
           code(spec.id),
-          String(spec.tier),
           spec.name,
           statEffect(spec.effect),
           money(spec.cost),
           parts(spec.parts),
-          String(spec.requiresGauntletLevel),
+          spec.requiresBlueprint ? 'yes' : 'no',
+          spec.fits ? spec.fits.map(code).join(', ') : 'every unit',
           String(scrapyardLevelForUpgrade(spec)),
           clip(spec.description),
         ]),
@@ -762,9 +764,9 @@ function upgradesSection(): Section {
     ].join('\n\n');
   });
   return {
-    title: 'Unit upgrades (refits)',
-    sources: ['packages/shared/src/units/upgrades.ts'],
-    rows: UNIT_UPGRADES.length,
+    title: 'Unit modifications',
+    sources: ['packages/shared/src/units/modifications.ts'],
+    rows: UNIT_MODIFICATIONS.length,
     body: groups.join('\n\n'),
   };
 }
@@ -785,7 +787,7 @@ function vehiclesSection(): Section {
         'Cost',
         'Build',
         'Speed',
-        'Seats',
+        'Seats (unit slots)',
         'Fragile',
         'Description',
       ],

@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   BLACK_MARKET_GOODS,
   declarationWindow,
   skirmishOutcome,
@@ -13,6 +14,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from './resolve.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * The seam between the black market and the fight.
@@ -92,13 +94,16 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'smuggler', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // Every measurement here is one world's fight read against another world's, so both crews have
+  // to be the same person or a signature perk lands in the difference as if it were the crate.
+  pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
@@ -263,7 +268,10 @@ describe('contraband reaches the fight', () => {
     stash(stack);
     const before = stack.app.repos.bases.findById(stack.baseId)?.economy.infamy;
     await stage(stack, PRESS, SYRINGE_ID);
-    expect(stack.app.repos.bases.findById(stack.baseId)?.economy.infamy).toBe(before);
+    // Nothing comes out inside `stage`: the Press is looter ground and a call on looters is free
+    // (§D7, 2026-09-15), and a crate is paid for at the shelf, so applying it must not bill the
+    // name either.
+    expect(stack.app.repos.bases.findById(stack.baseId)?.economy.infamy).toBe(before ?? 0);
   });
 
   it('spends it, so the next fight does not get it again', async () => {

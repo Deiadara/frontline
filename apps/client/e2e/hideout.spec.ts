@@ -11,16 +11,18 @@
  * Screenshots land in `screenshots/hideout/` so the maintainer can open the whole matrix at once.
  */
 import {
+  MAX_BUILD_QUEUE,
+  MODIFICATIONS,
   levelCapForNexus,
   BUILDING_CATALOG,
   BUILDING_KINDS,
   describeBuildingRequirement,
   findAssetSpec,
+  type Base,
   type Building,
 } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { MAX_SQUASH } from '../src/features/base/plots';
-import { base, lateGame, lateGameBase, me } from './fixtures';
+import { base, districtWithAddons, fullQueue, lateGame, lateGameBase, me } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -129,7 +131,9 @@ async function settleDistrict(page: Page): Promise<void> {
       const ratio = box.width / box.height;
       return ratio >= want.min && ratio <= want.max;
     },
-    { min: aspect - 0.02, max: aspect / (1 - MAX_SQUASH) + 0.02 },
+    // The painting is never distorted now, in either direction: `fitted` holds the painted 21:10
+    // and gives up width instead of compressing. A tight band either side of the true aspect.
+    { min: aspect - 0.02, max: aspect + 0.02 },
     { timeout: 5000 },
   );
 }
@@ -173,7 +177,7 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   // The box is not the plate's exact shape any more. Between the stockpile and the scenery
   // switcher there is less height than the plate was painted at, and the shortfall used to come
   // entirely off the top of the picture, which is where the tallest buildings are. The scene now
-  // compresses by up to `MAX_SQUASH` to bring them back into view. Taller than the plate is still
+  // is drawn at its own shape whatever the frame is. Taller than the plate is still
   // the failure this checks for, and it is the one that means the width was given up and the
   // painting is being cropped at the sides.
   expect(
@@ -183,7 +187,7 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   expect(
     sceneAspect,
     'the scene is squashed further than the step back allows',
-  ).toBeLessThanOrEqual(plateAspect / (1 - MAX_SQUASH) + 0.01);
+  ).toBeLessThanOrEqual(plateAspect + 0.02);
 
   const plots = await boxes(page, PLOTS);
   expect(plots, 'every structure in the catalogue has an outline').toHaveLength(
@@ -228,14 +232,17 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
   }
 
   /*
-   * ...and the painting the outlines are traced on is actually drawn, and drawn edge to edge.
-   * Everything above measures the overlay, which would lay out identically over a plate that never
-   * loaded.
+   * ...and the painting the outlines are traced on is actually drawn.
    *
-   * Not "drawn whole": the plate is deliberately taller than the room the bars leave, and its own
-   * empty top and bottom margins pass under them. What has to hold is the pair of properties that
-   * bleed is *for*: real pixels arrived, and the picture reaches both sides of the frame with no
-   * slab of page background down either edge, which is the defect this replaced.
+   * Everything above measures the overlay, which would lay out identically over a plate that never
+   * loaded, so this is the line that says real pixels arrived.
+   *
+   * It used to also demand the picture reach both edges of the frame, because full bleed was the
+   * rule and the squash was what paid for it. The rule is reversed (maintainer request,
+   * 2026-09-14): the painting keeps its 21:10 and gives up width instead. What the gate protects
+   * now is the thing it was always really about, which its own failure message named: not "no
+   * margin" but **no bare ground**. Where there is margin, the blurred surround has to be behind
+   * it, so the edge fades into more picture rather than into a slab of page background.
    */
   const painting = await page.evaluate(() => {
     const frame = document.querySelector('[data-testid="district-frame"]');
@@ -243,19 +250,32 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
     if (!frame || !img) return null;
     const outer = frame.getBoundingClientRect();
     const inner = img.getBoundingClientRect();
+    const surround = document.querySelector<HTMLImageElement>('[data-testid="district-surround"]');
     return {
       loaded: img.complete && img.naturalWidth > 0,
       left: inner.left - outer.left,
       right: outer.right - inner.right,
       width: inner.width,
+      masked: getComputedStyle(img).maskImage !== 'none',
+      surrounded: surround !== null && surround.complete && surround.naturalWidth > 0,
     };
   });
   expect(painting, 'the district plate must be in the frame').not.toBeNull();
   expect(painting?.loaded, 'the district plate did not load').toBe(true);
-  expect(painting?.left ?? 99, 'bare ground down the left of the district').toBeLessThanOrEqual(1);
-  expect(painting?.right ?? 99, 'bare ground down the right of the district').toBeLessThanOrEqual(
-    1,
+  // Never wider than the frame: that would be a crop, and the outlines would walk off the picture.
+  expect(painting?.left ?? -9, 'the plate hangs off the left of the frame').toBeGreaterThanOrEqual(
+    -1,
   );
+  expect(
+    painting?.right ?? -9,
+    'the plate hangs off the right of the frame',
+  ).toBeGreaterThanOrEqual(-1);
+
+  const margin = Math.max(painting?.left ?? 0, painting?.right ?? 0);
+  if (margin > 1) {
+    expect(painting?.surrounded, 'bare ground down the side of the district').toBe(true);
+    expect(painting?.masked, 'the plate’s cut edge is not feathered into the surround').toBe(true);
+  }
 }
 
 /**
@@ -309,6 +329,96 @@ async function expectEveryBuildingIsReachable(page: Page): Promise<void> {
   expect(stolen, `plates a player cannot click: ${stolen.join(' | ')}`).toEqual([]);
 }
 
+/**
+ * The in-flight rail stands where the plates are not (visual sweep, 2026-09-15).
+ *
+ * Three readings, because the rail can fail a plate three ways. A plate whose centre answers as a
+ * rail card cannot be clicked, which is what the column did to the Quarters at 1024x768. A rail
+ * card standing on a plate's box is a visible overlap even where the plate still wins the click.
+ * And a rail that takes too much of the top of the picture makes the plates collide with *each
+ * other*: `plateTop` clamps rather than scales, so every plate above the line lands on the line,
+ * and at 1024x768 a queue deep enough put the Lab's box on the Apothecary's.
+ *
+ * A card the scroller has clipped still reports its whole box, so each rail box is cut down to the
+ * part of it that survives the scroller first: a card scrolled out of sight covers nothing. Polled
+ * rather than read once, because the picture settles over a frame or two and the rail measures
+ * itself against it.
+ */
+async function expectRailKeepsOffThePlates(page: Page): Promise<void> {
+  await settleDistrict(page);
+  await expect
+    .poll(
+      () =>
+        page.evaluate((selector) => {
+          const plots = [...document.querySelectorAll<HTMLElement>(selector)];
+          const scroller = document
+            .querySelector('[data-testid="build-rail-orders"]')
+            ?.getBoundingClientRect();
+          const cards = [...document.querySelectorAll<HTMLElement>('[data-testid^="build-rail-"]')];
+          const bad: string[] = [];
+          for (const plot of plots) {
+            const mine = plot.dataset.testid ?? '?';
+            const p = plot.getBoundingClientRect();
+            const found = document.elementFromPoint(p.left + p.width / 2, p.top + p.height / 2);
+            const owner =
+              found?.closest('[data-testid]')?.getAttribute('data-testid') ??
+              found?.tagName ??
+              'nothing';
+            if (owner !== mine) bad.push(`${mine} answers as ${owner}`);
+            for (const card of cards) {
+              const c = card.getBoundingClientRect();
+              const seen =
+                scroller === undefined || card.dataset.testid === 'build-rail-orders'
+                  ? c
+                  : {
+                      left: Math.max(c.left, scroller.left),
+                      right: Math.min(c.right, scroller.right),
+                      top: Math.max(c.top, scroller.top),
+                      bottom: Math.min(c.bottom, scroller.bottom),
+                    };
+              const across = Math.min(seen.right, p.right) - Math.max(seen.left, p.left);
+              const down = Math.min(seen.bottom, p.bottom) - Math.max(seen.top, p.top);
+              if (across > 0 && down > 0) {
+                bad.push(
+                  `${card.dataset.testid} stands on ${mine} by ${Math.round(across)}x${Math.round(down)}`,
+                );
+              }
+            }
+          }
+          return bad;
+        }, PLOTS),
+      { timeout: 5000 },
+    )
+    .toEqual([]);
+}
+
+/**
+ * The rail draws its orders whole, and scrolls only when it has to.
+ *
+ * A queue that overflows its room is cut at the boundary on purpose: that is the "more of them
+ * below" cue every scroller gives, so with a full queue only the order at the *top* has to be
+ * whole. A queue that fits has no excuse: three orders are 311px and the tightest ceiling in the
+ * matrix is 438px, so at this depth nothing may be cut anywhere. That is the half that catches a
+ * ceiling which came back too low, which is the likelier mistake: the first cut of this measured
+ * the rail's *gutter* as part of its path, took the Quarters for an obstacle at 1280x800, and left
+ * 147px for orders that had 511px to stand in.
+ */
+async function expectOrdersDrawnWhole(page: Page, every: boolean): Promise<void> {
+  const cut = await page.evaluate((all) => {
+    const scroller = document.querySelector('[data-testid="build-rail-orders"]');
+    if (!scroller || scroller.children.length === 0) return ['no orders in the rail'];
+    const clip = scroller.getBoundingClientRect();
+    const orders = [...scroller.children];
+    return (all ? orders : orders.slice(0, 1)).flatMap((order) => {
+      const box = order.getBoundingClientRect();
+      const seen = Math.min(box.bottom, clip.bottom) - Math.max(box.top, clip.top);
+      const lost = Math.round(box.height - seen);
+      return lost > 1 ? [`${order.getAttribute('data-testid')} is cut by ${lost}px`] : [];
+    });
+  }, every);
+  expect(cut, `orders the rail drew in part: ${cut.join(' | ')}`).toEqual([]);
+}
+
 /** Every structure in the catalogue has a plate, and no two plates overlap each other. */
 async function expectPlatesDoNotCollide(page: Page): Promise<void> {
   await settleDistrict(page);
@@ -360,6 +470,40 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/hideout/district-${tag}.png` });
     });
 
+    /**
+     * The rail, at both depths a queue comes in.
+     *
+     * Three orders is what a crew usually has and six is the ceiling (`MAX_BUILD_QUEUE`), and they
+     * fail differently: three fits beside the picture at every viewport, six is 622px of rail and
+     * stood on the Scrapyard's plate at 1280x800 and 1440x900 while flattening three plates onto
+     * one line at 1024x768. Down the left from `RAIL_COLUMN_MIN_WIDTH_PX` up, across the top under
+     * it; either way every plate has to answer its own click.
+     */
+    for (const [depth, queue, orders] of [
+      ['three orders', lateGame, 3],
+      ['a full queue', fullQueue, MAX_BUILD_QUEUE],
+    ] as const) {
+      test(`the in-flight rail keeps off every plate with ${depth} at ${tag}`, async ({ page }) => {
+        await installApi(page, queue);
+        await page.goto('/game/base');
+        await expect(page.getByTestId('build-rail-gate')).toBeVisible();
+        // The fixture is as deep as this case claims: a `fullQueue` that quietly lost an order
+        // would leave the six-order geometry untested while still passing everything below.
+        await expect(page.getByTestId('build-rail-toggle')).toContainText(
+          `${orders}/${MAX_BUILD_QUEUE}`,
+        );
+
+        await expectRailKeepsOffThePlates(page);
+        // A queue this size fits beside the picture at every viewport in the matrix, so every
+        // order has to be whole; a full one is allowed to be cut where it scrolls.
+        await expectOrdersDrawnWhole(page, orders === 3);
+        // The corners too, once the centres have settled.
+        await expectEveryBuildingIsReachable(page);
+        await expectPlatesDoNotCollide(page);
+        await page.screenshot({ path: `screenshots/hideout/district-queue-${orders}-${tag}.png` });
+      });
+    }
+
     /*
      * The dialog is the fat case: the widest cost line the game has (a level-20 Garage,
      * five figures in three materials) over the longest refusal copy. Its own screenshot, because
@@ -400,9 +544,9 @@ for (const size of VIEWPORTS) {
 
       // The dialog's own overflow, so the cut is one a fixed box genuinely suffers.
       //
-      // The height has to leave the body **partially** visible, because a cut is what this gate
+      // The height has to leave the unit **partially** visible, because a cut is what this gate
       // reports and a row squeezed to nothing is hidden rather than sliced. Too small and the
-      // header and footer alone fill the box, the body collapses to zero, and the gate is
+      // header and footer alone fill the box, the unit collapses to zero, and the gate is
       // correctly quiet, which reads exactly like a gate that has stopped working. This was 260px
       // when the header carried a 128px portrait of the building; without it the whole dialog fits
       // inside that and nothing is cut, so the clamp follows the header down.
@@ -611,7 +755,7 @@ test.describe('a district that has been played', () => {
 /**
  * The whole §A1/§D3 loop through the real client: pick an empty plot, pay for it, watch the order
  * appear in the queue. The build response is what the page re-renders from, so a client that
- * dropped the body would leave the queue empty here, which no unit test mocking the hook can see.
+ * dropped the unit would leave the queue empty here, which no unit test mocking the hook can see.
  */
 test.describe('building in the district (§A1, §D3)', () => {
   test('an empty plot becomes an order in the queue', async ({ page }) => {
@@ -714,4 +858,147 @@ test.describe('building in the district (§A1, §D3)', () => {
     await expect(dialog.getByText(/NEEDS THE NEXUS AT 12/)).toBeInViewport({ ratio: 1 });
     await expect(dialog.getByRole('button', { name: 'Queue build' })).toBeDisabled();
   });
+});
+
+/**
+ * An empty bracket is a door, and bolting a card in is a one-way one.
+ *
+ * Three things landed together (maintainer request, 2026-09-14) and each is a way the old version
+ * was wrong. The row said `Empty` across ninety percent of its width and did nothing when pressed,
+ * with the only control a quarter-inch text link at the far end. The picker offered only cards that
+ * called the structure home, so the cross-building fittings were invisible. And fitting was a single
+ * press for something that cannot be undone: the bracket can be emptied but the part is spent.
+ */
+/**
+ * The set bonus, which a player could previously not see at all (2026-09-14).
+ *
+ * The deck shipped with `SET_BONUSES` read by the rules and by nothing on screen: families and
+ * synergies were both drawn in the picker, so a player could learn that cards had families and
+ * never learn that three of one in one structure paid anything. This drives the three states the
+ * readout has and screenshots each, because the one that matters most is the *empty* one: it is
+ * the only place the rule is stated to somebody who has not already worked it out.
+ */
+test('the structure says whether its bracket is a set, and what that pays', async ({ page }) => {
+  const POWER = ['nexus_automated_protocols', 'nexus_priority_bus', 'nexus_busbar_spine'];
+  const nexusAt = (modifications: string[]): Base => ({
+    ...districtWithAddons,
+    buildings: districtWithAddons.buildings.map((building) =>
+      building.kind === 'nexus' ? { ...building, level: 20, modifications } : building,
+    ),
+    addons: { researched: [], built: [...POWER, 'nexus_encrypted_core'] },
+  });
+
+  const readout = page.getByTestId('set-readout');
+
+  // Nothing fitted: the rule, stated.
+  await installApi(page, { ...lateGame, base: nexusAt([]) });
+  await page.goto('/game/base');
+  await page.getByTestId('plot-nexus').click();
+  await expect(readout).toHaveAttribute('data-set', 'partial');
+  await expect(readout).toContainText('No set');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/hideout/set-none.png' });
+
+  // Two of three: the family that is closest, named, with what finishing it is worth.
+  await installApi(page, { ...lateGame, base: nexusAt(POWER.slice(0, 2)) });
+  await page.goto('/game/base');
+  await page.getByTestId('plot-nexus').click();
+  await expect(readout).toHaveAttribute('data-set', 'partial');
+  await expect(readout).toContainText('2 of 3');
+  // The direction of the channel, not a bare percentage: the Power set takes time *off*.
+  await expect(readout).toContainText('off how long a build takes');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/hideout/set-partial.png' });
+
+  // Complete.
+  await installApi(page, { ...lateGame, base: nexusAt(POWER) });
+  await page.goto('/game/base');
+  await page.getByTestId('plot-nexus').click();
+  await expect(readout).toHaveAttribute('data-set', 'complete');
+  await expect(readout).toContainText('The Lights Never Dip');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/hideout/set-complete.png' });
+
+  /*
+   * Stripping asks first, and says what the answer costs.
+   *
+   * Fitting a card asked before it spent the part while stripping one destroyed it on a single
+   * click, which put the confirmation on the reversible half of the pair and left the permanent
+   * half unguarded: `clearSlot` puts nothing back on the shelf and refunds nothing.
+   */
+  await page.getByTestId('slot-clear-nexus-0').click();
+  const strip = page.getByTestId('slot-strip-nexus');
+  await expect(strip).toBeVisible();
+  await expect(strip).toContainText('nothing is refunded');
+  // The expensive half, which is the one nobody thinks of at the moment they press a red word.
+  await expect(strip).toContainText('breaks the Power set');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/hideout/set-strip.png' });
+
+  // Backing out leaves the card where it is, and the set with it.
+  await page.getByTestId('slot-strip-nexus-no').click();
+  await expect(strip).toHaveCount(0);
+  await expect(readout).toHaveAttribute('data-set', 'complete');
+
+  // Broken by a card of another family: three cards, no set, which is the decision the whole
+  // mechanic turns on.
+  await installApi(page, {
+    ...lateGame,
+    base: nexusAt([...POWER.slice(0, 2), 'nexus_encrypted_core']),
+  });
+  await page.goto('/game/base');
+  await page.getByTestId('plot-nexus').click();
+  await expect(readout).toHaveAttribute('data-set', 'partial');
+
+  // And the warning is not printed when it is not true: no set here to break.
+  await page.getByTestId('slot-clear-nexus-0').click();
+  await expect(page.getByTestId('slot-strip-nexus')).toBeVisible();
+  await expect(page.getByTestId('slot-strip-nexus')).not.toContainText('breaks the');
+});
+
+test('an empty bracket opens the picker and asks before it spends the part', async ({ page }) => {
+  const built = MODIFICATIONS.filter((m) => m.fits?.includes('nexus') || m.building === 'nexus')
+    .slice(0, 5)
+    .map((m) => m.id);
+  await installApi(page, {
+    ...lateGame,
+    base: { ...districtWithAddons, addons: { researched: [], built } },
+  });
+  await page.goto('/game/base');
+  await page.getByTestId('plot-nexus').click();
+
+  // The row itself, not a link inside it.
+  const bracket = page.locator('[data-testid^="slot-fit-nexus-"]').first();
+  await expect(bracket).toBeVisible();
+  const box = (await bracket.boundingBox())!;
+  expect(box.width, 'the bracket is the control, not a word at the end of it').toBeGreaterThan(120);
+  await bracket.click();
+
+  const options = page.locator('[data-testid^="slot-option-"]');
+  await expect(options.first()).toBeVisible();
+  const offered = await options.count();
+  expect(offered).toBeGreaterThan(1);
+
+  /*
+   * A cross-building card is on offer.
+   *
+   * `fitSlotRefusal` used to demand `spec.building === kind`, so a card that fits the Nexus but is
+   * homed elsewhere would have been listed by the picker and refused by the route. The gate the UI
+   * asks and the gate the write enforces are the same gate now, and this is the line that says so.
+   */
+  const crossing = MODIFICATIONS.find((m) => m.fits?.includes('nexus') && m.building !== 'nexus');
+  if (crossing && built.includes(crossing.id)) {
+    await expect(page.getByTestId(`slot-option-${crossing.id}`)).toBeVisible();
+  }
+
+  // Pressing a card asks rather than spends.
+  await options.first().click();
+  const confirm = page.getByTestId('slot-confirm-nexus');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('nothing comes back');
+
+  // Backing out leaves the shelf alone and the picker open.
+  await page.getByTestId('slot-confirm-no-nexus').click();
+  await expect(confirm).toHaveCount(0);
+  await expect(options).toHaveCount(offered);
 });

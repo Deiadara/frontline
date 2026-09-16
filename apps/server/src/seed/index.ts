@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import {
   BOT_DISTRICT_ID,
   findOverseerPreset,
+  OVERSEER_PRESETS,
+  type OverseerPreset,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -145,15 +147,42 @@ function freeName(repos: Repositories, wanted: string): string {
 }
 
 /**
+ * The character a seeded crew takes, given that the pool can be picked clean by players (§F6).
+ *
+ * The three NPCs name a preset apiece in `seed/constants.ts`, and before the pool that was the
+ * whole story: nothing else claimed one, so the constant always worked. Migration 0095 made
+ * `preset_id` unique, and the failure mode that opened is genuinely nasty rather than merely
+ * inconvenient. `repos.overseers.insert` throws `SQLITE_CONSTRAINT_UNIQUE`, {@link seedStep}
+ * reads any unique failure as "another boot already wrote this row", reports the world seeded,
+ * and returns without creating the rival. The district is empty, the faction has one member, and
+ * **nothing is logged**: the one shape of bug that cannot be found from the outside.
+ *
+ * So the constant is a preference rather than a requirement. A seeded crew takes the character it
+ * is named for when that character is free, and otherwise the first one nobody holds. Deterministic
+ * either way, because the pool is ordered, so two boots of the same world seed the same rival.
+ *
+ * Null means every one of the thirty is spoken for, which needs thirty accounts and is the one
+ * case where there is genuinely no character left to give. The caller logs and skips rather than
+ * throwing: a world that cannot seed a new rival is still a world every existing player can play.
+ */
+function freePreset(repos: Repositories, preferredId: string): OverseerPreset | null {
+  const claimed = repos.overseers.claimedPresetIds();
+  const preferred = findOverseerPreset(preferredId);
+  if (preferred === undefined) {
+    throw new Error(`A seeded crew references an unknown overseer preset: ${preferredId}`);
+  }
+  if (!claimed.has(preferred.presetId)) return preferred;
+  return OVERSEER_PRESETS.find((one) => !claimed.has(one.presetId)) ?? null;
+}
+
+/**
  * Puts the rival's base in `BOT_DISTRICT_ID` if it is not there, minting whatever part of
  * the rival is missing. Keyed on the base rather than the user, so deleting the base row
  * restores the rival on the next boot instead of leaving the district empty forever.
  */
 async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
-  const preset = findOverseerPreset(MVP_BOT.overseerPresetId);
-  if (!preset) {
-    throw new Error(`MVP bot references an unknown overseer preset: ${MVP_BOT.overseerPresetId}`);
-  }
+  const preset = freePreset(repos, MVP_BOT.overseerPresetId);
+  if (preset === null) return false;
 
   // Nobody can ever log in as the bot: the plaintext is a fresh UUID that is hashed and
   // then dropped on the floor, so no credential for this account exists anywhere. Hashed
@@ -246,10 +275,8 @@ async function seedBot(db: AppDatabase, repos: Repositories): Promise<boolean> {
  * every faction message. A phantom member is worse than an empty seat.
  */
 async function seedAlly(db: AppDatabase, repos: Repositories): Promise<boolean> {
-  const preset = findOverseerPreset(MVP_ALLY.overseerPresetId);
-  if (!preset) {
-    throw new Error(`MVP ally references an unknown overseer preset: ${MVP_ALLY.overseerPresetId}`);
-  }
+  const preset = freePreset(repos, MVP_ALLY.overseerPresetId);
+  if (preset === null) return false;
   // No credential for this account exists anywhere: same treatment as the rival.
   const passwordHash = await bcrypt.hash(randomUUID(), BCRYPT_COST);
 
@@ -352,12 +379,8 @@ async function seedAlly(db: AppDatabase, repos: Repositories): Promise<boolean> 
  * about a screen that has to draw a leader and everybody under them.
  */
 async function seedRivalFaction(db: AppDatabase, repos: Repositories): Promise<boolean> {
-  const preset = findOverseerPreset(MVP_RIVAL_SECOND.overseerPresetId);
-  if (!preset) {
-    throw new Error(
-      `MVP rival second references an unknown overseer preset: ${MVP_RIVAL_SECOND.overseerPresetId}`,
-    );
-  }
+  const preset = freePreset(repos, MVP_RIVAL_SECOND.overseerPresetId);
+  if (preset === null) return false;
   // No credential for this account exists anywhere: same treatment as the rival and the ally.
   const passwordHash = await bcrypt.hash(randomUUID(), BCRYPT_COST);
 

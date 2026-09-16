@@ -2,6 +2,7 @@ import {
   pageWonFrom,
   mergeFleets,
   gainInfamy,
+  missionInfamyForKills,
   MISSION_INFAMY_DELTA,
   FAILED_MISSION_XP_SHARE,
   PLAYER_XP_AWARDS,
@@ -21,12 +22,15 @@ import {
   type Mission,
   type MissionOutcome,
   addItems,
+  infirmaryRecoveryPercent,
+  leading,
   rollSalvage,
 } from '@frontline/shared';
 import { forceSize, mergeArmies } from '../battle/forces.js';
 import { createRng } from '../characters/rng.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { overseerOf } from '../crew/training.js';
+import { refundFor } from '../battle/resolve.js';
 import { fightMissionBattle } from './battle.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
@@ -112,7 +116,22 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       stored.mission.recalledAt === null &&
       findMissionTemplate(stored.mission.templateId)?.kind === 'battle',
   );
-  const anyRide = fights ? standingEffectsFor(repos, base, now).anyRide : false;
+  /*
+   * The crew's whole book rather than one flag off it.
+   *
+   * Everything a declared battle reads is on here: the perks, the held ground, cohesion, the marks,
+   * the salvage refund, the infamy multiplier and the medicine. A battle job read `anyRide` and
+   * nothing else, and fought without any of the rest.
+   */
+  const crew = fights ? standingEffectsFor(repos, base, now) : null;
+  const anyRide = crew?.anyRide ?? false;
+  /*
+   * ...and the same fold for the bag, which every job needs rather than only the ones that fight.
+   *
+   * Reused when the battle branch already paid for it, computed here when it did not, so a
+   * settlement of three scrap runs walks the holdings once instead of three times or never.
+   */
+  const crewCarry = crew ?? standingEffectsFor(repos, base, now);
   const overseer = fights ? overseerOf(repos, base) : undefined;
 
   const settlements = due.map((stored) => {
@@ -152,6 +171,20 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
             level: base.level,
             leader: leaderOf(stored, base, overseer),
             anyRide,
+            // The crew's brackets as they stand at the mark, the same read `missionCarry` gets.
+            loadouts: base.unitLoadouts,
+            ...(crew
+              ? {
+                  // §D5: `leading()` only when an officer leads, which is the rule the launch and
+                  // the leader list already state (`missions/leaders.ts`).
+                  territory:
+                    !stored.mission.overseerLed && stored.mission.officerId !== null
+                      ? leading(crew)
+                      : crew,
+                  recoveryPercent:
+                    crew.casualtyRecoveryPercent + infirmaryRecoveryPercent(base.buildings),
+                }
+              : {}),
           })
         : null;
     const outcome = recalled
@@ -193,14 +226,27 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       template && !recalled && reported
         ? scaledSpoils(missionRewards(template, outcome, pricedMinutes), stored.mission.payPercent)
         : {};
-    const rewards = carriedHome(paid, missionCarry(stored.mission.force), RESOURCE_KG);
+    // Off the crew's loadouts as they stand at the mark, the same way the roster folds them.
+    const rewards = carriedHome(
+      paid,
+      missionCarry(
+        stored.mission.force,
+        base.unitLoadouts,
+        // §A4: the Pawn Shop, the raid modifications and `sig_scavenger_king` all pay into the same
+        // channel, and it reached the raid path only. A crew that bought a bigger bag carried the
+        // catalogue figure home off every job they ran.
+        crewCarry?.lootCapacityPercent ?? 0,
+        crewCarry ?? undefined,
+      ),
+      RESOURCE_KG,
+    );
 
     /*
      * What they found, as opposed to what they were paid.
      *
      * Drawn from the *same* seed the outcome came from, one draw further along the stream, so a
      * mission's finds are as reproducible as whether it worked: two reads of the same finished
-     * run cannot disagree about what is in the satchel. A recalled crew found nothing, because
+     * run cannot disagree about what is in the inventory. A recalled crew found nothing, because
      * they never got anywhere.
      */
     const rng = createRng(stored.seed);
@@ -212,7 +258,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      *
      * Only a run that was carrying one and actually worked. Which page it is comes off the
      * mission's own seed, so two reads of a finished run cannot disagree about what is in the
-     * satchel, and a card that promised "a Unit Blueprint's Page" cannot be read to predict which.
+     * inventory, and a card that promised "a Unit Blueprint's Page" cannot be read to predict which.
      * Duplicates are deliberate (§F1d): a spare page is what Reimagining spends.
      */
     const pageWon =
@@ -231,16 +277,32 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         pageWon,
         lost: battle?.lost ?? {},
         reported,
-        // What they turned up, named by the report rather than only added to the satchel.
+        // What they turned up, named by the report rather than only added to the inventory.
         found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
       } satisfies Mission,
       outcome,
       rewards,
       spoils: paid,
       found: pageWon === null ? found : { ...found, [pageWon]: (found[pageWon] ?? 0) + 1 },
-      // §D7: a fight that lands is heard on the street. Keyed off the same retired-template
-      // fallback as the rest: a run whose template is gone comes home silent.
-      infamyDelta: template && reported ? MISSION_INFAMY_DELTA[template.kind][outcome] : 0,
+      /*
+       * §D7: a battle job pays for what it killed, half a point a unit slot rounded up, won or
+       * lost; standard work pays the table, which is nothing. Keyed off the same retired-template
+       * fallback as the rest, and off `reported`: a crew nobody came home from banks nothing,
+       * the name included, because there is nobody left to tell the street what they did.
+       */
+      /*
+       * ...scaled by `infamyGainPercent`, whose own line is "a percentage more infamy off
+       * everything that earns any" (§D8). It reached the declared-battle settler and not this one,
+       * so the Graveyard and `sig_name_maker` paid on a raid and nothing on a job.
+       */
+      infamyDelta:
+        template && reported
+          ? Math.round(
+              (MISSION_INFAMY_DELTA[template.kind][outcome] +
+                (battle ? missionInfamyForKills(battle.killed) : 0)) *
+                (1 + Math.max(0, crew?.infamyGainPercent ?? 0) / 100),
+            )
+          : 0,
       /*
        * And the people walk back through the gate (§A5).
        *
@@ -250,6 +312,15 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
        * everybody who broke and ran, because nothing pursues them.
        */
       returning: battle?.home ?? stored.mission.force,
+      /*
+       * §A4: the Bone Market pays for the people who did not come back, off a job as well as a raid.
+       *
+       * `salvageRefundPercent` reached the declared-battle settler only, so a crew holding the one
+       * location whose whole line is "what you lose in a fight comes back as caps" got nothing for
+       * the losses on the one mission kind that has any. Empty when the crew holds no refund, which
+       * is the common case and costs nothing.
+       */
+      refund: battle ? refundFor(battle.lost, crew?.salvageRefundPercent ?? 0) : {},
       /*
        * §C3: and so do the machines, every time.
        *
@@ -301,8 +372,11 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     ...base,
     army: settlements.reduce((army, s) => mergeArmies(army, s.returning), base.army),
     fleet: settlements.reduce((fleet, s) => mergeFleets(fleet, s.returningVehicles), base.fleet),
-    resources: settlements.reduce((acc, s) => addResources(acc, s.rewards), base.resources),
-    // What they found goes into the satchel alongside the pay. Folded across every crew that came
+    resources: settlements.reduce(
+      (acc, s) => addResources(addResources(acc, s.rewards), s.refund),
+      base.resources,
+    ),
+    // What they found goes into the inventory alongside the pay. Folded across every crew that came
     // home on this call, so two runs that both turned up a servo hand over two.
     inventory: settlements.reduce((held, s) => addItems(held, s.found), base.inventory),
     economy: {
@@ -317,7 +391,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       infamy: settlements.reduce((acc, s) => gainInfamy(acc, s.infamyDelta), base.economy.infamy),
     },
   };
-  // Stockpile and satchel in one statement, because a mission pays into both and a crash between
+  // Stockpile and inventory in one statement, because a mission pays into both and a crash between
   // two writes would bank the caps and lose the parts.
   repos.bases.updateHoldings(settled.id, settled.resources, settled.inventory);
   repos.bases.updateEconomy(settled.id, settled.economy);
@@ -363,7 +437,7 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     }
     tallyResourcesEarned(repos, base.id, settlement.rewards);
     tallyInfamyEarned(repos, base.id, settlement.infamyDelta);
-    // Pages only. `found` is the whole satchel haul, so it carries salvaged components too, and
+    // Pages only. `found` is the whole inventory haul, so it carries salvaged components too, and
     // counting those as pages would finish the blueprint chain off scrap servos.
     tallyPagesIn(repos, base.id, settlement.found);
   }
@@ -407,8 +481,8 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
   }
 
   // §F1e: the sheet itself, named. `mission_home` says a crew is back and which job it was; this
-  // says what came home in the satchel and points at the document the page belongs to. Diffed
-  // against the satchel as it stood, so every crew that landed on this call is covered at once.
+  // says what came home in the inventory and points at the document the page belongs to. Diffed
+  // against the inventory as it stood, so every crew that landed on this call is covered at once.
   tellPagesFound(repos, {
     userId: base.ownerId,
     before: base.inventory,

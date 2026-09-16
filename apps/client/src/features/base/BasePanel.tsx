@@ -3,13 +3,14 @@ import {
   MAX_BUILD_QUEUE,
   RESOURCE_KEYS,
   districtProduction,
-  populationCapacity,
-  populationDraw,
+  unitSlotCapacity,
+  unitSlotDraw,
   playerLevelGrants,
   playerXpToNextLevel,
   queueCancelWindowMs,
   queueProgressAt,
   queueRemainingMs,
+  storageCapacity,
   storageCapacityFor,
   payrollLedger,
   payrollBonusPercent,
@@ -18,7 +19,7 @@ import {
   type Base,
   type BuildingKind,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useState, type ReactNode, type RefObject } from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
 import { StandingReadout } from '../../components/Meters';
 import { RESOURCE_META, ResourceGrid } from '../../components/Resources';
@@ -36,9 +37,12 @@ import {
   useCancelBuild,
   useClearModification,
   useFitModification,
+  useCrewStanding,
   useMe,
+  useUnits,
 } from '../../lib/queries';
 import { useNavigate } from 'react-router-dom';
+import { useMeasuredSize, type MeasuredSize } from '../../lib/useMeasuredHeight';
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
@@ -55,6 +59,9 @@ import { formatRate, formatRemaining } from './format';
  */
 export function BasePanel() {
   const me = useMe();
+  // §F2: the store is filled to the structure plus the crew's Logistics, so the shelves quoted
+  // here are computed the way `accrueProduction` fills them rather than off the buildings alone.
+  const crewStorage = useCrewStanding().data?.effects['storageCapacityPercent'] ?? 0;
   const baseId = me.data?.base?.id;
   const baseQuery = useBase(baseId);
   const base = baseQuery.data?.base ?? me.data?.base ?? null;
@@ -74,6 +81,17 @@ export function BasePanel() {
   const clear = useClearModification(baseId);
   const navigate = useNavigate();
   const [selectedPlot, setSelectedPlot] = useState<BuildingKind | null>(null);
+  /*
+   * The frame, measured, so the rail can re-read where the name plates are when it changes shape.
+   *
+   * The rail is bounded by the plates it would otherwise cover (`useRailCeiling`), and those move
+   * with every resize: the picture is fitted to whatever the floating chrome leaves. Nothing here
+   * uses the numbers directly; they are the rail's cue to measure again.
+   */
+  const [roomRef, room] = useMeasuredSize<HTMLDivElement>();
+  // How far down the picture the rail reaches when it is laid across the top. Zero down the side,
+  // where it is bounded instead of given room. See `BuildQueueRail`.
+  const [railStripHeight, setRailStripHeight] = useState(0);
 
   if (!base) {
     /* Either read can be the one that failed: the district falls back to the session's own copy,
@@ -105,6 +123,7 @@ export function BasePanel() {
     // everything written about it scrolls in a column over the top: the readouts are a report on
     // the place, so they belong on it rather than under it in a document that pushes it off-screen.
     <div
+      ref={roomRef}
       className="relative h-full w-full"
       // What the district has to lay itself out under: the HUD, and nothing else.
       //
@@ -123,6 +142,14 @@ export function BasePanel() {
           // than to this screen. The plaque is in the standing bar now (`DistrictPlaque`), where it
           // is on every screen instead of only this one, and the district is just the district.
           '--scene-top': 'var(--hud-h, 0px)',
+          // What a *control* has to clear when that is more than the HUD: the rail laid across the
+          // top of the picture on a narrow frame. `DistrictScene` reads it to hang every name
+          // plate below the rail (`plateTop`); the painting itself still runs under it, which is
+          // the point of floating it. Kept small by the rail staying one row deep: `plateTop`
+          // clamps rather than scales, so a deep enough inset puts two plates on one line.
+          ...(railStripHeight > 0
+            ? { '--scene-safe-top': `calc(var(--hud-h, 0px) + ${railStripHeight}px)` }
+            : {}),
         } as React.CSSProperties
       }
     >
@@ -145,11 +172,15 @@ export function BasePanel() {
        * (see `DistrictScene`) and giving the rail its own column would take a fifth of the
        * artwork on every viewport for something that is empty most of the time.
        */}
-      <BuildQueueRail
-        base={base}
-        serverNow={baseQuery.data?.serverNow}
-        receivedAt={baseQuery.dataUpdatedAt}
-      />
+      {base.buildQueue.length > 0 && (
+        <BuildQueueRail
+          base={base}
+          serverNow={baseQuery.data?.serverNow}
+          receivedAt={baseQuery.dataUpdatedAt}
+          room={room}
+          onStripHeight={setRailStripHeight}
+        />
+      )}
 
       {/* §I1 pays for building things, and the response is the only thing that knows this build is
           what crossed the threshold (MOU-227), so the banner lives with the district, over it, and
@@ -193,9 +224,24 @@ export function BasePanel() {
               one ceiling; now the bulk shelf holds three times what the metal shelf does, and a
               single figure would be wrong for four of the five capped resources. */}
           <p className="border-t border-surface-700 px-4 py-2 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-            The Apothecary holds {storageCapacityFor(base.buildings, 'scrap').toLocaleString()}{' '}
-            scrap or planks, {storageCapacityFor(base.buildings, 'oil').toLocaleString()} oil or
-            supplies and {storageCapacityFor(base.buildings, 'highQualityMetal').toLocaleString()}{' '}
+            The Apothecary holds{' '}
+            {storageCapacityFor(
+              base.buildings,
+              'scrap',
+              storageCapacity(base.buildings, crewStorage),
+            ).toLocaleString()}{' '}
+            scrap or planks,{' '}
+            {storageCapacityFor(
+              base.buildings,
+              'oil',
+              storageCapacity(base.buildings, crewStorage),
+            ).toLocaleString()}{' '}
+            oil or supplies and{' '}
+            {storageCapacityFor(
+              base.buildings,
+              'highQualityMetal',
+              storageCapacity(base.buildings, crewStorage),
+            ).toLocaleString()}{' '}
             HQ metal. Production stops there. Raids and pay do not. Caps have no ceiling.
           </p>
         </Panel>
@@ -330,33 +376,239 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
 }
 
 /**
- * The build queue as a rail down the left of the district (§A1, maintainer request).
+ * The narrowest frame on which the rail is a column down the left, in CSS pixels.
  *
- * One rectangle per order, top-left downwards, each carrying the structure it is raising and how
- * long it has left. Collapsible, because a full queue is six plates and a player reading the map
- * wants the map: the header stays so the count is legible even when it is folded away.
- *
- * Drawn only when there is something in it. An empty rail is a label for a thing that is not
- * happening, and the district screen already says where orders are placed.
+ * The plates are positions on the picture and the rail is a fixed fifteen rems over it, so whether
+ * the two meet is a fact about the viewport. At full bleed the Quarters' plate, the leftmost
+ * control on the back row, has its left edge at about 17% of the frame's width (`DISTRICT_SITES`:
+ * centroid at 22%, less half a plate). A 15rem column with its own gutter reaches 228px, which is
+ * 17% of 1330px: on a 1024px frame the column stood 51px over the Quarters and swallowed its click
+ * (visual sweep, 2026-09-15). 1280px is Tailwind's `xl`, the nearest rung the rest of the client
+ * already reflows at, and the plate clears the column there by a few pixels; under it the rail runs
+ * across the top instead (`BuildQueueRail`).
  */
-function BuildQueueRail({ base, serverNow, receivedAt }: BuildQueueProps) {
+export const RAIL_COLUMN_MIN_WIDTH_PX = 1280;
+
+const railColumnMedia = (): MediaQueryList | null =>
+  typeof window.matchMedia === 'function'
+    ? window.matchMedia(`(min-width: ${RAIL_COLUMN_MIN_WIDTH_PX}px)`)
+    : null;
+
+/**
+ * Whether the frame is wide enough for the rail to stand as a column.
+ *
+ * A media query rather than a measurement of the panel, because the breakpoint is a fact about the
+ * *viewport*, the same one Tailwind's `xl:` utilities answer to, and reading it the same way keeps
+ * the two from disagreeing by a pixel. Where there is no `matchMedia` (jsdom) the answer is the
+ * column, which is the layout every other test in this file was written against.
+ */
+function useRailColumn(): boolean {
+  const [column, setColumn] = useState(() => railColumnMedia()?.matches ?? true);
+  useEffect(() => {
+    const media = railColumnMedia();
+    if (!media) return;
+    const onChange = () => setColumn(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return column;
+}
+
+/** The gap between the top of the scene and the rail's first plate, in pixels. */
+const RAIL_INSET_PX = 12;
+
+/** Room the rail leaves between its last order and the name plate underneath it, in pixels. */
+const RAIL_PLATE_GAP_PX = 8;
+
+/**
+ * How near a plate has to pass the column's side to count as standing in its way, in pixels.
+ *
+ * Boxes here are fractional and the margin that decides this is real: at 1280x800 the Quarters'
+ * plate clears the orders by four pixels. Two is enough that a plate which only just misses is
+ * treated as a miss, without letting a rounding difference decide it.
+ */
+const RAIL_PLATE_TOUCH_PX = 2;
+
+/**
+ * How tall the column may be before it stands on a name plate, in pixels, or null for no ceiling.
+ *
+ * Only down the side. Across the top the rail spans the whole picture, so there is no "beside the
+ * plates" to be had and the plates are given room instead ({@link BuildQueueRail}).
+ *
+ * ## Why this is measured and not derived
+ *
+ * The obvious move is arithmetic: `plots.ts` holds every outline and `DistrictScene` exports the
+ * `fitted`/`plateTop` pair that puts them on screen, so the topmost plate in the column's own band
+ * could be computed without touching the DOM. It would be wrong in the direction that costs the
+ * most. A plate's *width* is type, not data: the box is as wide as `QUARTERS ▲` sets, and at
+ * 1280x800 the Quarters plate clears the column by four pixels (232 against 228). A derivation has
+ * to assume a worst-case width, which puts the Quarters in the band and drops the ceiling from the
+ * Scrapyard's 657 to the Quarters' 293: room for one order on a screen where four fit. Measuring
+ * the laid-out boxes asks the only thing that knows.
+ *
+ * The published safe box is not enough on its own either. It says where the *chrome* is, and the
+ * plate that bounds the column is the Scrapyard's, which sits in the middle of the picture, three
+ * hundred pixels clear of the scenery switcher.
+ *
+ * ## When it is read
+ *
+ * On mount, and again every time the picture moves under the rail. A single reading is a reading
+ * of the frame before the chrome had measured itself: on mount the HUD has no height yet, so the
+ * plates sit 126px higher than they end up and the ceiling comes back far too low.
+ *
+ * Two watches, because the picture settles in two ways and only one of them is a resize. Where the
+ * painting runs full bleed its height is fixed by the frame's *width*, so as the scenery switcher
+ * reports its own height the picture does not change size at all: it slides, on a margin, and a
+ * `ResizeObserver` hears nothing. That is what left the ceiling reading the Quarters' pre-settle
+ * position, and a full queue still standing on the Scrapyard at 1440x900. So the scene's size is
+ * observed *and* the inline styles under the frame are: `fitted` writes the picture's box into a
+ * style attribute, and `plateTop` writes every plate's percentage into one.
+ */
+function useRailCeiling(
+  rail: RefObject<HTMLElement>,
+  room: MeasuredSize,
+  orders: number,
+  active: boolean,
+): number | null {
+  const [ceiling, setCeiling] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const node = rail.current;
+    if (node === null || !active) {
+      setCeiling(null);
+      return;
+    }
+    const measure = () => {
+      const box = node.getBoundingClientRect();
+      // The orders' own box, not the rail's: the rail carries a gutter either side, and counting
+      // that in puts the Quarters' plate in the column's path at 1280x800, where the orders in
+      // fact clear it. The difference is a ceiling at the Scrapyard's 657 against the Quarters'
+      // 293, which is four orders against one.
+      const band = node.querySelector('[data-testid="build-rail-orders"]')?.getBoundingClientRect();
+      const left = (band ?? box).left - RAIL_PLATE_TOUCH_PX;
+      const right = (band ?? box).right + RAIL_PLATE_TOUCH_PX;
+      // This district's plates, not every plate in the document: the city screen draws a second,
+      // read-only scene from the same component.
+      const plates = node.parentElement?.querySelectorAll<HTMLElement>('[data-testid^="plot-"]');
+      let highest = Number.POSITIVE_INFINITY;
+      for (const plate of plates ?? []) {
+        const p = plate.getBoundingClientRect();
+        // jsdom measures every box at zero, and a plate beside or above the rail is not one the
+        // rail can come down on.
+        if (p.width <= 0 || p.right <= left || p.left >= right || p.top <= box.top) continue;
+        highest = Math.min(highest, p.top);
+      }
+      setCeiling(
+        Number.isFinite(highest) ? Math.max(0, highest - RAIL_PLATE_GAP_PX - box.top) : null,
+      );
+    };
+    measure();
+    const frame = node.parentElement?.querySelector('[data-testid="district-frame"]');
+    const scene = frame?.querySelector('[data-testid="district-scene"]');
+    if (!frame || !scene) return;
+    const sized = new ResizeObserver(measure);
+    sized.observe(scene);
+    const moved = new MutationObserver(measure);
+    moved.observe(frame, { attributes: true, attributeFilter: ['style'], subtree: true });
+    return () => {
+      sized.disconnect();
+      moved.disconnect();
+    };
+    // The rail's own height is deliberately not a dependency: it is the thing being bounded, and
+    // reading it back would be a loop. Its top and sides move only with the frame.
+  }, [rail, room.width, room.height, orders, active]);
+
+  return ceiling;
+}
+
+interface BuildQueueRailProps extends BuildQueueProps {
+  /** The frame the district is drawn in. See {@link useRailCeiling}. */
+  room: MeasuredSize;
+  /**
+   * How far down the picture the rail reaches when it is laid across the top, or zero when it is
+   * a column. The panel publishes it as `--scene-safe-top` so `DistrictScene` keeps every name
+   * plate below it.
+   */
+  onStripHeight: (px: number) => void;
+}
+
+/**
+ * The build queue as a rail over the district (§A1, maintainer request).
+ *
+ * One rectangle per order, each carrying the structure it is raising and how long it has left.
+ * Collapsible, because a full queue is six plates and a player reading the map wants the map: the
+ * header stays so the count is legible even when it is folded away.
+ *
+ * ## Down the left, or across the top
+ *
+ * The maintainer asked for it down the left, and that is where it stands from
+ * {@link RAIL_COLUMN_MIN_WIDTH_PX} up. Narrower than that the column lands on the Quarters' plate
+ * (the arithmetic is on the constant), and a plate a player cannot click is worse than a rail that
+ * is not where it usually is. So on a narrow frame the same plates run left to right under the
+ * stockpile instead.
+ *
+ * ## Why it scrolls, and what keeps it off the plates
+ *
+ * A full queue is six orders, which is 622px of rail: taller than the room beside the picture at
+ * every viewport under 1920, and deeper than the top of the picture anywhere. So the rail is
+ * bounded and the orders that do not fit are scrolled to, down the column and across the strip,
+ * with the header outside the scroller so the count and the fold stay where the player left them.
+ *
+ * What bounds it differs with the direction, because the geometry does:
+ *
+ *   * **Down the side** it stops above the first name plate in its path
+ *     ({@link useRailCeiling}) and the picture is left alone. A full queue stood on the Scrapyard's
+ *     plate at 1280x800 and 1440x900 before this (visual sweep, 2026-09-15).
+ *   * **Across the top** there is nothing to stand beside: the rail spans the picture, so the
+ *     plates are given room instead, through `--scene-safe-top`. That inset has to stay shallow.
+ *     `plateTop` clamps a plate into the clear band rather than scaling the picture, so every plate
+ *     above the line lands *on* the line: at 1024x768 a queue deep enough to wrap the strip to two
+ *     rows flattened the Lab, the Quarters and the Greenhouse onto one, where the Lab's box and the
+ *     Apothecary's overlapped and the Lab could not be clicked. One row deep, always, is what keeps
+ *     the inset inside what the clamp can absorb.
+ *
+ * Mounted only while there is something in it (the parent checks). An empty rail is a label for a
+ * thing that is not happening, and the district screen already says where orders are placed.
+ */
+function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: BuildQueueRailProps) {
   const now = useServerClock(serverNow, receivedAt);
   const cancel = useCancelBuild(base.id);
   const [open, setOpen] = useState(true);
+  const column = useRailColumn();
+  const [railRef, rail] = useMeasuredSize<HTMLDivElement>();
+  const ceiling = useRailCeiling(railRef, room, base.buildQueue.length, column);
 
-  if (base.buildQueue.length === 0) return null;
+  // Across the top: the inset above the first order is added back, so the published figure is
+  // where the rail *ends*. Reset on unmount, or a queue that has just emptied would leave the
+  // plates hanging clear of a rail that is no longer there.
+  useEffect(() => {
+    // jsdom lays nothing out and reads an unset padding as NaN, which would publish `calc(NaN)`.
+    const reach = Number.isFinite(rail.height) ? rail.height : 0;
+    onStripHeight(column ? 0 : reach + RAIL_INSET_PX);
+    return () => onStripHeight(0);
+  }, [column, rail.height, onStripHeight]);
 
   return (
     <div
-      className="pointer-events-none absolute left-0 top-0 z-20 flex w-[15rem] flex-col gap-1.5 px-3"
-      style={{ paddingTop: 'calc(var(--scene-top, var(--hud-h, 0px)) + 12px)' }}
+      ref={railRef}
+      className={cn(
+        'pointer-events-none absolute left-0 z-20 flex gap-1.5 px-3',
+        column ? 'w-[15rem] flex-col' : 'right-0 flex-row items-start',
+      )}
+      // Placed, not padded: with the inset as position the box the ceiling is measured against is
+      // the orders themselves.
+      style={{
+        top: `calc(var(--scene-top, var(--hud-h, 0px)) + ${RAIL_INSET_PX}px)`,
+        ...(ceiling !== null ? { maxHeight: ceiling } : {}),
+      }}
       data-testid="build-rail"
+      data-layout={column ? 'column' : 'strip'}
     >
       <button
         type="button"
         onClick={() => setOpen((was) => !was)}
         data-testid="build-rail-toggle"
-        className="glass edge-lit pointer-events-auto flex items-center justify-between gap-2 rounded-sm border border-surface-600 px-3 py-2 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 transition-colors hover:border-brass-300/70 hover:text-brass-100"
+        className="glass edge-lit pointer-events-auto flex shrink-0 items-center justify-between gap-2 rounded-sm border border-surface-600 px-3 py-2 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-200 transition-colors hover:border-brass-300/70 hover:text-brass-100"
       >
         <span>
           Under way
@@ -369,56 +621,75 @@ function BuildQueueRail({ base, serverNow, receivedAt }: BuildQueueProps) {
         </span>
       </button>
 
-      {open &&
-        base.buildQueue.map((entry, index) => (
-          <div
-            key={entry.id}
-            data-testid={`build-rail-${entry.kind}`}
-            className={cn(
-              'glass edge-lit pointer-events-auto flex flex-col gap-1 rounded-sm border px-3 py-2',
-              // The one being worked reads differently from the ones waiting behind it: a queue
-              // where every plate looks the same does not say which is moving.
-              index === 0 ? 'border-brass-300/60' : 'border-surface-600/80 opacity-80',
-            )}
-          >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-ink-200">
-                {BUILDING_CATALOG[entry.kind].name}
-              </span>
-              <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
-                {formatRemaining(queueRemainingMs(entry, now))}
-              </span>
-            </div>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                to level {entry.level}
-              </span>
-            </div>
-            <span className="block h-1 w-full bg-surface-700">
-              <span
-                className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
-                style={{ width: `${queueProgressAt(entry, now) * 100}%` }}
-              />
-            </span>
-            {/* On its own row rather than beside "to level N": the plate is 15rem wide and the
-                X with its countdown is most of that. */}
-            <CancelMark
-              className="mt-0.5"
-              windowMs={queueCancelWindowMs(entry, now)}
-              label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
-              pending={cancel.isPending}
-              onCancel={() => cancel.mutate({ orderId: entry.id })}
-              data-testid={`cancel-build-${entry.id}`}
-            />
-          </div>
-        ))}
-      {open && cancel.error && (
-        <p
-          role="alert"
-          className="glass pointer-events-auto rounded-sm border border-oxblood-500/60 px-3 py-2 font-body text-xs text-oxblood-300"
+      {open && (
+        <div
+          className={cn(
+            // The scroller carries the pointer, so a wheel over the orders moves them rather than
+            // the page behind them. It is content-sized until the ceiling bites, so it covers no
+            // more of the painting than the orders themselves do.
+            'pointer-events-auto flex min-h-0 min-w-0 flex-1 gap-1.5',
+            column ? 'flex-col overflow-y-auto' : 'flex-row overflow-x-auto',
+          )}
+          data-testid="build-rail-orders"
         >
-          {cancel.error.message}
-        </p>
+          {base.buildQueue.map((entry, index) => (
+            <div
+              key={entry.id}
+              data-testid={`build-rail-${entry.kind}`}
+              className={cn(
+                'glass edge-lit pointer-events-auto flex flex-col gap-1 rounded-sm border px-3 py-2',
+                // Never squashed to fit: inside a scroller a flex child gives up its own height
+                // first, which would have compressed six orders into the room for four instead of
+                // letting them scroll.
+                'shrink-0',
+                // Across the top, each plate keeps the width the column gave it, so an order reads
+                // the same whichever way the rail is running.
+                !column && 'w-[13.5rem]',
+                // The one being worked reads differently from the ones waiting behind it: a queue
+                // where every plate looks the same does not say which is moving.
+                index === 0 ? 'border-brass-300/60' : 'border-surface-600/80 opacity-80',
+              )}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate font-display text-[11px] uppercase tracking-[0.14em] text-ink-200">
+                  {BUILDING_CATALOG[entry.kind].name}
+                </span>
+                <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
+                  {formatRemaining(queueRemainingMs(entry, now))}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                  to level {entry.level}
+                </span>
+              </div>
+              <span className="block h-1 w-full bg-surface-700">
+                <span
+                  className={cn('block h-full', index === 0 ? 'bg-brass-300' : 'bg-surface-600')}
+                  style={{ width: `${queueProgressAt(entry, now) * 100}%` }}
+                />
+              </span>
+              {/* On its own row rather than beside "to level N": the plate is 13.5rem wide and the
+                X with its countdown is most of that. */}
+              <CancelMark
+                className="mt-0.5"
+                windowMs={queueCancelWindowMs(entry, now)}
+                label={`Call off ${BUILDING_CATALOG[entry.kind].name} level ${entry.level}`}
+                pending={cancel.isPending}
+                onCancel={() => cancel.mutate({ orderId: entry.id })}
+                data-testid={`cancel-build-${entry.id}`}
+              />
+            </div>
+          ))}
+          {cancel.error && (
+            <p
+              role="alert"
+              className="glass shrink-0 rounded-sm border border-oxblood-500/60 px-3 py-2 font-body text-xs text-oxblood-300"
+            >
+              {cancel.error.message}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -432,9 +703,21 @@ function BuildQueueRail({ base, serverNow, receivedAt }: BuildQueueProps) {
  * player has to keep an eye on, which used to be a row inside it.
  */
 function HousingReadout({ base }: { base: Base }) {
-  const draw = populationDraw(base);
-  const capacity = populationCapacity(base.buildings);
-  const filled = capacity <= 0 ? 1 : Math.min(1, draw.total / capacity);
+  const draw = unitSlotDraw(base);
+  /*
+   * The roster's figures where the server has answered, the local sum until it has.
+   *
+   * `unitSlotDraw(base)` only knows what the district row carries: officers, the army at home,
+   * the bench and the yard. The server's `districtUnitSlots` also counts garrisons on held ground,
+   * units and machines on the road and the territory's slot bonus, and it is what the Units page
+   * prints and what the training door refuses on. Two screens reading two totals for one budget is
+   * the bug (bug pass, 2026-09-15); the fallback exists so the panel never draws a zero while the
+   * roster is still loading.
+   */
+  const roster = useUnits();
+  const total = roster.data?.unitSlotsUsed ?? draw.total;
+  const capacity = roster.data?.unitSlotsCap ?? unitSlotCapacity(base.buildings);
+  const filled = capacity <= 0 ? 1 : Math.min(1, total / capacity);
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -449,7 +732,7 @@ function HousingReadout({ base }: { base: Base }) {
             filled >= 1 ? 'text-oxblood-300' : 'text-brass-300',
           )}
         >
-          {draw.total} / {capacity}
+          {total} / {capacity}
         </span>
       </div>
       <span className="block h-1.5 w-full bg-surface-700">
@@ -460,8 +743,8 @@ function HousingReadout({ base }: { base: Base }) {
       </span>
       <p className="font-body text-xs leading-relaxed text-ink-300">
         {filled >= 1
-          ? 'Every bed is taken. Raise the Quarters before you order anybody else.'
-          : `${capacity - draw.total} beds spare. The army is ${draw.army} of what is taken.`}
+          ? 'Every unit slot is taken. Raise the Quarters before you order anybody else.'
+          : `${capacity - total} unit slots spare. The army is ${draw.army} of what is taken.`}
       </p>
     </div>
   );
@@ -475,8 +758,8 @@ function ProductionRows({ base }: { base: Base }) {
   if (producing.length === 0) {
     return (
       <p className="p-4 font-body text-xs leading-relaxed text-ink-300">
-        Nothing is being made yet. The Greenhouse grows supplies, the Scrapyard strips salvage and
-        the Garage cracks fuel.
+        Nothing is being made yet. The Greenhouse grows supplies and timber, the Scrapyard strips
+        salvage into scrap and good metal, and the Generator refines oil.
       </p>
     );
   }

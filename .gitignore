@@ -11,6 +11,13 @@ coverage/
 playwright-report/
 test-results/
 apps/client/screenshots/
+# Screenshot output from the e2e run. Nothing reads it: no spec compares against these, they are
+# only ever written, and a full run rewrites all ~100 of them. Committed, that was 161MB of
+# binaries churning on every run, which is most of what made .git a gigabyte. They still land on
+# disk for looking at, the same as `screenshots/` above.
+apps/client/e2e-out/
 .tmp/
 *.tsbuildinfo
 .DS_Store
+# Throwaway colour-study renders. Delete the folder when the ground is chosen.
+ground-renders/

@@ -3,24 +3,24 @@ import {
   CreateOverseerRequestSchema,
   DISTRICT_NAME_MAX,
   MAX_FACTION_MEMBERS,
-  STARTER_DISTRICT_ID,
-  STARTING_RESOURCES,
   findOverseerPreset,
-  startingEconomy,
-  startingProgression,
-  startingResearch,
+  OVERSEER_PRESETS,
+  overseerOffer,
+  overseerRemaining,
   CITY_DISTRICTS,
   findDistrict,
   travelMinutesBetween,
   type Base,
   type CreateOverseerResponse,
-  startingTraining,
+  type OverseerChoicesResponse,
   overseerFromPreset,
   isReservedDistrictName,
   sameDistrictName,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { applyUnlockedSandbox } from '../seed/sandbox.js';
+import { startingBase } from '../crew/starting.js';
+import { MVP_PLAYER } from '../seed/constants.js';
 import { seededFactionId } from '../seed/index.js';
 import { notify } from '../social/notify.js';
 import { AppError, parseBody } from '../errors.js';
@@ -92,7 +92,40 @@ function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): 
   if (nearest) repos.city.markScouted(base.id, nearest.id, nowIso);
 }
 
+/** Whether a character is in this account's own four, and therefore pickable by them. */
+function offered(repos: Repositories, accountId: string, presetId: string): boolean {
+  return overseerOffer(repos.overseers.claimedPresetIds(), accountId).some(
+    (preset) => preset.presetId === presetId,
+  );
+}
+
 export function registerOverseerRoutes(app: FastifyInstance): void {
+  /**
+   * The four characters this account may pick from (§F6, maintainer request 2026-09-15).
+   *
+   * Behind `authenticate` because the offer is *this account's*: it is a hash of the caller's id,
+   * so an anonymous reader has nothing to be offered. The claimed set is read fresh on every call
+   * rather than cached, which is the whole point of a shared pool: a character somebody took two
+   * seconds ago is gone from the next reader's four.
+   */
+  app.get(
+    '/overseer/choices',
+    { preHandler: app.authenticate },
+    (request): OverseerChoicesResponse => {
+      const claimed = app.repos.overseers.claimedPresetIds();
+      return {
+        choices: [...overseerOffer(claimed, request.currentUser.id)],
+        // Counted off the pool rather than as `total - claimed.size`: the claimed set is raw
+        // `preset_id` values, and migration 0095 leaves a spent `enforcer:<uuid>` claim behind for
+        // every duplicate a legacy save carried. Those are not characters, so subtracting them
+        // understated the count, and a save with more overseer rows than there are characters
+        // printed a negative one.
+        remaining: overseerRemaining(claimed),
+        total: OVERSEER_PRESETS.length,
+      };
+    },
+  );
+
   app.post(
     '/overseer',
     { preHandler: app.authenticate },
@@ -107,67 +140,36 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       if (!preset) {
         throw new AppError('UNKNOWN_PRESET', `Unknown overseer preset: ${presetId}`);
       }
+      /*
+       * §F6: it has to be one of *this* account's four, and still unclaimed.
+       *
+       * Both halves matter and they fail for different reasons. A character outside the offer is a
+       * client asking for somebody it was never shown, which is the whole pool defeated by a
+       * hand-written request; one inside the offer but already taken is the honest race, two
+       * players on the last copy of the same person. The read is repeated inside the transaction
+       * below, where it is the one that actually decides.
+       */
+      if (!offered(app.repos, user.id, presetId)) {
+        throw new AppError('PRESET_TAKEN', 'Somebody else is already that person');
+      }
 
       const now = new Date().toISOString();
       const overseer = overseerFromPreset(preset, randomUUID());
-      const base: Base = {
-        id: randomUUID(),
+      /*
+       * Which district this character ends up on, decided inside the transaction below.
+       *
+       * The `base` built here is the one a *new* account gets. An account that has been through
+       * the Console's Clean slate already has a district, and reuses it; `district` is what the
+       * response then has to report, because reading the new `base.id` back finds nothing and
+       * falls through to an object that was never saved. That was the first cut of this, and it
+       * answered with a second crew that did not exist.
+       */
+      let district: Base | undefined;
+      const base = startingBase({
         ownerId: user.id,
-        // §A1: a allegiance has a name from the first second, because the HUD shows one from the
-        // first second. This is a placeholder the player is expected to replace, not a decision
-        // made for them: `POST /base/district-name` is on the district page.
         name: freeDistrictName(app, user.username),
-        districtId: STARTER_DISTRICT_ID,
-        level: 1,
-        isBot: false,
-        resources: STARTING_RESOURCES,
-        economy: startingEconomy(now),
-        progression: startingProgression(),
-        research: startingResearch(),
-        /**
-         * What a new district starts standing (§A1).
-         *
-         * The Nexus, because it is what authorises everything else and a district without one
-         * caps every other plot at zero. The Generator, because it is what takes time off every
-         * other structure's clock (§B4), and a first session where every build runs at full length
-         * is a first session spent waiting. Everything else is the player's to lay.
-         */
-        buildings: [
-          {
-            id: randomUUID(),
-            kind: 'nexus',
-            level: 1,
-            modifications: [],
-            damage: 0,
-          },
-          {
-            id: randomUUID(),
-            kind: 'generator',
-            level: 1,
-            modifications: [],
-            damage: 0,
-          },
-        ],
-        buildQueue: [],
-        /**
-         * §A5: enough Razors to walk into Steelbelt on day one and win.
-         *
-         * An empty army plus a Gauntlet they have not built yet is a first session with no move,
-         * and so, it turned out, was four: NPC places are garrisoned now, Steelbelt's easiest
-         * holds four, and a defender at parity wins every time. Measured: eight takes it, four
-         * loses forty out of forty. The number has to be the one that makes the opening move
-         * *available*, not the one that sounds modest.
-         */
-        army: { razors: 8 },
-        trainingQueue: [],
-        training: startingTraining(now),
-        inventory: {},
-        fittedUpgrades: [],
-        unitLoadouts: {},
-        fleet: {},
-        commanders: [],
-        createdAt: now,
-      };
+        now,
+      });
 
       app.db.transaction(() => {
         /*
@@ -183,6 +185,12 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         if (app.repos.users.findById(user.id)?.overseerId != null) {
           throw new AppError('OVERSEER_ALREADY_CHOSEN', 'You have already chosen an overseer');
         }
+        // ...and the same for the pool, for the same reason: the check above this transaction is a
+        // snapshot from outside it. Migration 0095 puts a unique index under this as well, so the
+        // worst a lost race can do is fail the insert rather than seat two accounts on one person.
+        if (app.repos.overseers.claimedPresetIds().has(presetId)) {
+          throw new AppError('PRESET_TAKEN', 'Somebody else is already that person');
+        }
         app.repos.overseers.insert({
           overseer,
           userId: user.id,
@@ -190,16 +198,39 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
           createdAt: now,
         });
         app.repos.users.setOverseerId(user.id, overseer.id);
-        app.repos.bases.insert(base);
-        openTheNearestGround(app.repos, base, now);
+        /*
+         * Reuse the district if this account already has one.
+         *
+         * The Console's Clean slate empties a crew's base in place and clears the overseer, so a
+         * player arrives back at the picker with a base row still under them. Inserting here would
+         * mint a second one and trip migration 0074's unique index on `owner_id`, which is the
+         * rule working: one base per account. Re-attaching the new character to the district that
+         * is already theirs is what that rule wants.
+         *
+         * A base that has just been reset is already at the shape `startingBase` returns, so
+         * nothing needs writing to it. The ground is opened either way, because the reset released
+         * every location this crew held.
+         */
+        const standing = app.repos.bases.findByOwnerId(user.id);
+        if (standing === undefined) app.repos.bases.insert(base);
+        district = standing ?? base;
+        openTheNearestGround(app.repos, district, now);
       })();
 
       // The sandbox switch also runs at boot, but a base does not exist until this moment: on a
       // fresh database the flag would silently do nothing until the next restart, which is exactly
       // the kind of "did I set it wrong?" that makes a dev switch useless.
-      if (app.config.unlocked) {
-        applyUnlockedSandbox(app.repos, user.username);
-        app.log.warn({ baseId: base.id }, 'UNLOCKED=true: new district opened at the end-game');
+      //
+      // The seeded dev account and nobody else. `applyUnlockedSandbox` raises whichever username
+      // it is handed, and this used to hand it the caller's, so on a server with the flag on every
+      // account that picked a character opened at level 20: the sandbox's own doc says "it only
+      // ever touches the seeded dev account", and the boot-time call keeps that promise by name.
+      if (app.config.unlocked && user.username === MVP_PLAYER.username) {
+        applyUnlockedSandbox(app.repos, MVP_PLAYER.username);
+        app.log.warn(
+          { baseId: district?.id ?? base.id },
+          'UNLOCKED=true: new district opened at the end-game',
+        );
       }
 
       /*
@@ -232,7 +263,8 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         });
       }
 
-      const opened = app.repos.bases.findById(base.id) ?? base;
+      const opened =
+        district === undefined ? base : (app.repos.bases.findById(district.id) ?? district);
       reply.code(201);
       return { user: { ...user, overseerId: overseer.id }, overseer, base: opened };
     },

@@ -17,6 +17,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { tickWorld } from '../live/clock.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { defaultScout, planScout, sendScout, settleScouting } from './scouting.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: scouting as a journey (maintainer rework).
@@ -58,12 +59,10 @@ async function makeStack(username: string): Promise<Stack> {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // Which ground a new crew can already see is the subject here, and one §F6 signature opens two
+  // more districts on its own, so the crew gets a character rather than whoever was on offer.
+  pinOverseer(app, token);
   return { app, db, token, baseId: chosen.json<{ base: { id: string } }>().base.id };
 }
 

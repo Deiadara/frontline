@@ -125,7 +125,7 @@ export type TakeResult =
  * what makes the good disappear for everybody else in the city, so doing it before the charge would
  * let a crew that cannot pay clear a slot other people were looking at.
  *
- * A boost goes to the stash and waits for a fight. Everything else lands in the satchel, which is
+ * A boost goes to the stash and waits for a fight. Everything else lands in the inventory, which is
  * where the workshop, the lab and the build queue already look for parts and blueprints: a back
  * room with its own parallel inventory would be a second place to check for the same crate.
  */

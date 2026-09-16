@@ -15,7 +15,7 @@ import { FeatEraSchema, FeatRewardSchema, FeatSizeSchema, type FeatReward } from
  *
  * "Have the only ones that are locked those that are totally ordered." A feat either stands alone,
  * in which case it is always visible and always attemptable, or it sits in a **chain** where every
- * step asks the same question with a bigger number: field a hundred bodies, then five hundred,
+ * step asks the same question with a bigger number: field a hundred units, then five hundred,
  * then two thousand. In a chain the later steps are locked until the earlier one is done, and that
  * is the only kind of locking in the system.
  *
@@ -113,7 +113,7 @@ export function featState(
      * A locked feat reports no progress at all, and that is deliberate.
      *
      * Reporting the real figure would leak the next rung's number to a screen that is not drawing
-     * it, and, worse, would make a locked row show a full bar: a crew fielding two thousand bodies
+     * it, and, worse, would make a locked row show a full bar: a crew fielding two thousand units
      * has met every tier of that chain, so tier four would sit there complete and unclaimable
      * looking like a bug. Zero on a locked row reads as "not yet", which is what it is.
      */

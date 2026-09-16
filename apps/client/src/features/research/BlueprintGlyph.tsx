@@ -43,7 +43,7 @@ import { RARITY_INK } from '../../lib/rarity';
  *
  * ## Size drops detail, it never adds clutter
  *
- * `sm` (16px, a cost row) is the paper and the motif's body. `md` (36px, a page row or a satchel
+ * `sm` (16px, a cost row) is the paper and the motif's body. `md` (36px, a page row or an inventory
  * tile) adds the detail inside it. `lg` (72px, a card head) adds the sheet's own draughtsmanship,
  * which is fixed furniture rather than a seeded extra: a dimension run under a page, the title
  * block rules on a cover. Nothing moves between the three, so a glyph does not change identity when
@@ -1911,7 +1911,7 @@ function Sheet({
        * A stroked mark needs a value under it, and on the pale lilac `.icon-tile` the rarity ink
        * washed out: brass on lavender at 44px was a smudge with a colour. `.icon-plate` is the
        * ground index.css already keeps for drawn marks rather than painted ones, and it is on the
-       * svg itself rather than on the callers because the satchel row, the barrow card and the
+       * svg itself rather than on the callers because the inventory row, the barrow card and the
        * item window all hand this component a box they own and none of them can be edited from
        * here. The one it costs is a thin lilac frame where a caller still wraps it in a tile.
        */
@@ -1926,7 +1926,7 @@ function Sheet({
  * One page: a loose sheet, torn down the left where it came out of the document.
  *
  * The tear is the whole silhouette argument. A page and its document are the same object at two
- * stages and a player has to tell them apart in a satchel row at 36px, so one of them is bound and
+ * stages and a player has to tell them apart in an inventory row at 36px, so one of them is bound and
  * the other one is not.
  */
 export function PageGlyph({

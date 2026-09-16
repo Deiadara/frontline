@@ -134,7 +134,7 @@ const board: MissionsResponse = {
 
 /**
  * A launch the server accepted. Spelled out rather than stubbed loosely because the client
- * validates every 2xx body through `LaunchMissionResponseSchema`: a placeholder that does not
+ * validates every 2xx unit through `LaunchMissionResponseSchema`: a placeholder that does not
  * satisfy it fails the mutation, and every assertion below about a *successful* launch would then
  * be passing for the wrong reason.
  */
@@ -222,7 +222,7 @@ function stubApi({ launch, missions = board }: Stubbed = {}): void {
   });
 }
 
-/** The body the page actually put on the wire for the one launch it made. */
+/** The unit the page actually put on the wire for the one launch it made. */
 function launchBody(): LaunchMissionRequest {
   const post = fetchMock.mock.calls.find(
     ([, init]) => (init as RequestInit | undefined)?.method === 'POST',

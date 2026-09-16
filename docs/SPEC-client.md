@@ -63,7 +63,7 @@ The archive is three tabs of one screen (`ResearchPage`, maintainer 2026-09-10):
 `/game/research/reimagining`. The strip is the market's, and which tab is open is the URL, so a
 link into a document lands on the document. **Only Programmes carries a count** (rungs finished over
 rungs in the game); the other two are their label alone, because a document count next to Blueprints
-reads as progress through the catalogue when it is progress through a satchel, and a page count next
+reads as progress through the catalogue when it is progress through an inventory, and a page count next
 to Reimagining is the size of a bag rather than of anything the tab does. Programmes also takes
 `?track=<role>`, so a link can open one of the nineteen trades; an unknown value falls back to the
 first.
@@ -76,7 +76,7 @@ at 1280; under that the strip wraps and `auto-rows-fr` squares the rows back up.
 buttons under it choose the category, and only the chosen one is rendered. Neither is persisted.
 
 Reimagining is the bench: a triangle of three brass sockets with gearing and an outfeed beside it,
-and the satchel's pages as a tray to its right. Shut, it is a door rather than a dead end: a crew
+and the inventory's pages as a tray to its right. Shut, it is a door rather than a dead end: a crew
 with no Head of Research is sent to the Bar to hire one, because an empty chair shuts every rung on
 every trade, and a crew with the chair but not the rung is sent to `/game/research?track=` on the
 trade the rung actually sits on, read off the catalogue rather than written down. A tray tile puts its page in the first empty socket
@@ -132,7 +132,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      travel, under `prefers-reduced-motion`). Several in a row stack in their own lanes rather than
      overwriting, and the figures are portalled to `document.body` so a chip's box can never clip
      one. One hook (`lib/deltas.ts`) diffs consecutive readings for every readout that does this:
-     the six stockpiles, the infamy wallet, the roster's unit counts and the satchel's item counts.
+     the six stockpiles, the infamy wallet, the roster's unit counts and the inventory's item counts.
      The first reading announces nothing.
    - **What counts as the trickle.** Passive production lands on every `/me` poll, and a `+3 scrap`
      every ten seconds trains a player to stop reading the figures that matter. A rise on a
@@ -147,7 +147,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      the rate, which is how launching a mission came to announce `+1 oil` and `+1 wood`. Two reward
      lines in the whole mission catalogue are small enough to go silent under it and no job is that
      small in every line, so a crew coming home always throws a figure. The floor applies only to
-     readouts that carry production rates: the infamy wallet, the unit counts and the satchel
+     readouts that carry production rates: the infamy wallet, the unit counts and the inventory
      announce every move, because one found servo is `+1` and there is nothing else it could be. A
      fall is never written off, whatever its size: nothing in the game quietly drains a stockpile,
      so every click that spends is a receipt. Nothing was added to the wire for this.
@@ -157,8 +157,10 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      the crew leaves the progress figure lower than it was. No trickle and no floor, since nothing
      pays XP passively.
    - **Scenery switcher** (floating, along the bottom): City / District / Units / Missions / The
-     Bar / Research / Crew / Training / Market / Scrapyard / Satchel, with Settings pinned to the
-     right of the row and the Console appearing only in an admin build. Each entry is a _place_, with
+     Bar / Crew / Research / Faction / Training / Market / Scrapyard, with Feats pinned to the left
+     of the row, Settings to the right, and the Console appearing only in an admin build. The
+     Inventory door is gone: the parts bin is the Scrapyard's Components tab, and blueprint pages
+     live under Research. Each entry is a _place_, with
      an icon large enough to read as a destination and its label under it. The row wraps rather
      than shrinking, and the shell measures whatever height that comes to. Gated doors (§I3) still
      draw and still link: they carry a padlock and the level that opens them.
@@ -195,7 +197,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    stockpile and its ceiling, standing, payroll, progression: is in a drawer that starts closed and
    slides up over the scene. **Nothing on this page computes a game rule.** Every figure comes from a
    shared function the server calls too (`districtProduction`, `powerGrid`, `storageCapacity`,
-   `populationCapacity`, `buildingCost`, `buildingBuildSeconds`), which is what keeps a dead
+   `unitSlotCapacity`, `buildingCost`, `buildingBuildSeconds`), which is what keeps a dead
    button's _reason_ identical to the server's refusal.
 
    - **Somebody else's plot** (`VisitedDistrict`, `/game/city/:id` on residential ground) is the
@@ -273,7 +275,8 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      the effective figure and the percent change coloured by direction, and under it the `reasons`
      the shared `effectiveStats` returns. It is the engine's own function, so the card and the fight
      cannot disagree. Two inputs are not on `BattleView` and the card says so rather than guessing:
-     the crew's territory effects (it passes `noTerritoryEffects()`) and the Scrapyard's refit.
+     the crew's territory effects (it passes `noTerritoryEffects()`) and the Scrapyard's unit
+     modifications.
 
 8. **The yard and the road** (§C3). A vehicle carries a **speed**, 0 to 100, on the same scale a
    unit's sheet uses, never a percentage off a clock: the machine's card reads `Speed 65` beside

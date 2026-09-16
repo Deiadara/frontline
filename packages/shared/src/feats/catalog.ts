@@ -6,7 +6,7 @@ import type { FeatEra, FeatReward, FeatSize } from './rewards.js';
 import type { FeatMeasure } from './measures.js';
 
 /**
- * The feats (maintainer request, 2026-09-13): a hundred and sixty one things to go and do.
+ * The feats (maintainer request, 2026-09-13): two hundred things to go and do.
  *
  * ## How this is built, and why it is data rather than prose
  *
@@ -15,7 +15,7 @@ import type { FeatMeasure } from './measures.js';
  * whose targets do not climb, refuses an id used twice, and refuses a scope that names a district
  * or a building the game does not have. A catalogue this size cannot be kept honest by reading it.
  *
- * The rewards come from the nine helpers below rather than being typed out a hundred and sixty
+ * The rewards come from the nine helpers below rather than being typed out two hundred
  * times. That is not only brevity: a helper is priced once, in one place, against the survey of
  * what the live economy actually pays, so an author choosing `purse('mid', 'medium')` cannot
  * accidentally hand over four times what the feat beside it pays for the same work.
@@ -26,7 +26,7 @@ import type { FeatMeasure } from './measures.js';
  * serves a quarter of them. These are grouped so that every way of playing has a ladder:
  *
  *   * **the work**: missions, the core loop, and the one every player touches;
- *   * **fighting**: declared battles, bodies committed, ground taken;
+ *   * **fighting**: declared battles, units committed, ground taken;
  *   * **the city**: scouting, holdings, whole districts, gates;
  *   * **the district**: buildings, traps, fittings, the things that are built and not won;
  *   * **the crew**: units, officers, the Overseer's own sheet;
@@ -94,7 +94,7 @@ const street = (era: FeatEra, size: FeatSize): FeatReward => ({
   }[era][size],
 });
 
-const bodies = (era: FeatEra, size: FeatSize): FeatReward =>
+const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
       small: { units: { razors: 4 } },
@@ -113,6 +113,23 @@ const bodies = (era: FeatEra, size: FeatSize): FeatReward =>
     },
   })[era][size];
 
+/**
+ * Parts, in quantities a crew can actually spend.
+ *
+ * This helper used to pay `rotor_hub: 100, targeting_core: 80` at the top tier, and across the
+ * catalogue it handed over **376 Rotor Hubs and 256 Targeting Cores**. The whole game consumes one
+ * Rotor Hub and two Targeting Cores, ever: one is the toll for Garage 12, and two are the cost of
+ * the last weapons refit. It passed the band check because a reward is priced in caps-equivalent
+ * and a Rotor Hub is worth 2,400 caps, so a hundred of them is a correctly-priced number of caps
+ * and a meaningless number of parts. Worse, `lab_2` is a **mid-game** feat and paid four of them,
+ * which is the tightest gate in the game handed over four times before a player would reach it.
+ *
+ * `parts.ts` says it plainly: resources are the pace of a district and parts are a gate. A gate
+ * you are given a hundred keys to is not a gate. So every tier below is bounded by what the game
+ * can absorb (see `LIFETIME_PART_DEMAND` in `catalog.test.ts`, which is computed off the building
+ * gates and the refit table and fails this file if it drifts), and the value the band wants is
+ * made up in **caps** rather than in parts nobody can spend.
+ */
 const kit = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
@@ -122,13 +139,45 @@ const kit = (era: FeatEra, size: FeatSize): FeatReward =>
     },
     mid: {
       small: { items: { optic_cluster: 6, scrap_servo: 4 } },
-      medium: { items: { rotor_hub: 4, targeting_core: 2 } },
-      large: { items: { rotor_hub: 16, targeting_core: 10 } },
+      medium: {
+        ...purse('mid', 'small'),
+        items: { ceramic_plate: 4, optic_cluster: 4, scrap_servo: 6 },
+      },
+      large: {
+        ...purse('mid', 'medium'),
+        items: { neural_shunt: 6, coolant_cell: 5, ceramic_plate: 10, optic_cluster: 10 },
+      },
     },
     late: {
-      small: { items: { rotor_hub: 4, optic_cluster: 8 } },
-      medium: { items: { rotor_hub: 24, targeting_core: 14 } },
-      large: { items: { rotor_hub: 100, targeting_core: 80 } },
+      small: {
+        ...purse('mid', 'small'),
+        items: { gyro_assembly: 4, optic_cluster: 8, scrap_servo: 10 },
+      },
+      medium: {
+        ...purse('mid', 'large'),
+        items: {
+          targeting_core: 1,
+          neural_shunt: 6,
+          coolant_cell: 5,
+          ceramic_plate: 12,
+          optic_cluster: 12,
+        },
+      },
+      // The one feat that finishes a crew's parts problem for good: one of everything the game
+      // will ever ask for. Bounded by that and not a unit past it.
+      large: {
+        ...purse('late', 'large'),
+        items: {
+          rotor_hub: 1,
+          targeting_core: 2,
+          neural_shunt: 9,
+          coolant_cell: 8,
+          ceramic_plate: 16,
+          optic_cluster: 20,
+          gyro_assembly: 6,
+          scrap_servo: 26,
+        },
+      },
     },
   })[era][size];
 
@@ -282,6 +331,15 @@ const WORK: FeatSpec[] = [
       target: 250,
       reward: lesson('late', 'medium'),
     },
+    {
+      id: 'clean_4',
+      name: 'Never a Bad Season',
+      blurb: 'Eight hundred clean runs. The failures are a rounding error.',
+      era: 'late',
+      size: 'large',
+      target: 800,
+      reward: lesson('late', 'large'),
+    },
   ]),
   ...chain(
     'raids',
@@ -382,6 +440,15 @@ const WORK: FeatSpec[] = [
         target: 75,
         reward: purse('mid', 'medium'),
       },
+      {
+        id: 'oddjobs_4',
+        name: 'Whatever Needs Doing',
+        blurb: 'Two hundred and fifty odd jobs. No work is beneath this crew.',
+        era: 'late',
+        size: 'medium',
+        target: 250,
+        reward: purse('late', 'medium'),
+      },
     ],
     MISC_AREA_ID,
   ),
@@ -400,20 +467,36 @@ const WORK: FeatSpec[] = [
  */
 const DISTRICT_WORK: FeatSpec[] = CITY_DISTRICTS.filter(
   (district) => district.kind === 'contested',
-).map((district) => {
+).flatMap((district) => {
   const era: FeatEra =
     district.difficulty <= 2 ? 'early' : district.difficulty <= 5 ? 'mid' : 'late';
-  return solo(
-    {
-      id: `area_${district.id.replace(/-/g, '_')}`,
-      name: `Twenty Five in ${district.name}`,
-      blurb: `Run twenty five jobs out of ${district.name}. Learn one piece of ground properly.`,
-      era,
-      size: 'medium',
-      target: 25,
-      reward: purse(era, 'medium'),
-    },
+  // The second rung sits one era deeper, because fifty jobs out of one district is a season's work
+  // wherever that district sits on the ladder. Clamped at `late`, which is the end of the road.
+  const deeper: FeatEra = era === 'early' ? 'mid' : 'late';
+  const key = `area_${district.id.replace(/-/g, '_')}`;
+  return chain(
+    key,
     'missions_in_area',
+    [
+      {
+        id: key,
+        name: `Ten in ${district.name}`,
+        blurb: `Run ten jobs out of ${district.name}. Learn one piece of ground properly.`,
+        era,
+        size: 'small',
+        target: 10,
+        reward: purse(era, 'small'),
+      },
+      {
+        id: `${key}_2`,
+        name: `Fifty in ${district.name}`,
+        blurb: `Fifty jobs out of ${district.name}. You know which doors stick.`,
+        era: deeper,
+        size: 'medium',
+        target: 50,
+        reward: purse(deeper, 'medium'),
+      },
+    ],
     district.id,
   );
 });
@@ -487,6 +570,15 @@ const FIGHTING: FeatSpec[] = [
       target: 50,
       reward: street('late', 'medium'),
     },
+    {
+      id: 'wins_4',
+      name: 'Two Hundred Standing',
+      blurb: 'Two hundred fights won. There is a version of the city where you lost one.',
+      era: 'late',
+      size: 'large',
+      target: 200,
+      reward: spoils('late', 'large'),
+    },
   ]),
   ...chain('attack', 'battles_attacked_won', [
     {
@@ -550,20 +642,20 @@ const FIGHTING: FeatSpec[] = [
     {
       id: 'deployed_1',
       name: 'Send Somebody',
-      blurb: 'Commit fifty bodies to declared fights. They do not all come back.',
+      blurb: 'Commit fifty units to declared fights. They do not all come back.',
       era: 'early',
       size: 'small',
       target: 50,
-      reward: bodies('early', 'small'),
+      reward: recruits('early', 'small'),
     },
     {
       id: 'deployed_2',
       name: 'A Column',
-      blurb: 'Five hundred bodies committed. The quartermaster has opinions.',
+      blurb: 'Five hundred units committed. The quartermaster has opinions.',
       era: 'mid',
       size: 'small',
       target: 500,
-      reward: bodies('mid', 'small'),
+      reward: recruits('mid', 'small'),
     },
     {
       id: 'deployed_3',
@@ -572,18 +664,18 @@ const FIGHTING: FeatSpec[] = [
       era: 'late',
       size: 'medium',
       target: 5_000,
-      reward: bodies('late', 'medium'),
+      reward: recruits('late', 'medium'),
     },
   ]),
   ...chain('muster', 'supply_deployed', [
     {
       id: 'muster_1',
       name: 'A Hundred on the Ground',
-      blurb: 'Field units worth a hundred population across your fights.',
+      blurb: 'Field units worth a hundred unit slots across your fights.',
       era: 'early',
       size: 'medium',
       target: 100,
-      reward: bodies('early', 'medium'),
+      reward: recruits('early', 'medium'),
     },
     {
       id: 'muster_2',
@@ -592,16 +684,16 @@ const FIGHTING: FeatSpec[] = [
       era: 'mid',
       size: 'medium',
       target: 500,
-      reward: bodies('mid', 'medium'),
+      reward: recruits('mid', 'medium'),
     },
     {
       id: 'muster_3',
       name: 'Two and a Half Thousand',
-      blurb: 'Population enough to empty a district. Most of it was yours.',
+      blurb: 'Unit slots enough to empty a district. Most of them were yours.',
       era: 'late',
       size: 'large',
       target: 2_500,
-      reward: bodies('late', 'large'),
+      reward: recruits('late', 'large'),
     },
   ]),
   ...chain('kills', 'kills', [
@@ -744,6 +836,15 @@ const CITY: FeatSpec[] = [
       target: 5,
       reward: spoils('late', 'medium'),
     },
+    {
+      id: 'gates_3',
+      name: 'Every Door in the Wall',
+      blurb: 'Fifteen gates taken. The wall is a suggestion now.',
+      era: 'late',
+      size: 'large',
+      target: 15,
+      reward: spoils('late', 'large'),
+    },
   ]),
   ...chain('scouted', 'districts_scouted', [
     {
@@ -802,12 +903,147 @@ const CITY: FeatSpec[] = [
       target: 150,
       reward: kit('late', 'small'),
     },
+    {
+      id: 'scouting_4',
+      name: 'Nothing Unmapped',
+      blurb:
+        'Five hundred scouting runs. There is no corner of this city you have not looked into.',
+      era: 'late',
+      size: 'medium',
+      target: 500,
+      reward: lesson('late', 'medium'),
+    },
   ]),
 ];
 
 // --- the district ---
 
 const DISTRICT: FeatSpec[] = [
+  ...chain(
+    'quarters',
+    'building_level',
+    [
+      {
+        id: 'quarters_1',
+        name: 'Somewhere to Sleep',
+        blurb: 'Quarters at three. People stop leaving because of the beds.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'quarters_2',
+        name: 'A Full House',
+        blurb: 'Quarters at twelve. Room for everybody you keep hiring.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+    ],
+    'quarters',
+  ),
+  ...chain(
+    'gauntlet',
+    'building_level',
+    [
+      {
+        id: 'gauntlet_1',
+        name: 'A Place to Drill',
+        blurb: 'A Gauntlet at three. Units come out of it better than they went in.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'gauntlet_2',
+        name: 'The Hard Yard',
+        blurb: 'A Gauntlet at twelve. The drill is worse than most of the fights.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+    ],
+    'gauntlet',
+  ),
+  ...chain(
+    'scrapyard',
+    'building_level',
+    [
+      {
+        id: 'scrapyard_1',
+        name: 'Somebody Who Can Cut',
+        blurb: 'A Scrapyard at three. Things get taken apart properly now.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'scrapyard_2',
+        name: 'The Whole Works',
+        blurb: 'A Scrapyard at twelve. There is nothing they cannot fit.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+    ],
+    'scrapyard',
+  ),
+  ...chain(
+    'greenhouse',
+    'building_level',
+    [
+      {
+        id: 'greenhouse_1',
+        name: 'Something Growing',
+        blurb: 'A Greenhouse at three. The crew eats without asking the city.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'greenhouse_2',
+        name: 'Fed and Watered',
+        blurb: 'A Greenhouse at twelve. Nobody here has been hungry in a long time.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+    ],
+    'greenhouse',
+  ),
+  ...chain(
+    'generator',
+    'building_level',
+    [
+      {
+        id: 'generator_1',
+        name: 'The Lights Stay On',
+        blurb: 'A Generator at three. The district stops going dark at night.',
+        era: 'early',
+        size: 'medium',
+        target: 3,
+        reward: wages('early', 'medium'),
+      },
+      {
+        id: 'generator_2',
+        name: 'Off the Grid Entirely',
+        blurb: 'A Generator at twelve. The Combine cannot switch you off any more.',
+        era: 'mid',
+        size: 'medium',
+        target: 12,
+        reward: wages('mid', 'medium'),
+      },
+    ],
+    'generator',
+  ),
   ...chain(
     'nexus',
     'building_level',
@@ -931,6 +1167,15 @@ const DISTRICT: FeatSpec[] = [
         target: 10,
         reward: purse('mid', 'medium'),
       },
+      {
+        id: 'gate_3',
+        name: 'Nothing Gets Through',
+        blurb: 'A Gate at eighteen. Whatever is out there can stay out there.',
+        era: 'late',
+        size: 'large',
+        target: 18,
+        reward: wages('late', 'large'),
+      },
     ],
     'gate',
   ),
@@ -956,6 +1201,15 @@ const DISTRICT: FeatSpec[] = [
         target: 8,
         reward: kit('mid', 'medium'),
       },
+      {
+        id: 'lab_3',
+        name: 'The Whole Library',
+        blurb: 'A Lab at sixteen. Somebody in there is ahead of the Combine.',
+        era: 'late',
+        size: 'large',
+        target: 16,
+        reward: wages('late', 'large'),
+      },
     ],
     'lab',
   ),
@@ -980,6 +1234,15 @@ const DISTRICT: FeatSpec[] = [
         size: 'medium',
         target: 8,
         reward: purse('late', 'medium'),
+      },
+      {
+        id: 'garage_3',
+        name: 'A Yard With a Name',
+        blurb: 'A Garage at sixteen. Machines come out of it that nobody else can build.',
+        era: 'late',
+        size: 'large',
+        target: 16,
+        reward: wages('late', 'large'),
       },
     ],
     'garage',
@@ -1013,11 +1276,133 @@ const DISTRICT: FeatSpec[] = [
       reward: kit('late', 'small'),
     },
   ]),
+  /*
+   * The deck (maintainer request, 2026-09-14).
+   *
+   * Building a modification in the Scrapyard and bolting it into a slot are two different acts,
+   * and `addons_built` only ever counted the first. A crew could cut eighty fittings and hang none
+   * of them and the board would call it finished, which is the shape this project keeps tripping
+   * over: a mechanic shipped with nothing counting it.
+   *
+   * Two chains because the system asks two things. Fitting is the steady one, open from the first
+   * slot at level 5. A set is three slots on one structure all of one family, so it needs a
+   * structure at twenty and belongs late; the targets stop at five because a sixth set is a sixth
+   * building at maximum level, which is further than any other feat in the catalogue reaches.
+   */
+  ...chain('fittings', 'modifications_fitted', [
+    {
+      id: 'fittings_1',
+      name: 'Bolted In',
+      blurb: 'One modification in a slot. The drawing is a thing now.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: kit('early', 'small'),
+    },
+    {
+      id: 'fittings_2',
+      name: 'Every Slot Earns',
+      blurb: 'Eight fitted. Nothing in the district is standing as it was built.',
+      era: 'mid',
+      size: 'small',
+      target: 8,
+      reward: kit('mid', 'small'),
+    },
+    {
+      id: 'fittings_3',
+      name: 'Rebuilt From The Inside',
+      blurb: 'Twenty in their slots, and none of them coming out again.',
+      era: 'late',
+      size: 'medium',
+      target: 20,
+      reward: kit('late', 'medium'),
+    },
+  ]),
+  ...chain('sets', 'modification_sets', [
+    {
+      id: 'sets_1',
+      name: 'Built Around One Idea',
+      blurb: 'A structure at twenty with three of a kind in it. It does one thing very well.',
+      era: 'late',
+      size: 'small',
+      target: 1,
+      reward: kit('late', 'small'),
+    },
+    {
+      id: 'sets_2',
+      name: 'A Hand, Not A Pile',
+      blurb: 'Three structures each committed to a family. The district reads as a plan.',
+      era: 'late',
+      size: 'medium',
+      target: 3,
+      reward: kit('late', 'medium'),
+    },
+    {
+      id: 'sets_3',
+      name: 'Nothing Here By Accident',
+      blurb: 'Five sets. Every wall of it was chosen twice.',
+      era: 'late',
+      size: 'large',
+      target: 5,
+      reward: kit('late', 'large'),
+    },
+  ]),
+  /*
+   * The unit bench (2026-09-15): thirty modification cards, three brackets a unit, one of each.
+   *
+   * Counted off the brackets rather than off the stock, for the reason the deck is: building a
+   * card and bolting it on are two acts, and `addons_built` already counts the first. A card is
+   * one object and goes on one unit, so the ceiling is the catalogue, thirty; the top rung asks for
+   * two thirds of it, which is a crew that has collected most of the twenty-seven documents. The
+   * masterpiece feat stands alone: the five dearest cards want a level-7 yard and a five-or-six
+   * page document each, and the first one bolted on is the moment, not the fifth.
+   */
+  ...chain('kitted', 'unit_modifications_fitted', [
+    {
+      id: 'kitted_1',
+      name: 'Taped Up',
+      blurb: 'One card in one bracket. The squad is not standard issue any more.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: kit('early', 'small'),
+    },
+    {
+      id: 'kitted_2',
+      name: 'Three Full Racks',
+      blurb: 'Nine cards bolted on. Three units built for the job they are sent to.',
+      era: 'mid',
+      size: 'small',
+      target: 9,
+      reward: kit('mid', 'small'),
+    },
+    {
+      id: 'kitted_3',
+      name: 'Nobody Standard',
+      blurb: 'Twenty cards in brackets. Two thirds of everything the yard can cut, on somebody.',
+      era: 'late',
+      size: 'medium',
+      target: 20,
+      reward: kit('late', 'medium'),
+    },
+  ]),
+  solo(
+    {
+      id: 'masterpiece_fitted',
+      name: 'Known By Name',
+      blurb: 'A masterpiece card bolted to a unit. One of these turns up a year.',
+      era: 'late',
+      size: 'small',
+      target: 1,
+      reward: kit('late', 'small'),
+    },
+    'masterpieces_fitted',
+  ),
   ...chain('addons', 'addons_built', [
     {
       id: 'addons_1',
       name: 'Fitted Out',
-      blurb: 'Three modifications, refits or traps out of the Scrapyard.',
+      blurb: 'Three modifications, unit cards or traps out of the Scrapyard.',
       era: 'early',
       size: 'small',
       target: 3,
@@ -1047,11 +1432,24 @@ const DISTRICT: FeatSpec[] = [
 // --- the crew ---
 
 const CREW: FeatSpec[] = [
-  ...chain('roster', 'army_bodies', [
+  solo(
+    {
+      id: 'skills_70',
+      name: 'Sharpened',
+      blurb: 'Three of the Overseer\u2019s skills above seventy. Not a generalist any more.',
+      era: 'late',
+      size: 'medium',
+      target: 3,
+      reward: lesson('late', 'medium'),
+    },
+    'overseer_skills_at',
+    '70',
+  ),
+  ...chain('roster', 'army_units', [
     {
       id: 'roster_1',
       name: 'Twenty at Home',
-      blurb: 'Twenty bodies standing in your district at once.',
+      blurb: 'Twenty units standing in your district at once.',
       era: 'early',
       size: 'small',
       target: 20,
@@ -1076,11 +1474,11 @@ const CREW: FeatSpec[] = [
       reward: purse('late', 'medium'),
     },
   ]),
-  ...chain('beds', 'army_supply', [
+  ...chain('beds', 'army_unit_slots', [
     {
       id: 'beds_1',
-      name: 'Forty Beds Full',
-      blurb: 'Hold units worth forty population at home. The Quarters decide how many.',
+      name: 'Forty Slots Full',
+      blurb: 'Hold units worth forty unit slots at home. The Quarters decide how many.',
       era: 'early',
       size: 'small',
       target: 40,
@@ -1089,7 +1487,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'beds_2',
       name: 'Three Hundred',
-      blurb: 'Population standing in your district. Most of it eats.',
+      blurb: 'Three hundred unit slots filled in your district. Most of them eat.',
       era: 'mid',
       size: 'small',
       target: 300,
@@ -1098,7 +1496,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'beds_3',
       name: 'A Thousand at Home',
-      blurb: 'A thousand population under your roof, all of it fed.',
+      blurb: 'A thousand unit slots under your roof, all of them fed.',
       era: 'late',
       size: 'medium',
       target: 1_000,
@@ -1109,7 +1507,7 @@ const CREW: FeatSpec[] = [
     {
       id: 'trained_1',
       name: 'Put Them Through It',
-      blurb: 'Train twenty five bodies, start to finish.',
+      blurb: 'Train twenty five units, start to finish.',
       era: 'early',
       size: 'small',
       target: 25,
@@ -1132,6 +1530,15 @@ const CREW: FeatSpec[] = [
       size: 'medium',
       target: 2_000,
       reward: lesson('late', 'medium'),
+    },
+    {
+      id: 'trained_4',
+      name: 'A Generation',
+      blurb: 'Ten thousand units through the yard. You are where soldiers come from.',
+      era: 'late',
+      size: 'large',
+      target: 10000,
+      reward: recruits('late', 'large'),
     },
   ]),
   ...chain('kinds', 'unit_kinds_held', [
@@ -1361,12 +1768,73 @@ const CREW: FeatSpec[] = [
       target: 6,
       reward: kit('late', 'medium'),
     },
+    {
+      id: 'vehicles_3',
+      name: 'A Column of Your Own',
+      blurb: 'Twenty machines built. That is not a garage, that is an industry.',
+      era: 'late',
+      size: 'large',
+      target: 20,
+      reward: kit('late', 'large'),
+    },
   ]),
 ];
 
 // --- the trade ---
 
 const TRADE: FeatSpec[] = [
+  solo(
+    {
+      id: 'earn_scrap',
+      name: 'Half a Million in Scrap',
+      blurb: 'Take five hundred thousand scrap out of this city, all told.',
+      era: 'late',
+      size: 'medium',
+      target: 500_000,
+      reward: purse('late', 'medium'),
+    },
+    'resources_earned',
+    'scrap',
+  ),
+  solo(
+    {
+      id: 'earn_oil',
+      name: 'Everything Burns',
+      blurb: 'Two hundred thousand oil, lifetime. Something of yours is always running.',
+      era: 'late',
+      size: 'medium',
+      target: 200_000,
+      reward: purse('late', 'medium'),
+    },
+    'resources_earned',
+    'oil',
+  ),
+  solo(
+    {
+      id: 'earn_planks',
+      name: 'Timber',
+      blurb: 'A hundred and fifty thousand planks. Half the district is standing on them.',
+      era: 'mid',
+      size: 'medium',
+      target: 150_000,
+      reward: purse('mid', 'medium'),
+    },
+    'resources_earned',
+    'planks',
+  ),
+  solo(
+    {
+      id: 'hold_caps',
+      name: 'Cash on Hand',
+      blurb: 'Sit on a quarter of a million caps at once. Options, is what that is.',
+      era: 'late',
+      size: 'large',
+      target: 250_000,
+      reward: purse('late', 'large'),
+    },
+    'resources_held',
+    'caps',
+  ),
   ...chain(
     'caps',
     'resources_earned',
@@ -1457,6 +1925,28 @@ const TRADE: FeatSpec[] = [
         target: 40_000,
         reward: purse('mid', 'medium'),
       },
+      {
+        id: 'stock_3',
+        /*
+         * Held at once, so the ceiling is the balance constraint rather than the grind.
+         *
+         * This asked for 400,000 against a store that tops out at 99,032: an Apothecary at twenty
+         * is 42,686, and every storage card in the game fitted across the district is a little
+         * under 2.4x of that. The rung was unclaimable for the life of the account and nothing said
+         * so, because a feat stuck at 23% reads exactly like one nobody has got round to.
+         *
+         * 75,000 wants the Apothecary near its ceiling with its three storage cards in, plus
+         * storage cards in three other structures, which is a district built around its store.
+         * `catalog.test.ts` holds every `resources_held` target under what a maxed district can
+         * hold, so a retune of `STORAGE_GROWTH` cannot quietly put this out of reach again.
+         */
+        name: 'Seventy-Five Thousand Scrap',
+        blurb: 'Sit on seventy-five thousand scrap. Nothing gets built without asking you.',
+        era: 'late',
+        size: 'large',
+        target: 75_000,
+        reward: purse('late', 'large'),
+      },
     ],
     'scrap',
   ),
@@ -1488,6 +1978,15 @@ const TRADE: FeatSpec[] = [
       target: 60,
       reward: purse('late', 'small'),
     },
+    {
+      id: 'trade_4',
+      name: 'The House Always Sells',
+      blurb: 'Two hundred and fifty sales. The board moves when you say it moves.',
+      era: 'late',
+      size: 'medium',
+      target: 250,
+      reward: purse('late', 'medium'),
+    },
   ]),
   ...chain('buys', 'market_buys', [
     {
@@ -1507,6 +2006,15 @@ const TRADE: FeatSpec[] = [
       size: 'small',
       target: 30,
       reward: purse('mid', 'small'),
+    },
+    {
+      id: 'buys_3',
+      name: 'The Best Customer',
+      blurb: 'A hundred and fifty buys. The Runner keeps things back for you.',
+      era: 'late',
+      size: 'medium',
+      target: 150,
+      reward: purse('late', 'medium'),
     },
   ]),
   ...chain('contraband', 'contraband_taken', [
@@ -1542,6 +2050,15 @@ const TRADE: FeatSpec[] = [
       size: 'medium',
       target: 50,
       reward: kit('late', 'medium'),
+    },
+    {
+      id: 'contraband_4',
+      name: 'A Standing Arrangement',
+      blurb: 'Two hundred off the back room. They restock for you specifically.',
+      era: 'late',
+      size: 'large',
+      target: 200,
+      reward: spoils('late', 'large'),
     },
   ]),
 ];
@@ -1787,6 +2304,15 @@ const PEOPLE: FeatSpec[] = [
       target: 5_000,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'faction_3',
+      name: 'A Name Spoken Carefully',
+      blurb: 'Fifty thousand infamy under one badge. Nobody calls a fight on you lightly.',
+      era: 'late',
+      size: 'large',
+      target: 50000,
+      reward: street('late', 'large'),
+    },
   ]),
   ...chain('letters', 'messages_sent', [
     {
@@ -1807,18 +2333,27 @@ const PEOPLE: FeatSpec[] = [
       target: 25,
       reward: purse('mid', 'small'),
     },
+    {
+      id: 'letters_3',
+      name: 'Everybody Knows Somebody',
+      blurb: 'A hundred and fifty letters. Half the city owes you an answer.',
+      era: 'late',
+      size: 'small',
+      target: 150,
+      reward: lesson('late', 'small'),
+    },
   ]),
   solo(
     {
-      id: 'satchel_kinds_1',
-      name: 'A Full Satchel',
-      blurb: 'Hold ten different sorts of thing in the satchel at once.',
+      id: 'inventory_kinds_1',
+      name: 'A Full Inventory',
+      blurb: 'Hold ten different sorts of thing in the inventory at once.',
       era: 'mid',
       size: 'small',
       target: 10,
       reward: kit('mid', 'small'),
     },
-    'satchel_kinds',
+    'inventory_kinds',
   ),
   solo(
     {

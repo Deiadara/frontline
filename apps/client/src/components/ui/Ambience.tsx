@@ -106,7 +106,7 @@ function MechanicalFly() {
         strokeOpacity="0.32"
         strokeWidth="0.6"
       />
-      {/* Body: three brass segments. */}
+      {/* Unit: three brass segments. */}
       <ellipse cx="17" cy="15" rx="7" ry="4.2" fill="rgb(84 60 34)" />
       <ellipse cx="12" cy="14" rx="3.4" ry="3.4" fill="rgb(110 80 44)" />
       <circle cx="9" cy="13.5" r="2.6" fill="rgb(58 46 34)" />

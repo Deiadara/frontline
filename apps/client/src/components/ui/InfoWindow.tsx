@@ -42,11 +42,11 @@ export interface InfoWindowProps {
    */
   plate?: 'light' | 'dark' | 'none';
   /**
-   * The body, and it is optional.
+   * The unit, and it is optional.
    *
    * A window with a figure and a bar and nothing under them is the common case now: what a player
    * opens one of these for is the number, and the paragraphs explaining what the number is for
-   * came out of every readout in the standing bar. The body block disappears entirely when there
+   * came out of every readout in the standing bar. The unit block disappears entirely when there
    * is nothing in it, so an empty window closes on its header rather than on a strip of padding.
    */
   children?: ReactNode;
@@ -100,6 +100,24 @@ export function InfoWindow({
         'glass-strong painted washed rivets brushed relative rounded-md border-2 shadow-panel',
         TONE[tone].edge,
       )}
+      /*
+       * An opaque ground, set inline, because the class stack cannot hold one (maintainer report,
+       * 2026-09-15: the card is see-through over the deploy rows).
+       *
+       * Four texture utilities are stacked here and three of them paint a background. `.painted`
+       * lays two nearly-opaque gradients, and `.rivets` then sets its own `background-image`, which
+       * replaces them: the computed style on this element is the rivet dots and nothing else, so
+       * the only thing left holding the window up was `.glass-strong`'s `background-color` at 0.97
+       * alpha. Over a dialog that is itself over artwork, three percent of two lit surfaces is
+       * plainly visible, and the row separators and the footer rule read straight through the card.
+       *
+       * Inline rather than a `bg-*` class for the reason the Scrapyard's parts picker records: a
+       * utility here loses to whichever of these three emits last in the generated stylesheet, and
+       * which one that is is not something this file gets to decide. The colour is
+       * `.glass-strong`'s own, at full alpha, so nothing about the window's look changes except
+       * that you can no longer see through it.
+       */
+      style={{ backgroundColor: 'rgb(33 28 45)' }}
     >
       {/* The inner hairline. A single border reads as a box; two, a hair apart, read as a frame
           somebody made. */}

@@ -159,7 +159,7 @@ describe('a level-up refreshes the §G layer it moved', () => {
   /*
    * The other two thresholds §I1 pays out on. Both are plain mutations, so each is pinned on its
    * own call rather than on the shared helper: an edit that inlines one back to a single key has to
-   * go red here, which it does not when only the helper's body is observed. Both halves are named
+   * go red here, which it does not when only the helper's unit is observed. Both halves are named
    * because either inlining is a real regression: dropping `assignees` is MOU-381, and dropping
    * `me` leaves a build's spent caps on screen for the whole 30s `staleTime` (MOU-280's class:
    * no poll on `me`, no refetch on focus, and `GameScreen` never unmounts inside `/game`). Two

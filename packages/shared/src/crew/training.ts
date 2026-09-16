@@ -77,6 +77,13 @@ export const TrainingSessionSchema = z.object({
   id: IdSchema,
   /** `OVERSEER_SUBJECT`, or an officer's id. */
   subjectId: z.string().min(1),
+  /**
+   * What `last` read for this person when the session began, so a cancel can put it back.
+   *
+   * `null` is "nothing before"; absent is a session written before this was kept, which
+   * `cancelDrill` treats as unknown and leaves alone.
+   */
+  previousAttribute: AttributeNameSchema.nullable().optional(),
   attribute: AttributeNameSchema,
   startedAt: IsoDateTimeSchema,
   durationSeconds: z.number().int().positive(),
@@ -191,14 +198,31 @@ export function drillCancelWindowMs(session: TrainingSession, now: string): numb
 /**
  * Take a drill off the board and hand the day's session back: nothing was learned, so nothing
  * was spent but the slot, and the slot comes back whole.
+ *
+ * The no-repeat memory comes back too. `last` is written when a session *starts*, so a cancelled
+ * Stamina hour left "Trained that last time" standing against Stamina for a drill that never
+ * happened, and the only way past it was to drill something else first. It is put back to what
+ * it read before the session began, which `beginTraining` kept on the session for exactly this;
+ * simply deleting it would let a player cancel an hour to drill the same thing twice running,
+ * which is the rule the memory exists to hold.
+ *
+ * A session written before the memory was kept (`previousAttribute` absent) leaves `last` as it
+ * stands: the conservative reading, one refused drill rather than one free repeat.
  */
 export function cancelDrill(state: TrainingState, sessionId: string, now: string): TrainingState {
   const rolled = rollDay(state, now);
-  if (!rolled.sessions.some((session) => session.id === sessionId)) return rolled;
+  const cancelled = rolled.sessions.find((session) => session.id === sessionId);
+  if (!cancelled) return rolled;
+  const last = { ...rolled.last };
+  if (cancelled.previousAttribute === null) delete last[cancelled.subjectId];
+  else if (cancelled.previousAttribute !== undefined) {
+    last[cancelled.subjectId] = cancelled.previousAttribute;
+  }
   return {
     ...rolled,
     used: Math.max(0, rolled.used - 1),
     sessions: rolled.sessions.filter((session) => session.id !== sessionId),
+    last,
   };
 }
 
@@ -211,7 +235,10 @@ export function beginTraining(
   return {
     ...rolled,
     used: rolled.used + 1,
-    sessions: [...rolled.sessions, session],
+    sessions: [
+      ...rolled.sessions,
+      { ...session, previousAttribute: rolled.last[session.subjectId] ?? null },
+    ],
     last: { ...rolled.last, [session.subjectId]: session.attribute },
   };
 }

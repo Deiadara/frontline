@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CANCEL_REFUND, CANCEL_WINDOW } from '../time/cancel.js';
 import type { Building } from '../building/index.js';
+import { VehicleIdSchema } from '../building/vehicles.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { MAX_TRAINING_SPEED_BONUS } from '../time/speed.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
@@ -58,7 +59,20 @@ export const MAX_TRAINING_QUEUE = 5;
 
 export const TrainingOrderSchema = z.object({
   id: IdSchema,
-  unitId: UnitIdSchema,
+  /**
+   * What is being built: a unit off the roster, or a machine out of the Garage.
+   *
+   * One queue for both (maintainer request, 2026-09-15). A vehicle used to appear in the yard the
+   * instant it was paid for, which made it the only thing in the game with a cost and no clock,
+   * and left `buildSeconds` on every vehicle spec doing nothing at all. It is the same question a
+   * player is asking in both cases, what is on the bench and when is it mine, so it is one bench.
+   *
+   * A union rather than a loose `z.string()`, so a typo in either catalogue is still a parse
+   * error. Rows written before vehicles joined carry a unit id and keep parsing unchanged, which
+   * is the property that matters: see the note on `TrainingQueueSchema` for what a schema that
+   * rejects an already-written row costs.
+   */
+  unitId: z.union([UnitIdSchema, VehicleIdSchema]),
   count: z.number().int().positive(),
   /**
    * How many of the batch have already walked out of the Gauntlet and joined the army.
@@ -69,7 +83,7 @@ export const TrainingOrderSchema = z.object({
    * time** now, at the batch's own per-unit pace, and this is the count already handed over.
    *
    * Stored rather than derived, because the settle is what moves them and the settle has to be
-   * idempotent: two reads a second apart must not deliver the same body twice.
+   * idempotent: two reads a second apart must not deliver the same unit twice.
    */
   delivered: z.number().int().nonnegative().default(0),
   startedAt: IsoDateTimeSchema,
@@ -107,17 +121,21 @@ export const TrainingQueueSchema = z.array(TrainingOrderSchema).default([]);
 export type TrainingQueue = z.infer<typeof TrainingQueueSchema>;
 
 /**
- * What an army costs against the district's population (§A1). A Colossus is not one soldier.
+ * What an army costs against the district's unit slots (§A1). A Colossus is not one soldier.
  *
  * There is no separate army ceiling any more. The Gauntlet used to run one and the Quarters ran a
  * second for the officers, so a crew could fill both without either knowing, and "how many people
  * work here" had two answers. Everything comes out of one pool now: see
- * `building/population.ts` for what fills it and why supply is the right cost per body.
+ * `building/unit-slots.ts` for what fills it and why a sheet's own slots are the right cost.
  */
-export function supplyUsed(army: Army): number {
+export function unitSlotsUsed(army: Army): number {
   return Object.entries(army).reduce((total, [unitId, count]) => {
     const unit = findUnit(unitId);
-    return unit ? total + unit.supply * count : total;
+    // A sheet the catalogue has forgotten still has to sit somewhere, and one slot is the floor
+    // every other reader of a missing sheet already used (`ridingUnitSlots`, `unitColumnSpeed`).
+    // It used to return zero here, so a stored row of a retired unit was billed no bed by the
+    // district and a full seat by the machines carrying it: the same army, two sizes.
+    return total + (unit?.unitSlots ?? 1) * count;
   }, 0);
 }
 
@@ -126,22 +144,22 @@ export function armySize(army: Army): number {
 }
 
 /**
- * Supply a queued batch has still to claim: counted against the cap at *order* time.
+ * Unit slots a queued batch has still to claim: counted against the cap at *order* time.
  *
- * `order.count - order.delivered`, not `order.count`. A batch lands one body at a time
+ * `order.count - order.delivered`, not `order.count`. A batch lands one unit at a time
  * (`splitDueTraining` leaves the order on the bench with `delivered` moved up and `count`
- * unchanged), and each delivered body joins `base.army`. Reading the whole `count` therefore
+ * unchanged), and each delivered unit joins `base.army`. Reading the whole `count` therefore
  * counted the delivered part twice, in `army` and again here: nine of ten Razors landed read as
- * a draw of 19 for ten bodies, and at `TRAINING_MAX_BATCH` a crew was charged up to 99 supply for
+ * a draw of 19 for ten units, and at `TRAINING_MAX_BATCH` a crew was charged up to 99 slots for
  * 50 units. That total is what gates further orders and what the roster prints as free beds, so a
  * crew mid-batch was told it had less room than it had, until the batch finished and the phantom
  * cleared.
  */
-export function supplyQueued(queue: TrainingQueue): number {
+export function unitSlotsQueued(queue: TrainingQueue): number {
   return queue.reduce((total, order) => {
     const unit = findUnit(order.unitId);
     const outstanding = Math.max(0, order.count - order.delivered);
-    return unit ? total + unit.supply * outstanding : total;
+    return unit ? total + unit.unitSlots * outstanding : total;
   }, 0);
 }
 
@@ -270,7 +288,7 @@ export const TRAINING_CANCEL_REFUND = CANCEL_REFUND;
 /**
  * Whether this order is still inside its window.
  *
- * Three conditions, and the third is the one a batch introduced: an order with a body already
+ * Three conditions, and the third is the one a batch introduced: an order with a unit already
  * handed over has *started*, whatever its clock says. Refunding a batch that has delivered two of
  * ten would mean paying for units the crew is keeping. An order with no recorded price is never
  * cancellable either, since there is nothing to refund against.
@@ -285,7 +303,7 @@ export function trainingCancellable(order: TrainingOrder, now: Date): boolean {
  * How the batch on the bench is going: how many are out, and how close the next one is.
  *
  * What the bench draws. A bar across the whole order was the right readout when a batch landed as
- * a lump and is the wrong one now: what a player wants to know is when the *next* body arrives,
+ * a lump and is the wrong one now: what a player wants to know is when the *next* unit arrives,
  * and how much of the order is already theirs.
  */
 export function trainingBatchProgress(
@@ -330,8 +348,8 @@ export function trainingRefund(order: TrainingOrder): PartialResources {
  * put them.
  *
  * The number behind the roster's **Max** button, and it is derived here rather than on the screen
- * so the button cannot offer a batch the route will refuse. `spare` is the district's population
- * room (`building/population.ts`); a unique unit is one or nothing whatever else is true.
+ * so the button cannot offer a batch the route will refuse. `spare` is the district's unit-slot
+ * room (`building/unit-slots.ts`); a unique unit is one or nothing whatever else is true.
  */
 export function maxTrainable(
   unit: UnitSpec,
@@ -349,12 +367,12 @@ export function maxTrainable(
    * the units the button lied about most often.
    */
   if (unit.unique) {
-    const room = spare >= unit.supply;
+    const room = spare >= unit.unitSlots;
     return room && affordable(trainingCost(unit, 1, discountPercent, suppliesPercent), stock)
       ? 1
       : 0;
   }
-  const byRoom = Math.floor(Math.max(0, spare) / Math.max(1, unit.supply));
+  const byRoom = Math.floor(Math.max(0, spare) / Math.max(1, unit.unitSlots));
   // Binary search would be neater; the batch price is linear in `count` before rounding, so the
   // straight division is exact enough and then walked back until it actually fits. `TRAINING_MAX`
   // bounds the walk at the same number the roster's own stepper allows.
@@ -394,7 +412,7 @@ export function trainingStartsAt(queue: TrainingQueue, now: Date): Date {
  * module's own doc frames cancelling as exactly two things, the window and the 5%.
  *
  * Pull forward only, never push back: `Math.min` against a cursor that only grows. An order that
- * has already begun keeps its own clock, because bodies have been priced and possibly handed over
+ * has already begun keeps its own clock, because units have been priced and possibly handed over
  * against it and re-timing it would re-time deliveries that already happened.
  */
 export function resequencedTraining(queue: TrainingQueue, now: Date): TrainingQueue {
@@ -433,7 +451,7 @@ export function trainingUndelivered(order: TrainingOrder, now: Date): number {
  * The queue after a settle: what to add to the army, and the orders that are left.
  *
  * A partly-delivered order stays on the bench with its `delivered` moved up; one that has handed
- * over its last body leaves. A prefix rather than a filter, because the queue is sequential: an
+ * over its last unit leaves. A prefix rather than a filter, because the queue is sequential: an
  * order behind an unfinished one has not started, so it cannot have delivered anything, which the
  * arithmetic above already gives for free (its `startedAt` is in the future).
  */

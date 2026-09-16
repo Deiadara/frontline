@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -44,12 +45,10 @@ async function crew(
     payload: { username: 'reviewer', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // The switch under test decides what the reader can see, and a §F6 signature that opens two
+  // districts of its own would answer for it.
+  pinOverseer(app, token);
   return { app, token, home: chosen.json<{ base: { districtId: string } }>().base.districtId };
 }
 

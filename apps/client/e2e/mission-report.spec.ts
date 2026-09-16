@@ -117,7 +117,7 @@ test('a returned row is three facts, and the window behind it is the rest', asyn
    * And now the sweep, on a viewport tall enough to hold the whole document.
    *
    * `expectNothingClippedVertically` reports anything an overflow ancestor cuts, and the window's
-   * body is a scroller by design: at 800px tall it legitimately cuts whatever is below the fold,
+   * unit is a scroller by design: at 800px tall it legitimately cuts whatever is below the fold,
    * so running the sweep there measures the scroller rather than the layout. Grown past the fold
    * the report fits in one piece, and anything still sliced is sliced by a real bug.
    */

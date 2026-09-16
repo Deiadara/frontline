@@ -4,25 +4,55 @@ import { garage, lateGame } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
 /**
- * The Garage is a door and the machines are on the roster (maintainer request, 2026-09-08).
+ * The Garage building is the door, and the machines are on the roster.
  *
- * The yard's page says what the building is and what stands in it, and one button leads to the
- * roster's Vehicles tab, where every machine is listed beside the units it carries. Both halves
- * are checked here: the door leads somewhere, and the tab is a real list with a working Build.
+ * There used to be a `/game/garage` page in between: a level, a seat count and one button through
+ * to the Vehicles tab. It was retired (maintainer request, 2026-09-14) because it was a screen
+ * whose whole content was a restatement of the dialog the player had just clicked out of. What is
+ * left is checked here: the building's own door lands on the machines, and the tab is a real list
+ * with a working Build.
  */
 
-test('the Garage page leads to the machines on the roster', async ({ page }) => {
+test('the Garage building opens the machines on the roster', async ({ page }) => {
   await installApi(page, lateGame);
-  await page.goto('/game/garage');
-  await expect(page.getByText(`${garage.capacity} seats`)).toBeVisible();
-  await expect(page.getByText(`Garage at level ${garage.garageLevel}`)).toBeVisible();
-  // The catalogue is not on this page any more: no card, no Build.
-  await expect(page.locator('[data-testid^="vehicle-"]')).toHaveCount(0);
+  await page.goto('/game/base');
+  await page.getByTestId('plot-garage').click();
 
-  await page.getByTestId('garage-machines').click();
+  const door = page.getByTestId('garage-open');
+  await expect(door).toBeVisible();
+  await door.click();
+
+  // Straight there: one hop, no page in between.
   await expect(page).toHaveURL(/\/game\/units\?tab=vehicles$/);
   await expect(page.getByTestId('tier-vehicles')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
+});
+
+/**
+ * The yard's level and its seat count, which the retirement nearly lost.
+ *
+ * Both were on the page that was retired, and nothing moved them: the server went on shipping
+ * `garageLevel` and `capacity` and no screen read either. Found by sweeping the wire for fields no
+ * client file mentions, which is the only way a dead payload announces itself.
+ */
+test('the Vehicles tab says what the yard is and how many unit slots are in it', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/units?tab=vehicles');
+  await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
+
+  const standing = page.getByTestId('yard-standing');
+  await expect(standing).toBeVisible();
+  await expect(standing).toContainText(`Garage at level ${garage.garageLevel}`);
+  await expect(page.getByTestId('yard-seats')).toHaveText(`${garage.capacity} unit slots`);
+});
+
+/** The retired page stays retired: its URL is not a screen any more. */
+test('the old Garage page is gone', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/garage');
+  await expect(page.getByTestId('garage-machines')).toHaveCount(0);
 });
 
 test('the Vehicles tab lists every machine and builds one', async ({ page }) => {

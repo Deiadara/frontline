@@ -234,8 +234,11 @@ test.describe('the intel panel names who holds a district (§A3)', () => {
       await select(page, seat.id);
 
       await expect(page.getByRole('heading', { name: seat.name, exact: true })).toBeVisible();
-      // §A3: a seat of the Combine's power says so, and names what is standing on it.
+      // §A3: a seat of the Combine's power says so, and names what is standing on it. The seat is
+      // a painting now (2026-09-15), so the badge is in the strip and the garrison is behind the
+      // same toggle the outpost test opens.
       await expect(page.getByText('Seat of power')).toBeInViewport();
+      await showGarrison(page);
       await expect(page.getByText(new RegExp(garrisonOf(seat)))).toBeInViewport();
 
       await settleFonts(page);

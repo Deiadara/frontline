@@ -8,7 +8,6 @@ import { BarPage } from '../features/bar/BarPage';
 import { BasePanel } from '../features/base/BasePanel';
 import { BlackMarketPage } from '../features/market/BlackMarketPage';
 import { CrewPage } from '../features/crew/CrewPage';
-import { InventoryPage } from '../features/inventory/InventoryPage';
 import { MarketPage } from '../features/market/MarketPage';
 import { MissionsPage } from '../features/missions/MissionsPage';
 import { OverseerProfilePage } from '../features/overseer/OverseerProfilePage';
@@ -56,7 +55,6 @@ const SCREENS: readonly [string, ComponentType][] = [
   ['the archive', ResearchPage],
   ['the market', MarketPage],
   ['the back room', BlackMarketPage],
-  ['the satchel', InventoryPage],
   ['the units tab', UnitsPage],
   ['the gym', TrainingPage],
   ['the yard', ScrapyardPage],

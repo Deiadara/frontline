@@ -87,9 +87,15 @@ export type PartialResources = z.infer<typeof PartialResourcesSchema>;
  * The one bundle of resource amounts that is *allowed* to be fractional, and the only signed one.
  *
  * Production is quoted per hour and settles on whatever window the last read left, so it makes
- * fractions of a unit, and, for oil, fractions of a *burn*. They are carried in
- * `EconomyState.productionCarry` rather than rounded into or out of the stockpile; see
- * `accrueProduction` for why the sign matters.
+ * fractions of a unit. They are carried in `EconomyState.productionCarry` rather than rounded into
+ * or out of the stockpile; see `accrueProduction` for the arithmetic.
+ *
+ * **Signed** is headroom rather than a case the game currently reaches. Nothing emits a negative
+ * hourly rate today: the Generator's burn is a one-off purchase (§D5) rather than a standing draw,
+ * and every §A4 location pays a positive figure. The day a consumption channel comes back, the
+ * settle has to be able to carry a part-unit of it in both directions or it will move a whole unit
+ * off the readout the instant anybody looks at the district. Keeping the sign costs nothing and
+ * taking it out would have to be put back by whoever adds that channel.
  *
  * Every value sits in `(-1, 1)` in practice. The schema does not assert that: this is read on a
  * settle path, and a bound the arithmetic already guarantees is a bound that can only ever fire as
@@ -116,10 +122,14 @@ export type FractionalResources = z.infer<typeof FractionalResourcesSchema>;
  * Stockpile every new base starts with.
  *
  * Sized against the level-1 `BUILDING_CATALOG` prices so the opening is tight but not dead: every
- * empty plot is affordable on its own, three of them can be raised, and then **oil** is what runs
- * out: GDD §D3's sink is what ends the first session, not an arbitrary wall. The level-2 Command
- * Center stays out of reach, so the cap that holds the village down has to be earned.
- * `build.test.ts` pins both halves of that shape.
+ * plot a new crew has to *lay* is affordable on its own, three of them can be raised, and then
+ * **oil** is what runs out: GDD §D3's sink is what ends the first session, not an arbitrary wall.
+ * The level-2 Command Center stays out of reach, so the cap that holds the village down has to be
+ * earned. `build.test.ts` pins both halves of that shape.
+ *
+ * The Generator is the exception, and it is why a new district is handed one standing
+ * (`crew/starting.ts`): its own level-1 bill is 220 oil against the 120 here, so a crew that had to
+ * buy it could not, and every build in the first session would run at full length.
  */
 export const STARTING_RESOURCES: Resources = {
   caps: 600,
@@ -239,7 +249,7 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
   caps: {
     what: 'Bottle caps. The city stopped believing in anything else a long time ago.',
     spentOn: [
-      'Wages, every week, whether you have them or not',
+      'Wages, as a standing commitment: the book has a ceiling and every contract takes a slice of it',
       'Recruiting at the Bar',
       'Research projects',
       'Buying from the market',
@@ -248,7 +258,10 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
   },
   supplies: {
     what: 'Ration bricks, tank protein, whatever the Greenhouse manages to grow.',
-    spentOn: ['Feeding the crew every week', 'Training the units that eat before they fight'],
+    spentOn: [
+      'Training the units that eat before they fight',
+      'The structures that are stocked as much as built: the Quarters, the Gauntlet, the Infirmary',
+    ],
     from: 'The Greenhouse, and anything you take off somebody else.',
   },
   oil: {
@@ -258,7 +271,7 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
       "The Generator's two-hour burn, which takes a quarter off the whole build queue",
       'Vehicles, once the Garage is standing',
     ],
-    from: 'The Scrapyard and the Garage, and holds like the Chemical Plant.',
+    from: 'The Generator, and holds like the Chemical Plant.',
   },
   planks: {
     what: 'Sawn timber, pulled out of whatever the city was before it was this.',
@@ -267,7 +280,7 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
       'Digging a position in',
       'Working a location up',
     ],
-    from: 'The Scrapyard, which strips the wood out of a ruin as well as the metal.',
+    from: 'The Greenhouse, which grows timber under the same lamps as the food.',
   },
   scrap: {
     what: 'Torn plate, cable, dead machines. The city is made of it and so is everything you build.',
@@ -285,6 +298,6 @@ export const RESOURCE_LORE: Readonly<Record<ResourceKey, ResourceLore>> = {
       'Cybernetics and the better implants',
       'Late structures and their modifications',
     ],
-    from: 'Foundries, deep salvage, and the market when somebody is selling.',
+    from: 'The Scrapyard, deep salvage, and the market when somebody is selling.',
   },
 };

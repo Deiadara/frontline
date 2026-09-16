@@ -30,7 +30,7 @@ import { useDayResetClock } from '../settings/usePlayerZone';
  * The crew (GDD §C1, §C2): the nineteen chairs, and who is sitting in them.
  *
  * This screen used to be the **assignee** page, and most of it was arithmetic about a pool: three
- * figures across the top counting bodies granted by player level, a row of pips on every card
+ * figures across the top counting units granted by player level, a row of pips on every card
  * counting how many of them were standing under that officer, and a percentage saying what that was
  * worth. The pool is gone. What is left is what a player was ever looking at, which is the people:
  * the face they picked at the Bar, what that person is good at, and what they are carrying.
@@ -660,7 +660,7 @@ function Layout({ data }: { data: CrewResponse }) {
         </span>
         <span aria-hidden className="ink-rule block min-w-0 flex-1" />
         {/* No bed count here any more (§A1, project rule): officers are not charged against the
-            district's population, the army is, so a housing figure on the crew screen was a number
+            district's unit slots, the army is, so a housing figure on the crew screen was a number
             nobody on this page can move. It lives on the screens that field units. */}
         <Link
           to="/game/crew/effects"

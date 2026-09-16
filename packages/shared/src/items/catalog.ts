@@ -43,7 +43,7 @@ import {
 
 // `consumable` is a thing built to be spent once: a trap laid under one fight. It is not a good
 // (the shops never draw from it) and not a part (nothing is made out of it).
-export const ITEM_KINDS = ['blueprint', 'page', 'component', 'relic', 'consumable'] as const;
+export const ITEM_KINDS = ['blueprint', 'page', 'component', 'consumable'] as const;
 export const ItemKindSchema = z.enum(ITEM_KINDS);
 export type ItemKind = z.infer<typeof ItemKindSchema>;
 
@@ -66,6 +66,12 @@ export const ITEM_IDS = [
   'coolant_cell',
   'rotor_hub',
   'targeting_core',
+  // Added 2026-09-14. Every one of these has a sink below: a part with nothing to spend it on is
+  // the relic problem again, which is why the relics are gone.
+  'weld_rod',
+  'hydraulic_ram',
+  'signal_relay',
+  'pressure_valve',
   // Blueprints: read once, known forever.
   'blueprint_cybernetics',
   'blueprint_composite_armour',
@@ -73,10 +79,6 @@ export const ITEM_IDS = [
   'blueprint_signal_theory',
   'blueprint_field_medicine',
   'blueprint_munitions',
-  // Relics: worth caps, nothing else.
-  'combine_seal',
-  'pre_collapse_ledger',
-  'ivory_dice',
 ] as const;
 
 export type GoodId = (typeof ITEM_IDS)[number];
@@ -105,7 +107,7 @@ export const CONSUMABLE_ITEM_IDS = [
 export type ConsumableId = (typeof CONSUMABLE_ITEM_IDS)[number];
 
 /**
- * Every id that may sit in a satchel: goods, consumables, finished blueprints and their pages.
+ * Every id that may sit in an inventory: goods, consumables, finished blueprints and their pages.
  *
  * A page is an item so that it is stored, shown and traded by machinery that already exists. It
  * goes into `inventory` on the base like anything else, which is what §F1e asks for, and it needs
@@ -142,14 +144,14 @@ export interface ItemSpec {
   rarity: ItemRarity;
   /** One line: what the thing is. */
   description: string;
-  /** What it is for, in the player's words. Empty for a relic, which is for selling. */
+  /** What it is for, in the player's words. Every item in here has a sink. */
   usedFor: string;
   /**
    * What a vendor asks for one, in caps. Also the floor the barter broker values it at, and the
    * number a player has to beat to make an offer worth taking.
    */
   capsValue: number;
-  /** A relic exists to be sold; everything else has a sink and is not auto-priced by rarity. */
+  /** Whether another crew will take it off you on the board. Traps are not tradeable. */
   tradeable: boolean;
 }
 
@@ -234,6 +236,50 @@ const SPECS: readonly ItemSpec[] = [
     capsValue: 2100,
     tradeable: true,
   },
+  {
+    id: 'weld_rod',
+    name: 'Welding Rods',
+    kind: 'component',
+    rarity: 'common',
+    description:
+      'A bundle of flux-coated rod, the size somebody actually uses rather than the size sold.',
+    usedFor:
+      'Anything joined rather than bolted: the early structures, and the first armour plate.',
+    capsValue: 90,
+    tradeable: true,
+  },
+  {
+    id: 'hydraulic_ram',
+    name: 'Hydraulic Ram',
+    kind: 'component',
+    rarity: 'uncommon',
+    description: 'A cylinder with the seals still good, which is the rare part of a hydraulic ram.',
+    usedFor: 'Anything that has to lift or brace: the Gate, the yard, and heavy armour.',
+    capsValue: 360,
+    tradeable: true,
+  },
+  {
+    id: 'signal_relay',
+    name: 'Signal Relay',
+    kind: 'component',
+    rarity: 'uncommon',
+    description: 'A repeater board off a Combine handset, still paired to a network nobody runs.',
+    usedFor: 'Talking to each other under fire: the Lab, and the discipline line.',
+    capsValue: 300,
+    tradeable: true,
+  },
+  {
+    id: 'pressure_valve',
+    name: 'Pressure Valve',
+    kind: 'component',
+    rarity: 'rare',
+    description:
+      'Rated far past anything it will be asked to do here, which is why it is worth taking.',
+    usedFor:
+      'Anything that runs hot or wet: the Generator, the Greenhouse, and cooled cybernetics.',
+    capsValue: 820,
+    tradeable: true,
+  },
 
   /*
    * The six pre-war `blueprint_*` documents, which gate nothing.
@@ -311,37 +357,6 @@ const SPECS: readonly ItemSpec[] = [
     capsValue: 1100,
     tradeable: true,
   },
-
-  {
-    id: 'combine_seal',
-    name: 'Combine Seal',
-    kind: 'relic',
-    rarity: 'uncommon',
-    description: 'An authority stamp from an office that no longer answers.',
-    usedFor: '',
-    capsValue: 450,
-    tradeable: true,
-  },
-  {
-    id: 'pre_collapse_ledger',
-    name: 'Pre-Collapse Ledger',
-    kind: 'relic',
-    rarity: 'rare',
-    description: 'Somebody’s accounts, kept immaculately, right up to the last page.',
-    usedFor: '',
-    capsValue: 1050,
-    tradeable: true,
-  },
-  {
-    id: 'ivory_dice',
-    name: 'Ivory Dice',
-    kind: 'relic',
-    rarity: 'exotic',
-    description: 'A matched pair, weighted. Everyone in the district knows whose they were.',
-    usedFor: '',
-    capsValue: 2600,
-    tradeable: true,
-  },
 ];
 
 /**
@@ -408,7 +423,7 @@ function blueprintItemSpec(blueprint: BlueprintSpec): ItemSpec {
  * valuation would read. It sits above each trap's own caps line and below the whole bill, because
  * what a crew paid for one is mostly scrap and planks rather than money.
  *
- * The ids match `TRAP_CATALOG` exactly. `springTrap` takes one out of the satchel by the id it was
+ * The ids match `TRAP_CATALOG` exactly. `springTrap` takes one out of the inventory by the id it was
  * set under, so the two lists being the same list is the mechanic and not a tidiness rule.
  */
 const CONSUMABLE_SPECS: readonly ItemSpec[] = [
@@ -493,6 +508,5 @@ export const ITEM_KIND_LABELS: Readonly<Record<ItemKind, string>> = {
   blueprint: 'Blueprint',
   page: 'Page',
   component: 'Component',
-  relic: 'Relic',
   consumable: 'Consumable',
 };

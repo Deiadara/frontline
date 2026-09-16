@@ -26,7 +26,7 @@ export interface FeatRung {
 /**
  * A run of rungs drawn as one card.
  *
- * A chain is a ladder and has to read as one: field a hundred bodies, then five hundred, then two
+ * A chain is a ladder and has to read as one: field a hundred units, then five hundred, then two
  * thousand is one idea at three sizes, and drawn as three unrelated rows it is the screen saying
  * the same sentence three times. A feat with no chain is a block of exactly one rung, so the page
  * has one kind of thing in it rather than two.
@@ -178,8 +178,17 @@ export function countMatching(blocks: readonly FeatBlock[], filter: FeatFilter):
  */
 export function ladderTitle(spec: FeatSpec): string {
   const unit = FEAT_MEASURE_SPECS[spec.measure].unit;
+  /*
+   * An unscoped title is the measure id opened out, and two of those ids (`bodies_deployed` and
+   * `supply_deployed`) still carry words the game stopped using for a count of units (maintainer,
+   * 2026-09-15). Both are persisted tally keys, so the spellings stay; the title swaps the word
+   * for the measure's own unit, which is "units" for the head count and "unit slots" for the one
+   * that counts what they take up.
+   */
   const phrase =
-    spec.scope === undefined ? spec.measure.replace(/_/g, ' ') : `${openOut(spec.scope)} ${unit}`;
+    spec.scope === undefined
+      ? spec.measure.replace(/_/g, ' ').replace(/\b(bodies|supply)\b/, unit)
+      : `${openOut(spec.scope)} ${unit}`;
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }
 

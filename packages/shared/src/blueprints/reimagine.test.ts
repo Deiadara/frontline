@@ -8,7 +8,7 @@
  * Since the maintainer's 2026-09-10 call the player names the three, so a second family of refusals
  * matters as much: the request has to be three, they have to be pages, and the crew has to be
  * holding as many copies as it named. A trade that took a page nobody had would mint one out of a
- * negative count in the satchel.
+ * negative count in the inventory.
  */
 import { describe, expect, it } from 'vitest';
 import { BLUEPRINTS } from './catalog.js';
@@ -64,7 +64,7 @@ describe('reimagining a page (§G2, §G3)', () => {
    * Naming one page three times.
    *
    * The ordinary way to spend a stack, and the case a per-page "held at least one" check waves
-   * through while the satchel goes to minus one.
+   * through while the inventory goes to minus one.
    */
   it('takes the same page three times when the crew is holding three of it', () => {
     const inventory: Inventory = { [first]: 4 };

@@ -72,7 +72,7 @@ the manifest: never leave it unrecorded.
 
 ---
 
-## 1. Overseer portraits: 4 assets
+## 1. Overseer portraits: 34 assets
 
 **Class framing** (append to each, after the subject):
 
@@ -83,12 +83,48 @@ interior reduced to smog and two or three emissive smears. Vertical 3:4 composit
 the central seventy percent; nothing essential in the bottom eighteen percent.
 ```
 
-| Key                   | File                       | Seed     |
-| --------------------- | -------------------------- | -------- |
-| `portrait-overseer-1` | `portrait-overseer-1.webp` | `110001` |
-| `portrait-overseer-2` | `portrait-overseer-2.webp` | `110002` |
-| `portrait-overseer-3` | `portrait-overseer-3.webp` | `110003` |
-| `portrait-overseer-4` | `portrait-overseer-4.webp` | `110004` |
+Two generations. `portrait-overseer-1` to `-4` are the original heroes, written as directions for
+paintings that did not exist yet. `portrait-overseer-01` to `-30` are `OVERSEER_PORTRAIT_IDS`, the
+maintainer's 2026-09-15 drop, and their subject blocks are records of paintings that already exist
+rather than instructions for new ones. The zero padding is the whole of what keeps the two apart,
+and they ship at 928x1392 rather than 1024x1536 because the masters are the officer pool's 4:5.
+
+| Key                    | File                        | Seed     |
+| ---------------------- | --------------------------- | -------- |
+| `portrait-overseer-1`  | `portrait-overseer-1.webp`  | `110001` |
+| `portrait-overseer-2`  | `portrait-overseer-2.webp`  | `110002` |
+| `portrait-overseer-3`  | `portrait-overseer-3.webp`  | `110003` |
+| `portrait-overseer-4`  | `portrait-overseer-4.webp`  | `110004` |
+| `portrait-overseer-01` | `portrait-overseer-01.webp` | `111001` |
+| `portrait-overseer-02` | `portrait-overseer-02.webp` | `111002` |
+| `portrait-overseer-03` | `portrait-overseer-03.webp` | `111003` |
+| `portrait-overseer-04` | `portrait-overseer-04.webp` | `111004` |
+| `portrait-overseer-05` | `portrait-overseer-05.webp` | `111005` |
+| `portrait-overseer-06` | `portrait-overseer-06.webp` | `111006` |
+| `portrait-overseer-07` | `portrait-overseer-07.webp` | `111007` |
+| `portrait-overseer-08` | `portrait-overseer-08.webp` | `111008` |
+| `portrait-overseer-09` | `portrait-overseer-09.webp` | `111009` |
+| `portrait-overseer-10` | `portrait-overseer-10.webp` | `111010` |
+| `portrait-overseer-11` | `portrait-overseer-11.webp` | `111011` |
+| `portrait-overseer-12` | `portrait-overseer-12.webp` | `111012` |
+| `portrait-overseer-13` | `portrait-overseer-13.webp` | `111013` |
+| `portrait-overseer-14` | `portrait-overseer-14.webp` | `111014` |
+| `portrait-overseer-15` | `portrait-overseer-15.webp` | `111015` |
+| `portrait-overseer-16` | `portrait-overseer-16.webp` | `111016` |
+| `portrait-overseer-17` | `portrait-overseer-17.webp` | `111017` |
+| `portrait-overseer-18` | `portrait-overseer-18.webp` | `111018` |
+| `portrait-overseer-19` | `portrait-overseer-19.webp` | `111019` |
+| `portrait-overseer-20` | `portrait-overseer-20.webp` | `111020` |
+| `portrait-overseer-21` | `portrait-overseer-21.webp` | `111021` |
+| `portrait-overseer-22` | `portrait-overseer-22.webp` | `111022` |
+| `portrait-overseer-23` | `portrait-overseer-23.webp` | `111023` |
+| `portrait-overseer-24` | `portrait-overseer-24.webp` | `111024` |
+| `portrait-overseer-25` | `portrait-overseer-25.webp` | `111025` |
+| `portrait-overseer-26` | `portrait-overseer-26.webp` | `111026` |
+| `portrait-overseer-27` | `portrait-overseer-27.webp` | `111027` |
+| `portrait-overseer-28` | `portrait-overseer-28.webp` | `111028` |
+| `portrait-overseer-29` | `portrait-overseer-29.webp` | `111029` |
+| `portrait-overseer-30` | `portrait-overseer-30.webp` | `111030` |
 
 ### 1.1 `portrait-overseer-1`: Marcus "Bulwark" Kane (enforcer)
 
@@ -138,6 +174,186 @@ rolled, a smear of conduit grease on one forearm she has not noticed. A slim mon
 folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
 already three steps into a plan. Behind her, the ribbed interior of a reactor gallery falling away
 into #1b2233 haze with one warm #8a5209 inspection lamp.
+```
+
+### 1.5 `portrait-overseer-01`
+
+```
+SUBJECT: A man in his fifties, dark grey-streaked waves and a red-lined black coat, half smiling, the tiered green benches of an assembly chamber lit by desk lamps behind him.
+```
+
+### 1.6 `portrait-overseer-02`
+
+```
+SUBJECT: A gaunt man in his fifties, slicked grey-black hair and a deep red coat over navy, unsmiling, a tall cracked committee-room window behind him.
+```
+
+### 1.7 `portrait-overseer-03`
+
+```
+SUBJECT: A heavy-jawed man in his fifties, close grey hair and a black high-collared coat, a scaffolded plenary hall and one amber lamp behind him.
+```
+
+### 1.8 `portrait-overseer-04`
+
+```
+SUBJECT: A man in his fifties with grey curls and a grey-green jacket, the white colonnade of a rotunda in cold daylight behind him.
+```
+
+### 1.9 `portrait-overseer-05`
+
+```
+SUBJECT: A man in his fifties, hair receding at the temples, a navy tunic with copper piping, the red- brown tiers of an archive gallery behind him.
+```
+
+### 1.10 `portrait-overseer-06`
+
+```
+SUBJECT: A fair-haired man in his fifties with a faint smile and a green coat, the glazed dome and book stacks of a parliamentary library behind him.
+```
+
+### 1.11 `portrait-overseer-07`
+
+```
+SUBJECT: A man in his fifties, grey waves and a teal coat over a dark stock, a gilded assembly corridor with a hanging lantern behind him.
+```
+
+### 1.12 `portrait-overseer-08`
+
+```
+SUBJECT: A man in his fifties with dark hair, a moustache and a short beard, a plum coat over a red scarf, an unlit debating floor behind him.
+```
+
+### 1.13 `portrait-overseer-09`
+
+```
+SUBJECT: A tall pale man in his fifties, fair grey hair and a black coat with a rust sash, the steel and glass of a rebuilt chamber behind him.
+```
+
+### 1.14 `portrait-overseer-10`
+
+```
+SUBJECT: A man in his fifties with silver hair and a high-collared dark tunic, faintly amused, rows of blue benches in pale northern light behind him.
+```
+
+### 1.15 `portrait-overseer-11`
+
+```
+SUBJECT: A man in his fifties with black curls and a purple brocade coat, a red and gold constitutional chamber behind him.
+```
+
+### 1.16 `portrait-overseer-12`
+
+```
+SUBJECT: A man in his sixties, grey hair and a teal coat lined in rust, a stone parliamentary balcony over an empty floor behind him.
+```
+
+### 1.17 `portrait-overseer-13`
+
+```
+SUBJECT: A man in his fifties, grey-brown hair and a plain navy coat, the lamplit tiers of a restored congress hall behind him.
+```
+
+### 1.18 `portrait-overseer-14`
+
+```
+SUBJECT: A bearded man in his fifties in an olive coat over a dark red waistcoat, half smiling, a gilded federal committee room behind him.
+```
+
+### 1.19 `portrait-overseer-15`
+
+```
+SUBJECT: A lean man in his fifties, close silver hair and a black coat over a high white collar, rows of desk consoles under pale windows behind him.
+```
+
+### 1.20 `portrait-overseer-16`
+
+```
+SUBJECT: A woman in her sixties, grey hair pinned up, a heavy coat with a service disc and a red scarf, rain and a red signal lamp behind her.
+```
+
+### 1.21 `portrait-overseer-17`
+
+```
+SUBJECT: A woman in her fifties in a blue headwrap and a denim apron over a work coat, a shelter's crates and hanging canvas behind her.
+```
+
+### 1.22 `portrait-overseer-18`
+
+```
+SUBJECT: A woman in her thirties, dark curls over a shaved side, a scarf and a brass dispatcher's disc, green canal water under an arch behind her.
+```
+
+### 1.23 `portrait-overseer-19`
+
+```
+SUBJECT: A woman in her forties with a wine-dark birthmark across one cheek, a red and green robe over a stethoscope, a clinic's glass cabinet behind her.
+```
+
+### 1.24 `portrait-overseer-20`
+
+```
+SUBJECT: A woman in her thirties with cropped red hair and a red tie under a green coat, a ledger under her arm, a leaded window behind her.
+```
+
+### 1.25 `portrait-overseer-21`
+
+```
+SUBJECT: A woman in her sixties, a long grey-streaked braid and a red shawl over an embroidered coat, a brass desk lamp and papers behind her.
+```
+
+### 1.26 `portrait-overseer-22`
+
+```
+SUBJECT: A woman in her forties with a dark curly bob, a crimson coat over a green waistcoat, a brass lamp and a records desk behind her.
+```
+
+### 1.27 `portrait-overseer-23`
+
+```
+SUBJECT: A woman in her forties with a black pixie cut and a red cravat under a dark coat, a rain- streaked window and a brass bell behind her.
+```
+
+### 1.28 `portrait-overseer-24`
+
+```
+SUBJECT: A woman in her fifties, red hair going grey, a green coat over an apron, unsmiling, bottles and a panelled bar behind her.
+```
+
+### 1.29 `portrait-overseer-25`
+
+```
+SUBJECT: A woman in her forties, dark hair pinned up, a dark red coat with a brass brooch, the tiled shelves of a clinic behind her.
+```
+
+### 1.30 `portrait-overseer-26`
+
+```
+SUBJECT: A woman in her fifties, dark hair loose, a purple scarf over a leather apron, a stacked ration crate behind her.
+```
+
+### 1.31 `portrait-overseer-27`
+
+```
+SUBJECT: A woman in her forties with dark curls and a green-blue coat, a harbour at night with lit towers behind her.
+```
+
+### 1.32 `portrait-overseer-28`
+
+```
+SUBJECT: A woman in her forties, red curls and a purple scarf under a green vest, a patterned wall of pinned notices behind her.
+```
+
+### 1.33 `portrait-overseer-29`
+
+```
+SUBJECT: A woman in her fifties, silver hair pinned up, a black embroidered jacket over a white ruffled collar, a stone arch behind her.
+```
+
+### 1.34 `portrait-overseer-30`
+
+```
+SUBJECT: A woman in her twenties, fair bobbed hair and a black coat with a shoulder radio, a lit transit diagram behind her.
 ```
 
 ---
@@ -1033,6 +1249,156 @@ SUBJECT: A machine-school tutor in his forties, round glasses and a work apron, 
 SUBJECT: A greenhouse worker in her twenties, a black fringe and a green scarf over a wet apron, rows of planting under warm lamps behind her.
 ```
 
+### 1b.140 `officer-140`
+
+```
+SUBJECT: A tavern bookkeeper in her forties, dark curls and gold earrings, a leather apron over a red coat, bottles and a hanging lamp behind her.
+```
+
+### 1b.141 `officer-141`
+
+```
+SUBJECT: A neighbourhood mediator in his sixties, grey beard and a patterned blue robe, a folded blanket and a lit lantern on the shelf behind him.
+```
+
+### 1b.142 `officer-142`
+
+```
+SUBJECT: A junior civic officer in her twenties, cropped black hair and a grey work jacket, rusted filing cabinets in teal light behind her.
+```
+
+### 1b.143 `officer-143`
+
+```
+SUBJECT: A district council delegate in his fifties, silver hair and a pointed beard, a crimson-trimmed navy robe, a panelled chamber behind him.
+```
+
+### 1b.144 `officer-144`
+
+```
+SUBJECT: A printshop compositor with a shaved head and a maroon scarf, an ink-stained apron, the wheel of a hand press at her shoulder.
+```
+
+### 1b.145 `officer-145`
+
+```
+SUBJECT: A street food cook in his thirties, dark curls and a thin moustache, grinning in a smeared apron, a copper pot over a lit burner behind him.
+```
+
+### 1b.146 `officer-146`
+
+```
+SUBJECT: A utilities clerk in his forties, one eye clouded white, an olive coat over a loose tie, a brass standpipe behind him.
+```
+
+### 1b.147 `officer-147`
+
+```
+SUBJECT: A radio apprentice in his twenties, tousled blond hair and freckles, a scavenged headset at his neck, a green trace on a scope behind him.
+```
+
+### 1b.148 `officer-148`
+
+```
+SUBJECT: A residents' council elder in his seventies, white curls and beard, a blue shawl over an open shirt, a cracked marble wall behind him.
+```
+
+### 1b.149 `officer-149`
+
+```
+SUBJECT: A mechanical archivist in his forties, bald and black-bearded, a brass instrument on its stand at his elbow, shelves of ledgers behind him.
+```
+
+### 1b.150 `officer-150`
+
+```
+SUBJECT: A kitchen volunteer in his twenties, broad-shouldered in a stained apron with a towel over one shoulder, a steaming pot on green tiles behind him.
+```
+
+### 1b.151 `officer-151`
+
+```
+SUBJECT: A bar owner in his fifties, bald with a grey beard, a red brocade waistcoat over rolled sleeves, a violet lamp and bottles behind him.
+```
+
+### 1b.152 `officer-152`
+
+```
+SUBJECT: A maintenance courier in her thirties, locs tied back under safety glasses, a harness of tools, a blue strip light on a steel door behind her.
+```
+
+### 1b.153 `officer-153`
+
+```
+SUBJECT: A district oral historian in his seventies, white hair and a wispy beard, a green patterned robe, faded wallpaper and a framed print behind him.
+```
+
+### 1b.154 `officer-154`
+
+```
+SUBJECT: A logistics chief in his fifties, grey hair and a heavy leather coat over a blue scarf, stacked shelving and rolled cloth behind him.
+```
+
+### 1b.155 `officer-155`
+
+```
+SUBJECT: A delegate in his forties, grey-black curls and a full beard, a blue coat over a rust waistcoat with a brass badge, bare plaster behind him.
+```
+
+### 1b.156 `officer-156`
+
+```
+SUBJECT: A tram clerk in his forties, a thin moustache and a navy uniform coat with a service medallion, an amber lamp on a wet street behind him.
+```
+
+### 1b.157 `officer-157`
+
+```
+SUBJECT: A surveyor in her twenties, fair hair pinned up and freckles, a yellow-collared work coat, painted pipework and peeling steel behind her.
+```
+
+### 1b.158 `officer-158`
+
+```
+SUBJECT: An arbitrator in his sixties, white hair and moustache, a dark red coat over a scarlet scarf, panelled wood behind him.
+```
+
+### 1b.159 `officer-159`
+
+```
+SUBJECT: A waterworks inspector in his twenties, fair hair and a scar at his lip, a blue work coat, a pressure gauge and standpipes behind him.
+```
+
+### 1b.160 `officer-160`
+
+```
+SUBJECT: An archive magistrate in his fifties, round glasses and thinning hair, a grey coat, a wall of card-index drawers under a green lamp behind him.
+```
+
+### 1b.161 `officer-161`
+
+```
+SUBJECT: A night supervisor in his fifties, grey beard and a dark knitted collar, a riveted iron door and one amber lamp behind him.
+```
+
+### 1b.162 `officer-162`
+
+```
+SUBJECT: A grid coordinator in his thirties, brown hair and a grey scarf over a work coat, a blue indicator light on a ribbed wall behind him.
+```
+
+### 1b.163 `officer-163`
+
+```
+SUBJECT: A health inspector in his fifties, a dark moustache and a teal coat with a brass medallion, white tiling and a brass pipe behind him.
+```
+
+### 1b.164 `officer-164`
+
+```
+SUBJECT: An assembly elder in his seventies, a white moustache and a red-brown coat over a dark red scarf, a lantern and a heavy curtain behind him.
+```
+
 ## 2. District illustrations: 12 assets
 
 **Class framing** (append to each):
@@ -1198,21 +1564,23 @@ a single continuous painted illustration, not a tiled texture. No focal subject.
 and the readable action sits on top of it.
 ```
 
-| Key                              | Seed     | Alpha                   |
-| -------------------------------- | -------- | ----------------------- |
-| `plate-city`                     | `130001` | opaque                  |
-| `plane-city-sky`                 | `130002` | opaque                  |
-| `plane-city-far`                 | `130003` | alpha, ≥30% transparent |
-| `plane-city-fore`                | `130004` | alpha, ≥55% transparent |
-| `splash-auth`                    | `130005` | opaque                  |
-| `plate-district`                 | `130006` | opaque                  |
-| `plate-bar`                      | `130007` | opaque                  |
-| `plate-district-neon-docks`      | `130008` | opaque                  |
-| `plate-district-rustyard`        | `130009` | opaque                  |
-| `plate-district-chrome-row`      | `130010` | opaque                  |
-| `plate-faction-room`             | `130011` | opaque                  |
-| `plate-district-undergrid`       | `130012` | opaque                  |
-| `plate-district-datavault-sigma` | `130013` | opaque                  |
+| Key                                | Seed     | Alpha                   |
+| ---------------------------------- | -------- | ----------------------- |
+| `plate-city`                       | `130001` | opaque                  |
+| `plane-city-sky`                   | `130002` | opaque                  |
+| `plane-city-far`                   | `130003` | alpha, ≥30% transparent |
+| `plane-city-fore`                  | `130004` | alpha, ≥55% transparent |
+| `splash-auth`                      | `130005` | opaque                  |
+| `plate-district`                   | `130006` | opaque                  |
+| `plate-bar`                        | `130007` | opaque                  |
+| `plate-district-neon-docks`        | `130008` | opaque                  |
+| `plate-district-rustyard`          | `130009` | opaque                  |
+| `plate-district-chrome-row`        | `130010` | opaque                  |
+| `plate-faction-room`               | `130011` | opaque                  |
+| `plate-district-undergrid`         | `130012` | opaque                  |
+| `plate-district-datavault-sigma`   | `130013` | opaque                  |
+| `plate-district-glasshouse-fields` | `130014` | opaque                  |
+| `plate-district-blacksite-7`       | `130015` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1385,6 +1753,40 @@ the street; nothing that reads as a label for a game object.
 
 ```
 SUBJECT: The Annexes from above and slightly forward, the same camera as the other contested plates and **no sky**: a fogged faculty quarter of wet stone under cold grey-green light. Eight places a player can stand, each recognisable at a glance: a satellite dish bolted to the roof of a stone faculty building at upper left, a glass-fronted hall lit green from inside next along, a copper-domed observatory with a brass orrery turning under the dome at top centre, a foundry of smokestacks and teal cooling tanks at upper right, a scaffolded half-built tower under a yellow crane at the right, a mansion roofed with a thicket of antenna spikes in the centre, a huge columned faculty building with grand steps at the left, and a stone gate between two towers closing the bottom edge. Fog between the roofs, standing water on the flagstones, lit windows the only warm notes. Painted signage is part of the street; nothing that reads as a label for a game object.
+```
+
+---
+
+### 3.14 `plate-district-glasshouse-fields`: Glasshouse Fields, walked into (§A4)
+
+```
+SUBJECT: Glasshouse Fields from above and slightly forward, the same camera as the other contested
+plates and **no sky**: state hydroponics behind a fence, furrowed beds and mud roads under a grey
+overcast. Seven places a player can stand, each recognisable at a glance: a water intake of silos,
+tanks and a guarded pipe gate at upper left, a grassed berm with a watch hut and sandbags on its
+crown at centre left, a row of glasshouses along the top, a hauler yard of rail carts under a timber
+crane at the right, a long kitchen shed with a chimney and trestle tables of diners in the middle, a
+market of awnings and produce crates at lower left, a chapel with a bell tower at lower right, and a
+camp of tents against the fence at the right edge. A timber gate with a watch post closes the bottom
+edge. Wet earth, green beds, a few lit windows. Painted signage is part of the street; nothing that
+reads as a label for a game object.
+```
+
+---
+
+### 3.15 `plate-district-blacksite-7`: The Blacksite, walked into (§A4)
+
+```
+SUBJECT: The Blacksite from above and slightly forward, the same camera as the other contested
+plates and **no sky**: a hardened ferrocrete garrison closed on every side by sheer walls. Eight
+places a player can stand, each recognisable at a glance: a fortified compound with a great gate and
+red diamond banners at upper left with layered berm walls running down the left edge, a tall
+watchtower with a searchlight at the centre, a drill hall bunker with troops in formation in front of
+it at upper right, a surgical room lit cyan high in the right wall, a central armoury bunker with an
+orange-lit interior, trucks and tracked vehicles at lower right of centre, reactor drums and a
+cooling tower at the far lower right, and a lit fighting ring at lower left. Sodium lamps on wet
+concrete, the searchlight the only cold note. Painted signage is part of the street; nothing that
+reads as a label for a game object.
 ```
 
 ---
@@ -1679,6 +2081,7 @@ One marker per _kind_ of place, not per place: thirty-one places share twenty ki
 | `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                    |
 | `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`               |
 | `icon-location-revolutionary-statue`  | `160074` | `SUBJECT: A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from above, cold #22d3ee floodlight up the front.`     |
+| `icon-location-glasshouse`            | `160075` | `SUBJECT: A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one grow-lamp inside reading warm #f59e0b.`           |
 
 ### 6.5 Garage machines: ids match `VehicleId`
 

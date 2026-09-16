@@ -189,7 +189,7 @@ export const VENDOR_PAGE_ODDS = 0.15;
  * document assembled out of pages now, and a shop that sold the finished thing beside the pages a
  * crew is collecting was two prices for one idea. So the barrow's pool is the goods list without
  * them; the only paper he ever carries is a **page**, at the odds below. The old documents stay in
- * the catalogue and in satchels, and the Black Market's shelf is its own call.
+ * the catalogue and in inventories, and the Black Market's shelf is its own call.
  */
 export const VENDOR_GOODS: readonly ItemId[] = ITEM_IDS.filter(
   (id) => ITEM_CATALOG[id].kind !== 'blueprint',

@@ -89,7 +89,7 @@ next read of the city: the same lazy contract fortifying uses, and the same sett
 A location can be worked to `MAX_LOCATION_LEVEL` (10). Each level pays more (`LEVEL_SCALE`, linear
 at +0.5 of the level-1 value per level) and each upgrade costs more than the last
 (`UPGRADE_COST_SCALE`, a doubling for the first three steps and a flat 1.4x after that). Each level
-above the first also adds `POPULATION_PER_LOCATION_LEVEL` (3) beds on top of the flat
+above the first also adds `POPULATION_PER_LOCATION_LEVEL` (3) unit slots on top of the flat
 `POPULATION_PER_LOCATION` (20) every held location pays, and takes 2% off the price and 3% off the
 clock of any unit that location unlocks (`homeTrainingBonus`).
 
@@ -262,7 +262,7 @@ bid, so caps are checked at the table and again at the close.
 
 Both writes live on the market routes, because a blueprint and its pages are items: they sit in
 `inventory_json` beside everything else a crew holds, and both answer with the whole refreshed board
-so the satchel updates from the response instead of racing a refetch.
+so the inventory updates from the response instead of racing a refetch.
 
 - `POST /api/blueprints/unlock`: `{blueprintId}`. Spends one of every page and banks the document.
   `409 BLUEPRINT_REFUSED` with `unknown_blueprint`, `already_unlocked` or `missing_pages`.
@@ -307,8 +307,8 @@ ranking.
 ### Notifications
 
 The kinds live in `@frontline/shared`'s `social/notifications.ts` and every one of them is written
-through `notify`. `page_found` says a blueprint page reached the satchel and has five doors, so its
-sentence is written once: `tellPagesFound` (`social/pages.ts`) diffs the satchel before and after
+through `notify`. `page_found` says a blueprint page reached the inventory and has five doors, so its
+sentence is written once: `tellPagesFound` (`social/pages.ts`) diffs the inventory before and after
 and rings for a mission's page prize, the Runner's lot close, a page taken off the Black Market
 shelf, the page the Lab hands back for a Reimagining, and each side of a settled market offer. The
 Runner's close rings it alongside `market_won`: one is the lot, the other is the sheet.
@@ -428,7 +428,11 @@ at for three days resolves to the same result whenever it is next opened.
   (`409 BATTLE_REFUSED`) for a mark off the half hour, inside eight hours or past twenty-four; for a
   location in a shut district (attack the gate); for a gate on a district that is neither held
   outright nor lived on; for a raid behind a gate that is still standing, or on a plot nobody lives
-  on; for unscouted ground, ground already called, a fourth simultaneous call, or your own.
+  on; for unscouted ground, ground already called, a fourth simultaneous call, or your own. A call
+  on ground another player's crew holds costs `DECLARE_INFAMY_COST` (100 infamy), taken when the
+  row is written and never handed back; Combine ground, looters and empty ground cost nothing
+  (`declareInfamyCost`). A crew that cannot cover it is refused last, after every refusal it could
+  answer by picking a different target or mark. Admin mode waives the price with the rest of them.
 
 #### Raiding a home (§A4, maintainer 2026-09-09)
 
@@ -463,7 +467,7 @@ district, resolved history included, so the repo carries no legacy branch.
 - `POST /api/battles/deploy`: `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
   sends, negative withdraws. Units leave the roster when sent and return when pulled, less whatever
   the enemy's ring takes on the way out. Refused past the cutoff, for units the crew does not have,
-  and for units whose tier demands more infamy than the crew has earned.
+  and for units whose tier asks for a notoriety rank the crew has not bought (`unitsBeyondNotoriety`).
 - `POST /api/battles/vehicles`: `{battleId, vehicles}`, **absolute** rather than a delta and the
   whole set in one request. Committed machines leave the Garage exactly as deployed units leave the
   roster and come back the moment the set is narrowed. A column already walking is re-timed from its
@@ -568,7 +572,7 @@ A `battle` template no longer rolls against its frozen chance. At the settle
    a bare battlefield, **with no ring on either side**: whoever breaks and runs is not pursued and
    comes home. Whoever led the run is folded in as the side's officer, the way a declared battle
    folds one.
-3. The outcome is `success` when the crew held the field. `lost` on the row is the bodies that did
+3. The outcome is `success` when the crew held the field. `lost` on the row is the units that did
    not come home, `force` less `lost` walks back into the army, and a machine whose riders all died
    is wrecked by the same `wrecked` rule the battle settler uses.
 4. `reported` is false when nobody came home at all. Then the run banks nothing: no pay, no
@@ -596,6 +600,14 @@ travels at is `columnSpeed`: the **slowest group** in it, where a group is a uni
 at its own effective speed or a machine carrying somebody at the machine's. Seats go to the slowest
 walkers first, the fastest machines are filled first, nobody boards a machine slower than their own
 legs, and a sheet carrying `no_ride` (the Colossus) never takes a seat at all.
+
+**A seat is priced in unit slots, not in heads.** `VehicleSpec.capacity` is in the same currency
+the district houses a unit in (`UnitSpec.unitSlots`), so a Cheese Wagon at thirty carries thirty
+one-slot units, or ten three-slot Ironsides, or twenty Haulers and three Ironsides. A unit that
+costs more slots than a machine has left does not board it, and a machine too small for the sheet
+at the front of the queue is stepped over rather than ending the fill. `ridingUnitSlots` is the one
+function that counts what is asking for a seat, and the deploy window's ceiling, the column's pace
+and the wreck share on the settle all read it.
 
 `roadMinutes(base, speed, reductionPercent)` (`packages/shared/src/time/speed.ts`) is the only place
 that turns those two numbers into minutes, and every road in the game goes through it: the march to

@@ -437,7 +437,7 @@ describe('the migration chain', () => {
 });
 
 /**
- * 0081 to 0093 against a database that has something in every table.
+ * 0081 to 0096 against a database that has something in every table.
  *
  * The chain tests above prove a *cold* database reaches one schema, and each per-migration case
  * proves one migration against the rows it is about. Neither is the state a live save is in, and
@@ -446,11 +446,11 @@ describe('the migration chain', () => {
  * one of those passes on an empty store whether or not it got the interesting part right.
  *
  * So the store is filled first: one row in every table the schema has at 0081, seeded through the
- * live foreign keys rather than around them, and then the thirteen files are applied in order. The
+ * live foreign keys rather than around them, and then the sixteen files are applied in order. The
  * completeness assertion is what keeps this honest as tables are added: a new table with nothing in
  * it fails here by name rather than quietly narrowing what the chain was measured against.
  */
-describe('0081 to 0093 on a database with rows in every table', () => {
+describe('0081 to 0096 on a database with rows in every table', () => {
   const FIRST = '0081_mission_priced_minutes.sql';
   const THROUGH = [
     '0081_mission_priced_minutes.sql',
@@ -466,6 +466,9 @@ describe('0081 to 0093 on a database with rows in every table', () => {
     '0091_two_names_on_a_fight.sql',
     '0092_feats.sql',
     '0093_scout_walk_out.sql',
+    '0094_unit_modifications.sql',
+    '0095_overseer_pool.sql',
+    '0096_overseer_faces.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -704,7 +707,7 @@ describe('0081 to 0093 on a database with rows in every table', () => {
     return { db, tables };
   }
 
-  it('applies the thirteen files in order, once, and stops', () => {
+  it('applies the sixteen files in order, once, and stops', () => {
     const { db } = seeded();
     expect(runMigrations(db)).toEqual(THROUGH);
     expect(runMigrations(db), 'a second run must apply nothing').toEqual([]);
@@ -719,7 +722,7 @@ describe('0081 to 0093 on a database with rows in every table', () => {
       const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
       // `battle_deployments` and `troop_movements` are the ones this is really about: 0087 drops
       // the table they point at, and an implicit DELETE would empty them without a word.
-      expect(n, `${table} lost its row somewhere in 0081..0093`).toBe(1);
+      expect(n, `${table} lost its row somewhere in 0081..0096`).toBe(1);
     }
     // ...and the three that go are gone, rather than sitting there empty.
     for (const table of RETIRED) {

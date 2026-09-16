@@ -4,7 +4,7 @@ import type { Army } from '../units/training.js';
 /**
  * What you leave behind for people who come looking (GDD §A4, battle rework).
  *
- * A trap is the defensive counterpart to a perimeter: it costs materials rather than bodies, it
+ * A trap is the defensive counterpart to a perimeter: it costs materials rather than units, it
  * fires once, and it fires *before* anybody has decided anything. The board's rule is exact and it
  * is the interesting part: **the attack still goes through**. A trap does not turn an assault back;
  * it takes a bite out of it and then the fight happens anyway. The only case where it stops an
@@ -26,7 +26,7 @@ import type { Army } from '../units/training.js';
  *
  * A trap used to be bought with resources and armed on a location, where it sat waiting for
  * whoever turned up. It is a **consumable item** now: the Scrapyard cuts one for the cost below,
- * behind the trap's blueprint document and the Lab rung named here, and it goes into the satchel.
+ * behind the trap's blueprint document and the Lab rung named here, and it goes into the inventory.
  * A defender sets one on a coming fight and it is spent at the mark. The ids in this catalogue are
  * therefore also item ids in `items/catalog.ts`, and that is the mechanic rather than a
  * coincidence: the deployment row names the trap, and the settler takes that id out of the bag.
@@ -41,7 +41,7 @@ export interface TrapSpec {
   cost: PartialResources;
   /** Share of the attacking force it takes off, before any ceiling. */
   killShare: number;
-  /** ...and the ceiling, in bodies. A trap is a bite, never a battle. */
+  /** ...and the ceiling, in units. A trap is a bite, never a battle. */
   maxKills: number;
 }
 
@@ -116,7 +116,7 @@ export function trapsAvailable(technologies: readonly string[]): TrapSpec[] {
 }
 
 export interface TrapToll {
-  /** Bodies the trap took, by unit id. */
+  /** Units the trap took, by unit id. */
   killed: Army;
   /** What is left to fight with. */
   survivors: Army;
@@ -135,10 +135,21 @@ const total = (force: Army): number =>
  * rounding error.
  */
 export function springTrap(force: Army, trap: TrapSpec): TrapToll {
-  const bodies = total(force);
-  if (bodies === 0) return { killed: {}, survivors: { ...force }, wipedOut: false };
+  const units = total(force);
+  if (units === 0) return { killed: {}, survivors: { ...force }, wipedOut: false };
 
-  let budget = Math.min(trap.maxKills, Math.max(1, Math.round(bodies * trap.killShare)), bodies);
+  /*
+   * What the trap is sold as taking, which is what it has to take.
+   *
+   * Held apart from the running `budget` below because the proportional share is a share of the
+   * **bite**, not of whatever is left of it. Dividing the remainder by the original `units` shrank
+   * the numerator on every stack after the first while the denominator stayed put, so the loop ran
+   * out of stacks before it ran out of budget: a Flooded Cellar sold as "20% of the attack, up to
+   * 34 units" took 20 of 100 from a single stack and 14 from a force of five, and got weaker the
+   * more varied the force it fired on.
+   */
+  const bite = Math.min(trap.maxKills, Math.max(1, Math.round(units * trap.killShare)), units);
+  let budget = bite;
   const killed: Army = {};
   const survivors: Army = { ...force };
 
@@ -149,11 +160,30 @@ export function springTrap(force: Army, trap: TrapSpec): TrapToll {
   for (const [unitId, count] of stacks) {
     if (budget <= 0) break;
     // The stack's proportional share, but never more than the budget and never more than it has.
-    const share = Math.min(budget, count, Math.max(1, Math.round((count / bodies) * budget)));
+    const share = Math.min(budget, count, Math.max(1, Math.round((count / units) * bite)));
     killed[unitId] = share;
     survivors[unitId] = count - share;
     if (survivors[unitId] === 0) delete survivors[unitId];
     budget -= share;
+  }
+
+  /*
+   * Whatever the rounding left, spent largest-stack-first.
+   *
+   * Each stack's share rounds on its own, so a force spread over many stacks rounds down several
+   * times over and the trap under-delivers: 12 of the 14 it advertises, on a 250-unit force in
+   * seven stacks. Largest-first is the order the doc above promises, and it is the order that keeps
+   * a lone Colossus off the bill until nothing bigger is left to take it.
+   */
+  for (const [unitId] of stacks) {
+    if (budget <= 0) break;
+    const left = survivors[unitId] ?? 0;
+    if (left <= 0) continue;
+    const extra = Math.min(budget, left);
+    killed[unitId] = (killed[unitId] ?? 0) + extra;
+    survivors[unitId] = left - extra;
+    if (survivors[unitId] === 0) delete survivors[unitId];
+    budget -= extra;
   }
 
   return { killed, survivors, wipedOut: total(survivors) === 0 };

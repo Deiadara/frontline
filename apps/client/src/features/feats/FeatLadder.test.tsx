@@ -42,7 +42,7 @@ describe('the figure under a rung', () => {
   it('never reads finished on a rung that is not', () => {
     const spec = CAPS;
     // A hair under the target, which is where a fractional counter actually sits.
-    render(<FeatLadder block={block(spec.target - 0.4)} claimingId={null} onClaim={() => {}} />);
+    render(<FeatLadder block={block(spec.target - 0.4)} claiming={new Set()} onClaim={() => {}} />);
 
     const line = screen.getByTestId(`feat-count-${spec.id}`);
     expect(line).not.toHaveTextContent(
@@ -53,7 +53,7 @@ describe('the figure under a rung', () => {
 
   it('reads the whole figure once the rung is finished', () => {
     const spec = CAPS;
-    render(<FeatLadder block={block(spec.target)} claimingId={null} onClaim={() => {}} />);
+    render(<FeatLadder block={block(spec.target)} claiming={new Set()} onClaim={() => {}} />);
     expect(screen.getByTestId(`feat-count-${spec.id}`)).toHaveTextContent(
       `${spec.target.toLocaleString()} / ${spec.target.toLocaleString()}`,
     );

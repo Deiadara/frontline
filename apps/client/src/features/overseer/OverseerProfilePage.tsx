@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom';
 import { Icon } from '../../components/ui/Icon';
-import { FileSection } from './FileSection';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { PortraitFrame } from '../../components/ui/PortraitFrame';
@@ -157,14 +156,23 @@ export function OverseerProfilePage() {
            * was a strip across the top of a page with nothing under it. Two by two is the shape
            * the rest of the game uses for four related panels, it fills the space it is given, and
            * `roomy` puts each group behind its own border so the four read as four things.
+           *
+           * ## No `FileSection` round it (maintainer request, 2026-09-14)
+           *
+           * It used to sit inside one titled "Your own sheet", which put four labelled boxes
+           * inside a fifth labelled box: the frame said nothing the four frames did not, and the
+           * note under it ("every attribute you carry") repeated the page a player had just
+           * clicked their own face to reach.
+           *
+           * It also cost about 120px of height, and that was the real problem. The sheet wants
+           * 585px and the column is 611 at 1440x900, so with the wrapper it was 96px over and
+           * scrolled on the most ordinary laptop there is, cutting the last three rows off
+           * Technical. Without it the whole file is on screen at that size and no bar is drawn.
+           *
+           * The scroller itself stays, because it is still right below about 1400x850: the sheet
+           * cannot shrink to a 768px-tall window and a cut sheet is worse than a scrolled one.
            */}
-          <FileSection
-            icon="crew"
-            title="Your own sheet"
-            note="Every attribute you carry, whatever your role"
-          >
-            <AttributeSheet attributes={overseer.attributes} columns={2} roomy />
-          </FileSection>
+          <AttributeSheet attributes={overseer.attributes} columns={2} roomy />
         </div>
       </div>
     </PageShell>

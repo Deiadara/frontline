@@ -1,4 +1,5 @@
 import {
+  unitSlotsUsed,
   type ActionsResponse,
   type BattleView,
   type BattlesResponse,
@@ -33,7 +34,7 @@ export function onTheRoad(
     columns: actions?.movements ?? [],
     // Active runs only: a crew at the gate is home, and the board is where its report is read.
     jobs: (missions?.missions ?? []).filter((mission) => mission.status === 'active'),
-    // A fight the caller has bodies at. A declaration with nobody deployed yet is on the board,
+    // A fight the caller has units at. A declaration with nobody deployed yet is on the board,
     // not on the road, and a bystander's fight is nobody's.
     fights: (battles?.coming ?? []).filter(
       (view) => view.muster !== null && view.muster.size > 0 && view.battle.resolvedAt === null,
@@ -52,25 +53,36 @@ export function roadIsEmpty(road: Road): boolean {
   );
 }
 
-/** The header's figures: how many of each, and the bodies out, columns and jobs and fights added. */
+/**
+ * The header's figures: how many of each, and the unit slots out, columns and jobs and fights added.
+ *
+ * **Unit slots, not heads.** The header prints the word, and a `size` off the wire is a head count:
+ * a crew with a Colossus on the road was told it had one slot out when the district was holding
+ * twelve of them open for it. Both payloads carry the force itself beside the size, so the figure
+ * is summed here through the same `unitSlotsUsed` the beds and the vehicles use.
+ */
 export function roadCounts(road: Road): {
   columns: number;
   jobs: number;
   fights: number;
   scouts: number;
-  bodies: number;
+  unitSlots: number;
 } {
-  const sum = (army: Readonly<Record<string, number>>) =>
-    Object.values(army).reduce((total, count) => total + count, 0);
+  const slots = (...armies: Readonly<Record<string, number>>[]) =>
+    armies.reduce((total, army) => total + unitSlotsUsed(army), 0);
   return {
     columns: road.columns.length,
     jobs: road.jobs.length,
     fights: road.fights.length,
     scouts: road.scout === null ? 0 : 1,
-    bodies:
-      road.columns.reduce((total, column) => total + column.size, 0) +
-      road.jobs.reduce((total, job) => total + sum(job.force), 0) +
-      road.fights.reduce((total, fight) => total + (fight.muster?.size ?? 0), 0),
+    unitSlots:
+      road.columns.reduce((total, column) => total + slots(column.army, column.perimeter), 0) +
+      road.jobs.reduce((total, job) => total + slots(job.force), 0) +
+      road.fights.reduce(
+        (total, fight) =>
+          total + (fight.muster ? slots(fight.muster.army, fight.muster.perimeter) : 0),
+        0,
+      ),
   };
 }
 

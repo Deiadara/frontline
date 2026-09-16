@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BaseSchema } from './base.js';
 import { BuildingKindSchema, MAX_MODIFICATION_SLOTS } from './building/index.js';
+import { ModificationRaritySchema } from './modification-rarity.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 
@@ -51,7 +52,7 @@ export type ModificationSlotResponse = z.infer<typeof ModificationSlotResponseSc
 
 /**
  * What the yard turns out. A trap is the odd one: it is not bolted to anything. It goes into the
- * satchel as a consumable and is spent on one defended fight (§D, traps rework).
+ * inventory as a consumable and is spent on one defended fight (§D, traps rework).
  */
 export const AddonKindSchema = z.enum(['modification', 'upgrade', 'trap']);
 export type AddonKind = z.infer<typeof AddonKindSchema>;
@@ -71,6 +72,11 @@ export const ScrapyardEntrySchema = z.object({
    */
   cost: PartialResourcesSchema,
   advanced: z.boolean(),
+  /**
+   * A unit card's rarity, which is how the unit bench groups its rows (the four words in order).
+   * Null for a building modification and for a trap, which are grouped by structure and by nothing.
+   */
+  rarity: ModificationRaritySchema.nullable(),
   /** The blueprint it wants, in the player's words, or null when it needs none. */
   blueprint: z.string().nullable(),
   /** How many the crew already owns. Unit upgrades are one or none; traps are the count in the bag. */

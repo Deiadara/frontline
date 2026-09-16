@@ -11,6 +11,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The table's cards pay the whole table, off each holder's own sheet.
@@ -38,12 +39,7 @@ async function register(app: FastifyInstance, username: string) {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode).toBe(201);
   const userId = registered.json<{ user: { id: string } }>().user.id;
   const baseId = chosen.json<{ base: { id: string } }>().base.id;

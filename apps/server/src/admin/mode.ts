@@ -103,7 +103,7 @@ export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   // Capacity gates: there is room for this, just not right now.
   'queue_full',
   'no_slots',
-  'no_supply',
+  'no_unit_slots',
   /** §H7: the payroll book has no room for another fee. A ceiling, like the beds and the slots. */
   'no_payroll',
   // Price gates. `adminCost` already makes the charge zero; this is the check in front of it.

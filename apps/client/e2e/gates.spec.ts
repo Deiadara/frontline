@@ -6,7 +6,7 @@
  * empty because the layout is sound, and the suite gets greener the more broken the gate is. That
  * is not hypothetical here: `expectNoDocumentOverflow` measured `document.documentElement`, and
  * every screen root in this app is `h-screen w-screen overflow-hidden` over
- * `html,body,#root{height:100%}`, so the document is pinned to the viewport by construction. A
+ * `html,unit,#root{height:100%}`, so the document is pinned to the viewport by construction. A
  * 4000px block dropped into a screen moved it by exactly zero. Twenty-nine call sites were
  * asserting it, and on several screens it was the only overflow check they had.
  *

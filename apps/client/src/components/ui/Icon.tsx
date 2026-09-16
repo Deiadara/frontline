@@ -34,7 +34,7 @@ export const ICON_NAMES = [
   'power',
   'morale',
   'infamy',
-  'population',
+  'unit-slots',
   'build',
   'lock',
   'clock',
@@ -57,7 +57,7 @@ export const ICON_NAMES = [
   'standings',
   'training',
   'workshop',
-  'satchel',
+  'inventory',
   'physical',
   'mental',
   'social',
@@ -82,29 +82,52 @@ const S = {
 } as const;
 
 const PATHS: Record<IconName, ReactNode> = {
+  /**
+   * The city: three blocks of different heights, not one house (maintainer request, 2026-09-14).
+   *
+   * It was a single pitched-roof building with a lean-to, which reads as *a* building rather than
+   * the place all of them are in, and at 20px it was hard to tell from the Market's stall. Three
+   * masses of unequal height on one ground line is the shape a skyline makes, and the unequal
+   * heights are what stop it reading as a fence.
+   */
   city: (
     <>
-      <path d="M3 21h18" {...S} />
-      <path d="M5 21V9l5-3 5 3v12" {...S} />
-      <path d="M15 21V13l4-2v10" {...S} />
-      <path d="M9 21v-4h2v4" {...S} />
-      <path d="M8 12h.01M12 12h.01M8 15h.01M12 15h.01" {...S} />
+      <path d="M2.5 20.5h19" {...S} />
+      <path d="M4 20.5V11.5h5v9" {...S} />
+      <path d="M9 20.5V5.5h6v15" {...S} />
+      <path d="M15 20.5V9.5h5v11" {...S} />
+      <path d="M11 9h.01M13 9h.01M11 12.5h.01M13 12.5h.01M6.2 15h.01M17.5 13h.01" {...S} />
     </>
   ),
+  /**
+   * The district: the gate into it (maintainer request, 2026-09-14).
+   *
+   * Two towers with an arch between them was the old mark, and the arch was small enough at 20px
+   * that the pair read as two buildings, which is the City's job. A gate is the right idea anyway:
+   * the district is the one place in the game with a door that can be shut, and the portcullis
+   * bars say *shut* in a way no doorway does.
+   */
   district: (
     <>
-      <path d="M3 20.5h18" {...S} />
-      <path d="M4 20.5V11h5v9.5" {...S} />
-      <path d="M15 20.5V11h5v9.5" {...S} />
-      <path d="M9 20.5v-6a3 3 0 0 1 6 0v6" {...S} />
-      <path d="M6.5 14.5h.01M17.5 14.5h.01" {...S} />
+      <path d="M2.5 20.5h19" {...S} />
+      <path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" {...S} />
+      <path d="M8.5 20.5v-9.6M12 20.5v-10.4M15.5 20.5v-9.6" {...S} />
+      <path d="M6.1 13.9h11.8M5.3 17.2h13.4" {...S} />
     </>
   ),
+  /**
+   * The roster: the shield with the blades across it, handed over from `battles` (maintainer
+   * request, 2026-09-14).
+   *
+   * It wore a helmet, then a plain shield, and now the mark the fights door used to carry: the
+   * roster is the thing you take into a fight, so the arrangement reads correctly on it, and
+   * `battles` keeps the blades alone. Nothing is duplicated, because the shield moved rather than
+   * being copied.
+   */
   units: (
     <>
-      <path d="M4.5 15.5a7.5 7.5 0 0 1 15 0v2.5h-15z" {...S} />
-      <path d="M4.8 12.5h14.4" {...S} />
-      <path d="M9 18v2.5h6V18" {...S} />
+      <path d="M12 3.2l6.4 2.5v4.8c0 3.6-2.6 6.8-6.4 8-3.8-1.2-6.4-4.4-6.4-8V5.7z" {...S} />
+      <path d="M8.4 8.2l7.2 7.2M15.6 8.2l-7.2 7.2" {...S} />
     </>
   ),
   missions: (
@@ -245,7 +268,7 @@ const PATHS: Record<IconName, ReactNode> = {
       />
     </>
   ),
-  population: (
+  'unit-slots': (
     <>
       <circle cx="12" cy="8" r="3.2" {...S} />
       <path d="M5.5 20c0-3.6 2.9-6.2 6.5-6.2s6.5 2.6 6.5 6.2" {...S} />
@@ -320,13 +343,23 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M6.5 15.5L4 18l2 2 2.5-2.5" {...S} />
     </>
   ),
-  // Crossed blades over a shield: the one glyph in the set that has to read as "a fight is
-  // happening" at 22px in a standing bar, so it is the arrangement every strategy game uses for it
-  // rather than a cleverer one nobody would recognise.
+  /**
+   * A fight: two blades crossed, and nothing under them (maintainer request, 2026-09-14).
+   *
+   * The shield went to `units`, where a roster belongs, and took the "this is yours to defend"
+   * reading with it. What is left is the clash itself, which is what this door is: a fight already
+   * declared, not a thing being protected.
+   *
+   * Two blades, two crossguards, two pommels, and nothing else. The first cut drew the grips as
+   * four short strokes below the crossing and they collapsed into clutter at 28px: at this size a
+   * sword is a long line with one bar across it, and the bar is the whole reason it is not a
+   * multiplication sign.
+   */
   battles: (
     <>
-      <path d="M12 3.2l6.4 2.5v4.8c0 3.6-2.6 6.8-6.4 8-3.8-1.2-6.4-4.4-6.4-8V5.7z" {...S} />
-      <path d="M8.4 8.2l7.2 7.2M15.6 8.2l-7.2 7.2" {...S} />
+      <path d="M4.4 4.4L17 17M19.6 4.4L7 17" {...S} />
+      <path d="M13.6 16.4l3.4-3.4M10.4 16.4L7 13" {...S} />
+      <path d="M16.2 19.6l2.8-2.8M7.8 19.6L5 16.8" {...S} />
     </>
   ),
   // An envelope. The one shape that has meant "mail" for long enough that nothing else needs to.
@@ -347,24 +380,40 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M10 18.2a2 2 0 0 0 4 0" {...S} />
     </>
   ),
-  // Three figures shoulder to shoulder: a *group*, as against `crew`, which is one person's file.
+  /**
+   * The table: its badge (maintainer request, 2026-09-14).
+   *
+   * Three figures shoulder to shoulder was the old mark, and it sat two doors along from `crew`,
+   * which is also people: at 20px "one person" and "three people" is a count a player has to stop
+   * and make. A faction already *has* a badge in this game, drawn on its file and over its seats,
+   * so the door wears the thing the room is full of.
+   *
+   * A star in a ring with two ribbon tails, rather than the shield `units` now wears: the whole
+   * point of the swap was to stop two doors carrying the same silhouette.
+   */
   faction: (
     <>
-      <circle cx="12" cy="7" r="2.6" {...S} />
-      <circle cx="5.6" cy="9.4" r="2.1" {...S} />
-      <circle cx="18.4" cy="9.4" r="2.1" {...S} />
-      <path d="M7.6 19.2c0-2.6 2-4.4 4.4-4.4s4.4 1.8 4.4 4.4" {...S} />
-      <path d="M2.6 18.4c0-2 1.4-3.4 3-3.6M21.4 18.4c0-2-1.4-3.4-3-3.6" {...S} />
+      <path d="M4.5 3.6h15" {...S} />
+      <path d="M6.6 3.6v16.8l5.4-3.6 5.4 3.6V3.6" {...S} />
+      <path d="M6.6 12.6l10.8-6" {...S} />
     </>
   ),
-  // A boot on a road: what "somebody is walking somewhere" looks like at 22px without becoming a
-  // map pin, which is the other obvious reading and the one that means a *place* rather than a
-  // journey.
+  /**
+   * The Monitor: a screen with a trace running across it (maintainer request, 2026-09-14).
+   *
+   * The door was called Actions and wore a boot on a road, which is a picture of one column
+   * walking. The screen answers what the door is actually for: every force that is out, all at
+   * once, ticking. A boot is a thing that is happening; a monitor is where you watch all of them.
+   *
+   * The trace is a live readout rather than a chart line, so it steps rather than curving, and it
+   * runs off both edges of the glass: something that is still going, caught mid-sweep.
+   */
   actions: (
     <>
-      <path d="M3 19.5h18" {...S} />
-      <path d="M7.5 16.5l2-9 4.5 1.5-1 4 4 1.5-1.5 2z" {...S} />
-      <path d="M9.5 7.5l1.6-2.6 2.4 1.1" {...S} />
+      <rect x="2.8" y="4.2" width="18.4" height="12.6" rx="1.8" {...S} />
+      <path d="M5.4 11.4h2.3l1.5-3.1 2 6 1.7-3.9 1.3 2.2h3.4" {...S} />
+      <path d="M9.4 20.2h5.2" {...S} />
+      <path d="M12 16.8v3.4" {...S} />
     </>
   ),
   eye: (
@@ -374,32 +423,45 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   /**
-   * Training: a striking post with a wrapped grip and a target ring, not a shield.
+   * Training: a weights bench under a loaded bar (maintainer request, 2026-09-14).
    *
-   * It wore the `units` shield, which is the roster's glyph: two doors with the same mark side by
-   * side is two doors a player has to read the label of every time, and the row is supposed to
-   * scan as a set of destinations without reading a word.
+   * It was a striking post with a target ring, which at 20px is a circle on a stick and reads like
+   * a lamp or a signpost as readily as anything to do with work. A bar with plates on it is the
+   * one shape that means *lifting* on sight, and the bench under it says where the work happens.
+   *
+   * The plates are drawn as short uprights rather than filled discs on purpose: at this weight a
+   * filled circle on each end closes up into a blob by about 18px.
    */
   training: (
     <>
-      <path d="M12 20V9" {...S} />
-      <path d="M8.5 20h7" {...S} />
-      <circle cx="12" cy="6" r="3.2" {...S} />
-      <path d="M6.5 11.5h11" {...S} />
-      <path d="M9 9.5l-2.5-2M15 9.5l2.5-2" {...S} />
+      <path d="M3.5 7.5v4M6 6.3v6.4M18 6.3v6.4M20.5 7.5v4" {...S} />
+      <path d="M6 9.5h12" {...S} />
+      <path d="M5.5 16.5h13" {...S} />
+      <path d="M7.5 16.5v4M16.5 16.5v4" {...S} />
     </>
   ),
-  /** The yard: a spanner over a strut. It wore the Archive's flask, which is a different room. */
+  /**
+   * The Scrapyard: an anvil (maintainer request, 2026-09-14).
+   *
+   * A spanner said *workshop*, which is the room this one replaced; a heap of scrap said what is
+   * lying in the yard but not what anybody does with it, and at 22px a jagged pile is a jagged
+   * pile whatever it is made of. An anvil is the one shape in a forge nothing else is mistaken
+   * for, and it says the yard is where metal is worked rather than where it is stacked.
+   *
+   * The waist cut in under the face is what makes it an anvil rather than a block: without it the
+   * shape is a plinth. The horn is on the right, where the face steps down to it.
+   */
   workshop: (
     <>
-      <path d="M14.8 4.6a4 4 0 0 0 5.1 5.1l-9.2 9.2a2.3 2.3 0 0 1-3.3-3.3z" {...S} />
-      <path d="M5.5 5.5l3.5 3.5" {...S} />
-      <path d="M4 9l3.5-3.5" {...S} />
-      <path d="M17.5 17.5l2 2" {...S} />
+      <path d="M3.5 8.2h13.8l2.9-2.4v4.2a3.4 3.4 0 0 1-3.4 3.4h-3.6" {...S} />
+      <path d="M3.5 8.2c1.6.6 2.7 1.7 3.1 3.1" {...S} />
+      <path d="M13.2 13.4l-1.1 3.4" {...S} />
+      <path d="M6.6 11.3l1.2 5.5" {...S} />
+      <path d="M5.4 20.4h13.2l-1-3.6H6.4z" {...S} />
     </>
   ),
-  /** The satchel: a flapped bag on a strap. It wore the crew's two faces, which is a room of people. */
-  satchel: (
+  /** The inventory: a flapped bag on a strap. It wore the crew's two faces, which is a room of people. */
+  inventory: (
     <>
       <rect x="3.5" y="7" width="17" height="12.5" rx="1.6" {...S} />
       <path d="M9.5 7v12.5" {...S} />

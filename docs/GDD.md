@@ -16,12 +16,17 @@ Conventions used below:
 
 ## A. World, tone and art direction
 
-- **A1a [SPEC]** **Population is the army's, not the crew's.** Officers are counted on the books
-  and charged nothing: hiring somebody must not compete with training somebody. A district that is
-  finished and holding ground houses **about 2,000**, up from 345.
+- **A1a [SPEC]** **Unit slots are one pool.** The army, the training bench, the officers and the
+  machines in the Garage all draw on the district's unit slots: a unit costs the slots on its own
+  sheet (`UnitSpec.unitSlots`), an officer or a machine costs one slot each (maintainer,
+  2026-09-15). The same figure is what a unit costs a vehicle's seats, so a sheet at three slots
+  takes three of a truck's thirty. Training, a Garage order and **a feat that pays units** are all
+  refused when the slots run out; a refused feat stays ready and loses nothing. Signing an officer
+  is not refused, so a full district can still hire and simply cannot train until it makes room. A district that is finished and holding ground has **about
+  2,000**, up from 345.
   - **A1b [PROVISIONAL]** The Quarters' contribution is triangular (`HOUSING_PER_QUARTERS_LEVEL * L(L+1)/2`)
     rather than flat, so the ceiling reaches the maintainer's figure without a level-1 Quarters starting
-    the game with beds for an army nobody can pay for. Pinned in `building.test.ts`.
+    the game with slots for an army nobody can pay for. Pinned in `building.test.ts`.
 - **A1 [SPEC]** The hideout is a **small village**, laid out like Grepolis' town view: discrete
   buildings you can see and click, sitting in a place, not the current single-panel base view. Keep only
   the _vibe_ of what exists today, not the layout.
@@ -64,8 +69,8 @@ Conventions used below:
 ## C. Roles (officer positions)
 
 - **C1 [SPEC]** The 19 fillable positions:
-  Head Spy · Lead Engineer · Finance Officer · Head of Growth · Field Commander · Head of Research ·
-  Wetware Chief · Fabricator · Salvager · Right Hand · Cartographer · Trader · Security Officer ·
+  Head Spy · Lead Engineer · Head of Finance · Head of Growth · Field Commander · Head of Research ·
+  Wetware Chief · Fabricator · Salvager · Right Hand · Cartographer · Trader · Head of Security ·
   Chief Medic · Instructor of the Young · Raid Boss · Scout · Consigliere · Professor.
 - **C2 [SPEC]** Humans are generic; **roles are what you hire them into**. The same character could be
   slotted anywhere: well or badly.

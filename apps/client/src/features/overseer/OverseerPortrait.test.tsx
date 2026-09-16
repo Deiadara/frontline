@@ -61,12 +61,28 @@ describe('the fill box', () => {
     expect(container.querySelector('img')).toHaveClass('object-top');
   });
 
-  it('leaves the fixed-ratio crops centred, which is right for a box shaped like the picture', () => {
+  /**
+   * The fixed-ratio boxes are aimed at the top too (maintainer request, 2026-09-15).
+   *
+   * This used to assert the opposite, on the grounds that a fixed ratio is "a box shaped like the
+   * picture". It is not: `portrait` is 3:4 and the deliveries are 2:3, so a centred cover crop
+   * still throws away the top and bottom. Measured against a real 928x1392 delivery whose skull
+   * starts about 40px down, a centred crop loses **77px** at `portrait` and **232px** at `square`,
+   * so the smallest avatar in the game was the one cutting the most off the head.
+   *
+   * Both shapes are asserted, because they fail for the same reason and one of them is the 40px
+   * portrait in the standing bar, which is the one a player looks at on every screen.
+   */
+  it('aims the fixed-ratio crops at the top as well, where the heads are', () => {
     deliveredUrl.mockReturnValue('/assets/portrait-overseer-1.webp');
-    const { container } = render(
-      <OverseerPortrait portraitId="overseer-1" archetype="enforcer" aspect="portrait" />,
-    );
-    expect(container.querySelector('img')).not.toHaveClass('object-top');
+    for (const aspect of ['portrait', 'square'] as const) {
+      const { container } = render(
+        <OverseerPortrait portraitId="overseer-1" archetype="enforcer" aspect={aspect} />,
+      );
+      expect(container.querySelector('img'), `${aspect} crops from the middle`).toHaveClass(
+        'object-top',
+      );
+    }
   });
 
   it('leaves the avatar crops alone, which are deliberate', () => {

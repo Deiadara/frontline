@@ -24,7 +24,7 @@ declare  ->  deploy  ->  settle
 Both sides fire from the same snapshot and both take it. Sequential rounds would hand whoever went
 first a free volley against a stack that is already dead.
 
-1. **Concentration.** `concentrationFor` gives a side a multiplier for having more bodies engaged
+1. **Concentration.** `concentrationFor` gives a side a multiplier for having more units engaged
    than the enemy, weighted by how much of it shoots rather than swings (`rangedShare`). A shield
    wall gets nothing for being twice as many.
 2. **Fire.** Each stack splits its damage across the enemy's stacks by `allocate`, which weights by
@@ -33,7 +33,7 @@ first a free volley against a stack that is already dead.
    `OFFICER_TARGET_SHARE` of what an equal threat would.
 3. **Medics.** The _receiving_ side's own medics take a share off what is landing, before it lands
    (`mend`), capped at `MAX_MEND_SHARE`.
-4. **Damage.** Applied to a health pool; bodies fall out of the pool. Overkill on a stack is lost
+4. **Damage.** Applied to a health pool; units fall out of the pool. Overkill on a stack is lost
    rather than spilling onto the next one.
 5. **Morale.** Every stack tests: see below. Stacks that break stop firing.
 6. **Pursuit.** A stack that broke this round is run down for `PURSUIT_LOSS` of itself while it
@@ -44,9 +44,9 @@ round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WE
 
 ### Before round one
 
-- **Intimidation** (`cow`). Each side's total nerve, which is the morale of every body in it, is
+- **Intimidation** (`cow`). Each side's total nerve, which is the morale of every unit in it, is
   compared with the other side's total menace. Where the pressure is greater the excess buys
-  silence, cheapest first: the shakiest bodies do not fire this fight. They still stand in the line
+  silence, cheapest first: the shakiest units do not fire this fight. They still stand in the line
   and still take casualties, so intimidation is not a way of killing anybody.
 - **The ambush** (`ambushShare`). Only the attacker can take one, and only with units built for it
   and enough stealth to beat what the enemy can see. Worth a fraction of a round, never a whole one:
@@ -71,7 +71,7 @@ winning its exchange, the side that is ahead is the side that recovers.
 
 ## After the fight
 
-- **The rout** (`rout.ts`). The losing side rolls per body, not per stack. The base is the board's
+- **The rout** (`rout.ts`). The losing side rolls per unit, not per stack. The base is the board's
   coin flip, tilted by speed against the pursuit, stealth, how early the stack broke, and whose
   ground it is. Clamped at both ends: nobody is certain to get away and nobody is doomed.
 - **The ring** (`perimeter.ts`). If the winner set a perimeter, meeting it is a **second battle** on
@@ -79,7 +79,7 @@ winning its exchange, the side that is ahead is the side that recovers.
   that one means a second rout roll at `PERIMETER_FLEE_PENALTY`, which is half the ordinary chance.
   A thin ring in front of a mass breakout is ridden through, and it takes casualties doing it.
   Catching people quietly pulled out of a deployment _before_ the fight is a different thing and
-  stays a toll (`perimeterToll`): as a battle, a player could withdraw one body at a time and farm
+  stays a toll (`perimeterToll`): as a battle, a player could withdraw one unit at a time and farm
   the enemy's ring for free.
 
 ## Where a bonus comes from
@@ -91,7 +91,7 @@ number per channel and the report can explain itself:
 | ------------------------ | -------------------------------------------------------------------------- |
 | Ground the crew holds    | `TerritoryEffects`: offense, vitality, armour, morale, intimidation, speed |
 | A bought or looted boost | the same three of those fields (`boostBundle`)                             |
-| The officer leading      | a one-body stack with its own sheet, plus perks (`crew/effects.ts`)        |
+| The officer leading      | a one-unit stack with its own sheet, plus perks (`crew/effects.ts`)        |
 | The battlefield's labels | per-unit modifiers via `contexts` (`effects.ts`)                           |
 | The crew's co-ordination | `cohesionPercent`, widening the fighting front                             |
 
@@ -121,7 +121,7 @@ Measured on a 40-v-40 mirror of Razors over 400 seeds each, on open ground:
 | 43 v 40  | 97.5% | 5.7    |
 | 45 v 40  | 100%  | 5.0    |
 
-**The contested band is about four bodies wide out of forty.** One extra body in forty is worth 22
+**The contested band is about four units wide out of forty.** One extra unit in forty is worth 22
 points of win rate; five make the result certain. A 6% offense edge wins 77% of the time and a 15%
 edge wins 95%.
 
@@ -138,10 +138,10 @@ number: `CONCENTRATION_EDGE` damps the feedback and the two luck constants widen
 
 Kept because each of them was invisible and each would be easy to reintroduce.
 
-- **Fire was split across the enemy's stack _list_, not its bodies.** `threatWeight` is per body and
-  `allocate` normalised it per stack, so a one-body stack drew the same share as a forty-body one:
+- **Fire was split across the enemy's stack _list_, not its units.** `threatWeight` is per unit and
+  `allocate` normalised it per stack, so a one-unit stack drew the same share as a forty-unit one:
   about half the enemy's entire fire, into a pool it could not absorb, with the rest discarded as
-  overkill. Any cheap body was therefore a fire sponge worth most of a free round. It read as
+  overkill. Any cheap unit was therefore a fire sponge worth most of a free round. It read as
   officers being astonishingly good: attaching one to a mirror took the side from 51.5% to 92.3%
   while the officer dealt 0.1% of the damage, and _removing_ their targeting discount made them
   better still. `allocate` now weights by `enemy.alive`.

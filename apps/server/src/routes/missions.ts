@@ -10,6 +10,7 @@ import {
   concurrentMissionSlots,
   findMissionTemplate,
   missionForceRefusal,
+  unitsBeyondNotoriety,
   missionBoardDay,
   missionOffers,
   unledRule,
@@ -64,7 +65,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const now = new Date();
     const own = requireOwnBase(app, request.currentUser.id);
     // In a transaction, the way the world clock runs it: the settle marks a run resolved before it
-    // pays, so a write failing halfway left a crew marked home with its bodies and its haul gone.
+    // pays, so a write failing halfway left a crew marked home with its units and its haul gone.
     const settlement = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
     // Whatever this crew is owed, including a level the *world clock* banked while nobody was
     // looking: `takeLevelUp` reads the durable marker and clears it (migration 0083). Read off the
@@ -230,6 +231,22 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     }
 
     /*
+     * §D7: the heaviest sheets will not take a contract from a nobody, on a job as on a raid.
+     *
+     * `notorietyToField` says a unit past the crew's rank "will not take the field", and the gate
+     * stood on two of the three doors onto a field: the deployment (`battle/deploy.ts`) and the
+     * city (`city/actions.ts`). A rank-0 crew that trained a Colossus was refused at the fight and
+     * waved through here, with the same unit fighting the same engine on the other side of it.
+     */
+    if (unitsBeyondNotoriety(force, base.economy.notoriety).length > 0) {
+      throw new AppError(
+        'MISSION_REFUSED',
+        'They will not take a contract from a name that small',
+        levelUp,
+      );
+    }
+
+    /*
      * A crew with nobody at the head of it goes out only once somebody has written down how.
      *
      * The refusal names the rung rather than saying no, because "you cannot" with no next step is
@@ -291,6 +308,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         leadLootPercent,
         leadArrivalPercent,
         unitSpeedPercent,
+        anyRide,
       }) => ({
         missionSpeedPercent,
         leadSpeedPercent: officer ? leadArrivalPercent : 0,
@@ -298,6 +316,10 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
         // "everything you field moves faster" and the road to a job is a road.
         unitSpeedPercent,
+        // And the other half of that sentence, which was missing: the Tram Depot's `any_ride`.
+        // The march read it and the job did not, so one crew's Colossus rode to a fight and walked
+        // to a mission on the same streets.
+        anyRide,
       }))(standingEffectsFor(app.repos, base, now)),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to

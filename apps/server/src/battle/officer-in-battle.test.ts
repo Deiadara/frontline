@@ -1,4 +1,6 @@
 import {
+  CITY_DISTRICTS,
+  DECLARE_INFAMY_COST,
   DEFAULT_BADGE,
   CAPTURED_GATE_START_LEVEL,
   capturedGateDefensePercent,
@@ -20,7 +22,7 @@ import {
   startingHolder,
   travelMinutesBetween,
   TRAVEL_MINUTES_PER_MAP_UNIT,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   upgradedStats,
   type ApiError,
   type BattlesResponse,
@@ -33,9 +35,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
-import { settleMovements } from './movement.js';
+import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from '../crew/standing.js';
+import { officerTravelMinutesTo, settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * Officers on the field, end to end (§D, §B10, §C3).
@@ -96,13 +99,16 @@ async function makeStack(engine?: SkirmishEngine, username = 'leader'): Promise<
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // Casualties and survivors are counted to the body here, and a §F6 signature gives some of the
+  // dead back or hardens the living, so the crew gets a character rather than a draw.
+  pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
@@ -257,6 +263,167 @@ describe('naming a leader (§D1)', () => {
     const view = res.json<BattlesResponse>().coming[0]!;
     expect(view.leaders.map((leader) => leader.officerId)).toEqual([fit.id]);
     expect(view.leaders[0]!.stats).toEqual(officerBattleStats(fit.attributes));
+  });
+});
+
+/**
+ * §D1: a leader has to cross the city to get to the fight (maintainer request, 2026-09-15).
+ *
+ * Clocked through the same two functions a column is, so one map and one set of road bonuses serve
+ * both: `columnSpeed` decides whether this officer is walking or riding, and `travelMinutesBetween`
+ * turns that into minutes. The pace is the person's own `speed`, which is what a scouting run is
+ * already priced with.
+ *
+ * What the fight then does about an officer who has not arrived by the mark is not decided here.
+ * Nothing in `resolve.ts` reads this figure.
+ */
+/** The one perk in the book whose whole promise is time off the road while leading. */
+const SHORT_WAY = 'short_way';
+
+describe('the road an officer has to take (§D1)', () => {
+  const leaders = async (stack: Stack) => {
+    const res = await stack.app.inject({
+      method: 'GET',
+      url: '/api/battles',
+      headers: auth(stack.token),
+    });
+    return res.json<BattlesResponse>().coming[0]!.leaders;
+  };
+
+  it('prices the walk off the officer’s own speed and the real map', async () => {
+    const stack = await makeStack();
+    const officer = hire(stack);
+    await declare(stack);
+
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    const home = findDistrict(base.districtId)!;
+    const target = findDistrict('rustyard')!;
+    const effects = standingEffectsFor(stack.app.repos, base);
+    const road = (speed: number) =>
+      travelMinutesBetween(home, target, {
+        speed,
+        reductionPercent: effects.travelSpeedPercent,
+        flatMinutesOff: effects.roadMinutesOff,
+      });
+    const onFoot = officerBattleStats(officer.attributes).speed;
+
+    const [listed] = await leaders(stack);
+    expect(listed!.officerId).toBe(officer.id);
+    expect(listed!.travelMinutes).toBe(Math.round(road(onFoot)));
+
+    // ...and the officer's own speed is load-bearing rather than incidental: the same road walked
+    // by somebody with no speed at all is longer.
+    expect(onFoot).toBeGreaterThan(0);
+    expect(road(onFoot)).toBeLessThan(road(0));
+
+    // So is the destination. The nearest district on the map is a shorter walk than the farthest,
+    // which is the half a figure hardcoded to one district would pass anyway.
+    const byDistance = CITY_DISTRICTS.filter((district) => district.id !== base.districtId).sort(
+      (a, b) => mapDistance(home.position, a.position) - mapDistance(home.position, b.position),
+    );
+    const minutesTo = (districtId: string) =>
+      officerTravelMinutesTo(stack.app.repos, base, districtId, officer, {});
+    expect(minutesTo(byDistance[0]!.id)).toBeLessThan(
+      minutesTo(byDistance[byDistance.length - 1]!.id),
+    );
+  });
+
+  /**
+   * §D5: `lead_arrival` shortens the column's road, which is half of what it promises.
+   *
+   * `leading()` folds the channel into `travelSpeedPercent`, and the only caller of `leading()` was
+   * the settler, where neither travel channel is read. So the perk paid on a mission and did
+   * nothing at all on a declared fight, under copy that says "off the road while leading" and a
+   * channel doc that says "both to a battle and on a mission".
+   *
+   * Measured on the column rather than on the officer's own walk: the officer is clocked
+   * separately (`officerTravelMinutesTo`) and the units are the thing a raid is waiting for.
+   */
+  it('shortens the column road when an officer is named to lead it', async () => {
+    // One world per reading: a crew may only have one declaration standing on a target, and the
+    // two roads have to be the same road.
+    const road = async (named: boolean): Promise<number> => {
+      const stack = await makeStack(undefined, named ? 'led' : 'alone');
+      const officer = { ...hire(stack), perks: [SHORT_WAY] };
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      stack.app.repos.bases.updateCommanders(base.id, [officer]);
+
+      const battleId = await declare(stack);
+      if (named) {
+        const took = await lead(stack, battleId, officer.id);
+        expect(took.statusCode, took.body.slice(0, 200)).toBe(200);
+      }
+      await deploy(stack, battleId, { razors: 4 });
+      const movement = stack.app.repos.movements
+        .forBattle(battleId)
+        .find((one) => one.baseId === stack.baseId);
+      if (!movement) throw new Error('fixture: the column never left');
+      return Date.parse(movement.arrivesAt) - Date.parse(movement.departedAt);
+    };
+
+    const alone = await road(false);
+    const led = await road(true);
+    expect(alone, 'the fixture road is instant, so nothing can be taken off it').toBeGreaterThan(0);
+    expect(led, 'naming a leader took nothing off the road they promised to shorten').toBeLessThan(
+      alone,
+    );
+  });
+
+  /**
+   * A quick officer gets there sooner than a slow one, on the same road.
+   *
+   * The fixture officer's `speed` comes off their sheet, so this is the assertion that the pace is
+   * the person rather than a flat crew figure.
+   */
+  it('gets a quicker officer there sooner', async () => {
+    const stack = await makeStack();
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    // `officerBattleStats` reads speed off Speed and Stamina, so those are the two that move.
+    const sheet = (id: string, pace: number) =>
+      createCommander(id, id, 'field_commander', { speed: pace, stamina: pace });
+    stack.app.repos.bases.updateCommanders(base.id, [sheet('slow', 1), sheet('quick', 100)]);
+    await declare(stack);
+
+    const listed = await leaders(stack);
+    const slow = listed.find((entry) => entry.officerId === 'slow')!;
+    const quick = listed.find((entry) => entry.officerId === 'quick')!;
+    expect(officerBattleStats(sheet('quick', 95).attributes).speed).toBeGreaterThan(
+      officerBattleStats(sheet('slow', 5).attributes).speed,
+    );
+    expect(quick.travelMinutes).toBeLessThan(slow.travelMinutes);
+  });
+
+  /**
+   * §C3: a machine the crew has committed to this fight carries the officer too.
+   *
+   * The Heli Porter is the fastest thing in the game, so a machine the officer can outrun would
+   * prove nothing: `columnSpeed` refuses a seat that is slower than the legs it would replace.
+   */
+  it('puts the officer in a committed machine when it beats their legs', async () => {
+    const stack = await makeStack();
+    const officer = hire(stack);
+    stack.app.repos.bases.updateFleet(stack.baseId, { heli_porter: 1 });
+    const battleId = await declare(stack);
+
+    const walking = (await leaders(stack))[0]!.travelMinutes;
+    expect((await takeVehicles(stack, battleId, { heli_porter: 1 })).statusCode).toBe(200);
+    const riding = (await leaders(stack))[0]!.travelMinutes;
+
+    expect(findVehicle('heli_porter')!.speed).toBeGreaterThan(
+      officerBattleStats(officer.attributes).speed,
+    );
+    expect(riding).toBeLessThan(walking);
+  });
+
+  /** A machine still parked in the yard carries nobody. Only what is committed counts. */
+  it('leaves the officer on foot while the machine is still in the yard', async () => {
+    const stack = await makeStack();
+    hire(stack);
+    await declare(stack);
+    const walking = (await leaders(stack))[0]!.travelMinutes;
+
+    stack.app.repos.bases.updateFleet(stack.baseId, { heli_porter: 1 });
+    expect((await leaders(stack))[0]!.travelMinutes).toBe(walking);
   });
 });
 
@@ -468,11 +635,14 @@ describe('taking machines to a fight (§C3)', () => {
   });
 
   it('brings them home after a win that cost nobody, and wrecks them after a wipe', async () => {
+    // Four unit slots against two bikes, which is what the two of them seat: the seat cap is a
+    // server rule as of 2026-09-16 (`no_seats`), so a fixture that loads a machine has to send a
+    // batch it can actually carry.
     const won = await makeStack(undefined, 'won');
     park(won, { motorcycle: 2 });
     const wonBattle = await declare(won);
     await takeVehicles(won, wonBattle, { motorcycle: 2 });
-    await deploy(won, wonBattle, { razors: 10 });
+    await deploy(won, wonBattle, { razors: 4 });
     const engine = spy('attacker', { winnerLosses: {} });
     bringForward(won, wonBattle, new Date(Date.now() - 1000));
     settleBattles(won.app.repos, engine, new Date());
@@ -482,16 +652,58 @@ describe('taking machines to a fight (§C3)', () => {
     park(lost, { motorcycle: 2 });
     const lostBattle = await declare(lost);
     await takeVehicles(lost, lostBattle, { motorcycle: 2 });
-    await deploy(lost, lostBattle, { razors: 10 });
+    await deploy(lost, lostBattle, { razors: 4 });
     // Wiped: nobody came home, so nobody drove a bike home either.
-    const wipe = spy('defender', { killed: { razors: 10 }, fled: {} });
+    const wipe = spy('defender', { killed: { razors: 4 }, fled: {} });
     bringForward(lost, lostBattle, new Date(Date.now() - 1000));
     settleBattles(lost.app.repos, wipe, new Date());
     expect(lost.app.repos.bases.findById(lost.baseId)!.fleet).toEqual({});
   });
 
   /**
-   * Only what somebody was riding is at risk. Two Cheese Wagons under ten bodies is one bus with
+   * §C3: the seats are the ceiling on the server as well as in the window.
+   *
+   * The deploy dialog has capped a batch by unit slots since 2026-09-15 and the route took whatever
+   * was posted, so the rule was a piece of the client, which is to say not a rule: one Scrappy and
+   * a `POST` of two hundred Razors was accepted in full. Priced in unit slots rather than heads,
+   * because that is the currency a seat is sold in everywhere else.
+   */
+  it('refuses a batch the loaded machines cannot seat', async () => {
+    const stack = await makeStack(undefined, 'overloaded');
+    park(stack, { motorcycle: 1 });
+    const battleId = await declare(stack);
+    expect((await takeVehicles(stack, battleId, { motorcycle: 1 })).statusCode).toBe(200);
+
+    const bike = findVehicle('motorcycle');
+    if (!bike) throw new Error('fixture: the bike left the catalogue');
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateArmy(base.id, { razors: 30 }, base.trainingQueue);
+
+    const over = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(stack.token),
+      payload: {
+        battleId,
+        changes: { razors: bike.capacity + 1 },
+        perimeterChanges: {},
+      },
+    });
+    expect(over.statusCode, over.body.slice(0, 200)).toBe(409);
+    expect(over.body).toContain('no room');
+
+    // ...and exactly what it seats still goes.
+    const fits = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(stack.token),
+      payload: { battleId, changes: { razors: bike.capacity }, perimeterChanges: {} },
+    });
+    expect(fits.statusCode, fits.body.slice(0, 200)).toBe(200);
+  });
+
+  /**
+   * Only what somebody was riding is at risk. Two Cheese Wagons under ten units is one bus with
    * ten in it and one with nobody: the settle used to wreck both on a wipe and hand the enemy
    * sixty infamy for a seating plan.
    */
@@ -508,15 +720,15 @@ describe('taking machines to a fight (§C3)', () => {
   });
 
   /**
-   * A body that cannot get in fills no seat, and the settle has to count seats (§C3, `no_ride`).
+   * A unit that cannot get in fills no seat, and the settle has to count seats (§C3, `no_ride`).
    *
-   * A Colossus and a Cheese Wagon. `loadable` trims the yard down to what the bodies going could
-   * fill and its whole contract is that `bodies` means the **riders**, which is how the client's
+   * A Colossus and a Cheese Wagon. `loadable` trims the yard down to what the units going could
+   * fill and its whole contract is that `units` means the **riders**, which is how the client's
    * own quote reads it. The settle handed it the plain force size instead, so one Colossus made a
    * thirty-seat bus "carrying somebody": wiped, and the crew lost a bus nobody was ever in and paid
    * the enemy thirty infamy for it. The Colossus walks and the wagon never left the yard.
    */
-  it('leaves a machine idle when the only body going will not ride', async () => {
+  it('leaves a machine idle when the only unit going will not ride', async () => {
     const stack = await makeStack(undefined, 'colossus');
     /*
      * The crew gives up the Breaker's Yard first, and that is now part of the setup rather than a
@@ -551,6 +763,56 @@ describe('taking machines to a fight (§C3)', () => {
     expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ armoured_car: 1 });
   });
 
+  /**
+   * The share a machine is written off on is measured in **unit slots**, not in heads (§C3).
+   *
+   * The seats were sold in slots and the survival was counted in heads, which is the same fault
+   * line the deploy window opened: a crew that lost the one heavy sheet out of a column kept both
+   * cars, because six of seven heads walked home and the settle read that as a scratch. In the
+   * currency the seats were actually spent in, half the column is gone and half the convoy with it.
+   *
+   * One Juggernaut at six slots and six Razors at one: seven heads, twelve slots, and two Scars at
+   * eight seats apiece to carry them. Killing only the Juggernaut is 1/7 of the heads and 1/2 of
+   * the slots, and `wrecked` rounds down, so the two arithmetics give 0 machines and 1.
+   */
+  it('wrecks on the share of the unit slots lost, not the share of the heads', async () => {
+    const stack = await makeStack(undefined, 'slotshare');
+    const jugg = findUnit('juggernauts')!;
+    const razor = findUnit('razors')!;
+    const scar = findVehicle('scrap_car')!;
+    // The preconditions, off the catalogues: a heavy sheet worth several light ones, and a yard
+    // whose two machines are both needed to seat twelve slots and neither to seat seven heads.
+    expect(jugg.unitSlots).toBeGreaterThan(1);
+    expect(razor.unitSlots).toBe(1);
+    expect(scar.capacity).toBeLessThan(jugg.unitSlots + 6 * razor.unitSlots);
+
+    park(stack, { scrap_car: 2 });
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateArmy(base.id, { juggernauts: 1, razors: 6 }, base.trainingQueue);
+    // A heavy sheet needs a name behind it before anybody will field one (§D7).
+    stack.app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      notoriety: NOTORIETY_TO_FIELD.heavy,
+    });
+
+    const battleId = await declare(stack);
+    await takeVehicles(stack, battleId, { scrap_car: 2 });
+    const sent = await stack.app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(stack.token),
+      payload: { battleId, changes: { juggernauts: 1, razors: 6 }, perimeterChanges: {} },
+    });
+    expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
+
+    // Won, so the survivors are the committed force less what it cost: the Juggernaut and nobody
+    // else. That is a seventh of the heads and half the unit slots.
+    const cost = spy('attacker', { winnerLosses: { juggernauts: 1 } });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, cost, new Date());
+    expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ scrap_car: 1 });
+  });
+
   /** Nobody rode, nobody died, nothing is wrecked: a committed yard with no column comes home. */
   it('hands everything back to a crew that fielded nobody', async () => {
     const stack = await makeStack(undefined, 'idle');
@@ -574,7 +836,7 @@ describe('taking machines to a fight (§C3)', () => {
     await deploy(stack, battleId, { razors: 10 });
     const walking = stack.app.repos.movements.forBase(stack.baseId)[0]!;
 
-    // Ten seats for ten bodies: the whole column rides.
+    // Ten seats for ten units: the whole column rides.
     expect((await takeVehicles(stack, battleId, { motorcycle: 5 })).statusCode).toBe(200);
     const riding = stack.app.repos.movements.find(walking.id)!;
     expect(Date.parse(riding.arrivesAt)).toBeLessThan(Date.parse(walking.arrivesAt));
@@ -622,7 +884,7 @@ describe('taking machines to a fight (§C3)', () => {
       }),
     );
 
-    // Ten bikes, twenty seats, twenty bodies: the whole column rides and moves at the Scrappy.
+    // Ten bikes, twenty seats, twenty units: the whole column rides and moves at the Scrappy.
     expect((await takeVehicles(stack, battleId, { motorcycle: 10 })).statusCode).toBe(200);
     const riding = stack.app.repos.movements.find(walking.id)!;
     expect(legMinutes(riding)).toBe(
@@ -655,10 +917,10 @@ describe('taking machines to a fight (§C3)', () => {
   it('walks the road at the sheet the workshop fitted', async () => {
     const stack = await makeStack(undefined, 'laced');
     // The largest of them, so the two sheets are more than a rounding step apart on this road.
-    const quickening = [...UNIT_UPGRADES]
+    const quickening = [...UNIT_MODIFICATIONS]
       .sort((a, b) => (b.effect.speed ?? 0) - (a.effect.speed ?? 0))
-      .find((spec) => (spec.effect.speed ?? 0) > 0);
-    if (!quickening) throw new Error('no upgrade adds speed');
+      .find((spec) => (spec.effect.speed ?? 0) > 0 && spec.fits === undefined);
+    if (!quickening) throw new Error('no universal card adds speed');
     stack.app.repos.bases.updateUnitLoadouts(stack.baseId, { razors: [quickening.id] });
 
     const battleId = await declare(stack);
@@ -696,12 +958,8 @@ describe('taking machines to a fight (§C3)', () => {
       payload: { username: 'helper', password: 'hunter2pass' },
     });
     const allyToken = registered.json<{ token: string }>().token;
-    const chosen = await stack.app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(allyToken),
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(stack.app, allyToken);
+    pinOverseer(stack.app, allyToken);
     const allyId = chosen.json<{ base: { id: string } }>().base.id;
     const joined = new Date().toISOString();
     stack.app.repos.factions.insert({

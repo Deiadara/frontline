@@ -19,7 +19,6 @@ import {
   DISTRICT_ASPECT,
   DISTRICT_BACK_EDGE,
   DISTRICT_BAND,
-  MAX_SQUASH,
   DISTRICT_SITES_BY_DEPTH,
   siteCentroid,
   siteDepth,
@@ -153,32 +152,65 @@ export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CS
   //
   // The target is the **building band** rather than the whole plate: the top and bottom of the
   // painting are empty ground, and hiding those under the bars is the whole point of the bleed.
-  // So the picture compresses until the band fits the room between them, or until `MAX_SQUASH` is
-  // spent, whichever comes first. The width stays pinned to the frame either way, which is the
-  // board's rule and the reason this is a squash rather than a scale: full bleed left and right,
-  // never a slab of background down either side.
-  const aspectHeight = room.width / DISTRICT_ASPECT;
   /*
-   * Rounded once, here, and every other number derived from the rounded value.
+   * The painting keeps its own shape, and the room gives way instead (maintainer request,
+   * 2026-09-14).
    *
-   * `bleedOffset` used to be handed the exact height while the picture was drawn at the rounded
-   * one, so the offset centred a band half a pixel taller or shorter than the band on screen. It
-   * was invisible against a 1.78 plate and showed up the moment the painting became 21:10, because
-   * the shorter the picture the more of it a half pixel is.
+   * This used to pin the width to the frame and *squash* the picture vertically, up to
+   * its old sixteen percent cap, so the building band fitted between the bars. Full bleed left and right was the
+   * earlier rule and the squash was the price of it. On a monitor short enough to spend the whole
+   * allowance the price is visible: 3780x1800 drawn at sixteen percent under its height is a
+   * painting of a slum with squat buildings in it, and that is what a second screen showed.
    *
-   * **Floored, not rounded.** Rounding up draws the picture a hair taller than it was painted,
-   * which is a stretch, and the one thing this function must never do is stretch: the twelve
-   * building outlines are positions on the painting and a stretch slides all twelve at once.
+   * So the aspect is now inviolable and the shortfall is taken out of the *width*:
+   *
+   *   * where the band fits at full bleed, nothing changes and the picture still runs edge to edge;
+   *   * where it does not, the picture shrinks until the band fits, leaving margin down the sides.
+   *
+   * That margin is not a slab of background: `DistrictScene` feathers the cut edges into a blurred
+   * copy of the painting, which is exactly what the city and the Bar do through `PlateRoom`. The
+   * twelve building outlines are positions on the picture and they ride the box, so they stay on
+   * their buildings either way, which the squash could only promise by compensating for itself.
    */
-  const height = Math.floor(
-    Math.max(aspectHeight * (1 - MAX_SQUASH), Math.min(aspectHeight, clear / BAND_SPAN)),
-  );
+  const full = room.width / DISTRICT_ASPECT;
+  const fits = clear / BAND_SPAN;
+  /*
+   * The width-limited case is pinned to the frame exactly, not derived back from the height.
+   *
+   * Rounding the height down and multiplying up again lost a pixel: a 1024px frame came back 1023
+   * wide, so a one-pixel strip of surround ran down the right-hand edge on a viewport that should
+   * be full bleed. Where the picture is as wide as the room, `room.width` *is* the answer.
+   */
+  const bleeds = full <= fits;
+  /*
+   * Floored, never rounded up, on both branches.
+   *
+   * A sub-pixel is unavoidable: the frame is an integer width and 21:10 rarely divides it. Which
+   * way it goes is not arbitrary. Rounding the height *up* draws the picture a hair taller than it
+   * was painted, which is a vertical stretch, and vertical is the axis the eye reads on a skyline.
+   * Flooring spends the remainder on a tenth of a percent of extra width instead, which nothing
+   * can see. `plots.test.ts` pins the direction.
+   */
+  const height = Math.floor(bleeds ? full : fits);
+  const width = bleeds ? Math.round(room.width) : Math.round(height * DISTRICT_ASPECT);
   return {
-    width: Math.round(room.width),
+    width,
     height,
     marginTop: Math.round(bleedOffset(height, clear)),
+    // Centred when it is narrower than the room. `auto` on both sides rather than a computed
+    // offset, so the picture stays centred through a resize without a second measurement.
+    marginLeft: 'auto',
+    marginRight: 'auto',
   };
 }
+
+/**
+ * How far the painting's cut edge is faded into the surround, in pixels.
+ *
+ * Wide enough that there is no line to find and narrow enough that no building is dimmed: the
+ * outermost plates sit well inside this on every viewport the game is drawn at.
+ */
+const SCENE_FEATHER_PX = 56;
 
 /** The share of the picture the buildings occupy: what actually has to fit between the bars. */
 const BAND_SPAN = (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100;
@@ -242,6 +274,54 @@ export function plateTop(
   return Math.min(lowest, Math.max(highest, anchorPercent));
 }
 
+/**
+ * Every plate's hanging point, with the ones the band crushed together fanned apart.
+ *
+ * {@link plateTop} floors each plate on its own, which is right until the band is short enough to
+ * push *several* of them onto the same edge: they then share one line, their boxes overlap, and the
+ * plate drawn last takes the clicks meant for the one under it. Measured at 1024x768 with a build
+ * rail two rows deep, where the Lab, the Quarters and the Greenhouse all landed on 360 and the Lab
+ * answered as the Apothecary (bug pass, 2026-09-15).
+ *
+ * Fanning rather than compressing the whole picture: only the plates the clamp already moved are
+ * touched, so a band with room to spare draws exactly what it drew before, down to the pixel. The
+ * fan opens away from the edge that crushed them, in the order they were anchored, and gives way to
+ * the far bound: where even the fan does not fit, the gap shrinks to share out what there is.
+ */
+export function plateTops(
+  anchors: readonly number[],
+  height: number,
+  clear: number,
+  insetTop = 0,
+): number[] {
+  const tops = anchors.map((anchor) => plateTop(anchor, height, clear, insetTop));
+  if (height <= 0 || clear <= 0) return tops;
+
+  const offset = bleedOffset(height, clear);
+  const asPercent = (pixels: number): number => ((pixels - offset) / height) * 100;
+  const lowest = asPercent(clear - PLATE_CLEARANCE);
+  const highest = asPercent(insetTop + PLATE_CLEARANCE);
+  if (lowest <= highest) return tops;
+  const gap = (PLATE_CLEARANCE / height) * 100;
+
+  for (const edge of [highest, lowest]) {
+    // The plates sitting on this edge, nearest-anchor first, so the fan keeps the order the
+    // district is drawn in rather than the order the array happens to be in.
+    const crowd = tops
+      .map((top, index) => ({ top, index }))
+      .filter((one) => Math.abs(one.top - edge) < 1e-9)
+      .sort((a, b) => anchors[a.index]! - anchors[b.index]!);
+    if (crowd.length < 2) continue;
+
+    const room = edge === highest ? lowest - edge : edge - highest;
+    const step = Math.min(gap, room / (crowd.length - 1));
+    crowd.forEach((one, rank) => {
+      tops[one.index] = edge + (edge === highest ? rank * step : -rank * step);
+    });
+  }
+  return tops;
+}
+
 export function DistrictScene({
   buildings,
   queue,
@@ -260,6 +340,18 @@ export function DistrictScene({
   // title row, which the artwork runs under and a name plate may not.
   const [safeRef, safe] = useMeasuredSize();
   const scene = fitted(room, band, fill);
+  /*
+   * Which way the painting is short of the frame, so its cut edge can be faded into the surround.
+   *
+   * Only on the axis that has margin: feathering an edge that runs to the frame's own edge would
+   * dim the artwork for nothing. With the aspect now inviolable the short axis is always the
+   * width, but it is measured rather than assumed, because a room wider than 21:10 has none.
+   */
+  const sceneWidth = typeof scene.width === 'number' ? scene.width : 0;
+  const feather =
+    fill && sceneWidth > 0 && sceneWidth < room.width - 1
+      ? `linear-gradient(to right, transparent, #000 ${SCENE_FEATHER_PX}px, #000 calc(100% - ${SCENE_FEATHER_PX}px), transparent)`
+      : undefined;
   // What `plateTop` needs to pull a plate back inside the bars: the picture it is hung on, and the
   // room the chrome left. Zero for the city screen's preview, which has no chrome and no bleed.
   const pictureHeight = fill ? Number(scene.height) || 0 : 0;
@@ -292,6 +384,15 @@ export function DistrictScene({
           : 'locked';
     return { site, level, state, unmet };
   }).filter(({ level }) => !readOnly || level > 0);
+
+  // Hung as a set rather than one at a time, so a band too short to hold them all fans the crushed
+  // ones apart instead of stacking them on one line (`plateTops`).
+  const plateHangs = plateTops(
+    sites.map(({ site }) => siteDepth(site) + (site.labelShift?.y ?? 0)),
+    pictureHeight,
+    clear,
+    insetTop,
+  );
 
   return (
     // The whole painting, edge to edge, and **never** cropped horizontally.
@@ -349,6 +450,39 @@ export function DistrictScene({
               }
         }
       >
+        {/*
+         * The surround, where the painting is narrower than the room.
+         *
+         * A blurred, dimmed copy of the plate rather than flat background, and the picture's own
+         * edges feathered into it. A cut edge is what reads as a border: matching the surround's
+         * brightness gets the two within a few values and the line is still there, because the eye
+         * is not comparing greys, it is finding a straight vertical boundary between detail and no
+         * detail. This is the same treatment `PlateRoom` gives the city and the Bar.
+         */}
+        {fill && plate !== null && feather !== undefined && (
+          /*
+           * The same two pieces `PlateRoom` uses for the city and the Bar, for the same reasons.
+           *
+           * The blurred copy is over-scaled so the blur's own soft edge falls outside the box
+           * instead of showing as a pale rim. That costs 160px of image hanging past each side, so
+           * it needs both: a clipping wrapper, so the blur cannot paint over whatever the screen
+           * drew next to the scene, and `data-scenery`, because the layout gates measure layout
+           * boxes rather than painted pixels and a clip does not move the rect they read. Scenery
+           * is the one thing allowed to be bigger than its frame; the marks standing on it are not,
+           * and the attribute exempts this element only.
+           */
+          <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+            <img
+              src={plate}
+              alt=""
+              aria-hidden="true"
+              data-scenery
+              className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-[48px] saturate-[0.9]"
+              data-testid="district-surround"
+            />
+          </span>
+        )}
+
         <div
           // Sized in pixels, from a measurement, rather than by CSS.
           //
@@ -369,12 +503,18 @@ export function DistrictScene({
               src={plate}
               alt=""
               aria-hidden="true"
-              // `fill`, not `cover`. The box is the shape the frame needs rather than the shape
-              // the plate was painted at, and `cover` answers that by cropping, which is the
-              // thing this box exists to avoid: it would take the difference back off the top of
-              // the picture and undo the step back above. Stretching spends it on a couple of
-              // percent of width instead.
+              /*
+               * `fill` is safe here because the box is now the painting's own shape.
+               *
+               * It used to be a box the frame needed rather than the one the plate was painted at,
+               * and `object-fill` is what spent the difference as a stretch. `fitted` keeps the
+               * 21:10 exactly now, so filling the box and preserving the aspect are the same thing,
+               * and the twelve building outlines land where they were painted.
+               */
               className="absolute inset-0 h-full w-full object-fill"
+              style={
+                feather === undefined ? undefined : { maskImage: feather, WebkitMaskImage: feather }
+              }
               data-testid="district-plate"
             />
           )}
@@ -397,7 +537,7 @@ export function DistrictScene({
            * positions these from, and what `building-portraits` cuts the dialog art with.
            */}
           <div className="absolute inset-0" data-testid="district-plots">
-            {sites.map(({ site, level, state, unmet }) => (
+            {sites.map(({ site, level, state, unmet }, index) => (
               <PlotLabel
                 key={site.kind}
                 site={site}
@@ -406,12 +546,7 @@ export function DistrictScene({
                 unmet={unmet}
                 selected={selected === site.kind}
                 readOnly={!interactive}
-                topPercent={plateTop(
-                  siteDepth(site) + (site.labelShift?.y ?? 0),
-                  pictureHeight,
-                  clear,
-                  insetTop,
-                )}
+                topPercent={plateHangs[index]!}
                 onSelect={() => onSelect(site.kind)}
               />
             ))}

@@ -28,7 +28,7 @@ import {
  * - `complete`  every page, not unlocked yet. The Unlock control appears.
  * - `unlocked`  the crew pressed Unlock. Permanent, and it moves to the unlocked list.
  *
- * ## All four are read out of the satchel
+ * ## All four are read out of the inventory
  *
  * There is no blueprint table on a base. Pages are items, and so is the finished document, so the
  * state above is a function of `inventory` and nothing else. That is what makes a page survive a
@@ -54,7 +54,7 @@ export interface BlueprintHolding {
   distinctHeld: number;
 }
 
-/** Whether the finished document is in the satchel: the record that Unlock was pressed. */
+/** Whether the finished document is in the inventory: the record that Unlock was pressed. */
 export function isBlueprintUnlocked(inventory: Inventory, id: string): boolean {
   return itemCount(inventory, id as ItemId) > 0;
 }

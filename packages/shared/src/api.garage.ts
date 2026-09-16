@@ -30,7 +30,7 @@ export const GarageVehicleSchema = z.object({
   out: z.number().int().nonnegative().default(0),
   cost: PartialResourcesSchema,
   buildSeconds: z.number().int().positive(),
-  /** Bodies it carries, which is also what the enemy earns for destroying it (§C3). */
+  /** **Unit slots** it carries, which is also what the enemy earns for destroying it (§C3). */
   capacity: z.number().int().positive(),
   /**
    * 0..100, the same stat a unit's sheet carries: what everybody aboard travels at (§C3).
@@ -94,7 +94,7 @@ export type GarageMutationResponse = z.infer<typeof GarageMutationResponseSchema
  * §C3: which machines this crew is taking to a fight.
  *
  * Absolute rather than a delta, unlike a deployment's units. A fleet is small (a dozen machines at
- * the very top end against hundreds of bodies) and the picker is a set of counters rather than a
+ * the very top end against hundreds of units) and the picker is a set of counters rather than a
  * pair of send/withdraw buttons, so the honest request is "this is what I am taking".
  */
 export const TakeVehiclesRequestSchema = z.object({

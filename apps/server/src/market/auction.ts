@@ -11,6 +11,7 @@ import {
   vendorVisitAt,
   visitClosesAt,
   type Base,
+  type ItemCost,
   type ItemId,
   type LotOutcome,
   type VendorAuction,
@@ -20,6 +21,7 @@ import {
   type VendorVisit,
 } from '@frontline/shared';
 import { previousDay } from '../bar/auction.js';
+import { tallyMarketBuy, tallyPagesIn } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { VendorBid, VendorLotResult } from '../db/repos/vendor-auctions.js';
@@ -323,11 +325,23 @@ function award(
     const charge = chargeFor(repos, base, entry.amount, now);
     if (base.resources.caps < charge) continue;
 
-    const held = addItems(base.inventory, { [line.item as ItemId]: 1 });
+    const won: ItemCost = { [line.item as ItemId]: 1 };
+    const held = addItems(base.inventory, won);
     repos.bases.updateHoldings(base.id, spendResources(base.resources, { caps: charge }), held);
     repos.market.recordVendorSale(day, line.id, 1, now.toISOString());
+    /*
+     * Counted here, where the goods change hands.
+     *
+     * The close charged the caps, moved the item, wrote the sale row and rang the bells, and
+     * tallied nothing at all: `market_buys` names "a lot won" in its own doc and `pages_found`
+     * names "a barrow" in its, and a crew that bought every page the Runner ever carried finished
+     * on zero for both. `tallyPagesIn` picks the pages out of the bundle rather than counting the
+     * unit, so a lot of salvage does not finish the blueprint ladder.
+     */
+    tallyMarketBuy(repos, base.id);
+    tallyPagesIn(repos, base.id, won);
     // Rung here rather than in `tellTheBarrow`, which is where the lot's own bells are: this one
-    // is about the satchel, and the satchel is only in scope at the moment the goods change hands.
+    // is about the inventory, and the inventory is only in scope at the moment the goods change hands.
     // The winner gets both, and they say different things: one closed a lot, one found a page.
     tellPagesFound(repos, {
       userId: entry.userId,

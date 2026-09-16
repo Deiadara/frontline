@@ -93,7 +93,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
    *
    * On the market routes rather than on a blueprints controller of its own, because a blueprint and
    * its pages are items: they live in `inventory_json` beside every other thing a crew holds, and
-   * this answers with the same board every other holdings mutation answers with, so the satchel
+   * this answers with the same board every other holdings mutation answers with, so the inventory
    * updates from the response instead of racing a refetch.
    *
    * The whole rule is in `unlockBlueprint`, which is pure and tested in shared. This route is the

@@ -11,6 +11,7 @@ import {
   type Building,
   type BuildingKind,
   type Resources,
+  plateAspect,
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -27,6 +28,7 @@ import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSh
 import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
 import { DistrictScene } from '../base/DistrictScene';
 import { cn } from '../../lib/cn';
+import { useMeasuredSize } from '../../lib/useMeasuredHeight';
 import {
   useBattles,
   useDeclareBattle,
@@ -86,6 +88,9 @@ export function DistrictView() {
     ownName: me.data?.base?.name ?? null,
   };
   const slots = battles.data?.slots ?? [];
+  // §D7: what a call is paid out of. Off the battle board rather than off `/me`, so the price and
+  // the marks a player is choosing between come from the same read of the same moment.
+  const infamy = battles.data?.infamy ?? 0;
   // The server's reading of the district's front door. Derived there rather than here, so the
   // screen and the declaration rules cannot disagree about what may be attacked.
   const gate = battles.data?.gates.find((candidate) => candidate.districtId === districtId);
@@ -144,6 +149,7 @@ export function DistrictView() {
         onCall={setCalling}
         calling={calling}
         slots={slots}
+        infamy={infamy}
         declare={declare}
         onDone={() => setCalling(null)}
         now={now}
@@ -166,6 +172,7 @@ export function DistrictView() {
         onCall={setCalling}
         calling={calling}
         slots={slots}
+        infamy={infamy}
         declare={declare}
         onDone={() => setCalling(null)}
         now={now}
@@ -371,6 +378,7 @@ export function DistrictView() {
                 : `the gate at ${districtDisplayName(data.district, viewer)}`
             }
             slots={slots}
+            infamy={infamy}
             pending={declare.isPending}
             error={declare.error}
             onClose={() => setCalling(null)}
@@ -580,6 +588,7 @@ function VisitedDistrict({
   onCall,
   calling,
   slots,
+  infamy,
   declare,
   onDone,
   now,
@@ -591,6 +600,7 @@ function VisitedDistrict({
   onCall: (target: BattleTarget) => void;
   calling: BattleTarget | null;
   slots: readonly string[];
+  infamy: number;
   declare: ReturnType<typeof useDeclareBattle>;
   onDone: () => void;
   now: Date;
@@ -717,6 +727,7 @@ function VisitedDistrict({
           target={calling}
           targetName={calling.kind === 'gate' ? `the gate at ${name}` : `a raid on ${name}`}
           slots={slots}
+          infamy={infamy}
           pending={declare.isPending}
           error={declare.error}
           onClose={onDone}
@@ -810,6 +821,7 @@ function ContestedDistrict({
   onCall,
   calling,
   slots,
+  infamy,
   declare,
   onDone,
   now,
@@ -824,6 +836,7 @@ function ContestedDistrict({
   onCall: (target: BattleTarget) => void;
   calling: BattleTarget | null;
   slots: readonly string[];
+  infamy: number;
   declare: ReturnType<typeof useDeclareBattle>;
   onDone: () => void;
   now: Date;
@@ -832,6 +845,43 @@ function ContestedDistrict({
   const [standing, setStanding] = useState(false);
   const picked = data.locations.find((view) => view.location.id === open);
   const shut = gate?.shut === true && gate.brokenUntil === null;
+  /*
+   * The room between the bars, measured, and the painting fitted to cover it.
+   *
+   * The scene sizes itself from its width alone (`w-full` with the plate's aspect), which was
+   * right while it sat in a scrolling column and wrong the moment it became the screen: on a
+   * 1280px window the picture is 610px tall against 484px of clear band once the standing bar
+   * has wrapped to two rows, so it ran 126px under the nav and 16px past the bottom of the
+   * viewport, and the shell grew a scrollbar. The signs at the foot of the painting went with it.
+   *
+   * `cover`, not `whole`, and the reason is the shape of the band rather than the size of the
+   * plate. The band between the bars is wider than 21:10 at every viewport in the matrix (2.65:1 at
+   * 1280x720, 2.13:1 even at 1920x1080), so a plate shown entire can never reach both side edges:
+   * it stood centred with 132px of blurred surround each side at 1280 and 13px at 1920, and the
+   * maintainer read the surround as grey patches ("do we need a different res?"). No resolution
+   * fixes an aspect. Cover-fitting runs the plate edge to edge and gives up a sliver of its top and
+   * bottom to the bars instead, split evenly, and the surround has nothing left to fill.
+   *
+   * What that costs is the top and bottom tenth at the worst viewport, which is where a sign could
+   * sit under a bar unreadable and unclickable. `plateFit.test.ts` pins every mark inside the part
+   * that stays visible, so a mark placed too low fails a unit test rather than a player.
+   *
+   * Only the width is handed down; the scene's own aspect gives the height, so the two can never
+   * disagree by a rounding pixel.
+   *
+   * Always the band's full width, never `fitting(..., 'cover')`. Cover picks the larger of the two
+   * fits, and in a band taller than 21:10 (a window grown past the fold, or a portrait screen) that
+   * is the height fit, which runs the plate 160px past each side edge: the Fence Camp's sign at
+   * x 0.985 goes with it, and the layout gate reads the plate as an image sliced by its clip. Width
+   * is the one side a player asked to see filled, so the band's width decides, and a tall band
+   * letterboxes above and below on the dark surface instead of cropping anything.
+   */
+  const [roomRef, room] = useMeasuredSize<HTMLDivElement>();
+  const plateWidth = room.width;
+  const picture = {
+    width: plateWidth,
+    height: plateWidth / plateAspect(`district-${data.district.id}`),
+  };
 
   return (
     <div
@@ -848,6 +898,7 @@ function ContestedDistrict({
        *
        * Both bars publish their measured height, so the clear band is the two variables.
        */
+      ref={roomRef}
       className="relative h-full w-full"
       style={
         {
@@ -857,18 +908,30 @@ function ContestedDistrict({
         } as CSSProperties
       }
     >
-      <ContestedScene
-        district={data.district}
-        locations={data.locations}
-        baseId={baseId}
-        gate={gate ?? null}
-        onPick={(locationId) => {
-          // The gate is not a location and has no card: it is the one plate that calls its fight
-          // straight from the painting.
-          if (locationId === 'gate') onCall({ kind: 'gate', districtId: data.district.id });
-          else setOpen(locationId);
-        }}
-      />
+      {/* The band itself, and the clip. A cover-fitted plate is taller than the band, and without
+          this box the overhang would run under the bars and out of the viewport, where the shell
+          root counts it as overflow and grows a scrollbar. Same arrangement as `PlateRoom`. */}
+      <div className="relative h-full w-full overflow-hidden" data-testid="district-band">
+        <div
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          // `100%` until the room has been measured, so the pre-paint layout is the old full-width
+          // one rather than a zero-width plate.
+          style={{ width: picture.width > 0 ? picture.width : '100%' }}
+        >
+          <ContestedScene
+            district={data.district}
+            locations={data.locations}
+            baseId={baseId}
+            gate={gate ?? null}
+            onPick={(locationId) => {
+              // The gate is not a location and has no card: it is the one plate that calls its
+              // fight straight from the painting.
+              if (locationId === 'gate') onCall({ kind: 'gate', districtId: data.district.id });
+              else setOpen(locationId);
+            }}
+          />
+        </div>
+      </div>
 
       {/* Over the painting, top left, where the same control sits on every other screen. */}
       <div
@@ -903,6 +966,15 @@ function ContestedDistrict({
               data-testid="district-formal-name"
             >
               {data.district.formalName}
+            </span>
+          )}
+          {/* §A3: which ground the Combine keeps its power on is public, so it stands in the strip
+              and not behind the toggle. The unpainted column wears the same words as a tag; the
+              Blacksite dropped them the day it became a painting, and `government.spec.ts` is what
+              noticed. */}
+          {data.district.seatOfPower && (
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-oxblood-300">
+              Seat of power
             </span>
           )}
           {shut && (
@@ -960,7 +1032,11 @@ function ContestedDistrict({
           labelledBy={cardHeadingId(picked.location.id)}
           data-testid="location-window"
         >
-          <div className="max-h-[calc(100vh-8rem)] overflow-y-auto p-4">
+          {/* Bounded by the dialog rather than by a second guess at the viewport. `Modal` is a
+              flex column already capped at `100vh-2rem`, so `min-h-0` on its one child is all the
+              bound this needs; the `100vh-8rem` that used to be here threw away 96px of window and
+              put a scrollbar on a sheet that fits. */}
+          <div className="min-h-0 overflow-y-auto p-4">
             <LocationSheet
               id={cardId(picked.location.id)}
               picked={false}
@@ -995,6 +1071,7 @@ function ContestedDistrict({
               : `the gate at ${districtDisplayName(data.district, viewer)}`
           }
           slots={slots}
+          infamy={infamy}
           pending={declare.isPending}
           error={declare.error}
           onClose={onDone}

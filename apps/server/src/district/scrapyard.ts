@@ -5,7 +5,7 @@ import {
   ITEM_CATALOG,
   MODIFICATIONS,
   TRAP_CATALOG,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   addonsOf,
   blueprintForModification,
   blueprintForTrap,
@@ -18,9 +18,11 @@ import {
   findModification,
   findTech,
   findTrap,
-  findUpgrade,
+  findUnitModification,
   isAdvancedModification,
   isAdvancedUpgrade,
+  modificationBuildRefusal,
+  upgradeRefusal,
   modificationGateMet,
   modificationPrice,
   scrapyardDiscountPercent,
@@ -40,7 +42,7 @@ import {
   type ScrapyardEntry,
   type ScrapyardResponse,
   type TrapSpec,
-  type UpgradeSpec,
+  type UnitModificationSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { tallyAddonBuilt } from '../feats/tally.js';
@@ -48,9 +50,9 @@ import { tallyAddonBuilt } from '../feats/tally.js';
 /**
  * The Scrapyard's own page (§B9).
  *
- * One list of everything the yard can turn out: the seventy-seven building modifications and the twelve
- * unit upgrades, side by side, because they are the same kind of object to a player. Both are a
- * permanent thing bolted to something they already own, both cost scrap and, past the cheap end,
+ * One list of everything the yard can turn out: the building modifications and the thirty unit
+ * modification cards, side by side, because they are the same kind of object to a player. Both are
+ * a permanent thing bolted to something they already own, both cost scrap and, past the cheap end,
  * high-quality metal, and both mostly want a blueprint first.
  *
  * **No other resource appears on those two**, which is the maintainer's rule and is enforced by
@@ -63,19 +65,20 @@ import { tallyAddonBuilt } from '../feats/tally.js';
  *
  * What the yard does *not* do is fit anything. A built modification goes on the shelf
  * (`Base.addons.built`) and is put into a slot from the structure's own dialog, which is §E; a
- * built trap goes into the satchel and is set on a coming fight from the battle page.
+ * built trap goes into the inventory and is set on a coming fight from the battle page.
  */
 
 /** The Scrapyard has to be standing to build anything: this is its shop. */
 export const SCRAPYARD_REQUIRED_LEVEL = 1;
 
 /**
- * What the ground takes off a refit, on top of the yard's own level (maintainer request, 2026-09-10).
+ * What the ground takes off a unit card, on top of the yard's own level (maintainer request,
+ * 2026-09-10).
  *
  * The Armory's favour (`refitDiscountPercent`) used to be honoured by the Workshop's route and
- * nowhere else, so the same Composite Weave had two prices depending on which door a player came
- * through. The Workshop is gone and this is the one door, so its standing rides in here: the
- * route reads it off `standingEffectsFor` and a caller with no crew to hand gets the bare bill.
+ * nowhere else, so the same card had two prices depending on which door a player came through.
+ * The Workshop is gone and this is the one door, so its standing rides in here: the route reads
+ * it off `standingEffectsFor` and a caller with no crew to hand gets the bare bill.
  */
 export interface YardStanding {
   refitDiscountPercent: number;
@@ -86,13 +89,17 @@ const NO_STANDING: YardStanding = { refitDiscountPercent: 0 };
 const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapyard');
 
 /**
- * Every price the yard quotes, in one place: the list price, then the ground's cut on a refit,
+ * Every price the yard quotes, in one place: the list price, then the ground's cut on a unit card,
  * then the yard's own level. Floored at one per line by `scrapyardPrice`, so nothing is free.
  */
 function modificationBill(base: Base, spec: ModificationSpec): PartialResources {
   return scrapyardPrice(modificationPrice(spec), yardLevel(base));
 }
-function upgradeBill(base: Base, spec: UpgradeSpec, standing: YardStanding): PartialResources {
+function upgradeBill(
+  base: Base,
+  spec: UnitModificationSpec,
+  standing: YardStanding,
+): PartialResources {
   return scrapyardPrice(
     discounted(upgradePrice(spec), standing.refitDiscountPercent),
     yardLevel(base),
@@ -109,7 +116,7 @@ function trapBill(base: Base, spec: TrapSpec): PartialResources {
  * yard cannot cut metal without. Which document it is comes off `blueprints/catalog.ts`, so the
  * name here and the name on the Blueprints page are the same string.
  */
-function documentFor(spec: ModificationSpec | UpgradeSpec): string | null {
+function documentFor(spec: ModificationSpec | UnitModificationSpec): string | null {
   const document =
     'magnitude' in spec ? blueprintForModification(spec) : blueprintForUnitUpgrade(spec.id);
   return document?.name ?? null;
@@ -143,64 +150,113 @@ function trapBlockerFor(base: Base, spec: TrapSpec): string | null {
  * catalogue cannot leave three sentences behind saying the old numbers.
  */
 function describeTrap(spec: TrapSpec): string {
-  return `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} bodies`;
+  return `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} units`;
 }
 
-function upgradeBlockerFor(base: Base, spec: UpgradeSpec, standing: YardStanding): string | null {
-  if (base.fittedUpgrades.includes(spec.id)) return null;
-  const previous = UNIT_UPGRADES.find(
-    (other) => other.line === spec.line && other.tier === spec.tier - 1,
-  );
-  if (previous && !base.fittedUpgrades.includes(previous.id)) return `Build ${previous.name} first`;
-  // The yard's own level, before the document: a crew four pages short of the drawings and three
-  // levels short of the yard has to raise the yard first either way.
-  const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForUpgrade(spec));
-  if (shut !== null) return shut;
-  if (!blueprintGateMet(base.inventory, 'unit_upgrade', spec.id)) {
-    return `Needs the ${documentFor(spec)}`;
+/**
+ * The same rule as the modification door, and for the same reason it only words the answer.
+ *
+ * `upgradeRefusal` is where the ordering lives. This used to reimplement it, and the copy learned
+ * about the yard's level while the original did not, so the two disagreed with nobody to tell:
+ * the shared function's only caller was its own test file. The wording stays here, because the
+ * sentences quote prices (`upgradeBill` applies the yard's and the Armory's cuts) and documents
+ * (`documentFor`), neither of which `@frontline/shared` knows about.
+ *
+ * A card already in the stock answers `null` rather than a sentence: there is nothing left to do
+ * about it and the page draws it as owned, which the client reads off `owned` instead.
+ */
+function upgradeBlockerFor(
+  base: Base,
+  spec: UnitModificationSpec,
+  standing: YardStanding,
+): string | null {
+  const refusal = upgradeRefusal({
+    id: spec.id,
+    fitted: base.fittedUpgrades,
+    yardLevel: yardLevel(base),
+    requiredYardLevel: (one) => scrapyardLevelForUpgrade(one),
+    blueprintUnlocked: (id) => blueprintGateMet(base.inventory, 'unit_upgrade', id),
+    /*
+     * The parts a card is authored with, required and consumed.
+     *
+     * The Workshop used to require `spec.parts` and this door asked for neither, so the cheaper
+     * door bought the same thing with the parts still in the inventory and the Workshop's refusal
+     * became advice. The Workshop is gone and this is the one door, so the parts are a rule here
+     * or nowhere: they are a designed sink and cannot have a free door beside them.
+     */
+    hasParts: (parts) =>
+      Object.entries(parts).every(
+        ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
+      ),
+    affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standing)),
+  });
+
+  switch (refusal) {
+    case null:
+    case 'already_fitted':
+      return null;
+    case 'unknown_upgrade':
+      return 'No such add-on';
+    case 'yard_too_low':
+      return scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForUpgrade(spec));
+    case 'needs_blueprint':
+      return `Needs the ${documentFor(spec)}`;
+    case 'missing_parts': {
+      const missing = Object.entries(spec.parts).find(
+        ([item, count]) => (base.inventory[item as ItemId] ?? 0) < count,
+      )!;
+      const [item, count] = missing;
+      return `Needs ${count} ${ITEM_CATALOG[item as ItemId]?.name ?? item}`;
+    }
+    default:
+      return 'You cannot cover that';
   }
-  if (buildingLevel(base.buildings, 'gauntlet') < spec.requiresGauntletLevel) {
-    return `Needs the Gauntlet at level ${spec.requiresGauntletLevel}`;
-  }
-  /*
-   * The same parts the Workshop asks for, because it is the same upgrade.
-   *
-   * Both doors write `fittedUpgrades`, which is permanent and roster-wide. The Workshop requires
-   * `spec.parts` and consumes them; this one asked for neither, so the cheaper door bought the
-   * same thing with the parts still in the satchel and the Workshop's refusal became advice. The
-   * resource prices stay different on purpose (§B9: the Scrapyard is scrap and sometimes
-   * high-quality metal); it is the parts, a designed sink, that cannot have a free door beside it.
-   */
-  const missing = Object.entries(spec.parts).find(
-    ([item, count]) => (base.inventory[item as ItemId] ?? 0) < count,
-  );
-  if (missing) {
-    const [item, count] = missing;
-    return `Needs ${count} ${ITEM_CATALOG[item as ItemId]?.name ?? item}`;
-  }
-  return canAfford(base.resources, upgradeBill(base, spec, standing))
-    ? null
-    : 'You cannot cover that';
 }
 
 /**
  * Two drawings, and the advanced half of every structure wants both (§D12f).
  *
- * The **document** first: it is the structure's retrofit blueprint, collected page by page, and it
- * gates all five of that structure's advanced modifications at once. A crew short of pages gets
- * nothing out of running the Lab project, so telling them about the project first would send them
- * to the wrong building. The Lab project second, then the money, which is the order
- * `modificationBuildRefusal` states as the rule.
+ * The yard's own level first, then the **document**: the structure's retrofit blueprint, collected
+ * page by page, which gates all five of that structure's advanced modifications at once. A crew
+ * short of pages gets nothing out of running the Lab project, so telling them about the project
+ * first would send them to the wrong building. Money last, because it is the one gate that fixes
+ * itself.
+ *
+ * ## Why this only words the answer
+ *
+ * The order above *is* `modificationBuildRefusal`, and this used to say so in a comment while
+ * quietly implementing its own copy. The two then drifted: the shared rule never learned about the
+ * yard's level, so it would pass a modification this door refuses. Nothing caught it, because
+ * nothing in the running game called the shared rule at all: its tests were the only caller, so a
+ * dozen green assertions were gating a function the Scrapyard did not use.
+ *
+ * So the rule is asked, and this only turns its answer into a sentence. The prices stay here
+ * (`modificationBill` applies yard discounts) and so does the wording, which is what `@frontline/
+ * shared` has no business knowing.
  */
 function modificationBlockerFor(base: Base, id: string): string | null {
   const spec = findModification(id);
   if (!spec) return 'No such add-on';
-  const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForModification(spec));
-  if (shut !== null) return shut;
-  if (!modificationGateMet(base.inventory, spec)) return `Needs the ${documentFor(spec)}`;
-  // The Lab project that used to sit between the drawings and the yard is gone with the desk: a
-  // crew holding the structure's retrofit blueprint can cut any of its advanced add-ons.
-  return canAfford(base.resources, modificationBill(base, spec)) ? null : 'You cannot cover that';
+
+  const refusal = modificationBuildRefusal({
+    spec,
+    yardLevel: yardLevel(base),
+    blueprintUnlocked: (one) => modificationGateMet(base.inventory, one),
+    affordable: (one) => canAfford(base.resources, modificationBill(base, one)),
+  });
+
+  switch (refusal) {
+    case null:
+      return null;
+    case 'yard_too_low':
+      return scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForModification(spec));
+    case 'needs_blueprint':
+      return `Needs the ${documentFor(spec)}`;
+    default:
+      // The Lab project that used to sit between the drawings and the yard is gone with the desk:
+      // a crew holding the structure's retrofit blueprint can cut any of its advanced add-ons.
+      return 'You cannot cover that';
+  }
 }
 
 export function projectScrapyard(
@@ -219,6 +275,7 @@ export function projectScrapyard(
     effect: describeAddonEffect(spec),
     cost: modificationBill(base, spec),
     advanced: isAdvancedModification(spec),
+    rarity: null,
     blueprint: documentFor(spec),
     owned: owned(spec.id),
     requiresLevel: scrapyardLevelForModification(spec),
@@ -226,7 +283,9 @@ export function projectScrapyard(
     blocker: modificationBlockerFor(base, spec.id),
   }));
 
-  const upgrades: ScrapyardEntry[] = UNIT_UPGRADES.map((spec) => ({
+  // The unit bench: thirty cards in catalogue order, which is rarity order. The page groups them
+  // by the `rarity` on each row rather than by anything it knows about the catalogue.
+  const upgrades: ScrapyardEntry[] = UNIT_MODIFICATIONS.map((spec) => ({
     id: spec.id,
     kind: 'upgrade' as const,
     name: spec.name,
@@ -235,6 +294,7 @@ export function projectScrapyard(
     effect: describeAddonEffect(spec),
     cost: upgradeBill(base, spec, standing),
     advanced: isAdvancedUpgrade(spec),
+    rarity: spec.rarity,
     blueprint: documentFor(spec),
     owned: base.fittedUpgrades.includes(spec.id) ? 1 : 0,
     requiresLevel: scrapyardLevelForUpgrade(spec),
@@ -245,8 +305,8 @@ export function projectScrapyard(
   /*
    * §I4: the traps.
    *
-   * `building: null` like the refits, because a trap belongs to no structure: it goes into the
-   * satchel and is set under one fight the crew is defending. `owned` is the count in the bag
+   * `building: null` like the unit cards, because a trap belongs to no structure: it goes into the
+   * inventory and is set under one fight the crew is defending. `owned` is the count in the bag
    * rather than a 0/1, because unlike everything else on this page a trap is spent, so "you have
    * three" is the number a player is deciding on.
    *
@@ -262,6 +322,7 @@ export function projectScrapyard(
     effect: describeTrap(spec),
     cost: trapBill(base, spec),
     advanced: (spec.cost.highQualityMetal ?? 0) > 0,
+    rarity: null,
     blueprint: blueprintForTrap(spec.id)?.name ?? null,
     owned: itemCount(base.inventory, spec.id as ItemId),
     requiresLevel: scrapyardLevelForTrap(spec),
@@ -282,10 +343,8 @@ export type AddonBuildResult = { kind: 'refused'; reason: string } | { kind: 'bu
 /**
  * Builds one add-on: takes the scrap, and puts the thing on the shelf.
  *
- * A modification goes into `addons.built` and waits for a slot; a unit upgrade goes straight into
- * `fittedUpgrades`, which is where the roster already reads it from. The asymmetry is the two
- * things themselves rather than an inconsistency: a modification lives in one of three brackets on
- * one structure, and a unit upgrade is a pattern the whole roster works from.
+ * A modification goes into `addons.built` and waits for a slot; a unit card goes into
+ * `fittedUpgrades`, the crew's stock, and waits for a bracket on the Units page (`/units/loadout`).
  */
 export function buildAddon(
   repos: Repositories,
@@ -298,7 +357,7 @@ export function buildAddon(
     return { kind: 'refused', reason: 'Build the Scrapyard first' };
   }
   /*
-   * §I4: one trap, into the satchel.
+   * §I4: one trap, into the inventory.
    *
    * The only thing this page builds that does not end up bolted to something. It is an item, so it
    * goes through `addItems` and `updateHoldings` rather than onto a shelf, and building a second
@@ -340,7 +399,7 @@ export function buildAddon(
     return { kind: 'built', base: built };
   }
 
-  const spec = findUpgrade(id);
+  const spec = findUnitModification(id);
   if (!spec) return { kind: 'refused', reason: 'No such add-on' };
   if (base.fittedUpgrades.includes(spec.id)) return { kind: 'refused', reason: 'Already built' };
   const blocker = upgradeBlockerFor(base, spec, standing);
@@ -350,7 +409,7 @@ export function buildAddon(
     ...base,
     resources: spendResources(base.resources, upgradeBill(base, spec, standing)),
     // Spent, not merely checked. A requirement that is verified and never consumed is a one-off
-    // toll that buys every upgrade in the line for ever.
+    // toll that buys every card in the catalogue for ever.
     inventory: removeItems(base.inventory, spec.parts),
     fittedUpgrades: [...base.fittedUpgrades, spec.id],
   };

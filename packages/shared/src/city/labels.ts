@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { UnitStats } from '../units/stats.js';
+import { capRating, type UnitStats } from '../units/stats.js';
 
 /**
  * What a piece of ground is *like* (GDD §A4).
@@ -285,7 +285,9 @@ export function labelEffectPercent(
   const spec = ENV_LABEL_CATALOG[label.id];
   const affinity = sensitivity.affinities?.[label.id] ?? 0;
   const immune = sensitivity.immuneTo?.includes(label.id) ?? false;
-  const reading = Math.min(100, Math.max(0, stats[spec.rule.stat]));
+  // The line runs 0..100 and so does the rating, but a sheet handed in from outside the roster's
+  // own clamp must not read past either end: `capRating` is the same ceiling the sheet has.
+  const reading = capRating(stats[spec.rule.stat]);
   const baseline = spec.rule.atLow + ((spec.rule.atHigh - spec.rule.atLow) * reading) / 100;
   const perTier = immune ? affinity : baseline + affinity;
   return perTier * label.tier;

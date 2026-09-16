@@ -1,10 +1,17 @@
-import { CITY_DISTRICTS, declarationWindow, type BattleTarget, type Base } from '@frontline/shared';
+import {
+  CITY_DISTRICTS,
+  declarationWindow,
+  DECLARE_INFAMY_COST,
+  type BattleTarget,
+  type Base,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { MAX_PENDING_DECLARATIONS } from './declare.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The Raid Boss's tenth rung is a door: one more fight called and pending at once.
@@ -37,14 +44,15 @@ describe('how many fights may be called at once', () => {
       payload: { username: 'the_name', password: 'hunter2pass' },
     });
     const token = registered.json<{ token: string }>().token;
-    const chosen = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(token),
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(app, token);
     expect(chosen.statusCode).toBe(201);
     const base = chosen.json<{ base: Base }>().base;
+    // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for
+    // every call this test makes.
+    app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      infamy: DECLARE_INFAMY_COST * 8,
+    });
 
     // Enough ground to call against: a scouted contested district with more locations than the
     // cap, none of them held by anybody.

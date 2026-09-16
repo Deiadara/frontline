@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   OFFICER_PORTRAIT_IDS,
+  OVERSEER_PORTRAIT_IDS,
   ART_MANIFEST,
   HERO_ASSETS,
   deliveredAtPaintedSize,
@@ -59,7 +60,12 @@ describe('sections', () => {
     expect(
       roster!.specs
         .map((s) => s.key)
-        .filter((key) => !key.startsWith('unit-') && !key.startsWith('officer-')),
+        .filter(
+          (key) =>
+            !key.startsWith('unit-') &&
+            !key.startsWith('officer-') &&
+            !/^portrait-overseer-\d\d$/.test(key),
+        ),
     ).toEqual([
       'plate-city',
       'plate-district',
@@ -70,11 +76,18 @@ describe('sections', () => {
       'plate-faction-room',
       'plate-district-undergrid',
       'plate-district-datavault-sigma',
+      'plate-district-glasshouse-fields',
+      'plate-district-blacksite-7',
     ]);
-    // The officer pool is opaque and croppable and lands here too, all forty-three of it. Read
-    // off the pool rather than typed: the board added ten faces once and will again.
+    // The officer pool is opaque and croppable and lands here too, all of it. Read off the pool
+    // rather than typed: the board added ten faces once and has three times since.
     expect(roster!.specs.filter((s) => s.class === 'officer')).toHaveLength(
       OFFICER_PORTRAIT_IDS.length,
+    );
+    // And the thirty overseer faces, for the same reason and one more: they are 928x1392, which no
+    // ChatGPT download measures, so they cannot be in the hero set however plain they look.
+    expect(roster!.specs.filter((s) => /^portrait-overseer-\d\d$/.test(s.key))).toHaveLength(
+      OVERSEER_PORTRAIT_IDS.length,
     );
     expect(alpha!.specs.every((s) => s.alpha)).toBe(true);
     expect(occluded!.specs.map((s) => s.key)).toEqual([...OCCLUDED_BACKDROP_KEYS]);

@@ -1,5 +1,7 @@
 import {
   BUILDING_KINDS,
+  PRODUCING_BUILDINGS,
+  buildingProduction,
   storageCapacity,
   storageCapacityFor,
   type Building,
@@ -115,5 +117,31 @@ describe('what a structure is worth', () => {
   /** A structure that makes nothing yet says so, rather than quoting an empty rate. */
   it('says a producer at level 0 is not producing', () => {
     expect(structureBonus('scrapyard', DISTRICT, 0).value).toBe('nothing yet');
+  });
+
+  /**
+   * Every producing structure quotes what it makes, the Generator included.
+   *
+   * It is the only source of oil in the game since the production split, and its line quoted the
+   * build-clock discount alone: a player pressing the one plot that refines fuel was told about
+   * somebody else's build queue and never about the fuel. Asserted over `PRODUCING_BUILDINGS`
+   * rather than on the Generator by name, so the next structure to start making something cannot
+   * ship with a line that does not mention it.
+   */
+  it('quotes its own output on every structure that produces something', () => {
+    expect(PRODUCING_BUILDINGS.length, 'nothing produces anything').toBeGreaterThan(0);
+    for (const kind of PRODUCING_BUILDINGS) {
+      const level = 6;
+      const made = buildingProduction(kind, districtWith(DISTRICT, kind, level));
+      const keys = Object.keys(made) as (keyof typeof made)[];
+      expect(keys.length, `${kind} is in PRODUCING_BUILDINGS and makes nothing`).toBeGreaterThan(0);
+
+      const { value } = structureBonus(kind, DISTRICT, level);
+      for (const key of keys) {
+        const rate = made[key] ?? 0;
+        const shown = Math.abs(rate) < 10 ? rate.toFixed(1) : String(Math.round(rate));
+        expect(value, `${kind} never says what it makes of ${key}`).toContain(shown);
+      }
+    }
   });
 });

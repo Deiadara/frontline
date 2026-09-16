@@ -48,7 +48,7 @@ export const UpdateProfileRequestSchema = z
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 
 /**
- * Changing a passphrase needs the old one, always.
+ * Changing a password needs the old one, always.
  *
  * The session token proves the browser had the password *once*. It does not prove the person at
  * the keyboard is the one who typed it, and a token lifted off a shared machine should not be
@@ -176,7 +176,7 @@ export type AdminKnobsRequest = z.infer<typeof AdminKnobsRequestSchema>;
  * and late game documents; and a trap wants a Lab rung as well.
  *
  * Each field is optional and independent. `blueprints` puts the finished document (not its pages)
- * in the satchel, so the row unlocks at once; `pages` hands over one copy of every page in the
+ * in the inventory, so the row unlocks at once; `pages` hands over one copy of every page in the
  * game, for the Blueprints and Reimagining screens; `parts` is that many of every component the
  * Runner carries, for refits; `technologies` marks every rung of one track, or of all of them,
  * as finished. Admin mode only, refused as NOT_FOUND otherwise, like every other console route.
@@ -193,6 +193,21 @@ export const AdminGrantRequestSchema = z
     parts: z.number().int().min(1).max(999).optional(),
     /** Every rung on every track, or on one track. */
     technologies: z.union([z.literal('all'), OfficerRoleSchema]).optional(),
+    /**
+     * Every rung up to and including this step, on every track (maintainer request, 2026-09-14).
+     *
+     * A programme is ten rungs deep, and the presets want a crew standing part-way up all nineteen
+     * of them rather than at the top of one. `technologies` cannot say that: it is all-or-one-track
+     * by construction, so "seven of ten everywhere" had no spelling before this.
+     *
+     * Both may be sent; they union, and the deeper answer wins, because a grant is additive
+     * everywhere else on this route and a rung already taken cannot be untaken.
+     */
+    researchDepth: z.number().int().min(1).max(10).optional(),
+    /** This many of every trap the Scrapyard cuts, into the inventory. */
+    consumables: z.number().int().min(1).max(99).optional(),
+    /** This many of every battle boost the back room sells, onto the shelf. */
+    boosts: z.number().int().min(1).max(99).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to grant');
 export type AdminGrantRequest = z.infer<typeof AdminGrantRequestSchema>;

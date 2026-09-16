@@ -1,5 +1,5 @@
 /**
- * §F1: a blueprint page as mission pay, from the card to the satchel.
+ * §F1: a blueprint page as mission pay, from the card to the inventory.
  *
  * The rate is measured in shared, over the boards the game really produces. What only this level
  * can answer is the chain: the card promises a category and not a page, the promise survives the
@@ -13,6 +13,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { resolveDueMissions, rollMissionOutcome } from './resolve.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -34,12 +35,7 @@ async function crew(): Promise<{ app: FastifyInstance; token: string }> {
     payload: { username: 'runner', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return { app, token };
 }
 
@@ -63,7 +59,7 @@ describe('a page won on a mission (§F1)', () => {
     }
   });
 
-  it('lands the page in the satchel on arrival and records which one', async () => {
+  it('lands the page in the inventory on arrival and records which one', async () => {
     const { app } = await crew();
     const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('runner')!.id)!;
 
@@ -117,10 +113,10 @@ describe('a page won on a mission (§F1)', () => {
     expect(page, `${won} is not a page in the catalogue`).toBeDefined();
     expect(BLUEPRINTS.find((b) => b.pages.some((p) => p.id === won))?.category).toBe('unit');
 
-    // And it is actually in the satchel afterwards, which is the half a settler can get wrong.
+    // And it is actually in the inventory afterwards, which is the half a settler can get wrong.
     const after = app.repos.bases.findById(base.id)!.inventory;
     const held = (bag: Record<string, number>) => bag[won!] ?? 0;
-    expect(held(after) - held(before), 'the page never reached the satchel').toBe(1);
+    expect(held(after) - held(before), 'the page never reached the inventory').toBe(1);
   });
 
   it('gives a failed run nothing, even when it was carrying one', async () => {

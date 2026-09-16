@@ -22,6 +22,7 @@ export type EventKind =
   | 'blackmarket.taken'
   | 'admin.knobs'
   | 'admin.grant'
+  | 'admin.reset'
   | 'backup.taken';
 
 export interface GameEvent {

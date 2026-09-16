@@ -13,6 +13,7 @@ import {
   type MissionLeader,
   type PartialResources,
   type ResourceKey,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -45,11 +46,14 @@ export function MissionReportWindow({
   leaders,
   overseerName,
   onClose,
+  loadouts = {},
 }: {
   mission: Mission;
   leaders: readonly MissionLeader[];
   overseerName: string;
   onClose: () => void;
+  /** The crew's brackets, for the bag the crew could lift. Defaults to none for old rows. */
+  loadouts?: UnitLoadouts;
 }) {
   const template = findMissionTemplate(mission.templateId);
   const failed = mission.outcome === 'failure';
@@ -97,7 +101,7 @@ export function MissionReportWindow({
           </dl>
         </FileSection>
 
-        <Haul mission={mission} />
+        <Haul mission={mission} loadouts={loadouts} />
         <Drops mission={mission} />
       </div>
 
@@ -146,7 +150,7 @@ function Line({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * §E5: what a job cost in bodies.
+ * §E5: what a job cost in units.
  *
  * Drawn for every reported run, including the ones nobody died on, because "everybody came home" is
  * the answer a player opens a report looking for after a raid. It used to be gated on the run
@@ -189,7 +193,7 @@ function Losses({ mission }: { mission: Mission }) {
  * support, so with no `spoils` the section says what came home and says outright that the total is
  * not known.
  */
-function Haul({ mission }: { mission: Mission }) {
+function Haul({ mission, loadouts }: { mission: Mission; loadouts: UnitLoadouts }) {
   const knownSpoils = Object.keys(mission.spoils).length > 0;
   const earned: PartialResources = knownSpoils ? mission.spoils : mission.rewards;
   const kinds = RESOURCE_ORDER.filter(
@@ -232,19 +236,19 @@ function Haul({ mission }: { mission: Mission }) {
             ) : short ? (
               <span className="text-brass-300">
                 The crew could not carry everything. They lifted{' '}
-                <span className="tabular-nums">{carriedKg.toLocaleString()}</span> kg of the{' '}
-                <span className="tabular-nums">{earnedKg.toLocaleString()}</span> kg the job paid,
+                <span className="tabular-nums">{carriedKg.toLocaleString()}</span> loot of the{' '}
+                <span className="tabular-nums">{earnedKg.toLocaleString()}</span> loot the job paid,
                 and left the rest where it lay. Send more carriers.
               </span>
             ) : (
               <>
                 They carried all{' '}
-                <span className="tabular-nums text-ink-200">{earnedKg.toLocaleString()}</span> kg of
-                it home, out of the{' '}
+                <span className="tabular-nums text-ink-200">{earnedKg.toLocaleString()}</span> loot
+                of it home, out of the{' '}
                 <span className="tabular-nums text-ink-200">
-                  {missionCarry(mission.force).toLocaleString()}
+                  {missionCarry(mission.force, loadouts).toLocaleString()}
                 </span>{' '}
-                kg they could lift between them.
+                loot they could lift between them.
               </>
             )}
           </p>
@@ -288,12 +292,12 @@ function HaulRow({
 }
 
 /**
- * §F1f: the sheets, the salvage and the relics, by name.
+ * §F1f: the sheets and the salvage, by name.
  *
  * The card that offered the run said only "a unit blueprint's page"; this is where the player finds
  * out which sheet they actually came home with, which is the half of the mechanic that pays off the
  * anticipation. Everything else the run turned up is beside it, because a player who has to count
- * the satchel to work out what a job produced has not been told what the job produced.
+ * the inventory to work out what a job produced has not been told what the job produced.
  */
 function Drops({ mission }: { mission: Mission }) {
   const page = mission.pageWon;
@@ -302,7 +306,7 @@ function Drops({ mission }: { mission: Mission }) {
    * The settler folds the won page into `found` (`missions/resolve.ts`), so listing the two
    * separately would name the same sheet twice. A row settled before `found` existed carries only
    * `pageWon`, and that page still has to be drawn: the cast is the gap between `pageWon`'s plain
-   * id and the satchel's `ItemId` keys, which every page id is one of.
+   * id and the inventory's `ItemId` keys, which every page id is one of.
    */
   const pageId = page as ItemId | null;
   const drops: [ItemId, number][] =
@@ -311,7 +315,11 @@ function Drops({ mission }: { mission: Mission }) {
   if (drops.length === 0) return null;
 
   return (
-    <FileSection icon="satchel" title="What they turned up" note="Into the satchel, not the yard">
+    <FileSection
+      icon="inventory"
+      title="What they turned up"
+      note="Into the inventory, not the yard"
+    >
       <ul className="grid gap-2 sm:grid-cols-2" data-testid={`mission-drops-${mission.id}`}>
         {drops.map(([id, count]) => (
           <li

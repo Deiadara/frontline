@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as F from '../../../e2e/fixtures';
+import { unitSlotsUsed } from '@frontline/shared';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty } from './road';
 
 /**
@@ -45,16 +46,39 @@ describe('who is on the road', () => {
     expect(roadIsEmpty(road)).toBe(true);
   });
 
-  it('counts bodies across columns, jobs and fights', () => {
+  /**
+   * The header prints "unit slots", so the figure has to be unit slots.
+   *
+   * Summed here off the fixture's own forces through `unitSlotsUsed`, which is a different
+   * arithmetic from the `size` the wire carries beside them: `size` is a head count, and a header
+   * that added it up told a crew with anything heavy on the road that fewer slots were out than
+   * the district was holding open. The head count is asserted as the control, so this cannot pass
+   * against a reader that has quietly gone back to it.
+   */
+  it('counts unit slots across columns, jobs and fights, not heads', () => {
     const road = onTheRoad(F.actionsResponse, F.missionsResponse(now), F.battles);
     const counts = roadCounts(road);
-    const columns = F.actionsResponse.movements.reduce((total, column) => total + column.size, 0);
     const press = F.battles.coming.find((view) => view.battle.id === 'press');
-    const jobs = road.jobs.reduce(
-      (total, job) => total + Object.values(job.force).reduce((sum, count) => sum + count, 0),
-      0,
-    );
-    expect(counts.bodies).toBe(columns + jobs + (press?.muster?.size ?? 0));
+    const slotsOf = (army: Readonly<Record<string, number>>) => unitSlotsUsed(army);
+    const expected =
+      road.columns.reduce(
+        (total, column) => total + slotsOf(column.army) + slotsOf(column.perimeter),
+        0,
+      ) +
+      road.jobs.reduce((total, job) => total + slotsOf(job.force), 0) +
+      (press?.muster ? slotsOf(press.muster.army) + slotsOf(press.muster.perimeter) : 0);
+    expect(counts.unitSlots).toBe(expected);
+
+    // The control: the fixture really does hold something that costs more than one slot, so the
+    // two arithmetics give different answers and this test can tell them apart.
+    const heads =
+      F.actionsResponse.movements.reduce((total, column) => total + column.size, 0) +
+      road.jobs.reduce(
+        (total, job) => total + Object.values(job.force).reduce((sum, count) => sum + count, 0),
+        0,
+      ) +
+      (press?.muster?.size ?? 0);
+    expect(counts.unitSlots).toBeGreaterThan(heads);
     expect(counts.scouts).toBe(1);
   });
 

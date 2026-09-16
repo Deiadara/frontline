@@ -8,8 +8,9 @@ import { cn } from '../../lib/cn';
  * One machine, on the roster's Vehicles tab (GDD §B11, §C).
  *
  * The two numbers on the card are the ones a decision turns on and they pull in opposite
- * directions: **capacity** is how many people it moves, and it is also what the enemy earns for
- * destroying it. A Cheese Wagon moves most of a crew and is the biggest prize on the field.
+ * directions: **unit slots** is what it moves, in the same currency the district houses a unit in,
+ * and it is also what the enemy earns for destroying it. A Cheese Wagon at thirty moves ten
+ * Ironsides at three slots each, and is the biggest prize on the field.
  * **Speed** is the stat a unit's own sheet carries, on the same scale, so a player can compare a
  * machine with the legs of the people they were going to put in it. That comparison is the whole
  * reason the machines sit on the roster beside the units rather than on the Garage's own page
@@ -77,7 +78,7 @@ export function VehicleCard({
 
         <ul className="flex flex-wrap gap-x-4 gap-y-1 font-display text-[12px] uppercase tracking-[0.12em] text-ink-300">
           <li>
-            Carries <span className="tabular-nums text-brass-300">{vehicle.capacity}</span>
+            Unit slots <span className="tabular-nums text-brass-300">{vehicle.capacity}</span>
           </li>
           {/* §C3: a speed on the same 0 to 100 scale a unit's sheet carries, not a percentage off
               a clock. The two read the same way on purpose: a Road Reaver walks at 65 and the

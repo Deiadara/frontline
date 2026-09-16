@@ -96,17 +96,18 @@ export const BaseSchema = z.object({
    *
    * Defaulted like `training`, and for the same reason: a district written before the market
    * existed has no column, and a schema that refused to parse it would take the account offline
-   * rather than open it with an empty satchel.
+   * rather than open it with an empty inventory.
    */
   inventory: InventorySchema.default({}),
   /**
-   * Workshop upgrades the crew has fitted. Applies to every unit of the affected tiers, forever:
-   * see `upgradedStats`, which folds them at read time so a refit reaches units already trained.
+   * Unit modification cards the Scrapyard has built for this crew (`units/modifications.ts`): the
+   * stock. Building one changes nobody's sheet until it is bolted into a bracket below.
    */
   fittedUpgrades: FittedUpgradesSchema.default([]),
   /**
-   * Which of those built upgrades are bolted to which unit, three slots apiece
-   * (`units/loadout.ts`). Only what is slotted pays: the stock above is what the crew *owns*.
+   * Which of those built cards are bolted to which unit, three slots apiece (`units/loadout.ts`).
+   * Only what is slotted pays: `upgradedStats` folds it at read time, so a card fitted today
+   * reaches the units trained last week.
    */
   unitLoadouts: UnitLoadoutsSchema.default({}),
   /** What is in the Garage. Counted, not itemised: one motorcycle is like any other. */

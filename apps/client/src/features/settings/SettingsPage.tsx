@@ -27,7 +27,7 @@ import { NotificationFilters } from '../social/NotificationFilters';
 import { cn } from '../../lib/cn';
 import { useChangePassword, useSettings, useUpdateProfile } from '../../lib/queries';
 import { playSound, setSoundVolume } from '../../lib/sound';
-import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
+import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 
 /**
@@ -35,8 +35,8 @@ import { useServerClock } from '../missions/useServerClock';
  *
  * Four panels, and they are four panels because they are four different transactions: who you are
  * to other people, what clock you read the game in, how loud it is, and the credential you log in
- * with. Folding them into one form with one Save would mean either asking for a passphrase to
- * change an icon, or accepting a passphrase change without asking for the old one.
+ * with. Folding them into one form with one Save would mean either asking for a password to
+ * change an icon, or accepting a password change without asking for the old one.
  *
  * Each panel says what it did and stops there. A settings screen that navigates away on success is
  * a settings screen that makes you go back to check.
@@ -457,11 +457,7 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
     >
       <div className="flex flex-col gap-4 p-4">
         <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          One bar for the lot: the click under a button, the swish between screens, the chime when a
-          crew comes home and the drum when somebody calls a fight. Clicks sit well under the
-          events, so working through a screen is quieter than the game telling you something
-          happened. Nothing plays until you have clicked once, because no browser lets a page make
-          noise before that. At 0 the game is silent.
+          One bar for every sound the game makes. At 0 the game is silent.
         </p>
 
         {/* Not a `Field`: that wraps its children in a `<label>`, and a `<label>` finds nothing to
@@ -492,7 +488,7 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
   );
 }
 
-function PassphrasePanel() {
+function PasswordPanel() {
   const change = useChangePassword();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -504,7 +500,7 @@ function PassphrasePanel() {
   const blocked = current === '' || next.length < 8 || next !== again;
 
   return (
-    <Panel title="Passphrase">
+    <Panel title="Password">
       <form
         className="flex flex-col gap-4 p-4"
         noValidate
@@ -600,12 +596,7 @@ export function SettingsPage() {
   }
 
   return (
-    <PageShell quote="The Combine keeps a file on you either way. This is the part you get to write.">
-      <InfoNote label="What is yours alone">
-        Everything here is yours alone. Changing your Operator ID changes what you log in with;
-        changing your Name changes only what other crews see.
-      </InfoNote>
-
+    <PageShell quote="The only part that the city allows you to control">
       <div className="grid items-start gap-5 xl:grid-cols-2">
         <ProfilePanel
           username={data.user.username}
@@ -623,11 +614,30 @@ export function SettingsPage() {
       {/* The maintainer asked for the filter to live here. It is the same control the bell's own second
           tab draws, sharing one query rather than a second copy of the state: a player annoyed by a
           category is usually looking at it, and a player hunting for a switch comes here. */}
-      <Panel title="What you hear about">
-        <NotificationFilters />
+      <Panel
+        title="Sound Preferences"
+        data-testid="settings-notify-panel"
+        // Framed by hand like the battle rail, and the rows inside it ruled with the same pen.
+        // `NotificationFilters` draws its rows with a plain 1px `border` because the bell's tab is a
+        // narrow list where a drawn frame per row would be noise; here the maintainer asked for the
+        // hand-drawn lines, so the rows are re-ruled from this side, through their `li > label`,
+        // rather than by giving the shared control a flag it only needs on one screen. The brass
+        // frame on hover stands in for the `border-brass` the plain border showed, on rows that
+        // can still be switched.
+        className={cn(
+          'ink-frame',
+          '[&_li>label]:ink-frame [&_li>label:hover:has(input:enabled)]:ink-frame-brass',
+        )}
+      >
+        {/* The other three panels inset their units by `p-4`; this one handed the control the whole
+            box, so its lead line and rows ran flush against the panel's own drawn edge and read as
+            outside it (maintainer report, 2026-09-15). */}
+        <div className="flex flex-col p-4" data-testid="settings-notify-body">
+          <NotificationFilters />
+        </div>
       </Panel>
 
-      <PassphrasePanel />
+      <PasswordPanel />
     </PageShell>
   );
 }

@@ -17,9 +17,10 @@ import {
   type ResourceKey,
 } from '@frontline/shared';
 import { useEffect, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
+import { Confirm } from '../../components/ui/Confirm';
 import { NumberField } from '../../components/ui/NumberField';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
@@ -29,6 +30,7 @@ import {
   useAdminFog,
   useAdminGrant,
   useAdminKnobs,
+  useAdminReset,
   useAdminMockBattle,
 } from '../../lib/queries';
 import { InfoNote, PageShell } from '../game/PageShell';
@@ -51,15 +53,52 @@ import { usePlayerZone } from '../settings/usePlayerZone';
  * A console with a Save button is a console where you have to remember what you changed.
  */
 
-const PRESETS: readonly { label: string; blurb: string; knobs: AdminKnobsRequest }[] = [
+/**
+ * A preset is a set of knobs and, for one of them, a grant to fire alongside.
+ *
+ * The two go through different routes (knobs set state, grants hand things over), so a preset that
+ * needs both carries both rather than the button inferring one from the label.
+ */
+interface Preset {
+  label: string;
+  blurb: string;
+  knobs: AdminKnobsRequest;
+  grant?: AdminGrantRequest;
+}
+
+/**
+ * Four presets, and each one sets the crew's whole state to one era (maintainer request,
+ * 2026-09-14).
+ *
+ * They used to move three knobs and, for one of them, finish the research. Everything else a crew
+ * accumulates was left where it was, so "End game" handed you a maxed district with an empty
+ * inventory and nothing on the back room's shelf: a ceiling with half the rooms locked, which is the
+ * complaint the research grant was added to fix and which was still true of everything research is
+ * not. An era preset that only moves some of the state is a preset you have to finish by hand.
+ *
+ * So each carries the grant its era implies as well as its knobs. The two still go through
+ * different routes (knobs set state, grants hand things over) and a preset that needs both carries
+ * both, rather than the button inferring one from the label.
+ */
+const PRESETS: readonly Preset[] = [
   {
     label: 'First hour',
     blurb: 'A Nexus, a Gate and nothing else. What a new crew actually opens.',
+    /*
+     * No grant, and that is the point of it rather than an omission.
+     *
+     * The other two hand things over, and a grant is additive on every route it touches: there is
+     * no spelling of "take the blueprints back". Pressing First hour on a finished crew therefore
+     * moves the knobs and leaves the inventory full, which is the honest behaviour and the reason
+     * Clean slate exists below.
+     */
     knobs: { buildingLevel: 1, playerLevel: 1, infamy: 0, clearQueues: true },
   },
   {
     label: 'Mid game',
-    blurb: 'Every structure at 8, a working stockpile, a name people have heard.',
+    blurb:
+      'Every structure at 8, four rungs into every programme, the yard stocked and a few favours owed.',
+    grant: { researchDepth: 4, parts: 40, pages: 'all' as const, consumables: 2, boosts: 1 },
     knobs: {
       buildingLevel: 8,
       playerLevel: 12,
@@ -77,7 +116,37 @@ const PRESETS: readonly { label: string; blurb: string; knobs: AdminKnobsRequest
   },
   {
     label: 'End game',
-    blurb: 'The ceiling on everything, and enough infamy to empty the back room.',
+    blurb:
+      'The ceiling on everything: seven rungs into every programme, every drawing held, the yard full, traps cut and the shelf stocked.',
+    /*
+     * The one that hands over everything, because everything is what "end game" means.
+     *
+     * `seed/sandbox.ts` leaves research alone on purpose, on the grounds that a programme is worked
+     * through on the Lab's one bench and granting the rungs would invent a state the mechanic does
+     * not have. That reasoning is right for the *boot* sandbox and wrong here: this is the Console,
+     * where every clock is already five seconds and nothing is charged, and "end game" that still
+     * has forty hours of bench time in front of it is not the end game. Everything downstream of
+     * research (the units it authorises, the blueprints it opens) is unreachable without it.
+     *
+     * The same argument carries to the rest of it, which is why the traps, the boosts, the parts
+     * and the documents are here too: a crew at the ceiling with nothing to take into a fight is a
+     * ceiling you cannot actually play from.
+     *
+     * **Seven rungs of ten, not all ten** (maintainer request, 2026-09-14). It granted every rung,
+     * and the reasoning above says why that was better than none. Seven is better than both: the
+     * Lab still has something on its bench, so the one mechanic that takes real time is reachable
+     * from this preset rather than already finished by it. Nothing is locked behind the missing
+     * three, because `blueprints: 'all'` hands over the documents directly: this leaves research to
+     * *play*, not rooms to be shut out of.
+     */
+    grant: {
+      researchDepth: 7,
+      blueprints: 'all' as const,
+      pages: 'all' as const,
+      parts: 250,
+      consumables: 10,
+      boosts: 5,
+    },
     knobs: {
       buildingLevel: BUILDING_MAX_LEVEL,
       playerLevel: 30,
@@ -303,7 +372,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
  *
  * Every Scrapyard bench draws only what the crew holds the drawings for, so without this the only
  * way to look at an advanced bracket was to collect its pages honestly. These are additive: a
- * grant on top of a satchel is a satchel with more in it.
+ * grant on top of an inventory is an inventory with more in it.
  */
 function GrantsPanel() {
   const grant = useAdminGrant();
@@ -338,7 +407,7 @@ function GrantsPanel() {
             )}
           </div>
           <span className="font-body text-[12px] text-ink-300">
-            Puts the finished document in the satchel, so the yard's rows open at once.
+            Puts the finished document in the inventory, so the yard's rows open at once.
           </span>
         </div>
 
@@ -578,6 +647,13 @@ function FightsPanel() {
 export function AdminPage() {
   const query = useAdmin();
   const knobs = useAdminKnobs();
+  // Every era preset now carries a grant as well as knobs, so the page needs both mutations on
+  // every press rather than only for End game.
+  const grant = useAdminGrant();
+  const reset = useAdminReset();
+  const navigate = useNavigate();
+  /** Whether Clean slate has been pressed and not yet confirmed. */
+  const [wiping, setWiping] = useState(false);
 
   if (query.isLoading) {
     return (
@@ -612,8 +688,8 @@ export function AdminPage() {
         Every clock in the game is <strong>{snapshot.state.actionSeconds} seconds</strong> and
         nothing is charged, but every screen still shows the real price and the real duration. That
         is the point, so the economy can be judged while the waiting is skipped. Gates are
-        untouched: a locked structure is still locked, a full queue is still full, supply is still
-        supply. Run with <code>ADMIN=false</code> for a build that charges.
+        untouched: a locked structure is still locked, a full queue is still full, the unit-slot cap
+        is still the unit-slot cap. Run with <code>ADMIN=false</code> for a build that charges.
       </InfoNote>
 
       <Panel title="Take me to">
@@ -630,14 +706,62 @@ export function AdminPage() {
               <Button
                 size="sm"
                 className="mt-auto"
-                disabled={knobs.isPending}
-                onClick={() => knobs.mutate(preset.knobs)}
+                disabled={knobs.isPending || grant.isPending}
+                onClick={() => {
+                  knobs.mutate(preset.knobs);
+                  if (preset.grant) grant.mutate(preset.grant);
+                }}
               >
                 Go there
               </Button>
             </div>
           ))}
+
+          {/*
+           * Clean slate, in the row with the eras but not one of them.
+           *
+           * The three above move a crew along the game and every one of them is additive: a grant
+           * has no undo, so pressing First hour on a finished crew lowers the knobs and leaves the
+           * inventory full. This is the only control on the page that takes things *away*, which is
+           * why it is the only one that asks first.
+           */}
+          <div className="flex flex-col gap-2 rounded-sm border border-oxblood-500/60 bg-surface-800/60 p-3">
+            <span className="font-display text-[14px] font-bold text-oxblood-300">Clean slate</span>
+            <p className="font-body text-[12px] leading-snug text-ink-300">
+              Everything gone and a new character: the district emptied, the ground given back, and
+              the overseer picker again.
+            </p>
+            <Button
+              size="sm"
+              variant="danger"
+              className="mt-auto"
+              data-testid="admin-reset"
+              disabled={reset.isPending}
+              onClick={() => setWiping(true)}
+            >
+              Start over
+            </Button>
+          </div>
         </div>
+
+        {wiping && (
+          <Confirm
+            title="Start over?"
+            body="This crew goes back to its first second: the district emptied, every location you hold given back to the city, the inventory and the shelf cleared, and the research undone. You pick a character again. Nothing about it can be undone."
+            confirm="Wipe it"
+            testId="confirm-reset"
+            onCancel={() => setWiping(false)}
+            onConfirm={() => {
+              setWiping(false);
+              reset.mutate(undefined, {
+                // The picker lives at the root: with no overseer, `/game` has nothing to draw.
+                onSuccess: () => {
+                  void navigate('/');
+                },
+              });
+            }}
+          />
+        )}
       </Panel>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">

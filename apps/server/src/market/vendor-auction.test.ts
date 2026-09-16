@@ -1,4 +1,5 @@
 import {
+  ITEM_CATALOG,
   MAX_LOCATION_LEVEL,
   instantAtHourInZone,
   nextLotBid,
@@ -6,6 +7,7 @@ import {
   vendorStockFor,
   visitClosesAt,
   type Base,
+  type ItemId,
   type MarketResponse,
   type VendorLine,
 } from '@frontline/shared';
@@ -22,6 +24,8 @@ import {
   settleVendorAuctions,
 } from './auction.js';
 import { marketRefusalText, projectMarket } from './board.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { snapshotFor } from '../feats/project.js';
 
 /**
  * The Runner's barrow, as an auction ( maintainer 2026-09-08).
@@ -124,13 +128,11 @@ async function signIn(app: FastifyInstance, username: string, caps = 1_000_000):
     payload: { username, password: 'hunter2pass' },
   });
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode).toBe(201);
+  // Every close below is checked to the cap: a §F6 signature that takes 15% off a list price
+  // would make what a crew paid depend on which four they were offered.
+  pinOverseer(app, token);
   const base = chosen.json<{ base: Base }>().base;
   app.repos.bases.updateResources(base.id, { ...base.resources, caps });
   return { userId: user.id, baseId: base.id, token };
@@ -619,5 +621,60 @@ describe('the barrow over HTTP', () => {
     expect(lot?.leading?.yours).toBe(true);
     expect(after.caps, 'a bid took caps before the close').toBe(view.caps);
     void now;
+  });
+});
+
+/**
+ * §F: what the barrow counts towards a feat.
+ *
+ * The close charged the caps, added the item, wrote the sale row and rang the bells, and tallied
+ * nothing. Both measures name this door in their own documentation: `market_buys` is "a listing
+ * taken, a supply run, a barter with the Broker, a lot won", and `pages_found` is "pages off a job,
+ * a shelf, a barrow or a feat". A player who bought every page the Runner ever carried finished on
+ * zero for both.
+ */
+describe('what the barrow counts towards a feat', () => {
+  it('counts a lot won as a buy, and the page on it as a page found', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    // The Runner turns a page up on about one barrow in seven, so the day is searched for rather
+    // than chosen: a fixed date would pin this to whatever that day's draw happens to be.
+    const carriesAPage = (lines: VendorLine[]) =>
+      lines.some((line) => ITEM_CATALOG[line.item as ItemId]?.kind === 'page');
+    const day = aDayWhere(carriesAPage);
+    const line = vendorStockFor(day).find(
+      (candidate) => ITEM_CATALOG[candidate.item as ItemId]?.kind === 'page',
+    )!;
+    const now = duringVisit(day, 0);
+
+    expect(bid(app, ana, { lineId: line.id, amount: line.price, now })).toEqual({ kind: 'placed' });
+    const read = (key: string): number => snapshotFor(app.repos, baseOf(app, ana))[key] ?? 0;
+    expect(read('market_buys')).toBe(0);
+    expect(read('pages_found')).toBe(0);
+
+    settleVendorAuctions(app.repos, afterVisit(day, 0));
+
+    // The goods really moved, or the two counters below would be measuring a close that never was.
+    expect(baseOf(app, ana).inventory[line.item as ItemId]).toBe(1);
+    expect(read('market_buys')).toBe(1);
+    expect(read('pages_found')).toBe(1);
+  });
+
+  it('counts a lot that is not a page as a buy and no pages at all', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const isGoods = (line: VendorLine) => ITEM_CATALOG[line.item as ItemId]?.kind !== 'page';
+    const day = aDayWhere((lines) => lines.some(isGoods));
+    const line = vendorStockFor(day).find(isGoods)!;
+    const now = duringVisit(day, 0);
+
+    expect(bid(app, ana, { lineId: line.id, amount: line.price, now })).toEqual({ kind: 'placed' });
+    settleVendorAuctions(app.repos, afterVisit(day, 0));
+
+    const read = (key: string): number => snapshotFor(app.repos, baseOf(app, ana))[key] ?? 0;
+    expect(read('market_buys')).toBe(1);
+    // Salvage and components are not paper: counting them would finish the blueprint ladder off
+    // scrap servos.
+    expect(read('pages_found')).toBe(0);
   });
 });

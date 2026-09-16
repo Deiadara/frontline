@@ -16,6 +16,10 @@ import {
   unmetForQueue,
   describeBuildingRequirement,
   modificationCapacity,
+  MODIFICATION_SET_SIZE,
+  MODIFICATION_SLOT_LEVELS,
+  SET_BONUSES,
+  describeSetBonus,
   nextModificationSlotLevel,
   nextQueuedLevel,
   projectedBuildings,
@@ -34,6 +38,10 @@ import {
   describeSlotRefusal,
   findModification,
   fitSlotRefusal,
+  MODIFICATION_FAMILY_LABELS,
+  MODIFICATION_RARITIES,
+  MODIFICATION_RARITY_LABELS,
+  modificationFits,
   modificationSlots,
   nexusLevelForUpgrade,
   shelvedModifications,
@@ -42,19 +50,24 @@ import {
   type BuildQuotes,
   type BuildingKind,
   type ItemId,
+  type ModificationFamily,
   type ModificationSlot,
+  type ModificationSpec,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
 import { useCancelBuild, useCrewStanding, useIncreasePayroll } from '../../lib/queries';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
+import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
+import { ClaimButton } from '../feats/ClaimButton';
 import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
+import { RARITY_TEXT, RarityTag } from '../scrapyard/rarity';
 import { structureBonus } from './bonus';
 import { formatDuration, formatRemaining } from './format';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
@@ -128,6 +141,7 @@ export function StructureDialog({
   // This structure's own orders, so the window that took the order is the window that can call
   // it off (maintainer request, 2026-09-12). The clock is the district read's, like the rail's.
   const now = useServerClock(serverNow, receivedAt);
+  const crewStandingEffects = useCrewStanding().data?.effects;
   const cancel = useCancelBuild(base.id);
   const underWay = buildQueue.filter((entry) => entry.kind === kind);
 
@@ -157,8 +171,12 @@ export function StructureDialog({
   const slots = modificationCapacity(standing);
   const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0);
 
-  const bonus = structureBonus(kind, buildings, standing?.level ?? 0);
-  const nextBonus = nextLevel === null ? null : structureBonus(kind, buildings, nextLevel);
+  // §F2: the Apothecary's ceiling is filled to the structure *plus* the crew's Logistics, so the
+  // line that quotes it reads the same fold the settle does.
+  const crewStorage = crewStandingEffects?.['storageCapacityPercent'] ?? 0;
+  const bonus = structureBonus(kind, buildings, standing?.level ?? 0, crewStorage);
+  const nextBonus =
+    nextLevel === null ? null : structureBonus(kind, buildings, nextLevel, crewStorage);
 
   return (
     <Modal
@@ -172,9 +190,9 @@ export function StructureDialog({
           dropped its own <header> to avoid, and it would make `locator('header')` match twice
           whenever a plot dialog is open. */}
       {/* `shrink-0` on both the header and the footer, so the only thing a short viewport
-          squeezes is the scrollable body between them. Without it flexbox takes the space out of
+          squeezes is the scrollable unit between them. Without it flexbox takes the space out of
           whichever child will give, and a header that gives up four pixels clips its own text
-          against the modal's `max-h`, which is a defect no assertion about the *body* can see. */}
+          against the modal's `max-h`, which is a defect no assertion about the *unit* can see. */}
       {/* No portrait.
        *
        * The window used to open on a 128px painting of the building, which is the same building
@@ -435,11 +453,20 @@ export function StructureDialog({
               Machines are built and kept here. They carry a column to the ground faster than it
               walks, and they are lost with the people riding them.
             </p>
+            {/*
+             * Straight to the machines, not to a page about them.
+             *
+             * This used to open `/game/garage`, which held a level, a seat count and one button
+             * that went here. Three clicks and two screens to reach a list, with the middle screen
+             * telling a player nothing they could not read on the dialog they had just left. The
+             * page is retired; the Vehicles tab is where the machines live, beside the people who
+             * ride them, which is the comparison that matters when choosing one.
+             */}
             <Button
               size="sm"
               className="mt-2.5"
               data-testid="garage-open"
-              onClick={() => onGo('/game/garage')}
+              onClick={() => onGo('/game/units?tab=vehicles')}
             >
               Open the Garage
             </Button>
@@ -450,8 +477,8 @@ export function StructureDialog({
         {kind === 'scrapyard' && (
           <Section title="The yard">
             <p className="font-body text-xs leading-relaxed text-ink-300">
-              Add-ons are built here: modifications for these three slots, and refits for the
-              roster. Scrap, and good metal for the heavy work.
+              Add-ons are built here: building modifications for these three slots, and unit
+              modifications for the roster. Scrap, and good metal for the heavy work.
             </p>
             <Button
               size="sm"
@@ -527,9 +554,17 @@ function SlotRack({
 }) {
   const standing = findBuilding(base.buildings, kind);
   const slots = modificationSlots(standing);
-  const shelf = shelvedModifications(addonsOf(base), base.buildings).filter(
-    (id) => findModification(id)?.building === kind,
-  );
+  /*
+   * Everything on the shelf that **fits** this structure, not only what calls it home.
+   *
+   * Cross-building fittings (2026-09-14) go into a set of structures rather than one, so filtering
+   * on `building === kind` hid a plumbing run from the Quarters it was built for and left the
+   * bracket reading "Nothing built for this" while the part sat on the shelf.
+   */
+  const shelf = shelvedModifications(addonsOf(base), base.buildings).filter((id) => {
+    const spec = findModification(id);
+    return spec !== undefined && modificationFits(spec, kind);
+  });
   // The route's own gate, asked here, so a dead control and a 409 give the same reason.
   const refusal =
     shelf[0] === undefined
@@ -542,6 +577,39 @@ function SlotRack({
         });
 
   const [picking, setPicking] = useState<number | null>(null);
+  /** Which card the player has pressed and not yet confirmed. Cleared when the picker closes. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  /*
+   * Which bracket is being stripped, and has not been confirmed yet.
+   *
+   * Fitting asked before it spent the part and stripping did not, which had the confirmation on
+   * the wrong side of the pair: fitting a card moves it from the shelf into a wall, and stripping
+   * one *destroys* it (`clearSlot` puts nothing back on the shelf and refunds nothing). The
+   * cheaper, reversible half was guarded and the permanent half went on a single click.
+   */
+  const [stripping, setStripping] = useState<number | null>(null);
+  const strippingSpec =
+    stripping === null ? undefined : findModification(standing?.modifications[stripping] ?? '');
+  const confirmed = confirming === null ? null : findModification(confirming);
+  /** What is already bolted into this structure, which is what a synergy is measured against. */
+  const fittedHere = (standing?.modifications ?? []).flatMap((id) => {
+    const spec = findModification(id);
+    return spec ? [spec] : [];
+  });
+  /*
+   * The shelf grouped by grade, in the order the yard sells it (maintainer request, 2026-09-15).
+   *
+   * The Scrapyard's bench draws its cards under BASIC, INTRICATE, ADVANCED, MASTERPIECE, each in
+   * its colour, and a player who has just walked here from it should find the same shelf sorted
+   * the same way. What is *on* the shelf is unchanged: the filter above is still the only gate.
+   */
+  const shelfByRarity = MODIFICATION_RARITIES.map((rarity) => ({
+    rarity,
+    cards: shelf.flatMap((id) => {
+      const spec = findModification(id);
+      return spec && spec.rarity === rarity ? [spec] : [];
+    }),
+  })).filter((group) => group.cards.length > 0);
 
   return (
     <>
@@ -553,11 +621,49 @@ function SlotRack({
             kind={kind}
             shelf={shelf}
             refusal={refusal}
-            onClear={onClear}
+            onClear={setStripping}
             onPick={setPicking}
           />
         ))}
       </ul>
+
+      <SetReadout fitted={fittedHere} open={slots.filter((slot) => slot.open).length} />
+
+      {/*
+       * The other half of the permanent decision, asked the way the kit asks every other one.
+       *
+       * Fitting a card asked before it spent the part while stripping one destroyed it on a single
+       * click, which put the confirmation on the reversible half of the pair and left the permanent
+       * half unguarded: `clearSlot` puts nothing back on the shelf and refunds nothing. Through
+       * `Confirm` rather than a dialog of its own, which is that component's stated rule and the
+       * reason it lives in the kit: two screens with different ideas of "are you sure" is the bug
+       * it was written to stop.
+       */}
+      {stripping !== null && strippingSpec && (
+        <Confirm
+          title="Strip it out?"
+          body={[
+            `${strippingSpec.name} comes out of ${BUILDING_CATALOG[kind].name} and is scrap.`,
+            'It does not go back on the shelf, nothing is refunded, and the Scrapyard has to build another one from parts.',
+            // Said only when it is true: stripping a card out of a full bracket of one family also
+            // gives up the set bonus, which is the expensive half and the half nobody thinks of at
+            // the moment they press a red word.
+            completedFamily(fittedHere, slots.filter((slot) => slot.open).length) !== null &&
+            strippingSpec.family
+              ? `That breaks the ${MODIFICATION_FAMILY_LABELS[strippingSpec.family]} set, and its ${describeSetBonus(strippingSpec.family)} goes with it.`
+              : '',
+          ]
+            .filter((line) => line !== '')
+            .join(' ')}
+          confirm="Strip it out"
+          testId={`slot-strip-${kind}`}
+          onCancel={() => setStripping(null)}
+          onConfirm={() => {
+            onClear(stripping);
+            setStripping(null);
+          }}
+        />
+      )}
 
       {/*
        * §E: what could go in this bracket (maintainer request).
@@ -567,7 +673,13 @@ function SlotRack({
        * replaced: a bracket is a choice, and a control that silently picks for you is not one.
        */}
       {picking !== null && (
-        <Modal onClose={() => setPicking(null)} labelledBy={`slot-picker-${kind}`}>
+        <Modal
+          onClose={() => {
+            setPicking(null);
+            setConfirming(null);
+          }}
+          labelledBy={`slot-picker-${kind}`}
+        >
           <div className="flex flex-col gap-3 p-4">
             <div>
               <h2
@@ -577,46 +689,231 @@ function SlotRack({
                 {BUILDING_CATALOG[kind].name} · bracket {picking + 1}
               </h2>
               <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-                Everything the yard has built for this structure and not yet bolted anywhere.
+                Everything the Scrapyard has built that fits this structure and is not yet bolted
+                anywhere. A card is worth more beside its own kind.
               </p>
             </div>
 
             <ul
-              className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto"
+              className="flex max-h-[22rem] flex-col gap-2 overflow-y-auto"
               data-testid={`slot-options-${kind}`}
             >
-              {shelf.map((id) => {
-                const spec = findModification(id);
-                if (!spec) return null;
-                return (
-                  <li key={id}>
-                    <button
-                      type="button"
-                      data-testid={`slot-option-${id}`}
-                      onClick={() => {
-                        onFit(id);
-                        setPicking(null);
-                      }}
-                      className="flex w-full flex-col gap-0.5 rounded-sm border border-surface-600/70 bg-surface-950/40 px-3 py-2 text-left transition-colors hover:border-brass-300/60"
-                    >
-                      <span className="font-display text-[13px] font-bold text-ink-100">
-                        {spec.name}
-                      </span>
-                      <span className="font-display text-[12px] tabular-nums text-brass-300">
-                        {describeAddonEffect(spec)}
-                      </span>
-                      <span className="font-body text-[12px] leading-snug text-ink-300">
-                        {spec.description}
-                      </span>
-                    </button>
+              {shelfByRarity.map((group) => (
+                <Fragment key={group.rarity}>
+                  <li
+                    className={cn(
+                      'font-display text-[10px] font-bold uppercase tracking-[0.18em] [&:not(:first-child)]:mt-2',
+                      RARITY_TEXT[group.rarity],
+                    )}
+                    data-testid={`slot-options-${kind}-${group.rarity}`}
+                  >
+                    {MODIFICATION_RARITY_LABELS[group.rarity]}
                   </li>
-                );
-              })}
+                  {group.cards.map((spec) => {
+                    const id = spec.id;
+                    const wanted =
+                      spec.synergy === undefined
+                        ? null
+                        : fittedHere.some((other) => other.family === spec.synergy?.with);
+                    return (
+                      <li key={id}>
+                        <button
+                          type="button"
+                          data-testid={`slot-option-${id}`}
+                          onClick={() => setConfirming(id)}
+                          data-sound="click"
+                          className={cn(
+                            'ink-box flex w-full flex-col gap-1 px-3.5 py-2.5 text-left',
+                            'transition-transform duration-150 hover:-translate-y-px',
+                            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brass-300',
+                          )}
+                        >
+                          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="font-stamp text-[14px] leading-none text-ink-100">
+                              {spec.name}
+                            </span>
+                            <RarityTag rarity={spec.rarity} />
+                            {spec.family && (
+                              <span className="rounded-sm border border-iris-300/50 bg-iris-500/15 px-1.5 py-px font-display text-[9px] font-bold uppercase tracking-[0.14em] text-iris-100">
+                                {MODIFICATION_FAMILY_LABELS[spec.family]}
+                              </span>
+                            )}
+                            <span className="font-display text-[12px] tabular-nums text-brass-300">
+                              {describeAddonEffect(spec)}
+                            </span>
+                          </span>
+                          <span className="font-body text-[12px] leading-snug text-ink-300">
+                            {spec.description}
+                          </span>
+                          {/*
+                        The combo, said before the choice rather than after it.
+
+                        A synergy a player only discovers by fitting a card is not a decision, it
+                        is a surprise. This says what the card wants and whether this structure
+                        already has it, which is the whole question the deck asks.
+                      */}
+                          {spec.synergy && (
+                            <span
+                              className={cn(
+                                'font-display text-[11px] font-bold uppercase tracking-[0.12em]',
+                                wanted ? 'text-verdigris-100' : 'text-ink-400',
+                              )}
+                              data-testid={`slot-option-synergy-${id}`}
+                            >
+                              {wanted ? '+' : ''}
+                              {spec.synergy.bonus} beside{' '}
+                              {MODIFICATION_FAMILY_LABELS[spec.synergy.with]}
+                              {wanted ? ' · already here' : ' · not here yet'}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </Fragment>
+              ))}
             </ul>
+
+            {/*
+             * The confirm, because bolting one in is a one-way door.
+             *
+             * A fitted modification can be emptied out of its bracket but the part is *gone*: it
+             * does not go back on the shelf and nothing is refunded. That is a decision worth one
+             * more press (maintainer request, 2026-09-14), and the copy says plainly what will not
+             * be given back rather than asking "are you sure" about nothing in particular.
+             */}
+            {confirmed && (
+              <div
+                className="ink-frame card-paper flex flex-col gap-2.5 rounded-sm p-3"
+                style={{ backgroundColor: 'rgb(23 19 32)' }}
+                data-testid={`slot-confirm-${kind}`}
+              >
+                <p className="font-body text-[13px] leading-snug text-ink-200">
+                  Bolt <span className="font-stamp text-ink-100">{confirmed.name}</span> into{' '}
+                  {BUILDING_CATALOG[kind].name}? You can empty the bracket later, but the part is
+                  spent: nothing comes back and nothing is refunded.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ClaimButton
+                    label="Bolt it in"
+                    ariaLabel={`Bolt ${confirmed.name} into ${BUILDING_CATALOG[kind].name}`}
+                    data-testid={`slot-confirm-yes-${kind}`}
+                    onClick={() => {
+                      onFit(confirmed.id);
+                      setConfirming(null);
+                      setPicking(null);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(null)}
+                    data-testid={`slot-confirm-no-${kind}`}
+                    className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400 transition-colors hover:text-ink-200"
+                  >
+                    Not yet
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
     </>
+  );
+}
+
+/**
+ * The family this bracket is completely built around, or null.
+ *
+ * The client's own reading of `completedSet`, which takes a `Building` and is therefore awkward to
+ * ask about a list of specs. Kept to the same rule as the shared one on purpose: every open slot
+ * filled, all of one family. If that rule ever moves, `decks.test.ts` is where it moves, and this
+ * has to follow it.
+ */
+function completedFamily(
+  fitted: readonly ModificationSpec[],
+  open: number,
+): ModificationFamily | null {
+  if (open < MODIFICATION_SET_SIZE || fitted.length < open) return null;
+  const family = fitted[0]?.family;
+  if (family === undefined) return null;
+  return fitted.every((spec) => spec.family === family) ? family : null;
+}
+
+/**
+ * Whether this structure is built around one family, and what that is worth (2026-09-14).
+ *
+ * The set bonus shipped with nothing in the client reading it. Every other half of the deck was
+ * on screen, the family tag and the synergy line in the picker, so a player could see that cards
+ * had families and never learn that three of one family in one structure paid anything at all. A
+ * bonus nobody can see is not a mechanic, it is a number in a test.
+ *
+ * Drawn in all three states on purpose. "Nothing yet" is the one that teaches the rule, and a
+ * readout that only appeared once a set was complete would only ever be read by players who had
+ * already worked it out.
+ */
+function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number }) {
+  // A set is every open slot filled with one family, so it cannot be assembled at all until the
+  // structure has all three. Saying so is more use than a progress line that can never finish.
+  if (open < MODIFICATION_SET_SIZE) {
+    return (
+      <p
+        className="mt-2 font-body text-[12px] leading-snug text-ink-400"
+        data-testid="set-readout"
+        data-set="locked"
+      >
+        Fill all {MODIFICATION_SET_SIZE} slots with one family and the structure pays a set bonus on
+        top of the cards. That needs the last slot, at level{' '}
+        {MODIFICATION_SLOT_LEVELS[MODIFICATION_SET_SIZE - 1]}.
+      </p>
+    );
+  }
+
+  const family = completedFamily(fitted, open);
+
+  if (family !== null) {
+    const bonus = SET_BONUSES[family];
+    return (
+      <p
+        /*
+         * `.ink-field`, not `.ink-box`.
+         *
+         * `.ink-box` is drawn in a 200x56 viewBox with its line 8 units inside the edge, painted at
+         * `background-size: 100% 100%`. On a box this shape, wide and two lines tall, that 8 units
+         * stretches to about 14px while the padding is 10, so the sentence was printed *outside*
+         * its own border on both sides. `.ink-field` is the same pen authored for exactly this
+         * shape (the note above it in `index.css` says so), with its line 3 units in.
+         */
+        className="ink-field mt-2 px-3 py-2 font-body text-[12px] leading-snug text-verdigris-100"
+        data-testid="set-readout"
+        data-set="complete"
+      >
+        <span className="font-stamp text-[13px] text-verdigris-100">
+          {MODIFICATION_FAMILY_LABELS[family]} set
+        </span>{' '}
+        {bonus.title}: {describeSetBonus(family)}, on top of what the cards pay.
+      </p>
+    );
+  }
+
+  // Not a set yet. Name the family that is closest, because "two of three Comfort" is a decision
+  // and "no set" is not.
+  const counts = new Map<ModificationFamily, number>();
+  for (const spec of fitted) {
+    if (spec.family) counts.set(spec.family, (counts.get(spec.family) ?? 0) + 1);
+  }
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  return (
+    <p
+      className="mt-2 font-body text-[12px] leading-snug text-ink-400"
+      data-testid="set-readout"
+      data-set="partial"
+    >
+      {best === undefined
+        ? `No set. Three cards of one family in these ${MODIFICATION_SET_SIZE} slots pays a bonus on top of them.`
+        : `${best[1]} of ${MODIFICATION_SET_SIZE} ${MODIFICATION_FAMILY_LABELS[best[0]]}. A full bracket of one family adds ${describeSetBonus(best[0])}.`}
+    </p>
   );
 }
 
@@ -642,13 +939,21 @@ function SlotRow({
     return (
       <li className={cnRow(true)} data-testid={`slot-${kind}-${slot.index}`}>
         <span className="truncate">{fitted.name}</span>
+        {/*
+         * "Strip out", not "Empty" (2026-09-14).
+         *
+         * The control sat at the end of a row whose other half is the fitted card's name, so it
+         * read as the slot's *state* rather than as something to press: "Automated Protocols,
+         * Empty" says the opposite of what is true. Every other row in the rack does say its state
+         * there ("Level 20" on a locked one), which is exactly why a verb is needed on this one.
+         */}
         <button
           type="button"
           className="shrink-0 text-oxblood-300 underline-offset-2 hover:underline"
           data-testid={`slot-clear-${kind}-${slot.index}`}
           onClick={() => onClear(slot.index)}
         >
-          Empty
+          Strip out
         </button>
       </li>
     );
@@ -671,23 +976,48 @@ function SlotRow({
    * *decision*, and a decision needs the options in front of it.
    */
   const open = shelf.length > 0 && refusal === null;
-  return (
-    <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
-      <span className="truncate">Empty</span>
-      {open ? (
-        <button
-          type="button"
-          className="shrink-0 text-verdigris-100 underline-offset-2 hover:underline"
-          data-testid={`slot-fit-${kind}-${slot.index}`}
-          onClick={() => onPick(slot.index)}
-        >
-          Fit one ({shelf.length})
-        </button>
-      ) : (
+
+  /*
+   * The whole empty bracket is the control, not the words at the end of it.
+   *
+   * `Fit one (4)` was a text link about a quarter of an inch wide at the right-hand edge of a row
+   * whose other ninety percent said `Empty` and did nothing when pressed (maintainer request,
+   * 2026-09-14). An empty slot is the most pressable thing on this dialog and it behaved like a
+   * label. The row is a button now and the count rides along inside it.
+   */
+  if (!open) {
+    return (
+      <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
+        <span className="truncate">Empty</span>
         <span className="shrink-0 normal-case tracking-normal text-ink-300">
           {refusal === null ? 'Nothing built for this' : describeSlotRefusal(refusal, kind)}
         </span>
-      )}
+      </li>
+    );
+  }
+
+  return (
+    <li data-testid={`slot-${kind}-${slot.index}`}>
+      <button
+        type="button"
+        onClick={() => onPick(slot.index)}
+        data-testid={`slot-fit-${kind}-${slot.index}`}
+        data-sound="click"
+        className={cn(
+          cnRow(false),
+          'w-full cursor-pointer text-left transition-colors',
+          'border-verdigris-300/40 hover:border-verdigris-300/80 hover:text-verdigris-100',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-verdigris-300',
+        )}
+      >
+        <span className="truncate">Empty</span>
+        <span className="flex shrink-0 items-center gap-1.5 text-verdigris-100">
+          Fit one
+          <span className="rounded-sm bg-verdigris-500/25 px-1.5 py-px tabular-nums">
+            {shelf.length}
+          </span>
+        </span>
+      </button>
     </li>
   );
 }
@@ -782,7 +1112,7 @@ function ceilingReason(kind: BuildingKind, base: Base): string {
 /**
  * One panel of the window, with its own heading.
  *
- * The body used to be a run of label-over-value rows separated by hairlines, which reads as one
+ * The unit used to be a run of label-over-value rows separated by hairlines, which reads as one
  * long list of facts however it is arranged in columns: the player has to read every label to
  * find the one they came for. A section is a *place*: the price is in the box called "Build this",
  * the slots are in the box called "Modifications", and a glance lands in the right box before any

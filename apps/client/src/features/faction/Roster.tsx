@@ -18,7 +18,7 @@ import { releaseHover } from './parts';
  *
  * The room is the picture of who is here; this is the same people as rows you can read down. Both
  * are needed and neither replaces the other: a picture answers "who is at this table" at a glance
- * and cannot carry a district name, a level and a body count per person without turning into five
+ * and cannot carry a district name, a level and a unit count per person without turning into five
  * spreadsheets standing at a bar.
  *
  * The rows are in `seatOrder`, the same order the seats are filled in, so the third row and the
@@ -84,8 +84,8 @@ function MemberRow({
             <dd className="tabular-nums">{Math.round(member.infamy).toLocaleString()}</dd>
             <dt className="text-ink-400">Earned here</dt>
             <dd className="tabular-nums">{Math.round(member.infamyEarned).toLocaleString()}</dd>
-            <dt className="text-ink-400">Supply</dt>
-            <dd className="tabular-nums">{member.supplyUsed.toLocaleString()}</dd>
+            <dt className="text-ink-400">Unit slots</dt>
+            <dd className="tabular-nums">{member.unitSlotsUsed.toLocaleString()}</dd>
             <dt className="text-ink-400">Since</dt>
             <dd className="tabular-nums">{member.joinedAt.slice(0, 10)}</dd>
           </dl>

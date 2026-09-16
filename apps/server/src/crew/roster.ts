@@ -8,18 +8,18 @@ import {
 } from '@frontline/shared';
 import { roleFit } from '../roles/requirements.js';
 import type { Repositories } from '../db/repos/index.js';
-import { districtPopulation, type DistrictPopulation } from '../district/population.js';
+import { districtUnitSlots, type DistrictUnitSlots } from '../district/unit-slots.js';
 
 /**
  * Reading the crew (GDD §G): who is in which chair, and everything about them.
  *
  * This was the assignee layer, and most of it was pool arithmetic derived from `Base.level`: how
- * many bodies the level had granted, how many were placed, what one more under an officer would
+ * many units the level had granted, how many were placed, what one more under an officer would
  * pay. None of that exists any more. What is left is a projection of the officers themselves, which
  * is the only part of the payload a player was ever reading.
  */
 
-/** One officer as the crew screen shows them: the person, not a body count. */
+/** One officer as the crew screen shows them: the person, not a unit count. */
 export function projectCrewOfficer(officer: Commander): CrewOfficer {
   return {
     officerId: officer.id,
@@ -47,15 +47,15 @@ export function projectCrewOfficer(officer: Commander): CrewOfficer {
 }
 
 /** The §A1 pool as the screen quotes it: beds, which officers still take one of each. */
-function housingOf(population: DistrictPopulation): CrewResponse['housing'] {
-  return { used: population.total, capacity: population.capacity };
+function housingOf(slots: DistrictUnitSlots): CrewResponse['housing'] {
+  return { used: slots.total, capacity: slots.capacity };
 }
 
 /** The whole crew screen in one payload. */
 export function projectCrew(repos: Repositories, base: Base): CrewResponse {
   return {
     level: base.level,
-    housing: housingOf(districtPopulation(repos, base)),
+    housing: housingOf(districtUnitSlots(repos, base)),
     officers: base.commanders.map(projectCrewOfficer),
   };
 }

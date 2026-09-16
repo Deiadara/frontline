@@ -71,6 +71,7 @@ import {
   research,
   startedResearch,
   featsBoard,
+  overseerChoices,
   TOKEN,
 } from './fixtures';
 
@@ -461,7 +462,7 @@ export async function installApi(
   page: Page,
   meResponse: MeResponse,
   /**
-   * The satchel this install's board is holding.
+   * The inventory this install's board is holding.
    *
    * Most specs route the market read to a fixture of their own and never need this. The one
    * that does is Reimagining: the trade route below *writes* to the board's inventory, so a spec
@@ -1195,7 +1196,7 @@ export async function installApi(
     /*
      * §G2: the bench, and the only fixture write in this file that has to *spend* something.
      *
-     * The three pages named on the request come out of this install's own satchel and the page
+     * The three pages named on the request come out of this install's own inventory and the page
      * handed back goes into it, because the whole of what the Reimagining screen has to get right
      * after a press is that the tray changed. A handler answering with the board untouched would
      * let a tray that never re-reads its counts pass every assertion in the spec.
@@ -1258,7 +1259,7 @@ export async function installApi(
     }
     /*
      * Settings answers the same record from all three of its endpoints, so one handler covers the
-     * read, the profile patch and the passphrase change.
+     * read, the profile patch and the password change.
      *
      * The profile patch is folded into the copy rather than discarded, for the reason the roster
      * and the auction tables are copied per install: a save is a write, and the screen reads the
@@ -1340,6 +1341,15 @@ export async function installApi(
     if (pathname.includes('/api/garage')) {
       return json(route.request().method() === 'GET' ? garage : { garage });
     }
+    /*
+     * §F6: the four this account is offered, before the bare `/api/overseer` handler below.
+     *
+     * Character select reads its cards off the server now rather than off the preset table, so a
+     * harness with no answer here draws an empty grid: every click times out and the layout guards
+     * measure a screen with nothing on it. The fixture offers the first four, which is what makes
+     * `fixtures.overseer` (built from `OVERSEER_PRESETS[0]`) a card a test can press.
+     */
+    if (pathname.endsWith('/api/overseer/choices')) return json(overseerChoices);
     if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);

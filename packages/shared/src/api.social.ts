@@ -47,7 +47,7 @@ export const AllyBattleSchema = z.object({
   scheduledFor: IsoDateTimeSchema,
   /** `attacker` when the ally called it, `defender` when they are being come for. */
   side: z.enum(['attacker', 'defender']),
-  /** Bodies already committed on the ally's side, allies of theirs included. */
+  /** Units already committed on the ally's side, allies of theirs included. */
   committed: z.number().int().nonnegative(),
   /** What this player has already put in, so the screen can say "you sent 12" rather than nothing. */
   yourContribution: z.number().int().nonnegative(),
@@ -60,7 +60,7 @@ export const AllyArmySchema = z.object({
   memberUserId: IdSchema,
   memberName: z.string().min(1),
   army: ArmySchema,
-  /** Bodies, so a row can be read without adding the record up. */
+  /** Units, so a row can be read without adding the record up. */
   size: z.number().int().nonnegative(),
 });
 export type AllyArmy = z.infer<typeof AllyArmySchema>;

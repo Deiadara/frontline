@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { BUILDING_CATALOG, type BuildingKind } from '@frontline/shared';
+import {
+  BUILDING_CATALOG,
+  MODIFICATION_RARITIES,
+  MODIFICATION_RARITY_LABELS,
+  type BuildingKind,
+} from '@frontline/shared';
 import { lateGame, scrapyard } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
@@ -13,6 +18,51 @@ import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harn
 
 test.use({ viewport: { width: 1280, height: 800 } });
 
+/**
+ * The head is one line, and the eleven structures stand in the room it leaves (maintainer request,
+ * 2026-09-15).
+ *
+ * Two separate asks that land on the same measurement. The filter and the yard's plate moved up
+ * beside the benches, which gives the workspace a whole line back; the rail then has to hold all
+ * eleven doors without a scrollbar, which it could not do before either change. Both are geometry,
+ * so both are measured in a browser rather than asserted about class names.
+ *
+ * 1280x800 is the tightest viewport where this is expected to hold. It does not hold at 1280x720
+ * or 1024x768 and is not asked to: eleven doors of two lines each want 362px against the 289px
+ * that scene leaves, and the only way to close that is to stop saying what level a structure is at.
+ * The rows keep a `min-content` floor there and the rail scrolls, which is the honest behaviour.
+ */
+test('puts the whole head on one line and fits all eleven structures without a scrollbar', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/scrapyard');
+  await expect(page.getByTestId('scrapyard-menu')).toBeVisible();
+  await settleFonts(page);
+
+  const shape = await page.evaluate(() => {
+    const tabs = document.querySelector('[role="tablist"]')!.getBoundingClientRect();
+    const boxes = document
+      .querySelector('[data-testid="scrapyard-head-boxes"]')!
+      .getBoundingClientRect();
+    const menu = document.querySelector('[data-testid="scrapyard-menu"]') as HTMLElement;
+    const doors = document.querySelectorAll('[data-testid="scrapyard-menu"] li').length;
+    return {
+      // Same line: their vertical centres agree, which a wrapped row's never would.
+      sameLine: Math.abs(tabs.y + tabs.height / 2 - (boxes.y + boxes.height / 2)) < 4,
+      // ...and the boxes are the right-hand pair, not stacked under the benches.
+      boxesRight: boxes.x > tabs.x + tabs.width - 1,
+      overflowPx: menu.scrollHeight - menu.clientHeight,
+      doors,
+    };
+  });
+
+  expect(shape.doors, 'every structure has a door').toBe(11);
+  expect(shape.sameLine, 'the filter and the yard plate sit on the benches’ own line').toBe(true);
+  expect(shape.boxesRight, 'they are pushed to the right of the benches').toBe(true);
+  expect(shape.overflowPx, 'the structures rail needs a scrollbar').toBeLessThanOrEqual(0);
+});
+
 const NEXUS = 'scrapyard-nexus';
 const doorOf = (kind: BuildingKind) =>
   `scrapyard-bench-${BUILDING_CATALOG[kind].name.toLowerCase().replace(/[^a-z]+/g, '-')}`;
@@ -25,10 +75,6 @@ const doorOf = (kind: BuildingKind) =>
 const LOCKED = scrapyard.entries.find(
   (entry) => entry.kind === 'modification' && !entry.documentHeld,
 )!;
-const HIDDEN_ON_BENCH = scrapyard.entries.filter(
-  (entry) =>
-    entry.kind === 'modification' && entry.building === LOCKED.building && !entry.documentHeld,
-).length;
 
 test("the yard opens on the structures, with the yard's own plate beside the tabs", async ({
   page,
@@ -68,8 +114,15 @@ test("a structure's door narrows the bench to it, and the tabs swap the bench", 
   await expect(page.getByTestId(NEXUS)).toHaveCount(0);
   // The row behind a document the crew has not assembled is not drawn, and the bench says so.
   await expect(page.getByTestId(`addon-${LOCKED.id}`)).toHaveCount(0);
+  /*
+   * The line says where to go, not how many are missing (maintainer request, 2026-09-15).
+   *
+   * It counted the withheld rows, and the count was the half a player can do nothing about. The
+   * row still has to be *absent* and the bench still has to say something, which is what the two
+   * assertions around this one pin; the sentence itself is now one string for every count.
+   */
   await expect(page.getByTestId(`scrapyard-hidden-${LOCKED.building}`)).toContainText(
-    HIDDEN_ON_BENCH === 1 ? 'One more' : `${HIDDEN_ON_BENCH} more`,
+    'find some more blueprints',
   );
 
   await page.getByTestId('scrapyard-view-refits').click();
@@ -123,12 +176,70 @@ test('the ready filter leaves exactly the rows the yard could cut today', async 
   await page.screenshot({ path: 'e2e-out/scrapyard-ready.png' });
 });
 
-/** A row the yard is too low for says which level, before it says anything about documents. */
-test('a rung the yard cannot reach names the level it opens at', async ({ page }) => {
+/**
+ * A row the yard is too low for says which level, before it says anything about documents.
+ *
+ * The Hardshell Exoframe is a MASTERPIECE card, which opens at a yard level the fixture (level 6)
+ * has not reached; the fixture holds its document, so the level is the only thing in the way.
+ */
+test('a card the yard cannot reach names the level it opens at', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/scrapyard?view=refits');
-  await expect(page.getByTestId('addon-armour_3')).toBeVisible();
-  await expect(page.getByTestId('addon-blocker-armour_3')).toContainText(
+  await expect(page.getByTestId('addon-hardshell_exoframe')).toBeVisible();
+  await expect(page.getByTestId('addon-blocker-hardshell_exoframe')).toContainText(
     /Needs the Scrapyard at level \d+/,
   );
+});
+
+/**
+ * The unit bench is four groups in the yard's order, and one press (maintainer request, 2026-09-15).
+ *
+ * This replaced the four refit ladders and the test that held their tiers level across columns.
+ * The cards have no tiers now; what they have is a grade, and the two things worth measuring are
+ * that the groups come in the order the yard opens them and that a group boundary does not change
+ * a card's height. The second is the one that fails quietly: four separate trays would each be
+ * internally level and the bench would still read as a broken fence between them.
+ */
+test('the unit bench groups its cards by rarity, every card the same height', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await installApi(page, lateGame);
+  await page.goto('/game/scrapyard?view=refits');
+  await expect(page.getByTestId('scrapyard-refits')).toBeVisible();
+  await settleFonts(page);
+
+  const headings = await page
+    .locator('[data-testid^="scrapyard-rarity-"] h3')
+    .evaluateAll((nodes) => nodes.map((node) => node.textContent));
+  expect(headings).toEqual(
+    MODIFICATION_RARITIES.map((rarity) => MODIFICATION_RARITY_LABELS[rarity]),
+  );
+
+  // Every card on the bench, its group, and its height, in document order.
+  const cards = await page.getByTestId('scrapyard-unit-modifications').evaluate((tray) =>
+    [...tray.children].reduce<{ group: string; height: number }[]>((acc, node) => {
+      const id = node.getAttribute('data-testid') ?? '';
+      if (id.startsWith('scrapyard-rarity-')) acc.push({ group: id, height: 0 });
+      else if (id.startsWith('addon-')) {
+        const group = acc[acc.length - 1];
+        if (group) acc.push({ group: group.group, height: node.getBoundingClientRect().height });
+      }
+      return acc;
+    }, []),
+  );
+  const heights = cards.filter((card) => card.height > 0).map((card) => Math.round(card.height));
+  // A guard on the fixture: more than one group, more than one card each, or this proves nothing.
+  expect(new Set(cards.map((card) => card.group)).size).toBe(4);
+  expect(heights.length).toBeGreaterThan(8);
+  expect(
+    Math.max(...heights) - Math.min(...heights),
+    `heights: ${heights.join(', ')}`,
+  ).toBeLessThanOrEqual(1);
+
+  // The groups are contiguous: a card's group never goes back to one already closed.
+  const order = cards
+    .map((card) => card.group)
+    .filter((group, at, all) => all.indexOf(group) === at);
+  expect(order).toEqual(MODIFICATION_RARITIES.map((rarity) => `scrapyard-rarity-${rarity}`));
+
+  await expectNothingOverflowsTheScreen(page);
 });

@@ -10,7 +10,7 @@ import { combinedSide, splitSurvivors } from './side.js';
  *   1. **The engine sees everybody.** A fold that read one row would march the declarer in alone
  *      while their reinforcements sat in the database, and the only symptom would be a fight that
  *      went worse than the screen said it would.
- *   2. **Everybody gets their own bodies back.** The engine answers for the side as a whole, and
+ *   2. **Everybody gets their own units back.** The engine answers for the side as a whole, and
  *      those survivors belong to different people. Handing them all to the declarer would transfer
  *      an ally's army to whoever called the fight, one battle at a time.
  */
@@ -83,10 +83,10 @@ describe('splitting the survivors back', () => {
   /**
    * The rounding property, which is the reason this is largest-remainder rather than a floor.
    *
-   * `floor` loses a body on almost every split with more than one contributor, and those losses
+   * `floor` loses a unit on almost every split with more than one contributor, and those losses
    * land on whoever contributed least. Over a war that is an ally quietly paying for the maths.
    */
-  it('never loses a body to rounding, however awkward the split', () => {
+  it('never loses a unit to rounding, however awkward the split', () => {
     const rows = [row('a', { razors: 1 }), row('b', { razors: 1 }), row('c', { razors: 1 })];
     for (let survived = 0; survived <= 3; survived += 1) {
       const shares = splitSurvivors(rows, { razors: survived }, pick);

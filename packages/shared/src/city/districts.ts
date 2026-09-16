@@ -2,13 +2,7 @@ import { z } from 'zod';
 import { DEFAULT_CITY_ID } from './cities.js';
 import { AllegianceSchema, governmentGarrisonFor, type Allegiance } from '../allegiance.js';
 import { IdSchema } from './../primitives.js';
-import {
-  FortifyDifficultySchema,
-  LocationKindSchema,
-  type HoldBonus,
-  type Location,
-  type LocationKind,
-} from './locations.js';
+import { LocationSchema, type HoldBonus, type Location, type LocationKind } from './locations.js';
 
 /**
  * The city (GDD §A4): ten districts, hard-authored, with the locations inside them.
@@ -38,6 +32,16 @@ export type Position = z.infer<typeof PositionSchema>;
 
 export const DistrictSchema = z.object({
   id: IdSchema,
+  /**
+   * Which city this ground is in.
+   *
+   * Defaulted rather than required, because every district authored below predates the second city
+   * and all of them are Ashfall's. `city/atlas.ts` is where the others are, and it fills this in.
+   * The field is on the district rather than on the crew for the reason the module note gives: a
+   * crew is in a district and a district is in a city, and storing the city twice is how the two
+   * copies come to disagree.
+   */
+  cityId: z.string().min(1).default(DEFAULT_CITY_ID),
   name: z.string().min(1),
   /**
    * What the street calls it: "the Tech District", "the Old City Center". Not every district has
@@ -65,15 +69,10 @@ export const DistrictSchema = z.object({
   position: PositionSchema,
   difficulty: z.number().int().min(1).max(10),
   blurb: z.string().min(1),
-  locations: z.array(
-    z.object({
-      id: z.string().min(1),
-      districtId: z.string().min(1),
-      name: z.string().min(1),
-      kind: LocationKindSchema,
-      fortifyDifficulty: FortifyDifficultySchema,
-    }),
-  ),
+  // The one location schema rather than a copy of its fields: `z.object` strips what it was not
+  // told about, so a copy that lagged behind `LocationSchema` by one field would have dropped that
+  // field from every district the client parses, and nothing would have said so.
+  locations: z.array(LocationSchema),
 });
 export type District = z.infer<typeof DistrictSchema>;
 
@@ -322,22 +321,66 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
   },
 };
 
+/**
+ * One district, with the boring fields filled in.
+ *
+ * The atlas authors fourteen districts, and typing `formalName: null, seatOfPower: false` on every
+ * one of them is fourteen chances to get a default wrong. The literals below predate this and are
+ * left exactly as they were: they are the map everybody has learned, and rewriting them through a
+ * helper would be a large diff for no change in behaviour.
+ */
+export function districtFrom(spec: {
+  id: string;
+  cityId: string;
+  name?: string | undefined;
+  nickname: string | null;
+  kind: District['kind'];
+  allegiance: District['allegiance'];
+  seatOfPower?: boolean;
+  position: District['position'];
+  difficulty: number;
+  blurb: string;
+  locations: readonly LocationRow[];
+}): District {
+  return {
+    id: spec.id,
+    cityId: spec.cityId,
+    // A plot has no authored name: it is ground a crew moves into and takes the name of.
+    name: spec.name ?? UNCLAIMED_DISTRICT_NAME,
+    nickname: spec.nickname,
+    formalName: null,
+    kind: spec.kind,
+    allegiance: spec.allegiance,
+    seatOfPower: spec.seatOfPower ?? false,
+    position: spec.position,
+    difficulty: spec.difficulty,
+    blurb: spec.blurb,
+    locations: locationsIn(spec.id, spec.locations),
+  };
+}
+
+/**
+ * One authored location, as a row: slug, name, kind, how hard it is to dig into, and optionally
+ * what this particular place is. The fifth element is what lets two rail yards read differently
+ * (`LocationSchema.blurb`); a row without one prints its kind's line.
+ */
+type LocationRow = readonly [
+  slug: string,
+  name: string,
+  kind: LocationKind,
+  fortify: Location['fortifyDifficulty'],
+  blurb?: string,
+];
+
 /** Terser than repeating the district id in every location literal. */
-function locationsIn(
-  districtId: string,
-  rows: readonly [
-    slug: string,
-    name: string,
-    kind: LocationKind,
-    fortify: Location['fortifyDifficulty'],
-  ][],
-): Location[] {
-  return rows.map(([slug, name, kind, fortifyDifficulty]) => ({
+function locationsIn(districtId: string, rows: readonly LocationRow[]): Location[] {
+  return rows.map(([slug, name, kind, fortifyDifficulty, blurb]) => ({
     id: `${districtId}-${slug}`,
     districtId,
     name,
     kind,
     fortifyDifficulty,
+    ...(blurb === undefined ? {} : { blurb }),
   }));
 }
 
@@ -359,7 +402,14 @@ function locationsIn(
  * approach to the Spire. `city.test.ts` pins the gradient and the spacing so a future district
  * cannot be dropped in on top of another one.
  */
-export const CITY_DISTRICTS: readonly District[] = [
+/*
+ * Authored without `cityId` and stamped with it below.
+ *
+ * Every one of these is Ashfall's, and writing `cityId: 'ashfall'` on twelve literals would be
+ * twelve copies of one fact. The stamp is where the second city arrives from: `city/atlas.ts`
+ * authors its districts with their own id and this array keeps the default.
+ */
+const ASHFALL: readonly Omit<District, 'cityId'>[] = [
   /*
    * **Order is the art seed.** `art/manifest.ts` seeds `district-*` off each entry's index here, so
    * moving one renumbers the seed of every district after it and silently re-rolls art that may
@@ -558,6 +608,15 @@ export const CITY_DISTRICTS: readonly District[] = [
       ['fieldchapel', 'Chapel of the Furrow', 'chapel', 'easy'],
       // Against the fence, on the wrong side of the food.
       ['fence', 'The Fence Camp', 'refugee_camp', 'easy'],
+      // The glass itself, along the top of the painting (maintainer request, 2026-09-15). The
+      // district was named for these and had no location standing on them.
+      [
+        'glasshouses',
+        'The Glasshouses',
+        'glasshouse',
+        'medium',
+        'The row of glass houses along the top of the fields, lamps lit inside and windmills pumping the beds. Everything under that glass is on a Directorate manifest before it is picked.',
+      ],
     ]),
   },
   {
@@ -572,15 +631,71 @@ export const CITY_DISTRICTS: readonly District[] = [
     difficulty: 8,
     blurb:
       'Hardened ferrocrete, layered berms, and a Directorate rifle company that has never had to leave. The first place anyone learns not to walk into.',
+    /*
+     * Every location here carries its own blurb, written to where it stands in the delivered
+     * painting (`art-src/plate-district-blacksite-7.png`, 2026-09-15), so the sheet describes the
+     * thing the sign is hung on rather than the kind in general. Three were renamed the same day:
+     * Motor Pool Seven, Ward Nine and Pit Seventeen lost their numbers. The slugs stayed, because
+     * every saved control row is keyed on them; `pit17` now reads as a number the place no longer
+     * has, and is left that way on purpose.
+     */
     locations: locationsIn('blacksite-7', [
-      ['armory', 'Blacksite Armory', 'armory', 'hard'],
-      ['outer', 'Outer Berm', 'barricade', 'hard'],
-      ['watchtower', 'The Watchtower', 'watchtower', 'hard'],
-      ['pit17', 'Pit Seventeen', 'fight_pit', 'medium'],
-      ['motorpool', 'Motor Pool Seven', 'war_machine_graveyard', 'hard'],
-      ['drill', 'The Drill Hall', 'gym', 'medium'],
-      ['blackward', 'Ward Nine', 'black_clinic', 'hard'],
-      ['pile', 'The Pile', 'nuclear_plant', 'hard'],
+      [
+        'armory',
+        'Blacksite Armory',
+        'armory',
+        'hard',
+        'The hardened bunker at the centre of the yard, under the tower, racks lit orange inside. Everything the rifle company carries when it goes out came off those racks.',
+      ],
+      [
+        'outer',
+        'Outer Berm',
+        'barricade',
+        'hard',
+        'The fortified compound at the top of the hill, its great gate under the red-diamond banners, and the ramparts running down from it along the whole left of the yard. The only way in is under those banners.',
+      ],
+      [
+        'watchtower',
+        'The Watchtower',
+        'watchtower',
+        'hard',
+        'The tower left of centre with the searchlight on top. Whoever is up there sees the whole yard lit at once, and most of the city past it.',
+      ],
+      [
+        'pit17',
+        'Robot Pit',
+        'fight_pit',
+        'medium',
+        'The lit ring at the bottom left of the yard. Machines are set against each other in it, and against men when the crowd wants that instead; the bookmaker takes both.',
+      ],
+      [
+        'motorpool',
+        'Motor Pool',
+        'war_machine_graveyard',
+        'hard',
+        'Trucks and tracked vehicles drawn up below the armoury, right of centre. Half of it runs, the other half is spares, and the gantry does not care which.',
+      ],
+      [
+        'drill',
+        'The Drill Hall',
+        'gym',
+        'medium',
+        'The bunker at the top right, with the rifle company drawn up in ranks on the square in front of it. Drill every morning, iron every evening, nobody excused.',
+      ],
+      [
+        'blackward',
+        'Psychic Ward',
+        'black_clinic',
+        'hard',
+        'The cyan-lit room set into the high wall on the right, glass on the yard side. The Directorate takes minds apart in there and puts them back the way it wants them; what walks out remembers the wall and very little else.',
+      ],
+      [
+        'pile',
+        'The Pile',
+        'nuclear_plant',
+        'hard',
+        'Reactor drums and a cooling tower in the far bottom-right corner, steaming. The Directorate never shut it down; it only stopped saying what it was for.',
+      ],
     ]),
   },
   {
@@ -639,6 +754,11 @@ export const CITY_DISTRICTS: readonly District[] = [
   },
 ];
 
+export const CITY_DISTRICTS: readonly District[] = ASHFALL.map((district) => ({
+  ...district,
+  cityId: DEFAULT_CITY_ID,
+}));
+
 export function findDistrict(districtId: string): District | undefined {
   return CITY_DISTRICTS.find((district) => district.id === districtId);
 }
@@ -651,13 +771,8 @@ export function findDistrict(districtId: string): District | undefined {
  * when the board adds a second city only the values here change. Every screen asking "is this near
  * me" already goes through this.
  */
-const DISTRICT_CITY: ReadonlyMap<string, string> = new Map(
-  CITY_DISTRICTS.map((district) => [district.id, DEFAULT_CITY_ID]),
-);
-
-export function cityOf(districtId: string): string | undefined {
-  return DISTRICT_CITY.get(districtId);
-}
+/* `cityOf` lives in `city/atlas.ts` now: it has to answer for every city, and this module can
+ * only see Ashfall's. Re-exported from the barrel, so nothing that imports it had to move. */
 
 /** Every authored location in the city, flattened. */
 export const CITY_LOCATIONS: readonly Location[] = CITY_DISTRICTS.flatMap(

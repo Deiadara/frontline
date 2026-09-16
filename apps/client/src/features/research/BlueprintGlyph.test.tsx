@@ -217,9 +217,12 @@ describe('what is on the sheet is what the catalogue says is on it', () => {
     expect(motifOf(pageDrawing(rotorcraft, 1))).toBe('swashplate');
   });
 
-  it('draws a bus for the Cheese Wagon and a mortar and pestle for the primer mixes', () => {
+  it('draws a bus for the Cheese Wagon and a mortar and pestle for the thickened mix', () => {
     expect(motifOf(coverDrawing(requireBlueprint('bp_armoured_car')))).toBe('bus');
-    expect(motifOf(pageDrawing(requireBlueprint('bp_munitions'), 1))).toBe('mortar_pestle');
+    // The mortar and pestle used to be pinned on the Munitions document's primer page. That
+    // document went with the tiered refits (2026-09-15), and the one sheet still mixing anything
+    // by hand is the Fuel Fougasse's second page.
+    expect(motifOf(pageDrawing(requireBlueprint('bp_fuel_fougasse'), 1))).toBe('mortar_pestle');
   });
 
   /** One drawing per sheet. The seeded second and third marks are gone and stay gone. */

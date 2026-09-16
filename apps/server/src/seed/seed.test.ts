@@ -5,6 +5,8 @@ import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
   STARTING_RESOURCES,
+  findOverseerPreset,
+  overseerFromPreset,
   type CityResponse,
   type SkirmishEngine,
 } from '@frontline/shared';
@@ -16,6 +18,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { ALLY_DISTRICT_ID, MVP_ALLY, MVP_BOT } from './constants.js';
 import { seedMvpWorld } from './index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 interface Stack {
   app: FastifyInstance;
@@ -95,12 +98,7 @@ async function landAsDevPlayer(app: FastifyInstance): Promise<{ token: string; b
   expect(res.statusCode).toBe(200);
   const token = res.json<{ token: string }>().token;
 
-  const overseer = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const overseer = await chooseOverseer(app, token);
   expect(overseer.statusCode).toBe(201);
   return { token, baseId: overseer.json<{ base: { id: string } }>().base.id };
 }
@@ -186,6 +184,62 @@ describe('seedMvpWorld', () => {
     expect(restored?.name).toBe(MVP_BOT.baseName);
     expect(restored?.ownerId).toBe(botUser?.id);
     expect(repos.users.findByUsername(MVP_BOT.username)?.overseerId).toBe(botUser?.overseerId);
+  });
+
+  /**
+   * A player holding the rival's character must not cost the world its rival (§F6).
+   *
+   * This is the failure the pool opened and it was silent in the worst way. The seeded crews name
+   * a preset apiece in `seed/constants.ts`; migration 0095 made `preset_id` unique; so once a
+   * player held `enforcer`, `repos.overseers.insert` threw `SQLITE_CONSTRAINT_UNIQUE` inside
+   * `seedStep`, which reads any unique failure as "another boot wrote this row already". The step
+   * reported the world seeded, the rival was never created, the district stayed empty and
+   * **nothing was logged**.
+   *
+   * The setup is the real one rather than a contrived row: delete the rival's base so the seeder
+   * has to mint it again, and claim its named preset first, which is exactly what happens on any
+   * world where a player picked that character before a re-seed.
+   */
+  it('still seeds a rival when a player already holds the character it is named for', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos });
+
+    // Free the rival's whole identity, then let a player take the character it wants.
+    const botUser = repos.users.findByUsername(MVP_BOT.username);
+    db.prepare('DELETE FROM bases WHERE district_id = ?').run(BOT_DISTRICT_ID);
+    // The pointer first: `users.overseer_id` is a foreign key, so dropping the row under it fails.
+    db.prepare('UPDATE users SET overseer_id = NULL WHERE id = ?').run(botUser?.id ?? '');
+    db.prepare('DELETE FROM overseers WHERE user_id = ?').run(botUser?.id ?? '');
+    expect(countBotBases(db)).toBe(SEEDED_BOTS - 1);
+
+    const taken = findOverseerPreset(MVP_BOT.overseerPresetId);
+    expect(taken, 'the rival names a preset that exists').toBeDefined();
+    repos.users.insert({
+      id: 'squatter',
+      username: 'squatter',
+      passwordHash: 'x',
+      createdAt: new Date().toISOString(),
+    });
+    repos.overseers.insert({
+      overseer: overseerFromPreset(taken!, 'squatter-overseer'),
+      userId: 'squatter',
+      presetId: taken!.presetId,
+      createdAt: new Date().toISOString(),
+    });
+    expect(repos.overseers.claimedPresetIds().has(taken!.presetId)).toBe(true);
+
+    const summary = await seedMvpWorld({ db, repos });
+
+    // The rival is back, on somebody else's character, and the player keeps the one they took.
+    expect(summary.createdBot, 'the rival was silently skipped').toBe(true);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS);
+    const rival = repos.users.findByUsername(MVP_BOT.username);
+    expect(rival?.overseerId).toBeTruthy();
+    const face = repos.overseers.findById(rival!.overseerId!);
+    expect(face, 'the rival has no overseer at all').toBeDefined();
+    expect(repos.overseers.findById('squatter-overseer')?.name).toBe(taken!.name);
+    // ...and the two are different people, which is the whole of what the unique index buys.
+    expect(face!.name).not.toBe(taken!.name);
   });
 
   it('survives two processes seeding the same database at once', async () => {

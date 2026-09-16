@@ -62,8 +62,8 @@ export function MemberWindow({
 
   const readings: readonly [label: string, value: string][] = [
     ['Level', String(member.level)],
-    ['Bodies', member.armySize.toLocaleString()],
-    ['Supply', member.supplyUsed.toLocaleString()],
+    ['Units', member.armySize.toLocaleString()],
+    ['Unit Slots', member.unitSlotsUsed.toLocaleString()],
     ['Infamy', Math.round(member.infamy).toLocaleString()],
     ['Earned here', Math.round(member.infamyEarned).toLocaleString()],
     ['At the table since', member.joinedAt.slice(0, 10)],
@@ -88,7 +88,9 @@ export function MemberWindow({
             <MemberFace member={member} size="lg" />
             {/* Across the foot of the portrait, never off its right corner: hung there, `Leader`
                 is wide enough to land on the readings beside it. */}
-            <RankStamp rank={member.rank} className="absolute -bottom-2 left-0 right-0 block h-7" />
+            {/* Same four-pixel lift as the faction file's roster, for the same reason: the
+                lettering was sitting on the edge of the picture. */}
+            <RankStamp rank={member.rank} className="absolute -bottom-1 left-0 right-0 block h-7" />
           </div>
 
           <div className="flex min-w-[14rem] flex-1 flex-col gap-2">

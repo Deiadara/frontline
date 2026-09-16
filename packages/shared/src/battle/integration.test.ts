@@ -17,7 +17,7 @@ import { TacticalSkirmishEngine, type SkirmishOutcome } from './skirmish.js';
  *
  * The other suites each pin one rule. This one runs the real engine over a spread of real rosters
  * and asserts the things that have to be true of *any* fight however the rules change: that every
- * body is accounted for, that nothing gains health or bodies, that a broken stack stops fighting,
+ * unit is accounted for, that nothing gains health or units, that a broken stack stops fighting,
  * that the report describes the simulation that actually happened.
  *
  * These are the tests that catch a bug nobody thought to look for. A unit test knows what it is
@@ -135,7 +135,7 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
       }
     });
 
-    it('never gains a body or a point of health at any step', () => {
+    it('never gains a unit or a point of health at any step', () => {
       for (const seed of seeds) {
         const simulation = run(scenario, seed);
         for (const side of [simulation.attacker, simulation.defender]) {
@@ -210,7 +210,7 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
       }
     });
 
-    it('accounts for every body the loser brought', () => {
+    it('accounts for every unit the loser brought', () => {
       for (const seed of seeds) {
         const outcome = resolve(scenario, seed);
         const brought =
@@ -251,7 +251,7 @@ describe.each(SCENARIOS.map((scenario) => [scenario.name, scenario] as const))(
         expect(outcome.log.length).toBeGreaterThan(1);
         expect(outcome.log.join(' ')).toContain(scenario.ground.locationName);
         expect(outcome.log.some((line) => line.trim() === '')).toBe(false);
-        // The last line always accounts for the bodies.
+        // The last line always accounts for the units.
         expect(outcome.log.at(-1)).toMatch(/lost on the ground|did not|broke and ran/);
       }
     });
@@ -303,7 +303,7 @@ describe('across every scenario at once', () => {
     }
   });
 
-  it('takes bodies off a stack the round it breaks', () => {
+  it('takes units off a stack the round it breaks', () => {
     for (const { simulation } of everything) {
       for (const side of [simulation.attacker, simulation.defender]) {
         for (const stack of side.stacks.filter((candidate) => candidate.brokeAt !== null)) {
@@ -318,11 +318,11 @@ describe('across every scenario at once', () => {
    * A broken stack is out of the fight, and the only way to see that is in what it stops doing.
    *
    * Measured as the drop in the *enemy's* losses across the round a stack breaks. An earlier
-   * version of this asserted that broken stacks had lost bodies, which is true of pursuit and says
+   * version of this asserted that broken stacks had lost units, which is true of pursuit and says
    * nothing about firing: it passed with the exclusion deleted outright.
    *
    * Sparks break early (morale 30) and Wardens hold (70), so the defence loses most of its output
-   * mid-fight while still having bodies on the field. Measured: the attacker's losses fall from
+   * mid-fight while still having units on the field. Measured: the attacker's losses fall from
    * ~11% a round to ~3% the round after.
    */
   it('stops a broken stack contributing to the fight', () => {

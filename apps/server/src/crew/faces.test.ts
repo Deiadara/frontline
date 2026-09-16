@@ -12,6 +12,7 @@ import { signRecruit } from '../bar/hire.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { backfillPortraits, rosterFaces, takenFaces } from './faces.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * One face per officer, across the whole city (maintainer request, 2026-09-11).
@@ -50,12 +51,7 @@ async function player(
     payload: { username, password: 'hunter2pass' },
   });
   const token = register.json<{ token: string }>().token;
-  const overseer = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const overseer = await chooseOverseer(app, token);
   return { token, base: overseer.json<{ base: Base }>().base };
 }
 

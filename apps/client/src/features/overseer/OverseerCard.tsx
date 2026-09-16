@@ -1,5 +1,7 @@
 import { findPerk, type OverseerPreset } from '@frontline/shared';
+import { Fragment } from 'react';
 import { cn } from '../../lib/cn';
+import { perkDetail } from '../../components/PerkTags';
 import { AttributeRadar } from './AttributeRadar';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
@@ -17,6 +19,9 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
+      // §F6: which four a player is shown is the server's answer and changes as the pool drains,
+      // so a browser test cannot press a character by name any more. This is the stable handle.
+      data-testid={`overseer-card-${preset.presetId}`}
       className={cn(
         'group flex min-h-0 snap-start flex-col border bg-surface-900 text-left transition-all duration-150',
         selected ? 'border-brass-300 shadow-brass' : 'border-surface-600 hover:border-brass-300/50',
@@ -50,19 +55,33 @@ export function OverseerCard({ preset, selected, onSelect }: OverseerCardProps) 
           >
             {preset.bio}
           </p>
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          {/* The signature, with what it is worth beside it.
+
+              The chip used to be the whole of it: a name and a flavour line on the hover, on the
+              one screen a player cannot come back to. Every other screen in the game prints
+              `describePerkBonus` under a perk, so the +5 that decides a whole run was readable
+              only on the profile page you reach *after* choosing.
+
+              On the chip's own row rather than under it, and at 10px: the radar beside this column
+              is 128px tall and sets the card's height, so a bonus that fits on the line the chip
+              is already using costs the card nothing. */}
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
             {preset.perks
               .map((id) => findPerk(id))
               .map(
                 (perk) =>
                   perk && (
-                    <span
-                      key={perk.id}
-                      data-tip={perk.description}
-                      className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
-                    >
-                      {perk.name}
-                    </span>
+                    <Fragment key={perk.id}>
+                      <span
+                        data-tip={perk.description}
+                        className="border border-warning/40 px-1.5 py-0.5 font-display text-[8px] uppercase tracking-[0.15em] text-warning"
+                      >
+                        {perk.name}
+                      </span>
+                      <span className="font-display text-[10px] leading-tight tracking-[0.02em] text-brass-300">
+                        {perkDetail(perk.id)}
+                      </span>
+                    </Fragment>
                   ),
               )}
           </div>

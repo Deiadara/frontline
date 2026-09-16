@@ -4,6 +4,9 @@ import {
   makeAttributes,
   type Mission,
   type MissionLeader,
+  findUnitModification,
+  missionCarry,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -62,6 +65,35 @@ function mission(fields: Partial<Mission> = {}): Mission {
   };
 }
 
+/**
+ * The bag the report says the crew could lift is the bag the settle paid against: with the crew's
+ * brackets folded in. Three Razors and a Scavenger, once bare and once with a Hook and Line on the
+ * Razors, must differ by exactly three cards' worth.
+ */
+describe('what the report says the crew could lift', () => {
+  it('counts the brackets in, as the settle does', () => {
+    const one = mission();
+    const loadouts: UnitLoadouts = { razors: ['hook_and_line', null, null] };
+    const card = findUnitModification('hook_and_line')!;
+    expect(card.effect.lootCapacity, 'the fixture card must move the bag').toBeGreaterThan(0);
+
+    render(
+      <MissionReportWindow
+        mission={one}
+        leaders={[ROOK]}
+        overseerName="Rook"
+        loadouts={loadouts}
+        onClose={() => undefined}
+      />,
+    );
+    const note = screen.getByTestId(`mission-carry-${one.id}`);
+    expect(note).toHaveTextContent(`${missionCarry(one.force, loadouts)} loot they could lift`);
+    expect(missionCarry(one.force, loadouts)).toBe(
+      missionCarry(one.force) + 3 * (card.effect.lootCapacity ?? 0),
+    );
+  });
+});
+
 const show = (one: Mission) =>
   render(
     <MissionReportWindow
@@ -80,7 +112,10 @@ describe('the haul, carried against earned', () => {
     const note = screen.getByTestId('mission-carry-r-1');
     expect(note).toHaveTextContent('could not carry everything');
     // In the game's own units rather than as a bare ratio, so "send more carriers" is actionable.
-    expect(note).toHaveTextContent('kg');
+    // Loot, not kilograms (maintainer request, 2026-09-15): a weight is a unit the game never
+    // otherwise uses, and the figure it labels is the raid's haul.
+    expect(note).toHaveTextContent('loot');
+    expect(note).not.toHaveTextContent('kg');
   });
 
   it('says they carried it all when the two agree', () => {
@@ -129,7 +164,7 @@ describe('what a run turned up', () => {
   });
 
   it('falls back to the id for an item this build has never heard of', () => {
-    // A satchel written by a newer server. Naming it as itself beats taking the window down.
+    // An inventory written by a newer server. Naming it as itself beats taking the window down.
     show(mission({ found: { 'nothing-like-this': 1 } as unknown as Mission['found'] }));
 
     expect(screen.getByTestId('mission-drops-r-1')).toHaveTextContent('nothing-like-this');

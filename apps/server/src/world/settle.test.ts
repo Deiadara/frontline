@@ -1,10 +1,11 @@
-import { declarationWindow, type BattleTarget } from '@frontline/shared';
+import { declarationWindow, DECLARE_INFAMY_COST, type BattleTarget } from '@frontline/shared';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Which screen a player opens first must not decide a battle.
@@ -46,13 +47,13 @@ async function register(app: FastifyInstance, username: string) {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
-  return { token, baseId: chosen.json<{ base: { id: string } }>().base.id };
+  const chosen = await chooseOverseer(app, token);
+  const baseId = chosen.json<{ base: { id: string } }>().base.id;
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
+  return { token, baseId };
 }
 
 describe('settling the world from a city page', () => {

@@ -27,9 +27,17 @@ const VIEWPORTS = [
  * Named here rather than derived, so a new plate is a line in this list rather than a district
  * that quietly ships with none of these sweeps run over it. That is not hypothetical: Chrome Row
  * landed while this said `['neon-docks', 'rustyard']` and went unswept, and the Undergrid and the
- * Annexes joined it on 2026-09-11.
+ * Annexes joined it on 2026-09-11, Glasshouse Fields and the Blacksite on 2026-09-15.
  */
-const PAINTED = ['neon-docks', 'rustyard', 'chrome-row', 'undergrid', 'datavault-sigma'] as const;
+const PAINTED = [
+  'neon-docks',
+  'rustyard',
+  'chrome-row',
+  'undergrid',
+  'datavault-sigma',
+  'glasshouse-fields',
+  'blacksite-7',
+] as const;
 
 interface Box {
   readonly id: string;
@@ -196,7 +204,11 @@ for (const id of PAINTED) {
       // covered by the scroll test below.
       await page.getByTestId(`site-${location.id}`).focus();
       await expect(tip).toContainText(location.name);
-      await expect(tip, 'the card does not say what the place is').toContainText(spec.blurb);
+      // A location with its own blurb (the Blacksite's eight, written to the painting) prints
+      // that; only a location without one falls back to its kind's. The same rule as the sheet.
+      await expect(tip, 'the card does not say what the place is').toContainText(
+        location.blurb ?? spec.blurb,
+      );
       await expect(tip, 'the card does not say what holding it pays').toContainText(spec.reward);
     });
 

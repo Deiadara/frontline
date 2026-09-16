@@ -99,7 +99,7 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
   await expect(page.locator('[data-testid^="seat-"]')).toHaveCount(OFFICER_ROLES.length);
   await expect(page.getByText('Vacant').first()).toBeVisible();
 
-  // A filled chair carries the person rather than a body count: their face, their name, and what
+  // A filled chair carries the person rather than a unit count: their face, their name, and what
   // they bring. The portrait is the card, so its absence is the failure this screen could most
   // easily have shipped.
   const seat = page.getByTestId('seat-instructor_of_the_young');
@@ -358,7 +358,7 @@ test('the bar’s seat screen stops at both ends of the roster', async ({ page }
  * on the one that was reported.
  *
  * Run at the shortest viewport in the matrix, which is where a downward card runs out of room
- * first. The satchel's note only exists while the satchel is empty and this fixture's is not, so
+ * first. The inventory's note only exists while the inventory is empty and this fixture's is not, so
  * eight of the nine are reachable: the count is asserted, because a sweep that quietly found
  * nothing would pass just as green as one that checked everything.
  */
@@ -421,7 +421,8 @@ test('a standing note opens fully on screen, on every screen that has one', asyn
   await installApi(page, adminGame);
 
   const routes = [
-    '/game/settings',
+    // Not `/game/settings` either: the maintainer took "What is yours alone" off the sheet
+    // (2026-09-15), so that screen carries no standing note now.
     '/game/market',
     '/game/market/offers',
     '/game/bar',
@@ -614,7 +615,7 @@ test('the unit roster shows what is fielded and what is still locked (§A5)', as
   await page.goto('/game/units');
 
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
-  await expect(page.getByTestId('supply')).toBeVisible();
+  await expect(page.getByTestId('unit-slots')).toBeVisible();
 
   // The screen opens on the carriers (maintainer request): they are the tier that decides whether a
   // mission comes home with what it earned, and they were four tabs down behind the fighting ones.
@@ -969,7 +970,6 @@ test('a screen that cannot load says so, rather than spinning or going blank', a
     ['/game/messages', '**/api/messages'],
     ['/game/faction', '**/api/factions'],
     // Both added with this patch, and both shipped drawing "Opening the yard..." for a 500.
-    ['/game/garage', '**/api/garage'],
     ['/game/scrapyard', '**/api/scrapyard'],
     // Seven more that said it in the DOM and said it underneath the standing bar: see the
     // viewport assertion below for what that looked like.

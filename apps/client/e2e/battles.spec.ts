@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   effectiveStats,
   findUnit,
+  fleetCapacity,
   labelText,
   noTerritoryEffects,
   type StatKey,
@@ -48,7 +49,7 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   const detail = page.getByTestId(`battle-detail-${mine.battle.id}`);
   await expect(detail).toBeVisible();
 
-  // The board's own request: what you have there, unit by unit, rather than one body count.
+  // The board's own request: what you have there, unit by unit, rather than one unit count.
   const forces = page.getByTestId('battle-forces');
   for (const unitId of Object.keys(mine.muster!.army)) {
     await expect(forces.getByTestId(`force-${unitId}`)).toBeVisible();
@@ -310,6 +311,37 @@ test('opening another fight scrolls its page back to the top', async ({ page }) 
   expect(await scrollTop(), 'the new fight opened part-way down its own page').toBe(0);
 });
 
+/**
+ * A receipt takes you to **that** report, not to the pile of them (maintainer request, 2026-09-15).
+ *
+ * The bell named a fight and then landed the player on a screen listing every fight they had ever
+ * had, with the one it was about somewhere in the list. A crew that fights twice in an evening
+ * cannot tell which row the bell was for. The notification links at `?report=<battleId>` now, and
+ * arriving that way opens the Reports tab with that fight's report already up.
+ *
+ * `fight-4` rather than `fight-3`, and that is the half that has teeth: `fight-3` is the first row
+ * in the list, so a page that opened whatever was at the top would pass against it and fail here.
+ * The two also draw different modals (fight-4 is redacted, so it is the silent one), which is what
+ * lets this assert *which* report came up rather than only that one did.
+ */
+test('a battle report link opens that fight’s report, not just the reports list', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/battles?report=fight-4');
+
+  // The tab followed the link rather than opening on what is coming.
+  await expect(page.getByTestId('battle-reports')).toBeVisible();
+  // fight-4's own modal, and not fight-3's, which is the row a naive open would have picked.
+  await expect(page.getByTestId('battle-report-silent')).toBeVisible();
+  await expect(page.getByTestId('battle-report')).toHaveCount(0);
+
+  // The query is spent, so closing it does not put the modal back up on the next poll.
+  await expect.poll(() => new URL(page.url()).search).not.toContain('report=');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('battle-report-silent')).toHaveCount(0);
+});
+
 test('a report reads as a document, and a silent one says so instead of showing an empty table', async ({
   page,
 }) => {
@@ -374,7 +406,7 @@ test('a report reads as a document, and a silent one says so instead of showing 
    *
    * The sweep treats any ancestor with a non-visible `overflow-y` as a clipping edge, and it is
    * right to: it cannot tell a reader who will scroll from one who will never see the row. The
-   * report's body is a scroller, so on a short window its last table row is legitimately under the
+   * report's unit is a scroller, so on a short window its last table row is legitimately under the
    * fold and the sweep calls it cut. That made the gate a knife edge on this screen: the report fit
    * by a few pixels, and adding the round count, the officer line and two ledger rows put it over,
    * which is a red for growing the document rather than for cutting anything.
@@ -404,7 +436,8 @@ test('the line and the ring are two windows, each with one column and its own Ha
   await installApi(page, lateGame);
   await page.goto('/game/battles');
 
-  const fight = battles.coming[0]!.battle.id;
+  const comingFight = battles.coming[0]!;
+  const fight = comingFight.battle.id;
   await page.getByTestId(`deploy-open-${fight}`).click();
   await expect(page.getByTestId('deploy-rows')).toBeVisible();
 
@@ -417,8 +450,21 @@ test('the line and the ring are two windows, each with one column and its own Ha
   const home = lateGame.base!.army.razors!;
   await page.getByTestId('deploy-half-razors').click();
   await expect(page.getByTestId('line-razors')).toHaveValue(String(Math.floor(home / 2)));
+
+  /*
+   * Max fills the seats, not the barracks (maintainer request, 2026-09-15).
+   *
+   * Once a machine is loaded, the column is capped at what it carries: this fight has one bike
+   * committed, and a bike seats two. Max used to read back every Razor at home, which is the
+   * behaviour before the cap and is now only right for a crew sending everybody on foot.
+   *
+   * Derived from the fixture's own committed fleet rather than written as `2`, so retuning the
+   * bike's capacity moves this with it instead of turning it red.
+   */
+  const seats = fleetCapacity(comingFight.vehicles);
   await page.getByTestId('deploy-max-razors').click();
-  await expect(page.getByTestId('line-razors')).toHaveValue(String(home));
+  await expect(page.getByTestId('line-razors')).toHaveValue(String(Math.min(home, seats)));
+  await expect(page.getByTestId('deploy-seats')).toContainText(`of ${seats}`);
 
   // §K3: the name opens the roster's own card, portrait, sheet and marks, in the window where a
   // player is choosing who to send.
@@ -442,7 +488,7 @@ test('the line and the ring are two windows, each with one column and its own Ha
   await expect(page.getByTestId('ring-razors')).toBeVisible();
   await expect(page.getByTestId('line-razors')).toHaveCount(0);
   await page.getByTestId('deploy-max-razors').click();
-  await expect(page.getByTestId('ring-razors')).toHaveValue(String(home));
+  await expect(page.getByTestId('ring-razors')).toHaveValue(String(Math.min(home, seats)));
   // A window that will not send what it just took is worse than no window: the confirm reads the
   // ring's deltas, and it used to read a state the ring never wrote to. The opacity is the same
   // assertion made in paint: the button fades up from its disabled state over 100ms, and a

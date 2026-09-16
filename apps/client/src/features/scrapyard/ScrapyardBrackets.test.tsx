@@ -1,16 +1,26 @@
 import {
   MAX_MODIFICATION_SLOTS,
   MODIFICATION_SLOT_LEVELS,
+  SCRAPYARD_LEVEL_FOR_RARITY,
   STARTING_RESOURCES,
+  UNIT_MODIFICATIONS,
   findModification,
+  isAdvancedModification,
+  modificationPrice,
   modificationsFor,
+  scrapyardLevelForModification,
+  scrapyardLevelForUpgrade,
   startingEconomy,
   startingProgression,
   startingResearch,
   startingTraining,
+  upgradePrice,
   type Base,
   type MeResponse,
+  type ModificationSpec,
+  type ScrapyardEntry,
   type ScrapyardResponse,
+  type UnitModificationSpec,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -98,7 +108,7 @@ const scrapyard: ScrapyardResponse = {
 
 const fetchMock = vi.fn();
 
-function stubApi(): void {
+function stubApi(board: ScrapyardResponse = scrapyard): void {
   const reply = (body: unknown) =>
     Promise.resolve({
       ok: true,
@@ -108,7 +118,7 @@ function stubApi(): void {
     } as Response);
 
   fetchMock.mockImplementation((path: string) => {
-    if (path.endsWith('/scrapyard')) return reply(scrapyard);
+    if (path.endsWith('/scrapyard')) return reply(board);
     if (path.endsWith('/me')) return reply(me);
     throw new Error(`unstubbed request: ${path}`);
   });
@@ -210,6 +220,46 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
     expect(await screen.findByText('the district')).toBeInTheDocument();
   });
 
+  /**
+   * A trap's stamp names its bill, not a grade.
+   *
+   * The unit bench one tab over grades its cards BASIC to MASTERPIECE, so a trap stamped
+   * "Advanced" read as the same ladder while it meant "wants high-quality metal". The stamp now
+   * says the metal, and a trap that wants none wears no stamp at all.
+   */
+  it('stamps a trap that wants good metal, and nothing on one that does not', async () => {
+    const trap = (id: string, advanced: boolean): ScrapyardEntry => ({
+      id,
+      kind: 'trap',
+      name: id,
+      description: 'A hole with an opinion.',
+      building: null,
+      effect: 'Slows the approach.',
+      cost: { caps: 40 },
+      advanced,
+      rarity: null,
+      blueprint: null,
+      owned: 0,
+      requiresLevel: 1,
+      documentHeld: true,
+      blocker: null,
+    });
+    stubApi({
+      ...scrapyard,
+      entries: [trap('trap_fuel_fougasse', true), trap('trap_collapse', false)],
+    });
+    renderYard('/game/scrapyard?view=traps');
+
+    const metal = within(await screen.findByTestId('addon-trap_fuel_fougasse'));
+    expect(metal.getByText('Good metal')).toBeInTheDocument();
+    const plain = within(screen.getByTestId('addon-trap_collapse'));
+    expect(plain.queryByText('Good metal')).toBeNull();
+    for (const card of [metal, plain]) {
+      expect(card.queryByText('Advanced')).toBeNull();
+      expect(card.queryByText('Basic')).toBeNull();
+    }
+  });
+
   it('honours the old ?bench= deep links to the refits and the traps', async () => {
     stubApi();
     renderYard('/game/scrapyard?bench=traps');
@@ -223,5 +273,125 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
   it('is a precondition that the fitted and shelved modifications are different things', () => {
     expect(FITTED.id).not.toBe(SHELVED.id);
     expect(findModification(SHELVED.id)?.building).toBe('lab');
+  });
+});
+
+/**
+ * The heading over each grade says the level *its own cards* open at.
+ *
+ * The two benches climb the yard's ladder differently: a unit card opens at its grade's rung
+ * (`SCRAPYARD_LEVEL_FOR_RARITY`), a building card with the yard or at the advanced rung
+ * (`scrapyardLevelForModification`). The heading read the unit ladder over both, so the Nexus
+ * bench said "INTRICATE · opens at yard level 3" above cards a level-1 yard was cutting, with no
+ * "Yard 3" stamp on any of them. The rows are built here the way the server builds them, off the
+ * same shared functions, so the heading is measured against what the server actually gates with.
+ */
+describe('the head of the page', () => {
+  /*
+   * Two groups on one line: the benches, then the filter and the yard's plate pushed to the right
+   * edge (maintainer request, 2026-09-15). It was two stacked rows, and the line that change gives
+   * back goes to the bench below, which is the thing a player is actually reading.
+   *
+   * The grouping is what is pinned here rather than the geometry: the filter and the plate have to
+   * stay in one box together, or the `ml-auto` that pushes them right pushes only one of them and
+   * the other is left stranded mid-row. Where the two groups actually land at each supported width
+   * is measured in the browser, in `scrapyard.spec.ts`.
+   */
+  it('keeps the filter and the yard plate together in one box beside the benches', async () => {
+    stubApi();
+    renderYard();
+
+    const info = await screen.findByTestId('scrapyard-info');
+    const head = screen.getByTestId('scrapyard-head');
+    const [benches, boxes] = head.children;
+    expect(head.children).toHaveLength(2);
+    expect(benches).toHaveAttribute('role', 'tablist');
+    expect(boxes).toContainElement(screen.getByTestId('scrapyard-ready-only'));
+    expect(boxes).toContainElement(info);
+    expect(benches).not.toContainElement(info);
+  });
+});
+
+describe('the grade headings say the level their own cards open at', () => {
+  const NEXUS = modificationsFor('nexus');
+
+  const bracketRow = (spec: ModificationSpec): ScrapyardEntry => ({
+    id: spec.id,
+    kind: 'modification',
+    name: spec.name,
+    description: spec.description,
+    building: spec.building,
+    effect: '',
+    cost: modificationPrice(spec),
+    advanced: isAdvancedModification(spec),
+    rarity: null,
+    blueprint: null,
+    owned: 0,
+    requiresLevel: scrapyardLevelForModification(spec),
+    documentHeld: true,
+    blocker: null,
+  });
+  const unitRow = (spec: UnitModificationSpec): ScrapyardEntry => ({
+    id: spec.id,
+    kind: 'upgrade',
+    name: spec.name,
+    description: spec.description,
+    building: null,
+    effect: '',
+    cost: upgradePrice(spec),
+    advanced: spec.rarity !== 'basic',
+    rarity: spec.rarity,
+    blueprint: null,
+    owned: 0,
+    requiresLevel: scrapyardLevelForUpgrade(spec),
+    documentHeld: true,
+    blocker: null,
+  });
+
+  const board: ScrapyardResponse = {
+    ...scrapyard,
+    entries: [...NEXUS.map(bracketRow), ...UNIT_MODIFICATIONS.map(unitRow)],
+  };
+
+  /** A grade whose building cards open at a different rung from its unit cards, or the test is moot. */
+  const split = NEXUS.find(
+    (spec) => scrapyardLevelForModification(spec) !== SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity],
+  );
+
+  it('is a precondition that the two ladders disagree somewhere on the Nexus bench', () => {
+    expect(split, 'no Nexus card opens at a rung other than its grade’s').toBeDefined();
+  });
+
+  it('reads a building grade off its cards, not off the unit ladder', async () => {
+    if (!split) throw new Error('precondition: see the test above');
+    stubApi(board);
+    renderYard('/game/scrapyard?bench=nexus');
+    const tray = within(await screen.findByTestId('scrapyard-nexus'));
+    const heading = tray.getByTestId(`scrapyard-rarity-${split.rarity}`);
+    expect(heading).toHaveTextContent(
+      `opens at yard level ${scrapyardLevelForModification(split)}`,
+    );
+    expect(heading).not.toHaveTextContent(
+      `opens at yard level ${SCRAPYARD_LEVEL_FOR_RARITY[split.rarity]}`,
+    );
+  });
+
+  it('still reads the unit ladder over the unit bench, where the two agree', async () => {
+    if (!split) throw new Error('precondition: see the test above');
+    stubApi(board);
+    renderYard('/game/scrapyard?view=refits');
+    const tray = within(await screen.findByTestId('scrapyard-unit-modifications'));
+    expect(tray.getByTestId(`scrapyard-rarity-${split.rarity}`)).toHaveTextContent(
+      `opens at yard level ${SCRAPYARD_LEVEL_FOR_RARITY[split.rarity]}`,
+    );
+  });
+
+  it('tells the two ladders apart in the tip on the yard plate', async () => {
+    stubApi(board);
+    renderYard();
+    const tip = (await screen.findByTestId('scrapyard-level-tip')).getAttribute('data-tip') ?? '';
+    expect(tip).toContain(`INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}`);
+    expect(tip).toContain('Building cards: BASIC and INTRICATE at 1');
+    expect(tip).not.toContain('alike');
   });
 });

@@ -14,7 +14,8 @@ import {
 } from './boosts.js';
 import { blueprintForBattleBoost, blueprintGateMet } from '../blueprints/requirements.js';
 import { findTech } from '../research/tech.js';
-import { infamyForKill } from '../economy/infamy.js';
+import { NOTORIETY_TO_FIELD, infamyForKill } from '../economy/infamy.js';
+import { notorietySpentTo } from '../economy/notoriety.js';
 
 const techName = (id: string): string => findTech(id)?.name ?? id;
 
@@ -98,7 +99,7 @@ describe('what a name buys (§D7)', () => {
      * a boost is also behind whoever proposed it, so an ungated boost the fixture crew has no chair
      * for reads false for a reason that has nothing to do with blueprints.
      */
-    // The real predicate against an empty satchel, not a stub that answers false to everything:
+    // The real predicate against an empty inventory, not a stub that answers false to everything:
     // `blueprintGateMet` answers **true** for anything nothing gates, and a stub that did not would
     // have made the second loop below assert the opposite of the rule.
     const nothingHeld = (boostId: string) => blueprintGateMet({}, 'battle_boost', boostId);
@@ -124,9 +125,19 @@ describe('how far a boost reaches', () => {
     expect(boostCoverage({ kind: 'force', stat: 'offense', percent: 10 }, {})).toBe(0);
   });
 
-  it('weighs a slice by supply rather than by headcount', () => {
-    // Four Razors (supply 1 each) beside one Juggernaut. By bodies the heavy end is a fifth of the
-    // force; by what it eats it is a good deal more, and that is what a battlefield notices.
+  /**
+   * Heads, not unit slots (maintainer, 2026-09-15).
+   *
+   * This was the one place inside the engine that read a slot cost, and it made a narrow boost on
+   * the heavy end reach more of a line than the line actually contained. A unit slot prices what a
+   * sheet costs to house, to carry and to kill; it says nothing about a battlefield, and combat
+   * width, nerve, menace and targeting have always counted the things standing there.
+   *
+   * Four Razors beside one Juggernaut is one head in five, whatever the Juggernaut eats. The old
+   * weighting is asserted as the control, so a reader that went back to it fails here rather than
+   * landing on the same number by luck.
+   */
+  it('weighs a slice by head count and not by unit slots', () => {
     const razor = findUnit('razors')!;
     const juggernaut = findUnit('juggernauts')!;
     const force = { razors: 4, juggernauts: 1 };
@@ -134,8 +145,12 @@ describe('how far a boost reaches', () => {
       { kind: 'tier', tier: 'heavy', stat: 'defense', percent: 30 },
       force,
     );
-    expect(covered).toBeCloseTo(juggernaut.supply / (4 * razor.supply + juggernaut.supply), 6);
-    expect(covered).toBeGreaterThan(1 / 5);
+    expect(covered).toBeCloseTo(1 / 5, 6);
+
+    // The control: the two arithmetics genuinely differ on this force, so the assertion above is
+    // measuring the rule rather than agreeing with both at once.
+    const bySlots = juggernaut.unitSlots / (4 * razor.unitSlots + juggernaut.unitSlots);
+    expect(bySlots).toBeGreaterThan(1 / 5);
   });
 
   it('reaches nothing when the force has none of what it boosts', () => {
@@ -148,6 +163,31 @@ describe('how far a boost reaches', () => {
     expect(
       boostCoverage({ kind: 'unit', unitId: 'the_colossus', stat: 'offense', percent: 50 }, {}),
     ).toBe(0);
+  });
+
+  /**
+   * A porter is not standing anywhere a boost can reach.
+   *
+   * `standsInLine` keeps a support sheet out of the round loop entirely, and counting it here
+   * divided every narrow boost by whoever was carrying the loot: ten Ironsides behind forty
+   * Scavengers turned a bought "+35% defence for your heavy units" into +7% on the force, at full
+   * price, for owning porters. The crew that fields its porters says so through `carriersFight`,
+   * so the two readings of "who is on the field" stay one reading.
+   */
+  it('counts the line and not the people carrying the loot', () => {
+    const effect = { kind: 'tier', tier: 'heavy', stat: 'defense', percent: 35 } as const;
+    const withPorters = { ironsides: 10, scavengers: 40 };
+    expect(findUnit('scavengers')!.combat, 'the premise: a porter does not fight').not.toBe(true);
+
+    expect(boostCoverage(effect, withPorters)).toBeCloseTo(
+      boostCoverage(effect, { ironsides: 10 }),
+      6,
+    );
+
+    // ...and a crew whose porters do fight is counted the way its fight is: they dilute it again.
+    const fighting = boostCoverage(effect, withPorters, { carriersFight: true, unitMarks: {} });
+    expect(fighting).toBeCloseTo(10 / 50, 6);
+    expect(fighting).toBeLessThan(boostCoverage(effect, withPorters));
   });
 
   it('ignores a unit id nothing answers to rather than counting it', () => {
@@ -188,12 +228,16 @@ describe('what the engine is handed', () => {
   /**
    * Priced against the fights that pay for them. The cheapest boost has to be worth more than a
    * skirmish against rabble and less than a career, or the sink is either free or decorative.
+   *
+   * A career is the ladder: `infamy.ts` says most of a crew's earnings go on rank, so the rung a
+   * legend asks for is what a career of fights adds up to. It used to be twenty Colossi, which
+   * was a career when one paid 250 and is an afternoon now that one pays its twelve slots.
    */
   it('prices the shelf on the scale a real fight earns', () => {
     const cheapest = Math.min(...BATTLE_BOOSTS.map((spec) => spec.cost));
     const dearest = Math.max(...BATTLE_BOOSTS.map((spec) => spec.cost));
     expect(cheapest).toBeGreaterThan(20 * infamyForKill('razors'));
-    expect(dearest).toBeLessThan(20 * infamyForKill('the_colossus'));
+    expect(dearest).toBeLessThan(notorietySpentTo(NOTORIETY_TO_FIELD.legendary));
   });
 });
 

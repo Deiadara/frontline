@@ -61,10 +61,10 @@ export function Readings({
    * faction file so the three cannot round it differently.
    */
   const meanLevel = averageLevel(data.members.map((member) => member.level));
-  /* The population the table's battle units take up, not a head count: every fighting body
-     counts against the beds in somebody's district (`supplyUsed`), and a Juggernaut takes more of
+  /* The unit slots the table's battle units take up, not a head count: every fighting unit
+     counts against the beds in somebody's district (`unitSlotsUsed`), and a Juggernaut takes more of
      them than a Razor. The hover says so. */
-  const bodies = data.members.reduce((total, member) => total + member.supplyUsed, 0);
+  const units = data.members.reduce((total, member) => total + member.unitSlotsUsed, 0);
   const ordered = fightOrder(data.battles);
   const shown = ordered.slice(0, CHIPS);
   const rest = ordered.length - shown.length;
@@ -84,11 +84,11 @@ export function Readings({
             note={`A faction holds ${MAX_FACTION_MEMBERS} districts. An invitation from a chief or the leader is the only way into one of them.`}
           />
           <Reading
-            testId="dial-bodies"
+            testId="dial-units"
             icon="units"
-            label="Bodies"
-            value={bodies.toLocaleString()}
-            note="The population taken up by battle units across the whole table: every fighting body everybody here has trained, at home, garrisoned or on the road, counted against the beds in their districts. It moves as people train and as fights are paid for."
+            label="Unit Slots"
+            value={units.toLocaleString()}
+            note="The unit slots taken up by battle units across the whole table: every fighting unit everybody here has trained, at home, garrisoned or on the road, counted against the slots in their districts. It moves as people train and as fights are paid for."
           />
           <Reading
             testId="dial-earned"
@@ -192,7 +192,10 @@ function Reading({
         >
           <span className="flex items-center gap-1">
             <Icon name={icon} aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />
-            <span className="truncate font-display text-[9px] font-bold uppercase tracking-[0.12em] text-ink-300">
+            {/* Wraps rather than truncates: five dials share 22rem below `xl`, which is about 66px
+                each, and "UNIT SLOTS" letterspaced at 9px is 78px. Cut, it read "UNIT SLO"; on two
+                lines it reads whole, and the grid gives every dial the taller row. */}
+            <span className="text-center font-display text-[9px] font-bold uppercase leading-tight tracking-[0.12em] text-ink-300">
               {label}
             </span>
           </span>

@@ -4,7 +4,7 @@ import path from 'node:path';
 import {
   type UnitsResponse,
   BARTER_RATE,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   marketDay,
   instantAtHourInZone,
   OFFER_LIFETIME_HOURS,
@@ -15,14 +15,21 @@ import {
   type Resources,
   type MarketResponse,
   type ScrapyardResponse,
+  type Base,
+  RESEARCH_ITEMS,
+  researchEffects,
+  storageCapacity,
+  storageCapacityFor,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { acceptOffer, projectMarket } from './board.js';
+import { acceptOffer, buySupply, projectMarket } from './board.js';
 import { placeVendorBid, settleVendorAuctions } from './auction.js';
+import { chooseOverseer } from '../testing/overseer.js';
+import { crewEffectsFor } from '../crew/standing.js';
 
 /**
  * The market and the yard's refits, end to end over HTTP.
@@ -84,12 +91,7 @@ async function signIn(app: FastifyInstance, username = 'trader'): Promise<string
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return token;
 }
 
@@ -509,21 +511,21 @@ describe('the board', () => {
   });
 });
 
-describe("refits, over the yard's route", () => {
+describe("unit modification cards, over the yard's route", () => {
   /*
-   * The Workshop's own route sold these until the maintainer's 2026-09-10 call folded it into the
-   * Scrapyard. Same nine upgrades, same parts, same brackets: the door moved, the rules did not.
+   * The Workshop's own route sold the refits until the maintainer's 2026-09-10 call folded it into
+   * the Scrapyard; the refits themselves went on 2026-09-15 for the thirty cards. Same parts, same
+   * brackets: the door moved and the catalogue changed, the rules did not.
    */
   async function ready(): Promise<{ app: FastifyInstance; token: string }> {
     const app = await makeApp();
     const token = await signIn(app, 'smith');
     const base = baseOf(app, 'smith');
-    // A Gauntlet and a yard high enough for every rung, and the money to pay for it.
+    // A yard high enough for every rarity, and the money to pay for it.
     app.repos.bases.updateDistrict(
       base.id,
       [
         ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
         { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
       ],
       [],
@@ -532,7 +534,20 @@ describe("refits, over the yard's route", () => {
       app,
       'smith',
       { scrap: 99_999, caps: 99_999, highQualityMetal: 9_999, oil: 9_999 },
-      { scrap_servo: 20, ceramic_plate: 20, optic_cluster: 20, neural_shunt: 20, coolant_cell: 20 },
+      {
+        scrap_servo: 20,
+        ceramic_plate: 20,
+        optic_cluster: 20,
+        neural_shunt: 20,
+        coolant_cell: 20,
+        weld_rod: 20,
+        hydraulic_ram: 20,
+        signal_relay: 20,
+        pressure_valve: 20,
+        // One gated card's drawings, so the parts and the brackets can be exercised on a card that
+        // has parts to spend. Rag Wraps is the control: gated, and its document is not held.
+        bp_mod_filed_sights: 1,
+      },
     );
     return { app, token };
   }
@@ -543,7 +558,7 @@ describe("refits, over the yard's route", () => {
     return res.json<ScrapyardResponse>();
   };
 
-  const buildRefit = (app: FastifyInstance, token: string, id: string) =>
+  const buildCard = (app: FastifyInstance, token: string, id: string) =>
     app.inject({
       method: 'POST',
       url: '/api/scrapyard/build',
@@ -551,36 +566,37 @@ describe("refits, over the yard's route", () => {
       payload: { kind: 'upgrade', id },
     });
 
-  it('offers every rung, with the locked ones saying why', async () => {
+  it('offers every card, with the locked ones saying why', async () => {
     const { app, token } = await ready();
     const view = await yard(app, token);
-    const refits = view.entries.filter((entry) => entry.kind === 'upgrade');
-    expect(refits).toHaveLength(UNIT_UPGRADES.length);
-    const second = refits.find((upgrade) => upgrade.id === 'armour_2');
-    expect(second?.blocker).toContain('Scrap Plate');
+    const cards = view.entries.filter((entry) => entry.kind === 'upgrade');
+    expect(cards).toHaveLength(UNIT_MODIFICATIONS.length);
+    const gated = cards.find((card) => card.id === 'rag_wraps');
+    expect(gated?.blocker).toContain('Rag Wraps Blueprint');
+    expect(gated?.rarity).toBe('basic');
   });
 
-  it('fits a rung, spends for it, and takes the parts', async () => {
+  it('builds a card, spends for it, and takes the parts', async () => {
     const { app, token } = await ready();
     const before = baseOf(app, 'smith');
 
-    const res = await buildRefit(app, token, 'weapons_1');
-    expect(res.statusCode).toBe(200);
+    const res = await buildCard(app, token, 'filed_sights');
+    expect(res.statusCode, res.body).toBe(200);
 
     const after = baseOf(app, 'smith');
-    expect(after.fittedUpgrades).toContain('weapons_1');
+    expect(after.fittedUpgrades).toContain('filed_sights');
     expect(after.resources.scrap).toBeLessThan(before.resources.scrap);
-    expect(after.inventory.scrap_servo).toBe((before.inventory.scrap_servo ?? 0) - 2);
+    expect(after.inventory.weld_rod).toBe((before.inventory.weld_rod ?? 0) - 2);
   });
 
   /**
-   * The whole point of a refit: it reaches the people who are already on the books.
+   * The whole point of a card: it reaches the people who are already on the books.
    *
-   * And the whole point of a bracket: it reaches the ones you bolted it to. Buying the upgrade
-   * puts it in the crew's stock and changes nobody's sheet; slotting it onto the Razors changes
-   * the Razors, and only them.
+   * And the whole point of a bracket: it reaches the ones you bolted it to. Building the card puts
+   * it in the crew's stock and changes nobody's sheet; slotting it onto the Razors changes the
+   * Razors, and only them.
    */
-  it('improves the roster a crew already has, once the upgrade is in a bracket', async () => {
+  it('improves the roster a crew already has, once the card is in a bracket', async () => {
     const { app, token } = await ready();
     const penetrationOf = (res: { json: <T>() => T }, unitId: string) =>
       res
@@ -590,7 +606,7 @@ describe("refits, over the yard's route", () => {
     const before = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
     const penetrationBefore = penetrationOf(before, 'razors');
 
-    await buildRefit(app, token, 'weapons_1');
+    await buildCard(app, token, 'filed_sights');
 
     const bought = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
     expect(penetrationOf(bought, 'razors')).toBe(penetrationBefore);
@@ -599,7 +615,7 @@ describe("refits, over the yard's route", () => {
       method: 'POST',
       url: '/api/units/loadout',
       headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'weapons_1' },
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'filed_sights' },
     });
     expect(slotted.statusCode).toBe(200);
     expect(penetrationOf(slotted, 'razors')).toBeGreaterThan(penetrationBefore);
@@ -615,31 +631,97 @@ describe("refits, over the yard's route", () => {
       method: 'POST',
       url: '/api/units/loadout',
       headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'armour_3' },
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'ablative_layers' },
     });
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { message: string } }>().error.message).toMatch(/not built/i);
   });
 
-  it('refuses the second rung without its blueprint, and takes it with one', async () => {
+  it('refuses a gated card without its blueprint, and takes it with one', async () => {
     const { app, token } = await ready();
-    await buildRefit(app, token, 'armour_1');
+    await buildCard(app, token, 'taped_grips');
 
-    const without = await buildRefit(app, token, 'armour_2');
+    const without = await buildCard(app, token, 'rag_wraps');
     expect(without.statusCode).toBe(409);
     // §D12g: the document out of `blueprints/catalog.ts`, named, not the retired flat item.
     expect(without.json<{ error: { message: string } }>().error.message).toContain(
-      'Composite Armour Blueprint',
+      'Rag Wraps Blueprint',
     );
 
     const base = baseOf(app, 'smith');
     app.repos.bases.updateHoldings(base.id, base.resources, {
       ...base.inventory,
-      bp_composite_armour: 1,
+      bp_mod_rag_wraps: 1,
     });
 
-    const withOne = await buildRefit(app, token, 'armour_2');
-    expect(withOne.statusCode).toBe(200);
+    const withOne = await buildCard(app, token, 'rag_wraps');
+    expect(withOne.statusCode, withOne.body).toBe(200);
+  });
+
+  /**
+   * Who a card goes on is the card's business (`modificationFitsUnit`), and the route holds it.
+   *
+   * Two refusals with two sentences: a carrier's harness offered to the Razors, and any card at all
+   * offered to a legendary. Both are checked on a card the crew has built, so `not_built` is not
+   * what is answering, and the harness then goes on the Haulers as the control.
+   */
+  it('refuses a card the unit cannot take, and says which kind of refusal it is', async () => {
+    const { app, token } = await ready();
+    const base = baseOf(app, 'smith');
+    app.repos.bases.updateHoldings(base.id, base.resources, {
+      ...base.inventory,
+      bp_mod_counterweight_harness: 1,
+    });
+    expect((await buildCard(app, token, 'counterweight_harness')).statusCode).toBe(200);
+    expect((await buildCard(app, token, 'taped_grips')).statusCode).toBe(200);
+
+    const fit = (unitId: string, upgradeId: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/units/loadout',
+        headers: auth(token),
+        payload: { unitId, slot: 0, upgradeId },
+      });
+
+    const wrongUnit = await fit('razors', 'counterweight_harness');
+    expect(wrongUnit.statusCode).toBe(409);
+    expect(wrongUnit.json<{ error: { message: string } }>().error.message).toContain(
+      'not made for Razors',
+    );
+
+    const legendary = await fit('the_specter', 'taped_grips');
+    expect(legendary.statusCode).toBe(409);
+    expect(legendary.json<{ error: { message: string } }>().error.message).toContain(
+      'take no modifications',
+    );
+
+    const right = await fit('haulers', 'counterweight_harness');
+    expect(right.statusCode, right.body).toBe(200);
+  });
+
+  /** What the picker greys out, and the word each bracket and stock line is drawn with. */
+  it('tells the roster which cards each unit can take, and the rarity of what is built', async () => {
+    const { app, token } = await ready();
+    await buildCard(app, token, 'filed_sights');
+    await app.inject({
+      method: 'POST',
+      url: '/api/units/loadout',
+      headers: auth(token),
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'filed_sights' },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
+    const roster = res.json<UnitsResponse>();
+    const razors = roster.units.find((unit) => unit.id === 'razors')!;
+    expect(razors.eligible).toContain('taped_grips');
+    expect(razors.eligible).not.toContain('counterweight_harness');
+    expect(razors.slots[0]).toMatchObject({ upgradeId: 'filed_sights', rarity: 'basic' });
+    expect(razors.slots[1]).toMatchObject({ upgradeId: null, rarity: null });
+    expect(roster.units.find((unit) => unit.id === 'the_specter')?.eligible).toEqual([]);
+    expect(roster.units.find((unit) => unit.id === 'haulers')?.eligible).toContain(
+      'counterweight_harness',
+    );
+    expect(roster.built.find((card) => card.id === 'filed_sights')?.rarity).toBe('basic');
   });
 
   // §B11 moved the yard onto its own page: building a machine is `/garage/build` now, and it is
@@ -674,7 +756,7 @@ describe('the barrow is the same for the whole city', () => {
  * decision they live with.
  */
 describe('one of a thing is one of a thing (§D5c)', () => {
-  /** A crew with a Gauntlet, money, and the parts to build a modification. */
+  /** A crew with a yard, money, and the parts to build a modification. */
   async function armed(): Promise<{ app: FastifyInstance; token: string }> {
     const app = await makeApp();
     const token = await signIn(app, 'plater');
@@ -683,7 +765,6 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       base.id,
       [
         ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
         { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
       ],
       [],
@@ -692,7 +773,17 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       app,
       'plater',
       { scrap: 99_999, caps: 99_999, highQualityMetal: 9_999, oil: 9_999 },
-      { scrap_servo: 20, ceramic_plate: 20, optic_cluster: 20, neural_shunt: 20, coolant_cell: 20 },
+      {
+        scrap_servo: 20,
+        ceramic_plate: 20,
+        optic_cluster: 20,
+        neural_shunt: 20,
+        coolant_cell: 20,
+        weld_rod: 20,
+        hydraulic_ram: 20,
+        signal_relay: 20,
+        pressure_valve: 20,
+      },
     );
     return { app, token };
   }
@@ -703,7 +794,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { kind: 'upgrade', id: 'weapons_1' },
+      payload: { kind: 'upgrade', id: 'taped_grips' },
     });
     return { app, token };
   }
@@ -713,7 +804,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/loadout',
       headers: auth(token),
-      payload: { unitId, slot, upgradeId: 'weapons_1' },
+      payload: { unitId, slot, upgradeId: 'taped_grips' },
     });
 
   it('will not put the same one on a second unit', async () => {
@@ -732,7 +823,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { kind: 'upgrade', id: 'armour_1' },
+      payload: { kind: 'upgrade', id: 'scrap_vest' },
     });
     expect((await fit(app, token, 'razors', 0)).statusCode).toBe(200);
 
@@ -740,7 +831,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/loadout',
       headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'armour_1' },
+      payload: { unitId: 'razors', slot: 0, upgradeId: 'scrap_vest' },
     });
     expect(over.statusCode).toBe(409);
     expect(over.body).toContain('Burn it first');
@@ -761,14 +852,14 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/burn',
       headers: auth(token),
-      payload: { upgradeId: 'weapons_1' },
+      payload: { upgradeId: 'taped_grips' },
     });
     expect(burnt.statusCode, burnt.body).toBe(200);
 
     const after = burnt.json<UnitsResponse>();
-    expect(after.built.map((entry) => entry.id)).not.toContain('weapons_1');
+    expect(after.built.map((entry) => entry.id)).not.toContain('taped_grips');
     const razors = after.units.find((unit) => unit.id === 'razors');
-    expect(razors?.slots.every((slot) => slot.upgradeId !== 'weapons_1')).toBe(true);
+    expect(razors?.slots.every((slot) => slot.upgradeId !== 'taped_grips')).toBe(true);
 
     // And it cannot simply be re-fitted: it has to be built again first.
     expect((await fit(app, token, 'sparks')).statusCode).toBe(409);
@@ -780,7 +871,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/burn',
       headers: auth(token),
-      payload: { upgradeId: 'weapons_1' },
+      payload: { upgradeId: 'taped_grips' },
     });
     expect(res.statusCode).toBe(409);
   });
@@ -791,7 +882,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
     await fit(app, token, 'razors');
 
     const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const plate = res.json<UnitsResponse>().built.find((entry) => entry.id === 'weapons_1');
+    const plate = res.json<UnitsResponse>().built.find((entry) => entry.id === 'taped_grips');
     expect(plate?.fittedTo).toBe('razors');
     expect(plate?.fittedToName).toBeTruthy();
   });
@@ -959,5 +1050,61 @@ describe('an offer that has stood too long', () => {
       kind: 'refused',
     });
     void buyerToken;
+  });
+});
+
+/**
+ * §F2: the crew's Logistics, on the shelf the supply run measures against.
+ *
+ * The bonus reached the production clamp and nothing else, so a crew that had researched room for
+ * another 55% of a warehouse was quoted the bare structures' ceiling everywhere it mattered: the
+ * board said the store was full, `supplyAffordable` returned zero, and the run refused to sell a
+ * single unit of something the district plainly had room for. Driven through `projectMarket` with
+ * a hand-built base rather than over HTTP, because the rungs have to be on the books before the
+ * board is drawn and there is no route that grants research outright.
+ */
+describe('the supply run and the crew that widened the store', () => {
+  it('measures the shelf against the room the crew opened, not the bare structures’', async () => {
+    const app = await makeApp();
+    await signIn(app);
+    const base = baseOf(app, 'trader');
+
+    const rungs = RESEARCH_ITEMS.filter((item) => item.payout.bonus.kind === 'storage_capacity');
+    expect(rungs.length, 'no research rung raises the store').toBeGreaterThan(0);
+    // The independent half, read off the research catalogue rather than off the server's own fold:
+    // these rungs really do widen a store, so `bare` below is genuinely the wrong answer.
+    expect(researchEffects(rungs.map((rung) => rung.id)).storageCapacityPercent).toBeGreaterThan(0);
+
+    const buildings = [
+      { id: 'b-apothecary', kind: 'apothecary' as const, level: 12, modifications: [], damage: 0 },
+    ];
+    const bare = storageCapacityFor(buildings, 'scrap');
+
+    const at = anOpenMoment();
+    const kitted: Base = {
+      ...base,
+      buildings,
+      research: { ...base.research, technologies: rungs.map((rung) => rung.id) },
+      // Full to the brim of what the structures alone hold, with caps enough that money is never
+      // what the refusal is about.
+      resources: { ...base.resources, caps: 1_000_000, scrap: bare },
+    };
+
+    const line = projectMarket(app.repos, kitted, at).supply.lines.find(
+      (entry) => entry.key === 'scrap',
+    );
+    // Wider than the bare structures, which is the claim, and exactly as wide as the crew's own
+    // fold says, which is the arithmetic.
+    expect(line?.capacity, 'the shelf must be wider than the structures alone').toBeGreaterThan(
+      bare,
+    );
+    const bonus = crewEffectsFor(app.repos, kitted, at).storageCapacityPercent;
+    expect(line?.capacity).toBe(
+      storageCapacityFor(buildings, 'scrap', storageCapacity(buildings, bonus)),
+    );
+    expect(line?.most, 'the run must sell into the room the crew opened').toBeGreaterThan(0);
+
+    // And the till agrees with the board: a run the panel offers is a run the server takes.
+    expect(buySupply(app.repos, kitted, 'scrap', 1, at).kind).toBe('done');
   });
 });

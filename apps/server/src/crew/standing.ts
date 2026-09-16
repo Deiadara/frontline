@@ -152,12 +152,22 @@ export function crewSheetsFor(
    * Every officer is lifted by everybody *except themselves*, which is the maintainer's rule and also
    * the only reading that makes sense. A perk that raised the number printed beside it on the same
    * card is not a bonus, it is a different number.
+   *
+   * The Lab is the third source, and it was the one doing nothing. Nine rungs pay `officer_group`
+   * or `officer_attribute` (Compartmentation, The Archive, Field Promotions, The Reading Year among
+   * them), `researchEffects` folded them into `standingEffectsFor`, and this function never read
+   * that fold: it took the ground's channel straight off `territoryEffectsFor` and the perks'
+   * straight off `peerLift`, so a finished rung raised a number nothing looked at. A programme is
+   * not a person, so it lifts everybody including whoever ran it, and it is folded here, on the
+   * lift, rather than into the sheets afterwards, for the same reason the ground is: the boost is
+   * worth more to the crew whose specialist it raises.
    */
   const byGroup = territoryEffectsFor(
     base.id,
     CITY_LOCATIONS,
     repos.city.controls(),
   ).officerGroupFlat;
+  const fromTheLab = researchEffects(base.research.technologies);
 
   // The role travels with the sheet now (§C2). `crewSheet` pays a person their full rating only in
   // the attributes their seat actually uses, so dropping the role here would silently discount
@@ -178,9 +188,27 @@ export function crewSheetsFor(
   const fit = base.commanders.filter(
     (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
   );
+  const owner = repos.users.findById(base.ownerId);
+  const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
+  /*
+   * The Overseer teaches too, and their perk is the largest one in the book that does.
+   *
+   * `sig_drillmaster` is +5 social to every officer on the books, roughly double an ordinary
+   * teaching perk because there is one Overseer and they carry it for the whole run. It folded
+   * into `officerGroupFlat` and stopped there: this lift was built out of `base.commanders`, the
+   * Overseer is prepended to the sheets below, and the two never met. The character-select card
+   * and the profile screen both printed the +5 while no sheet in the game moved.
+   *
+   * Never-lift-yourself is untouched by this. The Overseer is not an officer, so they are not in
+   * `fit` and nothing here lifts their own sheet: they teach the room and take nothing back.
+   */
+  const fromTheOverseer = overseer?.perks ?? [];
   const officers: CrewMember[] = fit.map((officer) => {
     const peers = fit.filter((other) => other.id !== officer.id);
-    const lift = peerLift(peers.flatMap((other) => other.perks));
+    const lift = mergeCrewEffects(
+      peerLift([...peers.flatMap((other) => other.perks), ...fromTheOverseer]),
+      fromTheLab,
+    );
     const attributes = liftOfficer(officer.attributes, lift, byGroup);
     // §C2: somebody on the bench is on the books and in no chair, which is a different thing from
     // the Overseer being in no chair. `benchedMember` pays the off-duty share of everything.
@@ -188,8 +216,6 @@ export function crewSheetsFor(
       ? benchedMember(attributes, officer.perks)
       : seatedMember(attributes, officer.role, officer.perks);
   });
-  const owner = repos.users.findById(base.ownerId);
-  const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
   return overseer ? [overseerMember(overseer.attributes, overseer.perks), ...officers] : officers;
 }

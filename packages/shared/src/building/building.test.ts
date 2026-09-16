@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { infirmaryRecoveryPercent } from './standing.js';
 import { recoverCasualties } from '../crew/effects.js';
 import { RESOURCE_KEYS, STARTING_RESOURCES, canAfford, type Resources } from '../resources.js';
-import { POPULATION_PER_LOCATION, districtPopulationCapacity } from './population.js';
+import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from './unit-slots.js';
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
@@ -15,10 +15,12 @@ import {
 import { blueprintForModification, modificationGateMet } from '../blueprints/index.js';
 import type { Inventory } from '../items/inventory.js';
 import { isAdvancedModification, modificationBuildRefusal } from './addons.js';
+import { scrapyardLevelForModification } from './scrapyard.js';
 import {
   MAX_MODIFICATION_SLOTS,
   MODIFICATIONS,
   MODIFICATIONS_PER_BUILDING,
+  fitsIn,
   MODIFICATION_SLOT_LEVELS,
   findModification,
   modificationSlotsAt,
@@ -70,11 +72,12 @@ import { UNIT_CATALOG, findUnit } from '../units/catalog.js';
 import { trainingCost, trainingSeconds } from '../units/training.js';
 import {
   HOUSING_BASE,
+  PRODUCING_BUILDINGS,
   STORAGE_BASE,
   accrueProduction,
   buildingProduction,
   districtProduction,
-  populationCapacity,
+  unitSlotCapacity,
   storageCapacity,
   storageCapacityFor,
   type ProductionCarry,
@@ -500,13 +503,22 @@ describe('what the district makes (§A1)', () => {
     expect(localProductionPercent(boosted[1])).toBe(0);
   });
 
-  it('§A1: nothing burns oil to keep the lights on any more', () => {
-    // A district with a Generator and no salvage line used to be running an oil deficit from its
-    // first second. It produces nothing at all now, which is what "the grid is gone" has to mean.
-    expect(districtProduction(NEW_DISTRICT).perHour.oil ?? 0).toBe(0);
+  it('§A1: nothing burns oil to keep the lights on, and the Generator now makes it', () => {
+    /*
+     * This used to assert a flat zero, from when the grid was removed: a district with a Generator
+     * and no salvage line had been running an oil deficit from its first second, and "the grid is
+     * gone" meant the structure produced nothing either way.
+     *
+     * The Generator is the fuel line now (maintainer request, 2026-09-15), so the half of that
+     * which still has to hold is the half that was the bug: it never comes out **negative**. A
+     * district is never poorer for having built one.
+     */
+    const generator = districtProduction(NEW_DISTRICT).perHour.oil ?? 0;
+    expect(generator).toBeGreaterThan(0);
 
-    const withSource = districtProduction([...NEW_DISTRICT, build('scrapyard', 1)]);
-    expect(withSource.perHour.oil ?? 0).toBeGreaterThan(0);
+    // ...and it is the Generator making it, not something else in a starting district.
+    const withoutOne = NEW_DISTRICT.filter((one) => one.kind !== 'generator');
+    expect(districtProduction(withoutOne).perHour.oil ?? 0).toBe(0);
   });
 
   it('accrues over elapsed hours and banks whole units, carrying the rest', () => {
@@ -648,6 +660,39 @@ describe('what the district makes (§A1)', () => {
     }
   });
 
+  /**
+   * The crew's Logistics has to reach every reader of the ceiling, not only the clamp.
+   *
+   * `storageCapacityPercent` (§F2) was spent inside `accrueProduction` and nowhere else, so a crew
+   * on +12 banked 47,808 scrap against a stockpile panel, a HUD bar and a supply run that all still
+   * quoted 42,686: the bar read 112% full and the market refused to sell a crew a single unit of
+   * something it plainly had room for. The bonus belongs to the ceiling itself, so anybody who asks
+   * for the ceiling gets it.
+   */
+  it('lets a crew bonus raise the ceiling every reader quotes, not only the one production stops at', () => {
+    const district = [
+      build('apothecary', BUILDING_MAX_LEVEL),
+      build('scrapyard', BUILDING_MAX_LEVEL),
+    ];
+    const bare = storageCapacity(district);
+    const lifted = storageCapacity(district, 12);
+    expect(lifted).toBeGreaterThan(bare);
+
+    // What production actually banks, against the ceiling the panels would quote for the same crew.
+    const banked = accrueProduction({ ...STARTING_RESOURCES, scrap: 0 }, district, 100_000, {
+      productionPercent: 0,
+      storageCapacityPercent: 12,
+    }).resources.scrap;
+    expect(banked).toBe(storageCapacityFor(district, 'scrap', lifted));
+  });
+
+  /** A crew with nothing to offer leaves the ceiling exactly where the structures put it. */
+  it('leaves the ceiling alone for a crew with no storage bonus, and for a penalty', () => {
+    const district = [build('apothecary', 8)];
+    expect(storageCapacity(district, 0)).toBe(storageCapacity(district));
+    expect(storageCapacity(district, -40)).toBe(storageCapacity(district));
+  });
+
   it('raises the ceiling with the Apothecary and with its modifications', () => {
     expect(storageCapacity([])).toBe(STORAGE_BASE);
     expect(storageCapacity([build('apothecary', 10)])).toBeGreaterThan(STORAGE_BASE);
@@ -702,10 +747,10 @@ describe('what the district makes (§A1)', () => {
   });
 
   it('houses the founding crew with no Quarters, and more with them', () => {
-    expect(populationCapacity([])).toBe(HOUSING_BASE);
-    expect(populationCapacity([build('quarters', 5)])).toBeGreaterThan(HOUSING_BASE);
-    expect(populationCapacity([build('quarters', 10)])).toBeGreaterThan(
-      populationCapacity([build('quarters', 5)]),
+    expect(unitSlotCapacity([])).toBe(HOUSING_BASE);
+    expect(unitSlotCapacity([build('quarters', 5)])).toBeGreaterThan(HOUSING_BASE);
+    expect(unitSlotCapacity([build('quarters', 10)])).toBeGreaterThan(
+      unitSlotCapacity([build('quarters', 5)]),
     );
   });
 
@@ -722,7 +767,7 @@ describe('what the district makes (§A1)', () => {
     // `(16 + 5 x L(L+1)/2) x (1 + 3% x 20)`. Reading either figure off the module under test
     // would make this agree with whatever it is set to.
     const before = Math.floor((16 + 5 * ((20 * 21) / 2)) * 1.6);
-    expect(populationCapacity([build('quarters', BUILDING_MAX_LEVEL)])).toBeGreaterThanOrEqual(
+    expect(unitSlotCapacity([build('quarters', BUILDING_MAX_LEVEL)])).toBeGreaterThanOrEqual(
       before,
     );
   });
@@ -773,11 +818,23 @@ describe('what the district is worth to the crew (§A1)', () => {
 });
 
 describe('modifications (§A1)', () => {
-  it('offers seven per structure, seventy-seven in all, with unique ids', () => {
-    expect(MODIFICATIONS).toHaveLength(BUILDING_KINDS.length * MODIFICATIONS_PER_BUILDING);
+  it('gives every structure at least its own seven, with unique ids', () => {
     expect(new Set(MODIFICATIONS.map((mod) => mod.id)).size).toBe(MODIFICATIONS.length);
+    /*
+     * At least seven rather than exactly seven.
+     *
+     * The cross-building fittings (2026-09-14) are homed on a structure for their id and their
+     * place on the Scrapyard's bench, so a structure's home list can now run past seven. What
+     * cannot change is the floor: every structure has to have its own seven, or its bench is thin
+     * and the level gate has nothing to hold back.
+     */
+    expect(MODIFICATIONS.length).toBeGreaterThanOrEqual(
+      BUILDING_KINDS.length * MODIFICATIONS_PER_BUILDING,
+    );
     for (const kind of BUILDING_KINDS) {
-      expect(modificationsFor(kind), kind).toHaveLength(MODIFICATIONS_PER_BUILDING);
+      expect(modificationsFor(kind).length, kind).toBeGreaterThanOrEqual(
+        MODIFICATIONS_PER_BUILDING,
+      );
     }
   });
 
@@ -805,12 +862,31 @@ describe('modifications (§A1)', () => {
     expect(descriptions.size).toBe(MODIFICATIONS.length);
   });
 
-  it('only puts a production bonus on a structure that produces something', () => {
-    const producers = new Set(['greenhouse', 'scrapyard', 'garage']);
+  /**
+   * A production card has to be fittable only where there is production.
+   *
+   * `production_percent` is the one local effect: it raises the output of the structure it is
+   * installed in and nothing else. So a production card that will go into a structure with no
+   * output is a card that reads "+8% production" and delivers nothing, which is the
+   * `character_xp_percent` failure in miniature. Checked over `fits` rather than `building` now
+   * that a card can be fitted somewhere other than its home, and it caught `Load Balancer` on the
+   * Generator the day the cross-building cards landed.
+   *
+   * The set of producers is read off `PRODUCING_BUILDINGS` rather than typed out here, and that is
+   * the half that failed. It was the literal `['greenhouse', 'scrapyard', 'garage']`, written when
+   * those were the three, and it went on agreeing with itself through the production split: the
+   * Garage stopped producing, two Garage cards worth 9,000 scrap and 432 alloy went on promising a
+   * percentage of zero, and this test said they were fine.
+   */
+  it('only offers a production bonus where something is actually produced', () => {
+    expect(PRODUCING_BUILDINGS.length, 'nothing produces anything').toBeGreaterThan(0);
     for (const mod of MODIFICATIONS.filter((m) => m.effect === 'production_percent')) {
-      expect(producers.has(mod.building), `${mod.id} boosts a structure that makes nothing`).toBe(
-        true,
-      );
+      for (const kind of fitsIn(mod)) {
+        expect(
+          PRODUCING_BUILDINGS.includes(kind),
+          `${mod.id} boosts ${kind}, which makes nothing`,
+        ).toBe(true);
+      }
     }
   });
 
@@ -1023,13 +1099,13 @@ describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are w
   });
 });
 
-describe('§A1: the population ceiling', () => {
+describe('§A1: the unit-slot ceiling', () => {
   const finished: Building[] = BUILDING_KINDS.map((kind) => build(kind, BUILDING_MAX_LEVEL));
 
   it('houses about two thousand once the district is built and holding ground', () => {
     // Fifteen locations, which is a crew with a real grip on the map rather than a maximal one.
-    const held = 15 * POPULATION_PER_LOCATION;
-    const capacity = districtPopulationCapacity(finished, { populationBonus: held });
+    const held = 15 * UNIT_SLOTS_PER_LOCATION;
+    const capacity = districtUnitSlotCapacity(finished, { unitSlotBonus: held });
     expect(capacity).toBeGreaterThan(1_800);
     expect(capacity).toBeLessThan(2_200);
   });
@@ -1037,7 +1113,7 @@ describe('§A1: the population ceiling', () => {
   /** ...and the start of the game is still the start of the game. */
   it('leaves a founding district housing a couple of dozen', () => {
     const founding: Building[] = [build('nexus', 1), build('quarters', 1)];
-    const capacity = districtPopulationCapacity(founding, { populationBonus: 0 });
+    const capacity = districtUnitSlotCapacity(founding, { unitSlotBonus: 0 });
     expect(capacity).toBeGreaterThanOrEqual(HOUSING_BASE);
     expect(capacity).toBeLessThan(40);
   });
@@ -1103,7 +1179,11 @@ describe('what the Garage makes (§B11)', () => {
     const yard = districtProduction(at('scrapyard', 20)).perHour;
     // The two buildings used to make 25 an hour between them at level 20. They still do.
     expect(yard.highQualityMetal).toBe(25);
-    expect(yard.oil).toBe(120);
+    // The fuel moved to the Generator (maintainer request, 2026-09-15), so the yard makes none of
+    // it. Asserted rather than dropped: a Scrapyard quietly keeping the oil would mean the split
+    // never happened, and the district total would look right while one building did everything.
+    expect(yard.oil ?? 0).toBe(0);
+    expect(districtProduction(at('generator', 20)).perHour.oil).toBe(120);
   });
 });
 
@@ -1116,7 +1196,7 @@ describe('what the Garage makes (§B11)', () => {
  * named modifications rather than on the magnitude threshold, so a rebalance of the threshold
  * cannot quietly make this test agree with whatever it is set to.
  *
- * The document predicate is the real `modificationGateMet` over a real satchel rather than a
+ * The document predicate is the real `modificationGateMet` over a real inventory rather than a
  * blanket `false`: the rule that a cheap bolt-on is gated by nothing lives in
  * `blueprints/catalog.ts`, and asserting it through a stub would be asserting the stub.
  */
@@ -1128,16 +1208,17 @@ describe('§D12f: what the Scrapyard will not cut yet', () => {
   const cheap = findModification('nexus_priority_bus')!;
   const document = blueprintForModification(advanced)!;
 
-  /** What the crew's satchel says about a modification, the way the Scrapyard route asks it. */
+  /** What the crew's inventory says about a modification, the way the Scrapyard route asks it. */
   const holding = (inventory: Inventory) => (spec: ModificationSpec) =>
     modificationGateMet(inventory, spec);
 
-  it('leaves a bolt-on open with an empty satchel: no document, no project, just the bill', () => {
+  it('leaves a bolt-on open with an empty inventory: no document, no project, just the bill', () => {
     expect(isAdvancedModification(cheap)).toBe(false);
     expect(blueprintForModification(cheap)).toBeUndefined();
     expect(
       modificationBuildRefusal({
         spec: cheap,
+        yardLevel: scrapyardLevelForModification(cheap),
         blueprintUnlocked: holding({}),
         affordable: RICH,
       }),
@@ -1151,6 +1232,7 @@ describe('§D12f: what the Scrapyard will not cut yet', () => {
     const refuse = (inventory: Inventory, afford: () => boolean) =>
       modificationBuildRefusal({
         spec: advanced,
+        yardLevel: scrapyardLevelForModification(advanced),
         blueprintUnlocked: holding(inventory),
         affordable: afford,
       });

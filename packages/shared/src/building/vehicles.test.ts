@@ -23,12 +23,22 @@ import {
 const YES = () => true;
 const NO = () => false;
 
-/** A column-side sheet for a made-up unit, so these tests never depend on the roster's numbers. */
+/**
+ * A column-side sheet for a made-up unit, so these tests never depend on the roster's numbers.
+ *
+ * `slots` is what one of them takes off a machine's capacity, and it defaults to one so that every
+ * test written before a seat was priced still reads as the head count it was written as.
+ */
 const walker =
-  (speeds: Record<string, number>, refuses: readonly string[] = []) =>
+  (
+    speeds: Record<string, number>,
+    refuses: readonly string[] = [],
+    slots: Record<string, number> = {},
+  ) =>
   (unitId: string): ColumnUnit => ({
     speed: speeds[unitId] ?? 0,
     rides: !refuses.includes(unitId),
+    unitSlots: slots[unitId] ?? 1,
   });
 
 /**
@@ -73,7 +83,7 @@ describe('the catalogue', () => {
   /*
    * The class ladder, which is the one thing about these numbers that is a rule and not a taste.
    *
-   * `vehicles.ts` opens by promising "a motorbike column is faster per body than a truck column",
+   * `vehicles.ts` opens by promising "a motorbike column is faster per unit than a truck column",
    * and for a long time the table said the opposite: the biggest truck in the game was written at
    * 28 against the bike's 22, so it outran the thing the doc used as its example of the opposite,
    * and the plated saloon at 32 beat both bikes while carrying twelve. Nothing failed, because
@@ -207,13 +217,13 @@ describe('what a column travels at (§C3)', () => {
     const force = { ironsides: 20, cyber_dogs: 20 };
     const speeds = walker({ ironsides: 22, cyber_dogs: 90 });
     /*
-     * Thirty seats against forty bodies. Seating the twenty Ironsides and ten of the hounds leaves
+     * Thirty seats against forty units. Seating the twenty Ironsides and ten of the hounds leaves
      * ten hounds walking at 90, so the column moves at the wagon's 48. Seating the *hounds* first
      * would have left ten Ironsides on foot and the column at 22, which is what a naive fill order
      * produces and is measurably worse for the crew that owns the wagon.
      */
     expect(columnSpeed({ armoured_car: 1 }, force, speeds)).toBe(wagon.speed);
-    // The control: the same seats against a force one body larger than they can hold.
+    // The control: the same seats against a force one unit larger than they can hold.
     expect(columnSpeed({ armoured_car: 1 }, { ironsides: 31 }, speeds)).toBe(22);
   });
 
@@ -251,7 +261,7 @@ describe('what a column travels at (§C3)', () => {
   it('wastes seats there is nobody to sit in', () => {
     const car = findVehicle('scrap_car')!;
     const wagon = findVehicle('armoured_car')!;
-    // Four bodies against a yard that could seat fifty. Everybody rides the first car, so the pace
+    // Four units against a yard that could seat fifty. Everybody rides the first car, so the pace
     // is that car's; the three cars behind it and the bus behind them are carrying air, and a
     // column is never held back by a machine nobody is in.
     expect(
@@ -280,11 +290,84 @@ describe('what a column travels at (§C3)', () => {
   it('never reports more than the fastest machine or the fastest walker', () => {
     const fastest = Math.max(...VEHICLES.map((spec) => spec.speed));
     const full = Object.fromEntries(VEHICLES.map((spec) => [spec.id, MAX_PER_VEHICLE]));
-    for (const bodies of [1, 5, 40, 400]) {
-      expect(columnSpeed(full, { razors: bodies }, walker({ razors: 45 }))).toBeLessThanOrEqual(
+    for (const units of [1, 5, 40, 400]) {
+      expect(columnSpeed(full, { razors: units }, walker({ razors: 45 }))).toBeLessThanOrEqual(
         fastest,
       );
     }
+  });
+
+  /**
+   * A seat costs what a bed costs (maintainer, 2026-09-15: unit slots everywhere).
+   *
+   * The bug: the deploy window capped a batch by unit slots and every seating arithmetic under it
+   * counted heads, so a Cheese Wagon at thirty seated thirty Ironsides on the server and ten in
+   * the window that loaded them. One currency now, and these are the three shapes of it.
+   */
+  describe('a seat is priced in unit slots', () => {
+    const wagon = findVehicle('armoured_car')!; // 30 seats.
+
+    it('seats fewer of a heavy sheet than of a light one', () => {
+      const heavy = walker({ heavy: 20 }, [], { heavy: 3 });
+      // Ten fit in thirty slots and move at the bus; the eleventh walks and holds the column.
+      expect(columnSpeed({ armoured_car: 1 }, { heavy: 10 }, heavy)).toBe(wagon.speed);
+      expect(columnSpeed({ armoured_car: 1 }, { heavy: 11 }, heavy)).toBe(20);
+      // The control, and the whole point: the same eleven at one slot each all get on.
+      const light = walker({ heavy: 20 });
+      expect(columnSpeed({ armoured_car: 1 }, { heavy: 11 }, light)).toBe(wagon.speed);
+    });
+
+    it('fills a machine with a mixed load up to its slots and no further', () => {
+      // The maintainer's own example: thirty slots is twenty light sheets and a few heavy ones.
+      const speeds = walker({ carrier: 20, heavy: 21 }, [], { carrier: 1, heavy: 3 });
+      // 20 carriers (20) plus 3 heavies (9) is 29 of 30. Everybody rides.
+      expect(columnSpeed({ armoured_car: 1 }, { carrier: 20, heavy: 3 }, speeds)).toBe(wagon.speed);
+      // A fourth heavy asks for 32 and does not get on, so it walks at its own pace.
+      expect(columnSpeed({ armoured_car: 1 }, { carrier: 20, heavy: 4 }, speeds)).toBe(21);
+    });
+
+    /**
+     * The second-order bug the pricing opens, and the one a head count could never have.
+     *
+     * A machine used to carry nobody for exactly one reason: everybody left on foot was quicker
+     * than it. So "carried nobody" meant "the rest of the yard is worth nothing" and the fill
+     * stopped there. Priced in slots there is a second reason, and it is the opposite: the machine
+     * is **too small** for the sheet at the front of the queue. A Scrappy at two slots in front of
+     * a column of three-slot heavies carries none of them, and the Cheese Wagon parked behind it
+     * has thirty. Stopping at the bike leaves a crew that owns a bus walking.
+     */
+    it('steps over a machine too small for the queue and loads the bigger one behind it', () => {
+      const bike = findVehicle('motorcycle')!; // 2 seats, 65.
+      const heavy = walker({ heavy: 20 }, [], { heavy: 3 });
+      // The precondition: one of these does not fit on the bike at all, and ten fit in the bus.
+      expect(bike.capacity).toBeLessThan(3);
+      expect(bike.speed).toBeGreaterThan(wagon.speed);
+
+      // Fastest first puts the bike at the head of the yard, where it carries nobody. The bus
+      // behind it takes all ten, so the column is the bus and not the ten walking at 20.
+      expect(columnSpeed({ motorcycle: 1, armoured_car: 1 }, { heavy: 10 }, heavy)).toBe(
+        wagon.speed,
+      );
+      // ...and the empty bike is not what the column is waiting for either, in either direction:
+      // the answer is the bus's own speed, not the bike's.
+      expect(columnSpeed({ motorcycle: 1, armoured_car: 1 }, { heavy: 10 }, heavy)).not.toBe(
+        bike.speed,
+      );
+    });
+
+    it('still stops at the first machine nobody wants a seat on', () => {
+      // The control for the rule above: a machine every remaining rider can outrun ends the yard,
+      // because the machines behind it are slower still. Two Cyberhound-quick sheets, one bike.
+      const quick = walker({ sprinter: 90 });
+      expect(columnSpeed({ motorcycle: 1, armoured_car: 1 }, { sprinter: 2 }, quick)).toBe(90);
+    });
+
+    it('never lets a sheet claiming no slots ride for free', () => {
+      const free = walker({ ghost: 10 }, [], { ghost: 0 });
+      // Floored at one slot each, so thirty ride and the thirty-first walks.
+      expect(columnSpeed({ armoured_car: 1 }, { ghost: wagon.capacity }, free)).toBe(wagon.speed);
+      expect(columnSpeed({ armoured_car: 1 }, { ghost: wagon.capacity + 1 }, free)).toBe(10);
+    });
   });
 
   it('caps a machine at 100 however much is added to it', () => {
@@ -362,13 +445,40 @@ describe('loading and unloading', () => {
     // and it seats them both, so the bus stays parked rather than being marched somewhere it can be
     // destroyed for free. Fastest first is the same order `columnSpeed` seats people in, which is
     // what stops the speed quoted on the screen from being a machine that was left behind.
-    const taken = loadable({ motorcycle: 1, armoured_car: 1 }, 2);
+    const taken = loadable({ motorcycle: 1, armoured_car: 1 }, [{ unitSlots: 1, count: 2 }]);
     expect(taken).toEqual({ motorcycle: 1 });
   });
 
   it('takes enough to seat everybody when there is enough to take', () => {
-    const taken = loadable({ armoured_car: 2 }, 45);
+    const taken = loadable({ armoured_car: 2 }, [{ unitSlots: 1, count: 45 }]);
     expect(fleetCapacity(taken)).toBeGreaterThanOrEqual(45);
+  });
+
+  /**
+   * §C3: a machine comes only if somebody can actually get into it.
+   *
+   * This used to add the yard's capacities up and stop once the pool covered the unit slots going,
+   * which is not how anybody boards anything. Six motorcycles at two slots each are twelve slots of
+   * pool and not one seat for a Juggernaut at six, so all six were marched to the fight, carried
+   * nobody, and were wrecked and paid out to the enemy as infamy for a seating plan that never
+   * happened. `columnSpeed` already seated per machine and the two disagreed.
+   */
+  it('leaves behind machines too small for the sheets that are going', () => {
+    const juggernaut = findUnit('juggernauts');
+    const bike = findVehicle('motorcycle');
+    if (!juggernaut || !bike) throw new Error('fixture: the catalogue moved');
+    expect(
+      juggernaut.unitSlots,
+      'the premise: one of these does not fit on a bike',
+    ).toBeGreaterThan(bike.capacity);
+
+    const heavy = [{ unitSlots: juggernaut.unitSlots, count: 3 }];
+    expect(loadable({ motorcycle: 6 }, heavy), 'six empty bikes went to the fight').toEqual({});
+
+    // ...and a machine that can seat one of them still comes, with the bikes left at home.
+    const bus = findVehicle('armoured_car')!;
+    expect(bus.capacity).toBeGreaterThanOrEqual(juggernaut.unitSlots);
+    expect(loadable({ motorcycle: 6, armoured_car: 1 }, heavy)).toEqual({ armoured_car: 1 });
   });
 
   it('adds and subtracts fleets without ever going negative', () => {
@@ -445,7 +555,7 @@ describe('building one', () => {
     expect(vehicleRefusal('motorcycle', {}, 9, YES, NO)).toBe('cannot_afford');
   });
 
-  it('asks the satchel for the machine\u2019s own document', () => {
+  it('asks the inventory for the machine\u2019s own document', () => {
     const held = (vehicleId: string) =>
       blueprintGateMet({ bp_rotorcraft: 1 }, 'vehicle', vehicleId);
     expect(vehicleRefusal('rotorcraft', {}, 99, held, YES)).toBeNull();

@@ -34,7 +34,7 @@ function stub(research: ResearchResponse = F.research): void {
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/research')) return reply(research);
     if (path.endsWith('/me')) return reply(F.me);
-    // Only the Blueprints and Reimagining workspaces read the satchel now. The strip above them
+    // Only the Blueprints and Reimagining workspaces read the inventory now. The strip above them
     // does not, and one of the tests below is that it does not.
     if (path.endsWith('/market')) return reply(F.market);
     throw new Error(`unstubbed request: ${path}`);
@@ -111,10 +111,10 @@ describe('the archive tabs', () => {
    * The board's 2026-09-10 call: the other two tabs print no number at all.
    *
    * Two assertions, because either alone is weak. The text is what a player sees, and an empty
-   * count element would pass it; the second is that the strip never asks for the satchel, which is
+   * count element would pass it; the second is that the strip never asks for the inventory, which is
    * where both dropped counts came from, and it fails the moment somebody wires one back up.
    */
-  it('prints no count on Blueprints or Reimagining, and does not read the satchel for one', async () => {
+  it('prints no count on Blueprints or Reimagining, and does not read the inventory for one', async () => {
     stub();
     open();
     const done = F.research.technologies.filter((tech) => tech.known).length;
@@ -125,10 +125,12 @@ describe('the archive tabs', () => {
     );
     expect(screen.getByTestId('research-tab-blueprints').textContent).toBe('Blueprints');
     expect(screen.getByTestId('research-tab-reimagining').textContent).toBe('Reimagining');
-    const satchel = fetchMock.mock.calls.filter(
+    const inventory = fetchMock.mock.calls.filter(
       (call: unknown[]) => typeof call[0] === 'string' && call[0].endsWith('/market'),
     );
-    expect(satchel, 'the strip read the satchel for a count it no longer prints').toHaveLength(0);
+    expect(inventory, 'the strip read the inventory for a count it no longer prints').toHaveLength(
+      0,
+    );
   });
 
   it('opens on Programmes, and the other workspaces are not rendered behind it', async () => {

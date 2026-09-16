@@ -49,7 +49,7 @@ test.describe("a location's window", () => {
     for (const location of RUSTYARD.locations) {
       await openLocation(page, location.id);
       const card = page.getByTestId(`location-${location.id}`);
-      await expect(card.getByTestId(`vignette-${location.id}`)).toBeVisible();
+      await expect(card.getByTestId(`head-${location.id}`)).toBeVisible();
       await expect(card.getByTestId(`holder-${location.id}`)).toBeVisible();
       // Section names are set in small caps, so `innerText` hands them back upper-cased.
       const labels = (await card.getByTestId('sheet-label').allInnerTexts()).map((label) =>

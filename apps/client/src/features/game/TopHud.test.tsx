@@ -240,7 +240,7 @@ describe('TopHud', () => {
     renderHud();
 
     expect(screen.getByTestId('hud-battles')).toHaveAttribute('href', '/game/battles');
-    expect(screen.getByTestId('hud-actions')).toHaveAttribute('href', '/game/actions');
+    expect(screen.getByTestId('hud-monitor')).toHaveAttribute('href', '/game/actions');
     expect(screen.queryByTestId('hud-settings')).toBeNull();
   });
 

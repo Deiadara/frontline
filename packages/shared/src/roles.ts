@@ -39,7 +39,7 @@ export type OfficerRole = z.infer<typeof OfficerRoleSchema>;
 export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
   head_spy: 'Head Spy',
   lead_engineer: 'Lead Engineer',
-  finance_officer: 'Finance Officer',
+  finance_officer: 'Head of Finance',
   head_of_growth: 'Head of Growth',
   field_commander: 'Field Commander',
   head_of_research: 'Head of Research',
@@ -49,7 +49,7 @@ export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
   right_hand: 'Right Hand',
   cartographer: 'Cartographer',
   trader: 'Trader',
-  security_officer: 'Security Officer',
+  security_officer: 'Head of Security',
   chief_medic: 'Chief Medic',
   instructor_of_the_young: 'Instructor of the Young',
   raid_boss: 'Raid Boss',
@@ -69,7 +69,7 @@ export const BENCH_LABEL = 'On the bench';
 /**
  * The faces an officer can have (§C).
  *
- * A **pool**, not a portrait per role: the art is a hundred and thirty-nine people, and a Head Spy
+ * A **pool**, not a portrait per role: the art is a hundred and sixty-four people, and a Head Spy
  * is a job rather than a face. Which one a given officer wears is derived from their id rather than
  * stored (see `officerPortraitId`), so every officer already on a save has a face the moment the
  * pool lands, with no migration and no column.
@@ -77,9 +77,33 @@ export const BENCH_LABEL = 'On the bench';
  * This is the list of art that **exists**, which is what the manifest and the order sheet are
  * about. What the game actually hands out is {@link ASSIGNABLE_OFFICER_PORTRAIT_IDS}, and the two
  * are not the same list.
+ *
+ * Grown only at the end, never in the middle. `officerPortraitId` indexes this list by hash, so an
+ * id inserted anywhere but the tail moves every face after it onto a different officer, on saves
+ * that already exist.
  */
-export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 139 }, (_, index) =>
+export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 164 }, (_, index) =>
   String(index + 1).padStart(2, '0'),
+);
+
+/**
+ * The thirty faces an **overseer** can have, and no one else (§C, board 2026-09-15).
+ *
+ * A separate pool rather than thirty more entries in {@link OFFICER_PORTRAIT_IDS}, because the
+ * overseer is the player and the officers are the people the player hires. A face that can turn up
+ * on both sides of that line reads as the player having hired themselves, which is the crew-screen
+ * twin bug one table up arriving from a different direction. Kept disjoint by construction: the
+ * two lists share no id, the art shares no master, and `roles.test.ts` pins both.
+ *
+ * These are `portraitId` values, the form an `OverseerPreset` stores and the client passes to
+ * `deliveredUrl({ type: 'portrait', portraitId })`. The asset key is `portrait-<id>`, so this list
+ * delivers `portrait-overseer-01` through `portrait-overseer-30`. The zero padding is what keeps
+ * them clear of the original four heroes, whose keys are `portrait-overseer-1` to
+ * `portrait-overseer-4` and whose art is not from this drop.
+ */
+export const OVERSEER_PORTRAIT_IDS: readonly string[] = Array.from(
+  { length: 30 },
+  (_, index) => `overseer-${String(index + 1).padStart(2, '0')}`,
 );
 
 /**
@@ -90,9 +114,16 @@ export const OFFICER_PORTRAIT_IDS: readonly string[] = Array.from({ length: 139 
  * caught there: two different ids were drawing the same person, once the right way round and once
  * flipped, and on the crew screen that reads as a bug, because it is one.
  *
- * Measured rather than eyeballed. Every portrait was compared against every other and against its
- * mirror on a 16x16 luminance signature: these two pairs sit at distance 0, and the next closest
- * pair anywhere in the pool is at 34. There is no judgement call in the cut.
+ * Measured rather than eyeballed. Every portrait is compared against every other and against its
+ * mirror on a 16x16 luminance signature, one bit per cell set where the cell is above the
+ * signature's own mean, scored by Hamming distance over the 256 bits. These two pairs sit at 0 and
+ * 1, the 1 being resampling noise on the mirrored one, and the next closest pair anywhere is at 36.
+ * There is no judgement call in the cut.
+ *
+ * Re-run over the whole pool on 2026-09-15, when the drop that became `officer-140` to
+ * `officer-164` and the thirty {@link OVERSEER_PORTRAIT_IDS} landed: 194 masters, 18721 pairs, the
+ * same two at 0 and 1 and nothing else under 36. The sweep is not a per-commit test because it
+ * decodes two hundred masters; what the suite pins is this list and the counts around it.
  */
 export const DUPLICATE_OFFICER_PORTRAIT_IDS: readonly string[] = ['42', '43'];
 
@@ -105,12 +136,13 @@ export const DUPLICATE_OFFICER_PORTRAIT_IDS: readonly string[] = ['42', '43'];
  * it stays on disk, still described, for the maintainer to replace with a new face. The day they do,
  * `DUPLICATE_OFFICER_PORTRAIT_IDS` goes back to empty and the two lists are the same again.
  *
- * A hundred and thirty-seven, which is prime, and that is worth more than it looks: the probe in
- * {@link officerPortraits} only walks the whole pool when its stride is coprime with the size, and
- * every stride is coprime with a prime. It survived the board's second drop by luck rather than by
- * design: ninety-nine faces less the two duplicates was ninety-seven, and a hundred and thirty-nine
- * less the same two is a hundred and thirty-seven. The next drop may not land on one, which is what
- * the linear sweep in {@link officerPortraits} is there for.
+ * A hundred and sixty-two, and it is **not** prime, which is the case the linear sweep in
+ * {@link officerPortraits} was written for. The probe there only walks the whole pool when its
+ * stride is coprime with the size, and 162 is 2 x 3^4, so every even stride and every multiple of
+ * three walks a subset. Two drops running the number happened to be prime (ninety-nine faces less
+ * the two duplicates is ninety-seven; a hundred and thirty-nine less the same two is a hundred and
+ * thirty-seven) and the comment here read that luck as a property. This drop ends it, and nothing
+ * about the guarantee changes: the sweep finishes what the probe misses.
  */
 export const ASSIGNABLE_OFFICER_PORTRAIT_IDS: readonly string[] = OFFICER_PORTRAIT_IDS.filter(
   (portraitId) => !DUPLICATE_OFFICER_PORTRAIT_IDS.includes(portraitId),
@@ -194,13 +226,12 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
      * The sweep is not belt-and-braces, it is the part that makes the promise true.
      *
      * A double-hash probe only visits every slot when the stride is coprime with the pool size.
-     * The pool is 137, which is prime, so every stride in 1..136 is coprime with it and the probe
-     * does walk the whole pool: measured, no full nineteen-chair roster in two hundred thousand
-     * reaches this line. It is not dead code, it is the part that keeps the promise true if the
-     * pool size ever stops being prime. At the old size of 33 (3 x 11) any stride that was a
-     * multiple of 3 or 11 walked a subset and came back to a taken slot having missed free ones,
-     * and eight full rosters in three thousand still had a duplicate. A linear pass over what is
-     * left cannot fail while the pool is larger than the roster.
+     * The pool is 162, which is 2 x 3^4, so half the strides walk a subset and can come back to a
+     * taken slot having missed free ones. That used to be hypothetical, because the pool was 137
+     * and every stride is coprime with a prime; it is not any more. At the old size of 33 (3 x 11)
+     * the same arithmetic left eight full rosters in three thousand with a duplicate, and this
+     * line is what stops that. A linear pass over what is left cannot fail while the pool is
+     * larger than the roster, and 162 faces against nineteen chairs is not close.
      */
     if (taken.has(pick)) {
       pick = ASSIGNABLE_OFFICER_PORTRAIT_IDS.find((face) => !taken.has(face)) ?? pick;
@@ -222,9 +253,9 @@ export function officerPortraits(commanderIds: readonly string[]): ReadonlyMap<s
  * city behind it resolves exactly as it always did.
  *
  * **When the pool runs out** the walk finds nothing free, and the fallback is the person's own
- * hashed face, shared or not: a hundred and thirty-seven faces is the whole of the delivered art,
- * and refusing to draw the hundred and thirty-eighth officer in a city would be worse than a twin.
- * The board is adding portraits; the day the pool is bigger than the city's roster this branch is
+ * hashed face, shared or not: a hundred and sixty-two faces is the whole of the delivered art, and
+ * refusing to draw the hundred and sixty-third officer in a city would be worse than a twin. The
+ * board is still adding portraits; the day the pool is bigger than the city's roster this branch is
  * never reached.
  */
 export function freePortraits(

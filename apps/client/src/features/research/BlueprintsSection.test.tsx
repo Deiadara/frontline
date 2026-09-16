@@ -129,7 +129,7 @@ describe('what a crew is allowed to see (§D5)', () => {
     stub({});
     renderPage();
     // The sentence is printed on the page rather than folded into a hover chip: collapsed, that
-    // chip was the entire content of this screen for a crew with nothing in the satchel.
+    // chip was the entire content of this screen for a crew with nothing in the inventory.
     expect(await screen.findByTestId('blueprints-empty')).toHaveTextContent(
       /A blueprint is a set of named pages, and you have none of them/,
     );
@@ -298,7 +298,7 @@ describe('the switch and the drawers', () => {
   const MIXED: Inventory = {
     pg_snipers_range_cards: 1,
     bp_motorcycle: 1,
-    pg_munitions_load_tables: 1,
+    pg_mod_filed_sights_sight_picture: 1,
     pg_shaped_charges_cone_geometry: 1,
   };
 
@@ -345,7 +345,7 @@ describe('the switch and the drawers', () => {
 
     fireEvent.click(screen.getByTestId('blueprint-category-upgrade'));
     expect(
-      within(screen.getByTestId('blueprints-upgrade')).getByText('Munitions Blueprint'),
+      within(screen.getByTestId('blueprints-upgrade')).getByText('Filed Sights Blueprint'),
     ).toBeVisible();
     expect(screen.queryByTestId('blueprints-unit')).toBeNull();
     expect(screen.queryByText('Sniper Blueprint')).toBeNull();

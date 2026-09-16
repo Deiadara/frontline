@@ -7,9 +7,9 @@
  * payload that drew the button. Both halves of it live on screens the Reimagining tab never loads,
  * so a stale board is the ordinary case rather than an attack.
  *
- * The second is the body. The player names the three pages now, so the route has to parse them and
+ * The second is the unit. The player names the three pages now, so the route has to parse them and
  * has to refuse a crew that names pages it is not holding: that check is the only thing between a
- * hand-made request and a satchel going negative.
+ * hand-made request and an inventory going negative.
  *
  * The third is that a refused trade spends nothing. This route removes three items and adds one,
  * and the shape where a refusal happens after the removal is the classic way to lose a player's
@@ -32,6 +32,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -64,12 +65,7 @@ async function crew(): Promise<Stack> {
     payload: { username: 'drafter', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   return { app, token, baseId: chosen.json<{ base: { id: string } }>().base.id };
 }
 
@@ -171,7 +167,7 @@ describe('the Reimagining trade (§G2, §G3)', () => {
   });
 
   /** Not three, or not pages: the schema turns both away at the door rather than refusing later. */
-  it('will not parse a body that is not three page ids', async () => {
+  it('will not parse a unit that is not three page ids', async () => {
     const stack = await crew();
     openTheLab(stack);
     hold(stack, STACK);

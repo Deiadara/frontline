@@ -11,7 +11,9 @@ import { effectiveSpeed } from '../time/speed.js';
  *
  * A vehicle is now a **thing you load people onto**:
  *
- * - It carries up to {@link VehicleSpec.capacity} bodies and no more.
+ * - It carries up to {@link VehicleSpec.capacity} **unit slots** and no more, which is the same
+ *   currency the district houses people in: a machine with thirty seats twenty Haulers at one slot
+ *   each and five Ironsides at two, and nothing at all that costs more slots than it has left.
  * - It shortens the road only for the force it is actually carrying, so what is parked at home is
  *   worth nothing at all.
  * - **If every unit riding it dies, it is destroyed**, and whoever killed them earns infamy equal
@@ -22,7 +24,7 @@ import { effectiveSpeed } from '../time/speed.js';
  *
  * A machine no longer carries a percentage off the road. It carries a **speed**, 0 to 100, on the
  * same scale as `UnitStats.speed`, and everybody it is carrying travels at exactly that number
- * (the board: *"the total population riding the vehicle has exactly the speed of the vehicle"*).
+ * (the board: *"everybody riding the vehicle has exactly the speed of the vehicle"*).
  * What a speed is worth on a clock is `time/speed.ts`: `base / (1 + speed/100)`, so 95 takes a
  * twenty-minute road down to about ten and 45 takes it to fourteen.
  *
@@ -35,7 +37,7 @@ import { effectiveSpeed } from '../time/speed.js';
  * ## The four classes
  *
  * The classes trade speed against capacity, and the trade is the whole design: a motorbike column is
- * faster per body than a truck column and cannot move an army, so a crew that wants thirty people
+ * faster per unit than a truck column and cannot move an army, so a crew that wants thirty people
  * somewhere by dawn is choosing between fifteen trips on the Scrappy and one slower one on the
  * Cheese Wagon. Every machine in a class outruns every machine in the class that carries more than
  * it, and `vehicles.test.ts` pins that rather than trusting the table to stay sorted.
@@ -64,7 +66,7 @@ import { effectiveSpeed } from '../time/speed.js';
  * one document can gate more than one thing (§D12b: the motorcycle and the Road Reavers who ride
  * it). So {@link vehicleRefusal} takes the answer as a predicate rather than importing the
  * blueprint catalogue: `building/` sits below `blueprints/` in the import graph, and the callers
- * that have a satchel to hand pass `blueprintGateMet(inventory, 'vehicle', id)` straight in.
+ * that have an inventory to hand pass `blueprintGateMet(inventory, 'vehicle', id)` straight in.
  */
 
 export const VEHICLE_CLASSES = ['motorbike', 'car', 'truck', 'flying'] as const;
@@ -101,7 +103,15 @@ export interface VehicleSpec {
    * walking behind it, and the yard at home is worth nothing to anybody.
    */
   speed: number;
-  /** Bodies it can carry. Also what it is worth in infamy to whoever destroys it (§C3). */
+  /**
+   * **Unit slots** it can carry, not a head count. Also what it is worth in infamy to whoever
+   * destroys it (§C3).
+   *
+   * One currency with the district's beds and with the deploy window's ceiling: a machine with
+   * thirty takes thirty slots of anybody, so thirty Razors at one slot each, or fifteen Ironsides
+   * at two, or twenty Haulers and five Ironsides. A unit that costs more slots than the machine
+   * has left does not get on it.
+   */
   capacity: number;
   /**
    * Built in somebody's yard out of what was to hand, and it shows when the shooting starts.
@@ -146,7 +156,7 @@ const SPECS: readonly VehicleSpec[] = [
   },
   {
     // The id stays `dirt_runner`, as `scrap_car` did for the Scar: it keys every stored fleet, the
-    // art asset and the blueprint pages already in satchels. The machine behind it changed class
+    // art asset and the blueprint pages already in inventories. The machine behind it changed class
     // entirely: the board replaced the second bike with a reinforced pickup, so this is the bigger
     // car now, above the Scar on seats, speed, price and Garage level.
     id: 'dirt_runner',
@@ -267,7 +277,7 @@ export function fleetSize(fleet: Fleet): number {
   return Object.values(fleet).reduce((total, count) => total + (count ?? 0), 0);
 }
 
-/** Bodies a fleet could carry if every seat were filled. */
+/** Unit slots a fleet could carry if every seat were filled. */
 export function fleetCapacity(fleet: Fleet): number {
   let seats = 0;
   for (const [id, count] of Object.entries(fleet)) {
@@ -300,9 +310,18 @@ export interface ColumnUnit {
   speed: number;
   /** False for a sheet carrying the `no_ride` rule. The Colossus does not fit in anything. */
   rides: boolean;
+  /**
+   * What **one** of this unit takes off a machine's {@link VehicleSpec.capacity}.
+   *
+   * The unit's own unit slots, the same figure the district charges it a bed at, because a seat and
+   * a bed are one currency now. Without it this function seated by head count while the deploy
+   * window capped by unit slots, and a Cheese Wagon carried thirty Ironsides on the server and
+   * fifteen on the screen.
+   */
+  unitSlots: number;
 }
 
-/** The bodies to be moved, by unit id. Sparse, and a zero is the same as absent. */
+/** The units to be moved, by unit id. Sparse, and a zero is the same as absent. */
 export type ColumnForce = Readonly<Record<string, number>>;
 
 const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
@@ -312,6 +331,40 @@ const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
       return spec ? Array.from({ length: count ?? 0 }, () => spec) : [];
     })
     .sort((a, b) => b.speed - a.speed);
+
+/**
+ * One machine loaded out of the queue of groups still on foot, mutating their `left`.
+ *
+ * `wanted` says whether anybody in the queue would have taken a seat on it at all, which is a
+ * different question from whether anybody did: a Scrappy with two slots in front of a column of
+ * Ironsides at three apiece carries nobody and is not what the column is waiting for, but the
+ * Cheese Wagon behind it still has thirty slots for them. Only `wanted === false` ends the yard,
+ * because the machines are in speed order and a slower one would be declined too.
+ */
+function fill(
+  machine: VehicleSpec,
+  boarding: { speed: number; unitSlots: number; left: number }[],
+): { carried: number; wanted: boolean } {
+  let seats = machine.capacity;
+  let carried = 0;
+  let wanted = false;
+  for (const group of boarding) {
+    // `boarding` is slowest first, so the first group this machine cannot outrun is also the last:
+    // nobody behind it would be helped by a seat either.
+    if (group.speed >= machine.speed) break;
+    if (group.left === 0) continue;
+    wanted = true;
+    // Unit slots, not heads: a machine with four slots left takes four Razors or one Ironside. A
+    // group too heavy for what is left is stepped over, because a lighter group behind it still
+    // fits: thirty slots is twenty Haulers *and* three Ironsides.
+    const aboard = Math.min(Math.floor(seats / group.unitSlots), group.left);
+    if (aboard === 0) continue;
+    group.left -= aboard;
+    seats -= aboard * group.unitSlots;
+    carried += aboard;
+  }
+  return { carried, wanted };
+}
 
 /**
  * What a column travels at (§C3): the speed of its **slowest group**.
@@ -326,12 +379,17 @@ const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
  * effective speed, and every machine carrying anybody at that machine's speed. The answer is the
  * minimum over the groups that have somebody in them, and nothing else.
  *
- * Two loading rules follow from that, and both are what a crew would actually do:
+ * Four loading rules follow from that, and every one of them is what a crew would actually do:
  *
  * - **Seats go to the slowest walkers first.** Putting the Cyberhounds in the truck and leaving the
  *   Ironsides on foot does nothing at all, because the Ironsides are still the answer. Seating the
  *   Ironsides is the only way a seat raises the column.
  * - **The fastest machines are filled first**, so a crew that owns a truck is never punished for it.
+ * - **A seat is priced in unit slots**, the same currency the district houses a unit in
+ *   ({@link ColumnUnit.unitSlots}). Thirty seats is thirty Razors, or ten Ironsides, or twenty
+ *   Haulers and three Ironsides. A unit that costs more than a machine has left does not get on
+ *   it, and a machine too small for the sheet in front of it is stepped over rather than ending
+ *   the fill: the bus behind the bike can still take them.
  * - **Nobody boards a machine slower than their own legs.** A seat is an offer, not an order: two
  *   Cyberhounds on 90 handed a Scrappy on 65 do not climb on and lose twenty-five points of pace,
  *   they run alongside it. Without this the two rules above are not enough to keep the promise
@@ -342,6 +400,7 @@ const ridingOrder = (fleet: Fleet): VehicleSpec[] =>
  * at its own pace whatever is in the yard. Seats past the size of the force are worth nothing,
  * because there is nobody to put in them, and an empty force has no speed at all.
  */
+
 export function columnSpeed(
   fleet: Fleet,
   force: ColumnForce,
@@ -349,28 +408,28 @@ export function columnSpeed(
 ): number {
   const groups = [...Object.entries(force)]
     .filter(([, count]) => (count ?? 0) > 0)
-    .map(([unitId, count]) => ({ ...effectiveSpeedOf(unitId), left: count ?? 0 }));
+    .map(([unitId, count]) => {
+      const unit = effectiveSpeedOf(unitId);
+      // Floored at one so a sheet that answers zero slots cannot divide a machine's seats into
+      // infinitely many riders. Nobody rides for free.
+      return { ...unit, unitSlots: Math.max(1, unit.unitSlots), left: count ?? 0 };
+    });
   if (groups.length === 0) return 0;
 
   // Slowest first, and only the ones that will get in: those are the seats worth spending.
   const boarding = groups.filter((group) => group.rides).sort((a, b) => a.speed - b.speed);
   let slowest = Number.POSITIVE_INFINITY;
   for (const machine of ridingOrder(fleet)) {
-    let seats = machine.capacity;
-    let carried = 0;
-    for (const group of boarding) {
-      if (seats === 0) break;
-      // `boarding` is slowest first, so the first group this machine cannot outrun is also the
-      // last: nobody behind it would be helped by a seat either.
-      if (group.speed >= machine.speed) break;
-      const aboard = Math.min(seats, group.left);
-      group.left -= aboard;
-      seats -= aboard;
-      carried += aboard;
-    }
-    // Nobody left worth seating, either because everybody is aboard or because everybody still
-    // walking is quicker than this. Machines are in speed order, so neither can come back.
-    if (carried === 0) break;
+    const { carried, wanted } = fill(machine, boarding);
+    // Nobody left who would take a seat on this, either because everybody is aboard or because
+    // everybody still walking is quicker than it. Machines are in speed order, so neither can come
+    // back and the rest of the yard is worth nothing.
+    if (!wanted) break;
+    // Carried nobody but somebody wanted in: this machine is too small for what is in front of it
+    // (a Scrappy at two slots and a queue of Ironsides at three). The bigger machine behind it can
+    // still take them, so it is stepped over rather than ending the fill, and its own speed stays
+    // out of the answer because the column is not waiting on an empty bike.
+    if (carried === 0) continue;
     slowest = Math.min(slowest, machine.speed);
   }
 
@@ -380,23 +439,48 @@ export function columnSpeed(
   return slowest;
 }
 
+/** One sheet's worth of riders: what each of them costs a machine, and how many are waiting. */
+export interface RiderGroup {
+  /** Unit slots per rider, the currency {@link VehicleSpec.capacity} is written in. */
+  unitSlots: number;
+  count: number;
+}
+
 /**
- * The machines a force can actually load, given how many bodies are going.
+ * The machines a force can actually load.
  *
  * Trims what the player picked down to what there is somebody to sit in, fastest first, so a crew
  * that ticks the whole yard sends the machines that matter and leaves the rest at home rather than
  * marching an empty truck into a fight where it can be destroyed for free.
  *
- * `bodies` is the count that will **ride**, so a caller with a `no_ride` sheet in the force counts
- * it out first: a Colossus cannot fill a seat and must not keep a truck on the road.
+ * The riders are groups rather than one total, and that is the whole of what this function got
+ * wrong. It used to add capacities up and stop once the pool covered the unit slots going, which
+ * is not how anybody gets into a vehicle: six motorcycles at two slots each are twelve slots of
+ * pool and no seat at all for a Juggernaut at six, so all six were marched to the fight, carried
+ * nobody, and were wrecked and paid out as infamy for it. A machine is taken here on the same
+ * terms `columnSpeed` seats people on: it comes only if it can seat somebody who is still walking.
+ *
+ * A caller counts a `no_ride` sheet out first (`ridingGroups`): a Colossus cannot fill a seat and
+ * must not keep a truck on the road.
  */
-export function loadable(chosen: Fleet, bodies: number): Fleet {
+export function loadable(chosen: Fleet, riders: readonly RiderGroup[]): Fleet {
+  // Heaviest sheet first, so a machine is offered the riders that are hardest to place before the
+  // ones that fit anywhere. `fill` steps over a group too heavy for what is left, so nobody is
+  // stranded by the order; what it decides is which machine each rider ends up on.
+  const boarding = riders
+    .filter((group) => group.count > 0 && group.unitSlots > 0)
+    .map((group) => ({ speed: 0, unitSlots: group.unitSlots, left: group.count }))
+    .sort((a, b) => b.unitSlots - a.unitSlots);
+
   const taken: Fleet = {};
-  let seated = 0;
   for (const spec of ridingOrder(chosen)) {
-    if (seated >= bodies) break;
+    // `fill` refuses a machine slower than the rider, and pace is not this question: what a column
+    // does about a slow bike is `columnSpeed`'s answer. A speed of zero on every group turns that
+    // rule off here without touching it there, since no machine in the catalogue is slower.
+    const { carried, wanted } = fill(spec, boarding);
+    if (!wanted) break;
+    if (carried === 0) continue;
     taken[spec.id] = (taken[spec.id] ?? 0) + 1;
-    seated += spec.capacity;
   }
   return taken;
 }
@@ -423,8 +507,11 @@ export function vehicleInfamy(destroyed: Fleet): number {
  * machines, fastest first: the machines at the front of the column are the ones in the fighting.
  * A force that was wiped loses everything it took; a force that walked it off loses nothing.
  *
+ * `survivingShare` is measured in **unit slots**, the currency the seats are sold in, so a heavy
+ * sheet lost off a column weighs what it took to carry rather than what it would weigh as one head.
+ *
  * Rounded down on destruction, so a scratch is never a write-off: half a squad lost off two bikes
- * wrecks one bike, and losing one body out of thirty in a bus wrecks nothing.
+ * wrecks one bike, and losing one slot out of thirty in a bus wrecks nothing.
  *
  * Fragile machines go first at any share (`VehicleSpec.fragile`), which is the whole of what "less
  * reliable" buys the Rotorcraft's price: a crew flying a Rotorcraft and a Heli Porter into the same

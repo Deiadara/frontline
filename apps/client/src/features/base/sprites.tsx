@@ -21,7 +21,7 @@ import { ramps } from '../../theme/tokens';
 
 const { ferrite, ember, hextech, bile, smog, sear } = ramps;
 
-/** Shared roof/wall body so the silhouettes read as one settlement, not thirteen clip-art icons. */
+/** Shared roof/wall unit so the silhouettes read as one settlement, not thirteen clip-art icons. */
 function Hull({
   x,
   y,

@@ -1,7 +1,7 @@
 /**
  * Who is running a job (GDD §G6).
  *
- * This directory used to hold the **assignee pool**: a fungible body count granted by player level,
+ * This directory used to hold the **assignee pool**: a fungible unit count granted by player level,
  * placed under officers, paying a percentage off a mission's clock and onto its odds. The pool is
  * gone, and with it the placement map, the §G7 bonus table, the §G3 per-officer cap and the §G4
  * reskilling path. It was a second staffing economy sitting on top of the officers, priced in a

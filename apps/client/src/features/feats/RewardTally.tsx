@@ -18,7 +18,7 @@ import { cn } from '../../lib/cn';
  * ("600 caps, 200 scrap and 120 planks, plus 150 experience"), which is unreadable at a hundred
  * and sixty entries and impossible to scan for the one thing a player is short of. A token with
  * the game's own glyph on it is the same information at a glance, and it is the same glyph the
- * stockpile, the satchel and the roster already use, so nothing here has to be learned.
+ * stockpile, the inventory and the roster already use, so nothing here has to be learned.
  *
  * Every token carries the thing's name for anybody who cannot see the glyph. It is not drawn,
  * because "+600" beside the caps icon is what the rest of this interface says and a row of six
@@ -63,7 +63,7 @@ export function rewardTokens(reward: FeatReward): Token[] {
   }
 
   for (const [id, count] of Object.entries(reward.items ?? {})) {
-    // A retired id draws the satchel's own mark and is named by its id rather than crashing the
+    // A retired id draws the inventory's own mark and is named by its id rather than crashing the
     // screen it is on: `ItemGlyph` reads `ITEM_CATALOG[id].kind` and would throw. The catalogue
     // test refuses an unknown one, so this is only reachable on a save older than a retirement.
     const known = id in ITEM_CATALOG ? (id as ItemId) : undefined;
@@ -72,7 +72,7 @@ export function rewardTokens(reward: FeatReward): Token[] {
       key: `item-${id}`,
       glyph:
         known === undefined ? (
-          <Icon name="satchel" className="h-4 w-4" />
+          <Icon name="inventory" className="h-4 w-4" />
         ) : (
           <ItemGlyph id={known} className="h-4 w-4" />
         ),
@@ -99,7 +99,11 @@ export function rewardTokens(reward: FeatReward): Token[] {
       glyph: <Icon name="level" className="h-4 w-4" />,
       amount: `+${reward.xp.toLocaleString()}`,
       name: 'Experience',
-      tone: 'text-brass-100',
+      // `hextech`, the blue the level chip in the top HUD is drawn in. It was brass, which is the
+      // pigment caps and the seal already use here, so the one token a player most wants to pick
+      // out of a row of six was the same colour as the row. Matching the HUD means the glyph a
+      // reward promises and the meter it pays into are recognisably the same thing.
+      tone: 'text-hextech-100',
     });
   }
 

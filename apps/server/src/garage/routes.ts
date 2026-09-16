@@ -9,7 +9,6 @@ import {
   discounted,
   findVehicle,
   fleetCapacity,
-  spendResources,
   vehicleRefusal,
   VEHICLE_REFUSAL_MESSAGES,
   type Base,
@@ -21,29 +20,29 @@ import {
   type Fleet,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { tallyVehicleBuilt } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from '../routes/own-base.js';
+import { districtUnitSlots, vehiclesAbroad } from '../district/unit-slots.js';
+import { queueVehicle } from '../units/training.js';
 
 /**
- * §C3: every machine of this crew's that is not in the yard because it is somewhere else.
+ * Machines already ordered and not yet delivered.
  *
- * Committed to a fight still coming (the deployment row holds them until the settle hands the
- * survivors back), or carrying a crew on a run (the mission row holds them until the crew is
- * home). Both leave `base.fleet` on the request that names them, so this is the only way the page
- * can say where the yard went.
+ * The ceiling counts what a crew *will* have, not only what it has. A vehicle is built on the
+ * units' bench now (maintainer request, 2026-09-15), so without this a player could order past
+ * `MAX_PER_VEHICLE` simply by ordering one at a time: every order would see a yard still under the
+ * cap, and they would all land together. The cap is on the yard, and a machine on the bench has a
+ * space in it reserved.
  */
-function machinesOut(app: FastifyInstance, base: Base): Fleet {
-  const committed = app.repos.sieges
-    .deploymentsFor(base.id)
-    .map((deployment) => deployment.vehicles)
-    .reduce(mergeFleets, {} as Fleet);
-  const riding = app.repos.missions
-    .listActiveByBaseId(base.id)
-    .map((stored) => stored.mission.vehicles)
-    .reduce(mergeFleets, {} as Fleet);
-  return mergeFleets(committed, riding);
+function machinesOnTheBench(base: Base): Fleet {
+  const bench: Fleet = {};
+  for (const order of base.trainingQueue) {
+    const spec = findVehicle(order.unitId);
+    if (spec === undefined) continue;
+    bench[spec.id] = (bench[spec.id] ?? 0) + (order.count - order.delivered);
+  }
+  return bench;
 }
 
 /**
@@ -68,7 +67,7 @@ function price(app: FastifyInstance, base: Base, cost: PartialResources): Partia
 }
 
 /**
- * §D12c: the document that gates a machine, answered out of this crew's satchel.
+ * §D12c: the document that gates a machine, answered out of this crew's inventory.
  *
  * One place, so the row's `hasBlueprint` flag and the refusal that greys its button cannot come
  * to different conclusions about the same machine.
@@ -86,12 +85,27 @@ function holdsVehicleBlueprint(base: Base): (vehicleId: string) => boolean {
  * against the wrong number. Send twelve Cheese Wagons out on a mission, build twelve more while
  * they are away, and the yard holds twenty-four when the crew gets home.
  */
-function blockerFor(app: FastifyInstance, base: Base, id: string, out: Fleet): string | null {
+function blockerFor(
+  app: FastifyInstance,
+  base: Base,
+  id: string,
+  out: Fleet,
+  spare: number,
+): string | null {
   const spec = findVehicle(id);
   if (!spec) return VEHICLE_REFUSAL_MESSAGES.unknown_vehicle;
+  /*
+   * §A1: a machine takes a bed, same as a unit (maintainer request, 2026-09-15).
+   *
+   * Asked here rather than inside `queueVehicle` so the greyed button on the page and the refusal
+   * at the door are the same sentence out of the same comparison. `spare` is `districtUnitSlots`'s
+   * own figure, which already counts the officers, the army, the garrisons, the bench and the
+   * machines that are out at a fight, so a crew cannot make room by sending the yard away.
+   */
+  if (spare < 1) return NO_UNIT_SLOTS_MESSAGE;
   const reason: VehicleRefusal | null = vehicleRefusal(
     id,
-    mergeFleets(base.fleet, out),
+    mergeFleets(mergeFleets(base.fleet, out), machinesOnTheBench(base)),
     buildingLevel(base.buildings, 'garage'),
     holdsVehicleBlueprint(base),
     (cost) => canAfford(base.resources, price(app, base, cost)),
@@ -108,9 +122,14 @@ function blockerFor(app: FastifyInstance, base: Base, id: string, out: Fleet): s
   return VEHICLE_REFUSAL_MESSAGES[reason];
 }
 
+/** What the page and the door both say when the district has no bed left for another machine. */
+const NO_UNIT_SLOTS_MESSAGE = 'Nowhere in the district to house the crew for another one';
+
 export function projectGarage(app: FastifyInstance, base: Base): GarageResponse {
   const holds = holdsVehicleBlueprint(base);
-  const out = machinesOut(app, base);
+  const out = vehiclesAbroad(app.repos, base);
+  // Once for the page rather than once per row: the fold walks the control table and the roster.
+  const spare = districtUnitSlots(app.repos, base).spare;
   return {
     resources: base.resources,
     garageLevel: buildingLevel(base.buildings, 'garage'),
@@ -133,7 +152,7 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       requiresGarageLevel: spec.requiresGarageLevel,
       requiresBlueprint: blueprintForVehicle(spec.id)?.name ?? null,
       hasBlueprint: holds(spec.id),
-      refusal: blockerFor(app, base, spec.id, out),
+      refusal: blockerFor(app, base, spec.id, out, spare),
     })),
   };
 }
@@ -148,21 +167,37 @@ export function registerGarageRoutes(app: FastifyInstance): void {
     const { vehicleId } = parseBody(BuildVehicleRequestSchema, request.body);
     return app.db.transaction(() => {
       const base = ownBase(app, request.currentUser.id);
-      const blocker = blockerFor(app, base, vehicleId, machinesOut(app, base));
+      const blocker = blockerFor(
+        app,
+        base,
+        vehicleId,
+        vehiclesAbroad(app.repos, base),
+        districtUnitSlots(app.repos, base).spare,
+      );
       if (blocker !== null) throw new AppError('WORKSHOP_REFUSED', blocker);
 
       const spec = findVehicle(vehicleId);
       if (!spec) throw new AppError('NOT_FOUND', 'No such machine');
 
-      const resources = spendResources(base.resources, price(app, base, spec.cost));
-      const fleet = { ...base.fleet, [spec.id]: (base.fleet[spec.id] ?? 0) + 1 };
-      app.repos.bases.updateResources(base.id, resources);
-      app.repos.bases.updateFleet(base.id, fleet);
-      // Feats: machines built. `fleet` is a current count and a machine lost in a fight takes one
-      // off it, so the lifetime figure has to be counted here rather than read off the yard.
-      tallyVehicleBuilt(app.repos, base.id);
+      /*
+       * Onto the bench, not straight into the yard (maintainer request, 2026-09-15).
+       *
+       * This used to pay and hand the machine over in the same breath, which made a vehicle the
+       * only thing in the game with a cost and no clock, and left `buildSeconds` on every vehicle
+       * spec as data nothing read. It shares the units' queue now: `settleTraining` is what puts
+       * it in `base.fleet`, and what counts it for the feats board, on the read that catches it
+       * finishing.
+       */
+      const queued = queueVehicle(app.repos, {
+        base,
+        vehicle: spec,
+        cost: price(app, base, spec.cost),
+        now: new Date(),
+        admin: app.config.admin,
+      });
+      if (queued.kind === 'refused') throw new AppError('WORKSHOP_REFUSED', queued.reason);
 
-      return { garage: projectGarage(app, { ...base, resources, fleet }) };
+      return { garage: projectGarage(app, queued.base) };
     })();
   });
 }

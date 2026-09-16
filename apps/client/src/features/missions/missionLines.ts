@@ -40,11 +40,11 @@ export function ledBy(
 }
 
 /**
- * "Razors 3, Scavengers 1": bodies by name, which is how a player counts what they sent.
+ * "Razors 3, Scavengers 1": units by name, which is how a player counts what they sent.
  *
  * Name then count, which is how every other list of units in the game is written (the mission
  * report's own force line, the faction panel's garrison). Putting the count first read `1 Razors`
- * for every single body, because a unit's name in the catalogue is already a plural: there is no
+ * for every single unit, because a unit's name in the catalogue is already a plural: there is no
  * singular of `Razors` for the client to reach for, and inventing one is not this line's job.
  */
 export function describeArmy(army: Army): string {

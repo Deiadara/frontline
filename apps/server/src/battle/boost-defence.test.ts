@@ -34,6 +34,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -100,12 +101,7 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'stander', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
   app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
@@ -175,7 +171,7 @@ async function attack(stack: Stack, burn: string | null): Promise<void> {
   settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 }
 
-/** What one attacking body was worth in that fight: the engine's own call, on the attacking side. */
+/** What one attacking unit was worth in that fight: the engine's own call, on the attacking side. */
 function attackingVitality(input: SkirmishInput | undefined): number {
   const unit = findUnit(SENT);
   if (!input || !unit) throw new Error('fixture error: no fight to read');

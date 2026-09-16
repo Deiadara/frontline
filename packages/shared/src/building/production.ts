@@ -8,6 +8,7 @@ import {
 import { buildingEffectiveness, districtEffectiveness } from './damage.js';
 import { districtEffects, localProductionPercent, withBonus } from './effects.js';
 import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
+import { LOCAL_EFFECTS, MODIFICATIONS, fitsIn } from './modifications.js';
 import { buildingLevel, findBuilding, type Building } from './state.js';
 
 /**
@@ -22,27 +23,45 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
 /**
  * Per level, per hour, before modifications and before damage.
  *
- * The Greenhouse's figure absorbed the Cistern (§A2). Treated water used to multiply this by
- * `3% x cistern level`, so a finished district was on `12 x 1.6`; folding that into the rate at
+ * ## Three structures, and each one makes what it is (maintainer request, 2026-09-15)
+ *
+ * The Scrapyard used to make everything except food: scrap, planks, oil and good metal, all off
+ * one building. That is a district with one economic decision in it, because the answer to every
+ * shortage was the same structure. The output is split three ways now, and each line is something
+ * the building already does on its own description:
+ *
+ * - **The Scrapyard** cracks wreckage into metal. Scrap by the ton and the occasional length of
+ *   good metal, which is the thing the Garage's machines eat.
+ * - **The Generator** is the fuel block. It burns oil and it is where oil is handled, so it is
+ *   where the surplus comes off. It was already the structure whose whole personality is fuel.
+ * - **The Greenhouse** grows. Food under the lamps, and timber, which is the half of the building
+ *   bill the yard was implausibly producing out of scrap heaps.
+ *
+ * The rates are the ones that were already balanced, moved rather than invented: the totals a
+ * district with all three running sees are exactly what a district with a Scrapyard and a
+ * Greenhouse saw before. What changed is that it now takes three buildings to get there, so a crew
+ * that neglects one feels the shortage in a specific material rather than in everything at once.
+ *
+ * The Greenhouse's supplies figure absorbed the Cistern (§A2). Treated water used to multiply it
+ * by `3% x cistern level`, so a finished district was on `12 x 1.6`; folding that in at
  * `12 x 1.6 = 19.2` keeps a maxed Greenhouse exactly where it was and hands the early game the
- * difference, which is the right way round: the Cistern was a mid-game structure and losing it
- * must not make a level-1 district poorer than it was yesterday.
+ * difference, which is the right way round: the Cistern was a mid-game structure and losing it must
+ * not make a level-1 district poorer than it was yesterday.
  */
 const PRODUCTION_PER_LEVEL: Partial<Record<BuildingKind, PartialResources>> = {
-  greenhouse: { supplies: 19.2 },
+  greenhouse: { supplies: 19.2, planks: 8 },
+  generator: { oil: 6 },
   /*
-   * §D5b: the Scrapyard strips timber as well as metal, so it is the source of both halves of what
-   * building costs. Planks come off slightly below scrap: a ruin has more steel in it than sound
-   * wood, and the wood that is sound is what somebody already took.
+   * The good metal stays here, and that is the one line worth defending.
    *
-   * It absorbed the Garage's output (§B11). The board's rule is that the Garage **gives nothing**:
-   * its whole worth is the machines built in it. Deleting that income outright rather than moving
-   * it would have taken 80% of the high-quality metal out of the game (20 of 25 an hour at level
-   * 20) at the same moment the Garage started charging up to 2,400 of it for a rotorcraft, so the
-   * one building that needs the metal would have made it unobtainable. Moved here because this is
-   * the structure whose job is already cracking salvage into materials.
+   * It came from the Garage (§B11), whose rule is that it **gives nothing**: its whole worth is
+   * the machines built in it. Deleting the income rather than moving it would have taken 80% of
+   * the high-quality metal out of the game (20 of 25 an hour at level 20) at the same moment the
+   * Garage started charging up to 2,400 of it for a rotorcraft, so the one building that needs the
+   * metal would have made it unobtainable. This is the structure whose job is already cracking
+   * salvage into materials, so it is where it belongs.
    */
-  scrapyard: { scrap: 10, planks: 8, oil: 6, highQualityMetal: 1.25 },
+  scrapyard: { scrap: 10, highQualityMetal: 1.25 },
 };
 
 /**
@@ -53,6 +72,35 @@ const PRODUCTION_PER_LEVEL: Partial<Record<BuildingKind, PartialResources>> = {
 export const PRODUCING_BUILDINGS = BUILDING_KINDS.filter(
   (kind) => PRODUCTION_PER_LEVEL[kind] !== undefined,
 );
+
+/**
+ * A card that raises output has to be fittable somewhere that has output.
+ *
+ * `production_percent` is the one modification effect that belongs to the structure rather than the
+ * district ({@link LOCAL_EFFECTS}), so a card carrying it in a building this table does not name is
+ * a percentage of zero. Two shipped that way: the Garage's Rotor Bay at +20 and its Fuel Cracking
+ * Column at +16, 9,000 scrap and 432 high-quality metal between them, sold against a structure
+ * whose whole stated rule is that it produces nothing. Nothing failed, because nothing was wrong:
+ * the arithmetic multiplied an empty rate correctly.
+ *
+ * At load rather than under test, and here rather than beside the count guard in `modifications.ts`,
+ * because this is the module that owns the table being checked. `modifications.ts` deliberately
+ * imports nothing but `kinds.ts`, and reaching back into it from there would close a cycle through
+ * `effects.ts` and evaluate `MODIFICATION_EFFECTS` before it exists.
+ *
+ * Every target, not merely one of them. A card the picker offers in a slot where it pays nothing is
+ * the same trap one slot further down: the Load Balancer listed the Garage beside two structures
+ * that do produce, so a player who fitted it there bought +8% of nothing and the catalogue looked
+ * fine from every angle except that one.
+ */
+for (const spec of MODIFICATIONS) {
+  if (!LOCAL_EFFECTS.includes(spec.effect)) continue;
+  const dead = fitsIn(spec).filter((kind) => !PRODUCING_BUILDINGS.includes(kind));
+  if (dead.length === 0) continue;
+  throw new Error(
+    `${spec.id} pays ${spec.effect} into ${dead.join(', ')}: nothing there produces anything`,
+  );
+}
 
 /**
  * One structure's hourly output, with its own `production_percent` modifications folded in.
@@ -126,13 +174,30 @@ export const STORAGE_SHARES: Readonly<Partial<Record<ResourceKey, number>>> = {
   highQualityMetal: 1 / 3,
 };
 
-/** The bulk shelf: what this district can hold of scrap or planks, and the figure the rest scale off. */
-export function storageCapacity(buildings: readonly Building[]): number {
+/**
+ * The bulk shelf: what this district can hold of scrap or planks, and the figure the rest scale off.
+ *
+ * `crewStorageCapacityPercent` is §F2's Logistics, and it is a parameter here rather than a private
+ * multiply inside {@link accrueProduction} because that is exactly where it used to live. The clamp
+ * knew about it and nothing else did: a crew on +12 banked 47,808 scrap while the stockpile panel,
+ * the HUD bar and the supply run all quoted 42,686, so the bar read 112% full and `supplyAffordable`
+ * refused to sell that crew a single unit of scrap at any price. A ceiling that two halves of the
+ * game disagree about is a ceiling one of them is lying about, so there is one of them now and the
+ * bonus is an argument to it.
+ *
+ * Floored at the structures' own figure: a penalty on the channel does not shrink a store somebody
+ * has already filled, which would put a crew over a ceiling it never crossed.
+ */
+export function storageCapacity(
+  buildings: readonly Building[],
+  crewStorageCapacityPercent = 0,
+): number {
   const level = buildingLevel(buildings, 'apothecary');
   const effects = districtEffects(buildings);
   return Math.round(
     withBonus(STORAGE_BASE * STORAGE_GROWTH ** level, effects.storage_percent) *
-      buildingEffectiveness(findBuilding(buildings, 'apothecary')),
+      buildingEffectiveness(findBuilding(buildings, 'apothecary')) *
+      Math.max(1, 1 + crewStorageCapacityPercent / 100),
   );
 }
 
@@ -156,7 +221,7 @@ export function storageCapacityFor(
  * Beds a district has before any Quarters go up: the founding crew sleep somewhere.
  *
  * This figure has absorbed two things. First the army pool the Gauntlet used to run separately
- * (see `building/population.ts`), which took it from 8 to 16. Then the Cistern (§A2), whose
+ * (see `building/unit-slots.ts`), which took it from 8 to 16. Then the Cistern (§A2), whose
  * treated water multiplied the whole ceiling by `1 + 3% x its level`: 16 x 1.6 = 25.6, rounded to
  * 26. Sizing either of those lower would have quietly shrunk every existing district on the day
  * the structure came down.
@@ -181,7 +246,7 @@ export const HOUSING_BASE = 26;
 export const HOUSING_PER_QUARTERS_LEVEL = 8;
 
 /** How many people this district can house: officers and soldiers alike (§A1, §G, §H8). */
-export function populationCapacity(buildings: readonly Building[]): number {
+export function unitSlotCapacity(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   const quarters = buildingLevel(buildings, 'quarters');
   const beds = HOUSING_BASE + HOUSING_PER_QUARTERS_LEVEL * ((quarters * (quarters + 1)) / 2);
@@ -218,12 +283,15 @@ export interface CrewYield {
  * covering ten minutes makes a fortieth of one. Rounding that to zero is the oldest bug in this
  * genre (a client polling fast earns nothing), and rounding it to one is a printing press.
  *
- * **Signed**, and that is the important half. Oil is *net*: the Generator burns more than a bare
- * district makes, so a settle covering thirty seconds produces about `-0.0125` oil. Accumulating
- * the running total and flooring it, the obvious spelling, takes a whole barrel off the readout
- * the instant anybody looks at the district, and hands back a carry of `0.9875` to make the books
- * balance. Correct to the last decimal and wrong on screen. Carrying the **delta** instead means
- * the stockpile only ever moves when a whole unit has actually been made or actually been burned.
+ * **Signed**, and that half is headroom rather than a case the game currently reaches. Nothing
+ * emits a negative hourly rate today: the Generator's burn is a one-off purchase (§D5) rather than
+ * a standing draw, and every §A4 location pays a positive figure, so every carry in a live save is
+ * a part-unit of something being made. The sign is kept because a consumption channel is a small
+ * change to make and an expensive one to get wrong: carrying the running total and flooring it, the
+ * obvious spelling, takes a whole unit off the readout the instant anybody looks at a district that
+ * is burning anything, and hands back a carry of `0.9875` to make the books balance. Correct to the
+ * last decimal and wrong on screen. Carrying the **delta** instead means the stockpile only ever
+ * moves when a whole unit has actually been made, or actually been spent.
  *
  * Stored on the base rather than derived because there is nothing to derive it from: it is the
  * residue of a settle that has already happened.
@@ -286,9 +354,7 @@ export function accrueProduction(
   // The bulk shelf once, with the crew's bonus on it. Each resource takes its own share of this
   // below, and caps take none of it: production has never made caps, but a ceiling that applied to
   // them would start throwing away raid pay the moment a settle ran long.
-  const bulk = Math.round(
-    storageCapacity(buildings) * Math.max(1, 1 + crew.storageCapacityPercent / 100),
-  );
+  const bulk = storageCapacity(buildings, crew.storageCapacityPercent);
 
   const resources: Record<string, number> = {};
   const rest: Record<string, number> = {};

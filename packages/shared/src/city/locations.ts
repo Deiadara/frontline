@@ -98,6 +98,12 @@ export const LOCATION_KINDS = [
   'chapel',
   'graveyard',
   'revolutionary_statue',
+  /*
+   * Appended rather than filed under "industry and supply", where it belongs by sense.
+   * `art/manifest.ts` seeds `icon-location-*` off each kind's index here, so a kind inserted in
+   * the middle re-rolls the icon of every kind after it. Read the list by meaning, not by position.
+   */
+  'glasshouse',
 ] as const;
 export const LocationKindSchema = z.enum(LOCATION_KINDS);
 export type LocationKind = z.infer<typeof LocationKindSchema>;
@@ -166,12 +172,12 @@ export type HoldBonus =
   /** Flat points on every officer's attributes in one group, training the crew cannot buy. */
   | { kind: 'officer_group'; group: AttributeGroup; flat: number }
   /**
-   * §A1: beds, on top of the flat {@link POPULATION_PER_LOCATION} every held location gives.
+   * §A1: beds, on top of the flat {@link UNIT_SLOTS_PER_LOCATION} every held location gives.
    *
    * For the handful of locations that are somewhere people actually live or eat. A camp at the
    * green belt fence houses hundreds; a Cinema houses nobody, however much they like it there.
    */
-  | { kind: 'population'; flat: number }
+  | { kind: 'unit_slots'; flat: number }
   /*
    * The rules (maintainer brief, 2026-09-09).
    *
@@ -195,7 +201,7 @@ export type HoldBonus =
    * `combat: false` is otherwise absolute: a Scavenger is never in a battle line, never draws fire
    * and contributes nothing (`units/catalog.ts`). This suspends that for the crew that holds it,
    * which is a different thing from a damage bonus: it changes what a *unit* is for. A crew with
-   * this can send forty porters on a raid and have them be forty bodies rather than forty
+   * this can send forty porters on a raid and have them be forty units rather than forty
    * bystanders, and the half is what stops the cheapest sheet in the game becoming the best one.
    */
   | { kind: 'carriers_fight' }
@@ -442,7 +448,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [
       { kind: 'resource', resource: 'supplies', perHour: 14 },
       { kind: 'unit_morale', flat: 6 },
-      { kind: 'population', flat: 15 },
+      { kind: 'unit_slots', flat: 15 },
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 2)],
@@ -461,7 +467,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     reward:
       'More people than any building in your district could house, and every one of them looking for a reason to be useful.',
     bonuses: [
-      { kind: 'population', flat: 50 },
+      { kind: 'unit_slots', flat: 50 },
       { kind: 'resource', resource: 'caps', perHour: 6 },
     ],
     baseDefense: 1,
@@ -669,7 +675,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     upgradeCost: { caps: 520, scrap: 220, highQualityMetal: 20, planks: 130 },
     upgrades: [
       'The armourer’s bench is set up properly and somebody is on it every day.',
-      'Pattern jigs, so a refit is repeatable instead of one man’s good afternoon.',
+      'Pattern jigs, so a unit modification is repeatable instead of one man’s good afternoon.',
       'A proving butt out the back. Nothing leaves here that has not been fired.',
     ],
   },
@@ -731,7 +737,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
        * The pit is where a hauler learns to stand somewhere and not move.
        *
        * `carriers_fight` at half strength (`CARRIER_STRENGTH`), which is the whole balance of it: a
-       * Scavenger is a sixth of a Razor's price and there is no supply pressure on porters, so at
+       * Scavenger is a sixth of a Razor's price and there is no slot pressure on porters, so at
        * full strength this would make the cheapest sheet in the game the correct one. At half it is
        * a reason to bring the porters you were bringing anyway, which is what a fight pit is.
        */
@@ -1105,6 +1111,30 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'A crowd under it most nights. What is said there is repeated in every district.',
     ],
   },
+
+  // ------------------------------------------------------------ industry and supply, again
+  glasshouse: {
+    label: 'Hydroponics',
+    blurb:
+      'Glass houses on a steel frame, beds under grow-lamps, and pumps that never stop. Hot and wet in there whatever the weather is doing outside.',
+    reward: 'Supplies straight off the beds, picked before they ever see a market.',
+    /*
+     * Between the Water Works (26) and the Soup Kitchen (14). The intake is what growing takes and
+     * the kitchen is what is left after the Directorate has weighed it; this is the growing itself,
+     * so it pays less than the water it depends on and more than the ration line.
+     */
+    bonuses: [{ kind: 'resource', resource: 'supplies', perHour: 22 }],
+    baseDefense: 3,
+    // Hot and Wet by nature (maintainer, 2026-09-15): a glass house is a warm, dripping room in any
+    // weather. Crammed because the aisles between the beds are one unit wide.
+    labels: [L('hot', 3), L('wet', 2), L('crammed', 1)],
+    upgradeCost: { caps: 300, scrap: 120, planks: 160 },
+    upgrades: [
+      'The broken panes are glazed and the lamps rewired. Nothing freezes in the night beds any more.',
+      'A second pump on the intake line, so every bed is wet on the hour instead of when somebody remembers.',
+      'Racks up the walls. Three tiers of beds under the same glass, and three harvests where there was one.',
+    ],
+  },
 };
 
 /** A location's level, brought inside `1..MAX_LOCATION_LEVEL`. Everything reads through this. */
@@ -1144,7 +1174,7 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'unit_morale':
     case 'intimidation':
     case 'officer_group':
-    case 'population':
+    case 'unit_slots':
       return { ...bonus, flat: grow(bonus.flat) };
     case 'road_shortcut':
       return { ...bonus, minutes: grow(bonus.minutes) };
@@ -1252,6 +1282,14 @@ export const LocationSchema = z.object({
   name: z.string().min(1),
   kind: LocationKindSchema,
   fortifyDifficulty: FortifyDifficultySchema,
+  /**
+   * What *this* place is, when the kind's own line will not do.
+   *
+   * Two rail yards used to read identically, because the sheet printed the kind's blurb and
+   * nothing else. Optional, and the sheet falls back to the kind's line, so a location authored
+   * without one is not a location with a hole in it (maintainer request, 2026-09-15).
+   */
+  blurb: z.string().min(1).optional(),
 });
 export type Location = z.infer<typeof LocationSchema>;
 
@@ -1315,11 +1353,11 @@ export interface TerritoryEffects {
   /**
    * §A1: beds the map adds to the district's own.
    *
-   * `POPULATION_PER_LOCATION` for every location held, plus whatever the locations that house
+   * `UNIT_SLOTS_PER_LOCATION` for every location held, plus whatever the locations that house
    * people give on top. Folded in `territoryEffectsFor`, because the flat-per-location part is a
    * fact about *how many* you hold rather than about any one of them.
    */
-  populationBonus: number;
+  unitSlotBonus: number;
   /** Flat minutes off every road, spent after the column's pace. See the `road_shortcut` bonus. */
   roadMinutesOff: number;
   /** Whether the porters may stand in the line. See the `carriers_fight` bonus. */
@@ -1371,7 +1409,7 @@ export function noTerritoryEffects(): TerritoryEffects {
     salvageRefundPercent: 0,
     intelYieldPercent: 0,
     officerGroupFlat: {},
-    populationBonus: 0,
+    unitSlotBonus: 0,
     roadMinutesOff: 0,
     carriersFight: false,
     anyRide: false,
@@ -1482,8 +1520,8 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
     case 'intel':
       into.intelYieldPercent += bonus.percent;
       return into;
-    case 'population':
-      into.populationBonus += bonus.flat;
+    case 'unit_slots':
+      into.unitSlotBonus += bonus.flat;
       return into;
     case 'officer_group':
       into.officerGroupFlat = {
@@ -1586,7 +1624,7 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'black_market_discount':
       return `-${bonus.percent}% black-market infamy`;
     case 'refit_discount':
-      return `-${bonus.percent}% refit cost`;
+      return `-${bonus.percent}% unit modification cost`;
     case 'vehicle_parts':
       return `-${bonus.percent}% vehicle cost`;
     case 'training_sessions':
@@ -1605,8 +1643,10 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return `+${bonus.percent}% ${UNIT_TIER_LABELS[bonus.tier]} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'officer_group':
       return `+${bonus.flat} to officer ${GROUP_LABELS[bonus.group]} skills`;
-    case 'population':
-      return `+${bonus.flat} population`;
+    case 'unit_slots':
+      // The housing budget is called unit slots on every screen (maintainer request, 2026-09-15).
+      // The channel keeps its internal name; only what a player reads changed.
+      return `+${bonus.flat} unit slots`;
     case 'road_shortcut':
       return `-${bonus.minutes} min off every road`;
     case 'carriers_fight':

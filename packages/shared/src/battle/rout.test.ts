@@ -26,7 +26,7 @@ import type { Army } from '../units/index.js';
 const engine = new TacticalSkirmishEngine();
 const SEEDS = 40;
 
-const bodies = (army: Army): number =>
+const standingUnits = (army: Army): number =>
   Object.values(army).reduce((sum, count) => sum + (count ?? 0), 0);
 
 /** A fight the attacker loses: sixty against eighty dug in, which is a rout and not a massacre. */
@@ -53,12 +53,12 @@ function over(ring: Army | undefined = undefined) {
     const outcome = fight(`rout:${i}`, ring ? { defenderPerimeter: ring } : {});
     // Only fights the attacker lost have a withdrawal to measure.
     if (outcome.winner !== 'defender') continue;
-    fled += bodies(outcome.fled);
-    killed += bodies(outcome.killed);
-    ringLosses += bodies(outcome.perimeterLosses);
+    fled += standingUnits(outcome.fled);
+    killed += standingUnits(outcome.killed);
+    ringLosses += standingUnits(outcome.perimeterLosses);
     // A fight nobody ran from tells us nothing about the ring, and `brokeThrough` is true there by
     // definition: nobody was stopped. Counted separately so the breakthrough rate means something.
-    if (bodies(outcome.fled) + bodies(outcome.perimeterCaught) > 0) {
+    if (standingUnits(outcome.fled) + standingUnits(outcome.perimeterCaught) > 0) {
       withRunners += 1;
       if (outcome.brokeThrough) brokeThrough += 1;
     }
@@ -77,7 +77,7 @@ describe('units leaving a fight they lost', () => {
   });
 
   /**
-   * Whether the sheet decides who gets away, asked of the roll rather than of the body count.
+   * Whether the sheet decides who gets away, asked of the roll rather than of the unit count.
    *
    * Same losing position and same context for all three, so the only thing between them is the
    * unit. Road Reavers and Ghosts are the fast and the quiet ends of the roster; a Juggernaut is
@@ -116,14 +116,14 @@ describe('the winner’s ring, on the way out', () => {
     expect(held.fled).toBeLessThan(open.fled / 2);
   });
 
-  it('costs the ring bodies, which a toll never did', () => {
+  it('costs the ring units, which a toll never did', () => {
     expect(over({ wardens: 30 }).ringLosses, 'the ring stopped them for free').toBeGreaterThan(0);
   });
 
   /*
    * A ring is not a wall, and this is the whole difference between a fight and a catch-rate.
    *
-   * Under the old model, thickness scaled only *how much* a ring caught: one body in front of a
+   * Under the old model, thickness scaled only *how much* a ring caught: one unit in front of a
    * mass breakout still took its share of them and lost nobody, because there was no way to lose.
    * As a battle it can be ridden through, and it dies doing it.
    */
@@ -132,7 +132,7 @@ describe('the winner’s ring, on the way out', () => {
     const thick = over({ wardens: 30 });
 
     expect(thin.withRunners, 'nobody ran, so there was no ring to test').toBeGreaterThan(0);
-    expect(thin.brokeThrough, 'one body turned every mass breakout back').toBe(thin.withRunners);
+    expect(thin.brokeThrough, 'one unit turned every mass breakout back').toBe(thin.withRunners);
     expect(thick.brokeThrough, 'thirty wardens were ridden through').toBe(0);
     // It stopped nobody and paid for it: measured at the whole ring, every time.
     expect(thin.fled).toBe(over().fled);

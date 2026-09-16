@@ -79,7 +79,7 @@ const stackOf = (side: Simulation['attacker'], unitId: string): Stack => {
   return found;
 };
 
-/** Bodies a side lost, which is the figure every mark below is measured on. */
+/** Units a side lost, which is the figure every mark below is measured on. */
 const lost = (side: Simulation['attacker']): number =>
   side.stacks.reduce((total, stack) => total + (stack.started - stack.alive), 0);
 
@@ -87,7 +87,7 @@ const lost = (side: Simulation['attacker']): number =>
 const dugIn = (percent: number): Battlefield => ({ ...bareBattlefield(), fortifyPercent: percent });
 
 describe('Runs in Packs: massing one sheet is worth something', () => {
-  it('pays nothing for the first body and caps where the doc says', () => {
+  it('pays nothing for the first unit and caps where the doc says', () => {
     expect(packBonusPercent(0)).toBe(0);
     expect(packBonusPercent(1)).toBe(0);
     expect(packBonusPercent(11)).toBeCloseTo(10 * PACK_STEP, 6);
@@ -111,7 +111,7 @@ describe('Runs in Packs: massing one sheet is worth something', () => {
     expect(bare.effective.reasons).not.toContain(UNIT_RULES.pack.label);
   });
 
-  it('is worth nothing to a single body, so the sheet is honest', () => {
+  it('is worth nothing to a single unit, so the sheet is honest', () => {
     const one = stackOf(fight({ cyber_dogs: 1 }, { razors: 40 }, 'pack-2').attacker, 'cyber_dogs');
     const bare = withoutMark('cyber_dogs', 'pack', () =>
       stackOf(fight({ cyber_dogs: 1 }, { razors: 40 }, 'pack-2').attacker, 'cyber_dogs'),
@@ -146,7 +146,7 @@ describe('Wall Breaker: the works come down', () => {
     expect(sappedGround(dugIn(60), { razors: 40 })).toEqual(dugIn(60));
   });
 
-  it('costs the defender bodies that the same force without the mark does not take', () => {
+  it('costs the defender units that the same force without the mark does not take', () => {
     const attacking: Army = { demolishers: 14, razors: 26 };
     const ground = dugIn(60);
     const sapped = fight(attacking, { wardens: 30 }, 'sap-1', ground);
@@ -188,7 +188,7 @@ describe('Opening Volley: a shot away before the lines form', () => {
 });
 
 describe('Holds the Line: it does not run while over half of it stands', () => {
-  it('reads the bodies standing, not the morale', () => {
+  it('reads the units standing, not the morale', () => {
     const stalwart = { unit: spec('wardens'), alive: 6, started: 10 } as Stack;
     expect(holdsTheLine(stalwart)).toBe(true);
     expect(holdsTheLine({ ...stalwart, alive: 5 })).toBe(false);
@@ -220,7 +220,7 @@ describe('Holds the Line: it does not run while over half of it stands', () => {
   });
 });
 
-describe('Picks the Field: a flat load per body', () => {
+describe('Picks the Field: a flat load per unit', () => {
   it('adds the same load to every picker, over and above the sheet', () => {
     const sheetOnly = spec('scavengers').stats.lootCapacity * 10;
     expect(lootCapacityOf({ scavengers: 10 })).toBe(sheetOnly + PICKER_EXTRA_LOAD * 10);
@@ -230,6 +230,19 @@ describe('Picks the Field: a flat load per body', () => {
     const sheetOnly = spec('scavengers').stats.lootCapacity * 10;
     expect(lootCapacityOf({ scavengers: 10 }, 50)).toBeCloseTo(
       sheetOnly * 1.5 + PICKER_EXTRA_LOAD * 10,
+      6,
+    );
+  });
+
+  /** A Counterweight Harness on the Haulers is a bigger bag on a raid as well as on a job. */
+  it('reads the bag off the fitted sheet when the loadouts are passed', () => {
+    const printed = lootCapacityOf({ haulers: 4 });
+    const harnessed = lootCapacityOf({ haulers: 4 }, 0, { haulers: ['counterweight_harness'] });
+    expect(harnessed).toBe(printed + 4 * 32);
+    // The percentage scales the fitted bag too, and the picker's flat load still sits outside it.
+    const pickers = lootCapacityOf({ scavengers: 10 }, 50, { scavengers: ['hook_and_line'] });
+    expect(pickers).toBeCloseTo(
+      (spec('scavengers').stats.lootCapacity + 12) * 10 * 1.5 + PICKER_EXTRA_LOAD * 10,
       6,
     );
   });

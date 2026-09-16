@@ -34,30 +34,28 @@ implemented mechanic (the `role` field on `BuildingSpec` is the contract that ke
 ✅ **Build queue**, six slots, worked sequentially. Materials taken at order time; price and
 duration frozen onto the entry. Settled lazily on read: no scheduler.
 
-✅ **Power grid.** The Generator burns oil for supply; every other structure draws. Power is never
-banked and is not a resource. Surplus raises where morale settles; a shortfall browns the district
-out: production scales down, nothing stops. Fuel burn scales with _load carried_, not nameplate.
-
 ✅ **Production**, accrued lazily and piecewise (the window is cut at each completed build, so a
 structure that finished an hour ago is not paid for the three days nobody looked). Greenhouse →
-supplies, Scrapyard → scrap/oil/HQ metal, Garage → oil/HQ metal. Caps are not farmed: they come off
-missions and raids.
+supplies/planks, Generator → oil, Scrapyard → scrap/HQ metal. The Garage produces nothing: its worth
+is the machines built in it. Caps are not farmed: they come off missions and raids. There is no
+power grid and no district morale; a structure runs at its own level, its own cards and its own
+damage, and the Generator's oil burn is a purchase rather than a standing draw.
 
-✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back.
-✅ **Housing** (Quarters) caps the army, enforced on both hiring and placement.
+✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back. Three
+shelves, not one: bulk for scrap and planks, two thirds of it for oil and supplies, a third for HQ
+metal, and no ceiling at all on caps.
+✅ **Unit slots** (Quarters) are one pool for the army, the bench, the officers and the fleet,
+enforced on both hiring and placement.
 
-✅ **Modifications**: 77 of them, seven per structure, slots opening at levels 5/10/20. Researched
-rather than bought; needs a Lead Engineer. Fourteen effect kinds, every one wired to a real
-mechanic.
+✅ **Modifications**: 89 of them, at least seven per structure, slots opening at levels 5/10/20.
+Researched rather than bought; needs a Lead Engineer. Twelve effect kinds, every one wired to a real
+mechanic. Six families, with a pair synergy and a set bonus for filling all three slots from one.
 
 ✅ **Faction naming**, shown in the HUD and on the district page.
 
 ### Economy and standing
 
 ✅ Payroll (§H7) as a standing capacity. Nothing in the game is charged on a clock: no weekly draw of caps, supplies or anything else.
-✅ Morale (§D4) as a **target the district drifts toward**: frequency-independent, so it cannot be
-farmed by refreshing. The Quarters and power raise it; the Infirmary softens the hit from a missed
-payday.
 ✅ Infamy (§D7) and the §D8 reputation tally, with exponential decay.
 
 ### Other people
@@ -68,7 +66,7 @@ district rather than copied onto the membership row.
 ✅ **Fighting together**: a battle side is a list of contributors, not one crew. An ally's fights
 appear on the faction screen and units can be sent to them through the same deployment path a crew
 uses for its own battles, so travel, supply and losses follow the same rules. Survivors are split
-back per contributor by largest remainder, so nobody loses a body to rounding.
+back per contributor by largest remainder, so nobody loses a unit to rounding.
 ✅ **Messages**: player-to-player and player-to-faction, fanned out per recipient at send time so
 read state is per person. Inbox, sent folder with a read count, reply with quoting, delete.
 ✅ **Notifications**: 15 kinds in 4 groups, each carrying a link to what it is about. Unread badge
@@ -122,11 +120,11 @@ ground pays 5/4/3% defence per level: the board's inversion, so hard ground is a
 and what you can add to it is marginal.
 
 ✅ **Raiding a home district.** It can never be captured. A successful raid takes a share of the
-stockpile bounded by what the force can physically carry in **kilograms**, and leaves the district's
+stockpile bounded by the **loot slots** the force can carry, and leaves the district's
 structures running at reduced effectiveness for six hours.
 
 ✅ **Nine machines in the Garage**, four classes, in the order the Garage lets them out: the
-Scrappy at level 1 up to the Heli Porter at 14. Each carries a population and a `speed` on the
+Scrappy at level 1 up to the Heli Porter at 14. Each carries a number of unit slots and a `speed` on the
 units' own 0 to 100 scale, is gated on a blueprint document assembled from pages missions drop, and
 is worth infamy equal to its seats to whoever wrecks it. A column moves at its **slowest group**
 (`columnSpeed`): what is parked at home is worth nothing, two bikes in front of forty walkers are
@@ -215,7 +213,7 @@ fight costs over 30% of the force, winning a 4:1 costs under 12%.
 what the player knows, and reports it in bands rather than percentages. A simulator built as a
 second model drifts from the real one the first time either is tuned, so `forecast.test.ts` pins one
 forecast run against `simulate` on the same seed. It cannot see through fog: an enemy garrison's
-composition is hidden, so the estimate stands an ordinary defender in for every body and says so.
+composition is hidden, so the estimate stands an ordinary defender in for every unit and says so.
 
 **Dead wiring found and fixed.** Three effects were computed by `building/standing.ts` and read by
 nothing at all: `districtDefense`, `raidLootBonus` and `characterXpBonus`. The first is the worst:
@@ -226,7 +224,7 @@ their own file, which is now the cheapest audit in this repo.
 **More dead wiring, and the worst of it.** `outcome.winnerLosses` was computed by the engine and
 read by nobody, so **winning a fight cost neither side anything**: a successful attack returned the
 whole force including its dead, a garrison that turned an assault back lost nobody, and a raided
-crew lost resources but not one body. The attrition six modules exist to calculate never reached an
+crew lost resources but not one unit. The attrition six modules exist to calculate never reached an
 army row.
 
 **Every NPC place was undefended.** `startingControl` seeded `garrison: {}`, so the whole city map
@@ -237,8 +235,8 @@ fields regulars where looters field rabble, and a new crew is issued eight Razor
 because four cannot take the easiest place in the game: measured, 0 wins in 40.
 
 **Integration tests.** `battle/integration.test.ts` runs six real scenarios across five seeds each
-and checks the conservation laws at every step: every body accounted for, nothing gains health or
-bodies, a broken stack stops firing, the report describes the simulation that actually happened.
+and checks the conservation laws at every step: every unit accounted for, nothing gains health or
+units, a broken stack stops firing, the report describes the simulation that actually happened.
 Those are the tests that catch a bug nobody thought to look for.
 
 **Still open:** veterancy (units do not learn from a fight), and no reinforcement mid-battle.

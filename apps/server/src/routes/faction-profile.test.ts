@@ -14,6 +14,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { seedMvpWorld } from '../seed/index.js';
 import { MVP_BOT, MVP_FACTION, MVP_RIVAL_FACTION, MVP_RIVAL_SECOND } from '../seed/constants.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * A faction's file, readable by anybody (maintainer request, 2026-09-12).
@@ -58,12 +59,7 @@ async function player(app: FastifyInstance, username: string) {
     payload: { username, password: PASSWORD },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return { token };
 }
 
@@ -256,7 +252,7 @@ describe('GET /factions/:id/profile', () => {
     // Nor an army size on a member row, which is the same leak one row at a time.
     for (const member of (body.members as Record<string, unknown>[]) ?? []) {
       expect(member).not.toHaveProperty('armySize');
-      expect(member).not.toHaveProperty('supplyUsed');
+      expect(member).not.toHaveProperty('unitSlotsUsed');
     }
   });
 

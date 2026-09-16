@@ -201,7 +201,7 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   page_found: {
     group: 'district',
     label: 'Pages found',
-    blurb: 'A blueprint page came into the satchel.',
+    blurb: 'A blueprint page came into the inventory.',
     icon: 'research',
   },
   scout_home: {

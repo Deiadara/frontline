@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The console's mock fight (maintainer request, 2026-09-08): somebody else in the city calls a fight
@@ -41,12 +42,7 @@ async function city(
       payload: { username, password: 'hunter2pass' },
     });
     const t = registered.json<{ token: string }>().token;
-    const chosen = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(t),
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(app, t);
     token = t;
     baseId = chosen.json<{ base: { id: string } }>().base.id;
   }

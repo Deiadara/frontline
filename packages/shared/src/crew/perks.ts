@@ -91,15 +91,19 @@ export type CrewOnlyBonus =
   /** Everything that pays experience pays more of it. */
   | { kind: 'xp_gain'; percent: number }
   /*
-   * §D5: the ones that pay only while this officer is **leading** a fight or a run.
+   * §D5: the ones that pay only while one of the crew's officers is **leading** a fight or a run.
    *
    * The narrowest condition in the book, and deliberately so. Everything else here is worth
    * something to a crew that never leaves the district; these are worth exactly nothing until the
-   * player picks this person off the roster and sends them, which turns a hire into a reason to
-   * fight rather than a percentage on a screen. Only one officer may lead, so they never stack
-   * with each other.
+   * player picks somebody off the roster and sends them, which turns a hire into a reason to
+   * fight rather than a percentage on a screen.
+   *
+   * The condition belongs to the crew and not to the carrier. `battle/resolve.ts` and the mission
+   * launcher spend the whole fold the moment a leader is named, so two of these held by two
+   * officers both pay the column, and one held by the officer who stayed at home pays it as well.
+   * Copy for them says "any of your officers", never "this officer": see `describePerkBonus`.
    */
-  /** Every friendly unit hits harder while they are leading. */
+  /** Every friendly unit hits harder while one of the crew's officers is leading. */
   | { kind: 'lead_offense'; percent: number }
   /** ...and is harder to hit, in flat points of evasion. */
   | { kind: 'lead_evasion'; flat: number }
@@ -897,11 +901,11 @@ const CATALOG: Perk[] = [
     percent: 12,
   }),
   perk('bunk_builder', 'Bunk Builder', 'people', 'Fits four where the plans allowed two.', {
-    kind: 'population',
+    kind: 'unit_slots',
     flat: 3,
   }),
   perk('block_landlord', 'Block Landlord', 'people', 'Holds paper on the tenement next door.', {
-    kind: 'population',
+    kind: 'unit_slots',
     flat: 5,
   }),
   perk(
@@ -1314,10 +1318,201 @@ const CATALOG: Perk[] = [
     kind: 'lead_arrival',
     percent: 10,
   }),
+
+  /*
+   * ------------------------------------------------------------------ the signatures (§F6)
+   *
+   * One per Overseer, and the only perks in the book an officer can never roll
+   * ({@link OVERSEER_SIGNATURE_PERK_IDS}, excluded from {@link ROLLABLE_PERK_IDS}).
+   *
+   * They are the reason picking a character is a decision about the whole run rather than about a
+   * portrait. An ordinary perk is two to six points on one channel, sized so a roster of thirty of
+   * them is an edge; a signature is roughly double that on a channel nobody else on the roster is
+   * pushing, because there is exactly one Overseer and they carry it for the entire game.
+   *
+   * Spread across the five categories on purpose, and across the *kinds* of decision inside them:
+   * one that makes the rest of the crew better, one that pays at a fight, one that pays at home,
+   * one that only pays once a condition is true. A player reading thirty of these should be able
+   * to see four or five different games in them rather than thirty sizes of the same one.
+   */
+
+  // People: the ones whose whole value is everybody else on the books.
+  perk('sig_drillmaster', 'Drillmaster', 'people', 'Every officer here was taught by them.', {
+    kind: 'officer_group',
+    group: 'social',
+    flat: 5,
+  }),
+  perk('sig_headhunter', 'Headhunter', 'people', 'Knows who is unhappy before their chief does.', {
+    kind: 'recruit_pool',
+    percent: 40,
+  }),
+  perk('sig_paymaster', 'Paymaster', 'people', 'Nobody has ever queried one of their envelopes.', {
+    kind: 'wage_discount',
+    percent: 18,
+  }),
+  perk('sig_field_surgeon', 'Field Surgeon', 'people', 'Argues with the dead until they get up.', {
+    kind: 'casualty_recovery',
+    percent: 14,
+  }),
+  perk(
+    'sig_quartermaster',
+    'Quartermaster',
+    'people',
+    'The books balance and the shelves are full.',
+    {
+      kind: 'payroll_step_discount',
+      percent: 20,
+    },
+  ),
+  perk('sig_organiser', 'Organiser', 'people', 'Turns a mob into a shift rota in an afternoon.', {
+    kind: 'cohesion',
+    percent: 22,
+  }),
+
+  // Military: the ones that are worth something the day a fight is called.
+  perk('sig_warlord', 'Warlord', 'military', 'Has never been anywhere except the front of it.', {
+    kind: 'unit_offense',
+    percent: 9,
+  }),
+  perk('sig_ironbacked', 'Ironbacked', 'military', 'Lost a district once. Not twice.', {
+    kind: 'unit_vitality',
+    percent: 11,
+  }),
+  perk('sig_gatekeeper', 'Gatekeeper', 'military', 'The door is the whole plan.', {
+    kind: 'gate_defense',
+    percent: 30,
+  }),
+  perk('sig_banner', 'Banner', 'military', 'People fight harder where they can see them.', {
+    kind: 'unit_morale',
+    flat: 9,
+  }),
+  perk('sig_coalition', 'Coalition', 'military', 'Has never once fought a war alone.', {
+    kind: 'allied_offense',
+    percent: 20,
+  }),
+  perk('sig_vanguard', 'Vanguard', 'military', 'Leads from in front, which is why it works.', {
+    kind: 'lead_offense',
+    percent: 18,
+  }),
+
+  // Economy: the ones that pay every hour whether anything happens or not.
+  perk('sig_industrialist', 'Industrialist', 'economy', 'Ran a plant that never once stopped.', {
+    kind: 'production',
+    percent: 16,
+  }),
+  perk('sig_hoarder', 'Hoarder', 'economy', 'Has never in their life thrown anything away.', {
+    kind: 'storage_capacity',
+    percent: 30,
+  }),
+  perk('sig_contractor', 'Contractor', 'economy', 'Builds it for what the parts cost.', {
+    kind: 'build_cost',
+    percent: 15,
+  }),
+  perk('sig_smelter', 'Smelter', 'economy', 'Gets good metal out of what everyone else buried.', {
+    kind: 'resource_yield',
+    resource: 'highQualityMetal',
+    percent: 25,
+  }),
+  perk('sig_broker', 'Broker', 'economy', 'Never pays a list price for anything.', {
+    kind: 'market_discount',
+    percent: 15,
+  }),
+  perk('sig_landlord', 'Landlord', 'economy', 'Every roof in the district is theirs by Friday.', {
+    kind: 'whole_district',
+    percent: 25,
+  }),
+
+  // Logistics: the ones about how fast the machine turns over.
+  perk('sig_instructor', 'Instructor', 'logistics', 'Turns them out trained, not merely alive.', {
+    kind: 'training_speed',
+    percent: 20,
+  }),
+  perk(
+    'sig_foreman',
+    'Foreman',
+    'logistics',
+    'The scaffolding goes up while you are still talking.',
+    {
+      kind: 'build_speed',
+      percent: 20,
+    },
+  ),
+  perk('sig_roadwise', 'Roadwise', 'logistics', 'Knows a way through that is not on any map.', {
+    kind: 'travel_speed',
+    percent: 18,
+  }),
+  perk('sig_scavenger_king', 'Scavenger King', 'logistics', 'Comes back with more than went out.', {
+    kind: 'loot_capacity',
+    percent: 25,
+  }),
+  perk('sig_researcher', 'Researcher', 'logistics', 'Reads the manual nobody else finished.', {
+    kind: 'research_speed',
+    percent: 22,
+  }),
+  perk(
+    'sig_machinist',
+    'Machinist',
+    'logistics',
+    'Keeps the yard running on parts that should not fit.',
+    {
+      kind: 'vehicle_parts',
+      percent: 25,
+    },
+  ),
+
+  // Intel: the ones about knowing first, and about not being known.
+  perk('sig_spymaster', 'Spymaster', 'intel', 'Has a file on everybody, including you.', {
+    kind: 'intel',
+    percent: 30,
+  }),
+  perk('sig_ghost', 'Ghost', 'intel', 'There is no photograph of them anywhere.', {
+    kind: 'intel_resistance',
+    percent: 30,
+  }),
+  perk('sig_cartographer', 'Cartographer', 'intel', 'Has walked every street in the city twice.', {
+    kind: 'vision',
+    districts: 2,
+  }),
+  perk('sig_infiltrator', 'Infiltrator', 'intel', 'Gets in before anybody decides to stop them.', {
+    kind: 'unit_stealth',
+    percent: 22,
+  }),
+  perk('sig_terror', 'Terror', 'intel', 'The street clears before they reach the end of it.', {
+    kind: 'intimidation',
+    flat: 12,
+  }),
+  perk('sig_name_maker', 'Name Maker', 'intel', 'Makes sure the right people hear about it.', {
+    kind: 'infamy_gain',
+    percent: 25,
+  }),
 ];
 
 export const PERK_CATALOG: readonly Perk[] = CATALOG;
 export const PERK_IDS: readonly string[] = CATALOG.map((entry) => entry.id);
+
+/**
+ * The Overseer signatures: one per character, and never rolled onto an officer (§F6).
+ *
+ * Derived from the id prefix rather than hand-listed, so adding a signature to the table above is
+ * the whole of adding one. A hand-kept second list is the copy that goes stale, and the failure is
+ * silent in the worst direction: a signature that quietly falls into the recruitment pool is a
+ * doubled bonus a player can hire twice.
+ */
+export const OVERSEER_SIGNATURE_PERK_IDS: readonly string[] = PERK_IDS.filter((id) =>
+  id.startsWith('sig_'),
+);
+
+/**
+ * What the Bar may actually roll (`characters/generate.ts`).
+ *
+ * The catalogue minus the signatures. Separate from {@link PERK_IDS} for the reason
+ * `ASSIGNABLE_OFFICER_PORTRAIT_IDS` is separate from `OFFICER_PORTRAIT_IDS`: one list is what
+ * exists and the other is what the game hands out, and collapsing them is how a thing meant to be
+ * unique stops being unique.
+ */
+export const ROLLABLE_PERK_IDS: readonly string[] = PERK_IDS.filter(
+  (id) => !OVERSEER_SIGNATURE_PERK_IDS.includes(id),
+);
 
 const BY_ID = new Map(CATALOG.map((entry) => [entry.id, entry]));
 
@@ -1395,19 +1590,28 @@ export function describePerkBonus(bonus: PerkBonus): string {
       return `+${bonus.percent}% ${findUnit(bonus.unitId)?.name ?? bonus.unitId} ${UNIT_TIER_STAT_LABELS[bonus.stat]}`;
     case 'xp_gain':
       return `+${bonus.percent}% experience`;
-    // §D5: every one of these says *while leading*, because that is the whole of what they are.
+    /*
+     * §D5: every one of these carries its condition, because the condition is the whole of what
+     * they are.
+     *
+     * The condition is the *crew's*, not the carrier's. `battle/resolve.ts` and the mission
+     * launcher spend the crew's whole fold once anybody leads, so a perk on the officer sitting at
+     * home pays the one who went. These lines said `while leading` on a chip printed beside one
+     * face, which reads as a condition on that face and sent players hunting for the one officer
+     * who had to be in the column.
+     */
     case 'lead_offense':
-      return `+${bonus.percent}% offense while leading`;
+      return `+${bonus.percent}% offense while any of your officers leads`;
     case 'lead_evasion':
-      return `+${bonus.flat} evasion while leading`;
+      return `+${bonus.flat} evasion while any of your officers leads`;
     case 'lead_armor':
-      return `+${bonus.flat} armour while leading`;
+      return `+${bonus.flat} armour while any of your officers leads`;
     case 'lead_morale':
-      return `+${bonus.flat} morale while leading`;
+      return `+${bonus.flat} morale while any of your officers leads`;
     case 'lead_loot':
-      return `+${bonus.percent}% loot while leading`;
+      return `+${bonus.percent}% loot while any of your officers leads`;
     case 'lead_arrival':
-      return `-${bonus.percent}% off the road while leading`;
+      return `-${bonus.percent}% off the road while any of your officers leads`;
     case 'officer_attribute':
       return `+${bonus.flat} ${ATTRIBUTE_LABELS[bonus.attribute]} to every other officer`;
     case 'officer_threshold':

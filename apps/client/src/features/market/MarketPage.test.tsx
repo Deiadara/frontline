@@ -1,5 +1,6 @@
 import {
   RESOURCE_KEYS,
+  RESOURCE_LABELS,
   STORAGE_SHARES,
   supplyBoard,
   type MarketResponse,
@@ -251,5 +252,41 @@ describe('the day boundary is the house clock, quoted on the player’s own', ()
     fireEvent.mouseEnter(note);
     await waitFor(() => expect(screen.getByText(/Today he is in at/)).toHaveTextContent('14:00'));
     expect(screen.getByText(/Today he is in at/)).not.toHaveTextContent('17:00');
+  });
+});
+
+/**
+ * The supply run says which of the three refusals it is, and says it about the right shelf.
+ *
+ * `supplyStall` compared the crew's holding against `supply.storageCapacity`, which is the **bulk**
+ * shelf. Oil and supplies get two thirds of that and HQ metal a third (`STORAGE_SHARES`), so for
+ * four of the five buyable materials the comparison could not be true and the store-full case fell
+ * through to "Not enough caps". A crew with fifty thousand caps and a full alloy shelf was told to
+ * go and earn.
+ */
+describe('why the supply run is refusing', () => {
+  const pick = async (label: string) => {
+    renderMarket();
+    const picker = await screen.findByTestId('supply-resource');
+    fireEvent.click(within(picker).getByRole('radio', { name: label }));
+  };
+
+  it('says the store is full for a shelf that is narrower than the bulk one', async () => {
+    // The fixture holds 4,000 of every material against a bulk shelf of 10,000: room in scrap,
+    // and none at all in the alloy shelf, which is a third of it.
+    expect(market.resources.highQualityMetal).toBeGreaterThanOrEqual(
+      market.supply.lines.find((line) => line.key === 'highQualityMetal')!.capacity,
+    );
+    expect(market.resources.caps, 'the crew must be able to afford a unit').toBeGreaterThan(1_000);
+
+    await pick(RESOURCE_LABELS.highQualityMetal);
+    await waitFor(() => expect(screen.getByTestId('supply-buy')).toHaveTextContent('Store full'));
+  });
+
+  it('still says the store is full on the bulk shelf itself', async () => {
+    await pick(RESOURCE_LABELS.scrap);
+    // Room in scrap, so the run is open: this is the control that the case above is about the
+    // shelf and not about the screen refusing everything.
+    await waitFor(() => expect(screen.getByTestId('supply-buy')).toHaveTextContent('Buy it'));
   });
 });

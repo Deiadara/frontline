@@ -4,7 +4,6 @@ import {
   OFFICER_ROLES,
   RESOURCE_KEYS,
   isPerkId,
-  UNIT_IDS,
   findUnit,
   withoutRetiredUnits,
   findModification,
@@ -13,7 +12,7 @@ import {
   BaseSchema,
   LevelUpSchema,
   type LevelUp,
-  defaultLoadout,
+  findUnitModification,
   BaseSummarySchema,
   type Base,
   type BaseSummary,
@@ -81,6 +80,8 @@ export interface BaseStanding {
 
 export interface BasesRepo {
   insert(base: Base): void;
+  /** Rewrites every column of an existing base. The Console's Clean slate; see `replaceStmt`. */
+  replace(base: Base): void;
   findById(id: string): Base | undefined;
   findByOwnerId(ownerId: string): Base | undefined;
   /**
@@ -110,7 +111,7 @@ export interface BasesRepo {
   /** §F2: the training board and the officers it pays out to, written together. */
   updateTraining(baseId: string, training: TrainingState, commanders: Commander[]): void;
   /**
-   * The market and workshop writes: stockpile and satchel move together.
+   * The market and workshop writes: stockpile and inventory move together.
    *
    * One statement, because every trade, purchase and refit spends from both, and a crash between
    * two updates would take the caps without handing over the parts, or the other way round.
@@ -230,13 +231,26 @@ function storedResources(raw: unknown): unknown {
  */
 const KNOWN_ROLES = new Set<string>(OFFICER_ROLES);
 
-/** Training orders for units that still exist. A part-trained batch of a retired unit is gone. */
+/**
+ * Bench orders for things that still exist. A part-built batch of a retired unit is gone.
+ *
+ * **Machines count as existing.** The bench builds vehicles as well as units now (maintainer
+ * request, 2026-09-15), and this filter asked `findUnit` alone: every queued vehicle was therefore
+ * dropped on the way out of the database, silently, by the guard whose whole job is to drop things
+ * that are not real. The order was written correctly and simply never came back, so a machine paid
+ * for vanished and nothing anywhere threw.
+ *
+ * That is the hazard this function carries by design: it swallows rows rather than failing, which
+ * is right for a retired id and wrong for one it has merely never been taught about. Anything that
+ * can be on the bench has to be named here.
+ */
 function knownTrainingQueue(raw: unknown): unknown {
   if (!Array.isArray(raw)) return raw;
   return (raw as unknown[]).filter((order) => {
     if (!isRow(order)) return true;
     const unitId = order.unitId;
-    return typeof unitId !== 'string' || findUnit(unitId) !== undefined;
+    if (typeof unitId !== 'string') return true;
+    return findUnit(unitId) !== undefined || findVehicle(unitId) !== undefined;
   });
 }
 
@@ -292,6 +306,42 @@ function knownAddons(raw: unknown): unknown {
       ? (value as unknown[]).filter((id) => typeof id !== 'string' || findModification(id))
       : value;
   return { ...raw, researched: clean(raw.researched), built: clean(raw.built) };
+}
+
+/**
+ * The crew's stock of unit modification cards, less any id the catalogue no longer has.
+ *
+ * The twelve tiered refits this column used to hold (`armour_2` and its kind) are the live case:
+ * migration 0094 clears them, and this catches a row it did not reach. Only string ids are judged;
+ * anything else is left for the schema to refuse as damage rather than history.
+ */
+function knownUnitModifications(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return (raw as unknown[]).filter((id) => typeof id !== 'string' || findUnitModification(id));
+}
+
+/**
+ * Each unit's brackets, with an unknown card id emptied rather than the bracket dropped.
+ *
+ * Emptied to `null` and not spliced out, because a bracket is positional (`units/loadout.ts`):
+ * dropping the entry would shift the cards after it one bracket left and change which slot the
+ * route insists the next card goes into. A unit whose brackets are then all empty is forgotten,
+ * the way `withSlot` forgets one.
+ */
+function knownUnitLoadouts(raw: unknown): unknown {
+  if (!isRow(raw)) return raw;
+  const kept: Record<string, unknown> = {};
+  for (const [unitId, slots] of Object.entries(raw)) {
+    if (!Array.isArray(slots)) {
+      kept[unitId] = slots;
+      continue;
+    }
+    const cleaned = (slots as unknown[]).map((id) =>
+      typeof id === 'string' && !findUnitModification(id) ? null : id,
+    );
+    if (cleaned.some((id) => id !== null)) kept[unitId] = cleaned;
+  }
+  return kept;
 }
 
 /**
@@ -403,15 +453,17 @@ function rowToBase(row: BaseRow): Base {
         ? undefined
         : knownKeys(readJson(row.inventory_json), (id) => id in ITEM_CATALOG),
     fittedUpgrades:
-      row.fitted_upgrades_json === null ? undefined : readJson(row.fitted_upgrades_json),
-    // A district written before slots existed has no column, and the answer for it is not "three
-    // empty brackets": until today every upgrade it had built applied to every unit it owned, and
-    // an empty map would quietly strip stats off a mid-game crew. It gets the arrangement that
-    // costs it nothing (`defaultLoadout`) until it opens the screen and says otherwise.
+      row.fitted_upgrades_json === null
+        ? undefined
+        : knownUnitModifications(readJson(row.fitted_upgrades_json)),
+    // Migration 0094 cleared both columns when the tiered refits went; this is the floor under it
+    // for a row it did not reach and for any card retired later. A `null` column is a district
+    // written before slots existed, and since 0094 there is nothing it could have built that would
+    // still be worth fitting, so it gets the schema's own empty map.
     unitLoadouts:
       row.unit_loadouts_json === null
-        ? loadoutsForPreSlotSave(row.fitted_upgrades_json)
-        : readJson(row.unit_loadouts_json),
+        ? undefined
+        : knownUnitLoadouts(readJson(row.unit_loadouts_json)),
     fleet:
       row.fleet_json === null
         ? undefined
@@ -419,14 +471,6 @@ function rowToBase(row: BaseRow): Base {
     addons: row.addons_json === null ? undefined : knownAddons(readJson(row.addons_json)),
     createdAt: row.created_at,
   });
-}
-
-/** Every unit gets the crew's three strongest, which is what it already had before slots. */
-function loadoutsForPreSlotSave(fittedJson: string | null): UnitLoadouts {
-  const built = fittedJson === null ? [] : (readJson(fittedJson) as string[]);
-  const slots = defaultLoadout(built);
-  if (slots.length === 0) return {};
-  return Object.fromEntries(UNIT_IDS.map((id) => [id, slots]));
 }
 
 function rowToSummary(row: BaseSummaryRow): BaseSummary {
@@ -486,6 +530,29 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         unit_loadouts_json, fleet_json, addons_json,
         created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  /*
+   * Every column a `Base` owns, rewritten in one go, for the Console's Clean slate.
+   *
+   * An UPDATE rather than a DELETE and a fresh INSERT, because a base cannot be deleted while the
+   * crew has touched anything: `battles`, `district_intel`, `scheduled_battles`,
+   * `market_supply_runs` and `troop_movements` all reference `bases(id)` **without**
+   * `ON DELETE CASCADE`, so the delete is refused by the first of them with a row. Keeping the id
+   * also keeps `location_control.holder_base_id`, which has no foreign key at all, pointing at
+   * something real; the reset releases that ground explicitly rather than orphaning it.
+   *
+   * Deliberately every column and not a merge: the point of a reset is that nothing survives it,
+   * and a column added to the table later but forgotten here would survive it silently.
+   */
+  const replaceStmt = db.prepare(
+    `UPDATE bases SET
+        name = ?, district_id = ?, level = ?, is_bot = ?,
+        resources_json = ?, economy_json = ?, progression_json = ?, research_json = ?,
+        buildings_json = ?, build_queue_json = ?, army_json = ?, training_queue_json = ?,
+        commanders_json = ?, training_json = ?, inventory_json = ?, fitted_upgrades_json = ?,
+        unit_loadouts_json = ?, fleet_json = ?, addons_json = ?,
+        created_at = ?
+      WHERE id = ?`,
   );
   const byIdStmt = db.prepare('SELECT * FROM bases WHERE id = ?');
   const byOwnerStmt = db.prepare('SELECT * FROM bases WHERE owner_id = ?');
@@ -561,6 +628,31 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.fleet),
         JSON.stringify(base.addons ?? { researched: [], built: [] }),
         base.createdAt,
+      );
+    },
+    replace(base) {
+      replaceStmt.run(
+        base.name,
+        base.districtId,
+        base.level,
+        base.isBot ? 1 : 0,
+        JSON.stringify(base.resources),
+        JSON.stringify(base.economy),
+        JSON.stringify(base.progression),
+        JSON.stringify(base.research),
+        JSON.stringify(base.buildings),
+        JSON.stringify(base.buildQueue),
+        JSON.stringify(base.army),
+        JSON.stringify(base.trainingQueue),
+        JSON.stringify(base.commanders),
+        JSON.stringify(base.training),
+        JSON.stringify(base.inventory),
+        JSON.stringify(base.fittedUpgrades),
+        JSON.stringify(base.unitLoadouts),
+        JSON.stringify(base.fleet),
+        JSON.stringify(base.addons ?? { researched: [], built: [] }),
+        base.createdAt,
+        base.id,
       );
     },
     findById(id) {

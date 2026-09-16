@@ -14,6 +14,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBase } from '../district/settle.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Every kind in the catalogue is something the server actually says.
@@ -136,12 +137,7 @@ describe('units coming off the bench', () => {
       payload: { username: 'bench', password: 'hunter2pass' },
     });
     const { token, user } = registered.json<{ token: string; user: { id: string } }>();
-    const chosen = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(app, token);
     expect(chosen.statusCode).toBe(201);
     return { app, token, userId: user.id, base: chosen.json<{ base: Base }>().base };
   }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import { POPULATION_PER_LOCATION, POPULATION_PER_LOCATION_LEVEL } from '../building/population.js';
+import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
 import { fortifyBonusPercent } from './fortification.js';
 import { findDistrict, unifiedBonusFor, type District } from './districts.js';
 import {
@@ -168,10 +168,10 @@ export function territoryEffectsFor(
     // §A1: ground you hold is ground people live on. The flat 20 is for holding the block and is
     // deliberately not scaled by the level: what houses people is the block, not how well the
     // press in it runs. The per-level beds are a separate, flat term on top of it, and the
-    // catalogue's own `population` bonuses are a third that scales like everything else. See
-    // `building/population.ts` for why the three are kept apart.
-    effects.populationBonus +=
-      POPULATION_PER_LOCATION + POPULATION_PER_LOCATION_LEVEL * (clampLevel(control.level) - 1);
+    // catalogue's own `unit_slots` bonuses are a third that scales like everything else. See
+    // `building/unit-slots.ts` for why the three are kept apart.
+    effects.unitSlotBonus +=
+      UNIT_SLOTS_PER_LOCATION + UNIT_SLOTS_PER_LOCATION_LEVEL * (clampLevel(control.level) - 1);
     // At the level it has been worked up to (§A4): the whole reason to pour resources into
     // ground you might lose. `bonusesAt` is the only reader of `LEVEL_SCALE`, so a location's
     // worth and the number on its card cannot disagree.

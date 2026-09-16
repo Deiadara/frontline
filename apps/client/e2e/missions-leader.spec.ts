@@ -253,7 +253,7 @@ test('a crew that has not researched unled runs cannot send one', async ({ page 
 });
 
 test('a battle shows a band and no number at all', async ({ page }) => {
-  // Enough bodies at home to move the band. What a siege fields at this crew's level is several
+  // Enough units at home to move the band. What a siege fields at this crew's level is several
   // times what the standard fixture keeps in the district, so a force capped by the roster could
   // only ever read `Low chance` and the second half of this test would assert nothing.
   const board = boardWithARoom({ army: { razors: 120, scavengers: 20 } });

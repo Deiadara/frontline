@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { findUnitModification, type UnitLoadouts } from '@frontline/shared';
 import { ForcePicker } from './ForcePicker';
 
 /**
@@ -28,6 +29,45 @@ const picker = (army: Record<string, number>, standing: Record<string, number>) 
   );
   return onConfirm;
 };
+
+/**
+ * The bag the picker quotes is the bag the raid pays: with the crew's brackets folded in.
+ *
+ * `lootCapacityOf` took a loadouts argument the day the carry cards landed and the server passes
+ * it; the picker went on quoting the bare sheet, so a Hook and Line on the Razors added twelve
+ * slots to the pay and nothing to the quote. Five Razors, once bare and once fitted, must differ by
+ * exactly five cards' worth.
+ */
+describe('what the picker says the force can carry', () => {
+  const quote = (loadouts: UnitLoadouts | undefined): number => {
+    const { unmount } = render(
+      <ForcePicker
+        title="Raid the Press"
+        blurb="Who goes."
+        army={{ razors: 5 }}
+        standing={{}}
+        {...(loadouts === undefined ? {} : { loadouts })}
+        pending={false}
+        error={null}
+        confirmLabel="Go"
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('How many Razors'), { target: { value: '5' } });
+    const line = screen.getByText('Can carry').parentElement!.textContent ?? '';
+    unmount();
+    return Number(/(\d+) loot/.exec(line)?.[1]);
+  };
+
+  it('counts the brackets in, as the raid does', () => {
+    const bare = quote(undefined);
+    const fitted = quote({ razors: ['hook_and_line', null, null] });
+    const card = findUnitModification('hook_and_line')!;
+    expect(fitted - bare).toBe(5 * (card.effect.lootCapacity ?? 0));
+    expect(card.effect.lootCapacity, 'the fixture card must move the bag').toBeGreaterThan(0);
+  });
+});
 
 describe('bringing a garrison home', () => {
   it('offers a row for a unit the crew has none of at home but three of on the ground', () => {

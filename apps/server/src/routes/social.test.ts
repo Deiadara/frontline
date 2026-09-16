@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Factions, the mailbox and the bell, over HTTP (maintainer request).
@@ -61,12 +62,7 @@ async function player(app: FastifyInstance, username: string) {
     payload: { username, password: PASSWORD },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
   const id = me.json<{ user: { id: string } }>().user.id;
   establish(app, id);
@@ -125,12 +121,7 @@ describe('founding a faction', () => {
       payload: { username: 'nobody', password: PASSWORD },
     });
     const token = registered.json<{ token: string }>().token;
-    await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(token),
-      payload: { presetId: 'enforcer' },
-    });
+    await chooseOverseer(app, token);
 
     const refused = await found(app, token, 'The Premature');
     expect(refused.statusCode).toBe(409);

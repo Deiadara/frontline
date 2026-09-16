@@ -11,7 +11,7 @@ import { BattleSideSchema, type BattleSide } from './scheduled.js';
  * The report a player actually reads afterwards (GDD §A5, battle rework).
  *
  * `report.ts` writes the *prose*: the four lines that make a defeat legible. This writes the
- * **ledger**: who was there, what they did, what it cost, and which of them earned their supply.
+ * **ledger**: who was there, what they did, what it cost, and which of them earned their unit slots.
  * The two are deliberately separate and both are on the payload, because they answer different
  * questions and a player wants both: the narrative tells you what happened, the ledger tells you
  * what to change.
@@ -36,15 +36,15 @@ export const UnitPerformanceSchema = z.object({
   tier: UnitTierSchema,
   /** One of a kind. Called out separately in the report: a legend's day is its own paragraph. */
   unique: z.boolean(),
-  /** Bodies that walked onto the ground. */
+  /** Units that walked onto the ground. */
   started: z.number().int().nonnegative(),
-  /** Bodies that did not walk off it, whatever took them. */
+  /** Units that did not walk off it, whatever took them. */
   lost: z.number().int().nonnegative(),
-  /** Bodies that broke, ran, and got home. Zero for the winning side, which does not rout. */
+  /** Units that broke, ran, and got home. Zero for the winning side, which does not rout. */
   fled: z.number().int().nonnegative(),
-  /** Bodies that broke, ran, and were stopped on the way out by the enemy's ring. */
+  /** Units that broke, ran, and were stopped on the way out by the enemy's ring. */
   caught: z.number().int().nonnegative(),
-  /** Bodies back on the roster. */
+  /** Units back on the roster. */
   survived: z.number().int().nonnegative(),
   /** Damage put out across the whole fight, rounded. */
   damage: z.number().nonnegative(),
@@ -64,7 +64,7 @@ export const SideAnalysisSchema = z.object({
   survived: z.number().int().nonnegative(),
   /** Everybody who broke and got clear. The number the loser's report hangs on. */
   fled: z.number().int().nonnegative(),
-  /** Bodies this side kept outside the fight on the ring. */
+  /** Units this side kept outside the fight on the ring. */
   perimeter: z.number().int().nonnegative(),
   /** ...and how many of the enemy's runners it stopped. */
   perimeterCaught: z.number().int().nonnegative(),
@@ -78,12 +78,12 @@ export const SideAnalysisSchema = z.object({
    */
   perimeterLost: z.number().int().nonnegative().default(0),
   /**
-   * §D3: bodies on this side too cowed to fire, settled before the first shot.
+   * §D3: units on this side too cowed to fire, settled before the first shot.
    *
    * The engine has reported this on {@link Simulation} since intimidation landed, with a doc saying
    * in as many words that a mechanic the player cannot see reads as a bug. It then stopped here: the
    * analysis never carried it and the report never drew it, so a line that did a third of its damage
-   * with every body still standing looked exactly like a broken engine. This is the rest of that
+   * with every unit still standing looked exactly like a broken engine. This is the rest of that
    * sentence.
    */
   cowed: z.number().int().nonnegative().default(0),
@@ -93,7 +93,7 @@ export const SideAnalysisSchema = z.object({
   /**
    * §D1: the officer who led this side, or null when nobody did.
    *
-   * Beside the unit rows rather than in them. Every figure in `units` is a body count the settler
+   * Beside the unit rows rather than in them. Every figure in `units` is a unit count the settler
    * writes back to a roster, and an officer is neither trained nor lost nor recovered: they are
    * one person who was there. `injured` is filled in by the settler once the stretcher has been
    * decided, and it is what {@link reportReaches} reads to withhold this side's report (§D4).
@@ -149,7 +149,7 @@ export interface AnalysisInput {
   battleId: string;
   locationName: string;
   simulation: Simulation;
-  /** Losing bodies that ran and got home, after any ring took its cut. */
+  /** Losing units that ran and got home, after any ring took its cut. */
   fled: Army;
   /** What the winning side paid, dead outright. */
   winnerLosses: Army;
@@ -207,7 +207,7 @@ function performanceFor(
   return (
     side.stacks
       // §D1: the officer is not a unit row. `committed`, `lost` and `survived` are sums of these and
-      // every one of them is a body count the settler acts on; an officer is a person who was there,
+      // every one of them is a unit count the settler acts on; an officer is a person who was there,
       // and they get their own field on the side. See `SideAnalysis.officer`.
       .filter((stack) => stack.started > 0 && stack.officer === undefined)
       .map((stack): UnitPerformance => {
@@ -282,8 +282,8 @@ function officerReportFor(side: SideState): SideAnalysis['officer'] {
 /**
  * What the legends did.
  *
- * Written as sentences rather than as rows, because a legendary unit is one body and a table row
- * about one body is a strange thing to read. A crew that fielded the Colossus wants to be told
+ * Written as sentences rather than as rows, because a legendary unit is one unit and a table row
+ * about one unit is a strange thing to read. A crew that fielded the Colossus wants to be told
  * whether the Colossus is still standing, in those words.
  */
 function legendLines(sides: readonly { units: readonly UnitPerformance[]; name: string }[]) {
@@ -387,7 +387,7 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
  * Whether this side is told what happened.
  *
  * The winner always is. The loser is only if somebody got home to tell them, which is the entire
- * reason a perimeter is worth the bodies it costs.
+ * reason a perimeter is worth the units it costs.
  */
 export function reportReaches(side: BattleSide, analysis: BattleAnalysis): boolean {
   /*

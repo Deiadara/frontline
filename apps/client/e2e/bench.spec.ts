@@ -14,7 +14,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
  * The bench (§A5): ordering more than one, and taking it back.
  *
  * The rules are pinned in `packages/shared`; what only a browser answers is whether the two
- * controls a player uses to reach them are actually there and wired to the right body. **Max** in
+ * controls a player uses to reach them are actually there and wired to the right unit. **Max** in
  * particular is a number the client works out and the server then judges, so the one thing worth
  * asserting is that they agree.
  */
@@ -41,7 +41,7 @@ test('orders a batch, and Max asks for what the crew can actually afford and hou
   const expected = maxTrainable(
     findUnit('razors')!,
     unitsResponse.resources,
-    Math.max(0, unitsResponse.supplyCap - unitsResponse.supplyUsed),
+    Math.max(0, unitsResponse.unitSlotsCap - unitsResponse.unitSlotsUsed),
     unitsResponse.trainingCostReduction,
   );
   expect(expected, 'the fixture must leave room for a batch').toBeGreaterThan(1);
@@ -129,7 +129,7 @@ test('lists what is on the road, and offers to turn back only what is still clos
   await expect(page.getByTestId('working-razors')).toBeVisible();
   await expect(page.getByTestId('fight-press')).toContainText('Kessler Press');
   await expect(page.getByTestId('posted-razors')).toBeVisible();
-  // §C3: what a force rides in, beside the bodies, on the road and at the fight both. The screen
+  // §C3: what a force rides in, beside the units, on the road and at the fight both. The screen
   // listed the walkers and nothing they were riding in.
   await expect(page.getByTestId('walking-ride-motorcycle')).toContainText('The Scrappy');
   await expect(page.getByTestId('posted-ride-motorcycle')).toContainText('The Scrappy');

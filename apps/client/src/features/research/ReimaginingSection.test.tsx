@@ -71,13 +71,13 @@ const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
   } as Response);
 
 const fetchMock = vi.fn();
-/** Every body the screen posted to the trade route, in order. */
+/** Every request the screen posted to the trade route, in order. */
 let posted: { pages: string[] }[] = [];
 
 const GAINED = 'pg_demolishers_charge_moulds';
 
 /**
- * The bench, stubbed the way the server behaves: the three named pages leave the satchel and the
+ * The bench, stubbed the way the server behaves: the three named pages leave the inventory and the
  * one that came back arrives in it.
  *
  * A handler that answered with the board unchanged would let a tray that never re-reads its counts
@@ -146,7 +146,7 @@ const RANGE_CARDS = 'pg_snipers_range_cards';
 const BARREL_LINERS = 'pg_snipers_barrel_liners';
 
 /** Three copies of one page and one of another: enough to pay, and a stack to draw down. */
-const SATCHEL: Inventory = { [RANGE_CARDS]: 3, [BARREL_LINERS]: 1 };
+const INVENTORY: Inventory = { [RANGE_CARDS]: 3, [BARREL_LINERS]: 1 };
 
 const nameOf = (pageId: string) => findBlueprintPage(pageId)?.name ?? pageId;
 const slot = (index: number) => screen.getByTestId(`reimagine-slot-${index}`);
@@ -166,7 +166,7 @@ afterEach(() => {
 
 describe('the bench, shut (§G4)', () => {
   it('says which half is missing and puts nothing else on the sheet', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: false, hasReimaginingResearch: true });
+    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: true });
     renderBench();
 
     const locked = await screen.findByTestId('reimagining-locked');
@@ -179,7 +179,7 @@ describe('the bench, shut (§G4)', () => {
   });
 
   it('names the research when that is what is missing', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: true, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasHeadOfResearch: true, hasReimaginingResearch: false });
     renderBench();
     expect(await screen.findByTestId('reimagining-locked')).toHaveTextContent(
       'The Lab has not worked Reimagining out yet.',
@@ -187,7 +187,7 @@ describe('the bench, shut (§G4)', () => {
   });
 
   it('names both when the crew has neither', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: false, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: false });
     renderBench();
     const locked = await screen.findByTestId('reimagining-locked');
     expect(locked).toHaveTextContent('has not worked Reimagining out yet');
@@ -210,7 +210,7 @@ describe('the bench, shut (§G4)', () => {
  */
 describe('the door out of a shut bench', () => {
   it('sends a crew with no Head of Research to the Bar', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: false, hasReimaginingResearch: true });
+    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: true });
     renderBench();
     const door = await screen.findByTestId('reimagining-door');
     expect(door).toHaveTextContent('Hire a Head of Research at the Bar');
@@ -218,7 +218,7 @@ describe('the door out of a shut bench', () => {
   });
 
   it('sends a crew that has the chair but not the rung to the track the rung is on', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: true, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasHeadOfResearch: true, hasReimaginingResearch: false });
     renderBench();
     const door = await screen.findByTestId('reimagining-door');
     /*
@@ -237,13 +237,13 @@ describe('the door out of a shut bench', () => {
   });
 
   it('asks for the chair first when the crew has neither', async () => {
-    stub(SATCHEL, { hasHeadOfResearch: false, hasReimaginingResearch: false });
+    stub(INVENTORY, { hasHeadOfResearch: false, hasReimaginingResearch: false });
     renderBench();
     expect(await screen.findByTestId('reimagining-door')).toHaveAttribute('href', '/game/bar');
   });
 
   it('draws no door once the bench runs', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
     expect(await screen.findByTestId('reimagine-machine')).toBeInTheDocument();
     expect(screen.queryByTestId('reimagining-door')).toBeNull();
@@ -252,7 +252,7 @@ describe('the door out of a shut bench', () => {
 
 describe('filling the sockets (§G2)', () => {
   it('opens with three empty sockets, an empty outfeed and a dead button', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
 
     await screen.findByTestId('reimagine-machine');
@@ -262,7 +262,7 @@ describe('filling the sockets (§G2)', () => {
   });
 
   it('puts a page in the first empty socket and takes it off the tray count', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
 
     expect(await screen.findByTestId(`tray-${RANGE_CARDS}`)).toHaveAttribute('data-left', '3');
@@ -276,7 +276,7 @@ describe('filling the sockets (§G2)', () => {
 
   /** §G2: a page may go in as many times as it is held, and not once more. */
   it('lets a stack fill all three sockets and then goes dark', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
 
     await screen.findByTestId('reimagine-machine');
@@ -290,7 +290,7 @@ describe('filling the sockets (§G2)', () => {
   });
 
   it('gives a page back when its socket is pressed', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
 
     await screen.findByTestId('reimagine-machine');
@@ -310,7 +310,7 @@ describe('filling the sockets (§G2)', () => {
   });
 
   it('lights the button on the third page and not on the second', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
 
     await screen.findByTestId('reimagine-machine');
@@ -336,7 +336,7 @@ describe('pressing it (§G2, §G3)', () => {
   };
 
   it('names the three that were in the sockets, and nothing else', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
     await screen.findByTestId('reimagine-machine');
     fill();
@@ -347,7 +347,7 @@ describe('pressing it (§G2, §G3)', () => {
   });
 
   it('lands the new page in the outfeed and empties the sockets', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
     await screen.findByTestId('reimagine-machine');
     fill();
@@ -362,7 +362,7 @@ describe('pressing it (§G2, §G3)', () => {
   });
 
   it('leaves the tray holding what the trade left behind', async () => {
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
     await screen.findByTestId('reimagine-machine');
     fill();
@@ -374,7 +374,7 @@ describe('pressing it (§G2, §G3)', () => {
      * A tray count is one number standing for two states: while the sheets are still in the
      * sockets it is what is left to put in, and it reads 1 for the Range Cards either way. Waiting
      * on it passed on the frame *before* the response landed, so the assertions underneath were
-     * measuring the satchel the crew had walked in with.
+     * measuring the inventory the crew had walked in with.
      */
     await waitFor(() =>
       expect(screen.getByTestId('reimagine-result')).toHaveAttribute('data-filled', 'yes'),
@@ -389,7 +389,7 @@ describe('pressing it (§G2, §G3)', () => {
   /** With the travel on, the answer still lands: the animation delays it, it does not lose it. */
   it('waits for the animation before showing the page, and still shows it', async () => {
     stubMotion(false);
-    stub(SATCHEL);
+    stub(INVENTORY);
     renderBench();
     await screen.findByTestId('reimagine-machine');
     fill();
@@ -405,7 +405,7 @@ describe('pressing it (§G2, §G3)', () => {
   });
 
   it('says why in words when the server refuses, and gives the pages back', async () => {
-    stub(SATCHEL, LAB_OPEN, 'not_available');
+    stub(INVENTORY, LAB_OPEN, 'not_available');
     renderBench();
     await screen.findByTestId('reimagine-machine');
     fill();
@@ -413,7 +413,7 @@ describe('pressing it (§G2, §G3)', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('The Lab is not doing this yet.');
-    // Never the raw machine name, and never a satchel that quietly lost three pages.
+    // Never the raw machine name, and never an inventory that quietly lost three pages.
     expect(alert.textContent).not.toContain('not_available');
     expect(screen.getByTestId(`tray-${RANGE_CARDS}`)).toHaveAttribute('data-left', '1');
     expect(slot(0)).toHaveAttribute('data-filled', 'yes');

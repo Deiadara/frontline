@@ -10,7 +10,7 @@ import { combineEffects, mergeCrewEffects, noCrewEffects } from '../crew/effects
 import { creditedLevel, buildingCost } from '../building/cost.js';
 import { MIN_TRAVEL_MINUTES } from './geography.js';
 import { roadMinutes } from '../time/speed.js';
-import { ridingBodies, unitColumnSpeed } from '../units/catalog.js';
+import { ridingUnitSlots, unitColumnSpeed } from '../units/catalog.js';
 import { bareBattlefield } from '../battle/battlefield.js';
 import { markedUnit, simulate, standsInLine, type Simulation } from '../battle/engine.js';
 import { findUnit, type Army, type UnitSpec } from '../units/index.js';
@@ -198,9 +198,13 @@ describe('a machine for the things there is no seat for', () => {
     expect(unitColumnSpeed('the_colossus', { anyRide: true }).rides).toBe(true);
   });
 
-  it('counts the bodies that now fill a seat', () => {
-    expect(ridingBodies({ the_colossus: 1, razors: 5 })).toBe(5);
-    expect(ridingBodies({ the_colossus: 1, razors: 5 }, true)).toBe(6);
+  it('counts the unit slots that now fill a seat, not the heads', () => {
+    const colossus = findUnit('the_colossus')?.unitSlots ?? 0;
+    expect(colossus).toBeGreaterThan(1);
+    // Walking, the Colossus fills nothing: five Razors at a slot each is the whole of it.
+    expect(ridingUnitSlots({ the_colossus: 1, razors: 5 })).toBe(5);
+    // Riding, it fills what it costs to house, which is the point of the currency.
+    expect(ridingUnitSlots({ the_colossus: 1, razors: 5 }, true)).toBe(5 + colossus);
   });
 });
 

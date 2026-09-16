@@ -258,13 +258,17 @@ for (const size of VIEWPORTS) {
       await expectNothingClippedVertically(page);
 
       /*
-       * The same picture on every screen, and that is the whole requirement.
+       * The frame filled edge to edge, at the painting's own shape.
        *
-       * Cover-fitting showed a different slice of the painting for every window shape, so the city
-       * was one thing windowed, another full screen, and another again on a second monitor: a
-       * player could not learn where anything was. The plate is painted at 21:10 for this frame and
-       * is now drawn `whole`, which means two things that are checked exactly rather than loosely:
-       * the aspect it is drawn at is its own, and all of it is inside the frame.
+       * The city was drawn `whole` and the band is wider than 21:10 at every viewport in the
+       * matrix, so it stood centred with blurred surround down both sides: 132px each at 1280x720
+       * and 13px at 1920x1080, which the maintainer read as grey bars. It shares the district
+       * screen's rule now (maintainer request, 2026-09-15): always the band's full width, height
+       * from the plate's own aspect, and the overhang cropped by the bars.
+       *
+       * So two things are checked exactly rather than loosely: the aspect it is drawn at is still
+       * its own, and it **covers** the frame rather than fitting inside it. Distortion is the
+       * failure that would otherwise hide here, because a stretched picture also fills the frame.
        *
        * 3780x1800 is restated here rather than imported from the screen it is testing. That is the
        * point of it: a test that reads the aspect out of `CityView` would agree with any value the
@@ -299,12 +303,20 @@ for (const size of VIEWPORTS) {
             const at = await measure();
             return {
               aspect: Number((at.pw / at.ph).toFixed(3)),
-              fits: at.pw <= at.fw + 1 && at.ph <= at.fh + 1,
+              // The band's full width, to the pixel, and never narrower: a side bar is exactly the
+              // thing this screen is not allowed to grow again.
+              fillsWidth: Math.abs(at.pw - at.fw) <= 1,
+              // ...and tall enough to cover it, which is the other half of leaving no margin.
+              coversHeight: at.ph >= at.fh - 1,
             };
           },
-          { message: `the city's painting is distorted or overflowing its frame at ${tag}` },
+          { message: `the city's painting is distorted or leaving a margin at ${tag}` },
         )
-        .toEqual({ aspect: Number(TRUE_ASPECT.toFixed(3)), fits: true });
+        .toEqual({
+          aspect: Number(TRUE_ASPECT.toFixed(3)),
+          fillsWidth: true,
+          coversHeight: true,
+        });
 
       const offScreen: string[] = [];
       for (const district of CITY_DISTRICTS) {
@@ -915,12 +927,12 @@ for (const size of VIEWPORTS) {
      * §C/§D/§G2/§I1: the research page, at all three of its tabs.
      *
      * Fat in the same specific way the Bar fixture is: the longest role labels in §C1, the deepest
-     * track the marks allow, and a satchel holding documents in every state §D6 to §D10 draws. The
+     * track the marks allow, and an inventory holding documents in every state §D6 to §D10 draws. The
      * three sections are shot separately because they render disjoint trees.
      */
     test(`research at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
-      // A satchel with a document in every state §D6 to §D10 draws. Registered after `installApi`,
+      // An inventory with a document in every state §D6 to §D10 draws. Registered after `installApi`,
       // so it wins: the default late-game bag holds no pages at all and would put an empty screen
       // behind the second door.
       await page.route('**/api/market', (route) =>
@@ -1400,7 +1412,7 @@ for (const size of VIEWPORTS) {
      * The shape of the console: what is where, and what moves.
      *
      * Training is a console rather than a document. The page used to stack a note, the day and the
-     * sheet inside a scrolling body, which put a hundred and ten pixels of standing chrome above
+     * sheet inside a scrolling unit, which put a hundred and ten pixels of standing chrome above
      * the only thing anybody comes here to read and meant picking the fourth officer scrolled the
      * sheet off the top of the screen to do it.
      *
@@ -1670,7 +1682,7 @@ for (const size of VIEWPORTS) {
 
       /*
        * The frame does not scroll, and neither does anything in it at the sizes the game is
-       * drawn at (maintainer request, 2026-09-08). The sheet's body is `overflow-hidden`, so a counter
+       * drawn at (maintainer request, 2026-09-08). The sheet's unit is `overflow-hidden`, so a counter
        * pushed below its fold is not caught by the page-overflow sweep: it is simply cut. The
        * barrow and the Broker are the two panels that give when the frame is short, each behind
        * its own scroller, and this is what says neither had to.
@@ -1690,7 +1702,7 @@ for (const size of VIEWPORTS) {
         const sheet = document.querySelector<HTMLElement>('[data-testid="page-sheet"] > div');
         return [
           sheet && sheet.scrollHeight > sheet.clientHeight + 1
-            ? `the sheet's body hides ${sheet.scrollHeight - sheet.clientHeight}px`
+            ? `the sheet's unit hides ${sheet.scrollHeight - sheet.clientHeight}px`
             : null,
           wide ? inside('[data-testid="vendor-stock"]') : null,
           inside('[data-testid="barter-quote"]'),
@@ -1743,10 +1755,74 @@ for (const size of VIEWPORTS) {
     });
 
     /**
+     * The head of the Scrapyard reads the same at every width (maintainer request, 2026-09-15).
+     *
+     * The benches on one row, and the filter and the yard's plate pushed to the **right edge** of
+     * the head, on the benches' own line wherever there is room for them. It was two stacked rows
+     * with the boxes on the benches' left edge; moving them up gives the workspace below a whole
+     * line back, which is the bench a player is actually reading.
+     *
+     * Three of these hold at every width and one does not, so they are asserted separately. What
+     * always holds: the benches never wrap among themselves, the two boxes stay on one row **with
+     * each other** at the same height, and they are flush with the head's right edge. What cannot
+     * hold at 1024 is the boxes sharing the benches' line: the four tabs are 727px and the boxes
+     * 454px against a 950px head, so they drop to a line of their own and sit bottom-right. That
+     * is checked as a consequence of the width rather than asserted away.
+     */
+    async function expectYardHeadReadsTheSame(page: Page): Promise<void> {
+      await settleFonts(page);
+      const head = await page.evaluate(() => {
+        const box = (el: Element) => el.getBoundingClientRect();
+        const benches = box(document.querySelector('[role="tablist"]')!);
+        const whole = box(document.querySelector('[data-testid="scrapyard-head"]')!);
+        const tabs = [...document.querySelectorAll('[data-testid^="scrapyard-view-"]')].map(box);
+        const ready = box(document.querySelector('[data-testid="scrapyard-ready-only"]')!);
+        const info = box(document.querySelector('[data-testid="scrapyard-info"]')!);
+        const boxes = box(document.querySelector('[data-testid="scrapyard-head-boxes"]')!);
+        return {
+          // The selected tab is lifted 2px (`-translate-y-0.5`), so one row is a 2px band.
+          tabSpread: Math.max(...tabs.map((t) => t.top)) - Math.min(...tabs.map((t) => t.top)),
+          fits: benches.width + boxes.width + 8 <= whole.width + 1,
+          headRight: whole.right,
+          benchesCentre: benches.top + benches.height / 2,
+          boxesRight: boxes.right,
+          boxesCentre: boxes.top + boxes.height / 2,
+          ready: { left: ready.left, top: ready.top, height: ready.height },
+          info: { left: info.left, top: info.top, height: info.height },
+        };
+      });
+      expect(head.tabSpread, 'the benches wrapped').toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(head.boxesRight - head.headRight),
+        "the boxes left the head's right edge",
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(head.ready.top - head.info.top),
+        'the two boxes are not on one row',
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(head.ready.height - head.info.height),
+        'the two boxes differ in height',
+      ).toBeLessThanOrEqual(1);
+      expect(head.info.left, 'the plate is not beside the filter').toBeGreaterThan(head.ready.left);
+      // On the benches' own line wherever the width allows it, and only there.
+      if (head.fits) {
+        expect(
+          Math.abs(head.boxesCentre - head.benchesCentre),
+          'there was room for one line and the boxes did not take it',
+        ).toBeLessThanOrEqual(4);
+      } else {
+        expect(head.boxesCentre, 'no room for one line, so they belong under').toBeGreaterThan(
+          head.benchesCentre,
+        );
+      }
+    }
+
+    /**
      * §B9: the Scrapyard, where add-ons are built (reworked at the maintainer's request, 2026-09-10).
      *
      * Three benches under one strip of tabs, and each one is shot: the structures with the bracket
-     * rack at the head of the bench, the three refit ladders, and the traps. The rack is drawn
+     * rack at the head of the bench, the unit cards by grade, and the traps. The rack is drawn
      * against a district with something bolted in, something on the shelf and a bracket still shut,
      * because `lateGame` stands its structures at level 1 and would certify none of those states.
      */
@@ -1774,6 +1850,7 @@ for (const size of VIEWPORTS) {
         .click();
       await expect(page.getByTestId(`scrapyard-slot-${last}-0`)).toContainText('Opens at level');
 
+      await expectYardHeadReadsTheSame(page);
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
@@ -1786,10 +1863,11 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('scrapyard-refits')).toBeVisible();
       await settleFonts(page);
 
-      // A built rung, a reachable one and one the yard is too low for all render differently, and
-      // all three are on this fixture, which is the point of the fixture.
-      await expect(page.getByTestId('addon-armour_1')).toContainText('Built');
-      await expect(page.getByTestId('addon-armour_3')).toContainText(
+      // A built card, a reachable one and one the yard is too low for all render differently, and
+      // all three are on this fixture, which is the point of the fixture: Taped Grips is one of
+      // the three open BASIC cards, the Hardshell Exoframe a MASTERPIECE the level 6 yard cannot cut.
+      await expect(page.getByTestId('addon-taped_grips')).toContainText('Built');
+      await expect(page.getByTestId('addon-hardshell_exoframe')).toContainText(
         'Needs the Scrapyard at level',
       );
       expect(await page.locator('[data-testid^="addon-build-"]').count()).toBeGreaterThan(0);
@@ -1815,34 +1893,29 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * §C: the Garage's page is the door, and the machines are behind it on the roster (board
-     * request, 2026-09-08).
+     * §C: the machines, on the roster beside the people they carry.
      *
-     * The page is the yard's level and seats and one button; the roster's Vehicles tab carries
-     * what the old Workshop's yard assertion used to, a machine already in the yard and one held
-     * behind a blueprint saying so, and `units at` above sweeps that tab. Both get a screenshot,
-     * which the Garage did not have at all when it landed: that is how a new full-width grid
-     * reaches the board unreviewed.
+     * The Garage used to have a page of its own and this test opened it. It was retired
+     * (maintainer request, 2026-09-14): it held the yard's level, its seat count and one button
+     * through to here, all of which the building's own dialog already says. What is worth a
+     * screenshot is the list itself, which is a full-width grid and is how a new one reaches the
+     * maintainer unreviewed.
      */
-    test(`the garage at ${tag}`, async ({ page }) => {
+    test(`the machines at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
-      await page.goto('/game/garage');
-      await expect(page.getByTestId('garage-machines')).toBeVisible();
+      await page.goto('/game/units?tab=vehicles');
+      await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
       await settleFonts(page);
-      await expect(page.locator('[data-testid^="vehicle-"]')).toHaveCount(0);
+
+      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
+      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/garage-${tag}.png`, fullPage: true });
-
-      await page.getByTestId('garage-machines').click();
-      await expect(page.getByTestId('vehicle-motorcycle')).toBeVisible();
-      await settleFonts(page);
-      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
-      await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
     });
 
-    /** The satchel, grouped by what a player would do with the thing. */
+    /** The inventory, grouped by what a player would do with the thing. */
     /*
      * §J: the two faction screens, at every supported size.
      *
@@ -1994,19 +2067,42 @@ for (const size of VIEWPORTS) {
       await page.screenshot({ path: `screenshots/visual/standings-${tag}.png` });
     });
 
-    test(`the satchel at ${tag}`, async ({ page }) => {
-      await installApi(page, lateGame);
-      await page.goto('/game/inventory');
-      await expect(page.getByTestId('satchel-component')).toBeVisible();
+    /**
+     * The parts bin, which is where the Inventory page's components went.
+     *
+     * That page was one screen listing four unrelated kinds of thing and it was retired
+     * (maintainer request, 2026-09-14): blueprints to research, boosts and traps to the Battles
+     * inventory, components to the bench that spends them. This sweeps the bin at every viewport
+     * because it is a new full-width grid, which is how an unreviewed one reaches the maintainer.
+     */
+    test(`the parts bin at ${tag}`, async ({ page }) => {
+      const crew = lateGame.base;
+      if (crew === null) throw new Error('the late-game fixture must have a base');
+      await installApi(page, {
+        ...lateGame,
+        base: { ...crew, inventory: { scrap_servo: 6, ceramic_plate: 2, weld_rod: 9 } },
+      });
+      await page.goto('/game/scrapyard?view=components');
+      await expect(page.getByTestId('scrapyard-parts')).toBeVisible();
       await settleFonts(page);
 
-      await expect(page.getByTestId('satchel-blueprint')).toContainText('Cybernetics');
-      await expect(page.getByTestId('satchel-relic')).toContainText('Ivory Dice');
+      /*
+       * Only what is in the bin (maintainer request, 2026-09-14).
+       *
+       * This used to draw every component including the ones held at zero, on the argument that
+       * "what am I short of" is worth answering. A row reading `Gyro Assembly 0` is a row about
+       * nothing, and eight of them is a screen that looks full and says nothing. A part appears
+       * when the crew has one and goes when the last is spent.
+       */
+      await expect(page.getByTestId('scrapyard-part-scrap_servo')).toBeVisible();
+      await expect(page.getByTestId('scrapyard-part-weld_rod')).toBeVisible();
+      await expect(page.getByTestId('scrapyard-part-rotor_hub')).toHaveCount(0);
+      await expect(page.getByTestId('scrapyard-part-gyro_assembly')).toHaveCount(0);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectSheetNotWashedOut(page);
-      await page.screenshot({ path: `screenshots/visual/satchel-${tag}.png` });
+      await page.screenshot({ path: `screenshots/visual/parts-bin-${tag}.png` });
     });
 
     /** The other half of the same screen: a programme on the bench, with its clock running. */

@@ -14,7 +14,7 @@ import { findingsFor } from './report.js';
  *
  * Every other mechanic in the game leaves a mark on the casualty list. `mends` leaves an *absence*
  * on it, which is exactly the thing a report cannot show by printing numbers: a player whose
- * Stitchers saved forty bodies reads a shorter list and concludes the medics did nothing.
+ * Stitchers saved forty units reads a shorter list and concludes the medics did nothing.
  */
 describe('a report says what the field hospital did', () => {
   const fight = (army: Record<string, number>) =>

@@ -1,5 +1,12 @@
 import {
-  supplyUsed,
+  capRating,
+  effectiveSpeed,
+  findUnit,
+  fittedFor,
+  fleetCapacity,
+  ridingUnitSlots,
+  upgradedStats,
+  unitSlotsUsed,
   isCombatUnit,
   deploymentIsOpen,
   emptyDeployment,
@@ -19,6 +26,7 @@ import { forceSize, mergeArmies, removeForce } from './forces.js';
 import { tallyDeployed } from '../feats/tally.js';
 import { sideForce } from './side.js';
 import { sendColumn } from './movement.js';
+import { standingEffectsFor } from '../crew/standing.js';
 
 /**
  * Moving people to a fight that has not happened yet (GDD §A4, battle rework).
@@ -32,7 +40,7 @@ import { sendColumn } from './movement.js';
  *   at, and the answer would be a bug rather than a decision.
  * - Pulling people back is **not free** if the other side has a ring out. The maintainer asked for this
  *   explicitly: a perimeter takes anybody "pulled back after it was already deployed but taken out
- *   before combat itself". So a late withdrawal past a well-set ring costs bodies, and a crew that
+ *   before combat itself". So a late withdrawal past a well-set ring costs units, and a crew that
  *   commits early is committing for real.
  *
  * The ring's toll on a withdrawal is drawn from a stream seeded on the battle *and the moment of the
@@ -46,6 +54,8 @@ export const DEPLOY_REFUSALS = [
   /** §A5: a porter is not a soldier. The support tier may never be deployed to a battle. */
   'not_a_fighting_force',
   'needs_infamy',
+  /** §C3: the machines this crew has committed cannot seat what it is trying to send. */
+  'no_seats',
 ] as const;
 export type DeployRefusal = (typeof DEPLOY_REFUSALS)[number];
 
@@ -62,7 +72,7 @@ export interface DeployInput {
 export interface DeployOutcome {
   base: Base;
   deployment: BattleDeployment;
-  /** Bodies the enemy's ring took off a withdrawal. Empty in the ordinary case. */
+  /** Units the enemy's ring took off a withdrawal. Empty in the ordinary case. */
   lostOnTheWayOut: Army;
   /** The column that just set out, or null when this call only brought people home. */
   departed: Movement | null;
@@ -75,7 +85,7 @@ export type DeployResult =
  * The ring the other side currently has standing outside this fight.
  *
  * The whole other side, allies included: a perimeter is what you would have to get past, and it
- * does not matter to the crew walking into it whose name is on each body.
+ * does not matter to the crew walking into it whose name is on each unit.
  */
 function enemyRing(repos: Repositories, battle: ScheduledBattle, side: BattleSide): Army {
   const other = side === 'attacker' ? 'defender' : 'attacker';
@@ -168,12 +178,58 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   if (typeof movedRing === 'string') return { kind: 'refused', reason: movedRing };
   ring = movedRing;
 
+  /*
+   * §C3: the seats are the ceiling, and they are the ceiling here rather than only in the browser.
+   *
+   * The deploy window has capped a batch by unit slots since 2026-09-15 ("once you choose vehicles
+   * you're limited up to that much"), and the route took whatever was posted: the rule was a piece
+   * of the client, which is to say not a rule. Checked on the whole muster rather than on the
+   * batch, because the ceiling is about what will be standing there when the clock runs out, and
+   * skipped entirely when nothing is loaded, which is the walk and has no ceiling.
+   *
+   * Priced through `ridingUnitSlots` and `fleetCapacity`, the same two functions the window and
+   * the settler use, so there is one arithmetic and not three that agree by inspection.
+   */
+  const seats = fleetCapacity(existing.vehicles);
+  if (seats > 0) {
+    const aboard = ridingUnitSlots(
+      mergeArmies(mergeArmies(onTheGround, ring), mergeArmies(departing.army, departing.perimeter)),
+      standingEffectsFor(repos, base, now).anyRide,
+    );
+    if (aboard > seats) return { kind: 'refused', reason: 'no_seats' };
+  }
+
   // The ring's bite on the way out. Seeded on the battle and the moment of the pull-out so the same
   // withdrawal always costs the same, and a retried request cannot shop for a better roll.
   let lostOnTheWayOut: Army = {};
   if (forceSize(pulled) > 0) {
     const next = mulberry32(seedFrom(`${battle.id}:withdraw:${at}`));
-    const { caught, escaped } = perimeterToll(pulled, enemyRing(repos, battle, side), next);
+    /*
+     * The sheet the crew actually fields, not the catalogue's.
+     *
+     * Speed and stealth decide who slips a ring, and `rout.ts` reads both off the effective stack
+     * while this read the printed spec: a Ghost Wrap bolted on in the yard moved the odds of
+     * getting away from a lost fight and nothing at all for the same units walking out of the
+     * deployment a day earlier.
+     */
+    const effects = standingEffectsFor(repos, base, now);
+    const { caught, escaped } = perimeterToll(
+      pulled,
+      enemyRing(repos, battle, side),
+      next,
+      (unitId: string) => {
+        const printed = findUnit(unitId)?.stats;
+        // Unreachable in practice: `move` refuses anything that is not a combat unit before this
+        // runs. Answered rather than asserted because a sheet nobody can find is one nobody can
+        // catch either, which is what `catchChance` does with it.
+        if (!printed) return { speed: 0, stealth: 0 };
+        const fitted = upgradedStats(printed, fittedFor(base.unitLoadouts, unitId));
+        return {
+          speed: effectiveSpeed(fitted.speed, { percent: effects.unitSpeedPercent }),
+          stealth: capRating(Math.round(fitted.stealth * (1 + effects.unitStealthPercent / 100))),
+        };
+      },
+    );
     lostOnTheWayOut = caught;
     army = mergeArmies(army, escaped);
   }
@@ -215,7 +271,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
    * was made, and a fight later called off still cost the crew the days its people spent standing
    * on somebody else's street.
    */
-  tallyDeployed(repos, base.id, { bodies: forceSize(sending), supply: supplyUsed(sending) });
+  tallyDeployed(repos, base.id, { units: forceSize(sending), unitSlots: unitSlotsUsed(sending) });
   return { kind: 'ok', base: next, deployment, lostOnTheWayOut, departed: walking };
 }
 

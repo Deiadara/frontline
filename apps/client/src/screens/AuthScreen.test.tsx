@@ -45,7 +45,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('AuthScreen MVP dev prefill', () => {
   const usernameField = () => screen.getByLabelText<HTMLInputElement>(/Operator ID/);
-  const passwordField = () => screen.getByLabelText<HTMLInputElement>(/Passphrase/);
+  const passwordField = () => screen.getByLabelText<HTMLInputElement>(/Password/);
 
   it('prefills the seeded dev credentials in login mode and flags the build', () => {
     renderAuth();
@@ -59,7 +59,7 @@ describe('AuthScreen MVP dev prefill', () => {
     renderAuth();
     fireEvent.click(screen.getByRole('button', { name: 'register' }));
 
-    // The 5-character dev passphrase would fail the >= 8 register rule, so it must not linger.
+    // The 5-character dev password would fail the >= 8 register rule, so it must not linger.
     expect(usernameField().value).toBe('');
     expect(passwordField().value).toBe('');
     expect(screen.queryByText(/MVP build. Dev login prefilled/)).not.toBeInTheDocument();
@@ -102,7 +102,7 @@ describe('AuthScreen', () => {
     renderAuth();
     fireEvent.click(screen.getByRole('button', { name: 'register' }));
     fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'ab' } });
-    fireEvent.change(screen.getByLabelText(/Passphrase/), { target: { value: 'password123' } });
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
 
     const parsed = RegisterRequestSchema.safeParse({ username: 'ab', password: 'password123' });
@@ -127,7 +127,7 @@ describe('AuthScreen', () => {
     renderAuth();
     fireEvent.click(screen.getByRole('button', { name: 'register' }));
     fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'operator' } });
-    fireEvent.change(screen.getByLabelText(/Passphrase/), { target: { value: 'password123' } });
+    fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -140,7 +140,7 @@ describe('AuthScreen', () => {
 /**
  * The prefill is a development convenience, and a deployed build must not carry it.
  *
- * The seeded operator is created on every boot of the server, so its passphrase is not a secret
+ * The seeded operator is created on every boot of the server, so its password is not a secret
  * that only the database knows: typing it into the form for every visitor and printing it
  * underneath hands the account to anyone who loads the page. `import.meta.env.DEV` is what tells
  * the two apart, and Vite replaces it with a literal at build time, so the branch and the constant
@@ -172,7 +172,7 @@ describe('AuthScreen in a production build', () => {
     // The form is up, so the absences below are absences rather than an unmounted screen.
     expect(screen.getByRole('button', { name: 'Jack In' })).toBeInTheDocument();
     expect(screen.getByLabelText<HTMLInputElement>(/Operator ID/).value).toBe('');
-    expect(screen.getByLabelText<HTMLInputElement>(/Passphrase/).value).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>(/Password/).value).toBe('');
     expect(screen.queryByText(/MVP build/)).toBeNull();
     expect(screen.queryByText(new RegExp(MVP_DEV_CREDENTIALS.password))).toBeNull();
   });

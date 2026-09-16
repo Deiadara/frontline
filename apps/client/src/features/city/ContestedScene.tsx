@@ -89,8 +89,10 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
               <p className="font-display text-[11px] uppercase tracking-[0.12em] text-brass-300">
                 {view.location.name}
               </p>
+              {/* The location's own words where it has them, the kind's otherwise: the same rule the
+                  sheet applies, so the hover and the opened sheet never disagree about a place. */}
               <p className="font-body text-[12px] leading-relaxed text-ink-200">
-                {LOCATION_CATALOG[view.location.kind].blurb}
+                {view.location.blurb ?? LOCATION_CATALOG[view.location.kind].blurb}
               </p>
               <p className="font-body text-[12px] leading-relaxed text-verdigris-100">
                 {LOCATION_CATALOG[view.location.kind].reward}

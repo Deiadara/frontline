@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_KINDS } from '../building/index.js';
+import {
+  BUILDING_KINDS,
+  BUILDING_MAX_LEVEL,
+  MAX_MODIFICATION_SLOTS,
+  modificationsFittingIn,
+  storageCapacityFor,
+} from '../building/index.js';
+import { BUILDING_PART_GATES } from '../building/parts.js';
+import { UNIT_MODIFICATIONS } from '../units/modifications.js';
 import { CITY_DISTRICTS } from '../city/districts.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import { BLACK_MARKET_GOOD_IDS } from '../market/blackmarket.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
-import { RESOURCE_KEYS } from '../resources.js';
+import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { findUnit } from '../units/index.js';
 import { FEATS, findFeat } from './catalog.js';
 import { FEAT_MEASURES, FEAT_MEASURE_SPECS, type FeatMeasure } from './measures.js';
@@ -14,7 +22,7 @@ import { FEAT_ERAS, featRewardBand, featRewardValue } from './rewards.js';
 /**
  * The catalogue, held to the rules it was authored under.
  *
- * A hundred and sixty one entries cannot be kept honest by review: nobody rereads the whole file
+ * Two hundred entries cannot be kept honest by review: nobody rereads the whole file
  * to add one feat, and the mistakes that matter here (a reward out by ten, a chain pointing at the
  * wrong step, a scope naming a district that was renamed) all look perfectly ordinary in a diff.
  * Every rule the file claims for itself is checked here instead.
@@ -65,6 +73,60 @@ describe('the feat catalogue', () => {
       }
     }
     expect(out, out.join('\n')).toEqual([]);
+  });
+
+  /**
+   * The whole demand for every component in the game, counted off the two things that spend them.
+   *
+   * Derived rather than written down, so it moves when the building gates or the card catalogue
+   * move and this file starts failing instead of quietly going stale.
+   */
+  const LIFETIME_PART_DEMAND = ((): Record<string, number> => {
+    const need: Record<string, number> = {};
+    for (const levels of Object.values(BUILDING_PART_GATES)) {
+      for (const cost of Object.values(levels ?? {})) {
+        for (const [id, count] of Object.entries(cost)) need[id] = (need[id] ?? 0) + (count ?? 0);
+      }
+    }
+    for (const card of UNIT_MODIFICATIONS) {
+      for (const [id, count] of Object.entries(card.parts ?? {})) {
+        need[id] = (need[id] ?? 0) + (count ?? 0);
+      }
+    }
+    return need;
+  })();
+
+  /**
+   * A parts reward has to be spendable, and the band check cannot see that.
+   *
+   * `featRewardValue` prices everything in caps-equivalent, so `rotor_hub: 100` is a correctly
+   * priced reward and a meaningless one: the game asks for exactly **one** Rotor Hub, ever, as the
+   * toll for Garage 12. The catalogue shipped paying 376 of them and 256 Targeting Cores against a
+   * demand of two, and every existing test passed, because caps-equivalent is the wrong unit for a
+   * thing whose whole design is scarcity (`building/parts.ts`: resources are the pace, parts are
+   * the gate).
+   *
+   * A single feat may hand over the game's entire appetite for a component, which is a real and
+   * bounded "you are done with parts" reward. It may never hand over more.
+   */
+  it('never pays more of a component than the game can ever spend', () => {
+    const over: string[] = [];
+    for (const feat of FEATS) {
+      for (const [id, count] of Object.entries(feat.reward.items ?? {})) {
+        if (ITEM_CATALOG[id as keyof typeof ITEM_CATALOG]?.kind !== 'component') continue;
+        const demand = LIFETIME_PART_DEMAND[id] ?? 0;
+        if ((count ?? 0) > demand) {
+          over.push(`${feat.id} pays ${count} ${id}, and the game spends ${demand} in a lifetime`);
+        }
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+  });
+
+  /** A guard on the guard: a demand table that came out empty would make the above vacuous. */
+  it('knows what the district and the unit bench actually ask for', () => {
+    expect(Object.keys(LIFETIME_PART_DEMAND).length).toBeGreaterThan(5);
+    expect(LIFETIME_PART_DEMAND['rotor_hub']).toBe(1);
   });
 
   it('pays something real for every feat', () => {
@@ -223,6 +285,44 @@ describe('measures and scopes', () => {
    * the exact shape of the dead tables this codebase already has one of. Either a feat wants it or
    * it should not be in the vocabulary.
    */
+  /**
+   * A `resources_held` target has to be inside the store, or nobody can ever claim it.
+   *
+   * `stock_3` asked for 400,000 scrap. The widest store the game can build is an Apothecary at
+   * twenty with every structure's storage cards fitted, which is 93,056 of a bulk resource: the
+   * last rung of the chain had no route to it at all, and nothing said so because a feat sitting at
+   * 23% forever looks exactly like a feat nobody has got round to.
+   *
+   * Measured against a district assembled here rather than against a number typed here, so a
+   * retune of `STORAGE_GROWTH`, a new storage card or a wider `fits` list moves the bound with it.
+   * Caps are exempt by having no ceiling at all (`storageCapacityFor` answers `Infinity`), which is
+   * the same rule production runs under.
+   */
+  it('never asks a crew to hold more of a resource than a district can store', () => {
+    const widest = BUILDING_KINDS.map((kind) => ({
+      id: `b-${kind}`,
+      kind,
+      level: BUILDING_MAX_LEVEL,
+      modifications: modificationsFittingIn(kind)
+        .filter((spec) => spec.effect === 'storage_percent')
+        .sort((a, b) => b.magnitude - a.magnitude)
+        .slice(0, MAX_MODIFICATION_SLOTS)
+        .map((spec) => spec.id),
+      damage: 0,
+    }));
+
+    const held = FEATS.filter((feat) => feat.measure === 'resources_held');
+    // A guard on the guard: with nothing measuring a stockpile this proves nothing.
+    expect(held.length, 'nothing measures a held stockpile').toBeGreaterThan(0);
+    for (const feat of held) {
+      const ceiling = storageCapacityFor(widest, feat.scope as ResourceKey);
+      expect(
+        feat.target,
+        `${feat.id} wants ${feat.target} ${feat.scope} against a ceiling of ${ceiling}`,
+      ).toBeLessThanOrEqual(ceiling);
+    }
+  });
+
   it('uses every measure it declares', () => {
     const used = new Set<FeatMeasure>(FEATS.map((feat) => feat.measure));
     const unused = FEAT_MEASURES.filter((measure) => !used.has(measure));
@@ -296,12 +396,28 @@ describe('the shape of the set', () => {
     const areaFeats = FEATS.filter(
       (feat) => feat.measure === 'missions_in_area' && feat.scope !== MISC_AREA_ID,
     );
-    expect(areaFeats.length).toBe(contested.length);
+    // Two rungs each, ten jobs then fifty, and both generated from the same city row. Pinned as a
+    // multiple rather than as a total so that adding a contested district to the map cannot
+    // silently leave it without work: the arithmetic moves with `CITY_DISTRICTS`.
+    expect(areaFeats.length).toBe(contested.length * 2);
+    // The multiple alone is derived from the same filter the generator runs, so it holds for any
+    // generator that walks the contested list, including one that walks it and writes the wrong
+    // thing. One rung named by hand is the anchor that is not: Neon Docks is contested, and its
+    // work has to be the two rungs the doc comment promises, under the ids and scope it promises.
+    expect(contested.map((district) => district.id)).toContain('neon-docks');
+    expect(findFeat('area_neon_docks')?.scope).toBe('neon-docks');
+    expect(findFeat('area_neon_docks')?.target).toBe(10);
+    expect(findFeat('area_neon_docks_2')?.after).toBe('area_neon_docks');
+    expect(findFeat('area_neon_docks_2')?.target).toBe(50);
     for (const district of contested) {
-      expect(
-        areaFeats.some((feat) => feat.scope === district.id),
-        district.id,
-      ).toBe(true);
+      const rungs = areaFeats.filter((feat) => feat.scope === district.id);
+      expect(rungs.length, district.id).toBe(2);
+      // A real ladder, not two feats that happen to share a scope: the second is locked behind
+      // the first and asks for more.
+      expect(rungs[0]?.after, district.id).toBeNull();
+      expect(rungs[1]?.after, district.id).toBe(rungs[0]?.id);
+      expect(rungs[1]?.target, district.id).toBeGreaterThan(rungs[0]?.target ?? 0);
+      expect(rungs[0]?.chain, district.id).toBe(rungs[1]?.chain);
     }
   });
 });

@@ -230,7 +230,12 @@ function Member({ member }: { member: FactionProfileMember }) {
           for: the reader is deciding about these specific people. */}
       <span className="relative block h-14 w-12 shrink-0">
         <MemberFace member={member} size="sm" />
-        <RankStamp rank={member.rank} className="absolute -bottom-1.5 left-0 right-0 block h-5" />
+        {/* Lifted clear of the portrait's bottom edge.
+            It sat at -bottom-1.5, which put the lettering straight across the edge of the
+            picture, so the rank read as damage on the portrait rather than as a stamp under it.
+            Four pixels up is enough for the text to clear the line; the ring around it still
+            breaks the edge, which is what a stamp does (maintainer request, 2026-09-14). */}
+        <RankStamp rank={member.rank} className="absolute -bottom-0.5 left-0 right-0 block h-5" />
       </span>
 
       <span className="flex min-w-0 flex-1 flex-col">

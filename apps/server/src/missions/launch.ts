@@ -128,6 +128,15 @@ export function launchMission(args: {
    */
   unitSpeedPercent?: number;
   /**
+   * §A4: the crew's `any_ride` holding, which is the Tram Depot's whole reason to exist.
+   *
+   * `battle/movement.ts` has read this since the column had a speed, and this module did not, so
+   * the same crew's Colossus took a seat on the march to a fight and held the column to fifteen on
+   * the road to a job. The holding is bought once and paid for once; it cannot be true on one road
+   * and false on the other.
+   */
+  anyRide?: boolean;
+  /**
    * §E: what the crew's own people add to the run's pay (`TerritoryEffects.missionSpoilsPercent`).
    *
    * A plain number for the same reason as the speed above: this module prices a run and has no
@@ -151,6 +160,7 @@ export function launchMission(args: {
     leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
     unitSpeedPercent = 0,
+    anyRide = false,
     areaId,
     force,
     vehicles = {},
@@ -178,6 +188,7 @@ export function launchMission(args: {
     unitColumnSpeed(unitId, {
       percent: unitSpeedPercent,
       fitted: fittedFor(base.unitLoadouts, unitId),
+      anyRide,
     }),
   );
   // The clock the crew actually keeps: the ground's cut and, on a led run, the officer's on top.

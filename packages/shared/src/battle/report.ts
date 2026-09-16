@@ -36,7 +36,7 @@ export const FINDING_KINDS = [
    *
    * The report could see damage, ground and nerve, and nothing else, so the one mechanic whose
    * whole point is "how many walk out of it" was invisible in the one place it is measured: a
-   * player whose Stitchers saved forty bodies read a casualty list and concluded the medics did
+   * player whose Stitchers saved forty units read a casualty list and concluded the medics did
    * nothing. A finding is what turns a support unit from an act of faith into a thing you can see
    * working.
    */
@@ -173,7 +173,7 @@ function groundFindings(battlefield: Battlefield): BattleFinding[] {
 }
 
 /**
- * What the field hospital was worth, stated as bodies rather than as a percentage.
+ * What the field hospital was worth, stated as units rather than as a percentage.
  *
  * `own`, not `shared`: how well the other side's medics did is not something you can see from
  * across a street, and telling the attacker would hand them the counter for free.

@@ -1,17 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import {
   declarationRefusal,
+  declareInfamyCost,
   emptyDeployment,
   findDistrict,
   formatDayClock,
   isHeldBy,
   scheduleRefusal,
+  spendInfamy,
   type BattleTarget,
   type Base,
   type DeclarationRefusal,
+  type District,
+  type LocationHolder,
   type ScheduledBattle,
   type ScheduleRefusal,
 } from '@frontline/shared';
+import { adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { cityContextFor } from '../city/view.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -22,9 +27,10 @@ import { notifyBase } from '../social/notify.js';
 /**
  * Calling a fight (GDD §A4, battle rework).
  *
- * A declaration is public, timed and cheap: it commits no units and costs no materials. What it
- * costs is surprise: the whole point of the rework is that the defender is told, and told early
- * enough to do something about it.
+ * A declaration is public, timed and commits nobody: no units are sent and no materials change
+ * hands. What it costs is surprise, because the whole point of the rework is that the defender is
+ * told and told early enough to do something about it, and {@link DECLARE_INFAMY_COST} of the
+ * caller's standing on top when the defender is a person ({@link callPriceFor}).
  *
  * Everything a declaration can be refused for is in {@link DECLARE_REFUSALS}, and each check runs in
  * the order a player wants to hear about it: what you are allowed to attack comes before when you
@@ -35,9 +41,11 @@ import { notifyBase } from '../social/notify.js';
 /**
  * How many unresolved calls one crew may have out.
  *
- * Three. Declarations are free, so without a cap the correct opening move is to call every location in
- * the city at once and decide later which one you actually meant, which turns a public commitment
- * into noise and makes the defender's day's notice worthless.
+ * Three. A call on a player costs a name ({@link DECLARE_INFAMY_COST}) but nothing that has to be
+ * moved or garrisoned, and a call on anybody else costs nothing at all, so a crew could still paper
+ * the city in calls and decide later which one it actually meant, which turns a public commitment
+ * into noise and makes the defender's day's notice worthless. The price thins that out where it
+ * applies; the cap ends it everywhere.
  */
 export const MAX_PENDING_DECLARATIONS = 3;
 
@@ -53,11 +61,25 @@ export const DECLARE_REFUSALS = [
   'already_declared',
   'too_many_pending',
   'own_ground',
+  /** §D7: the call's price in infamy, which this crew has not got. */
+  'cannot_afford',
 ] as const;
 export type DeclareRefusal = (typeof DECLARE_REFUSALS)[number];
 
 export type DeclareResult =
-  { kind: 'refused'; reason: DeclareRefusal } | { kind: 'ok'; battle: ScheduledBattle };
+  | { kind: 'refused'; reason: DeclareRefusal }
+  | {
+      kind: 'ok';
+      battle: ScheduledBattle;
+      /**
+       * The caller, with the call's price already taken off.
+       *
+       * Returned rather than left for the route to re-read: the charge and the row are written in
+       * one transaction here, and a route that responded with the base it passed in would hand the
+       * screen a wallet that still had the hundred in it.
+       */
+      base: Base;
+    };
 
 export interface DeclareInput {
   base: Base;
@@ -66,6 +88,8 @@ export interface DeclareInput {
   now: Date;
   /** Leave the survivors holding the location they take, instead of marching them home (§A4). */
   holdAfterCapture?: boolean;
+  /** Admin mode, which waives the call's price along with every other one (`admin/mode.ts`). */
+  admin?: boolean;
 }
 
 /** True when the target is already the subject of a call nobody has resolved yet. */
@@ -148,6 +172,23 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   const late: ScheduleRefusal | null = scheduleRefusal(scheduledFor, now);
   if (late) return { kind: 'refused', reason: late };
 
+  /*
+   * §D7's price, checked last on purpose.
+   *
+   * Every refusal above is one a player can answer by picking a different target or a different
+   * mark, and this is the one they can only answer by going and earning it. Telling somebody their
+   * name is too small for a fight that was never legal in the first place sends them off to spend a
+   * week on ground they still will not be allowed to call.
+   *
+   * Waived in admin mode with the rest of the price gates (`admin/mode.ts`), which is what keeps
+   * the console's mock battle working in a city where no bot has earned a name yet.
+   */
+  const price = adminWaives('cannot_afford', input.admin ?? false)
+    ? 0
+    : callPriceFor(repos, target, district);
+  const infamyLeft = spendInfamy(base.economy.infamy, price);
+  if (infamyLeft === null) return { kind: 'refused', reason: 'cannot_afford' };
+
   const battle: ScheduledBattle = {
     id: randomUUID(),
     target,
@@ -160,6 +201,10 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     holdAfterCapture: input.holdAfterCapture ?? false,
   };
   repos.sieges.insert(battle);
+  // The row and the bill together. Both callers wrap this in one transaction, so a call that is
+  // recorded is a call that was paid for.
+  const economy = { ...base.economy, infamy: infamyLeft };
+  repos.bases.updateEconomy(base.id, economy);
 
   const at = now.toISOString();
   repos.sieges.putDeployment(emptyDeployment(battle.id, base.id, 'attacker', at));
@@ -174,7 +219,7 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   });
 
   tellTheDefender(repos, battle, base, now);
-  return { kind: 'ok', battle };
+  return { kind: 'ok', battle, base: { ...base, economy } };
 }
 
 /**
@@ -213,7 +258,45 @@ function tellTheDefender(
   });
 }
 
-/** The crew standing behind the defending side, if one is. */
+/**
+ * §D7: what calling a fight on this ground costs the caller.
+ *
+ * The rule is `declareInfamyCost` in shared; this reads the two facts it wants off the map and the
+ * roster. The party a call is on is the crew {@link crewCalledOut} finds, and whether a person is
+ * behind them is `Base.isBot`, which is the one thing that tells a player's crew from the seeded
+ * rival's: both hold ground under a `crew` plate, both have a user row and a name. The same
+ * function prices the board (`battle/view.ts`), so the dialog quotes what the route charges.
+ */
+export function callPriceFor(
+  repos: Repositories,
+  target: BattleTarget,
+  district: District,
+): number {
+  const defender = defenderOf(repos, target, district);
+  const crew = crewCalledOut(repos, target, defender);
+  const party: LocationHolder = crew ? { kind: 'crew', baseId: crew.id } : defender;
+  return declareInfamyCost(party, crew !== undefined && !crew.isBot);
+}
+
+/**
+ * The crew a call on this ground is actually a call on, if it is a crew at all.
+ *
+ * A location names its holder. A gate or a raid names a district rather than a party, and a
+ * lived-in district has a crew behind it whether or not the control table calls them the holder:
+ * residential ground has no locations to hold, so its holder reads `unoccupied` while somebody
+ * very much lives there. Read the same way at declaration (the price), at resolution (who is
+ * defending) and on the board (the red mark), so the three cannot name different people.
+ */
+function crewCalledOut(
+  repos: Repositories,
+  target: BattleTarget,
+  defender: LocationHolder,
+): Base | undefined {
+  if (defender.kind === 'crew') return repos.bases.findById(defender.baseId);
+  if (target.kind !== 'location') return residentOf(repos, target.districtId);
+  return undefined;
+}
+
 /**
  * How many fights still to come somebody has called on this crew's ground.
  *
@@ -230,10 +313,7 @@ export function fightsCalledOn(repos: Repositories, base: Base): number {
     ).length;
 }
 
+/** The crew standing behind the defending side of a declared fight, if one is. */
 export function defendingBaseOf(repos: Repositories, battle: ScheduledBattle): Base | undefined {
-  if (battle.defender.kind === 'crew') return repos.bases.findById(battle.defender.baseId);
-  // A gate or a raid names a district rather than a party, and a lived-in district has a crew
-  // behind it whether or not the control table calls them the holder.
-  if (battle.target.kind !== 'location') return residentOf(repos, battle.target.districtId);
-  return undefined;
+  return crewCalledOut(repos, battle.target, battle.defender);
 }

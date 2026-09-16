@@ -50,7 +50,7 @@ or client-facing type.
 | `base.ts`               | `Base` (district + queue + economy + roster), `BaseSummary` (public projection)      |
 | `city/`                 | The map: 10 districts, 42 location kinds, labels, weather, control, levels           |
 | `units/`                | 27 battle units, their sheets, multi-clause unlocks, training and the army cap       |
-| `raid.ts`               | Loot capacity in kg, what a raid takes, and the disruption it leaves                 |
+| `raid.ts`               | Loot capacity in loot slots, what a raid takes, and the disruption it leaves         |
 | `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
 | `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                      |
 | `delegation/`           | §G6 terms for a run that goes out with nobody leading it                             |

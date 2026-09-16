@@ -13,8 +13,7 @@ import {
   type ScenePoint,
 } from './plots';
 import type { CSSProperties } from 'react';
-import { MAX_SQUASH } from './plots';
-import { fitted, plateTop } from './DistrictScene';
+import { fitted, plateTop, plateTops } from './DistrictScene';
 
 /**
  * The district's interaction layer: twelve outlines traced onto one painting.
@@ -231,11 +230,24 @@ describe('fitting the painting into the room the chrome leaves', () => {
     };
   };
 
-  it('takes the full width of the frame, at every viewport', () => {
+  /**
+   * The frame's width where the band fits, and never more (maintainer request, 2026-09-14).
+   *
+   * This used to demand the full frame width at *every* viewport, and the squash was the price:
+   * the picture was pinned wide and compressed vertically until the building band fitted between
+   * the bars. On a short enough monitor that compression is visible, which is what a second screen
+   * showed, so the rule is reversed. The painting keeps its shape and gives up width instead, and
+   * the margin is feathered into a blurred copy the way the city and the Bar do it.
+   */
+  it('never draws wider than the frame, and takes it all where the band fits', () => {
     for (const [width, clear] of VIEWPORTS) {
       const box = fitted(room(width, clear + 200), room(width, clear));
-      expect(Number(box.width), `${width}px`).toBe(width);
+      expect(Number(box.width), `${width}px`).toBeLessThanOrEqual(width);
+      expect(Number(box.width), `${width}px`).toBeGreaterThan(0);
     }
+    // A frame tall enough for the band at full width still runs edge to edge, exactly.
+    const roomy = fitted(room(1440, 2000), room(1440, 1600));
+    expect(Number(roomy.width)).toBe(1440);
   });
 
   /**
@@ -254,13 +266,18 @@ describe('fitting the painting into the room the chrome leaves', () => {
     }
   });
 
-  /** And the compression is bounded, or the buildings start to look squat. */
-  it('compresses the picture by no more than the cap, at every viewport', () => {
+  /**
+   * There is no compression left to bound.
+   *
+   * This asserted a cap of sixteen percent, which was the allowance the old full-bleed rule spent
+   * to fit the band. The picture keeps its shape now, so the assertion is the stronger one: the
+   * height is what the picture's own width demands, to within the pixel the floor throws away.
+   */
+  it('never compresses the picture at all, at every viewport', () => {
     for (const [width, clear] of VIEWPORTS) {
       const box = fitted(room(width, clear + 200), room(width, clear));
-      const squash = 1 - Number(box.height) / (width / DISTRICT_ASPECT);
-      expect(squash, `${width}px`).toBeGreaterThanOrEqual(0);
-      expect(squash, `${width}px`).toBeLessThanOrEqual(MAX_SQUASH + 0.001);
+      const squash = 1 - Number(box.height) / (Number(box.width) / DISTRICT_ASPECT);
+      expect(Math.abs(squash), `${width}px`).toBeLessThan(0.01);
     }
   });
 
@@ -295,12 +312,20 @@ describe('fitting the painting into the room the chrome leaves', () => {
    * `plateTop` keeps its name plates reachable. Splitting it evenly, which is what this used to
    * assert, cropped both ends and the top one is the one a player looks at.
    */
-  it('puts the whole overflow at the bottom when the band will not fit', () => {
+  /**
+   * A band that will not fit at full width shrinks the picture rather than overflowing it.
+   *
+   * The old arrangement let the band run past the bottom of the clear area and pushed the whole
+   * shortfall down there, so the front row slid under the scenery switcher. With the aspect held
+   * and the width given up instead, the band fits by construction: that is the trade.
+   */
+  it('shrinks the picture rather than pushing the band past the bars', () => {
     const box = fitted(room(1440, 900), room(1440, 400));
     const band = occupies(box);
-    // The band's top edge lands on the top of the clear area: nothing above it is cut.
-    expect(band.top).toBeCloseTo(0, 0);
-    expect(band.bottom).toBeGreaterThan(400);
+    expect(band.top).toBeGreaterThanOrEqual(-1);
+    expect(band.bottom, 'the band has to fit the clear area').toBeLessThanOrEqual(401);
+    // And it gave up width to do it, which is what the feathered surround then covers.
+    expect(Number(box.width)).toBeLessThan(1440);
   });
 
   /** And with room to spare it is centred, which is the arrangement the maintainer asked for. */
@@ -311,12 +336,33 @@ describe('fitting the painting into the room the chrome leaves', () => {
     expect(900 - band.bottom).toBeCloseTo(band.top, 0);
   });
 
-  it('never crops sideways: the box is always the frame wide', () => {
+  /**
+   * The shape is inviolable, on every frame, and that is the whole point of the rework.
+   *
+   * The one thing `fitted` must never do is distort: the twelve building outlines are positions on
+   * the painting and any stretch slides all twelve at once. Width may be given up, height may be
+   * given up, the ratio may not move. A tenth of a percent of slack for the sub-pixel, floored so
+   * the error always goes to width rather than to height.
+   */
+  it('never distorts the painting, whatever shape the frame is', () => {
     for (const width of [800, 1024, 1440, 1920, 2560]) {
-      const box = fitted(room(width, 400), room(width, 300));
-      expect(Number(box.width), `${width}px`).toBe(width);
-      expect(ratio(box), `${width}px`).toBeGreaterThanOrEqual(DISTRICT_ASPECT - 0.001);
-      expect(bandOf(box), `${width}px`).toBeGreaterThan(0);
+      for (const clear of [200, 300, 500, 900]) {
+        const box = fitted(room(width, clear + 100), room(width, clear));
+        /*
+         * Measured in pixels rather than in ratio, because a ratio tolerance is not scale-free.
+         *
+         * The error is at most the one pixel the floor throws away, and one pixel of a 380px
+         * picture is four times the ratio error of one pixel of a 1500px one. An absolute ratio
+         * bound therefore passes on a big frame and fails on a small one for the same, correct,
+         * code. The invariant is "within a pixel of the exact height", and it says so.
+         */
+        const exact = Number(box.width) / DISTRICT_ASPECT;
+        expect(Math.abs(Number(box.height) - exact), `${width}x${clear}`).toBeLessThanOrEqual(1);
+        // And the pixel always goes to width, never to height: taller than painted is a stretch.
+        expect(Number(box.height), `${width}x${clear}`).toBeLessThanOrEqual(Math.ceil(exact));
+        expect(Number(box.width), `${width}x${clear}`).toBeLessThanOrEqual(width);
+        expect(bandOf(box), `${width}x${clear}`).toBeGreaterThan(0);
+      }
     }
   });
 
@@ -361,6 +407,40 @@ describe('keeping every plate reachable', () => {
     const highest = plateTop(1, height, clear);
     expect(lowest).toBeLessThan(91);
     expect(highest).toBeGreaterThan(1);
+  });
+
+  /**
+   * A band too short for them all fans the crushed plates apart instead of stacking them.
+   *
+   * `plateTop` floors each plate on its own, so a deep inset put the Lab, the Quarters and the
+   * Greenhouse on one line at 1024x768 and the Lab answered as the Apothecary: visible, and
+   * unclickable, which is the failure this whole block exists to refuse.
+   */
+  it('fans the plates a short band would crush onto one line', () => {
+    // An inset deep enough to push the back four plates against the top of the band.
+    const inset = 260;
+    const anchors = [4, 9, 14, 19, 60];
+    const tops = plateTops(anchors, height, clear, inset);
+
+    const lines = new Set(tops.map((top) => top.toFixed(4)));
+    expect(lines.size, `plates sharing a line: ${tops.join(', ')}`).toBe(anchors.length);
+    // Still in the order the district is drawn in, and still inside the window the clamp allows:
+    // `plateTop` answers that window's own edges when handed an anchor past either end.
+    expect([...tops]).toEqual([...tops].sort((a, b) => a - b));
+    const top = plateTop(0, height, clear, inset);
+    const bottom = plateTop(100, height, clear, inset);
+    for (const hang of tops) {
+      expect(hang).toBeGreaterThanOrEqual(top);
+      expect(hang).toBeLessThanOrEqual(bottom);
+    }
+  });
+
+  it('draws a roomy band exactly as it did before, plate for plate', () => {
+    const roomy = 810;
+    const anchors = DISTRICT_SITES.map(siteDepth);
+    expect(plateTops(anchors, height, roomy)).toEqual(
+      anchors.map((anchor) => plateTop(anchor, height, roomy)),
+    );
   });
 
   it('puts every plate inside the clear band, at every viewport the game is played at', () => {

@@ -33,9 +33,7 @@ import { OffersPage } from './features/market/OffersPage';
 import { BlackMarketPage } from './features/market/BlackMarketPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
-import { InventoryPage } from './features/inventory/InventoryPage';
 import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
-import { GaragePage } from './features/garage/GaragePage';
 import { FeatsPage } from './features/feats/FeatsPage';
 import {
   RequireAuth,
@@ -205,8 +203,7 @@ export default function App() {
           />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />
-          <Route path="inventory" element={<InventoryPage />} />
-          {/* The Blueprints page lived in the Satchel until §I1d moved it into research. Kept as a
+          {/* The Blueprints page lived in the Inventory page until §I1d moved it into research. Kept as a
               redirect rather than dropped: the old path is in bookmarks and in old notifications. */}
           <Route
             path="inventory/blueprints"
@@ -218,7 +215,6 @@ export default function App() {
           {/* §B9: the Scrapyard's own page: the nav's door, and the plot's dialog. */}
           <Route path="scrapyard" element={<ScrapyardPage />} />
           {/* §B11: the Garage has a page rather than a dialog, because its whole value is a list. */}
-          <Route path="garage" element={<GaragePage />} />
           {/* Feats (maintainer request, 2026-09-13). No `RequireLevel`: the board is the one screen
               that is meant to be readable from the first minute, because half of what is on it is
               what a new crew is about to do anyway. */}

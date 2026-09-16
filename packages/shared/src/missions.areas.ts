@@ -10,7 +10,9 @@ import { GAME_TIMEZONE, dayInZone } from './time/zone.js';
 import { MILESTONE_THIRD_CREW, isPlayerUnlockActive } from './progression/unlocks.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from './resources.js';
 import { seedFrom } from './rng.js';
-import { findUnit, isCombatUnit, type Army } from './units/index.js';
+import { isCombatUnit, type Army, type UnitLoadouts } from './units/index.js';
+import { bareLineRules, type LineRules } from './battle/line.js';
+import { lootCapacityOf } from './raid.js';
 
 /**
  * Where work comes from (GDD §E, §A4).
@@ -226,12 +228,26 @@ export type MissionForceRefusal = (typeof MISSION_FORCE_REFUSALS)[number];
  * thing whether they are emptying a stockpile or a collapsed overpass. It is what makes the
  * support tier worth training, because a job that pays more than the crew can lift pays only what
  * the crew can lift.
+ *
+ * Read off the **fitted** sheet, not the printed one. Three cards in `units/modifications.ts`
+ * move `lootCapacity` (Hook and Line, Counterweight Harness, Rescue Rig, all written for the
+ * carriers), and the roster shows the bag they promise. A force is a bag of unit ids with no
+ * loadout of its own, so the crew's `unitLoadouts` come in beside it; a caller with no crew to
+ * hand gets the catalogue figure.
  */
-export function missionCarry(force: Army): number {
-  return Object.entries(force).reduce((total, [unitId, count]) => {
-    const unit = findUnit(unitId);
-    return unit ? total + unit.stats.lootCapacity * Math.max(0, count) : total;
-  }, 0);
+export function missionCarry(
+  force: Army,
+  loadouts: UnitLoadouts = {},
+  /** §A4: what the crew's holdings and perks add to the bag, the same channel a raid spends. */
+  bonusPercent = 0,
+  /** ...and the marks they have been granted, so Haul Rigging is worth the research slot. */
+  rules: LineRules = bareLineRules(),
+): number {
+  // Delegated rather than written twice. The doc above claimed "the same figure the raid path
+  // uses, and deliberately" while this was a second arithmetic that ignored `picker`, ignored
+  // `lootCapacityPercent` and ignored granted marks: a Scavenger carried 22 on a raid and 10 on a
+  // job, and the Pawn Shop was worth nothing to a crew that only ran jobs.
+  return lootCapacityOf(force, bonusPercent, loadouts, rules);
 }
 
 /** The slots a payout takes up, by the same weights a raid is measured in. */

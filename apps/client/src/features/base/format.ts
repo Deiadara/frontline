@@ -29,8 +29,10 @@ export function formatRemaining(ms: number): string {
 /**
  * A per-hour production rate, signed and rounded to one decimal.
  *
- * Signed because the Generator's fuel burn makes net oil the one rate that can be negative, and a
- * bare `-2.4` next to `+18` is the whole story of a district that is running its lights on credit.
+ * Signed as headroom rather than for a rate the game currently produces: nothing emits a negative
+ * figure now that the Generator's burn is a one-off purchase rather than a standing draw. If a
+ * consumption channel comes back, a bare `-2.4` next to `+18` is the whole story of a district
+ * that is running on credit, and this reads it without a second formatter.
  */
 export function formatRate(perHour: number): string {
   const rounded = Math.round(perHour * 10) / 10;

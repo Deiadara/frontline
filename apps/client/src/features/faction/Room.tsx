@@ -120,7 +120,7 @@ function Seat({
             <dd className="truncate">{member.districtName}</dd>
             <dt className="text-ink-400">Level</dt>
             <dd className="tabular-nums">{member.level}</dd>
-            <dt className="text-ink-400">Bodies</dt>
+            <dt className="text-ink-400">Units</dt>
             <dd className="tabular-nums">{member.armySize.toLocaleString()}</dd>
             <dt className="text-ink-400">Earned here</dt>
             <dd className="tabular-nums">{Math.round(member.infamyEarned).toLocaleString()}</dd>

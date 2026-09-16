@@ -38,6 +38,7 @@ import { removeForce } from '../battle/forces.js';
 import { launchMission } from './launch.js';
 import { resolveDueMissions } from './resolve.js';
 import { fightMissionBattle } from './battle.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * Who leads a run, and what a battle job does to the crew that goes (maintainer, 2026-09-10).
@@ -81,12 +82,7 @@ async function makeStack(username = 'leader'): Promise<Stack> {
     payload: { username, password: PASSWORD },
   });
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const overseer = chosen.json<{ overseer: Overseer }>().overseer;
 
   const repos = createRepositories(db);
@@ -520,7 +516,12 @@ describe('a battle job is a fight', () => {
 
   it('brings the beaten home without the ones who did not get out', async () => {
     const stack = await makeStack('beaten');
-    const force: Army = { razors: 12 };
+    // Enough of them that a mauling leaves somebody. Twelve against a siege tier used to leave a
+    // handful and now does not: the crew fights a battle job with its own book from 2026-09-16
+    // (perks, held ground, cohesion), which moves the fight, and a dozen against the hardest tier
+    // in the game is inside the noise either way. The rule under test is what happens to the
+    // survivors, so the fixture has to have some.
+    const force: Army = { razors: 40 };
     planted(stack, siege, force, 5);
 
     const settled = resolveDueMissions(
@@ -545,7 +546,7 @@ describe('a battle job is a fight', () => {
     const alone = await makeStack('unled_fight');
     const led = await makeStack('led_fight');
     // A sheet at the ceiling, so the direction is not in doubt: a middling Overseer is one more
-    // body in the line and can cost a fight as easily as win it, which is the honest model but a
+    // unit in the line and can cost a fight as easily as win it, which is the honest model but a
     // coin flip to assert on.
     const sheet = makeAttributes(MAX_ATTRIBUTE);
     led.repos.overseers.updateAttributes(led.overseer.id, sheet);
@@ -566,7 +567,7 @@ describe('a battle job is a fight', () => {
     const withOne = settle(led);
     if (!withoutOne || !withOne) throw new Error('nothing settled');
 
-    // The same job, the same seed, the same nine bodies: the only difference is the person at the
+    // The same job, the same seed, the same nine units: the only difference is the person at the
     // front, and the row's casualty list is where that shows up. Which way it moves is pinned in
     // `enemy.test.ts` on a fight balanced for it; what this file is about is that the row's leader
     // reaches the engine at all, which is `leaderOf`'s whole job.
@@ -668,5 +669,115 @@ describe('a battle job is a fight', () => {
       .notifications(stack.userId, 50)
       .filter((note) => note.kind === 'mission_home');
     expect(bell[0]?.body).toBe(`Nobody came back from ${siege.name}`);
+  });
+});
+
+/**
+ * §E5: a battle job is a fight, so it is fought with everything a fight is fought with.
+ *
+ * `fightMissionBattle` was handed a force, a tier and a leader, and nothing else: no territory, no
+ * cohesion, no medicine, no salvage refund and no infamy multiplier. So the one mission kind that
+ * kills people was the one fight in the game a crew fought bare. Every assertion below is about a
+ * channel that pays a declared battle and paid nothing here.
+ */
+describe('what a battle job is fought with', () => {
+  const siegeJob = findMissionTemplate('refinery-assault') as MissionTemplate;
+
+  /** Runs one job to its settlement with the crew's fold as the caller left it. */
+  const runJob = async (
+    username: string,
+    prepare: (stack: Stack) => void,
+    template: MissionTemplate = siegeJob,
+  ) => {
+    const stack = await makeStack(username);
+    // Both worlds are the same person. Which of the thirty characters an account is offered is a
+    // hash of a UUID minted at registration, and every one of them carries a signature perk loud
+    // enough to decide a fight, so two worlds drawing differently would put the draw in the
+    // difference these tests measure. Caught in the act: this file passed alone and failed in the
+    // full suite, on a run where one crew killed nine and the other ten.
+    pinOverseer(stack.app, stack.token);
+    prepare(stack);
+    planted(stack, template, { razors: 40 }, 5);
+    const settled = resolveDueMissions(
+      stack.repos,
+      stack.repos.bases.findById(stack.base.id)!,
+      after(template),
+    );
+    const home = settled.resolved[0];
+    if (!home) throw new Error('nothing settled');
+    return { stack, home, settled };
+  };
+
+  /** Holds one location for this crew, which is how a real bonus gets onto the fold. */
+  const hold = (stack: Stack, locationId: string): void => {
+    const control = stack.repos.city.control(locationId);
+    if (!control) throw new Error(`fixture: no control row for ${locationId}`);
+    stack.repos.city.put({ ...control, holder: { kind: 'crew', baseId: stack.base.id } });
+  };
+
+  it('fights it with the crew fold, so held ground changes the outcome', async () => {
+    // A fight the crew can hold, because that is where toughness shows: on a siege they are
+    // overrun either way and what decides who dies is the rout roll.
+    const winnable = findMissionTemplate('convoy-ambush') as MissionTemplate;
+    const bare = await runJob('bare_job', () => {}, winnable);
+    const backed = await runJob(
+      'backed_job',
+      (stack) => {
+        // Ground that pays into the fight rather than into the economy: the Quiet Ward is
+        // `unit_offense` and Saint Ferrous is `unit_vitality` (`city/locations.ts`). Holding a
+        // Scrapyard or a kennel would have proved nothing, because neither writes a combat channel.
+        hold(stack, 'datavault-sigma-ward');
+        hold(stack, 'chrome-row-ferrous');
+      },
+      winnable,
+    );
+    expect(
+      total(backed.home.lost),
+      'a crew holding half a district fought exactly as well as one holding nothing',
+    ).not.toBe(total(bare.home.lost));
+  });
+
+  /**
+   * §D8: "a percentage more infamy off everything that earns any", which included this and did not.
+   *
+   * The Graveyard and `sig_name_maker` write `infamyGainPercent`, the declared-battle settler spent
+   * it, and the mission settler banked the raw figure. The same forty units killed paid one number
+   * on a raid and a smaller one on a job.
+   *
+   * The direction is what is pinned, not the ratio: holding ground puts a crew's whole fold into
+   * the fight as well (see the test above it), so the two runs do not kill exactly the same number
+   * of people and the exact multiple is not a figure this fixture can hold still. Deleting the
+   * multiplier collapses the two to the same number, which is the control.
+   */
+  it('pays the crew’s infamy multiplier on what the job killed', async () => {
+    const banked = async (username: string, holds: boolean) => {
+      const { stack, home } = await runJob(username, (one) => {
+        if (holds) hold(one, 'combine-spire-martyrs');
+      });
+      return { delta: stack.repos.bases.findById(stack.base.id)!.economy.infamy, home };
+    };
+    const plain = await banked('plain_name', false);
+    const named = await banked('named_crew', true);
+
+    expect(plain.delta, 'the job killed nobody, so there is no name to scale').toBeGreaterThan(0);
+    expect(
+      named.delta,
+      'the Graveyard paid nothing on the one mission kind that earns a name',
+    ).toBeGreaterThan(plain.delta);
+  });
+
+  it('gets the medics onto the winner’s dead, and the Bone Market onto the losses', async () => {
+    const graveyard = 'rustyard-bones';
+    const plain = await runJob('plain_job', () => {});
+    const kitted = await runJob('kitted_job', (stack) => hold(stack, graveyard));
+
+    // The Bone Market pays a share of what was lost, on a job as on a raid.
+    const caps = (stack: Stack): number =>
+      stack.repos.bases.findById(stack.base.id)!.resources.caps;
+    expect(total(plain.home.lost), 'nobody died, so nothing can be refunded').toBeGreaterThan(0);
+    expect(
+      caps(kitted.stack),
+      'the Bone Market paid nothing for the people who did not come back',
+    ).toBeGreaterThan(caps(plain.stack));
   });
 });

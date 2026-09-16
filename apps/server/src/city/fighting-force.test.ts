@@ -12,6 +12,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { setGarrison } from './actions.js';
 import { isFightingForce } from '../battle/forces.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * §A5: a porter is never in a line, at any door.
@@ -37,8 +38,6 @@ afterEach(async () => {
   }
 });
 
-const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
-
 interface Stack {
   app: FastifyInstance;
   base: Base;
@@ -58,12 +57,7 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'porter_boss', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.

@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Quoted, then charged: the one invariant every shop in this game shares.
@@ -65,12 +66,7 @@ async function player(app: FastifyInstance, username: string) {
     payload: { username, password: PASSWORD },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
   const body = me.json<{ user: { id: string }; base: { id: string } }>();
   return { token, userId: body.user.id, baseId: body.base.id };
@@ -421,7 +417,7 @@ describe('the odds on the dial and the odds on the row', () => {
      */
     app.repos.bases.updateProgression(base.id, 20, base.progression);
 
-    // Bodies at home to send. The odds are the subject, so who goes only has to be somebody.
+    // Units at home to send. The odds are the subject, so who goes only has to be somebody.
     app.repos.bases.updateArmy(base.id, { haulers: 20, razors: 10 }, []);
     app.repos.bases.updateCommanders(base.id, [
       createCommander('odds-1', 'Somebody Sharp', 'raid_boss', {

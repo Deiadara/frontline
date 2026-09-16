@@ -50,6 +50,13 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // left of the arch, on the lit road, so it covers the gate as little as it can and still reads
   // as its sign. Not lower: the plate room crops the bottom tenth at 1024x768.
   'datavault-sigma': { x: 0.425, y: 0.83 },
+  // Glasshouse Fields' timber gate and watch post close the bottom edge, labelled "Wooden District
+  // Gate" on the board's copy. The sign stands on the road above the beam, left of the watch post,
+  // so it names the gate without sitting on the gateway.
+  'glasshouse-fields': { x: 0.41, y: 0.685 },
+  // The Blacksite has no gate on its bottom edge: the way in is the great gate of the fortified
+  // compound at upper left, under the red banners. The sign stands on the road at its foot.
+  'blacksite-7': { x: 0.245, y: 0.415 },
 };
 
 export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
@@ -63,7 +70,10 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'neon-docks-runners': { x: 0.68, y: 0.33 },
   'neon-docks-pumphouse': { x: 0.595, y: 0.585 },
   'neon-docks-galley': { x: 0.74, y: 0.76 },
-  'neon-docks-barges': { x: 0.22, y: 0.89 },
+  // Up from y 0.89 (2026-09-15): the plate now fills the band between the bars, which crops the
+  // bottom tenth, and an 18.5px sign at 0.89 ended 13px under the nav at 1280x720
+  // (`plateFit.test.ts`). Same water at the barges' lower-left corner, three hundredths higher.
+  'neon-docks-barges': { x: 0.22, y: 0.86 },
   /*
    * Down the quay from the gate rather than level with it (2026-09-11).
    *
@@ -101,7 +111,10 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    */
   'chrome-row-exchange': { x: 0.222, y: 0.25 },
   'chrome-row-cathode': { x: 0.405, y: 0.46 },
-  'chrome-row-overlook': { x: 0.91, y: 0.12 },
+  // On the roof at the tower's foot rather than on its deck (y 0.12): at 1280x720 the deck sat
+  // under the ground box's toggle, which floats over the plate's top-right corner and took the
+  // click. `plateFit.test.ts` now measures that corner for every mark.
+  'chrome-row-overlook': { x: 0.91, y: 0.19 },
   'chrome-row-ferrous': { x: 0.815, y: 0.56 },
   'chrome-row-statue': { x: 0.435, y: 0.565 },
   'chrome-row-regal': { x: 0.58, y: 0.47 },
@@ -142,4 +155,55 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'datavault-sigma-faculty': { x: 0.275, y: 0.635 },
   'datavault-sigma-loft': { x: 0.585, y: 0.615 },
   'datavault-sigma-scaffold': { x: 0.77, y: 0.73 },
+
+  /*
+   * Glasshouse Fields, read off the board's labelled copy (`images/labels-glasshouse.jpg`,
+   * 2026-09-15): each leader tip, then moved down onto the ground at the foot of the thing it
+   * names where the tip landed on a roof, or onto the roof where the ground in front is people.
+   * The intake's sign is under its guarded pipe gate, the berm's on the grass slope below the
+   * sandbags, the hauler yard's on the dirt in front of its crane shed, the Long Ladle's on its
+   * own roof (the ground in front of it is diners at tables), the market's on the road above its
+   * awnings, the chapel's on its roof right of the bell tower, and the camp's on the fence line.
+   */
+  'glasshouse-fields-intake': { x: 0.21, y: 0.395 },
+  'glasshouse-fields-berm': { x: 0.44, y: 0.375 },
+  'glasshouse-fields-haulers': { x: 0.81, y: 0.46 },
+  'glasshouse-fields-ladle': { x: 0.56, y: 0.505 },
+  'glasshouse-fields-fieldgate': { x: 0.16, y: 0.575 },
+  'glasshouse-fields-fieldchapel': { x: 0.76, y: 0.6 },
+  'glasshouse-fields-fence': { x: 0.985, y: 0.505, side: 'left' },
+  // The Glasshouses (added 2026-09-15): the three glass houses run along the top of the plate
+  // from x 0.46 to 0.84, their nearest edge coming down to y 0.30 at the right. The sign stands
+  // on the beds in front of the middle house rather than on its glass, left of the third house's
+  // corner at (0.70, 0.29), so it covers vegetables and not panes.
+  'glasshouse-fields-glasshouses': { x: 0.63, y: 0.3 },
+
+  /*
+   * The Blacksite, read off the plate against a twentieth grid (2026-09-15). No labelled copy was
+   * delivered. The fortified compound with the great gate at upper left is the Outer Berm: it is
+   * the perimeter, with layered berm walls running down the left edge, and the sign stands on
+   * those walls. The armoury is the central hardened bunker with the orange-lit interior under
+   * the watchtower, the one building in the picture with something stored inside it; its sign is
+   * on the concrete at its foot. The watchtower's sign is on the tower's shaft under its banner,
+   * because the tower stands straight out of the armoury's roof and has no ground of its own.
+   */
+  'blacksite-7-outer': { x: 0.14, y: 0.6 },
+  'blacksite-7-watchtower': { x: 0.415, y: 0.335 },
+  'blacksite-7-drill': { x: 0.685, y: 0.35 },
+  /*
+   * Above the glass, not below it (maintainer, 2026-09-15).
+   *
+   * The Psychic Ward is the cyan-lit room set into the high wall on the right, and the room is the
+   * whole point of the sign, so the sign must not cover it. Measured on the plate, the room spans
+   * x 0.865 to 0.95 and y 0.46 to 0.585; the old mark at y 0.565 stood inside it. A sign is 18.5px
+   * tall at every width, which is 0.038 of the plate at 1024 wide and 0.02 at 1920, so y 0.415
+   * puts its bottom edge at 0.453 on the shortest viewport, just clear of the room's top, and
+   * within a sign's height of it on the widest. `x` is the sign's right edge (it grows left),
+   * placed so the plate is centred over the room.
+   */
+  'blacksite-7-blackward': { x: 0.955, y: 0.415, side: 'left' },
+  'blacksite-7-armory': { x: 0.43, y: 0.705 },
+  'blacksite-7-motorpool': { x: 0.655, y: 0.745 },
+  'blacksite-7-pile': { x: 0.9, y: 0.715 },
+  'blacksite-7-pit17': { x: 0.2, y: 0.745 },
 };

@@ -5,6 +5,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleDistrict } from './settle.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: a structure repairing itself is a clock the settle walk has to be cut on.
@@ -46,12 +47,7 @@ async function makeApp(): Promise<{ app: FastifyInstance; base: Base }> {
     payload: { username: 'the_wrecked', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const raw = app.repos.bases.findById(baseId);
   if (!raw) throw new Error('no base');

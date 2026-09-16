@@ -30,7 +30,7 @@ import { notifyBase } from '../social/notify.js';
  *
  * The officer in the **Scout's chair** by default, because that is what the chair is for. Any
  * officer may be sent, and a crew that has not filled the chair is meant to feel that in the
- * clock rather than be refused: sending the Finance Officer to case the Undergrid is a slow night,
+ * clock rather than be refused: sending the Head of Finance to case the Undergrid is a slow night,
  * not an impossible one.
  */
 
@@ -78,7 +78,7 @@ export function planScout(
    * it shortens a march. One map, one clock.
    *
    * A scouting run is a column of one, so the pace is the officer's own speed off their sheet
-   * rather than the crew's ordinary walking pace of nothing: sending the Finance Officer to case
+   * rather than the crew's ordinary walking pace of nothing: sending the Head of Finance to case
    * the Undergrid is a slow night, and sending somebody quick is not. The ground's reduction
    * stacks on top of that, the way it does for a march.
    */

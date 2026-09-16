@@ -59,7 +59,7 @@ export interface UnlockContext {
    * whole module's guards exist to prevent.
    */
   buildableVehicles: ReadonlySet<string>;
-  /** The satchel, which is where a finished blueprint document lives (§D10). */
+  /** The inventory, which is where a finished blueprint document lives (§D10). */
   inventory: Inventory;
 }
 

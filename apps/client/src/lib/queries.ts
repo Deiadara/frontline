@@ -1,5 +1,8 @@
+import { readyCount } from '@frontline/shared';
 import type {
   BaseDetailResponse,
+  ClaimFeatRequest,
+  FeatsResponse,
   LeaderboardBoard,
   BattleMutationResponse,
   FactionMutationResponse,
@@ -18,8 +21,14 @@ import type {
   TrainingResponse,
   CityResponse,
 } from '@frontline/shared';
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ApiRequestError } from './api';
 import {
   burnUpgrade,
@@ -68,6 +77,7 @@ import {
   getScrapyard,
   getCrew,
   createOverseer,
+  getOverseerChoices,
   getBar,
   getBase,
   getCity,
@@ -100,6 +110,7 @@ import {
   setAdminFog,
   setAdminKnobs,
   grantAdmin,
+  resetAdmin,
   buildVehicle,
   recallMission,
   reassignOfficer,
@@ -128,6 +139,7 @@ import { useSession } from '../store/session';
 /** Canonical react-query keys (see docs/SPEC-client.md). */
 export const queryKeys = {
   me: ['me'] as const,
+  overseerChoices: ['overseer-choices'] as const,
   city: ['city'] as const,
   base: (id: string) => ['base', id] as const,
   missions: ['missions'] as const,
@@ -515,12 +527,39 @@ export function useCrew() {
   return useQuery({ queryKey: queryKeys.crew, queryFn: getCrew, enabled: token !== null });
 }
 
-/** Mint an overseer + starting base from a preset, then prime the caches. */
+/**
+ * §F6: the characters this account is offered.
+ *
+ * Not cached across a reload and never stale for long: the pool is shared, so a character in these
+ * four can be taken by somebody else while the screen is open. `staleTime: 0` means the next mount
+ * asks again, which is what makes the "somebody else is already that person" refusal rare rather
+ * than routine.
+ */
+export function useOverseerChoices() {
+  return useQuery({
+    queryKey: queryKeys.overseerChoices,
+    queryFn: getOverseerChoices,
+    staleTime: 0,
+  });
+}
+
+/** Mint an overseer and a starting base from a preset, then prime the caches. */
 export function useCreateOverseer() {
   const queryClient = useQueryClient();
   const setUser = useSession((s) => s.setUser);
   return useMutation({
     mutationFn: createOverseer,
+    /*
+     * §F6: a refused pick means the offer on screen is out of date.
+     *
+     * The pool is shared, so the one character a player has just pressed can be taken between the
+     * screen rendering and the press landing. Without this the dead card stays selected, the same
+     * refusal comes back on every further press, and the only way out is a reload: the screen is
+     * showing four characters, one of whom no longer exists, and has no way to learn that.
+     */
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.overseerChoices });
+    },
     onSuccess: (data) => {
       setUser(data.user);
       queryClient.setQueryData<MeResponse>(queryKeys.me, (previous) => ({
@@ -660,7 +699,7 @@ export const useCancelLocationFortify = (
 ) => useCityWrite(cancelLocationFortify, baseId, () => districtId ?? null);
 
 /**
- * Turn the scout round. The body is empty (a crew has one scout out at a time), so the district
+ * Turn the scout round. The unit is empty (a crew has one scout out at a time), so the district
  * to re-read is the one the caller is looking at rather than one named in the request.
  */
 export const useRecallScout = (districtId: string | undefined) =>
@@ -844,7 +883,7 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
  * `settleVendorAuctions` on its second line, *outside* the transaction and before
  * `placeVendorBid` decides anything. So "you are already leading this lot", "that does not clear
  * the leader" and "you cannot cover that" are all answers given after the server has closed every
- * finished visit, handed the lots over, taken the caps for them and put the goods in a satchel.
+ * finished visit, handed the lots over, taken the caps for them and put the goods in the inventory.
  * Refreshing only on success left the HUD quoting the pre-close tin. See "settle first, refuse
  * second" at the top of this file; the Bar's `bidMutation` is the same shape for the same reason.
  */
@@ -864,11 +903,11 @@ export function usePlaceVendorBid() {
   });
 }
 /**
- * §D10: assemble a blueprint out of the pages the satchel is holding.
+ * §D10: assemble a blueprint out of the pages the inventory is holding.
  *
- * A market mutation like the rest, because a blueprint is assembled *out of the satchel*: the same
+ * A market mutation like the rest, because a blueprint is assembled *out of the inventory*: the same
  * payload carries the pages that were spent and the document that arrived, so the Blueprints page
- * and the satchel behind it cannot disagree about what happened.
+ * and the inventory behind it cannot disagree about what happened.
  */
 export const useUnlockBlueprint = marketMutation(unlockBlueprint);
 /**
@@ -876,7 +915,7 @@ export const useUnlockBlueprint = marketMutation(unlockBlueprint);
  *
  * Not folded into `marketMutation` because the answer carries more than the board: the panel says
  * what went and what came back, and that report is the only place a player ever learns which page
- * they got. Dropping it would leave the satchel silently one page richer.
+ * they got. Dropping it would leave the inventory silently one page richer.
  */
 export function useReimagine() {
   const queryClient = useQueryClient();
@@ -919,7 +958,7 @@ export function useBlackMarket() {
  *
  * The response is the whole refreshed shelf, so it is set first: a refetch alone would flash the
  * pre-purchase board. It is dropped as well, so a poll already in flight cannot land that board on
- * top of the response. The satchel and the HUD both moved (a blueprint landed, infamy was spent),
+ * top of the response. The inventory and the HUD both moved (a blueprint landed, infamy was spent),
  * so `me` and the yard are dropped, and so are the battle board and the roster: contraband bought
  * here is what `BattleView.boosts` lists, and a crate can put units on the roster.
  */
@@ -1143,7 +1182,7 @@ export function useAdmin() {
   });
 }
 
-/** A grant moves the satchel and the Lab's finished rungs, and the yard reads both: drop it all. */
+/** A grant moves the inventory and the Lab's finished rungs, and the yard reads both: drop it all. */
 export function useAdminGrant() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1151,6 +1190,23 @@ export function useAdminGrant() {
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.admin, response.admin);
       void queryClient.invalidateQueries();
+    },
+  });
+}
+
+/**
+ * Clean slate: the crew reset, and the character with it.
+ *
+ * The whole cache goes, and it has to: this is the one mutation that can make `/me` answer with no
+ * overseer, and every screen behind `/game` is drawn from a crew that no longer exists. Keeping
+ * any of it would leave the picker rendering over a stale district.
+ */
+export function useAdminReset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: resetAdmin,
+    onSuccess: () => {
+      queryClient.clear();
     },
   });
 }
@@ -1227,8 +1283,8 @@ export function useBuildAddon() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
       // A built refit changes every unit's sheet, and the roster is where a player looks for it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
-      // The satchel is read off the market payload, and every build moves it: a refit spends its
-      // parts and a trap lands in the bag. Without this the Satchel and the Blueprints page kept
+      // The inventory is read off the market payload, and every build moves it: a refit spends its
+      // parts and a trap lands in the bag. Without this the Inventory and the Blueprints page kept
       // quoting the pre-build counts until the next poll.
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       // The district that was just written, against a poll already in flight (see `setBase`).
@@ -1341,7 +1397,7 @@ export function useReassignOfficer() {
  * Start a standing programme at the Lab.
  *
  * The response is the whole refreshed Archive, so it is set rather than invalidated, and the
- * stockpile, the satchel and every screen that reads a crew effect moved with it.
+ * stockpile, the inventory and every screen that reads a crew effect moved with it.
  */
 export function useStartTech() {
   return useLabWrite(startTech);
@@ -1439,7 +1495,7 @@ export const useDisbandFaction = () => useFactionMutation(() => disbandFaction()
  * For the one caller that has to refresh `/me` without writing anything: the roster notices a
  * training batch land on its own clock, and the settle that stood the unit up also paid the §I1
  * experience for it. Both readings have to move together or the meter at the top of the screen
- * announces the experience up to a poll after the body appeared. A hook rather than a
+ * announces the experience up to a poll after the unit appeared. A hook rather than a
  * `useQueryClient` at the call site, so every invalidation in this app is still declared in this
  * file and a screen that mocks this module gets it for free.
  */
@@ -1476,6 +1532,76 @@ export function useFeats() {
 }
 
 /**
+ * The mutation key a single feat claim is filed under, so that {@link useClaimingFeats} can find
+ * every press still unanswered rather than only the newest.
+ */
+const FEAT_CLAIM_KEY = ['feats', 'claim'] as const;
+
+/**
+ * A claim answer's board, folded onto the board already on screen so that nothing collected
+ * un-collects.
+ *
+ * Two CLAIM presses in quick succession are two writes in flight at once, and nothing makes their
+ * answers come back in the order they were sent: they are separate requests over a multiplexed
+ * connection, and the first one pays out more stores than the second whenever it hands over a page
+ * or a level. Each answer carries the whole board as the server saw it inside its own transaction,
+ * so the first press's answer, arriving last, is a board from before the second feat was
+ * collected. Written in as it stands, it puts a live CLAIM button back on a rung the player has
+ * already collected, and leaves it there until the invalidation's read of the board lands.
+ *
+ * Collecting is one way: `crew_feats` rows are insert-only (see `db/repos/feats.ts`), and
+ * `featState` reports `claimed` for anything with a row. So a rung this tab has already seen
+ * collected cannot legitimately go back, and keeping the collected rows it already has is enough
+ * to make the two answers safe to apply in either order. The counts are recomputed from the merged
+ * rows rather than taken from either board, so the ledger and the collect-all button agree with
+ * the rungs under them.
+ */
+function foldClaimsForward(
+  previous: FeatsResponse | undefined,
+  answer: FeatsResponse,
+): FeatsResponse {
+  const collected = new Map(
+    (previous?.progress ?? [])
+      .filter((one) => one.state === 'claimed')
+      .map((one) => [one.id, one] as const),
+  );
+  if (collected.size === 0) return answer;
+
+  // The older answer's own row, not a patched copy of the newer one: it is what the server said
+  // about that rung when it was collected, clamped figure and all.
+  const progress = answer.progress.map((one) =>
+    one.state === 'claimed' ? one : (collected.get(one.id) ?? one),
+  );
+  return {
+    ...answer,
+    progress,
+    ready: readyCount(progress),
+    claimed: progress.filter((one) => one.state === 'claimed').length,
+  };
+}
+
+/**
+ * Which feats have a claim in flight, across every press still waiting for an answer.
+ *
+ * Read off the mutation cache rather than off the hook, because the page runs one mutation
+ * observer for a board of two hundred buttons and an observer only ever reports its newest
+ * mutation. Pressing a second CLAIM therefore dropped the first rung out of its pending state
+ * while its own write was still on the wire: the button came back, live and pressable, and a
+ * second press on it earned an `already_claimed` refusal for a feat that was being collected
+ * correctly.
+ */
+export function useClaimingFeats(): ReadonlySet<string> {
+  const claiming = useMutationState({
+    filters: { mutationKey: FEAT_CLAIM_KEY, status: 'pending' },
+    select: (mutation) => (mutation.state.variables as ClaimFeatRequest | undefined)?.featId,
+  });
+  return useMemo(
+    () => new Set(claiming.filter((featId): featId is string => featId !== undefined)),
+    [claiming],
+  );
+}
+
+/**
  * Collecting one.
  *
  * Invalidates `me` as well as the feats list, because a claim pays into the stockpile, the roster
@@ -1485,12 +1611,31 @@ export function useFeats() {
 export function useClaimFeat() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: FEAT_CLAIM_KEY,
     mutationFn: claimFeat,
+    /*
+     * The board the server just sent, written straight into the cache.
+     *
+     * Without this the screen flickered on every collect, and the cause was not a render: the
+     * response already carries the refreshed `feats` payload, and this hook was throwing it away
+     * and waiting for the `invalidateQueries` round trip below to fetch the same thing again. In
+     * the window between the two the cache still held the *pre-claim* board, so the rung fell back
+     * out of its pending state and drew CLAIM again for a frame or two before flipping to
+     * Collected. Taking the payload the server already paid for closes the window entirely; the
+     * invalidation stays because `me`, the roster and the stores still have to be re-read.
+     *
+     * Folded rather than written over the top: see {@link foldClaimsForward} for the second press.
+     */
+    onSuccess: (response) => {
+      queryClient.setQueryData<FeatsResponse>(queryKeys.feats, (previous) =>
+        foldClaimsForward(previous, response.feats),
+      );
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
-      // The satchel and the back room, because a feat can pay in pages, parts and one-time
+      // The inventory and the back room, because a feat can pay in pages, parts and one-time
       // boosts. Neither screen polls, so without these a reward lands in a store the player is
       // looking at and does not appear until something else happens to refresh it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
@@ -1510,6 +1655,14 @@ export function useClaimAllFeats() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: claimAllFeats,
+    /** The same anti-flicker as {@link useClaimFeat}, and the same fold: this button and a single
+        CLAIM can be in flight together, and the board of whichever answers first must survive the
+        other one landing on top of it. */
+    onSuccess: (response) => {
+      queryClient.setQueryData<FeatsResponse>(queryKeys.feats, (previous) =>
+        foldClaimsForward(previous, response.feats),
+      );
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
@@ -1656,6 +1809,10 @@ export function useBurnUpgrade() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+      // The Scrapyard's rows read `owned` off the same stock a burn just shrank. Without this the
+      // bench kept showing the burned card as Built for the 30s `staleTime`, the one direction
+      // `useBuildAddon` (which does invalidate `units`) did not cover.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
     },
   });
 }

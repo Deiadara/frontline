@@ -10,7 +10,7 @@ import type { DoneFilter, EraFilter, FeatFilter } from './featsList';
  *
  * The standings screen picks its sort from a `Dropdown` and that is right there: eight sorts, one
  * of which is wanted, and a menu costs one press to open. These are different. Four eras and three
- * states is seven controls in all, both filters are the only navigation a hundred and sixty feats
+ * states is seven controls in all, both filters are the only navigation two hundred feats
  * have, and a player narrowing a long list wants to *see* what the other settings are and what
  * each would leave, which is exactly what a menu hides. So both rows are chips wearing `tabSkin`,
  * the skin the battle board, the roster and the market already pick with.

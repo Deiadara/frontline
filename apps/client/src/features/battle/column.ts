@@ -22,8 +22,8 @@ import {
  *
  * Naming the group means knowing who got a seat, so {@link seat} runs the shared function's own
  * loading rules a second time for the two facts it has no reason to return: who is left on foot,
- * and which machines have somebody in them. All three rules are load-bearing for the *name*, and
- * the third is the one that is easy to leave out: **nobody boards a machine slower than their own
+ * and which machines have somebody in them. All four rules are load-bearing for the *name*, and
+ * the last is the one that is easy to leave out: **nobody boards a machine slower than their own
  * legs**. Left out, a Scrappy on 65 in front of two Road Reavers on 65 reads as "Held to 65 by the
  * Scrappy" while the Scrappy is carrying nobody and the Reavers are riding their own bikes, and a
  * crew is told to buy a faster machine when the yard was never the thing holding them.
@@ -50,21 +50,20 @@ export interface ColumnRead {
 }
 
 /** One unit type in a column: how many, what they are called, and what `columnSpeed` asks of them. */
-interface ColumnGroup {
+interface ColumnGroup extends ColumnUnit {
   count: number;
   name: string;
-  speed: number;
-  rides: boolean;
 }
 
 /**
  * The seats spent exactly as `columnSpeed` spends them, kept rather than thrown away.
  *
- * Three rules, all of them the shared function's (`building/vehicles.ts`): machines are filled
- * **fastest first**, seats go to the **slowest** riders first, and **nobody boards a machine
- * slower than their own legs**, since a seat that costs a body twenty points of pace is a seat it
- * declines. A machine that ends up with nobody in it stops the fill: every machine behind it is
- * slower still, so it would carry nobody either.
+ * Four rules, all of them the shared function's (`building/vehicles.ts`): machines are filled
+ * **fastest first**, seats go to the **slowest** riders first, **a seat is priced in unit slots**
+ * so a heavy sheet takes more than one, and **nobody boards a machine slower than their own legs**,
+ * since a seat that costs a unit twenty points of pace is a seat it declines. A machine that ends
+ * up with nobody in it stops the fill: every machine behind it is slower still, so it would carry
+ * nobody either.
  */
 function seat(
   fleet: Fleet,
@@ -85,17 +84,27 @@ function seat(
   for (const machine of machines) {
     let seats = machine.capacity;
     let carried = 0;
+    let wanted = false;
     for (const group of boarding) {
-      if (seats === 0) break;
       // `boarding` is slowest first, so the first group this machine cannot outrun is also the
       // last: nobody behind it would take a seat on it either.
       if (group.speed >= machine.speed) break;
-      const aboard = Math.min(seats, group.count);
+      if (group.count === 0) continue;
+      wanted = true;
+      // Unit slots, exactly as `columnSpeed` spends them: a heavy sheet takes more than one seat,
+      // and a group too heavy for what is left is stepped over rather than ending the fill.
+      const slots = Math.max(1, group.unitSlots);
+      const aboard = Math.min(Math.floor(seats / slots), group.count);
+      if (aboard === 0) continue;
       group.count -= aboard;
-      seats -= aboard;
+      seats -= aboard * slots;
       carried += aboard;
     }
-    if (carried === 0) break;
+    // Nobody left who would take a seat on this one, and the machines only get slower from here.
+    if (!wanted) break;
+    // Wanted but carried nobody: too small for the sheet at the front of the queue. The bigger
+    // machine behind it can still take them, and this one is not what the column is waiting for.
+    if (carried === 0) continue;
     carrying.push(machine);
   }
 

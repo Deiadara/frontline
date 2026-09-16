@@ -18,6 +18,7 @@
  * are tuned to, which a hard-coded expected stockpile would not.
  */
 import {
+  DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
   RAID_DISRUPTION_HOURS,
   RAID_DISRUPTION_PERCENT,
@@ -39,6 +40,7 @@ import { settleDistrict } from '../district/settle.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
 import { STRUCTURES_WRECKED_PER_RAID, settleBattles } from './resolve.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -50,7 +52,7 @@ afterEach(async () => {
 
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
-/** The attacker wins and both sides lose bodies, so there is something to refund on each end. */
+/** The attacker wins and both sides lose units, so there is something to refund on each end. */
 const bloody: SkirmishEngine = {
   resolve: (input) =>
     skirmishOutcome({
@@ -82,14 +84,13 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
   });
   expect(registered.statusCode, `register: ${registered.statusCode}`).toBe(201);
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode, `overseer: ${chosen.statusCode}`).toBe(201);
   const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(base.id)!.economy;
+  app.repos.bases.updateEconomy(base.id, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
   return { token, baseId: base.id, districtId: base.districtId };
 }
 
@@ -416,8 +417,9 @@ describe('what a raid leaves behind (§A4)', () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
-    // A new crew stands a Nexus and a Generator, neither of which makes anything. Give the victim
-    // a Scrapyard so the walk has an output to lose a share of.
+    // A new crew stands a Nexus and a Generator, and a level-1 Generator makes six oil an hour,
+    // which is thin enough that whole-unit rounding is most of it. Give the victim a Scrapyard so
+    // the walk has a line with volume in it to lose a share of.
     const victimBase = world.app.repos.bases.findById(world.victim.baseId)!;
     world.app.repos.bases.updateDistrict(
       victimBase.id,
@@ -443,8 +445,19 @@ describe('what a raid leaves behind (§A4)', () => {
     const raided = world.app.repos.bases.findById(world.victim.baseId)!.economy.disruption;
     if (raided.until === null) throw new Error('the raid wrote no disruption to measure');
     const from = new Date(Date.parse(raided.until) - RAID_DISRUPTION_HOURS * 3_600_000);
+    /*
+     * The wreckage as the raid left it, put back before each run.
+     *
+     * Settling repairs, and it writes the repaired structures back, so the first of the two runs
+     * handed the second a district 20 points healthier and the control quietly out-produced the
+     * subject for a second reason. It cost every line about four points of share on top of the
+     * quarter, which the tolerance below swallowed until the Generator started making oil and the
+     * smallest line in the walk showed it.
+     */
+    const wrecked = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
     const wind = (disruption: { until: string | null; percent: number }) => {
       const base = world.app.repos.bases.findById(world.victim.baseId)!;
+      world.app.repos.bases.updateDistrict(base.id, wrecked, base.buildQueue);
       world.app.repos.bases.updateResources(
         base.id,
         Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])) as unknown as Resources,

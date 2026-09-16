@@ -1,5 +1,6 @@
-import { findUnit, type Army } from '../units/index.js';
-import { simulate, type SideState, type Simulation } from './engine.js';
+import type { TerritoryEffects } from '../city/locations.js';
+import { findUnit, type Army, type UnitLoadouts } from '../units/index.js';
+import { simulate, type SideSetup, type SideState, type Simulation } from './engine.js';
 import { pursuitSpeed, routSurvivors, winnerCasualties, type FleeContext } from './rout.js';
 
 /**
@@ -15,14 +16,14 @@ import { pursuitSpeed, routSurvivors, winnerCasualties, type FleeContext } from 
  * Not for the kills. A perimeter is an **intelligence weapon**: the losing side only ever learns
  * what happened from the people who walked home, so a ring that catches all of them means the enemy
  * gets a silence where their report should be (`battle/analysis.ts` enforces exactly that). It costs
- * you units that could have been in the line: the trade is bodies now against the other side
+ * you units that could have been in the line: the trade is units now against the other side
  * planning blind next time, which is the decision the whole mechanic exists to create.
  *
  * ## The rule that makes it a gamble
  *
  * **A losing side's perimeter never fights.** The board's rule, and it is the right one: the ring is
  * outside the battle, so when the line inside it collapses there is nothing for the ring to do and
- * it walks away intact. So a perimeter is a gamble on winning, and every body in it is a body that
+ * it walks away intact. So a perimeter is a gamble on winning, and every unit in it is a unit that
  * was not helping you win.
  *
  * ## What meeting the ring actually is
@@ -41,7 +42,7 @@ import { pursuitSpeed, routSurvivors, winnerCasualties, type FleeContext } from 
  * Now a breakout is a fight, so:
  *
  * - The ring can be **broken through**, and a thin one in front of a mass breakout will be.
- * - The ring **takes casualties**. Standing in front of desperate people costs bodies.
+ * - The ring **takes casualties**. Standing in front of desperate people costs units.
  * - The runners who lose that fight get a second rout roll, on the same sheets and the same four
  *   things that decide the first one, so a Road Reaver is still hard to bottle up.
  *
@@ -53,13 +54,13 @@ const total = (force: Army): number =>
   Object.values(force).reduce((sum, count) => sum + Math.max(0, count), 0);
 
 /**
- * How much of the ring is real, in bodies.
+ * How much of the ring is real, in units.
  *
  * Counted rather than weighted by sheet: standing on a road at night is a job a Razor does about as
  * well as a Sniper, and making the ring scale with offense would turn "deny them a report" into
  * "bring your best units and do it twice".
  */
-export function perimeterBodies(perimeter: Army): number {
+export function perimeterUnits(perimeter: Army): number {
   return Object.entries(perimeter).reduce(
     (sum, [unitId, count]) => (findUnit(unitId) ? sum + Math.max(0, count) : sum),
     0,
@@ -67,7 +68,7 @@ export function perimeterBodies(perimeter: Army): number {
 }
 
 /**
- * How many runners one body on the ring can realistically cover, when it is picking off a quiet
+ * How many runners one unit on the ring can realistically cover, when it is picking off a quiet
  * withdrawal rather than fighting a breakout.
  *
  * Above one because spotting people leaving is not a duel: somebody watching a road stops several
@@ -94,14 +95,26 @@ const clamp = (value: number, low: number, high: number): number =>
 /** The share of a withdrawal the ring is thick enough to reach at all, 0..1. */
 export function ringCoverage(perimeter: Army, runners: number): number {
   if (runners <= 0) return 0;
-  return clamp((perimeterBodies(perimeter) * RUNNERS_COVERED_PER_BODY) / runners, 0, 1);
+  return clamp((perimeterUnits(perimeter) * RUNNERS_COVERED_PER_BODY) / runners, 0, 1);
 }
 
 /** One runner's odds of being stopped, given how thick the ring is where they hit it. */
-export function catchChance(unitId: string, coverage: number): number {
-  const unit = findUnit(unitId);
-  if (!unit) return 0;
-  const slipperiness = ((unit.stats.speed + unit.stats.stealth) / 200) * PERIMETER_EVASION_WEIGHT;
+export function catchChance(
+  unitId: string,
+  coverage: number,
+  /**
+   * The sheet this crew actually fields, rather than the one in the catalogue.
+   *
+   * `rout.ts` reads speed and stealth off `stack.effective`, and the doc above says the two stats
+   * are "read the same way here". They were not: a Ghost Wrap on the Sleepers moved their odds of
+   * getting away from a lost fight and did nothing at all for their odds of slipping a ring, which
+   * is the same withdrawal one screen later. Optional so the module's own tests can still ask about
+   * a printed sheet, and defaulted to it so a caller with no crew in hand gets what it always did.
+   */
+  sheet: { speed: number; stealth: number } = findUnit(unitId)?.stats ?? { speed: 0, stealth: 0 },
+): number {
+  if (!findUnit(unitId)) return 0;
+  const slipperiness = ((sheet.speed + sheet.stealth) / 200) * PERIMETER_EVASION_WEIGHT;
   return clamp(MAX_PERIMETER_CATCH * coverage * (1 - slipperiness), 0, MAX_PERIMETER_CATCH);
 }
 
@@ -122,13 +135,20 @@ export interface PerimeterToll {
  * Meeting a ring on the way out of a lost battle is a battle, because both sides are already
  * committed and there is nothing left to lose by riding through. Sneaking units out of a deployment
  * days beforehand is not: nobody is committed to anything, and a player who could start a real fight
- * by withdrawing would withdraw one body at a time and farm the enemy's ring to nothing for free,
+ * by withdrawing would withdraw one unit at a time and farm the enemy's ring to nothing for free,
  * one cheap request each. So this stays a toll, and a toll costs the ring nothing.
  *
  * Rolled per individual off the passed stream. An empty ring returns the withdrawal untouched
  * **without drawing**.
  */
-export function perimeterToll(fleeing: Army, perimeter: Army, next: () => number): PerimeterToll {
+export function perimeterToll(
+  fleeing: Army,
+  perimeter: Army,
+  next: () => number,
+  /** What each runner's sheet says once the crew's cards and channels are on it. */
+  sheetOf: (unitId: string) => { speed: number; stealth: number } = (unitId) =>
+    findUnit(unitId)?.stats ?? { speed: 0, stealth: 0 },
+): PerimeterToll {
   const runners = total(fleeing);
   const coverage = ringCoverage(perimeter, runners);
   if (coverage <= 0 || runners === 0) return { caught: {}, escaped: { ...fleeing } };
@@ -137,7 +157,7 @@ export function perimeterToll(fleeing: Army, perimeter: Army, next: () => number
   const escaped: Army = {};
   for (const [unitId, count] of Object.entries(fleeing)) {
     if (count <= 0) continue;
-    const chance = catchChance(unitId, coverage);
+    const chance = catchChance(unitId, coverage, sheetOf(unitId));
     let stopped = 0;
     for (let i = 0; i < count; i += 1) if (next() < chance) stopped += 1;
     if (stopped > 0) caught[unitId] = stopped;
@@ -168,6 +188,26 @@ export interface BreakoutInput {
   seed: string;
   /** The rout context of the fight they are running from, so the same sheets still matter. */
   context: FleeContext;
+  /**
+   * What each side brings to the second fight, on the same terms as the first.
+   *
+   * "The same rules as the first" was not true: the breakout ran with no territory, no fitted
+   * cards and no cohesion on either side, so every perk, every held place and every bracket a
+   * crew had bought was switched off for the half of the fight that decides who gets home. A
+   * Road Reaver's crew paid for its speed and then ran the ring bare.
+   *
+   * Both halves are optional so the module's own tests can still drive a bare breakout, and so a
+   * caller with nothing to say produces the identical stream it always did.
+   */
+  runners?: BreakoutSide;
+  guards?: BreakoutSide;
+}
+
+/** One side's book for the second fight: exactly what `SideSetup` takes, minus who they are. */
+export interface BreakoutSide {
+  territory?: TerritoryEffects;
+  upgrades?: UnitLoadouts;
+  cohesionPercent?: number;
 }
 
 export interface Breakout {
@@ -181,6 +221,22 @@ export interface Breakout {
   brokeThrough: boolean;
   /** Rounds the second fight took. Zero when there was no ring and no fight. */
   rounds: number;
+}
+
+/**
+ * One side's optional book, spread into a `SideSetup`.
+ *
+ * Written key by key because `exactOptionalPropertyTypes` refuses an explicit `undefined`: spreading
+ * `{ territory: side?.territory }` past the engine would set the key to undefined rather than leave
+ * it out, and `simulate` reads the presence of the key rather than its value.
+ */
+function sideSetup(side: BreakoutSide | undefined): Partial<SideSetup> {
+  if (!side) return {};
+  return {
+    ...(side.territory ? { territory: side.territory } : {}),
+    ...(side.upgrades ? { upgrades: side.upgrades } : {}),
+    ...(side.cohesionPercent !== undefined ? { cohesionPercent: side.cohesionPercent } : {}),
+  };
 }
 
 /** Everybody still on their feet, as an army. */
@@ -207,7 +263,22 @@ export function breakOut(input: BreakoutInput, next: () => number): Breakout {
     brokeThrough: true,
     rounds: 0,
   });
-  if (total(input.fleeing) === 0 || perimeterBodies(input.ring) === 0) return clear();
+  if (total(input.fleeing) === 0 || perimeterUnits(input.ring) === 0) return clear();
+
+  /*
+   * The ring stands *outside* the works, so it does not get to stand behind them.
+   *
+   * `defending: true` reads `battlefield.fortifyPercent` and `battlefield.baseDefense` as toughness
+   * (`battle/effects.ts`), and the works on this ground belong to whoever built the place. When the
+   * attacker won, their ring was being handed the fortification of the location they had just
+   * taken it off, which is the defender's wall protecting the people who breached it. A breakout
+   * happens on the road out, so neither ring is behind anything: both fight on the ground's terms
+   * with the works taken off. What a crew's own perks and held places are worth still applies,
+   * through `guards.territory`.
+   */
+  const ground = input.battlefield
+    ? { ...input.battlefield, fortifyPercent: 0, baseDefense: 0 }
+    : undefined;
 
   // The runners attack, because they are the ones who need to be somewhere else, and the ring
   // defends, because it chose this ground before the first fight started.
@@ -215,9 +286,19 @@ export function breakOut(input: BreakoutInput, next: () => number): Breakout {
     seed: `${input.seed}:ring`,
     // Spread rather than assigned: `exactOptionalPropertyTypes` refuses an explicit `undefined` for
     // an optional property, and open ground is the absence of the key rather than an undefined one.
-    ...(input.battlefield ? { battlefield: input.battlefield } : {}),
-    attacker: { name: 'the withdrawal', army: input.fleeing, defending: false },
-    defender: { name: 'the ring', army: input.ring, defending: true },
+    ...(ground ? { battlefield: ground } : {}),
+    attacker: {
+      name: 'the withdrawal',
+      army: input.fleeing,
+      defending: false,
+      ...sideSetup(input.runners),
+    },
+    defender: {
+      name: 'the ring',
+      army: input.ring,
+      defending: true,
+      ...sideSetup(input.guards),
+    },
   });
   const ringLosses = winnerCasualties(second.defender);
   const rounds = second.rounds.length;

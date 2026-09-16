@@ -50,8 +50,8 @@ test('the faction screen is a room with the table standing in it', async ({ page
   // The five readings, top right, over the hall.
   await expect(page.locator('[data-testid^="dial-"]')).toHaveCount(5);
   await expect(page.getByTestId('dial-seats')).toContainText('2/5');
-  // Bodies is the population the table's units take up (32 + 60 in the fixture), not a head count.
-  await expect(page.getByTestId('dial-bodies')).toContainText('92');
+  // Units is the unit slots the table's units take up (32 + 60 in the fixture), not a head count.
+  await expect(page.getByTestId('dial-units')).toContainText('92');
   // Earned is the faction's own append-only total, which is what the standings rank it by. Summing
   // the members' contribution rows would agree here and stop agreeing the day somebody leaves.
   await expect(page.getByTestId('dial-earned')).toContainText('1,820');
@@ -411,6 +411,24 @@ for (const size of SIZES) {
     const { seats, panels, viewport } = await roomGeometry(page);
     expect(seats, 'five places, whoever is in them').toHaveLength(5);
 
+    // Every dial's words fit their box. Five dials share 22rem below `xl`, and "UNIT SLOTS"
+    // letterspaced at 9px was 78px in a 66px cell: it truncated to "UNIT SLO" at 1024 and 1280 and
+    // no gate measured it (bug pass, 2026-09-15). A label may wrap; it may not run past its cell.
+    // Measured on the dial's own box, its list item and every descendant: a nowrap flex child
+    // keeps its intrinsic width and pushes its parents wide, so the overrun shows on the box the
+    // label sits in rather than on the label itself.
+    const overrun = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-testid^="dial-"]')]
+        .flatMap((dial) => [
+          dial.closest('li') ?? dial,
+          dial,
+          ...dial.querySelectorAll<HTMLElement>('*'),
+        ])
+        .filter((el) => el.scrollWidth > el.clientWidth + 1)
+        .map((el) => `${el.textContent ?? ''} ${el.scrollWidth}/${el.clientWidth}`),
+    );
+    expect(overrun, `dial text running past its box at ${tag}`).toEqual([]);
+
     for (const seat of seats) {
       expect(seat.box.left, `${seat.name} is off the left edge`).toBeGreaterThanOrEqual(0);
       expect(seat.box.right, `${seat.name} is off the right edge`).toBeLessThanOrEqual(
@@ -529,6 +547,46 @@ test('an invitation in the mailbox joins only after a confirmation', async ({ pa
   await page.screenshot({ path: 'screenshots/invite-confirm.png', fullPage: false });
 });
 
+test('binning a live invitation asks first, and a plain message does not', async ({ page }) => {
+  /*
+   * The invitation is only answerable on the message that carries it.
+   *
+   * `InviteCard` renders here and nowhere else, so "Throw it away" on a message with a live invite
+   * destroys the only door into that faction: it fired on a single click, beside a Reply button,
+   * with nothing said. Every other one-way control in the game goes through `Confirm`, and the
+   * component's own note says that is the rule.
+   */
+  await installApi(page, lateGame);
+  await page.goto('/game/messages');
+
+  await page.getByTestId('message-msg-3').click();
+  await expect(page.getByTestId('invite-card')).toBeVisible();
+  await page.getByTestId('throw-away').click();
+
+  const confirm = page.getByTestId('confirm-bin-invite');
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('The Ninth Circle');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/bin-invite-confirm.png', fullPage: false });
+
+  // Backing out leaves the invitation where it is.
+  await page.getByTestId('confirm-bin-invite-no').click();
+  await expect(confirm).toHaveCount(0);
+  await expect(page.getByTestId('invite-card')).toBeVisible();
+
+  /*
+   * The other half, and the half that keeps this honest: a message with nothing on it still goes
+   * on one press. A confirmation on every deletion would be friction rather than a guard, and a
+   * test that only checked the asking case would pass just as well if it asked about everything.
+   */
+  await page.keyboard.press('Escape');
+  const plain = page.locator('[data-testid^="message-msg-"]').first();
+  await plain.click();
+  await expect(page.getByTestId('invite-card')).toHaveCount(0);
+  await page.getByTestId('throw-away').click();
+  await expect(page.getByTestId('confirm-bin-invite')).toHaveCount(0);
+});
+
 test('leaving as the leader says what it will cost before it does it', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game/faction');
@@ -580,7 +638,7 @@ test('the mailbox reads, replies and keeps a sent copy', async ({ page }) => {
   /*
    * And a sent message opens.
    *
-   * `SentMessage` has carried `body` since the folder existed and the page drew none of it: a
+   * `SentMessage` has carried `unit` since the folder existed and the page drew none of it: a
    * player could see that they had written something and had no way to read it back. It opens into
    * the same sheet the inbox uses, with the recipient where the sender goes and no Reply or Throw
    * it away, because neither means anything for a message you wrote.
@@ -700,7 +758,7 @@ test('the standings door sits next to Actions in the standing bar', async ({ pag
   await expect(page.getByTestId('hud-standings')).toBeVisible();
 
   const order = await page.evaluate(() => {
-    const ids = ['hud-battles', 'hud-actions', 'hud-standings'];
+    const ids = ['hud-battles', 'hud-monitor', 'hud-standings'];
     return ids.map(
       (id) => document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().left ?? 0,
     );

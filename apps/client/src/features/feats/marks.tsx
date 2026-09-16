@@ -146,8 +146,8 @@ export const SPINE: CSSProperties = {
 /**
  * The page's own seal: a rosette somebody inked, with the collected figure struck into it.
  *
- * The maintainer asked for a page that looks drawn rather than generated, and a screen made of a
- * hundred and sixty progress bars needs one object on it that is unmistakably a picture. This is
+ * The maintainer asked for a page that looks drawn rather than generated, and a screen made of
+ * two hundred progress bars needs one object on it that is unmistakably a picture. This is
  * it: two rings that do not close, a ring of ticks between them, and two ribbon tails under it.
  */
 export function FeatSeal({ children }: { children: ReactNode }) {

@@ -262,7 +262,11 @@ test.describe('the console', () => {
       // The badge is not decoration: an unmarked free-and-instant build is indistinguishable from
       // a broken economy.
       await expect(page.getByTestId('admin-badge')).toContainText('5s');
-      await expect(page.getByTestId('admin-presets').locator('> div')).toHaveCount(3);
+      // Three eras and Clean slate (maintainer request, 2026-09-14). Counted rather than named so
+      // a reworded blurb does not fail here, but counted all the same: a preset that stopped
+      // rendering would otherwise leave the row looking merely tidier.
+      await expect(page.getByTestId('admin-presets').locator('> div')).toHaveCount(4);
+      await expect(page.getByTestId('admin-reset')).toBeVisible();
       // The fog of war: one tick per district, home ticked and fixed, the rest ticked by default.
       const fog = page.getByTestId('admin-fog');
       await expect(fog).toBeVisible();
@@ -310,6 +314,65 @@ test.describe('the console', () => {
     await expect(page.getByTestId('nav-console')).toBeVisible();
     await expect(page.getByTestId('nav-settings')).toBeVisible();
   });
+
+  /**
+   * With no console, the row is still centred and still even on both sides (maintainer request,
+   * 2026-09-14).
+   *
+   * The Console is appended to `DESTINATIONS` and Feats and Settings are pinned to the two corners
+   * out of the flow, so "the row is centred" and "the corners match" are two separate facts and
+   * removing a door could break either. Measured rather than eyeballed: an odd door count, a
+   * `justify-start` slipped in, or a pin given a different inset on one side all look fine until
+   * they are next to the edge they are supposed to match.
+   *
+   * Both widths on purpose. Above 1500px the corner doors are absolutely positioned and the walk
+   * is centred behind them; below it they fall back into the flow and wrap with everything else,
+   * which is a different layout reaching the same answer.
+   */
+  for (const width of [1280, 1920]) {
+    test(`centres the doors and matches both corners with no console at ${width}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await installApi(page, lateGame);
+      await page.goto('/game');
+      await settleFonts(page);
+      await expect(page.getByTestId('nav-settings')).toBeVisible();
+      await expect(page.getByTestId('nav-console')).toHaveCount(0);
+
+      const measured = await page.evaluate(() => {
+        const nav = document.querySelector('nav[aria-label="Places"]')!;
+        const bar = nav.getBoundingClientRect();
+        const at = (id: string) =>
+          nav.querySelector(`[data-testid="nav-${id}"]`)!.getBoundingClientRect();
+        const walk = [...nav.querySelectorAll<HTMLElement>('[data-testid^="nav-"]')]
+          .filter((door) => {
+            const id = door.dataset.testid;
+            return (
+              id !== undefined &&
+              !id.endsWith('-badge') &&
+              id !== 'nav-feats' &&
+              id !== 'nav-settings'
+            );
+          })
+          .map((door) => door.getBoundingClientRect());
+        return {
+          featsGap: at('feats').left - bar.left,
+          settingsGap: bar.right - at('settings').right,
+          walkCentre:
+            (Math.min(...walk.map((r) => r.left)) + Math.max(...walk.map((r) => r.right))) / 2,
+          barCentre: (bar.left + bar.right) / 2,
+          doors: walk.length,
+        };
+      });
+
+      // Every door the row is supposed to have, and no thirteenth one.
+      expect(measured.doors, 'the twelve places, without the Console').toBe(11);
+      // A pixel of slack for sub-pixel layout; anything real is tens of pixels.
+      expect(Math.abs(measured.walkCentre - measured.barCentre)).toBeLessThanOrEqual(1);
+      expect(Math.abs(measured.featsGap - measured.settingsGap)).toBeLessThanOrEqual(1);
+    });
+  }
 
   test('is not a door when the server says there is no console', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });

@@ -17,7 +17,7 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * A tally is a string, and a string typed at fourteen call sites is a string spelled wrong at one
  * of them. The symptom would be a feat that sits at zero forever while everything around it works,
- * which is the hardest kind of bug to notice in a table of a hundred and sixty. So the sites call
+ * which is the hardest kind of bug to notice in a table of two hundred. So the sites call
  * a named function that says what happened in the game's own words, and this file is the only
  * thing that knows what `missions_in_area:rustyard` is called.
  *
@@ -96,7 +96,7 @@ export function tallyPagesFound(repos: Repositories, baseId: string, count: numb
 /**
  * The pages inside a bundle of items, counted.
  *
- * Every door that hands a crew a satchel bundle hands over salvage and components in the same
+ * Every door that hands a crew an inventory bundle hands over salvage and components in the same
  * object, and counting those as pages would finish the blueprint ladder off scrap servos. One
  * answer to "which of these were pages", rather than the same six-line reduce written out at each
  * of the doors: a mission's haul, the fence's shelf, and a feat's reward.
@@ -140,7 +140,7 @@ export function tallyBattleResolved(
 }
 
 /**
- * Bodies and population committed to a declared fight.
+ * Units and unit slots committed to a declared fight.
  *
  * Counted when the muster is **sent**, not when the fight resolves, because that is when the crew
  * made the decision the feat is about and because a fight that is later called off still cost them
@@ -150,11 +150,11 @@ export function tallyBattleResolved(
 export function tallyDeployed(
   repos: Repositories,
   baseId: string,
-  sent: { bodies: number; supply: number },
+  sent: { units: number; unitSlots: number },
 ): void {
   record(repos, baseId, [
-    ...(sent.bodies > 0 ? [by('bodies_deployed', sent.bodies)] : []),
-    ...(sent.supply > 0 ? [by('supply_deployed', sent.supply)] : []),
+    ...(sent.units > 0 ? [by('bodies_deployed', sent.units)] : []),
+    ...(sent.unitSlots > 0 ? [by('supply_deployed', sent.unitSlots)] : []),
   ]);
 }
 
@@ -167,10 +167,10 @@ export function tallyCaptured(
   record(repos, baseId, [one(what === 'gate' ? 'gates_captured' : 'locations_captured')]);
 }
 
-/** Bodies out of the drill yard, counted per body rather than per order. */
-export function tallyUnitsTrained(repos: Repositories, baseId: string, bodies: number): void {
-  if (bodies <= 0) return;
-  record(repos, baseId, [by('units_trained', bodies)]);
+/** Units out of the drill yard, counted per unit rather than per order. */
+export function tallyUnitsTrained(repos: Repositories, baseId: string, units: number): void {
+  if (units <= 0) return;
+  record(repos, baseId, [by('units_trained', units)]);
 }
 
 /** One building level finished. Levels, not buildings: raising a Nexus to ten is ten of these. */

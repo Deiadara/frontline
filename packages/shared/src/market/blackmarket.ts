@@ -55,7 +55,7 @@ export type BlackMarketKind = z.infer<typeof BlackMarketKindSchema>;
 
 export const BLACK_MARKET_KIND_LABELS: Readonly<Record<BlackMarketKind, string>> = {
   contraband: 'Contraband',
-  unit_upgrade: 'Off-book refit',
+  unit_upgrade: 'Off-book kit',
   blueprint: 'Blueprint',
   battle_boost: 'Battle boost',
   blueprint_page: 'Blueprint page',
@@ -111,7 +111,7 @@ export interface BlackMarketGoodSpec {
   infamy: number;
   /** Battle boosts only: what a fight the crate is taken into gets. */
   boost?: BattleBoost;
-  /** Everything else: what lands in the satchel. */
+  /** Everything else: what lands in the inventory. */
   grants?: ItemCost;
 }
 
@@ -120,7 +120,7 @@ export interface BlackMarketGoodSpec {
  *
  * Weighted towards the consumables on purpose. A shelf where a blueprint is as likely as a syringe
  * is a shelf that hands out permanent knowledge every other day, and the infamy economy cannot
- * carry that. Boosts are the everyday purchase, contraband the frequent one, off-book refits the
+ * carry that. Boosts are the everyday purchase, contraband the frequent one, off-book kits the
  * treat and blueprints the thing you wait for.
  */
 const SPECS: readonly BlackMarketGoodSpec[] = [
@@ -181,7 +181,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'contraband',
     name: 'Crate of Neural Shunts',
     description: 'Surgical stock, still sterile, still in Combine packaging.',
-    effect: 'Three Neural Shunts into the satchel. The Runner will never carry these.',
+    effect: 'Three Neural Shunts into the inventory. The Runner will never carry these.',
     infamy: 240,
     grants: { neural_shunt: 3 },
   },
@@ -190,7 +190,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'contraband',
     name: 'Looted Targeting Cores',
     description: 'Pulled off something that was still warm.',
-    effect: 'Two Targeting Cores into the satchel.',
+    effect: 'Two Targeting Cores into the inventory.',
     infamy: 220,
     grants: { targeting_core: 2 },
   },
@@ -199,7 +199,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'contraband',
     name: 'Salvaged Rotor Hub',
     description: 'A whole hub, off the books, no questions about the airframe it left.',
-    effect: 'One Rotor Hub into the satchel.',
+    effect: 'One Rotor Hub into the inventory.',
     infamy: 200,
     grants: { rotor_hub: 1 },
   },
@@ -208,7 +208,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'contraband',
     name: 'Coolant Run',
     description: 'Six cells on a hand truck, condensation still on them.',
-    effect: 'Six Coolant Cells into the satchel.',
+    effect: 'Six Coolant Cells into the inventory.',
     infamy: 160,
     grants: { coolant_cell: 6 },
   },
@@ -218,25 +218,26 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     name: 'Ceramic Consignment',
     description:
       'A pallet of plate that was written off in transit, by somebody paid to write it off.',
-    effect: 'Eight Ceramic Plates into the satchel.',
+    effect: 'Eight Ceramic Plates into the inventory.',
     infamy: 150,
     grants: { ceramic_plate: 8 },
   },
 
-  // Off-book refits: the parts an upgrade needs, sold as a set, so a line opens early.
+  // Off-book kits: the parts a unit modification needs, sold as a set, so a card is cut early.
   {
     id: 'refit_hardshell',
     kind: 'unit_upgrade',
-    name: 'Hardshell Refit Kit',
+    name: 'Hardshell Kit',
     description: 'Everything the Gauntlet needs for a carapace, in one crate, minus the paperwork.',
-    effect: 'Eight Ceramic Plates and two Coolant Cells: a Hardshell Rig without the wait.',
+    effect:
+      'Eight Ceramic Plates and two Coolant Cells: most of a Hardshell Exoframe, without the wait.',
     infamy: 380,
     grants: { ceramic_plate: 8, coolant_cell: 2 },
   },
   {
     id: 'refit_wetwork',
     kind: 'unit_upgrade',
-    name: 'Wetwork Refit Kit',
+    name: 'Wetwork Kit',
     description: 'Shunts, optics and a sealed bag of things the fitter will not name.',
     effect: 'Two Neural Shunts and three Optic Clusters: cybernetics fitted out of hours.',
     infamy: 420,
@@ -247,7 +248,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     kind: 'unit_upgrade',
     name: "Gunsmith's Set",
     description: "Servos, cores and a jig, in a toolbox with somebody else's name on it.",
-    effect: 'Four Scrap Servos and two Targeting Cores: the weapons line, off the books.',
+    effect: 'Four Scrap Servos and two Targeting Cores: gun work, off the books.',
     infamy: 340,
     grants: { scrap_servo: 4, targeting_core: 2 },
   },
@@ -684,7 +685,7 @@ export function takeRefusal(request: TakeRequest): BlackMarketRefusal | null {
 /**
  * Boosts a crew is holding, waiting to be taken into a fight.
  *
- * A sparse count map, exactly like the satchel and for the same reason: two syringes are two
+ * A sparse count map, exactly like the inventory and for the same reason: two syringes are two
  * syringes, and a zero is not a fact worth storing.
  *
  * The bag used to empty itself into whichever battle resolved next, on both sides, which meant the

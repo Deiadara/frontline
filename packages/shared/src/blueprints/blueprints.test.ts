@@ -7,7 +7,7 @@ import { ADVANCED_MODIFICATION_MAGNITUDE } from '../building/addons.js';
 import { VEHICLE_IDS, findVehicle } from '../building/vehicles.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { InventorySchema, type Inventory } from '../items/inventory.js';
-import { UNIT_UPGRADES } from '../units/upgrades.js';
+import { UNIT_MODIFICATIONS } from '../units/modifications.js';
 import { findUnit } from '../units/catalog.js';
 import {
   BLUEPRINTS,
@@ -24,7 +24,6 @@ import {
   blueprintForModification,
   blueprintForTrap,
   blueprintForUnit,
-  blueprintForUnitUpgrade,
   blueprintForVehicle,
   blueprintGateMet,
   describeBlueprintGate,
@@ -42,7 +41,7 @@ import {
   unlockRefusal,
 } from './state.js';
 
-/** Every page of one document, one copy each: the satchel of a crew that has finished collecting. */
+/** Every page of one document, one copy each: the inventory of a crew that has finished collecting. */
 function allPagesOf(id: string): Inventory {
   const spec = findBlueprint(id);
   if (!spec) throw new Error(`no blueprint ${id}`);
@@ -93,7 +92,7 @@ describe('the blueprint catalogue (§D1 to §D3)', () => {
 /**
  * Where a page lives when the browser is shut.
  *
- * `db/repos/bases.ts` reads a stored satchel back through `knownKeys(json, id => id in
+ * `db/repos/bases.ts` reads a stored inventory back through `knownKeys(json, id => id in
  * ITEM_CATALOG)`, so a page id the catalogue has never heard of is dropped silently on load. That
  * predicate is the whole persistence contract for this feature, and it is asserted here in the
  * same shape the repo writes it.
@@ -112,12 +111,12 @@ describe('pages persist because they are items', () => {
     }
   });
 
-  it('round-trips a satchel holding pages and a finished document through the schema', () => {
+  it('round-trips an inventory holding pages and a finished document through the schema', () => {
     const stored = { pg_colossus_hull_sections: 2, bp_motorcycle: 1, scrap_servo: 4 };
     expect(InventorySchema.parse(stored)).toEqual(stored);
   });
 
-  it('names a page after the document it belongs to, so the satchel row means something', () => {
+  it('names a page after the document it belongs to, so the inventory row means something', () => {
     expect(ITEM_CATALOG.pg_colossus_hull_sections.name).toBe('Colossus Blueprint: Hull Sections');
   });
 });
@@ -215,16 +214,8 @@ describe('what needs a blueprint (§D12)', () => {
     if (!advanced || !cheap) return;
     expect(modificationGateMet({}, advanced)).toBe(false);
     expect(modificationGateMet({ bp_garage_retrofit: 1 }, advanced)).toBe(true);
-    // The cheap one needs nothing, whatever the satchel holds.
+    // The cheap one needs nothing, whatever the inventory holds.
     expect(modificationGateMet({}, cheap)).toBe(true);
-  });
-
-  it('gates the upper tiers of every unit upgrade line and not the first (§D12g)', () => {
-    for (const upgrade of UNIT_UPGRADES) {
-      const gate = blueprintForUnitUpgrade(upgrade.id);
-      if (upgrade.tier === 1) expect(gate, upgrade.id).toBeUndefined();
-      else expect(gate, upgrade.id).toBeDefined();
-    }
   });
 
   it('names something real with every target it declares', () => {
@@ -241,7 +232,8 @@ describe('what needs a blueprint (§D12)', () => {
     const real: Readonly<Record<BlueprintTargetKind, (id: string) => boolean>> = {
       unit: (id) => findUnit(id) !== undefined,
       vehicle: (id) => findVehicle(id) !== undefined,
-      unit_upgrade: has(UNIT_UPGRADES.map((spec) => spec.id)),
+      // The thirty modification cards (`units/modifications.ts`); the tiered refits are gone.
+      unit_upgrade: has(UNIT_MODIFICATIONS.map((spec) => spec.id)),
       building: has(BUILDING_KINDS),
       battle_boost: has(BATTLE_BOOSTS.map((spec) => spec.id)),
       trap: has(TRAP_CATALOG.map((spec) => spec.id)),
@@ -277,7 +269,7 @@ describe('what needs a blueprint (§D12)', () => {
   /**
    * §I4a: a trap is an item, and it is the *same* id.
    *
-   * `springAnyTrap` takes `TrapSpec.id` out of the satchel, so the two catalogues sharing one
+   * `springAnyTrap` takes `TrapSpec.id` out of the inventory, so the two catalogues sharing one
    * string is the mechanic. They are separate lists because `items/` sits below `battle/` in the
    * import graph and reaching up would close the loop at load, which is exactly the arrangement
    * that needs a test rather than a type.
@@ -306,7 +298,7 @@ describe('what needs a blueprint (§D12)', () => {
     expect(findUnit('hollow_men')?.tier).toBe('wonder');
   });
 
-  it('answers the gate off the satchel, and says what is missing when it is shut', () => {
+  it('answers the gate off the inventory, and says what is missing when it is shut', () => {
     expect(blueprintGateMet({}, 'unit', 'razors')).toBe(true);
     expect(blueprintGateMet({}, 'unit', 'snipers')).toBe(false);
     expect(blueprintGateMet({ bp_snipers: 1 }, 'unit', 'snipers')).toBe(true);
@@ -363,7 +355,7 @@ describe('what a crew knows about a blueprint (§D5 to §D10)', () => {
     expect(unlockBlueprint({}, 'bp_nonsense')).toBeNull();
   });
 
-  it('leaves a satchel alone when it unlocks', () => {
+  it('leaves an inventory alone when it unlocks', () => {
     const inventory = allPagesOf('bp_snipers');
     const snapshot = { ...inventory };
     unlockBlueprint(inventory, 'bp_snipers');

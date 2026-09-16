@@ -8,6 +8,7 @@ import {
   lootCapacityOf,
   type Army,
   type Battlefield,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import { useMemo, useState } from 'react';
 import { ApiRequestError } from '../../lib/api';
@@ -42,6 +43,8 @@ interface ForcePickerProps {
   facingSize?: number;
   /** The ground, if it is known. Absent falls back to open ground.  */
   battlefield?: Battlefield;
+  /** The crew's brackets (`Base.unitLoadouts`), for the bag the raid will actually pay. */
+  loadouts?: UnitLoadouts;
   /**
    * Who is already there, for a garrison. A row can then go below zero, and a number below zero
    * brings that many home: the garrison route takes signed deltas, and without this the only way
@@ -62,6 +65,7 @@ export function ForcePicker({
   facingSize,
   battlefield,
   standing = {},
+  loadouts = {},
 }: ForcePickerProps) {
   const [force, setForce] = useState<Army>({});
 
@@ -84,7 +88,8 @@ export function ForcePicker({
     (total, count) => total + (count < 0 ? -count : 0),
     0,
   );
-  const capacity = Math.round(lootCapacityOf(sending));
+  // With the crew's brackets, as the raid pays it (`battle/resolve.ts` passes the same map).
+  const capacity = Math.round(lootCapacityOf(sending, 0, loadouts));
 
   const set = (unitId: string, value: number, min: number, max: number) => {
     const clamped = Math.max(min, Math.min(max, Math.trunc(value)));
@@ -124,7 +129,7 @@ export function ForcePicker({
                   {unit.name}
                 </span>
                 <span className="block font-body text-[12px] text-ink-300">
-                  {unit.stats.lootCapacity} kg each ·{' '}
+                  {unit.stats.lootCapacity} loot each ·{' '}
                   {unit.modifiers.map((id) => UNIT_MODIFIERS[id].label).join(', ') ||
                     'no modifiers'}
                 </span>
@@ -149,7 +154,7 @@ export function ForcePicker({
         <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Row label="Sending" value={String(chosen)} />
           {returning > 0 && <Row label="Bringing back" value={String(returning)} />}
-          <Row label="Can carry" value={`${capacity} kg`} />
+          <Row label="Can carry" value={`${capacity} loot`} />
         </dl>
 
         {/*
@@ -243,7 +248,7 @@ function Odds({
         {describeCost(read.attackerSurvival)}
       </p>
       <p className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-        {read.runs} runs against {facingSize} bodies. Nobody has seen who is down there, so this
+        {read.runs} runs against {facingSize} units. Nobody has seen who is down there, so this
         assumes ordinary troops.
       </p>
     </div>

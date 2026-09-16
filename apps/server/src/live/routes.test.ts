@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   LiveEventSchema,
   declarationWindow,
   findDistrict,
@@ -11,6 +12,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { liveHub } from './hub.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * `GET /events` over a real socket.
@@ -198,18 +200,13 @@ describe('the live channel over the wire', () => {
     await vi.waitFor(() => expect(liveHub.isConnected(watcher.user.id)).toBe(true));
 
     // The mover has a crew; the watcher has only an account, which is enough to hold a tab open.
-    const chosen = await stack.app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: { authorization: `Bearer ${stack.token}` },
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(stack.app, stack.token);
+    const moverId = chosen.json<{ base: { id: string } }>().base.id;
     // Scouting is a journey; the fixture wants the state, so the intel is written directly.
-    stack.app.repos.city.markScouted(
-      chosen.json<{ base: { id: string } }>().base.id,
-      'rustyard',
-      new Date().toISOString(),
-    );
+    stack.app.repos.city.markScouted(moverId, 'rustyard', new Date().toISOString());
+    // §D7: calling a fight costs infamy and nobody starts with any. Fixture money for the one call.
+    const purse = stack.app.repos.bases.findById(moverId)!.economy;
+    stack.app.repos.bases.updateEconomy(moverId, { ...purse, infamy: DECLARE_INFAMY_COST });
     const rustyard = findDistrict('rustyard')!;
     const squatted = rustyard.locations.find(
       (location) => startingHolder(location, rustyard).kind !== 'unoccupied',

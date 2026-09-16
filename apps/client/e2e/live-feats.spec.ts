@@ -42,12 +42,15 @@ async function arrive(page: Page, handle: string): Promise<void> {
    */
   await page.getByRole('button', { name: 'Enlist' }).click();
   await page.getByLabel('Operator ID').fill(handle);
-  await page.getByLabel('Passphrase').fill('hunter2pass');
+  await page.getByLabel('Password').fill('hunter2pass');
   // Two buttons read `Enlist` now, the link that switched the form and the submit under it.
   await page.getByRole('button', { name: 'Enlist' }).last().click();
 
   await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
-  await page.getByText('Marcus "Bulwark" Kane').click();
+  // §F6: whichever character this account was offered, not a named one. The pool drains and the
+  // seeded rivals claim from it before any player registers, so a name is not a thing a live test
+  // can press: on a fresh world the rival already holds the one this used to ask for.
+  await page.locator('[data-testid^="overseer-card-"]').first().click();
   const confirm = page.getByRole('button', { name: 'Confirm Overseer' });
   await expect(confirm).toBeEnabled();
   await confirm.click();

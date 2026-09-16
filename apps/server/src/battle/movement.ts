@@ -4,14 +4,18 @@ import {
   columnSpeed,
   emptyDeployment,
   fittedFor,
+  leading,
   movementArrived,
   movementCancellable,
   movementForce,
+  officerBattleStats,
   travelMinutesBetween,
   unitColumnSpeed,
   type Army,
   type Base,
   type BattleSide,
+  type Commander,
+  type CrewEffects,
   type Fleet,
   type Movement,
 } from '@frontline/shared';
@@ -52,23 +56,45 @@ export function travelMsTo(
   districtId: string,
   /** What this crew is taking to the fight, and who is in this column. */
   riding: { vehicles: Fleet; force: Army } = { vehicles: {}, force: {} },
+  /**
+   * §D5: whether an officer is leading this one, which shortens the road (`lead_arrival`).
+   *
+   * `leading()` folds that channel into `travelSpeedPercent`, and nothing on this path called it:
+   * the fold was spent at settlement, where neither travel channel is read, so a perk whose whole
+   * promise is "off the road while leading" paid on a mission and did nothing at all on a declared
+   * fight. The same column, the same perk, two answers depending on which screen sent it.
+   */
+  led = false,
 ): number {
-  const from = CITY_DISTRICTS.find((district) => district.id === base.districtId);
-  const to = CITY_DISTRICTS.find((district) => district.id === districtId);
-  if (!from || !to) return 0;
-  const effects = standingEffectsFor(repos, base);
+  const standing = standingEffectsFor(repos, base);
+  const effects = led ? leading(standing) : standing;
   const speed = columnSpeed(riding.vehicles, riding.force, (unitId) =>
     unitColumnSpeed(unitId, {
       percent: effects.unitSpeedPercent,
       // The same sheet the fight will read (`battle/effects.ts`). A Neural Lace is twelve points
       // of speed and the workshop fits it to a unit type, so the road has to fold it the way the
-      // engine does or the same body is quicker in the fight than on the way to it.
+      // engine does or the same unit is quicker in the fight than on the way to it.
       fitted: fittedFor(base.unitLoadouts, unitId),
       // The crew's `any_ride` holding, so the Colossus that used to hold the whole column to 15
       // takes a seat like everybody else (`city/locations.ts`).
       anyRide: effects.anyRide,
     }),
   );
+  return roadMs(base, districtId, speed, effects);
+}
+
+/**
+ * The road on its own: what a group moving at `speed` takes to cross from this crew's district.
+ *
+ * Split out so everybody this crew sends to a fight is clocked against the same map and the same
+ * holdings, and the only thing that differs between them is how the pace was arrived at. Zero for
+ * a district that is not on the map, which is what the column did before and is the honest answer:
+ * there is no road to measure.
+ */
+function roadMs(base: Base, districtId: string, speed: number, effects: CrewEffects): number {
+  const from = CITY_DISTRICTS.find((district) => district.id === base.districtId);
+  const to = CITY_DISTRICTS.find((district) => district.id === districtId);
+  if (!from || !to) return 0;
   return (
     travelMinutesBetween(from, to, {
       speed,
@@ -76,6 +102,37 @@ export function travelMsTo(
       flatMinutesOff: effects.roadMinutesOff,
     }) * MINUTE_MS
   );
+}
+
+/**
+ * §D1: how long the officer named to lead takes to reach the fight, in whole minutes.
+ *
+ * A column of one, through the same two functions a column goes through. The pace is the officer's
+ * own `speed` off their sheet, which is the figure a scouting run is already clocked with
+ * (`scouting/scouting.ts`): sending the Head of Finance across the city is a slow night and sending
+ * somebody quick is not. `columnSpeed` then offers them a seat in whatever this crew has committed
+ * to this fight, so they ride when a machine is quicker than their legs and walk when it is not,
+ * which is the rule the rest of the yard follows.
+ *
+ * They do not take a seat off the column. One officer at one unit slot against a machine that
+ * carries two to thirty is not a loading decision, and charging it would make naming a leader
+ * quietly slow the army down.
+ */
+export function officerTravelMinutesTo(
+  repos: Repositories,
+  base: Base,
+  districtId: string,
+  officer: Commander,
+  vehicles: Fleet,
+): number {
+  const effects = standingEffectsFor(repos, base);
+  const onFoot = officerBattleStats(officer.attributes).speed;
+  const speed = columnSpeed(vehicles, { officer: 1 }, () => ({
+    speed: onFoot,
+    rides: true,
+    unitSlots: 1,
+  }));
+  return Math.round(roadMs(base, districtId, speed, effects) / MINUTE_MS);
 }
 
 /** Puts a column on the road. Callers have already taken the units off the roster. */
@@ -99,10 +156,17 @@ export function sendColumn(
    * a column sent before any machine was picked walks, which is the honest answer.
    */
   const committed = repos.sieges.deployment(input.battleId, input.side, input.base.id);
-  const travel = travelMsTo(repos, input.base, input.toDistrictId, {
-    vehicles: committed?.vehicles ?? {},
-    force: mergeArmies(input.army, input.perimeter),
-  });
+  const travel = travelMsTo(
+    repos,
+    input.base,
+    input.toDistrictId,
+    {
+      vehicles: committed?.vehicles ?? {},
+      force: mergeArmies(input.army, input.perimeter),
+    },
+    // The row is already in hand, and naming an officer is what buys the shorter road.
+    committed?.officerId != null,
+  );
   const movement: Movement = {
     id: randomUUID(),
     baseId: input.base.id,
@@ -138,10 +202,13 @@ export function retimeColumns(
 ): void {
   for (const movement of repos.movements.forBattle(battleId)) {
     if (movement.baseId !== base.id || movementArrived(movement, now)) continue;
-    const travel = travelMsTo(repos, base, movement.toDistrictId, {
-      vehicles,
-      force: movementForce(movement),
-    });
+    const travel = travelMsTo(
+      repos,
+      base,
+      movement.toDistrictId,
+      { vehicles, force: movementForce(movement) },
+      repos.sieges.deployment(battleId, movement.side, base.id)?.officerId != null,
+    );
     const arrivesAt = Math.max(now.getTime(), Date.parse(movement.departedAt) + travel);
     repos.movements.put({ ...movement, arrivesAt: new Date(arrivesAt).toISOString() });
   }

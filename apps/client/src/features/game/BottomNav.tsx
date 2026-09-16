@@ -100,15 +100,9 @@ export const DESTINATIONS: readonly NavDestination[] = [
   },
   {
     label: 'Scrapyard',
-    title: 'Modifications, refits and traps',
+    title: 'Building and unit modifications, and traps',
     to: '/game/scrapyard',
     icon: 'workshop',
-  },
-  {
-    label: 'Satchel',
-    title: 'Parts, relics and what the shops will take',
-    to: '/game/inventory',
-    icon: 'satchel',
   },
 ];
 
@@ -129,7 +123,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
  */
 const SETTINGS: NavDestination = {
   label: 'Settings',
-  title: 'Your name, mark, clock and passphrase',
+  title: 'Your name, mark, clock and password',
   to: '/game/settings',
   icon: 'gear',
 };

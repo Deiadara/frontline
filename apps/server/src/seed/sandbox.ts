@@ -75,7 +75,7 @@ export function unlockedResources(buildings: readonly Building[]): Resources {
   return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, near(key)])) as Resources;
 }
 
-/** A dozen of every unit, so every roster card renders and supply reads like a real army. */
+/** A dozen of every unit, so every roster card renders and the slot count reads like a real army. */
 export function fullArmy(): Army {
   return Object.fromEntries(UNIT_IDS.map((id) => [id, 12]));
 }

@@ -166,11 +166,11 @@ export function TrainingPage() {
   const subject = data.subjects.find((one) => one.id === chosen) ?? data.subjects[0];
 
   return (
-    <PageShell quote="An hour is an hour. Spend it on something." wide fills>
+    <PageShell quote="A little practice saves a great deal of blood." wide fills>
       {/*
        * One frame, two columns, and one thing in it that moves.
        *
-       * The page used to stack: a note, then the day, then the sheet, all inside a body that
+       * The page used to stack: a note, then the day, then the sheet, all inside a unit that
        * scrolled. That put a hundred and ten pixels of standing chrome above the only thing
        * anybody comes here to read, and it meant picking the fourth officer scrolled the sheet
        * you were comparing them against off the top of the screen.

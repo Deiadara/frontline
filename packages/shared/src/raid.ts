@@ -5,7 +5,8 @@ import {
   type ResourceKey,
   type Resources,
 } from './resources.js';
-import { findUnit, type Army } from './units/index.js';
+import { bareLineRules, markedUnit, type LineRules } from './battle/line.js';
+import { findUnit, fittedFor, upgradedStats, type Army, type UnitLoadouts } from './units/index.js';
 
 /**
  * Raiding a home district (GDD §A4).
@@ -75,7 +76,7 @@ export const PLUNDER_PRIORITY: readonly ResourceKey[] = [
 export const MAX_RAID_SHARE = 0.25;
 
 /**
- * Loads a body with the `picker` mark brings home over and above its sheet (`UnitSpec.picker`).
+ * Loads a unit with the `picker` mark brings home over and above its sheet (`UnitSpec.picker`).
  *
  * Twelve, which is a Sniper's whole carry and a bit over half a Razor's. Sized so that a handful of
  * pickers in a raiding party is worth roughly as much as the +25% carry the deepest `loot_capacity`
@@ -89,16 +90,33 @@ export const PICKER_EXTRA_LOAD = 12;
  *
  * The picker's flat load is added **after** the percentage rather than into the base, and that is
  * the whole difference between this mark and a bigger `lootCapacity`. A percentage on the base
- * pays the crews that already carry well the most; a flat load per body is worth the same to
+ * pays the crews that already carry well the most; a flat load per unit is worth the same to
  * everybody, which is what the sheet promises.
+ *
+ * The sheet is the **fitted** one when the crew's `unitLoadouts` are passed: a Counterweight
+ * Harness on the Haulers is a bigger bag on a raid as well as on a job, or the roster is quoting a
+ * figure one of the two doors ignores. See `missionCarry`, which reads the same thing.
  */
-export function lootCapacityOf(army: Army, bonusPercent = 0): number {
+export function lootCapacityOf(
+  army: Army,
+  bonusPercent = 0,
+  loadouts: UnitLoadouts = {},
+  /**
+   * The marks this crew has been granted (`unit_mark` in `research/tracks.ts`).
+   *
+   * Read through `markedUnit`, the same helper the engine builds a stack with, because `picker` can
+   * be granted as well as printed: Haul Rigging grants it to the Haulers, and reading the raw sheet
+   * here made that research rung a cost and a wait for nothing at all.
+   */
+  rules: LineRules = bareLineRules(),
+): number {
   let base = 0;
   let extra = 0;
   for (const [unitId, count] of Object.entries(army)) {
-    const unit = findUnit(unitId);
-    if (!unit) continue;
-    base += unit.stats.lootCapacity * count;
+    const found = findUnit(unitId);
+    if (!found) continue;
+    const unit = markedUnit(found, rules);
+    base += upgradedStats(unit.stats, fittedFor(loadouts, unitId)).lootCapacity * count;
     if (unit.picker === true) extra += PICKER_EXTRA_LOAD * count;
   }
   return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100) + Math.max(0, extra);

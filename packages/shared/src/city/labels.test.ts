@@ -131,6 +131,24 @@ describe('what a label is worth to a unit', () => {
     expect(abomination).toBe(0);
     expect(bare).toBeLessThan(suited);
   });
+
+  /**
+   * The line is drawn through 0 and 100, and a sheet past 100 reads as 100 (`capRating`).
+   *
+   * The roster's own clamp means a real sheet never arrives here above the scale, so this is the
+   * absurd case on purpose: a rating of 340 handed straight in must be worth exactly what 100 is,
+   * and not three and a half times the label's `atHigh`.
+   */
+  it('reads a rating past the top of its scale as the top of its scale', () => {
+    // No affinities, so the answer is the catalogue's line and nothing else.
+    const colossus = unit('the_colossus');
+    const at = (armor: number) =>
+      labelEffectPercent({ ...colossus.stats, armor }, {}, envLabel('hot', 3));
+    expect(at(340)).toBe(at(100));
+    expect(at(340)).toBe(ENV_LABEL_CATALOG.hot.rule.atHigh * 3);
+    // ...and the line is not flat: the clamp is what made the two equal.
+    expect(at(0)).not.toBe(at(100));
+  });
 });
 
 /**

@@ -16,7 +16,8 @@ import {
   findUnit,
   forecast,
 } from '@frontline/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button, buttonSkin, tabSkin } from '../../components/ui/Button';
 import { Confirm } from '../../components/ui/Confirm';
 import { LoadFailure } from '../../components/ui/LoadFailure';
@@ -30,6 +31,7 @@ import { cn } from '../../lib/cn';
 import {
   useActions,
   useBattles,
+  useBlackMarket,
   useBuyBattleBoost,
   useLayTrap,
   useLeadBattle,
@@ -42,6 +44,7 @@ import { useServerClock } from '../missions/useServerClock';
 import { heldToLine, readColumn } from './column';
 import { Characteristics } from '../../components/ui/LabelChip';
 import { locationKindOf, whenItHolds } from '../city/characteristics';
+import { BoostStash } from './BoostStash';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
 import { DeployDialog, type DeployMode } from './DeployDialog';
@@ -74,21 +77,52 @@ import { OnThisGround } from './EffectiveCard';
  * answer for it.
  */
 
-type Tab = 'coming' | 'reports' | 'ground';
+type Tab = 'coming' | 'reports' | 'ground' | 'inventory';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'coming', label: 'Upcoming' },
   { id: 'reports', label: 'Reports' },
   { id: 'ground', label: 'Your ground' },
+  // The back room's shelf. Last, because it is the only tab that is not a list of fights.
+  { id: 'inventory', label: 'Inventory' },
 ];
 
 export function BattlePage() {
   const battles = useBattles();
+  /*
+   * The back room's shelf, for the Inventory tab.
+   *
+   * The stash rides on the black market response rather than on `/me` or `/battles`, because it is
+   * the back room's own ledger. Read here rather than inside the tab so the badge on the strip and
+   * the list behind it are one number from one request.
+   */
+  const backRoom = useBlackMarket();
+  const stash = backRoom.data?.stash ?? {};
+  const stashHeld = Object.values(stash).reduce((sum, n) => sum + (n ?? 0), 0);
   const me = useMe();
   const road = useActions();
   const deploy = useDeployToBattle();
+  /*
+   * §A4: who the other side's ring took on the way out, reported once and then dismissed.
+   *
+   * The toll has always been charged. It came off the roster inside the same request that pulled
+   * the units back, and nothing said a word: a crew that withdrew forty and counted thirty four at
+   * home had no way to tell a ring from a miscount. Held in state rather than read off the board,
+   * because it is news about one request rather than a fact about the fight.
+   */
+  const [caughtLeaving, setCaughtLeaving] = useState<Army>({});
 
-  const [tab, setTab] = useState<Tab>('coming');
+  /*
+   * The fight a receipt sent the player to look at (maintainer request, 2026-09-15).
+   *
+   * A battle report's notification links at `?report=<battleId>` rather than at the bare screen,
+   * so arriving that way opens the Reports tab on that fight instead of on a list the player then
+   * has to search. Read once into the initial tab so the page never paints `coming` and then jumps.
+   */
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get('report');
+
+  const [tab, setTab] = useState<Tab>(wanted === null ? 'coming' : 'reports');
   const [openId, setOpenId] = useState<string | null>(null);
   /* Which fight the dialog is open on, and which of its two places it is moving people to. One
      dialog, two modes, so the state has to carry both. The id rather than the view: the view is
@@ -96,6 +130,15 @@ export function BattlePage() {
      window that were true when it was pressed. */
   const [deploying, setDeploying] = useState<{ battleId: string; mode: DeployMode } | null>(null);
   const [reading, setReading] = useState<BattleReportView | null>(null);
+  /**
+   * Whether the receipt's fight has been opened yet.
+   *
+   * A ref rather than state, and it is what stops the modal reopening for ever: closing it sets
+   * `reading` to null, and an effect keyed on the response alone would put it straight back up on
+   * the next poll. It is also why the query is cleared below: a reload of the same URL should show
+   * the report again, but a close within the session should not.
+   */
+  const opened = useRef(false);
 
   const data = battles.data;
   /*
@@ -125,6 +168,24 @@ export function BattlePage() {
     setDeploying(null);
     resetDeploy();
   };
+  /*
+   * Open the receipt's own report, once, as soon as the response carries it.
+   *
+   * After the response rather than on mount: the reports arrive with the poll, so a page that
+   * tried to open one at mount would find an empty list and do nothing. The query is cleared on
+   * the way through so the back button and a later close do not put the modal up again, and
+   * `replace` keeps the trip out of the history: a player pressing back wants the bell, not this
+   * screen with a modal on it.
+   */
+  useEffect(() => {
+    if (wanted === null || opened.current || data === undefined) return;
+    const found = data.reports.find((report) => report.battleId === wanted);
+    if (found === undefined) return;
+    opened.current = true;
+    setReading(found);
+    setParams({}, { replace: true });
+  }, [wanted, data, setParams]);
+
   // A fight that resolved or was withdrawn while its dialog was up leaves nothing to send to.
   useEffect(() => {
     if (deploying !== null && deployingView === null) {
@@ -161,7 +222,32 @@ export function BattlePage() {
         </p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <Tabs tab={tab} onPick={setTab} data={data} />
+          <Tabs tab={tab} onPick={setTab} data={data} stashHeld={stashHeld} />
+
+          {Object.keys(caughtLeaving).length > 0 && (
+            <div
+              data-testid="caught-leaving"
+              className="flex items-start justify-between gap-3 rounded-sm border border-danger-500/60 bg-danger-900/20 px-3 py-2 text-[11px] text-ink-200"
+            >
+              <p>
+                <span className="font-display uppercase tracking-[0.12em] text-danger-300">
+                  Stopped on the way out
+                </span>{' '}
+                Their ring caught{' '}
+                {Object.entries(caughtLeaving)
+                  .map(([unitId, count]) => `${count} ${findUnit(unitId)?.name ?? unitId}`)
+                  .join(', ')}
+                . They are not coming home.
+              </p>
+              <button
+                type="button"
+                className="font-display text-[10px] uppercase tracking-[0.12em] text-ink-400 hover:text-ink-200"
+                onClick={() => setCaughtLeaving({})}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
 
           {tab === 'coming' &&
             (data.coming.length === 0 ? (
@@ -247,6 +333,10 @@ export function BattlePage() {
               <Reports reports={data.reports} onRead={setReading} />
             </div>
           )}
+          {tab === 'inventory' && (
+            <BoostStash stash={stash} inventory={me.data?.base?.inventory ?? {}} />
+          )}
+
           {tab === 'ground' && (
             <div className="min-h-0 flex-1 overflow-y-auto">
               <Defences structures={data.structures} />
@@ -269,7 +359,12 @@ export function BattlePage() {
           onConfirm={(changes, perimeterChanges) =>
             deploy.mutate(
               { battleId: deployingView.battle.id, changes, perimeterChanges },
-              { onSuccess: closeDeploy },
+              {
+                onSuccess: (result) => {
+                  setCaughtLeaving(result.caughtLeaving);
+                  closeDeploy();
+                },
+              },
             )
           }
         />
@@ -304,15 +399,20 @@ function Tabs({
   tab,
   onPick,
   data,
+  stashHeld,
 }: {
   tab: Tab;
   onPick: (tab: Tab) => void;
   data: BattlesResponse;
+  /** How many boosts are on the shelf, for the badge on the Inventory tab. */
+  stashHeld: number;
 }) {
   const count: Record<Tab, number> = {
     coming: data.coming.length,
     reports: data.reports.length,
     ground: data.structures.length,
+    // Filled by the caller, which is the only thing holding the black market query.
+    inventory: stashHeld,
   };
   return (
     <div role="tablist" aria-label="Battles" className="flex shrink-0 flex-wrap gap-1.5">
@@ -541,7 +641,7 @@ function BattleDetail({
           />
         </div>
 
-        <Forces view={view} walking={walking} />
+        <Forces view={view} walking={walking} loadouts={loadouts} />
 
         <Odds view={view} />
 
@@ -552,7 +652,7 @@ function BattleDetail({
               onClick={() => onDeploy('line')}
               data-testid={`deploy-open-${view.battle.id}`}
             >
-              {view.deploymentOpen ? 'Move people' : 'They are on the ground'}
+              {view.deploymentOpen ? 'Send units' : 'They are on the ground'}
             </Button>
             {/*
               The ring, on a control of its own, because it is a different bet from the line.
@@ -578,8 +678,8 @@ function BattleDetail({
                       takes down whoever tries to leave once the losing side has had enough.
                     </p>
                     <p className="font-body text-[13px] leading-relaxed text-ink-100">
-                      Every body on it is a body not in the line, and withdrawing past a ring the
-                      other side has already set costs bodies of your own.
+                      Every unit on it is a unit not in the line, and withdrawing past a ring the
+                      other side has already set costs unit slots of your own.
                     </p>
                   </div>
                 }
@@ -666,7 +766,10 @@ function VehiclePicker({
    * inspection. The crew's travel reduction is not on this payload and only ever shortens a road,
    * so the clock below is an upper bound and says so.
    */
-  const seats = VEHICLES.reduce(
+  // Unit slots rather than heads: a machine's capacity is a slot budget, and an Ironside at two
+  // slots takes two of them. Printing it as "seats" read as a head count and was the misreading
+  // the currency exists to stop.
+  const unitSlotSeats = VEHICLES.reduce(
     (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
     0,
   );
@@ -694,7 +797,7 @@ function VehiclePicker({
             lines.length === 0
               ? 'Nothing in the yard'
               : [
-                  `${seats} seats`,
+                  `${unitSlotSeats} unit slots`,
                   // Nobody at home is not a column, and `heldToLine` over one reads "Rides at 0".
                   column.speed > 0 ? heldToLine(column) : null,
                   minutes === null ? null : `${formatDuration(minutes * 60)} at most`,
@@ -769,7 +872,7 @@ function VehiclePicker({
  * A drop-down for the same reason the boost is one: it is at most one choice out of a list of
  * comparable things, and the interesting part is the comparison. What is on each line is what the
  * officer would *fight* as, because that is the decision: a Head of Security with a Strength of 70
- * is a body worth putting in the line and a Finance Officer is not.
+ * is a unit worth putting in the line and a Head of Finance is not.
  *
  * Free, and free to change up to the mark. What it costs is on the card under it, and it is worth
  * spelling out: a fight that goes badly can take an officer out of the crew for a day, and it takes
@@ -829,7 +932,10 @@ function LeadPicker({ view }: { view: BattleView }) {
           options={view.leaders.map((leader) => ({
             value: leader.officerId,
             label: leader.name,
-            hint: `${leader.stats.offense} damage · ${leader.stats.vitality} vitality · ${leader.stats.armor} armour`,
+            // The road beside the sheet (maintainer request, 2026-09-15): the server prices each
+            // officer's own walk or ride to this ground, and a picker that printed the sheet alone
+            // was offering a choice between two sheets when the choice is a sheet against a road.
+            hint: `${leader.stats.offense} damage · ${leader.stats.vitality} vitality · ${leader.stats.armor} armour · ${leader.travelMinutes} min on the road`,
           }))}
           onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
           data-testid="lead-officer-picker"
@@ -898,7 +1004,7 @@ function Figure({ label, value, note }: { label: string; value: string; note?: s
  * What you have on the ground, unit by unit.
  *
  * The board's own request, and the thing the old page could not answer at all: it printed a single
- * body count. A player deciding whether to buy a boost for the heavy end of their force has to be
+ * unit count. A player deciding whether to buy a boost for the heavy end of their force has to be
  * able to see whether they *sent* the heavy end of their force.
  */
 /**
@@ -932,8 +1038,8 @@ function Odds({ view }: { view: BattleView }) {
       BattleView['battlefield'],
       boolean,
     ];
-    const bodies = Object.values(sending).reduce((total, count) => total + count, 0);
-    if (size === null || bodies === 0) return null;
+    const units = Object.values(sending).reduce((total, count) => total + count, 0);
+    if (size === null || units === 0) return null;
     return forecast({
       seed: plan,
       battlefield: ground,
@@ -975,7 +1081,15 @@ function Odds({ view }: { view: BattleView }) {
   );
 }
 
-function Forces({ view, walking }: { view: BattleView; walking: Army }) {
+function Forces({
+  view,
+  walking,
+  loadouts,
+}: {
+  view: BattleView;
+  walking: Army;
+  loadouts: UnitLoadouts;
+}) {
   const muster = view.muster;
   if (!muster) return null;
   const rows = Object.entries(muster.army).filter(([, count]) => count > 0);
@@ -1001,7 +1115,12 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
             <li key={unitId}>
               {/* §A4: the chip says how many. The card behind it says what they are worth *here*,
                   which is the question a player standing in front of a muster is actually asking. */}
-              <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+              <OnThisGround
+                unitId={unitId}
+                view={view}
+                loadouts={loadouts}
+                label={onGroundLabel(unitId)}
+              >
                 <UnitChip unitId={unitId} count={count} data-testid={`force-${unitId}`} />
               </OnThisGround>
             </li>
@@ -1023,7 +1142,12 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
           <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="battle-walking">
             {road.map(([unitId, count]) => (
               <li key={`road-${unitId}`}>
-                <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+                <OnThisGround
+                  unitId={unitId}
+                  view={view}
+                  loadouts={loadouts}
+                  label={onGroundLabel(unitId)}
+                >
                   <UnitChip
                     unitId={unitId}
                     count={count}
@@ -1044,7 +1168,12 @@ function Forces({ view, walking }: { view: BattleView; walking: Army }) {
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {ring.map(([unitId, count]) => (
               <li key={unitId}>
-                <OnThisGround unitId={unitId} view={view} label={onGroundLabel(unitId)}>
+                <OnThisGround
+                  unitId={unitId}
+                  view={view}
+                  loadouts={loadouts}
+                  label={onGroundLabel(unitId)}
+                >
                   <UnitChip unitId={unitId} count={count} muted data-testid={`ring-${unitId}`} />
                 </OnThisGround>
               </li>
@@ -1223,7 +1352,7 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
  * Beside the Boosts panel and in the same register, because it is the same kind of decision made
  * against the same intel: a thing you commit before the mark, changeable right up to it. What is
  * different is what it costs, and the panel says so: naming a trap spends nothing and clearing it
- * refunds nothing, because the trap only leaves the satchel when somebody walks over it.
+ * refunds nothing, because the trap only leaves the inventory when somebody walks over it.
  *
  * The whole catalogue is listed, held or not, for the reason the boost list is: a trap that is
  * absent from this panel is a trap nobody goes to the yard for. The server has already worded why

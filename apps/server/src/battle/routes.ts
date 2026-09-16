@@ -1,6 +1,7 @@
 import {
   blueprintGateMet,
   DECLARATION_REFUSAL_MESSAGES,
+  DECLARE_UNAFFORDABLE_MESSAGE,
   DeclareBattleRequestSchema,
   DeployRequestSchema,
   LayTrapRequestSchema,
@@ -26,6 +27,7 @@ import {
   type BattleMutationResponse,
   type ActionsResponse,
   type BattlesResponse,
+  type Army,
   type Base,
   type ItemId,
   battleBoostSlots,
@@ -87,6 +89,10 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   not_enough_units: 'You do not have those units to send',
   not_a_fighting_force: 'Scavengers carry. They do not fight. Send them on a mission instead',
   needs_infamy: 'They will not take a contract from a name that small',
+  no_seats: 'There is no room in what you have loaded. Take another machine or send fewer',
+  // §D7's price, quoted off the shared constant so the dialog's warning and this refusal cannot
+  // name two different numbers.
+  cannot_afford: DECLARE_UNAFFORDABLE_MESSAGE,
 };
 
 function refuse(reason: DeclareRefusal | DeployRefusal): never {
@@ -109,9 +115,15 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     return settleBase(app.repos, fresh, now).base;
   }
 
-  const respond = (base: Base, now: Date): BattleMutationResponse => ({
+  const respond = (
+    base: Base,
+    now: Date,
+    /** §A4: what an enemy ring took off this request's withdrawal, when it was one. */
+    caughtLeaving: Army = {},
+  ): BattleMutationResponse => ({
     battles: projectBattles(app.repos, base, now),
     base,
+    caughtLeaving,
   });
 
   app.get('/battles', { preHandler: app.authenticate }, (request): BattlesResponse => {
@@ -135,10 +147,13 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           scheduledFor: new Date(body.scheduledFor),
           now,
           holdAfterCapture: body.holdAfterCapture ?? false,
+          admin: app.config.admin,
         }),
       )();
       if (outcome.kind === 'refused') refuse(outcome.reason);
-      return respond(base, now);
+      // The crew the declaration handed back, not the one that went in: the call has just taken
+      // its price out of the wallet the HUD is about to redraw.
+      return respond(outcome.base, now);
     },
   );
 
@@ -167,7 +182,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
         }),
       )();
       if (outcome.kind === 'refused') refuse(outcome.reason);
-      return respond(outcome.base, now);
+      // §A4: the ring's bite, reported on the one response it is news on. It was charged and
+      // swallowed: the units came off the roster and the screen said nothing about them.
+      return respond(outcome.base, now, outcome.lostOnTheWayOut);
     },
   );
 
@@ -175,7 +192,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
    * §I4: set the one trap this side is allowed under a fight it is defending, or take it back up.
    *
    * Free, and free to change right up to the mark, exactly like naming an officer. Nothing leaves
-   * the satchel here: the trap is *named* on the deployment row and spent when the fight resolves,
+   * the inventory here: the trap is *named* on the deployment row and spent when the fight resolves,
    * which is what lets a defender move it between two fights for nothing. It also means the same
    * trap may be named on two battles and only the first to land gets it, because the second finds
    * the bag empty (`springAnyTrap`), the rule contraband already follows.

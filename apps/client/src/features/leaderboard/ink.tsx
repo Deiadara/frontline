@@ -312,9 +312,17 @@ export function YouMark() {
  *
  * Drawn at 300px so the wobble has the same frequency however wide the sheet is, exactly as
  * `.ink-rule` does it, and at the row's own height so one drawing does both jobs below.
+ *
+ * The amplitude is deliberately tiny. It used to swing between y 39.7 and 41.2, which is one and a
+ * half pixels on a 42px row: with a hundred of these stacked the eye reads the stack rather than
+ * the rows, and the sheet looked warped rather than hand-ruled. It is now about a fifth of a pixel
+ * either side of centre, which still breaks the line off a mechanical rule without anybody being
+ * able to point at a bend (maintainer request, 2026-09-14). If it needs re-tuning, this is the one
+ * string: `LedgerFill` reads the same constant, so the rules under the rows and the rules under the
+ * empty paper below them cannot drift apart.
  */
 const LEDGER_RULE =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='42'%3E%3Cpath d='M0 40.4 C 46 39.7, 92 41.2, 140 40.4 S 232 39.7, 268 41 S 292 40.1, 300 40.4' fill='none' stroke='%23e6c99a' stroke-opacity='0.32' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")";
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='42'%3E%3Cpath d='M0 40.4 C 46 40.22, 92 40.58, 140 40.4 S 232 40.24, 268 40.55 S 292 40.32, 300 40.4' fill='none' stroke='%23e6c99a' stroke-opacity='0.32' stroke-width='1.2' stroke-linecap='round'/%3E%3C/svg%3E\")";
 
 /** One entry on the ruled sheet: fixed height, with the rule drawn along its foot. */
 export const RULED_ROW: CSSProperties = {

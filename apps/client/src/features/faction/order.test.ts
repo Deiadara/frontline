@@ -20,7 +20,7 @@ const member = (username: string, rank: FactionRank, armySize: number): FactionM
   infamy: 100,
   infamyEarned: 100,
   armySize,
-  supplyUsed: 10,
+  unitSlotsUsed: 10,
   isBot: false,
   card: 'joker',
   cardMark: 'F',

@@ -19,14 +19,14 @@ import { simulate, type SideSetup } from './engine.js';
  *
  * Fog of war (§A4) hides an enemy garrison's *composition* and shows only its size: deliberately,
  * and the forecast may not quietly undo that. So an estimate against unscouted composition stands
- * a middling defensive regular in for every body and the screen says out loud that it is doing so.
+ * a middling defensive regular in for every unit and the screen says out loud that it is doing so.
  *
  * A Warden rather than a Razor or a Juggernaut: it is the roster's ordinary answer to "somebody is
  * holding this", so the estimate is wrong in both directions rather than reliably optimistic.
  */
 export const ESTIMATE_UNIT = 'wardens';
 
-/** A stand-in defence of `size` bodies, for ground whose composition nobody has seen. */
+/** A stand-in defence of `size` units, for ground whose composition nobody has seen. */
 export function estimatedForce(size: number): Record<string, number> {
   return size > 0 ? { [ESTIMATE_UNIT]: Math.trunc(size) } : {};
 }

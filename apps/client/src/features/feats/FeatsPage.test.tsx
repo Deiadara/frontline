@@ -1,6 +1,6 @@
 import { FEAT_CLAIM_REFUSAL_TEXT, FEATS, findFeat, type FeatsResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
@@ -36,6 +36,23 @@ const CLAIMED = 'runs_1';
 const READY = 'runs_2';
 const OPEN = 'runs_3';
 const LOCKED = 'runs_4';
+/** A second rung the fixture also has waiting, so two claims can be in flight at once. */
+const OTHER_READY = 'level_2';
+
+/** The board the server answers with once these rungs have been collected. */
+const collectedBoard = (...ids: readonly string[]): FeatsResponse => {
+  const progress = BOARD.progress.map((one) =>
+    ids.includes(one.id)
+      ? { ...one, state: 'claimed' as const, value: one.target, progress: 1 }
+      : one,
+  );
+  return {
+    ...BOARD,
+    progress,
+    ready: progress.filter((one) => one.state === 'ready').length,
+    claimed: progress.filter((one) => one.state === 'claimed').length,
+  };
+};
 
 /** What a refused claim answers with, in the shape `apiFetch` reads. */
 const refusal = (message: string) => ({ error: { code: 'FEAT_REFUSED', message } });
@@ -191,6 +208,206 @@ describe('the CLAIM button', () => {
     const body = (posted?.[1] as RequestInit | undefined)?.body;
     expect(typeof body).toBe('string');
     expect(JSON.parse(body as string)).toEqual({ featId: READY });
+  });
+
+  /**
+   * The rung flips on the response, not on the refetch. This is the flicker.
+   *
+   * The claim route already answers with the refreshed board, and the page used to throw that away
+   * and wait for `invalidateQueries` to fetch the same thing again. In the gap the cache still held
+   * the *pre-claim* board, so the rung dropped out of its pending state and drew CLAIM again for a
+   * frame or two before finally stamping Collected.
+   *
+   * Pinned by making the refetch never answer: the only thing left that can move the screen is the
+   * claim response itself, so a page that still waited for the GET would sit on CLAIM forever.
+   */
+  it('stamps the rung off the claim response, without waiting for the board to be refetched', async () => {
+    await openBoard();
+    const after: FeatsResponse = {
+      ...BOARD,
+      ready: Math.max(0, BOARD.ready - 1),
+      claimed: BOARD.claimed + 1,
+      progress: BOARD.progress.map((one) =>
+        one.id === READY ? { ...one, state: 'claimed' as const } : one,
+      ),
+    };
+    fetchMock.mockImplementation((path: string) => {
+      const url = String(path);
+      if (url.endsWith('/feats/claim')) {
+        return reply({ featId: READY, paid: findFeat(READY)?.reward, feats: after });
+      }
+      // The refetch the invalidation kicks off, hung for the life of the test.
+      return new Promise<Response>(() => {});
+    });
+
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+    await waitFor(() => expect(screen.getByTestId(`feat-collected-${READY}`)).toBeInTheDocument());
+    expect(screen.queryByTestId(`feat-claim-${READY}`)).toBeNull();
+  });
+
+  /**
+   * Two presses in quick succession, answered out of order (maintainer report, 2026-09-15).
+   *
+   * Both writes are in flight at once and nothing orders their answers: they are two requests over
+   * one multiplexed connection and the first one does more work whenever it pays out a page or a
+   * level. Each answer carries the whole board as the server saw it inside its own transaction, so
+   * the first press's answer, arriving last, is a board from *before* the second feat was
+   * collected. Written straight over the cache, it put a live CLAIM button back on the rung the
+   * player had just watched being stamped, and left it there until the invalidation's read landed.
+   *
+   * Pinned with the refetch hung, the same way the flicker above is: the only thing that may move
+   * the screen here is a claim answer, so a page that leans on the GET to tidy up behind it fails.
+   */
+  it('keeps a collected rung collected when an earlier claim answers last', async () => {
+    await openBoard();
+    let answerFirstPress: () => void = () => {};
+    const firstPress = new Promise<Response>((resolve) => {
+      answerFirstPress = () =>
+        resolve({
+          ok: true,
+          status: 200,
+          statusText: '',
+          json: () =>
+            Promise.resolve({
+              featId: READY,
+              paid: findFeat(READY)?.reward,
+              // The board as it stood when this one was collected: the second rung is still
+              // waiting on it, because the second press had not reached the server yet.
+              feats: collectedBoard(READY),
+            }),
+        } as Response);
+    });
+    let claims = 0;
+    fetchMock.mockImplementation((path: string) => {
+      const url = String(path);
+      if (url.endsWith('/feats/claim')) {
+        claims += 1;
+        return claims === 1
+          ? firstPress
+          : reply({
+              featId: OTHER_READY,
+              paid: findFeat(OTHER_READY)?.reward,
+              feats: collectedBoard(READY, OTHER_READY),
+            });
+      }
+      // Every read hung, so nothing comes along behind the answers to correct them.
+      return new Promise<Response>(() => {});
+    });
+
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+    fireEvent.click(screen.getByTestId(`feat-claim-${OTHER_READY}`));
+    await waitFor(() =>
+      expect(screen.getByTestId(`feat-collected-${OTHER_READY}`)).toBeInTheDocument(),
+    );
+    expect(claims).toBe(2);
+
+    await act(async () => {
+      answerFirstPress();
+      // Real time, because the answer travels a promise chain, a cache write and React Query's own
+      // batch before anything is drawn, and none of those is a moment the test can wait on.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(screen.getByTestId(`feat-collected-${READY}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`feat-collected-${OTHER_READY}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`feat-claim-${OTHER_READY}`)).toBeNull();
+    // The ledger counts the same two rungs the board draws, rather than the count off whichever
+    // answer landed last.
+    expect(screen.getByTestId('feats-ledger-claimed')).toHaveTextContent(String(BOARD.claimed + 2));
+  });
+
+  /**
+   * The rung under the first press stays pending while its own write is on the wire.
+   *
+   * The page runs one mutation for a board of two hundred buttons, and an observer only reports
+   * its newest mutation: pressing a second CLAIM dropped the first rung straight back to a live,
+   * pressable button. Pressing it again then earned an `already_claimed` refusal for a feat that
+   * was being collected perfectly correctly. Both answers are hung here, so the only thing under
+   * test is what the screen says while two writes are outstanding.
+   */
+  it('keeps the first rung pending when a second claim is pressed before it answers', async () => {
+    await openBoard();
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+    await waitFor(() =>
+      expect(screen.getByTestId(`feat-claim-${READY}`)).toHaveTextContent('TAKING'),
+    );
+    fireEvent.click(screen.getByTestId(`feat-claim-${OTHER_READY}`));
+    await waitFor(() =>
+      expect(screen.getByTestId(`feat-claim-${OTHER_READY}`)).toHaveTextContent('TAKING'),
+    );
+
+    expect(screen.getByTestId(`feat-claim-${READY}`)).toHaveTextContent('TAKING');
+    expect(screen.getByTestId(`feat-claim-${READY}`)).toBeDisabled();
+  });
+
+  /**
+   * Collecting the lot says what the lot paid.
+   *
+   * This drew nothing at all until the bug pass: the page read only the single-claim mutation, so
+   * the button a returning player actually presses, and the one that hands over the most, was the
+   * one with no feedback. Everything moved (rungs restyled themselves somewhere down a very long
+   * page, the stockpile went up in the HUD) and nothing said what had happened.
+   */
+  it('says what the collect-everything button paid, not just the single one', async () => {
+    await openBoard();
+    fireEvent.click(screen.getByTestId('feats-claim-all'));
+
+    await waitFor(() => expect(screen.getByTestId('feats-receipt')).toBeInTheDocument());
+    expect(screen.getByTestId('feats-receipt')).toHaveTextContent('Collected: 1 feat');
+    expect(screen.getByTestId('feats-receipt-paid')).toBeInTheDocument();
+  });
+
+  /** Pressing it with nothing waiting is a success that collected nothing, and draws no receipt. */
+  it('draws no receipt when the collect-everything button had nothing to collect', async () => {
+    await openBoard();
+    fetchMock.mockImplementation((path: string) => {
+      const url = String(path);
+      if (url.endsWith('/feats/claim-all')) return reply({ featIds: [], paid: {}, feats: BOARD });
+      return reply(BOARD);
+    });
+    fireEvent.click(screen.getByTestId('feats-claim-all'));
+
+    await waitFor(() => expect(screen.getByTestId('feats-claim-all')).toBeEnabled());
+    expect(screen.queryByTestId('feats-receipt')).toBeNull();
+  });
+
+  /**
+   * The state Collect-all can now land in, and the reason the button is not dead in it.
+   *
+   * A feat that pays units is refused while the district has nowhere to put them (§A1) and stays
+   * ready, so the backlog does not empty and the count on the button's face does not move. Without
+   * a word on the page that is a control the player presses twice and gives up on. The server says
+   * which ones it could not hand over; this draws the sentence.
+   */
+  it('says why a collect-everything press left some of the backlog behind', async () => {
+    await openBoard();
+    fetchMock.mockImplementation((path: string) => {
+      const url = String(path);
+      if (url.endsWith('/feats/claim-all')) {
+        return reply({ featIds: [], skipped: [READY], paid: {}, feats: BOARD });
+      }
+      return reply(BOARD);
+    });
+    fireEvent.click(screen.getByTestId('feats-claim-all'));
+
+    await waitFor(() => expect(screen.getByTestId('feats-no-room')).toBeInTheDocument());
+    expect(screen.getByTestId('feats-no-room')).toHaveTextContent('1 feat is still waiting');
+    expect(screen.getByTestId('feats-no-room')).toHaveTextContent(
+      FEAT_CLAIM_REFUSAL_TEXT.no_unit_slots,
+    );
+    // Nothing was paid, so no receipt: the two strips never contradict each other.
+    expect(screen.queryByTestId('feats-receipt')).toBeNull();
+  });
+
+  /** ...and a press that hands everything over says nothing about room. */
+  it('says nothing about room when the whole backlog was collected', async () => {
+    await openBoard();
+    fireEvent.click(screen.getByTestId('feats-claim-all'));
+
+    await waitFor(() => expect(screen.getByTestId('feats-receipt')).toBeInTheDocument());
+    expect(screen.queryByTestId('feats-no-room')).toBeNull();
   });
 
   it('shows the refusal in the player’s words when the server turns it down', async () => {

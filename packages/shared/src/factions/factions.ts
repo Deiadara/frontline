@@ -188,10 +188,10 @@ export const FactionMemberSchema = z.object({
    * notoriety while this never does.
    */
   infamyEarned: z.number().nonnegative(),
-  /** Bodies on their roster right now. The number an ally is actually deciding about. */
+  /** Units on their roster right now. The number an ally is actually deciding about. */
   armySize: z.number().int().nonnegative(),
-  /** Supply their army is standing on, so a big number and a thin one read differently. */
-  supplyUsed: z.number().int().nonnegative(),
+  /** Unit slots their army is standing on, so a big number and a thin one read differently. */
+  unitSlotsUsed: z.number().int().nonnegative(),
   /** Never live: a hardcoded neighbour who is in the faction but does not play (see `seed/`). */
   isBot: z.boolean().default(false),
   /**

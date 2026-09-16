@@ -53,7 +53,7 @@ describe('dealing the cards', () => {
     ]);
     expect(dealt.get('u-Nikos')).toBe('ace_spades');
     expect(dealt.get('u-Sable')).toBe('king_diamonds');
-    // The three members tie on bodies and fall back to the name: Abel, Marrow, Zed.
+    // The three members tie on units and fall back to the name: Abel, Marrow, Zed.
     expect(dealt.get('u-Abel')).toBe('queen_hearts');
     expect(dealt.get('u-Marrow')).toBe('joker');
     expect(dealt.get('u-Zed')).toBe('jack_clubs');

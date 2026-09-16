@@ -6,7 +6,7 @@ import { ruleFor } from './rules.js';
  * Wires the limiter into the request lifecycle.
  *
  * `onRequest`, the earliest hook there is, so a refused call costs a map lookup and never reaches
- * body parsing, authentication or the database. That ordering is the point of a rate limit: the
+ * unit parsing, authentication or the database. That ordering is the point of a rate limit: the
  * work it saves is the work it refuses to start.
  *
  * ## Counted against the account when there is one, the address when there is not
@@ -30,7 +30,7 @@ export function registerRateLimits(app: FastifyInstance, limiter = new RateLimit
     if (decision.allowed) return;
 
     reply.header('Retry-After', String(decision.retryAfterSeconds));
-    // 429 with a body in the shape every other refusal uses, so the client's existing error
+    // 429 with a unit in the shape every other refusal uses, so the client's existing error
     // handling reads it without a special case.
     await reply.status(429).send({
       error: {

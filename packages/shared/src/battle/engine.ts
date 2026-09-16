@@ -6,11 +6,15 @@ import {
   UNIT_RULES,
   type Army,
   type UnitLoadouts,
-  type UnitRuleId,
   type UnitSpec,
 } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
+import { bareLineRules, markedUnit, standsInLine, type LineRules } from './line.js';
 import { effectiveStats, OUTNUMBERED_RATIO, type Effective } from './effects.js';
+// Kept exported from here because every caller in the game imports the engine's own names for
+// these, and they are the engine's rules: the module split is about the import graph, not about
+// where they belong.
+export { bareLineRules, markedUnit, standsInLine, type LineRules };
 import { exchange, threatWeight } from './matchup.js';
 import {
   moraleDelta,
@@ -69,7 +73,7 @@ export const MAX_ROUNDS = 12;
 export const ROUND_DAMAGE_SCALE = 0.2 / 3;
 
 /**
- * How much massing bodies is worth beyond the bodies themselves: Lanchester's square law, weighted
+ * How much massing units is worth beyond the units themselves: Lanchester's square law, weighted
  * by how much of the force can actually concentrate its fire.
  *
  * Ranged units get the full edge and melee gets none, which is Lanchester's original observation:
@@ -85,7 +89,7 @@ export const MAX_CONCENTRATION = 1.6;
 /**
  * The share of a side that is actually in contact, given the ground's frontage.
  *
- * Combat width (`battlefield.ts`). Bodies past the frontage are queuing, not fighting: they cannot
+ * Combat width (`battlefield.ts`). Units past the frontage are queuing, not fighting: they cannot
  * shoot, though they are still there to absorb losses and to rotate forward as the front rank
  * falls. That asymmetry is the point: an overstacked force is not *weaker*, it is slower, and it
  * pays for the ground it could not deploy on.
@@ -93,7 +97,7 @@ export const MAX_CONCENTRATION = 1.6;
  * Without this the answer to every fight is "bring more", which is the failure mode combat width
  * was invented to fix.
  */
-export function engagedBodies(side: SideState, frontage: number): number {
+export function engagedUnits(side: SideState, frontage: number): number {
   return Math.min(fighting(side), Math.max(1, effectiveFrontage(side, frontage)));
 }
 
@@ -120,7 +124,7 @@ export function effectiveFrontage(side: SideState, frontage: number): number {
  */
 export function frontageShare(side: SideState, frontage: number): number {
   const standing = fighting(side);
-  return standing <= 0 ? 0 : engagedBodies(side, frontage) / standing;
+  return standing <= 0 ? 0 : engagedUnits(side, frontage) / standing;
 }
 
 /**
@@ -173,15 +177,15 @@ export const SAPPER_FULL_SHARE = 0.25;
  */
 export const MAX_SAPPER_CUT = 40;
 
-/** Percentage points of offense per other body of the same unit in the line (`UnitSpec.pack`). */
+/** Percentage points of offense per other unit of the same unit in the line (`UnitSpec.pack`). */
 export const PACK_STEP = 0.6;
 
 /**
  * The most massing one sheet can be worth, in percentage points of offense.
  *
- * Reached at 42 bodies, which is a real commitment on a roster this size, and capped under the
+ * Reached at 42 units, which is a real commitment on a roster this size, and capped under the
  * biggest context modifier in the table (`tracking`, 45) because that one is conditional on the
- * enemy and this one is not. Combat width still charges for the bodies, so a pack that is over the
+ * enemy and this one is not. Combat width still charges for the units, so a pack that is over the
  * frontage is paying in silenced rank for the bonus it is drawing.
  */
 export const MAX_PACK_BONUS = 25;
@@ -195,17 +199,17 @@ export const BATTLE_LUCK = 0.1;
 export interface Stack {
   unit: UnitSpec;
   effective: Effective;
-  /** Bodies still standing. */
+  /** Units still standing. */
   alive: number;
   /** Health pool, `alive × vitality` at full strength. */
   pool: number;
   morale: number;
   /** The round it broke, or null while it is still fighting. */
   brokeAt: number | null;
-  /** Bodies that started the fight: the denominator for every casualty figure. */
+  /** Units that started the fight: the denominator for every casualty figure. */
   started: number;
   /**
-   * Bodies too cowed to fight, set once before the first shot and never revisited (§D3).
+   * Units too cowed to fight, set once before the first shot and never revisited (§D3).
    *
    * See {@link cow}. They are still *present*: they stand in the line, they take their share of
    * incoming fire, they count for frontage and for the roster that walks home. What they do not do
@@ -219,13 +223,13 @@ export interface Stack {
    * Accumulated rather than derived, because there is nowhere to derive it from: fire is split
    * across every enemy stack and applied from a shared snapshot, so by the time the round is over
    * the only record of who did what is the one kept while it was happening. It is what
-   * `battle/analysis.ts` reads to say which of your units actually earned their supply.
+   * `battle/analysis.ts` reads to say which of your units actually earned their unit slots.
    */
   dealt: number;
   /**
    * §D1: this stack is the officer leading the side, not a unit off the roster.
    *
-   * One body, and three rules follow from the flag. They draw {@link OFFICER_TARGET_SHARE} of the
+   * One unit, and three rules follow from the flag. They draw {@link OFFICER_TARGET_SHARE} of the
    * fire an equally threatening unit would (§D3); they are skipped by every casualty ledger, so no
    * synthesised id ever reaches an `Army` map the server writes back to a roster; and falling here
    * means injured rather than dead (§D4, settled by `officerInjured`).
@@ -293,10 +297,10 @@ export interface SideState {
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
-export const bodies = (side: SideState): number =>
+export const standingUnits = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + stack.alive, 0);
 
-/** Bodies still willing to fight: a broken stack is on the field but not in the battle. */
+/** Units still willing to fight: a broken stack is on the field but not in the battle. */
 export const fighting = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + (stack.brokeAt === null ? stack.alive : 0), 0);
 
@@ -333,7 +337,7 @@ function rangedShare(side: SideState): number {
   return total === 0 ? 0 : weighted / total;
 }
 
-/** Average intimidation across a side's live bodies: what the other side has to look at. */
+/** Average intimidation across a side's live units: what the other side has to look at. */
 function intimidation(side: SideState): number {
   let weighted = 0;
   let total = 0;
@@ -348,27 +352,27 @@ function intimidation(side: SideState): number {
 /**
  * §D3: the men who will not advance, decided before a shot is fired.
  *
- * A side's total nerve is the morale of every body in it; the pressure against it is the
- * intimidation of every body opposite. Where the pressure is the greater, the difference is spent
+ * A side's total nerve is the morale of every unit in it; the pressure against it is the
+ * intimidation of every unit opposite. Where the pressure is the greater, the difference is spent
  * buying silence, cheapest first: the steadiest troops hold, and it is the ones who were already
  * wavering who put their heads down.
  *
- * Worked example, which is the board's own. One side fields two bodies at 10 morale and one at 20,
- * so its nerve is 40. The other side fields one body at 60 intimidation. The excess is 20, and 20
- * buys exactly the two bodies at 10: they do not fire. The body at 20 would cost the whole
+ * Worked example, which is the board's own. One side fields two units at 10 morale and one at 20,
+ * so its nerve is 40. The other side fields one unit at 60 intimidation. The excess is 20, and 20
+ * buys exactly the two units at 10: they do not fire. The unit at 20 would cost the whole
  * remaining budget and there is none left, so it fights.
  *
  * Three things this is not, each of them a thing it was tempting to make it:
  *
- *   * Not a *rate*. Both quantities are sums over bodies, so a big army has proportionally more
+ *   * Not a *rate*. Both quantities are sums over units, so a big army has proportionally more
  *     nerve and a big army projects proportionally more menace. Averaging either would make one
- *     terrifying body cow a legion.
+ *     terrifying unit cow a legion.
  *   * Not per round. It is settled once, from the opening rosters, so it cannot spiral: a side
- *     that loses bodies does not become progressively easier to cow by the same enemy.
+ *     that loses units does not become progressively easier to cow by the same enemy.
  *   * Not symmetric-in-sequence. Both sides are measured against the *starting* numbers before
  *     either is silenced, so the order the two are computed in cannot change the answer.
  *
- * Bodies are silenced whole. Fractional suppression would be a damage multiplier wearing a
+ * Units are silenced whole. Fractional suppression would be a damage multiplier wearing a
  * costume, and the maintainer asked for men who do not attack.
  */
 export function nerve(side: SideState): number {
@@ -378,7 +382,7 @@ export function nerve(side: SideState): number {
   );
 }
 
-/** The menace a side projects: the intimidation of every body in it. See {@link cow}. */
+/** The menace a side projects: the intimidation of every unit in it. See {@link cow}. */
 export function menace(side: SideState): number {
   return side.stacks.reduce(
     (total, stack) => total + stack.alive * Math.max(0, stack.effective.intimidation),
@@ -387,16 +391,16 @@ export function menace(side: SideState): number {
 }
 
 /**
- * Silences the shakiest bodies on `side`, given the menace opposite it.
+ * Silences the shakiest units on `side`, given the menace opposite it.
  *
- * Returns how many bodies were silenced, which is what the report needs to explain the round to a
+ * Returns how many units were silenced, which is what the report needs to explain the round to a
  * player who is wondering why half their line did nothing.
  */
 export function cow(side: SideState, against: number): number {
   let budget = against - nerve(side);
   if (budget <= 0) return 0;
 
-  // Cheapest nerve first. A body with no morale at all costs nothing to silence, so it is taken
+  // Cheapest nerve first. A unit with no morale at all costs nothing to silence, so it is taken
   // before anything that has to be paid for, and the loop cannot stall on it.
   const order = [...side.stacks]
     .filter((stack) => stack.alive > 0)
@@ -405,7 +409,7 @@ export function cow(side: SideState, against: number): number {
   let silenced = 0;
   for (const stack of order) {
     const each = Math.max(0, stack.effective.morale);
-    // How many of this stack's bodies the remaining budget covers.
+    // How many of this stack's units the remaining budget covers.
     const affordable = each === 0 ? stack.alive : Math.floor(budget / each);
     const take = Math.min(stack.alive, affordable);
     if (take <= 0) break;
@@ -417,62 +421,23 @@ export function cow(side: SideState, against: number): number {
 }
 
 /**
- * The two crew channels that change what a *sheet* is, rather than what a number on it is.
- *
- * A `Pick` of `TerritoryEffects` rather than the whole struct, so the helpers below can be called
- * from a test or from `sapperCutPercent` with a two-field literal instead of a fold nobody in that
- * context has. Every real caller passes a `CrewEffects`, which satisfies it.
- */
-export type LineRules = Pick<TerritoryEffects, 'carriersFight' | 'unitMarks'>;
-
-/** Nothing granted and nobody promoted: what a fight with no holdings behind it reads. */
-export const bareLineRules = (): LineRules => ({ carriersFight: false, unitMarks: {} });
-
-/**
- * Whether this unit takes a place in the line at all (`carriers_fight` in `city/locations.ts`).
- *
- * `combat: false` is otherwise the hardest rule in the game: the porters are not in the fight, and
- * the check lives in the engine rather than at the doors precisely so nothing can forget it. This
- * is the one thing that lifts it, and it is a crew's own holding rather than a caller's argument,
- * so a defender who never chose their force is covered by it exactly as an attacker is.
- */
-export function standsInLine(unit: UnitSpec, rules: LineRules): boolean {
-  return isCombatUnit(unit) || rules.carriersFight;
-}
-
-/**
- * The sheet this crew actually fields, with whatever marks it has been granted written on.
- *
- * A copy of the spec with the flags set, rather than a second lookup at every read site. Every rule
- * in the engine asks `unit.<mark> === true`, so granting one here wires it into the round loop, the
- * targeting split, the medics and the report at once, and a mark added to `units/rules.ts` tomorrow
- * is grantable with no change to this function.
- */
-export function markedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
-  const granted = rules.unitMarks[unit.id];
-  if (granted === undefined || granted.length === 0) return unit;
-  const marks = Object.fromEntries(granted.map((mark: UnitRuleId) => [mark, true]));
-  return { ...unit, ...marks };
-}
-
-/**
  * What a porter standing in the line is worth, against what it would be as a fighter.
  *
  * Half, and the half is what stops `carriers_fight` making the cheapest sheet in the game the best
- * one: a Scavenger costs a fraction of a Razor and there is no supply ceiling on porters worth
+ * one: a Scavenger costs a fraction of a Razor and there is no slot ceiling on porters worth
  * speaking of. Applied to damage and to hit points both, so a crew that turns its porters out gets
- * bodies on the ground rather than a second army.
+ * units on the ground rather than a second army.
  */
 export const CARRIER_STRENGTH = 0.5;
 
 /**
- * What massing this many bodies of one packing unit is worth, in percentage points of offense.
+ * What massing this many units of one packing unit is worth, in percentage points of offense.
  *
- * Linear in the *other* bodies, so one on its own is worth nothing at all and the sheet is honest:
+ * Linear in the *other* units, so one on its own is worth nothing at all and the sheet is honest:
  * the rule says "for every other one of itself in the line". Capped at {@link MAX_PACK_BONUS}.
  */
-export function packBonusPercent(bodies: number): number {
-  return Math.min(MAX_PACK_BONUS, Math.max(0, bodies - 1) * PACK_STEP);
+export function packBonusPercent(units: number): number {
+  return Math.min(MAX_PACK_BONUS, Math.max(0, units - 1) * PACK_STEP);
 }
 
 /**
@@ -527,7 +492,7 @@ function buildStacks(
   outnumbered: boolean,
   territory: TerritoryEffects,
   upgrades: UnitLoadouts,
-  /** §D1: the officer leading, appended as a one-body stack after the roster. */
+  /** §D1: the officer leading, appended as a one-unit stack after the roster. */
   officer?: BattleOfficer,
 ): Stack[] {
   const stacks: Stack[] = [];
@@ -631,7 +596,7 @@ export function officerStackOf(side: SideState): Stack | undefined {
 /**
  * What the officer on this side did, for the settler that has to decide about a stretcher (§D4).
  *
- * `fell` is the whole question: a body taken off the field is somebody who *would have died*, and
+ * `fell` is the whole question: a unit taken off the field is somebody who *would have died*, and
  * the maintainer's rule is that the worst thing that happens to an officer is an injury.
  */
 export function officerOutcomeOf(side: SideState): OfficerOutcome | null {
@@ -713,7 +678,7 @@ export function allocate(
 }
 
 /**
- * Medics per fighting body at which a field hospital is doing everything it can.
+ * Medics per fighting unit at which a field hospital is doing everything it can.
  *
  * One in four. Past that the extra medics are standing behind people who are already being treated,
  * which is why this is a ratio and not a rate: how much a hospital is worth depends on how many
@@ -763,7 +728,7 @@ export function mendShare(side: SideState): number {
 /**
  * Casualties the medics caught, taken off the round's damage before anybody counts it.
  *
- * Applied to `incoming` rather than after the fact, so the saved bodies are still standing when
+ * Applied to `incoming` rather than after the fact, so the saved units are still standing when
  * `moralePhase` asks the line how it is doing. Healing that only moved a number after the morale
  * check would be healing nobody in the line could feel.
  *
@@ -842,7 +807,7 @@ function applyDamage(side: SideState, incoming: Map<Stack, number>): Map<Stack, 
     stack.alive = Math.min(before, Math.ceil(stack.pool / stack.effective.vitality));
     // §D3: the cowed stand in the line and take their share of what lands on it, so the men who
     // fall come from the whole stack rather than from the shooters first. Held constant, the
-    // silenced count ate the firing count as the stack thinned: ten bodies with six cowed lost
+    // silenced count ate the firing count as the stack thinned: ten units with six cowed lost
     // five and had nobody left shooting, when three of the five who fell should have been cowed.
     if (stack.suppressed > 0) {
       stack.suppressed = Math.min(
@@ -871,11 +836,11 @@ function moralePhase(
   round: number,
   cascadeFrom: number,
 ): Stack[] {
-  const ownBodies = Math.max(1, bodies(side));
+  const ownUnits = Math.max(1, standingUnits(side));
   const shockBase: Omit<MoraleShock, 'casualtyFraction'> = {
     enemyCasualtyFraction: enemyLost,
     enemyIntimidation: intimidation(enemy),
-    outnumberedRatio: bodies(enemy) / ownBodies,
+    outnumberedRatio: standingUnits(enemy) / ownUnits,
     // `steady_nerve` cuts exactly this term and nothing else: the line still breaks from its own
     // losses, from being outnumbered and from what is opposite it, and never from the panic beside
     // it. See `SideState.steadyNerve`.
@@ -907,7 +872,7 @@ function moralePhase(
 /**
  * A broken stack is run down while it disengages.
  *
- * The health pool is scaled by the share of bodies that got clear, **not** rebuilt from the
+ * The health pool is scaled by the share of units that got clear, **not** rebuilt from the
  * survivors at full vitality. Rebuilding it was a real bug: a stack at 40% health that routed came
  * out of the pursuit at full health of a smaller number, which made losing your nerve the most
  * reliable way to survive a fight.
@@ -946,10 +911,10 @@ export interface Simulation {
   /** The day's luck each side drew, −5.0 … +5.0. */
   luck: { attacker: number; defender: number };
   /**
-   * §D3: bodies on each side too cowed to fire, settled before the first shot. See {@link cow}.
+   * §D3: units on each side too cowed to fire, settled before the first shot. See {@link cow}.
    *
    * Reported rather than kept private, because a mechanic the player cannot see reads as a bug: a
-   * line that did a third of the damage it should have, with every body still standing and no
+   * line that did a third of the damage it should have, with every unit still standing and no
    * casualties to explain it, is indistinguishable from a broken engine. The report is what turns
    * it into a thing that happened.
    */
@@ -977,7 +942,7 @@ export function simulate(input: SimulateInput): Simulation {
 
   // Counted off the line that actually forms, not off the raw record: `buildStacks` skips an id it
   // cannot resolve and leaves the porters out, so counting the record could tell a side it was
-  // outnumbered by bodies that never reached the field. Forty Scavengers behind twenty Razors were
+  // outnumbered by units that never reached the field. Forty Scavengers behind twenty Razors were
   // handing every Warden and Juggernaut sent against them a last stand it had not earned.
   const roster = (army: Army, rules: LineRules): number =>
     Object.entries(army).reduce((total, [unitId, count]) => {
@@ -1049,7 +1014,7 @@ export function simulate(input: SimulateInput): Simulation {
   // setting it. This is also the only location `stealth` matters once a fight has started.
   const ambush = ambushShare(attacker, defender, battlefield.frontage);
   // Carried into the first round's morale rather than discarded. The opening volley was applied to
-  // health and then dropped on the floor: bodies fell and nothing was shaken by it, so an ambush
+  // health and then dropped on the floor: units fell and nothing was shaken by it, so an ambush
   // was worth strictly less than the damage it dealt.
   const ambushed =
     ambush > 0
@@ -1065,7 +1030,7 @@ export function simulate(input: SimulateInput): Simulation {
    * The Opening Volley (`UnitSpec.strikes_first`), after the ambush and before the exchange.
    *
    * Both sides' volleys are *computed* before either is applied, for the reason the round loop
-   * gives: fire from a shared snapshot, or whichever side is written first shoots at bodies that
+   * gives: fire from a shared snapshot, or whichever side is written first shoots at units that
    * are already down. Taken after the ambush on purpose, so a force that is walked into is already
    * short of people when it gets its own shot away, which is the one thing that makes bringing an
    * ambush worth more than bringing this.
@@ -1216,7 +1181,7 @@ export function ambushShare(side: SideState, enemy: SideState, frontage: number)
   }
   if (hidden <= 0) return 0;
 
-  const engaged = Math.max(1, engagedBodies(side, frontage));
+  const engaged = Math.max(1, engagedUnits(side, frontage));
   const share = Math.min(1, hidden / engaged);
   const spotted = watchfulness(enemy);
   const edge = clamp(stealth / hidden - spotted, 0, 100) / 100;
@@ -1290,7 +1255,7 @@ export function residualPower(side: SideState): number {
  *
  * A shield wall gets nothing for being twice as many, because {@link rangedShare} is what buys the
  * exponent and a melee line has none of it. A firing line gets a *fraction* of Lanchester's square
- * law rather than most of it, which is what this used to claim: the square law says the per-body
+ * law rather than most of it, which is what this used to claim: the square law says the per-unit
  * multiplier scales as n, so a force at two-to-one would fire at twice the rate, and
  * {@link CONCENTRATION_EDGE} at 0.28 gives it 2^0.28, which is 1.21. About a fifth of the way.
  *
@@ -1300,8 +1265,8 @@ export function residualPower(side: SideState): number {
  * before it acts.
  */
 export function concentrationFor(side: SideState, enemy: SideState, frontage: number): number {
-  const own = engagedBodies(side, frontage);
-  const other = engagedBodies(enemy, frontage);
+  const own = engagedUnits(side, frontage);
+  const other = engagedUnits(enemy, frontage);
   if (own <= 0 || other <= 0) return 1;
   const edge = CONCENTRATION_EDGE * rangedShare(side);
   return clamp((own / other) ** edge, 1 / MAX_CONCENTRATION, MAX_CONCENTRATION);

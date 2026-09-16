@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The shell's poll announces the level a build crossed while the player was elsewhere.
@@ -37,12 +38,7 @@ describe('GET /me', () => {
       payload: { username: 'builder', password: 'hunter2pass' },
     });
     const token = registered.json<{ token: string }>().token;
-    const chosen = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(token),
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(app, token);
     expect(chosen.statusCode).toBe(201);
     const base = chosen.json<{ base: Base }>().base;
 

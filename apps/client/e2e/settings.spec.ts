@@ -21,7 +21,14 @@ const VIEWPORTS = [
   { width: 1440, height: 900 },
 ] as const;
 
-type Size = (typeof VIEWPORTS)[number];
+/** The three the maintainer reads the filter panel at (2026-09-15). */
+const PANEL_VIEWPORTS = [
+  { width: 1280, height: 720 },
+  { width: 1440, height: 900 },
+  { width: 1920, height: 1080 },
+] as const;
+
+type Size = { readonly width: number; readonly height: number };
 
 /** What the fixture opens on: `DEFAULT_SOUND_VOLUME`, through `me.user`. */
 const START = me.user.soundVolume;
@@ -176,5 +183,80 @@ for (const size of VIEWPORTS) {
       });
       expect(inside, `the knob escapes its bar at ${key}`).toBe(true);
     }
+  });
+}
+
+/**
+ * The page says what the maintainer asked it to say (2026-09-15), in a real browser: the unit test
+ * pins the same strings, and this is the copy the screenshots below are read against.
+ */
+test('the sheet opens on the city line, names its panels, and carries no standing note', async ({
+  page,
+}) => {
+  await openSettings(page);
+
+  await expect(page.getByText('The only part that the city allows you to control')).toBeVisible();
+  await expect(page.getByTestId('info-note')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Sound Preferences' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Password' })).toBeVisible();
+  await expect(page.getByText(/passphrase/i)).toHaveCount(0);
+});
+
+/**
+ * The filter panel's contents stay inside its frame.
+ *
+ * `NotificationFilters` used to be handed the panel's whole box, with none of the `p-4` the other
+ * three panels inset their bodies by, so its lead line and its rows ran flush against the drawn
+ * edge and read as outside it (maintainer report, 2026-09-15). Nothing was geometrically outside
+ * the panel, which is why `expectNothingOverflowsTheScreen` never said a word: the failure is a
+ * body that ignores the panel's own gutter. So the measure is the head's gutter. The heading is
+ * set `px-4` from the frame, and every element in the body has to sit inside the same margins,
+ * left and right, and inside the panel top to bottom. Take the `p-4` off the body and this goes
+ * red at every size.
+ */
+for (const size of PANEL_VIEWPORTS) {
+  test(`the Sound Preferences panel keeps its rows inside its frame at ${size.width}x${size.height}`, async ({
+    page,
+  }) => {
+    await openSettings(page, size);
+
+    const panel = page.getByTestId('settings-notify-panel');
+    await expect(panel.getByRole('heading', { name: 'Sound Preferences' })).toBeVisible();
+    await expect(page.getByTestId('notification-settings')).toBeVisible();
+    await expectNothingOverflowsTheScreen(page);
+
+    const escaped = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>('[data-testid="settings-notify-panel"]');
+      const body = document.querySelector<HTMLElement>('[data-testid="settings-notify-body"]');
+      const head = panel?.querySelector('h2')?.parentElement;
+      if (!panel || !body || !head) return ['the panel, its head or its body is missing'];
+      const frame = panel.getBoundingClientRect();
+      const headBox = head.getBoundingClientRect();
+      const headStyle = getComputedStyle(head);
+      const gutter = {
+        left: headBox.left + parseFloat(headStyle.paddingLeft),
+        right: headBox.right - parseFloat(headStyle.paddingRight),
+      };
+      return [...body.querySelectorAll<HTMLElement>('*')]
+        .filter((el) => el.getClientRects().length > 0)
+        .flatMap((el) => {
+          const r = el.getBoundingClientRect();
+          const faults: string[] = [];
+          if (r.left < gutter.left - 0.5)
+            faults.push(`left by ${(gutter.left - r.left).toFixed(1)}px`);
+          if (r.right > gutter.right + 0.5)
+            faults.push(`right by ${(r.right - gutter.right).toFixed(1)}px`);
+          if (r.top < frame.top - 0.5)
+            faults.push(`above the frame by ${(frame.top - r.top).toFixed(1)}px`);
+          if (r.bottom > frame.bottom + 0.5)
+            faults.push(`below the frame by ${(r.bottom - frame.bottom).toFixed(1)}px`);
+          return faults.length === 0
+            ? []
+            : [
+                `${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 30)}" ${faults.join(', ')}`,
+              ];
+        });
+    });
+    expect(escaped, `content escapes the panel's gutter at ${size.width}`).toEqual([]);
   });
 }

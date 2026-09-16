@@ -32,7 +32,7 @@ import { PageGlyph } from './BlueprintGlyph';
  *
  * The trade was a button on the Blueprints panel until the maintainer's 2026-09-10 call, and a button
  * is the wrong shape for it. What the Lab does here is take three specific sheets off a player, so
- * the screen has to be the place they *choose* the three: a tray of what is in the satchel, three
+ * the screen has to be the place they *choose* the three: a tray of what is in the inventory, three
  * sockets to drop them in, and a fourth socket where the new page lands. Which pages go is the
  * player's now (`ReimagineRequestSchema`); which one comes back is still the Lab's, seeded on the
  * server so a dropped connection cannot be retried into a better answer.
@@ -158,7 +158,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
       </p>
 
       {/*
-       * The bench on the left, the satchel on the right, once there is width for both.
+       * The bench on the left, the inventory on the right, once there is width for both.
        *
        * Stacked, the machine is most of the frame and the tray starts under the fold at 1280x720:
        * a player would be choosing pages they had to scroll away from the sockets to see. Side by
@@ -518,7 +518,7 @@ function Gauge({
  * The pipework, the gauges and the gear train, on the apparatus' own 620 by 300 grid.
  *
  * Every run is drawn three times over the same path: a near-black outline that reads as the shadow
- * under the pipe, the brass body, and a thin highlight offset up and left, which is the whole of
+ * under the pipe, the brass unit, and a thin highlight offset up and left, which is the whole of
  * why a flat stroke reads as a round pipe lit from above. The flow is a fourth pass, dashed, and
  * it only appears once all three sockets are full.
  */
@@ -600,7 +600,7 @@ function Linkage() {
 }
 
 /**
- * What is in the satchel, one tile per page.
+ * What is in the inventory, one tile per page.
  *
  * The count on a tile is what is **left** to put in rather than what is held, so a player who has
  * put two of their three Slab Armours in the machine can see they have one more. A tile with
@@ -625,7 +625,9 @@ function Tray({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="font-stamp text-[15px] leading-tight text-ink-100">Pages in the satchel</h3>
+        <h3 className="font-stamp text-[15px] leading-tight text-ink-100">
+          Pages in the inventory
+        </h3>
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
           {total === 0
             ? 'Nothing to feed it'

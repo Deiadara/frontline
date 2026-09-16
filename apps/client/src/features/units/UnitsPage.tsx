@@ -104,12 +104,12 @@ export function UnitsPage() {
    * number on screen that is visibly behind, for up to a full interval.
    */
   /* `query.refetch` rather than `query`: the result object is new on every render, so the array
-     never matched and the body ran after every one of them. `settled` is derived from a clock that
+     never matched and the unit ran after every one of them. `settled` is derived from a clock that
      ticks every second, so once it flipped true this refetched in a burst until the response
      shrank the bench. `refetch` is a stable reference in react-query v5. */
   const refetchUnits = query.refetch;
   /*
-   * And the crew with it, so the experience lands on the meter at the same moment the body lands
+   * And the crew with it, so the experience lands on the meter at the same moment the unit lands
    * on the card (maintainer request, 2026-09-12).
    *
    * One settle produces both: `settleTraining` stands the unit up *and* pays the §I1 experience
@@ -128,8 +128,8 @@ export function UnitsPage() {
   /*
    * What each count on the roster just did.
    *
-   * Nothing trickles into a unit count, so there is no rate to write off: a body appearing was
-   * trained and a body vanishing marched out or died. Above the early return below, because a hook
+   * Nothing trickles into a unit count, so there is no rate to write off: a unit appearing was
+   * trained and a unit vanishing marched out or died. Above the early return below, because a hook
    * cannot be called conditionally; `useDeltaMarks` announces nothing until it has two readings,
    * so a page that has not loaded yet costs it nothing.
    */
@@ -151,30 +151,30 @@ export function UnitsPage() {
   }
 
   const shown = data.units.filter((unit) => unit.tier === tab);
-  const overSupply = data.supplyUsed >= data.supplyCap;
+  const overSupply = data.unitSlotsUsed >= data.unitSlotsCap;
 
   return (
     <PageShell quote="It's the suffering that brings us together." wide>
-      {/* The standing rule about supply used to be a paragraph pinned above the roster, read once
+      {/* The standing rule about unit slots used to be a paragraph pinned above the roster, read once
           and then in the way forever. It is on the figure it describes now: the number is the thing
           a player looks at, and the explanation belongs where they are already looking. */}
       <div className="flex flex-wrap items-center gap-2">
         <HoverCard
-          data-testid="supply"
+          data-testid="unit-slots"
           size="window"
-          label={`Population: ${data.supplyUsed} of ${data.supplyCap}`}
+          label={`Unit slots: ${data.unitSlotsUsed} of ${data.unitSlotsCap}`}
           // The two figures, and nothing under them. What was here explained what the ceiling
           // counts and which structures raise it, which is a paragraph about a mechanic printed
           // over the number the card was opened to read.
           card={
             <InfoWindow
               eyebrow="The district"
-              title="Population"
+              title="Unit Slots"
               tone={overSupply ? 'oxblood' : 'brass'}
-              icon={<Icon name="population" className="h-full w-full text-brass-300" />}
+              icon={<Icon name="unit-slots" className="h-full w-full text-brass-300" />}
               figure={
                 <span className="font-display text-2xl font-bold tabular-nums text-ink-100">
-                  {data.supplyUsed} / {data.supplyCap}
+                  {data.unitSlotsUsed} / {data.unitSlotsCap}
                 </span>
               }
             />
@@ -189,8 +189,8 @@ export function UnitsPage() {
                 : 'border-surface-600 bg-surface-800/70 text-ink-200',
             )}
           >
-            <Icon name="population" aria-hidden className="h-4 w-4" />
-            {data.supplyUsed} / {data.supplyCap}
+            <Icon name="unit-slots" aria-hidden className="h-4 w-4" />
+            {data.unitSlotsUsed} / {data.unitSlotsCap}
           </span>
         </HoverCard>
         {data.trainingCostReduction > 0 && <Tag label={`-${data.trainingCostReduction}% cost`} />}
@@ -217,7 +217,7 @@ export function UnitsPage() {
           </span>
         </header>
 
-        {/* §A5: the cancel window is short and shuts the moment the first body walks out, so
+        {/* §A5: the cancel window is short and shuts the moment the first unit walks out, so
             `window_closed` is the refusal a player is most likely to meet. It used to be silent:
             the button un-dimmed, the order stayed, and nothing said why. */}
         {cancel.error && (
@@ -313,7 +313,7 @@ export function UnitsPage() {
                 deltas={mustered[unit.id] ?? []}
                 training={{
                   resources: data.resources,
-                  spare: Math.max(0, data.supplyCap - data.supplyUsed),
+                  spare: Math.max(0, data.unitSlotsCap - data.unitSlotsUsed),
                   // §A4: the crew-wide cut plus what this unit's own ground takes off it, which is
                   // the same sum the training route charges with. Quoting only the crew-wide figure
                   // would have **Max** offering a batch at a price the server does not charge.
@@ -357,7 +357,7 @@ export function UnitsPage() {
  *
  * Smaller than the bar it replaced, and about a different thing. A bar across the whole order was
  * right while a batch landed in a lump; they arrive one at a time now, so what a player wants is
- * how many are already theirs and how long until the next one. The bar tracks the *next body*, not
+ * how many are already theirs and how long until the next one. The bar tracks the *next unit*, not
  * the order, which is why it fills and resets rather than creeping once across seven minutes.
  */
 function BenchRow({
@@ -395,7 +395,7 @@ function BenchRow({
           />
         </span>
         {/* §A5: the window is a tenth of the batch's own clock and shuts the moment the first
-            body walks out, so it is there and gone. The same X every other clock in the game
+            unit walks out, so it is there and gone. The same X every other clock in the game
             wears (maintainer request, 2026-09-12); under the bar rather than beside the name, because
             the bench column is narrow and the countdown beside the X is most of its width. */}
         <CancelMark

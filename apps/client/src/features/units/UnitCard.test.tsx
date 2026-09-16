@@ -4,6 +4,7 @@ import {
   UNIT_MODIFIERS,
   COMBAT_CONTEXT_LABELS,
   findUnit,
+  modificationsForUnit,
   unitRules,
   type UnitOption,
   type UnitSpec,
@@ -66,17 +67,17 @@ function optionFor(spec: UnitSpec): UnitOption {
     }),
     cost: spec.cost,
     trainSeconds: spec.trainSeconds,
-    supply: spec.supply,
+    unitSlots: spec.unitSlots,
     unlocked: true,
     missing: [],
     owned: 0,
-    slots: [0, 1, 2].map((tier) => ({
+    slots: [0, 1, 2].map((index) => ({
       upgradeId: null,
-      name: `Slot ${tier + 1}`,
-      line: null,
-      tier,
+      name: `Slot ${index + 1}`,
+      rarity: null,
       effect: {},
     })),
+    eligible: modificationsForUnit(spec.id).map((card) => card.id),
   };
 }
 
@@ -140,10 +141,10 @@ describe('the marks band', () => {
 });
 
 describe('walksAlways', () => {
-  it('is true for the one sheet no vehicle takes, and false for a body that fits', () => {
+  it('is true for the one sheet no vehicle takes, and false for a unit that fits', () => {
     expect(walksAlways('the_colossus')).toBe(true);
     expect(walksAlways('razors')).toBe(false);
-    // A unit id the catalogue has never heard of is a body with legs, not a refusal.
+    // A unit id the catalogue has never heard of is a unit with legs, not a refusal.
     expect(walksAlways('nobody')).toBe(false);
   });
 });
@@ -206,5 +207,62 @@ describe('a locked unit on the roster', () => {
     const box = screen.getByTestId(`action-${(colossus as UnitSpec).id}`);
     expect(box.textContent).toContain('The Lab at level 4 · The Nexus at level 6');
     expect(box.textContent).not.toMatch(/\d+ more/);
+  });
+});
+
+/**
+ * The count over the picture (maintainer request, 2026-09-15).
+ *
+ * `12 +6` read as a sum for the player to do rather than as a force split between home and a
+ * fight, so the fight count is written after a slash and it is the only orange thing in the badge.
+ * The hover is the one place the number says what it is, and it is unchanged.
+ */
+describe('the count over the picture', () => {
+  const shield = ironsides as UnitSpec;
+
+  /*
+   * A crew of twelve, however they are spread.
+   *
+   * `owned` is what is **at home**, because a deployed unit has already left `base.army`, so the
+   * fixture works backwards from the roster the badge is supposed to print. The first cut of these
+   * tests passed `owned: 12` and expected `12 / 6`, which was really eighteen units and a slash
+   * that read as a fraction of a number it was not part of.
+   */
+  const ROSTER = 12;
+  const badgeFor = (abroad: number, garrisoned = 0): HTMLElement => {
+    draw(
+      <UnitCard
+        unit={{ ...optionFor(shield), owned: ROSTER - abroad - garrisoned }}
+        built={[]}
+        garrisoned={garrisoned}
+        abroad={abroad}
+      />,
+    );
+    return screen.getByTestId(`unit-count-${shield.id}`);
+  };
+
+  it('writes the fight count after a slash, in orange, under the same hover', () => {
+    const badge = badgeFor(6);
+    // Twelve in the crew, six of them at a fight: the six is a slice of the twelve, not a second
+    // number added to it.
+    expect(badge.textContent).toBe('12 / 6');
+
+    const away = within(badge).getByText('6');
+    expect(away.className).toContain('tangerine');
+    // The slash is punctuation between two figures, so the orange is the count and nothing else.
+    expect(within(badge).getByText('/').className).not.toContain('tangerine');
+    expect(away.closest('[data-tip]')?.getAttribute('data-tip')).toBe('6 at a fight');
+  });
+
+  it('prints the one number, with no slash, when nobody is away', () => {
+    const badge = badgeFor(0);
+    expect(badge.textContent).toBe('12');
+    expect(badge.textContent).not.toContain('/');
+  });
+
+  it('leaves the held-ground count on its own +, in brass', () => {
+    const badge = badgeFor(6, 2);
+    expect(badge.textContent).toBe('12 +2 / 6');
+    expect(within(badge).getByText('+2').className).toContain('brass');
   });
 });

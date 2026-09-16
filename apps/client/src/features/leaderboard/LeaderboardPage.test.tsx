@@ -169,19 +169,42 @@ describe('searching for a player', () => {
     expect(screen.queryByTestId('standings-suggestions')).toBeNull();
   });
 
-  it('opens a recommendation onto that player file', async () => {
+  /**
+   * Picking a suggestion answers "where are they on this board", not "who are they".
+   *
+   * The search sits on the standings, so the row is the answer: the rank, the figure, and the
+   * crews either side of them. It used to navigate to the crew file instead, which threw away the
+   * board the search had just been run against (maintainer request, 2026-09-14).
+   */
+  it('takes a recommendation to that player’s place on the board', async () => {
     await renderBoard();
     type('sable');
     fireEvent.click(await screen.findByTestId('standings-suggestion-Sable_Ninth'));
-    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('ally-user');
+
+    // Still on the standings, with that row picked out of the hundred.
+    expect(screen.queryByTestId('landed-crew')).toBeNull();
+    expect(await screen.findByTestId('standing-Sable_Ninth')).toHaveAttribute(
+      'data-sought',
+      'true',
+    );
   });
 
-  it('opens the best match on enter, without the mouse', async () => {
+  it('goes to the same place on enter, without the mouse', async () => {
     await renderBoard();
     type('marrow');
     await screen.findByTestId('standings-suggestions');
     fireEvent.keyDown(screen.getByTestId('standings-search'), { key: 'Enter' });
-    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('tied-user');
+
+    expect(screen.queryByTestId('landed-crew')).toBeNull();
+    expect(await screen.findByTestId('standing-Marrow')).toHaveAttribute('data-sought', 'true');
+  });
+
+  /** The name inside the row is the other door, and it still opens the file. */
+  it('opens the crew file when the name inside the row is pressed', async () => {
+    await renderBoard();
+    type('sable');
+    fireEvent.click(await screen.findByTestId('standings-suggestion-name-Sable_Ninth'));
+    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('ally-user');
   });
 
   it('walks the recommendations with the arrow keys', async () => {
@@ -191,7 +214,11 @@ describe('searching for a player', () => {
     const field = screen.getByTestId('standings-search');
     fireEvent.keyDown(field, { key: 'ArrowDown' });
     fireEvent.keyDown(field, { key: 'Enter' });
-    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('ally-user');
+    // The second suggestion, taken to its place on the board rather than to a file.
+    expect(await screen.findByTestId('standing-Sable_Ninth')).toHaveAttribute(
+      'data-sought',
+      'true',
+    );
   });
 
   /*
@@ -227,7 +254,10 @@ describe('searching for a player', () => {
     fireEvent.pointerDown(suggestion);
     expect(screen.getByTestId('standings-suggestions')).toBeVisible();
     fireEvent.click(suggestion);
-    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('ally-user');
+    expect(await screen.findByTestId('standing-Sable_Ninth')).toHaveAttribute(
+      'data-sought',
+      'true',
+    );
   });
 
   it('puts the list away on escape and keeps what was typed', async () => {
@@ -508,8 +538,11 @@ describe('under a lot of pressing', () => {
     const suggestion = await screen.findByTestId('standings-suggestion-Sable_Ninth');
     for (let press = 0; press < 10; press++) fireEvent.click(suggestion);
 
-    expect(await screen.findByTestId('landed-crew')).toHaveTextContent('ally-user');
-    expect(screen.queryAllByTestId('landed-crew')).toHaveLength(1);
+    // Ten presses, one destination, one marked row. The `?focus=` param is consumed on arrival,
+    // so a tenth press cannot stack a tenth scroll on a reader who has moved on.
+    const marked = screen.getAllByTestId('standing-Sable_Ninth');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveAttribute('data-sought', 'true');
   });
 });
 

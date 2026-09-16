@@ -78,19 +78,15 @@ export const DISTRICT_ASPECT = PLATE.width / PLATE.height;
  */
 export const DISTRICT_BACK_EDGE = 5;
 
-/**
- * The most the district picture may be compressed vertically to fit the room between the bars.
+/*
+ * `MAX_SQUASH` is retired (maintainer request, 2026-09-14).
  *
- * Eight percent, which is about the point at which a painting of a slum still reads as the same
- * painting: past it the buildings start to look squat. It buys the step back that keeps the far
- * side of the district, where the tallest buildings are, out from behind the stockpile. Spent by
- * `fitted` in `DistrictScene`, and read by the layout gate that measures the result.
- *
- * It lives here rather than beside `fitted` because the gate has to import it and the gate cannot
- * import a component: `DistrictScene` pulls in the asset loader, which is `import.meta.glob` and
- * only exists inside Vite.
+ * It capped how far the district picture could be compressed vertically to bring the building band
+ * inside the bars: sixteen percent, bought with a stretch. The picture is no longer compressed at
+ * all. `fitted` in `DistrictScene` holds the painted 21:10 and gives up *width* instead, and the
+ * margin that leaves is feathered into a blurred copy of the plate, the way `PlateRoom` does the
+ * city and the Bar. There is no allowance left to cap.
  */
-export const MAX_SQUASH = 0.16;
 
 /** Twice the signed area of the outline. Positive because the vertices run clockwise on screen. */
 export function siteArea(site: DistrictSite): number {

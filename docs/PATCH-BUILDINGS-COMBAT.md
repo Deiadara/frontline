@@ -57,9 +57,9 @@ Today `BuildingSpec.basePowerDraw`, `building/power.ts`, `TerritoryEffects.power
 - The Nexus **no longer** discounts build cost or build time. That moves to the Generator (B4).
   The Nexus keeps its permission role and whatever else it does today that is not the discount.
 
-### B2. The Quarters: population
+### B2. The Quarters: unit slots
 
-- Raises the district's population capacity. This is already `HOUSING_PER_QUARTERS_LEVEL`; keep it
+- Raises the district's unit-slot capacity. This is already `HOUSING_PER_QUARTERS_LEVEL`; keep it
   and make it the Quarters' whole stated role.
 - Absorbs the Cistern's old housing contribution so the ceiling does not drop when the Cistern is
   removed.
@@ -155,7 +155,7 @@ flat travel-speed percentage on the base. All of that is replaced.
 - Classes, ascending: **motorbikes**, **car-like**, **truck-like**, and late-game **flying**
   (balloons, helicopters).
 - Each vehicle has: id, name, class, a blueprint requirement, a build cost in **scrap, oil and
-  high-quality metal** (different amounts each), a **speed contribution**, and a **population
+  high-quality metal** (different amounts each), a **speed contribution**, and a **unit-slot
   capacity**.
 - Each has an **image**. The board supplies the artwork later: ship **placeholders** through the
   existing procedural/delivered art path, named so a delivered file overrides with no code change.
@@ -172,10 +172,11 @@ flat travel-speed percentage on the base. All of that is replaced.
 - When sending units on a **mission** or to a **battle**, the player may choose to take vehicles.
 - Vehicles make the force arrive **faster**. Each vehicle class gives a different amount:
   a two-hour march might be one hour on motorbikes, less on better vehicles.
-- Each vehicle **carries up to a population capacity** of units. The force's speed is decided by
+- Each vehicle **carries up to a unit-slot capacity** of units: a sheet costs a machine exactly the
+  slots it costs the district, so thirty seats is thirty one-slot units or ten three-slot ones. The force's speed is decided by
   what is actually carried, not by what is parked at home.
 - **If every unit riding a vehicle dies, the vehicle is destroyed** and the destroyer earns
-  **infamy equal to the vehicle's population capacity**.
+  **infamy equal to the vehicle's unit-slot capacity**.
 - Vehicles that come home go back to the Garage.
 
 ---

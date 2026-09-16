@@ -98,6 +98,8 @@ function renderBoard() {
       // Something in the yard, so the dialog draws "what carries them" and its road line.
       fleet={{ scrap_car: 1 }}
       loadouts={{}}
+      bagPercent={0}
+      marks={{}}
       leaders={[officer]}
       unledRule="free"
       level={10}

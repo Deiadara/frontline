@@ -72,7 +72,8 @@ import {
   type Commander,
   loadable,
   findVehicle,
-  ridingBodies,
+  ridingGroups,
+  unitSlotsUsed,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
@@ -128,7 +129,7 @@ interface Assembled {
  * already on the location it garrisons, and a crew's roster is already at home. Both are folded in here
  * and rebuilt from the survivors afterwards, so nobody is counted in two locations at once.
  */
-function assemble(
+export function assemble(
   repos: Repositories,
   battle: ScheduledBattle,
   defenderBase: Base | undefined,
@@ -176,7 +177,7 @@ function assemble(
    * The garrisons are deliberately not folded in for a crew holder. They are never written back on
    * a gate fight (`setGarrison` is only called for a `location` target), so folding them in would
    * make them a defence that fights for free and cannot be killed, and merging the survivors home
-   * afterwards would credit the roster with bodies still standing on their locations. Ground held
+   * afterwards would credit the roster with units still standing on their locations. Ground held
    * at a distance is defended by the column you send to it.
    */
   const livesHere = defenderBase?.districtId === battle.target.districtId;
@@ -231,6 +232,15 @@ export function battlefieldOf(
 
 interface TrapResult {
   attacking: Army;
+  /**
+   * Who the shell took, as a force rather than a headline figure.
+   *
+   * The settler needs the list, not the count: these are dead units like any other, so they are
+   * worth infamy to the crew that set the trap and a Bone Market refund to the crew that walked
+   * into it. They used to be subtracted from the attacking force and then dropped, which made a
+   * trap the one way to kill somebody in this game that paid nobody anything.
+   */
+  killed: Army;
   note: { name: string; killed: number } | null;
   wipedOut: boolean;
 }
@@ -244,7 +254,7 @@ interface TrapResult {
  *
  * The bag is checked **here** rather than trusted from the row. Naming a trap is free and free to
  * change, so the same one can sit on two coming fights at once; the first to resolve takes it out
- * of the satchel and the second finds nothing there. That is exactly what `appliedBoost` does with
+ * of the inventory and the second finds nothing there. That is exactly what `appliedBoost` does with
  * a crate of contraband, and for the same reason.
  *
  * No longer restricted to a fight over a location. A trap used to live on `location_control`, so a
@@ -252,7 +262,7 @@ interface TrapResult {
  * now, and every fight this crew is defending is ground it is standing on.
  */
 function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: Army): TrapResult {
-  const nothing: TrapResult = { attacking, note: null, wipedOut: false };
+  const nothing: TrapResult = { attacking, killed: {}, note: null, wipedOut: false };
   const row = repos.sieges
     .side(battle.id, 'defender')
     .find((entry) => entry.trapId !== null && entry.baseId !== null);
@@ -285,6 +295,7 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
   const toll = springTrap(attacking, spec);
   return {
     attacking: toll.survivors,
+    killed: toll.killed,
     note: { name: spec.name, killed: forceSize(toll.killed) },
     wipedOut: toll.wipedOut,
   };
@@ -293,11 +304,11 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
 /**
  * What a dead force is worth back in caps, at a given refund percentage (§A4).
  *
- * Priced off the units' own catalogue cost rather than a flat per-body figure, so losing a
+ * Priced off the units' own catalogue cost rather than a flat per-unit figure, so losing a
  * Colossus refunds a Colossus. Empty when the crew holds nothing that pays a refund, which is the
  * common case and costs nothing to compute.
  */
-function refundFor(dead: Army, percent: number): PartialResources {
+export function refundFor(dead: Army, percent: number): PartialResources {
   if (percent <= 0) return {};
   let caps = 0;
   for (const [unitId, count] of Object.entries(dead)) {
@@ -348,7 +359,7 @@ function bankOutcome(
  *
  * The condition behind `allied_offense` (§B7). More than one means somebody else's crew is
  * standing in your line, which is the whole thing the perk is about: an ally who sent twelve
- * bodies is a different fight from one you took on your own, and a perk that only pays there is a
+ * units is a different fight from one you took on your own, and a perk that only pays there is a
  * reason to fight alongside your faction rather than a number that pays out regardless.
  *
  * Counted from the rows rather than from the declaration, because reinforcements arrive after it.
@@ -667,10 +678,10 @@ function settleInjuries(
  * Per crew, not per side. A side can be several crews (`battle/side.ts`) and each row on it
  * holds its own machines, so settling the declarer's row alone left an ally's Cheese Wagon on a
  * deployment row for ever: never wrecked, never home, and gone from their yard. Each row's
- * survivors are its share of the side's, split the way the bodies are (`splitSurvivors`).
+ * survivors are its share of the side's, split the way the units are (`splitSurvivors`).
  *
  * Only the machines somebody was riding are at risk. `loadable` trims the row's set to what the
- * bodies could fill, fastest first, and the rest never left the yard in any sense that matters:
+ * units could fill, fastest first, and the rest never left the yard in any sense that matters:
  * an empty truck cannot be wrecked by killing everybody on it, and it cannot hand the enemy
  * infamy for a seating plan. A row that fielded nobody gets everything back for the same reason.
  *
@@ -696,13 +707,17 @@ function settleSideVehicles(
     const owner = repos.bases.findById(row.baseId);
     const anyRide = owner ? standingEffectsFor(repos, owner, now).anyRide : false;
     const fielded = mergeArmies(row.army, row.perimeter);
-    const committed = forceSize(fielded);
-    const survived = forceSize(shares.get(row.baseId) ?? {});
-    // Seats, not bodies: a sheet that will not ride (§C3, `no_ride`) fills none, so counting it
+    // Unit slots on both sides of the share, because that is what the seats were sold in. Counting
+    // heads here made a machine's survival turn on a different currency from the one that decided
+    // who got on it, so a column of one Colossus and ten Razors read as 1/11 lost when it read as
+    // 12/22 to the window that loaded it.
+    const committed = unitSlotsUsed(fielded);
+    const survived = unitSlotsUsed(shares.get(row.baseId) ?? {});
+    // Seats, not heads: a sheet that will not ride (§C3, `no_ride`) fills none, so counting it
     // here kept a machine on the road that nobody was ever in. A crew that walked a Colossus to a
     // fight beside one truck lost the truck on a mauling and paid the enemy thirty infamy for a
-    // seating plan. `loadable`'s own doc has said `bodies` means the riders since it was written.
-    const riding = loadable(row.vehicles, ridingBodies(fielded, anyRide));
+    // seating plan.
+    const riding = loadable(row.vehicles, ridingGroups(fielded, anyRide));
     const idle = removeFleet(row.vehicles, riding);
     const lost = committed <= 0 ? {} : wrecked(riding, survived / committed);
     const home = mergeFleets(idle, removeFleet(riding, lost));
@@ -787,7 +802,7 @@ function resolveOne(
   const cityLevel = cityLevelFor(repos);
   // §D7: what a name bought for *this* fight, folded down against the force it actually reaches.
   // See `battle/boosts.ts`: a boost on one weight class is worth its own percentage times that
-  // class's share of the supply standing on the ground. Contraband reaches the whole force.
+  // class's share of the unit slots standing on the ground. Contraband reaches the whole force.
   const attackerBoost = appliedBoost(
     repos,
     attacker.id,
@@ -925,6 +940,7 @@ function resolveOne(
     resident,
     assembled,
     committed: trap.attacking,
+    trapKilled: trap.killed,
     outcome,
     attackerWon,
     now,
@@ -1044,6 +1060,8 @@ interface SettleInput {
   assembled: Assembled;
   /** What the attacker actually had left to fight with once the trap had gone off. */
   committed: Army;
+  /** ...and who the trap took, which is off `committed` already and still owed to the ledger. */
+  trapKilled: Army;
   outcome: SkirmishOutcome;
   attackerWon: boolean;
   now: Date;
@@ -1060,7 +1078,7 @@ interface Settlement {
   defenderInfamy: number;
   haul: PartialResources;
   /**
-   * Bodies each side took off the other, for the feat counters (maintainer request, 2026-09-13).
+   * Units each side took off the other, for the feat counters (maintainer request, 2026-09-13).
    *
    * Carried out of here rather than recounted at the call site because the two casualty lists are
    * assembled from the outcome plus the trap plus the ring, and a second reading downstream is the
@@ -1142,14 +1160,53 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     ? assembled.defenderRing
     : removeForce(assembled.defenderRing, outcome.perimeterLosses);
 
+  /*
+   * Everybody who died, as opposed to everybody the engine killed.
+   *
+   * Three lists go into each side's ledger and only one of them comes out of the round loop: the
+   * engine's dead, the trap's dead (off the attacking force before a shot was fired), and the ring
+   * that paid for meeting a withdrawal. All three are units that did not walk off the field, and
+   * §I1 prices exactly that, so all three are worth infamy to the other crew and a Bone Market
+   * refund to their own.
+   *
+   * Kept apart from `attackerDead` and `defenderDead`, which the roster arithmetic above has
+   * already spent: `committed` is the force the trap left standing and `*RingHome` has already had
+   * the ring's losses taken off it, so folding these in up there would kill them a second time.
+   * The medics do not reach either addition: a ring meets a withdrawal away from the line, and a
+   * trap goes off before the crew that set it is anywhere near the wounded.
+   */
+  const attackerFallen = mergeArmies(
+    attackerDead,
+    mergeArmies(input.trapKilled, attackerWon ? outcome.perimeterLosses : {}),
+  );
+  const defenderFallen = attackerWon
+    ? defenderDead
+    : mergeArmies(defenderDead, outcome.perimeterLosses);
+
   const attackerHome = mergeArmies(holds ? {} : attackerSurvivors, attackerRingHome);
+
+  /**
+   * §C3: who lived, as opposed to where they went.
+   *
+   * `attackerHome` answers "what walks back into the district", which is deliberately empty of the
+   * line when the crew stays to hold the ground. The machines are a different question: what a
+   * wreck is priced on is the share of the force that **survived the fight**, and a unit standing
+   * on the location it just took survived it.
+   *
+   * Handing `attackerHome` to the vehicle settle conflated the two, and with no ring behind the
+   * fight the two are not close: a crew that won a held location without a single casualty read as
+   * a force that came back as nobody, so `wrecked` wrote off every machine that carried them and
+   * the loser was paid their whole capacity in infamy for it. Winning the thing you asked to hold
+   * emptied your yard.
+   */
+  const attackerLived = mergeArmies(attackerSurvivors, attackerRingHome);
 
   /*
    * Whose survivors these are.
    *
    * A side can be several crews now (`battle/side.ts`), and the engine answers for the side as a
    * whole. Handing `attackerHome` to the declarer would quietly transfer an ally's army to whoever
-   * called the fight: they sent bodies, the bodies lived, and they would never come back.
+   * called the fight: they sent units, the units lived, and they would never come back.
    *
    * Split proportionally to what each crew committed, counting the ring as well as the line,
    * because both are in `attackerHome`. The declarer's share carries on through `attackerNext`;
@@ -1238,7 +1295,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * have destroyed than a Scrappy whatever either cost to build, and capacity is what the fight
    * actually took off the board.
    */
-  const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerHome, now);
+  const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerLived, now);
   const defenderVehicles = settleSideVehicles(
     repos,
     defenderRows,
@@ -1247,8 +1304,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   );
 
   const attackerInfamy =
-    infamyForKills(defenderDead) + captureInfamy + vehicleInfamy(defenderVehicles.destroyed);
-  const defenderInfamy = infamyForKills(attackerDead) + vehicleInfamy(attackerVehicles.destroyed);
+    infamyForKills(defenderFallen) + captureInfamy + vehicleInfamy(defenderVehicles.destroyed);
+  const defenderInfamy = infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed);
 
   /**
    * §A4: the Bone Market. A share of what you lost comes back as caps rather than as nothing.
@@ -1267,7 +1324,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * branch, so on every other path the refund was computed, reported on the battle card, and never
    * banked. A mechanic that is visible and inert is worse than one that is absent.
    */
-  let haul: PartialResources = refundFor(attackerDead, attackerGround.salvageRefundPercent);
+  let haul: PartialResources = refundFor(attackerFallen, attackerGround.salvageRefundPercent);
   /**
    * §A4: whether the raiders actually got into a structure, which is what leaves the place limping.
    *
@@ -1400,7 +1457,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     repos.bases.updateArmy(defenderBase.id, roster, defenderBase.trainingQueue);
     // Their Bone Market too. Holding one is worth the same whichever end of the fight you are on,
     // which is the whole reason it pays on a loss as well as a win.
-    const theirRefund = refundFor(defenderDead, defenderGround?.salvageRefundPercent ?? 0);
+    const theirRefund = refundFor(defenderFallen, defenderGround?.salvageRefundPercent ?? 0);
     if (Object.keys(theirRefund).length > 0) {
       /*
        * Added to the stockpile as it stands *now*, not as it stood when this settle began.
@@ -1482,7 +1539,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * The receipts for the fight.
    *
    * Everybody who had a row on either side hears, not only the two principals: an ally who sent
-   * twelve bodies into somebody else's battle has as much reason to read the report as the crew
+   * twelve units into somebody else's battle has as much reason to read the report as the crew
    * who called it, and they are the ones whose survivors just came back.
    *
    * `battle_report` is always-on (`social/notifications.ts`), so this is one of the two kinds a
@@ -1508,7 +1565,20 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         kind: 'battle_report',
         title: attackerWon ? 'A fight was won' : 'A fight was lost',
         body: wrecks ? `${settled} Wrecked on the way: ${describeFleet(wrecks)}.` : settled,
-        link: '/game/battles',
+        /*
+         * At **this** report, not at the pile of them (maintainer request, 2026-09-15).
+         *
+         * The receipt named a fight and then put the player on a screen listing every fight they
+         * have ever had, with the one they were told about somewhere in it. A crew that fights
+         * twice in an evening cannot tell which row the bell was about.
+         *
+         * The battle's own id, carried in the query rather than the path: `/game/battles` is one
+         * screen with four tabs and the report is a modal on one of them, so there is no route to
+         * point at. `subjectId` carries the same id for anything that wants it without parsing a
+         * URL, which is what it is for.
+         */
+        link: `/game/battles?report=${battle.id}`,
+        subjectId: battle.id,
         now,
       });
     }
@@ -1555,8 +1625,8 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     attackerInfamy,
     defenderInfamy,
     haul,
-    attackerKills: forceSize(defenderDead),
-    defenderKills: forceSize(attackerDead),
+    attackerKills: forceSize(defenderFallen),
+    defenderKills: forceSize(attackerFallen),
   };
 }
 
@@ -1616,6 +1686,7 @@ function breakIn(
   const capacity = lootCapacityOf(
     input.committed,
     standingEffectsFor(repos, input.attacker, now).lootCapacityPercent,
+    input.attacker.unitLoadouts,
   );
   const haul = plunder(resident.resources, capacity, ['caps']);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));

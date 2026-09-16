@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -44,12 +45,7 @@ async function crew(): Promise<{ app: FastifyInstance; token: string }> {
     payload: { username: 'drafter', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return { app, token };
 }
 
@@ -91,7 +87,7 @@ describe('unlocking a blueprint (§D10)', () => {
     for (const page of SMALLEST.pages) {
       expect(held[page.id] ?? 0, `${page.id} was not spent`).toBe(0);
     }
-    // And the answer carries the board, so the satchel updates without a second round trip.
+    // And the answer carries the board, so the inventory updates without a second round trip.
     expect(res.json<MarketResponse>()).toBeDefined();
   });
 

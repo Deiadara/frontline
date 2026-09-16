@@ -18,7 +18,7 @@ import {
  * tray of sixteen sheets does not run off the sheet, and that the sequence from a full machine to
  * a page in the outfeed actually plays rather than jumping.
  *
- * The satchel is handed to `installApi` rather than routed here, because the bench is the one
+ * The inventory is handed to `installApi` rather than routed here, because the bench is the one
  * screen in the suite whose write *spends* something: the harness takes the three named pages out
  * of the board it also serves the read from, so the tray on screen changes after the press. A spec
  * routing the read itself would be watching a fixture that cannot move.
@@ -30,7 +30,7 @@ const RANGE_CARDS = 'pg_snipers_range_cards';
 const SLAB_ARMOUR = 'pg_juggernauts_slab_armour';
 
 /** A stack to draw down, a single sheet beside it, and enough else to make the tray a real tray. */
-const SATCHEL: Inventory = {
+const INVENTORY: Inventory = {
   [SLAB_ARMOUR]: 3,
   [RANGE_CARDS]: 1,
   pg_colossus_hull_sections: 1,
@@ -69,7 +69,7 @@ test('draws a locked bench with one sentence saying what is missing', async ({ p
     await route.fulfill({
       json: {
         ...market,
-        inventory: SATCHEL,
+        inventory: INVENTORY,
         reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: true },
       },
     });
@@ -106,7 +106,7 @@ test('walks a crew with the chair but not the rung to the rung own track', async
     await route.fulfill({
       json: {
         ...market,
-        inventory: SATCHEL,
+        inventory: INVENTORY,
         reimagining: { hasHeadOfResearch: true, hasReimaginingResearch: false },
       },
     });
@@ -162,7 +162,7 @@ for (const size of SIZES) {
   const tag = `${size.width}x${size.height}`;
   test(`fills three sockets, runs the bench and lands a new page at ${tag}`, async ({ page }) => {
     await page.setViewportSize(size);
-    await installApi(page, lateGame, { inventory: SATCHEL });
+    await installApi(page, lateGame, { inventory: INVENTORY });
 
     await page.goto('/game/research/reimagining');
     const machine = page.getByTestId('reimagine-machine');
@@ -227,7 +227,7 @@ for (const size of SIZES) {
     // A page, named, that the crew was not holding when it walked in.
     const gained = await result.getAttribute('data-page');
     expect(gained).toBeTruthy();
-    expect(Object.keys(SATCHEL)).not.toContain(gained);
+    expect(Object.keys(INVENTORY)).not.toContain(gained);
     await expect(result).not.toHaveText('');
     for (const index of [0, 1, 2]) {
       await expect(slot(page, index)).toHaveAttribute('data-filled', 'no');
@@ -248,7 +248,7 @@ for (const size of SIZES) {
 }
 
 test('gives a page back when its socket is pressed', async ({ page }) => {
-  await installApi(page, lateGame, { inventory: SATCHEL });
+  await installApi(page, lateGame, { inventory: INVENTORY });
 
   await page.goto('/game/research/reimagining');
   await expect(page.getByTestId('reimagine-machine')).toBeVisible();

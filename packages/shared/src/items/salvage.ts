@@ -49,7 +49,7 @@ export const SALVAGE_HIT_CHANCE = 0.45;
  *
  * `random` is injected rather than taken from `Math.random` so the server can hand it a seeded
  * stream: a mission's outcome and its finds have to come from the same reproducible source, or
- * two reads of the same finished run disagree about what is in the satchel.
+ * two reads of the same finished run disagree about what is in the inventory.
  */
 export function rollSalvage(
   totalMinutes: number,

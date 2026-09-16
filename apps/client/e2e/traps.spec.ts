@@ -41,7 +41,20 @@ const withTraps: BattlesResponse = {
 };
 
 async function serveTraps(page: Page): Promise<void> {
-  await installApi(page, lateGame);
+  /*
+   * The trap goes into the crew's **own** inventory, not only the market's copy of it.
+   *
+   * The retired Inventory page drew its rows off the market payload, so that was the only place this
+   * fixture stocked. The Battles inventory reads `base.inventory` from `/me`, which is where a held
+   * item actually lives; the market response only echoes it. Both are stocked here so the fixture
+   * describes one crew rather than two.
+   */
+  const crew = lateGame.base;
+  if (crew === null) throw new Error('the late-game fixture must have a base');
+  await installApi(page, {
+    ...lateGame,
+    base: { ...crew, inventory: { ...crew.inventory, [HELD.id]: 2 } },
+  });
   const json = (data: unknown) => ({
     status: 200,
     contentType: 'application/json',
@@ -49,7 +62,7 @@ async function serveTraps(page: Page): Promise<void> {
   });
   await page.route('**/api/scrapyard**', (route) => route.fulfill(json(scrapyard)));
   await page.route('**/api/battles**', (route) => route.fulfill(json(withTraps)));
-  // §I4h: the satchel reads its rows off the market payload rather than an endpoint of its own,
+  // §I4h: the inventory reads its rows off the market payload rather than an endpoint of its own,
   // so this is where two Pressure Plates have to be for the Consumables panel to hold anything.
   await page.route('**/api/market**', (route) =>
     route.fulfill(json({ ...market, inventory: { ...market.inventory, [HELD.id]: 2 } })),
@@ -93,8 +106,14 @@ test('the yard has a Traps bench, and it is one tab among the rest', async ({ pa
   for (const spec of TRAP_CATALOG.slice(1)) {
     await expect(page.getByTestId(`addon-${spec.id}`)).toHaveCount(0);
   }
+  /*
+   * The bench says where to go, not how many are missing (maintainer request, 2026-09-15).
+   *
+   * The loop above is what pins the withheld rows, one assertion per trap, so the count is still
+   * measured; this line only checks the bench admits there is more to find.
+   */
   await expect(page.getByTestId('scrapyard-hidden-traps')).toContainText(
-    `${TRAP_CATALOG.length - 1} more`,
+    'find some more blueprints',
   );
 
   await expectNothingOverflowsTheScreen(page);
@@ -200,16 +219,24 @@ for (const size of [
       await page.screenshot({ path: `e2e-out/scrapyard-traps-${tag}.png` });
     });
 
-    /** §I4h: the satchel's own panel for the new kind, with a trap sitting in it. */
-    test('the satchel shows a consumable on its own panel', async ({ page }) => {
+    /**
+     * §I4h: a cut trap, where it is spent.
+     *
+     * This used to look at the Inventory page's consumable panel. That page was retired (maintainer
+     * request, 2026-09-14) and a trap moved to the Battles screen's Inventory tab, beside the back
+     * room's boosts: both are bought, held, and spent on exactly one fight, and having them on two
+     * screens was the thing the old page was doing wrong.
+     */
+    test('a cut trap waits on the battles inventory, beside the boosts', async ({ page }) => {
       await serveTraps(page);
-      await page.goto('/game/inventory');
-      await expect(page.getByTestId('satchel-consumable')).toBeVisible();
+      await page.goto('/game/battles');
+      await page.getByRole('tab', { name: /Inventory/i }).click();
+      await expect(page.getByTestId('battle-traps')).toBeVisible();
       await settleFonts(page);
 
-      await expect(page.getByTestId('satchel-consumable')).toContainText(HELD.name);
+      await expect(page.getByTestId('battle-traps')).toContainText(HELD.name);
       await expectNothingOverflowsTheScreen(page);
-      await page.screenshot({ path: `e2e-out/satchel-consumable-${tag}.png`, fullPage: true });
+      await page.screenshot({ path: `e2e-out/battle-traps-${tag}.png`, fullPage: true });
     });
   });
 }

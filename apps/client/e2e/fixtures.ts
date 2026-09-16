@@ -8,6 +8,7 @@ import type {
   NotificationsResponse,
 } from '@frontline/shared';
 import {
+  DECLARE_INFAMY_COST,
   TRAVEL_BAND_MINUTES,
   FEATS,
   capturedGateIntelResistancePercent,
@@ -21,6 +22,7 @@ import {
   scrapyardLevelForModification,
   scrapyardLevelForTrap,
   scrapyardLevelForUpgrade,
+  modificationsForUnit,
   scrapyardLevelRefusal,
   scrapyardPrice,
   upgradePrice,
@@ -100,11 +102,11 @@ import {
   battlefieldFor,
   unitRules,
   markedUnit,
-  districtPopulationCapacity,
+  districtUnitSlotCapacity,
   noTerritoryEffects,
-  populationDraw,
+  unitSlotDraw,
   findUnit,
-  supplyUsed,
+  unitSlotsUsed,
   trainingCost,
   describeHoldBonus,
   describeRequirement,
@@ -121,7 +123,7 @@ import {
   BASE_CONCURRENT_MISSIONS,
   MISC_AREA_ID,
   RESOURCE_KG,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   areaPayPercent,
   battleTierFor,
   leaningsFor,
@@ -182,6 +184,7 @@ import {
   type MissionOutcome,
   type MissionsResponse,
   type Overseer,
+  type OverseerChoicesResponse,
   type PartialResources,
   type Resources,
   type User,
@@ -214,6 +217,19 @@ export const overseer: Overseer = {
   bio: preset.bio,
   attributes: preset.attributes,
   perks: preset.perks,
+};
+
+/**
+ * §F6: what `GET /overseer/choices` answers in the harness.
+ *
+ * The first four of the thirty, so `overseer` above (which is `OVERSEER_PRESETS[0]`) is always a
+ * card on the screen: the e2e presses it by name. `remaining` is the pool less the four the seeded
+ * world holds, which is a number the header prints rather than one anything asserts.
+ */
+export const overseerChoices: OverseerChoicesResponse = {
+  choices: OVERSEER_PRESETS.slice(0, 4),
+  remaining: OVERSEER_PRESETS.length - 4,
+  total: OVERSEER_PRESETS.length,
 };
 
 export const base: Base = {
@@ -357,6 +373,43 @@ export const lateGame: MeResponse = {
   overseer,
   base: lateGameBase,
 };
+
+/**
+ * The same save with the build queue **full**: `MAX_BUILD_QUEUE` orders at once (§D3).
+ *
+ * `lateGameBase` carries three, which is what the rail down the left of the district looks like
+ * most of the time. Six is the case that decides its layout: the rail is as tall as it can ever
+ * get, and on a narrow frame it is what a name plate has to stay clear of. The two were measured
+ * apart on 2026-09-15 and only the full one was covering plates.
+ *
+ * The orders run back to back off one clock, so the countdowns read like a queue that is being
+ * worked rather than six things finishing at once, and they are relative to *now* for the reason
+ * `lateGameBase`'s three are: a queue pinned to `NOW` shows every order as already done.
+ */
+export const fullQueueBase: Base = {
+  ...lateGameBase,
+  buildQueue: (['quarters', 'greenhouse', 'gate', 'lab', 'garage', 'infirmary'] as const).map(
+    (kind, index) => {
+      const durationSeconds = (20 + 10 * index) * 60;
+      // Each order starts where the one in front of it finishes. The first is already five
+      // minutes in, so the rail has a bar with something on it.
+      const startedAt = new Date(
+        Date.now() - 5 * 60 * 1000 + index * durationSeconds * 1000,
+      ).toISOString();
+      return {
+        id: `bq-full-${index + 1}`,
+        kind,
+        level: 2 + index,
+        startedAt,
+        durationSeconds,
+        paid: buildingCost(kind, 2 + index, base.buildings),
+        parts: {},
+      };
+    },
+  ),
+};
+
+export const fullQueue: MeResponse = { ...lateGame, base: fullQueueBase };
 
 /**
  * §D7: a crew with a name and the points to buy the next one.
@@ -810,19 +863,18 @@ export function crewProfileFor(id: string): CrewProfileResponse {
 
 /** §A5: the roster as a crew four levels in sees it: some fielded, most still locked. */
 /** The two the crew has paid for. One of them is bolted to the Razors below. */
-const BUILT_UPGRADES = UNIT_UPGRADES.filter(
-  (spec) => spec.id === 'weapons_1' || spec.id === 'armour_1',
+const BUILT_UPGRADES = UNIT_MODIFICATIONS.filter(
+  (spec) => spec.id === 'filed_sights' || spec.id === 'scrap_vest',
 );
 
 function fittedSlots(ids: (string | null)[]): FittedSlot[] {
   return ids.map((id) => {
-    const spec = id === null ? undefined : UNIT_UPGRADES.find((other) => other.id === id);
-    if (!spec) return { upgradeId: null, name: '', line: null, tier: 0, effect: {} };
+    const spec = id === null ? undefined : UNIT_MODIFICATIONS.find((other) => other.id === id);
+    if (!spec) return { upgradeId: null, name: '', rarity: null, effect: {} };
     return {
       upgradeId: spec.id,
       name: spec.name,
-      line: spec.line,
-      tier: spec.tier,
+      rarity: spec.rarity,
       effect: spec.effect as Record<string, number>,
     };
   });
@@ -843,10 +895,11 @@ export const unitsResponse: UnitsResponse = {
   abroad: { razors: 3 },
   // Derived rather than typed, so the fixture cannot quietly become a crew that is over its own
   // cap, which is a real state, but a misleading one to make the default screenshot of.
-  supplyUsed: supplyUsed(base.army) + supplyUsed({ razors: 2 }) + supplyUsed({ razors: 3 }),
-  supplyCap:
-    districtPopulationCapacity(base.buildings, noTerritoryEffects()) -
-    populationDraw({ ...base, army: {}, trainingQueue: [] }).total,
+  unitSlotsUsed:
+    unitSlotsUsed(base.army) + unitSlotsUsed({ razors: 2 }) + unitSlotsUsed({ razors: 3 }),
+  unitSlotsCap:
+    districtUnitSlotCapacity(base.buildings, noTerritoryEffects()) -
+    unitSlotDraw({ ...base, army: {}, trainingQueue: [] }).total,
   // Two orders on the bench, one part-way through and one behind it. An empty queue screenshots
   // the empty state and nothing else, and the live bench is the half of this screen with a clock
   // on it: the half most likely to lay out badly once a countdown reaches its widest.
@@ -881,8 +934,7 @@ export const unitsResponse: UnitsResponse = {
   built: BUILT_UPGRADES.map((spec, index) => ({
     id: spec.id,
     name: spec.name,
-    line: spec.line,
-    tier: spec.tier,
+    rarity: spec.rarity,
     description: spec.description,
     effect: spec.effect as Record<string, number>,
     /*
@@ -936,7 +988,7 @@ export const unitsResponse: UnitsResponse = {
       }),
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,
-      supply: unit.supply,
+      unitSlots: unit.unitSlots,
       unlocked,
       // §D12a: `unitUnlockClauses`, not `unit.requires`, so a locked row lists the blueprint
       // document alongside the levels. The server's roster projection reads the same function.
@@ -944,7 +996,9 @@ export const unitsResponse: UnitsResponse = {
       owned: base.army[unit.id] ?? 0,
       // The Razors have one bolted on and room for two more, which is both halves of the row in
       // one card. Everybody else is empty, which is what most of the roster looks like.
-      slots: fittedSlots(unit.id === 'razors' ? ['weapons_1', null, null] : [null, null, null]),
+      slots: fittedSlots(unit.id === 'razors' ? ['filed_sights', null, null] : [null, null, null]),
+      // The same rule the server reads (`modificationsForUnit`): empty for a legendary.
+      eligible: modificationsForUnit(unit.id).map((spec) => spec.id),
     };
   }),
 };
@@ -1512,7 +1566,7 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
         pageWon: 'pg_snipers_barrel_liners',
         found: { pg_snipers_barrel_liners: 1, rotor_hub: 2, ceramic_plate: 1 },
       },
-      // A fight that went badly and cost bodies, and one nobody came back from: the two states
+      // A fight that went badly and cost units, and one nobody came back from: the two states
       // the returned list draws differently from a standard run, both on the fat screenshot.
       {
         ...returned('m-6', 'foundry-raid', 'failure', {}),
@@ -1545,7 +1599,7 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
  * What `POST /missions` answers with: a different shape from the board (§G6 launch path).
  *
  * `LaunchMissionResponseSchema` is `{ mission, serverNow }`, not a board, so this cannot be served
- * by the `GET` fixture: the client validates every 2xx body and would reject it. A launch of the
+ * by the `GET` fixture: the client validates every 2xx unit and would reject it. A launch of the
  * cheapest easy template, which is the one a delegation can actually run.
  */
 export function launchResponse(now: Date = new Date()): LaunchMissionResponse {
@@ -1753,7 +1807,7 @@ const researchBase = {
 };
 
 /**
- * A satchel holding a document in every state §D6 to §D10 draws (§I1d).
+ * An inventory holding a document in every state §D6 to §D10 draws (§I1d).
  *
  * One page in, most of the way there, complete and waiting on its Unlock, and one already unlocked,
  * across all three categories. Lives here rather than in one spec because both the Blueprints
@@ -1772,7 +1826,7 @@ export const pagesHeld: Inventory = {
   pg_snipers_range_cards: 1,
   pg_snipers_ghillie_patterns: 1,
   // Upgrades and consumables, so all three panels have something in them.
-  pg_munitions_load_tables: 1,
+  pg_mod_filed_sights_sight_picture: 1,
   pg_garage_pit_layout: 1,
   pg_garage_hoist_rating: 1,
   pg_shaped_charges_cone_geometry: 1,
@@ -1929,7 +1983,7 @@ function crewAt(
     level,
     housing: {
       used: officers.length,
-      capacity: districtPopulationCapacity(base.buildings, noTerritoryEffects()),
+      capacity: districtUnitSlotCapacity(base.buildings, noTerritoryEffects()),
     },
     officers,
   };
@@ -2032,6 +2086,8 @@ export const crewStanding: CrewStandingResponse = {
   effects: Object.fromEntries(
     EFFECT_CHANNELS.map((channel) => [channel, effectsOfSheet(PROFESSOR_CREW)[channel]]),
   ),
+  // Nothing granted: the fixture crew has finished no research that hands a sheet a mark.
+  marks: {},
 };
 
 /**
@@ -2083,7 +2139,7 @@ export const market: MarketResponse = {
   serverNow: NOW,
   caps: lateGameBase.resources.caps,
   resources: lateGameBase.resources,
-  inventory: { scrap_servo: 6, ceramic_plate: 2, blueprint_cybernetics: 1, ivory_dice: 1 },
+  inventory: { scrap_servo: 6, ceramic_plate: 2, blueprint_cybernetics: 1, coolant_cell: 1 },
   vendor: {
     open: true,
     sessions: [
@@ -2128,7 +2184,7 @@ export const market: MarketResponse = {
         auction: lotOn('l5', 3300, []),
       },
       {
-        line: { id: 'l6', item: 'ivory_dice', stock: 3, price: 190 },
+        line: { id: 'l6', item: 'neural_shunt', stock: 3, price: 190 },
         auction: lotOn('l6', 190, [
           { username: 'The Kettle Row Combine', amount: 190, minutesAgo: 11, yours: false },
         ]),
@@ -2429,7 +2485,7 @@ const boardAnalysis: BattleAnalysis = {
     // The ring fought for those five and paid for them, which is the half of a perimeter that was
     // invisible while meeting one was a catch-rate instead of a battle.
     perimeterLost: 2,
-    // §D3: bodies the enemy's intimidation kept from firing at all. Non-zero here on purpose: the
+    // §D3: units the enemy's intimidation kept from firing at all. Non-zero here on purpose: the
     // engine has settled this before every first shot since intimidation landed and no screen drew
     // it, so the fixture that guards the report has to be one where it is drawn.
     cowed: 3,
@@ -2625,6 +2681,9 @@ const comingBattle = (
     name: officer.name,
     role: officer.role,
     stats: officerBattleStats(officer.attributes),
+    // §D1: the road this one has to walk to get to the fight. A plausible cross-city figure,
+    // so the picker screenshots with a number on it rather than a zero.
+    travelMinutes: 22,
   })),
   /*
    * §I4: a trap is a defender's to set, so an attacker's view carries an empty list.
@@ -2691,6 +2750,20 @@ export const battles: BattlesResponse = {
   ],
   slots: boardSlots,
   infamy: BOARD_INFAMY,
+  /*
+   * §D7: only the crew across the road is a person, so only their ground is charged: the third
+   * location of every contested district (`locationViewsFor`). Looter ground and the AI rival's
+   * district are free to call, which is the case `live.spec.ts` drives against the real backend.
+   */
+  callPrices: {
+    locations: Object.fromEntries(
+      CITY_DISTRICTS.filter((district) => district.kind === 'contested').flatMap((district) => {
+        const theirs = district.locations[2];
+        return theirs ? [[theirs.id, DECLARE_INFAMY_COST]] : [];
+      }),
+    ),
+    districts: {},
+  },
   gates: [
     { districtId: 'rustyard', name: 'The Rustyard', shut: false, brokenUntil: null },
     /*
@@ -2840,7 +2913,7 @@ export const factionScreen: FactionResponse = {
       infamy: 100,
       infamyEarned: 640,
       armySize: 26,
-      supplyUsed: 32,
+      unitSlotsUsed: 32,
       isBot: false,
       // The leader's chair is the ace of spades, whoever sits in it.
       card: 'ace_spades',
@@ -2861,7 +2934,7 @@ export const factionScreen: FactionResponse = {
       infamy: 480,
       infamyEarned: 1180,
       armySize: 38,
-      supplyUsed: 60,
+      unitSlotsUsed: 60,
       isBot: true,
       card: 'king_diamonds',
       cardMark: 'D+',
@@ -3314,21 +3387,19 @@ export const leaderboardFactions: LeaderboardResponse = {
  * running game.
  */
 const scrapyardEntry = (
-  spec: (typeof MODIFICATIONS)[number] | (typeof UNIT_UPGRADES)[number],
+  spec: (typeof MODIFICATIONS)[number] | (typeof UNIT_MODIFICATIONS)[number],
   index: number,
 ): ScrapyardResponse['entries'][number] => {
   const modification = 'magnitude' in spec;
   const advanced = modification ? isAdvancedModification(spec) : isAdvancedUpgrade(spec);
   const document = modification ? blueprintForModification(spec) : blueprintForUnitUpgrade(spec.id);
   // Only an advanced entry can be held behind a document, so the locked third is drawn out of the
-  // advanced ones rather than out of every third row. On the refit ladders it is one named rung,
-  // so each ladder shows a different state: the first rung built, the second open on two lines
-  // and shut behind its document on the third, and the top rung waiting on the yard's level.
-  const locked = modification
-    ? advanced && index % 3 === 2
-    : spec.line === 'weapons' && spec.tier === 2;
+  // advanced ones rather than out of every third row. On the unit bench it is one named card, so
+  // the bench shows every state: the open cards built, the gated BASIC ones open, Rag Wraps shut
+  // behind its document, and the MASTERPIECE row waiting on the yard's level.
+  const locked = modification ? advanced && index % 3 === 2 : spec.id === 'rag_wraps';
   // The yard's own gate, worded as the server words it, so the fixture shows the fourth state
-  // the page draws: a row the yard is not tall enough for yet (the top rung of every refit line).
+  // the page draws: a row the yard is not tall enough for yet (the masterpiece cards).
   const requiresLevel = modification
     ? scrapyardLevelForModification(spec)
     : scrapyardLevelForUpgrade(spec);
@@ -3345,8 +3416,9 @@ const scrapyardEntry = (
       SCRAPYARD_FIXTURE_LEVEL,
     ),
     advanced,
+    rarity: modification ? null : spec.rarity,
     blueprint: document?.name ?? null,
-    owned: shut === null && (modification ? index % 3 === 0 : spec.tier === 1) ? 1 : 0,
+    owned: shut === null && (modification ? index % 3 === 0 : !spec.requiresBlueprint) ? 1 : 0,
     requiresLevel,
     // The locked third is exactly the rows the page no longer draws: they are still on the wire
     // so the bench can count them, and `scrapyard.spec.ts` reads that count.
@@ -3361,7 +3433,7 @@ const SCRAPYARD_FIXTURE_LEVEL = 6;
 /**
  * §I4: the yard's rows for the traps, worded exactly as `projectScrapyard` words them.
  *
- * One live row with two already in the satchel and two locked behind their documents, which is the
+ * One live row with two already in the inventory and two locked behind their documents, which is the
  * state worth looking at: a bench where every row is buildable never draws a blocker, and one where
  * none is never draws a Build. `traps.spec.ts` reads the same rows for the battle board's trap panel.
  */
@@ -3372,9 +3444,10 @@ const trapEntries: ScrapyardEntry[] = TRAP_CATALOG.map((spec, index) => ({
   name: spec.name,
   description: spec.description,
   building: null,
-  effect: `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} bodies`,
+  effect: `Takes ${Math.round(spec.killShare * 100)}% off the attack, up to ${spec.maxKills} units`,
   cost: scrapyardPrice(spec.cost, SCRAPYARD_FIXTURE_LEVEL),
   advanced: (spec.cost.highQualityMetal ?? 0) > 0,
+  rarity: null,
   blueprint: blueprintForTrap(spec.id)?.name ?? null,
   owned: index === 0 ? 2 : 0,
   requiresLevel: scrapyardLevelForTrap(spec),
@@ -3388,7 +3461,7 @@ export const scrapyard: ScrapyardResponse = {
   resources: lateGameBase.resources,
   entries: [
     ...MODIFICATIONS.map(scrapyardEntry),
-    ...UNIT_UPGRADES.map((spec, index) => scrapyardEntry(spec, index + MODIFICATIONS.length)),
+    ...UNIT_MODIFICATIONS.map((spec, index) => scrapyardEntry(spec, index + MODIFICATIONS.length)),
     ...trapEntries,
   ],
 };
@@ -3437,7 +3510,7 @@ export const hudExtremes: MeResponse = {
 /**
  * The feats board (maintainer request, 2026-09-13).
  *
- * Derived from `FEATS` rather than typed out. A hand-written list of a hundred and sixty rows
+ * Derived from `FEATS` rather than typed out. A hand-written list of two hundred rows
  * would be stale the first time somebody adds a feat, and, worse, a row naming an id the
  * catalogue no longer has is a row the screen is *right* to drop, so the spec asserting on it
  * would fail for the correct behaviour.

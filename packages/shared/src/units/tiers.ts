@@ -39,7 +39,7 @@ export const UNIT_TIER_LABELS: Record<UnitTier, string> = {
 /**
  * The three unit stats a bonus can be scoped to one tier.
  *
- * Not every stat: these are the three that decide whether a body wins its exchange, which is what
+ * Not every stat: these are the three that decide whether a unit wins its exchange, which is what
  * a player is buying when they back one kind of unit over another. Stealth and speed are situational
  * enough that a tier-scoped version of them would be a bonus most crews could not feel.
  */

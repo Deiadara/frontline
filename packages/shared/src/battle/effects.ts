@@ -1,6 +1,7 @@
 import { labelVerdict, type TerritoryEffects } from '../city/index.js';
 import {
   UNIT_MODIFIERS,
+  capRating,
   upgradedStats,
   type CombatContext,
   type FittedUpgrades,
@@ -31,7 +32,7 @@ import type { UnitTierStat } from '../units/tiers.js';
 export interface SideContext {
   /** Holding the location, rather than coming for it. */
   defending: boolean;
-  /** Fewer bodies than the other side, by {@link OUTNUMBERED_RATIO} or worse. */
+  /** Fewer units than the other side, by {@link OUTNUMBERED_RATIO} or worse. */
   outnumbered: boolean;
 }
 
@@ -70,9 +71,6 @@ export interface Effective {
   /** Named reasons this unit is above or below its sheet, for the report. */
   reasons: readonly string[];
 }
-
-const clamp = (value: number, low: number, high: number): number =>
-  Math.min(high, Math.max(low, value));
 
 /**
  * The percentage a unit's own modifiers are worth here.
@@ -195,7 +193,7 @@ export function effectiveStats(
   const held = side.defending ? battlefield.fortifyPercent + territory.defensePercent : 0;
   // The unit's own toughness modifiers are added *outside* the held-ground cap on purpose. That
   // ceiling exists so no amount of building makes a district untakeable; a sheet that says it is
-  // hard to shift is a unit you can be sent to kill, and it is bought one body at a time.
+  // hard to shift is a unit you can be sent to kill, and it is bought one unit at a time.
   const vitalityBonus =
     territory.unitVitalityPercent +
     (tier.vitality ?? 0) +
@@ -206,27 +204,27 @@ export function effectiveStats(
   return {
     offense: sheet.offense * (1 + offenseBonus / 100),
     vitality: sheet.vitality * (1 + vitalityBonus / 100),
-    // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still clamped,
-    // so no stack of bonuses produces a body nothing can hurt.
-    armor: clamp(
+    // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still capped,
+    // so no stack of bonuses produces a unit nothing can hurt. Every rating below goes through
+    // `capRating` rather than its own `Math.min`: the maintainer's rule (2026-09-15) is a hard 100
+    // whatever adds to a rating, and one helper is the only way that stays one rule.
+    armor: capRating(
       sheet.armor +
         (side.defending ? battlefield.baseDefense : 0) +
         territory.unitArmorPercent +
         (tier.armor ?? 0) +
         (kind.armor ?? 0),
-      0,
-      100,
     ),
     // Capped at 100 like every other speed in the game (`time/speed.ts`): the same number decides
-    // this unit's road, and a body cannot be quicker than the top of its own scale on one of them
+    // this unit's road, and a unit cannot be quicker than the top of its own scale on one of them
     // and not the other. Deliberately unrounded, so the engagement terms keep their resolution.
     speed: effectiveSpeed(sheet.speed, { percent: territory.unitSpeedPercent }),
     range: sheet.range,
     // Points, not a multiplier, and clamped for the same reason armour is: no stack of bonuses may
-    // produce a body nothing can hit.
-    evasion: clamp(sheet.evasion + (territory.unitEvasionFlat ?? 0), 0, 100),
+    // produce a unit nothing can hit.
+    evasion: capRating(sheet.evasion + (territory.unitEvasionFlat ?? 0)),
     penetration: sheet.penetration,
-    stealth: Math.min(100, Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
+    stealth: capRating(Math.round(sheet.stealth * (1 + territory.unitStealthPercent / 100))),
     /*
      * §A4: the ground's own menace, which until now was accumulated and read by nobody.
      *
@@ -234,10 +232,10 @@ export function effectiveStats(
      * engine, so the Broadcast Tower, whose *only* bonus is intimidation, was worth exactly nothing
      * to hold. It has a consumer now: `cow` in the engine spends a side's total intimidation
      * against the enemy's total morale before the first shot. Clamped like morale beside it, and
-     * for the same reason: no stack of bonuses may put a body past the sheet's own ceiling.
+     * for the same reason: no stack of bonuses may put a unit past the sheet's own ceiling.
      */
-    intimidation: clamp(sheet.intimidation + territory.intimidationFlat, 0, 100),
-    morale: clamp(sheet.morale + territory.unitMoraleFlat, 0, 100),
+    intimidation: capRating(sheet.intimidation + territory.intimidationFlat),
+    morale: capRating(sheet.morale + territory.unitMoraleFlat),
     damageType: sheet.damageType,
     resistances: sheet.resistances,
     reasons: [...reasons, ...ground.reasons, ...(held > 0 ? ['Holding built ground'] : [])],

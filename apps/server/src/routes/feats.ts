@@ -7,6 +7,8 @@ import {
   mergeFeatRewards,
   findFeat,
   gainInfamy,
+  unitSlotsUsed,
+  type Army,
   type Base,
   type ClaimAllResponse,
   type ClaimFeatResponse,
@@ -17,6 +19,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import { projectFeats, progressFor } from '../feats/project.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
 import { settleBase } from '../district/settle.js';
 import { mergeArmies } from '../battle/forces.js';
 import { awardPlayerXp } from '../progression/award.js';
@@ -32,12 +35,12 @@ import type { Repositories } from '../db/repos/index.js';
  * A claim can be turned down four ways and all of them are 409s carrying a `FeatClaimRefusal`,
  * because in none of them is the request wrong: the feat exists and the caller is who they say
  * they are, the game is simply not in a state where it can be paid. Which door is shut is the half
- * a screen can do something with, so it is in the body.
+ * a screen can do something with, so it is in the unit.
  *
  * ## Why the whole thing is one transaction
  *
  * Collecting a feat writes a claim row and then pays out across as many as five different stores:
- * the stockpile, the satchel, the roster, the ledger, the boost stash, and the progression row.
+ * the stockpile, the inventory, the roster, the ledger, the boost stash, and the progression row.
  * A crash halfway through, or two tabs pressing the button together, is the one failure here that
  * costs a player something real. The claim row is written **first**, inside the transaction, and
  * the payout only happens if that insert was the one that won: `repos.feats.claim` reports whether
@@ -47,6 +50,24 @@ import type { Repositories } from '../db/repos/index.js';
 
 function refuse(reason: FeatClaimRefusal): never {
   throw new AppError('FEAT_REFUSED', reason);
+}
+
+/**
+ * Whether the district has room for the units a reward pays (§A1).
+ *
+ * A feat is a reward and not an exemption. `queueTraining` refuses an order that would put a crew
+ * over its ceiling and the Garage refuses a machine for the same reason; a feat paying a hundred
+ * Juggernauts straight onto the roster was the one door left open, and the largest of them is 960
+ * unit slots against a finished district's two thousand.
+ *
+ * `districtUnitSlots` is the same fold both other gates read, so all three agree about what is
+ * already housed: the roster, the bench, the garrisons, the officers, the yard, and everything out
+ * on a road. A reward that pays no units always fits, which is most of the catalogue.
+ */
+function fits(repos: Repositories, base: Base, units: Army | undefined): boolean {
+  if (units === undefined) return true;
+  const asking = unitSlotsUsed(units);
+  return asking === 0 || asking <= districtUnitSlots(repos, base).spare;
 }
 
 export function registerFeatRoutes(app: FastifyInstance): void {
@@ -100,6 +121,11 @@ export function registerFeatRoutes(app: FastifyInstance): void {
         );
       }
 
+      // Room before the claim row, not after it. §A1 is a ceiling on what a district holds and a
+      // feat is not exempt from it, so a reward that would not fit is refused *without* marking
+      // the feat collected: it stays ready, and the player comes back when they have made room.
+      if (!fits(app.repos, fresh, spec.reward.units)) refuse('no_unit_slots');
+
       // The claim before the payout. If this returns false another request banked it first, and
       // the only correct thing to do is pay nothing and say so.
       if (!app.repos.feats.claim(fresh.id, featId, now.toISOString())) {
@@ -145,9 +171,29 @@ export function registerFeatRoutes(app: FastifyInstance): void {
       if (!fresh) throw new AppError('NO_BASE', 'You do not have a base yet');
 
       const waiting = progressFor(app.repos, fresh).filter((one) => one.state === 'ready');
+      /*
+       * §A1 against the *backlog*, not against each feat on its own.
+       *
+       * This pays the whole batch in one write, so the ceiling has to be spent down across it:
+       * two feats that each fit the spare room on their own do not both fit if the first one takes
+       * it. Walked in board order, and a feat that does not fit is simply left ready rather than
+       * stopping the run: the caps and the pages behind it are still collectable, and the units
+       * are still there when the crew has made room.
+       */
+      let room = districtUnitSlots(app.repos, fresh).spare;
+      const skipped: string[] = [];
+      const payable = waiting.filter((one) => {
+        const asking = unitSlotsUsed(findFeat(one.id)?.reward.units ?? {});
+        if (asking > room) {
+          skipped.push(one.id);
+          return false;
+        }
+        room -= asking;
+        return true;
+      });
       // Each still writes its own claim row, so the ledger records what was collected rather than
       // that a batch happened, and a row another request banked first drops out here.
-      const collected = waiting
+      const collected = payable
         .filter((one) => app.repos.feats.claim(fresh.id, one.id, now.toISOString()))
         .map((one) => findFeat(one.id))
         .filter((spec): spec is NonNullable<typeof spec> => spec !== undefined);
@@ -158,6 +204,7 @@ export function registerFeatRoutes(app: FastifyInstance): void {
       const settled = app.repos.bases.findByOwnerId(request.currentUser.id) ?? fresh;
       return {
         featIds: collected.map((spec) => spec.id),
+        skipped,
         paid,
         feats: projectFeats(app.repos, settled, now),
       };
@@ -191,7 +238,7 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
 
   if (reward.units) {
     // Straight onto the roster at home rather than into the training queue. A feat is a reward and
-    // not an order: making somebody wait forty minutes for bodies they have already earned would
+    // not an order: making somebody wait forty minutes for units they have already earned would
     // be a punishment dressed as a gift.
     repos.bases.updateArmy(base.id, mergeArmies(base.army, reward.units), base.trainingQueue);
   }
@@ -233,7 +280,7 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
      *
      * The `pages` chain is itself paid in pages, so leaving this out meant collecting its first
      * rung handed over a page that did not move the crew a step towards its second. The bell is
-     * the other half: the satchel is eighteen other things deep, and every one of the other six
+     * the other half: the inventory is eighteen other things deep, and every one of the other six
      * doors tells the player a document moved a square closer.
      */
     tallyPagesIn(repos, base.id, reward.items);

@@ -13,9 +13,21 @@ describe('bundle partition', () => {
     for (const name of ASSET_BUNDLES) expect(BUNDLE_SPECS[name].length).toBeGreaterThan(0);
   });
 
+  /**
+   * The portraits are the heaviest class in the manifest and the city screen shows none of them.
+   *
+   * The count is read off the manifest rather than written as a literal (maintainer request,
+   * 2026-09-15: the pool went from four characters to thirty). A literal here was a second place
+   * to remember, and it failed the moment the pool grew: what this is actually about is the
+   * partition, that every portrait is in the overseer bundle and none of them is in the city's.
+   */
   it('keeps the city bundle free of the heavy portraits', () => {
+    const portraits = ART_MANIFEST.filter((spec) => spec.class === 'portrait');
+    expect(portraits.length, 'the manifest has no portraits to partition').toBeGreaterThan(0);
     expect(BUNDLE_SPECS.city.every((spec) => spec.class !== 'portrait')).toBe(true);
-    expect(BUNDLE_SPECS.overseer.filter((spec) => spec.class === 'portrait')).toHaveLength(4);
+    expect(BUNDLE_SPECS.overseer.filter((spec) => spec.class === 'portrait')).toHaveLength(
+      portraits.length,
+    );
   });
 
   it('routes icons by their subject, not by their class', () => {

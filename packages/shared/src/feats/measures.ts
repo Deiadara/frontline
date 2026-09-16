@@ -7,7 +7,7 @@ import { z } from 'zod';
  * ## Why a closed vocabulary of measures
  *
  * A feat is a threshold on a number. The temptation is to let each feat carry a predicate over the
- * whole game state, which reads well for the first ten and then means a hundred and sixty
+ * whole game state, which reads well for the first ten and then means two hundred
  * functions nobody can price, nobody can show a progress bar for, and nobody can test except by
  * playing. Instead every feat names one measure out of the list below and a target, so:
  *
@@ -56,8 +56,12 @@ export const FEAT_MEASURES = [
   'research_done',
   'building_level',
   'buildings_total',
-  'army_bodies',
-  'army_supply',
+  'modifications_fitted',
+  'modification_sets',
+  'unit_modifications_fitted',
+  'masterpieces_fitted',
+  'army_units',
+  'army_unit_slots',
   'unit_kinds_held',
   'fleet_size',
   'officers_held',
@@ -71,7 +75,7 @@ export const FEAT_MEASURES = [
   'faction_seats',
   'blueprints_unlocked',
   'resources_held',
-  'satchel_kinds',
+  'inventory_kinds',
 
   // --- what the crew has ever done ---
   'missions_done',
@@ -119,7 +123,7 @@ export interface FeatMeasureSpec {
  * Every measure, its source and its unit.
  *
  * The unit is the word after the number on a progress line ("14 / 25 missions"), which is why it
- * is here rather than on each feat: a hundred and sixty feats would otherwise repeat twenty
+ * is here rather than on each feat: two hundred feats would otherwise repeat twenty
  * words, and the day one of them is reworded the other five saying the same thing would not be.
  */
 export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> = {
@@ -129,8 +133,17 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   research_done: { source: 'crew', scoped: false, unit: 'programmes' },
   building_level: { source: 'crew', scoped: true, unit: 'levels' },
   buildings_total: { source: 'crew', scoped: false, unit: 'levels' },
-  army_bodies: { source: 'crew', scoped: false, unit: 'bodies' },
-  army_supply: { source: 'crew', scoped: false, unit: 'population' },
+  modifications_fitted: { source: 'crew', scoped: false, unit: 'fittings' },
+  modification_sets: { source: 'crew', scoped: false, unit: 'sets' },
+  /**
+   * Unit modification cards in a unit's brackets (`units/loadout.ts`), and the MASTERPIECE ones
+   * among them. Crew measures, because a burn takes a card out: "have you ever" would stay lit over
+   * an empty bracket.
+   */
+  unit_modifications_fitted: { source: 'crew', scoped: false, unit: 'cards' },
+  masterpieces_fitted: { source: 'crew', scoped: false, unit: 'masterpieces' },
+  army_units: { source: 'crew', scoped: false, unit: 'units' },
+  army_unit_slots: { source: 'crew', scoped: false, unit: 'unit slots' },
   unit_kinds_held: { source: 'crew', scoped: false, unit: 'kinds' },
   fleet_size: { source: 'crew', scoped: false, unit: 'machines' },
   officers_held: { source: 'crew', scoped: false, unit: 'officers' },
@@ -144,7 +157,7 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   faction_seats: { source: 'crew', scoped: false, unit: 'seats' },
   blueprints_unlocked: { source: 'crew', scoped: false, unit: 'blueprints' },
   resources_held: { source: 'crew', scoped: true, unit: 'held' },
-  satchel_kinds: { source: 'crew', scoped: false, unit: 'kinds' },
+  inventory_kinds: { source: 'crew', scoped: false, unit: 'kinds' },
 
   missions_done: { source: 'tally', scoped: false, unit: 'missions' },
   missions_won: { source: 'tally', scoped: false, unit: 'missions' },
@@ -154,10 +167,10 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   battles_won: { source: 'tally', scoped: false, unit: 'wins' },
   battles_attacked_won: { source: 'tally', scoped: false, unit: 'wins' },
   battles_defended_won: { source: 'tally', scoped: false, unit: 'holds' },
-  bodies_deployed: { source: 'tally', scoped: false, unit: 'bodies' },
-  supply_deployed: { source: 'tally', scoped: false, unit: 'population' },
+  bodies_deployed: { source: 'tally', scoped: false, unit: 'units' },
+  supply_deployed: { source: 'tally', scoped: false, unit: 'unit slots' },
   kills: { source: 'tally', scoped: false, unit: 'kills' },
-  units_trained: { source: 'tally', scoped: false, unit: 'bodies' },
+  units_trained: { source: 'tally', scoped: false, unit: 'units' },
   buildings_raised: { source: 'tally', scoped: false, unit: 'levels' },
   officers_hired: { source: 'tally', scoped: false, unit: 'officers' },
   pages_found: { source: 'tally', scoped: false, unit: 'pages' },

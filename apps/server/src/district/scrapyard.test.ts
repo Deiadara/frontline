@@ -1,6 +1,7 @@
 import {
+  ITEM_CATALOG,
   TRAP_CATALOG,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   MODIFICATIONS,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
@@ -9,14 +10,18 @@ import {
   blueprintForTrap,
   blueprintForUnitUpgrade,
   findModification,
-  findUpgrade,
+  findUnitModification,
   isAdvancedModification,
+  blueprintGateMet,
+  modificationBuildRefusal,
+  modificationGateMet,
   modificationPrice,
   scrapyardDiscountPercent,
   scrapyardLevelForModification,
   scrapyardLevelForTrap,
   scrapyardLevelForUpgrade,
   scrapyardPrice,
+  upgradeRefusal,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -104,12 +109,14 @@ function seedBase(repos: Repositories, over: Partial<Base> = {}): Base {
 }
 
 describe('§B9: the Scrapyard builds add-ons', () => {
-  it('prices every bracket and refit in scrap, and in nothing but scrap and metal', () => {
+  it('prices every bracket and unit card in scrap, and in nothing but scrap and metal', () => {
     const repos = openStack();
     const { entries } = projectScrapyard(seedBase(repos, { resources: RICH }));
     // Derived rather than typed: three benches, and a content edit to any of them should move this
     // number rather than redden a count nobody meant to pin.
-    expect(entries.length).toBe(MODIFICATIONS.length + UNIT_UPGRADES.length + TRAP_CATALOG.length);
+    expect(entries.length).toBe(
+      MODIFICATIONS.length + UNIT_MODIFICATIONS.length + TRAP_CATALOG.length,
+    );
 
     /*
      * The board's two-column rule, and it is about the two benches that bolt things on.
@@ -119,7 +126,7 @@ describe('§B9: the Scrapyard builds add-ons', () => {
      * because a trap is made out of what is lying around. Their own bill is checked below.
      */
     const bolted = entries.filter((entry) => entry.kind !== 'trap');
-    expect(bolted.length).toBe(MODIFICATIONS.length + UNIT_UPGRADES.length);
+    expect(bolted.length).toBe(MODIFICATIONS.length + UNIT_MODIFICATIONS.length);
     for (const entry of bolted) {
       expect(entry.cost.scrap ?? 0, entry.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
@@ -144,7 +151,7 @@ describe('§B9: the Scrapyard builds add-ons', () => {
     for (const spec of TRAP_CATALOG) {
       const entry = traps.find((row) => row.id === spec.id)!;
       expect(entry.cost, spec.id).toEqual(scrapyardPrice(spec.cost, 4));
-      // A trap belongs to no structure: it goes in the satchel, not into a bracket.
+      // A trap belongs to no structure: it goes in the inventory, not into a bracket.
       expect(entry.building, spec.id).toBeNull();
       expect(entry.advanced, spec.id).toBe((spec.cost.highQualityMetal ?? 0) > 0);
     }
@@ -236,53 +243,49 @@ describe('§B9: the Scrapyard builds add-ons', () => {
     expect(result).toEqual({ kind: 'refused', reason: 'Build the Scrapyard first' });
   });
 
-  it('builds a unit upgrade into the roster’s own stock rather than onto a shelf', () => {
+  it('builds a unit card into the crew’s own stock rather than onto a shelf', () => {
     const repos = openStack();
-    const tierOne = findUpgrade('armour_1');
-    expect(tierOne).toBeDefined();
-    if (!tierOne) return;
+    const open = findUnitModification('taped_grips');
+    expect(open).toBeDefined();
+    if (!open) return;
 
-    const base = seedBase(repos, {
-      resources: RICH,
-      buildings: [build('nexus', 6), build('scrapyard', 4), build('gauntlet', 6)],
-    });
-    const built = buildAddon(repos, base, 'upgrade', tierOne.id);
+    const base = seedBase(repos, { resources: RICH });
+    const built = buildAddon(repos, base, 'upgrade', open.id);
     expect(built.kind).toBe('built');
     if (built.kind !== 'built') return;
-    expect(built.base.fittedUpgrades).toEqual([tierOne.id]);
-    expect(buildAddon(repos, built.base, 'upgrade', tierOne.id)).toEqual({
+    expect(built.base.fittedUpgrades).toEqual([open.id]);
+    expect(buildAddon(repos, built.base, 'upgrade', open.id)).toEqual({
       kind: 'refused',
       reason: 'Already built',
     });
   });
 
   /**
-   * §D12g: the yard is the Workshop's second door, and it has to hold the same document gate.
+   * §D12g: twenty-seven of the thirty cards want their document, and the yard holds the gate.
    *
-   * Tier one is the control. Both rungs are built by the same route with the same crew, so a build
-   * that refused everything would pass the first half of this test and fail the second.
+   * The open card is the control. Both are built by the same route with the same crew, so a build
+   * that refused everything would pass the first half of this test and fail the second. Filed
+   * Sights is BASIC, so the yard's level is not what is being read either.
    */
-  it('refuses a refit past the first rung until its document is in the satchel', () => {
+  it('refuses a gated card until its document is in the inventory, and takes an open one', () => {
     const repos = openStack();
-    const tall: Partial<Base> = {
+    const base = seedBase(repos, {
       resources: RICH,
-      buildings: [build('nexus', 6), build('scrapyard', 4), build('gauntlet', 20)],
-      inventory: { ceramic_plate: 20 },
-    };
-
-    const base = seedBase(repos, tall);
-    const one = buildAddon(repos, base, 'upgrade', 'armour_1');
-    expect(one.kind, 'the open rung is gated too').toBe('built');
+      // The parts the gated card is authored with, so the parts gate is not what is being read.
+      inventory: { weld_rod: 20 },
+    });
+    const one = buildAddon(repos, base, 'upgrade', 'taped_grips');
+    expect(one.kind, 'the open card is gated too').toBe('built');
     if (one.kind !== 'built') return;
 
-    const refused = buildAddon(repos, one.base, 'upgrade', 'armour_2');
-    expect(refused).toEqual({ kind: 'refused', reason: 'Needs the Composite Armour Blueprint' });
+    const refused = buildAddon(repos, one.base, 'upgrade', 'filed_sights');
+    expect(refused).toEqual({ kind: 'refused', reason: 'Needs the Filed Sights Blueprint' });
 
     const read: Base = {
       ...one.base,
-      inventory: { ...one.base.inventory, bp_composite_armour: 1 },
+      inventory: { ...one.base.inventory, bp_mod_filed_sights: 1 },
     };
-    expect(buildAddon(repos, read, 'upgrade', 'armour_2').kind).toBe('built');
+    expect(buildAddon(repos, read, 'upgrade', 'filed_sights').kind).toBe('built');
   });
 
   it('names a modification the catalogue does not know rather than throwing', () => {
@@ -293,6 +296,140 @@ describe('§B9: the Scrapyard builds add-ons', () => {
       kind: 'refused',
       reason: 'No such add-on',
     });
+  });
+});
+
+/**
+ * The door and the rule are the same rule (2026-09-14).
+ *
+ * `modificationBuildRefusal` lives in `@frontline/shared` and is where the ordering of the gates is
+ * written down. For a while it was written down and not used: the Scrapyard had its own copy, and
+ * the two drifted, because the shared one never learned the yard has a level. Its own tests stayed
+ * green throughout, since they were its only caller.
+ *
+ * This walks the whole catalogue at several yard levels and asserts the page agrees with the rule
+ * about *every* entry: a blocker exactly when the rule refuses, and none when it does not. A
+ * reimplementation that drifts again fails here rather than in a player's hands.
+ */
+describe('the Scrapyard page answers with the shared rule, not a copy of it', () => {
+  /** Every document in the inventory, so the yard's level is the only thing that can shut a row. */
+  const everyDocument = Object.fromEntries(
+    MODIFICATIONS.map(blueprintForModification)
+      .filter((document) => document !== undefined)
+      .map((document) => [document.id, 1]),
+  );
+
+  it('blocks exactly the modifications the rule refuses, at every yard level', () => {
+    let refused = 0;
+    let allowed = 0;
+
+    for (const level of [1, 5, 11, 20]) {
+      const repos = openStack();
+      const base = seedBase(repos, {
+        resources: RICH,
+        buildings: [build('nexus', 20), build('scrapyard', level), build('gauntlet', 20)],
+        inventory: everyDocument,
+      });
+      const page = projectScrapyard(base);
+
+      for (const spec of MODIFICATIONS) {
+        const rule = modificationBuildRefusal({
+          spec,
+          yardLevel: level,
+          blueprintUnlocked: (one) => modificationGateMet(base.inventory, one),
+          affordable: () => true,
+        });
+        const entry = page.entries.find((one) => one.id === spec.id)!;
+        expect(entry, spec.id).toBeDefined();
+        if (rule === null) {
+          allowed += 1;
+          expect(entry.blocker, `${spec.id} at yard ${level}`).toBeNull();
+        } else {
+          refused += 1;
+          expect(entry.blocker, `${spec.id} at yard ${level}`).not.toBeNull();
+        }
+      }
+    }
+
+    // A guard on the guard. A page that blocked everything, or nothing, would satisfy one half of
+    // the loop above and say nothing at all; both halves have to be exercised for this to mean
+    // anything, and at these levels both are.
+    expect(refused).toBeGreaterThan(20);
+    expect(allowed).toBeGreaterThan(20);
+  });
+
+  it('blocks exactly the unit cards the rule refuses, at every yard level', () => {
+    let refused = 0;
+    let allowed = 0;
+
+    for (const level of [1, 5, 11, 20]) {
+      const repos = openStack();
+      const base = seedBase(repos, {
+        resources: RICH,
+        buildings: [build('nexus', 20), build('scrapyard', level)],
+        inventory: {
+          ...Object.fromEntries(
+            UNIT_MODIFICATIONS.map((spec) => blueprintForUnitUpgrade(spec.id))
+              .filter((document) => document !== undefined)
+              .map((document) => [document.id, 1]),
+          ),
+          // The parts every card is authored with, so the parts gate is not what is being read.
+          ...Object.fromEntries(
+            UNIT_MODIFICATIONS.flatMap((spec) => Object.keys(spec.parts)).map((item) => [item, 99]),
+          ),
+        },
+        // One card already in the stock, so `already_fitted` is exercised on the page as well.
+        fittedUpgrades: ['taped_grips'],
+      });
+      const page = projectScrapyard(base);
+
+      for (const spec of UNIT_MODIFICATIONS) {
+        const rule = upgradeRefusal({
+          id: spec.id,
+          fitted: base.fittedUpgrades,
+          yardLevel: level,
+          requiredYardLevel: scrapyardLevelForUpgrade,
+          blueprintUnlocked: (id) => blueprintGateMet(base.inventory, 'unit_upgrade', id),
+          affordable: () => true,
+          hasParts: () => true,
+        });
+        const entry = page.entries.find((one) => one.id === spec.id)!;
+        expect(entry, spec.id).toBeDefined();
+        /*
+         * `already_fitted` is the one refusal the page deliberately does not print.
+         *
+         * There is nothing left to do about a card that is already in the stock, so the row says
+         * so through `owned` and leaves `blocker` null rather than telling a player off for
+         * something they have finished. That is a wording decision, which is this file's half of
+         * the split, so it belongs here rather than in the rule.
+         */
+        if (rule === null || rule === 'already_fitted') {
+          allowed += 1;
+          expect(entry.blocker, `${spec.id} at yard ${level}`).toBeNull();
+        } else {
+          refused += 1;
+          expect(entry.blocker, `${spec.id} at yard ${level}`).not.toBeNull();
+        }
+      }
+    }
+
+    expect(refused).toBeGreaterThan(3);
+    expect(allowed).toBeGreaterThan(3);
+  });
+
+  /** The bench groups by the word on the row, so every unit card carries one and nothing else does. */
+  it('puts the rarity on every unit card row and on no other row', () => {
+    const repos = openStack();
+    const { entries } = projectScrapyard(seedBase(repos, { resources: RICH }));
+    for (const entry of entries) {
+      if (entry.kind === 'upgrade') {
+        expect(entry.rarity, entry.id).toBe(findUnitModification(entry.id)?.rarity);
+        // BASIC is the bolt-on end; everything above it is the engineering the metal marks.
+        expect(entry.advanced, entry.id).toBe(entry.rarity !== 'basic');
+      } else {
+        expect(entry.rarity, entry.id).toBeNull();
+      }
+    }
   });
 });
 
@@ -312,7 +449,7 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
     inventory: Object.fromEntries(
       [
         ...MODIFICATIONS.map(blueprintForModification),
-        ...UNIT_UPGRADES.map((spec) => blueprintForUnitUpgrade(spec.id)),
+        ...UNIT_MODIFICATIONS.map((spec) => blueprintForUnitUpgrade(spec.id)),
         ...TRAP_CATALOG.map((spec) => blueprintForTrap(spec.id)),
       ]
         .filter((document) => document !== undefined)
@@ -355,18 +492,23 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
     expect(buildAddon(repos, tall, 'modification', advanced.id).kind).toBe('built');
   });
 
-  it('holds each refit tier for its level, and says so before it mentions the document', () => {
+  it('holds a masterpiece card for its level, and says so before it mentions the document', () => {
     const repos = openStack();
-    const top = UNIT_UPGRADES.find((spec) => spec.tier === 3)!;
+    const top = UNIT_MODIFICATIONS.find((spec) => spec.rarity === 'masterpiece')!;
     const opens = scrapyardLevelForUpgrade(top);
-    // The rungs below built, the documents held: the level is the one thing left in the way.
-    const below = UNIT_UPGRADES.filter(
-      (spec) => spec.line === top.line && spec.tier < top.tier,
-    ).map((spec) => spec.id);
+    expect(opens).toBeGreaterThan(1);
+    // The documents held and the parts in hand: the level is the one thing left in the way.
     const base = seedBase(repos, {
       ...yardAt(opens - 1),
-      fittedUpgrades: below,
-      inventory: { ...yardAt(1).inventory, ceramic_plate: 20, coolant_cell: 20 },
+      inventory: {
+        ...yardAt(1).inventory,
+        ceramic_plate: 20,
+        coolant_cell: 20,
+        weld_rod: 20,
+        hydraulic_ram: 20,
+        pressure_valve: 20,
+        signal_relay: 20,
+      },
     });
     expect(buildAddon(repos, base, 'upgrade', top.id)).toEqual({
       kind: 'refused',
@@ -374,7 +516,17 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
     });
 
     // Without the document as well, the level is still what the row says: raise the yard first.
-    const bare: Base = { ...base, inventory: { ceramic_plate: 20, coolant_cell: 20 } };
+    const bare: Base = {
+      ...base,
+      inventory: {
+        ceramic_plate: 20,
+        coolant_cell: 20,
+        weld_rod: 20,
+        hydraulic_ram: 20,
+        pressure_valve: 20,
+        signal_relay: 20,
+      },
+    };
     expect(buildAddon(repos, bare, 'upgrade', top.id)).toEqual({
       kind: 'refused',
       reason: `Needs the Scrapyard at level ${opens}`,
@@ -412,16 +564,16 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
     );
   });
 
-  it("takes the Armory's cut off a refit, on top of the yard's", () => {
+  it("takes the Armory's cut off a unit card, on top of the yard's", () => {
     const repos = openStack();
     const base = seedBase(repos, yardAt(6));
-    const first = UNIT_UPGRADES.find((spec) => spec.tier === 1)!;
+    const first = UNIT_MODIFICATIONS.find((spec) => spec.rarity === 'basic')!;
     const bare = projectScrapyard(base).entries.find((entry) => entry.id === first.id)!;
     const favoured = projectScrapyard(base, { refitDiscountPercent: 10 }).entries.find(
       (entry) => entry.id === first.id,
     )!;
     expect(favoured.cost.scrap ?? 0).toBeLessThan(bare.cost.scrap ?? 0);
-    // A modification is not a refit: the Armory has no say in it.
+    // A building modification is not a unit card: the Armory has no say in it.
     const bracket = MODIFICATIONS[0]!;
     expect(
       projectScrapyard(base, { refitDiscountPercent: 10 }).entries.find(
@@ -432,20 +584,26 @@ describe("the yard's level opens the catalogue and cuts the bill", () => {
 });
 
 /**
- * The yard charges the parts a refit is authored with.
+ * The yard charges the parts a card is authored with.
  *
  * It did not, once: the Workshop's route required the crew to hold `spec.parts` and consumed
- * them, and this door checked neither, so `POST /scrapyard/build {"kind":"upgrade","id":"armour_2"}`
- * bought the same upgrade with the four ceramic plates still in the satchel. The Workshop is gone
- * (maintainer request, 2026-09-10) and this is the one door, so the parts are a rule here or nowhere.
+ * them, and this door checked neither, so the same refit could be bought through the yard with the
+ * ceramic plates still in the inventory. The Workshop is gone (maintainer request, 2026-09-10) and
+ * this is the one door, so the parts are a rule here or nowhere.
  */
-describe('the Scrapyard charges the parts a refit is authored with', () => {
-  const NEEDS_PARTS = UNIT_UPGRADES.find(
-    (spec) => Object.keys(spec.parts).length > 0 && spec.tier === 1,
+describe('the Scrapyard charges the parts a card is authored with', () => {
+  const NEEDS_PARTS = UNIT_MODIFICATIONS.find(
+    (spec) => Object.keys(spec.parts).length > 0 && spec.rarity === 'basic',
   );
+  /** Its document, held: the parts are the one gate left between the crew and the card. */
+  const drawings = (): Record<string, number> => {
+    if (!NEEDS_PARTS) throw new Error('fixture: no BASIC card needs parts');
+    const document = blueprintForUnitUpgrade(NEEDS_PARTS.id);
+    return document ? { [document.id]: 1 } : {};
+  };
 
-  it('refuses an upgrade whose parts the crew does not hold', () => {
-    if (!NEEDS_PARTS) throw new Error('fixture: no tier-1 upgrade needs parts');
+  it('refuses a card whose parts the crew does not hold', () => {
+    if (!NEEDS_PARTS) throw new Error('fixture: no BASIC card needs parts');
     const repos = openStack();
     const base = seedBase(repos, {
       resources: {
@@ -456,11 +614,8 @@ describe('the Scrapyard charges the parts a refit is authored with', () => {
         highQualityMetal: 90_000,
         planks: 0,
       },
-      inventory: {},
-      buildings: [
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
-        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
-      ],
+      inventory: drawings(),
+      buildings: [{ id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 }],
     });
 
     const result = buildAddon(repos, base, 'upgrade', NEEDS_PARTS.id);
@@ -468,11 +623,14 @@ describe('the Scrapyard charges the parts a refit is authored with', () => {
     // And refused *for the parts*, not for some other clause that happens to bite first: this
     // test passed against the unfixed code until the reason was pinned, because a wrong argument
     // shape was refusing it as "No such add-on".
-    if (result.kind === 'refused') expect(result.reason).toMatch(/servo|part/i);
+    const [part] = Object.keys(NEEDS_PARTS.parts);
+    if (result.kind === 'refused') {
+      expect(result.reason).toContain(ITEM_CATALOG[part as keyof typeof ITEM_CATALOG].name);
+    }
   });
 
   it('consumes the parts when it does build one', () => {
-    if (!NEEDS_PARTS) throw new Error('fixture: no tier-1 upgrade needs parts');
+    if (!NEEDS_PARTS) throw new Error('fixture: no BASIC card needs parts');
     const repos = openStack();
     const held = Object.fromEntries(
       Object.entries(NEEDS_PARTS.parts).map(([item, count]) => [item, count + 1]),
@@ -486,11 +644,8 @@ describe('the Scrapyard charges the parts a refit is authored with', () => {
         highQualityMetal: 90_000,
         planks: 0,
       },
-      inventory: held,
-      buildings: [
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
-        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
-      ],
+      inventory: { ...held, ...drawings() },
+      buildings: [{ id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 }],
     });
 
     const result = buildAddon(repos, base, 'upgrade', NEEDS_PARTS.id);
@@ -499,7 +654,7 @@ describe('the Scrapyard charges the parts a refit is authored with', () => {
     const after = repos.bases.findById(base.id)!;
     expect(after.fittedUpgrades).toContain(NEEDS_PARTS.id);
     // Exactly what the spec asks for, no more and no less. Asserting the leftover instead would
-    // pass just as well against a build that spent the whole satchel.
+    // pass just as well against a build that spent the whole inventory.
     for (const [item, count] of Object.entries(NEEDS_PARTS.parts)) {
       const key = item as keyof typeof after.inventory;
       const spent = (held[item] ?? 0) - (after.inventory[key] ?? 0);

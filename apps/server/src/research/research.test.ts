@@ -33,6 +33,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { launchMission } from '../missions/launch.js';
 import { settleResearch } from './settle.js';
 import { startResearch } from './start.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Research at the seam the browser actually touches: the two routes, end to end over a real
@@ -346,12 +347,7 @@ describe('GET /research and POST /research/tech', () => {
     });
     expect(register.statusCode).toBe(201);
     const token = register.json<{ token: string }>().token;
-    const overseer = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { presetId: 'technocrat' },
-    });
+    const overseer = await chooseOverseer(app, token);
     expect(overseer.statusCode).toBe(201);
     return token;
   }
@@ -530,7 +526,7 @@ describe('GET /research and POST /research/tech', () => {
 
   /**
    * §B8a: the response carries the marks and the derived percentages, and nothing keyed by role id
-   * that a reader could invert. Asserted over the real body rather than over the projection, since
+   * that a reader could invert. Asserted over the real unit rather than over the projection, since
    * a field added to the route and not to the schema still reaches the browser.
    */
   it('puts no raw role knowledge on the wire', async () => {

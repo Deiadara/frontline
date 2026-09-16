@@ -7,7 +7,6 @@ import {
   fortifyBonusPercent,
   fortifyCost,
   maxFortifyBonusPercent,
-  plateAspect,
   quoteFortify,
   weatherAt,
   type Army,
@@ -15,9 +14,8 @@ import {
   type LocationView,
   type Resources,
 } from '@frontline/shared';
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { deliveredUrl } from '../../assets/delivered';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
@@ -29,13 +27,13 @@ import {
   useCancelLocationFortify,
   useCancelLocationUpgrade,
   useFortify,
+  useMe,
   useSetGarrison,
   useUpgradeLocation,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
-import { LOCATION_MARKS } from './marks';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -48,18 +46,18 @@ import { LOCATION_MARKS } from './marks';
  * drawn for every location, in this order, and a section with nothing in it says so rather than
  * disappearing, so the eye always finds the same fact in the same place.
  *
- * ## The picture
+ * ## The head
  *
- * The header is the district painting itself, cropped around the sign that named this place. The
- * board makes the art and agents never do, and there is no drawing of a Pumphouse to show; there
- * *is* a painting with the Pumphouse in it, and the marks in `marks.ts` already say where. So the
- * window shows the player the building they clicked, at closer range, the same way a structure's
- * window on the home district shows a cut of the plate. A district with no painting yet gets a
- * drawn plate with the kind's glyph on it, so the template holds its shape either way.
+ * A nameplate: where you are, what kind of place this is, what it is called, and how far it has
+ * been worked up. It used to be the district painting blown up three times and cropped around the
+ * sign, which cost roughly 250px at the top of every sheet and pushed "Taking it" off the bottom
+ * of the window (maintainer request, 2026-09-15). The painting is already on the screen behind the
+ * window, with the sign the player just clicked lit on it, so the close-up was showing them a
+ * second, blurrier copy of a picture they were looking at.
  *
  * ## Who holds it
  *
- * The one fact the old card buried, and the first thing under the picture now. Four holders, four
+ * The one fact the old card buried, and the first thing under the nameplate now. Four holders, four
  * readings: your own ground says so and offers your file; another crew's names the crew and the
  * player behind it, and the player's name is the door to theirs; the looters are called looters,
  * because that is what a place nobody's crew has taken is held by; the Combine is the Combine.
@@ -127,6 +125,9 @@ export function LocationSheet({
   const upgrade = useUpgradeLocation(baseId, districtId);
   const cancelUpgrade = useCancelLocationUpgrade(baseId, districtId);
   const cancelFortify = useCancelLocationFortify(baseId, districtId);
+  // For the bag the picker quotes: the raid pays against the crew's brackets, so the quote reads
+  // the same map (`battle/resolve.ts`).
+  const me = useMe();
   const [staging, setStaging] = useState(false);
 
   const quote = quoteFortify(view.location, view.fortification);
@@ -146,19 +147,17 @@ export function LocationSheet({
         picked && 'ring-1 ring-inset ring-brass-300',
       )}
     >
-      <Vignette
-        districtId={districtId}
-        locationId={view.location.id}
-        kindLabel={spec.label}
-        districtName={district?.name ?? ''}
+      <header
+        className="flex items-end gap-3 rounded-sm border border-surface-600/70 bg-surface-950/60 px-3 py-2.5"
+        data-testid={`head-${view.location.id}`}
       >
         <div className="flex min-w-0 flex-1 flex-col">
-          <p className="font-display text-[10px] uppercase tracking-[0.2em] text-brass-300 text-on-art">
-            {spec.label}
+          <p className="font-display text-[10px] uppercase tracking-[0.2em] text-brass-300">
+            {district === undefined ? spec.label : `${district.name} · ${spec.label}`}
           </p>
           <h3
             id={cardHeadingId(view.location.id)}
-            className="font-stamp text-[19px] leading-tight text-ink-100 text-on-art"
+            className="font-stamp text-[19px] leading-tight text-ink-100"
           >
             {view.location.name}
           </h3>
@@ -188,16 +187,20 @@ export function LocationSheet({
               />
             ))}
           </span>
-          <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-200 text-on-art">
+          <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-200">
             Level {view.level}
           </span>
         </div>
-      </Vignette>
+      </header>
 
       <HolderPlate view={view} mine={mine} />
 
       <Sheet label="What it is">
-        <p className="font-body text-[12px] leading-relaxed text-ink-200">{spec.blurb}</p>
+        {/* This place's own line where it has one, else its kind's: two rail yards used to read
+            the same sentence. */}
+        <p className="font-body text-[12px] leading-relaxed text-ink-200">
+          {view.location.blurb ?? spec.blurb}
+        </p>
       </Sheet>
 
       <Sheet label="What holding it pays" icon="loot">
@@ -396,6 +399,7 @@ export function LocationSheet({
           blurb="Units left here hold the location. If it falls, half of them run and half do not. A number below zero brings that many home."
           army={army}
           standing={view.garrison ?? {}}
+          loadouts={me.data?.base?.unitLoadouts ?? {}}
           pending={garrison.isPending}
           error={garrison.error}
           confirmLabel="Leave them"
@@ -409,96 +413,6 @@ export function LocationSheet({
         />
       )}
     </section>
-  );
-}
-
-/** How far into the painting the vignette goes: the box shows a third of the plate's width. */
-const VIGNETTE_ZOOM = 3;
-/** The vignette's own shape, wide and short, a letterbox on the street. */
-const VIGNETTE_ASPECT = 3;
-
-/**
- * The header picture: the district painting, cropped round this location's sign.
- *
- * The image is drawn `VIGNETTE_ZOOM` times the box's width and shifted so the mark lands in the
- * middle, then clamped so the box is always full of painting: a mark near the plate's edge slides
- * the crop inward rather than showing the frame's dark behind it. Everything is in percentages of
- * the box, so the crop is the same picture at every window width.
- */
-function Vignette({
-  districtId,
-  locationId,
-  kindLabel,
-  districtName,
-  children,
-}: {
-  districtId: string;
-  locationId: string;
-  kindLabel: string;
-  districtName: string;
-  children: ReactNode;
-}) {
-  const plate = `district-${districtId}`;
-  const url = deliveredUrl({ type: 'plate', plate });
-  const mark = LOCATION_MARKS[locationId];
-  const painted = url !== null && mark !== undefined;
-
-  let crop: CSSProperties | undefined;
-  if (painted) {
-    const imageAspect = plateAspect(plate);
-    // The image's height in units of the box's height.
-    const tall = (VIGNETTE_ZOOM * VIGNETTE_ASPECT) / imageAspect;
-    const left = Math.min(0, Math.max(1 - VIGNETTE_ZOOM, 0.5 - mark.x * VIGNETTE_ZOOM));
-    const top = Math.min(0, Math.max(1 - tall, 0.5 - mark.y * tall));
-    crop = {
-      width: `${VIGNETTE_ZOOM * 100}%`,
-      height: `${tall * 100}%`,
-      left: `${left * 100}%`,
-      top: `${top * 100}%`,
-    };
-  }
-
-  return (
-    <div
-      className="relative overflow-hidden rounded-sm border border-surface-600/70 bg-surface-950"
-      style={{ aspectRatio: VIGNETTE_ASPECT }}
-      data-testid={`vignette-${locationId}`}
-      data-painted={painted ? 'true' : 'false'}
-    >
-      {painted ? (
-        <img
-          src={url}
-          alt={`${districtName}, around here`}
-          draggable={false}
-          // A crop runs past its frame by construction; `data-scenery` is how the image gate knows
-          // this one is meant to (see `expectNoImagesClipped`).
-          data-scenery
-          className="absolute max-w-none"
-          style={crop}
-        />
-      ) : (
-        // No painting for this ground yet. A drawn plate with the kind's glyph on it, so the
-        // template keeps its shape and the sheet does not open on a hole.
-        <div className="icon-plate absolute inset-0 flex items-center justify-center">
-          {/* Sized through the wrapper: `Icon` carries its own `h-5 w-5` and `cn` does not resolve
-              the conflict, so a size class on the icon itself is decided by stylesheet order.
-              Named through `label`, never an `sr-only` span: that clips its text to a 1px box,
-              which is exactly the shape the cut-text gate looks for. */}
-          <span className="text-brass-300/50 [&_svg]:h-16 [&_svg]:w-16">
-            <Icon name="district" label={kindLabel} />
-          </span>
-        </div>
-      )}
-      {/* The words sit on a gradient at the foot, the way a caption sits on a photograph. */}
-      <div className="absolute inset-x-0 bottom-0 flex items-end gap-3 bg-gradient-to-t from-surface-950/95 via-surface-950/70 to-transparent px-3 pb-2 pt-8">
-        {children}
-      </div>
-      {districtName !== '' && (
-        <span className="absolute left-3 top-2 rounded-sm bg-surface-950/70 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-[0.16em] text-ink-200 backdrop-blur-sm">
-          {districtName}
-        </span>
-      )}
-    </div>
   );
 }
 

@@ -5,7 +5,7 @@ import type { SideState, Stack } from './engine.js';
 /**
  * Who gets away (GDD §A4).
  *
- * The board's rule was a coin flip per body, and the coin flip is still the *base*: what changed
+ * The board's rule was a coin flip per unit, and the coin flip is still the *base*: what changed
  * is that the sheet now tilts it. A Road Reaver on a bike and a Colossus that walks do not have
  * the same odds of leaving a lost fight, and a system where they do makes speed a stat that only
  * matters on the way in.
@@ -133,7 +133,7 @@ export function routSurvivors(
   return { fled, killed };
 }
 
-/** What the winning side lost. Every body that fell is gone; the standing ones simply stand. */
+/** What the winning side lost. Every unit that fell is gone; the standing ones simply stand. */
 export function winnerCasualties(winning: SideState): Army {
   const killed: Army = {};
   for (const stack of winning.stacks) {

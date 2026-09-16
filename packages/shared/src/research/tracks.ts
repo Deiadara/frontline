@@ -183,7 +183,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   resource_yield: 'yield',
   mission_spoils: 'yield',
   salvage_refund: 'yield',
-  population: 'yield',
+  unit_slots: 'yield',
   xp_gain: 'yield',
   infamy_gain: 'yield',
 
@@ -342,7 +342,7 @@ export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
   trader: 'What you can get for what you have.',
   security_officer: 'Getting in should cost them.',
   chief_medic: 'How many of them come back.',
-  instructor_of_the_young: 'How fast a body becomes a soldier.',
+  instructor_of_the_young: 'How fast a unit becomes a soldier.',
   raid_boss: 'Going and taking it.',
   scout: 'Knowing before you go.',
   consigliere: 'What is said, and what is meant.',
@@ -539,7 +539,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Open Intake',
       blurb: 'The door is open two nights a week and the room is warm.',
-      bonus: { kind: 'population', flat: 20 },
+      bonus: { kind: 'unit_slots', flat: 20 },
     },
     {
       name: 'Line Balancing',
@@ -1190,7 +1190,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
     {
       name: 'The Intake',
-      blurb: 'They arrive as bodies and leave six weeks later as soldiers.',
+      blurb: 'They arrive as recruits and leave six weeks later as soldiers.',
       bonus: { kind: 'training_sessions', flat: 2 },
     },
   ]),

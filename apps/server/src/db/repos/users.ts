@@ -44,6 +44,8 @@ export interface UsersRepo {
   findById(id: string): UserRecord | undefined;
   findByUsername(username: string): UserRecord | undefined;
   setOverseerId(userId: string, overseerId: string): void;
+  /** Puts an account back in front of the character picker. The Console's Clean slate. */
+  clearOverseerId(userId: string): void;
   /** Applies a Settings patch. Only the keys present are written. */
   updateProfile(userId: string, patch: ProfilePatch): void;
   setPasswordHash(userId: string, passwordHash: string): void;
@@ -78,6 +80,7 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
   const byIdStmt = db.prepare('SELECT * FROM users WHERE id = ?');
   const byUsernameStmt = db.prepare('SELECT * FROM users WHERE username = ?');
   const setOverseerStmt = db.prepare('UPDATE users SET overseer_id = ? WHERE id = ?');
+  const clearOverseerStmt = db.prepare('UPDATE users SET overseer_id = NULL WHERE id = ?');
   const setPasswordStmt = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
   // One statement per field rather than a built-up SQL string: five prepared statements cost
   // nothing and a concatenated UPDATE is how a column name ends up coming from a request body.
@@ -105,6 +108,9 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
     },
     setOverseerId(userId, overseerId) {
       setOverseerStmt.run(overseerId, userId);
+    },
+    clearOverseerId(userId) {
+      clearOverseerStmt.run(userId);
     },
     updateProfile(userId, patch) {
       db.transaction(() => {

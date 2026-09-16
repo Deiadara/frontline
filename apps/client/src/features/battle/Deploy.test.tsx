@@ -110,6 +110,7 @@ const battles: BattlesResponse = {
   reports: [],
   slots: [],
   infamy: 40,
+  callPrices: { locations: {}, districts: {} },
   gates: [],
   structures: [],
   serverNow: NOW,
@@ -122,8 +123,8 @@ const roster: UnitsResponse = {
   army: base.army,
   garrisoned: {},
   abroad: {},
-  supplyUsed: 0,
-  supplyCap: 40,
+  unitSlotsUsed: 0,
+  unitSlotsCap: 40,
   queue: [],
   resources: STARTING_RESOURCES,
   trainingCostReduction: 0,
@@ -188,7 +189,7 @@ function stubApi(): void {
   });
 }
 
-/** The body the page actually put on the wire for the one deployment it made. */
+/** The unit the page actually put on the wire for the one deployment it made. */
 function deployBody(): DeployRequest {
   const post = fetchMock.mock.calls.find(
     ([path, init]) =>
@@ -284,5 +285,48 @@ describe('sending a column from the battle board (§A4)', () => {
 
     fireEvent.click(screen.getByRole('link', { name: 'On the road' }));
     expect(await screen.findByTestId('walking-razors')).toBeInTheDocument();
+  });
+
+  /**
+   * §A4: a ring's bite on the way out is news, and nobody was told.
+   *
+   * `adjustDeployment` has always charged the toll: the units caught are taken off the roster
+   * inside the same request that pulled them back, and the response said nothing about them. A
+   * crew that withdrew forty people and counted thirty four at home could not tell a ring from a
+   * miscount, which is the worst thing a strategy game can be ambiguous about.
+   */
+  it('says who the enemy ring stopped on the way out', async () => {
+    stubApi();
+    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
+      const reply = (body: unknown) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: '',
+          json: () => Promise.resolve(body),
+        } as Response);
+      if (path.endsWith('/battles/deploy') && init?.method === 'POST') {
+        return reply({
+          battles,
+          base: { ...base, army: { razors: 6 } },
+          caughtLeaving: { razors: 2 },
+        });
+      }
+      if (path.endsWith('/units')) return reply(roster);
+      if (path.endsWith('/battles')) return reply(battles);
+      if (path.endsWith('/actions')) return reply(column);
+      if (path.endsWith('/me')) return reply(me);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderGame();
+
+    fireEvent.click(await screen.findByTestId('deploy-open-press'));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByTestId('line-razors'), { target: { value: '2' } });
+    fireEvent.click(within(dialog).getByTestId('deploy-confirm'));
+
+    const told = await screen.findByTestId('caught-leaving');
+    expect(told).toHaveTextContent('2 Razors');
+    expect(told).toHaveTextContent('not coming home');
   });
 });

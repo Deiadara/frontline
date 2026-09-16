@@ -143,3 +143,40 @@ describe('the clock preview', () => {
     }
   });
 });
+
+/**
+ * The words on the sheet, as the maintainer asked for them (2026-09-15).
+ *
+ * The strings are the assertion. The quotation is the one line the screen opens on, the standing
+ * note under it is gone rather than reworded, the filter panel is called "Sound Preferences", the
+ * volume bar is described in one line, and the credential is a password everywhere the page speaks.
+ */
+describe('the sheet reads as asked', () => {
+  it('opens on the city line and carries no standing note', async () => {
+    renderSettings();
+    expect(
+      await screen.findByText('The only part that the city allows you to control'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/The Combine keeps a file on you/)).toBeNull();
+    expect(screen.queryByText('What is yours alone')).toBeNull();
+    expect(screen.queryByTestId('info-note')).toBeNull();
+  });
+
+  it('names the filter panel Sound Preferences and the credential a password', async () => {
+    renderSettings();
+    expect(await screen.findByRole('heading', { name: 'Sound Preferences' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Password' })).toBeTruthy();
+    expect(screen.queryByText('What you hear about')).toBeNull();
+    expect(screen.queryByText(/passphrase/i)).toBeNull();
+  });
+
+  it('describes the volume bar in one line that names every sound and silence at 0', async () => {
+    renderSettings();
+    const panel = await screen.findByTestId('settings-sounds-panel');
+    const line = panel.querySelector('p')!.textContent.trim();
+    expect(line).toBe('One bar for every sound the game makes. At 0 the game is silent.');
+    // One line, ten to fifteen words: the paragraph it replaced ran to five sentences.
+    expect(line.split(/\s+/).length).toBeGreaterThanOrEqual(10);
+    expect(line.split(/\s+/).length).toBeLessThanOrEqual(15);
+  });
+});

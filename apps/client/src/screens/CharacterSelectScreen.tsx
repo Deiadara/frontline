@@ -1,9 +1,9 @@
-import { OVERSEER_PRESETS } from '@frontline/shared';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiRequestError } from '../lib/api';
-import { useCreateOverseer } from '../lib/queries';
+import { useCreateOverseer, useOverseerChoices } from '../lib/queries';
 import { Button } from '../components/ui/Button';
+import { LoadFailure } from '../components/ui/LoadFailure';
 import { OverseerCard } from '../features/overseer/OverseerCard';
 
 interface RowLayout {
@@ -49,6 +49,15 @@ function measureRows(frame: HTMLElement, grid: HTMLElement, hint: HTMLElement | 
 export function CharacterSelectScreen() {
   const navigate = useNavigate();
   const createOverseer = useCreateOverseer();
+  /*
+   * §F6: the four are the **server's**, not the whole table.
+   *
+   * The preset catalogue ships in `@frontline/shared` and this screen used to map straight over it,
+   * which was right while there were four of them and is wrong now there are thirty and a pool that
+   * drains. Only the server knows who is left.
+   */
+  const offer = useOverseerChoices();
+  const choices = offer.data?.choices ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [rows, setRows] = useState<RowLayout>(UNMEASURED);
 
@@ -74,9 +83,9 @@ export function CharacterSelectScreen() {
     observer.observe(frame);
     observer.observe(grid);
     return () => observer.disconnect();
-  }, [rows.hiddenCards]);
+  }, [rows.hiddenCards, choices.length]);
 
-  const selected = OVERSEER_PRESETS.find((p) => p.presetId === selectedId) ?? null;
+  const selected = choices.find((p) => p.presetId === selectedId) ?? null;
 
   const confirm = () => {
     if (!selected) return;
@@ -111,8 +120,17 @@ export function CharacterSelectScreen() {
         <h1 className="mt-1 font-display text-2xl font-bold tracking-[0.2em] text-ink-100">
           CHOOSE YOUR OVERSEER
         </h1>
-        <p className="mt-1 font-body text-xs text-ink-300">
-          Four operators wait to run your syndicate. Each rewrites how the war is fought.
+        {/* The failure branch is not decoration. `offer.data` is undefined both while the request
+            is in flight and after it has failed, so without it a failed read left this header
+            saying "Reading the files." over an empty grid and a disabled button, which is the
+            exact failure `LoadFailure` was written for, on the one screen a player cannot get
+            past. */}
+        <p className="mt-1 font-body text-xs text-ink-300" data-testid="overseer-pool">
+          {offer.isError
+            ? 'The files would not open.'
+            : offer.data === undefined
+              ? 'Reading the files.'
+              : `${choices.length} of the ${offer.data.total} operators are free to take your call, and ${offer.data.remaining} are still unspoken for. Each rewrites how the war is fought, and whoever you take is off the board for everybody.`}
         </p>
       </header>
 
@@ -121,13 +139,22 @@ export function CharacterSelectScreen() {
         ref={frameRef}
         className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-8 py-1.5"
       >
+        {offer.isError && (
+          <div className="mx-auto w-full max-w-5xl">
+            <LoadFailure
+              what="The overseer files"
+              onRetry={() => void offer.refetch()}
+              detail="Nothing has been chosen and nothing has been lost. Your crew is waiting on the other side of this."
+            />
+          </div>
+        )}
         <div
           className="mx-auto w-full max-w-5xl snap-y snap-mandatory overflow-y-auto"
           style={{ maxHeight: rows.height }}
         >
           {/* Row gap only: widening the columns would rewrap the bios and change card height. */}
           <div ref={gridRef} className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
-            {OVERSEER_PRESETS.map((preset) => (
+            {choices.map((preset) => (
               <OverseerCard
                 key={preset.presetId}
                 preset={preset}

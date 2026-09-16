@@ -1,4 +1,4 @@
-import type { ModificationEffect, UpgradeLine } from '@frontline/shared';
+import type { ModificationEffect, ModificationRarity } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 
 /**
@@ -7,10 +7,16 @@ import { cn } from '../../lib/cn';
  * Sixty-seven entries on one page, in three kinds, and until now every row was a name and a
  * sentence. A player scanning for "the one that shortens builds" had to read. So every entry
  * carries a stencil now: one glyph per **effect channel** for the structure modifications (a cog
- * for output, a stopwatch for build time, a stacked crate for storage), one per **line** for the
- * refits, one per **trap**. Thirteen channels rather than seventy-seven bespoke drawings, because the
- * channel is what a player is choosing between: two Quarters bolt-ons that both add beds are the
- * same decision at two prices, and they should look like it.
+ * for output, a stopwatch for build time, a stacked crate for storage), one per **rarity** for the
+ * unit modifications, one per **trap**. Thirteen channels rather than seventy-seven bespoke
+ * drawings, because the channel is what a player is choosing between: two Quarters bolt-ons that
+ * both add beds are the same decision at two prices, and they should look like it.
+ *
+ * The unit cards used to carry one mark per refit line (armour, weapons, discipline, cybernetics).
+ * The lines went with the refits (2026-09-15) and the thirty cards that replaced them have no axis
+ * of their own but the rarity, so that is what the mark says: how much engineering went into it.
+ * Which of the thirty a card is comes off its name and its row of deltas, and the rarity's colour
+ * (`rarity.tsx`) sits on the plate beside the shape.
  *
  * Drawn here rather than fetched: procedural art is the default source for every asset key (art
  * policy, 2026-08-13), and stroked line drawings in one weight are the thing code does well. The
@@ -82,28 +88,38 @@ const EFFECT_GLYPHS: Readonly<Record<ModificationEffect, string[]>> = {
   ],
 };
 
-const LINE_GLYPHS: Readonly<Record<UpgradeLine, string[]>> = {
-  // A chest plate: the seam down it and the strap across.
-  armour: ['M6 4h12l2 5v7l-8 5-8-5V9z', 'M12 6v14', 'M8 11h8'],
-  // A reticle over the bore.
-  weapons: [
-    'M12 4a8 8 0 1 0 .1 0z',
-    'M12 2v4',
-    'M12 18v4',
-    'M2 12h4',
-    'M18 12h4',
-    'M12 10a2 2 0 1 0 .1 0z',
+const RARITY_GLYPHS: Readonly<Record<ModificationRarity, string[]>> = {
+  // A nut: one piece of stock, threaded and done.
+  basic: ['M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z', 'M12 9a3 3 0 1 0 .1 0z'],
+  // Two cogs meshed: somebody who knows which way they turn.
+  intricate: [
+    'M9 5.5a3.5 3.5 0 1 0 .1 0z',
+    'M9 3v1.5',
+    'M9 13.5V15',
+    'M3 9h1.5',
+    'M13.5 9H15',
+    'M16.5 13.5a2.5 2.5 0 1 0 .1 0z',
+    'M16.5 12v1',
+    'M16.5 19v1',
+    'M12.5 16h1',
+    'M19.5 16h1',
   ],
-  // A standard on its pole, planted: what the line holds when the maths says run.
-  discipline: ['M7 21V3', 'M7 4h11l-3 3.5 3 3.5H7', 'M4 21h6', 'M12 14v2M15 13v3'],
-  // A hand with the wiring showing.
-  cybernetics: [
-    'M8 21v-5l-2-4',
-    'M8 12V6a1.5 1.5 0 0 1 3 0v6',
-    'M11 11V4a1.5 1.5 0 0 1 3 0v7',
-    'M14 11V6a1.5 1.5 0 0 1 3 0v9a6 6 0 0 1-6 6H8',
-    'M9.5 15a.6.6 0 1 0 .1 0z',
-    'M12.5 15a.6.6 0 1 0 .1 0z',
+  // A chip with its legs: engineering, and the bill that comes with it.
+  advanced: [
+    'M8 8h8v8H8z',
+    'M10 8V5',
+    'M14 8V5',
+    'M10 16v3',
+    'M14 16v3',
+    'M8 10H5',
+    'M8 14H5',
+    'M16 10h3',
+    'M16 14h3',
+  ],
+  // A maker's seal: the star inside the ring, the way the people known by name sign their work.
+  masterpiece: [
+    'M12 4a8 8 0 1 0 .1 0z',
+    'M12 7.5l1.4 2.9 3.1.4-2.3 2.2.6 3.1L12 14.6 9.2 16.1l.6-3.1-2.3-2.2 3.1-.4z',
   ],
 };
 
@@ -166,7 +182,7 @@ const TORCH = [
 
 export type YardMark =
   | { kind: 'effect'; effect: ModificationEffect }
-  | { kind: 'line'; line: UpgradeLine }
+  | { kind: 'rarity'; rarity: ModificationRarity }
   | { kind: 'trap'; id: string }
   | { kind: 'yard' };
 
@@ -174,8 +190,8 @@ function pathsOf(mark: YardMark): string[] {
   switch (mark.kind) {
     case 'effect':
       return EFFECT_GLYPHS[mark.effect];
-    case 'line':
-      return LINE_GLYPHS[mark.line];
+    case 'rarity':
+      return RARITY_GLYPHS[mark.rarity];
     case 'trap':
       return TRAP_GLYPHS[mark.id] ?? UNKNOWN_TRAP;
     case 'yard':
@@ -214,11 +230,20 @@ export function YardPlate({
   mark,
   tone = 'ink',
   size = 'md',
+  count = null,
   className,
 }: {
   mark: YardMark;
   tone?: 'brass' | 'bile' | 'ink' | 'oxblood';
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * How many of this thing the crew holds, stamped on the corner of the plate.
+   *
+   * A count is a fact about the object the glyph already names, so it rides on the glyph rather
+   * than taking a line of its own under it (maintainer request, 2026-09-15). The plate is
+   * `aria-hidden`, so a caller that shows one owes a readable copy of the number elsewhere.
+   */
+  count?: number | null;
   className?: string;
 }) {
   return (
@@ -241,6 +266,16 @@ export function YardPlate({
         mark={mark}
         className={size === 'sm' ? 'h-5 w-5' : size === 'md' ? 'h-7 w-7' : 'h-9 w-9'}
       />
+      {count !== null && count > 0 && (
+        <span
+          className={cn(
+            'absolute -bottom-1.5 -right-1.5 rounded-sm border border-bile-300/60 bg-surface-950',
+            'px-1 font-display text-[10px] font-bold leading-[1.4] tabular-nums text-bile-300',
+          )}
+        >
+          ×{count}
+        </span>
+      )}
     </span>
   );
 }

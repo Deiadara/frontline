@@ -19,7 +19,7 @@ import { fightOrder } from './order';
 import { EmptyPlate, Figure, WindowHead } from './parts';
 
 /**
- * What the table has called, and the form that sends bodies to it.
+ * What the table has called, and the form that sends units to it.
  *
  * A window rather than a panel on the screen, because the room is the screen now and a fight is
  * something a player *acts on* rather than something they read. The chips over the room carry the

@@ -62,7 +62,22 @@ export function ActionsPage() {
   const recallScout = useRecallScout(road.scout?.districtId);
 
   return (
-    <PageShell title="On the road" icon="actions" action={data ? <Counts road={road} /> : null}>
+    /*
+     * The same sheet Battles and Notifications get: `wide` and `fills`.
+     *
+     * This opened on the narrow default, so a page that lists every column on the road, every fight
+     * in flight and the scout, sat in a column about half the width of the screen beside a field of
+     * empty backdrop, while the two screens it is most like ran the full sheet. `wide` gives it the
+     * width, and `fills` makes the list do its own scrolling instead of the whole sheet growing,
+     * which is what a live board of things in flight wants (maintainer request, 2026-09-14).
+     */
+    <PageShell
+      title="On the road"
+      icon="actions"
+      action={data ? <Counts road={road} /> : null}
+      wide
+      fills
+    >
       {!data ? (
         <ScreenLoad
           what="The road"
@@ -79,7 +94,17 @@ export function ActionsPage() {
           </p>
         </FileSection>
       ) : (
-        <div className="flex flex-col gap-4" data-testid="road">
+        /*
+         * The one region that moves, and it has to say so twice.
+         *
+         * `fills` hands the page a unit that is `overflow-hidden` and expects the page to name its
+         * own scroller. This list never did, so a player with more than about four columns out was
+         * simply shown the first four: the rest were clipped by the shell with no scrollbar and no
+         * way to reach them. `overflow-y-auto` alone is not enough either, because a flex child's
+         * default `min-height: auto` lets this box grow to the height of its content, so there is
+         * never any overflow to scroll. `min-h-0` is what bounds it to the sheet.
+         */
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" data-testid="road">
           {/* A recall the server refuses. `movement.recallable` is computed when the response is
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
@@ -186,7 +211,9 @@ function Counts({ road }: { road: Road }) {
       className="font-display text-[12px] uppercase tracking-[0.14em] tabular-nums text-ink-300"
       data-testid="road-counts"
     >
-      {parts.length === 0 ? 'Nobody out' : `${parts.join(' · ')} · ${counts.bodies} bodies`}
+      {parts.length === 0
+        ? 'Nobody out'
+        : `${parts.join(' · ')} · ${counts.unitSlots} ${counts.unitSlots === 1 ? 'unit slot' : 'unit slots'}`}
     </span>
   );
 }
@@ -233,7 +260,7 @@ function Section({
  *
  * Every row on this screen is the same card whatever the errand is, the way every location's
  * window is the same sheet: the name in the stamped face, what they are doing on a plate at the
- * right, the route and its clock, the bar, and the bodies. A row that is about to change (a
+ * right, the route and its clock, the bar, and the units. A row that is about to change (a
  * column still inside its recall window, a fight settling) says so in colour on that plate.
  */
 function Row({
@@ -317,7 +344,7 @@ function Force({
 }
 
 /**
- * §C3: the machines under a force, beside the bodies.
+ * §C3: the machines under a force, beside the units.
  *
  * On every leg the same way: a column walking to a fight, a force standing at one, a crew out on
  * a job. The screen listed what was moving and not what it rode in, so the yard the player had

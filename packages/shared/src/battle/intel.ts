@@ -38,14 +38,14 @@ const total = (force: Army): number =>
 /** The average stealth of what is standing there, 0..100. Zero for an empty ground. */
 export function forceStealth(force: Army): number {
   let weighted = 0;
-  let bodies = 0;
+  let units = 0;
   for (const [unitId, count] of Object.entries(force)) {
     const unit = findUnit(unitId);
     if (!unit || count <= 0) continue;
     weighted += count * unit.stats.stealth;
-    bodies += count;
+    units += count;
   }
-  return bodies === 0 ? 0 : weighted / bodies;
+  return units === 0 ? 0 : weighted / units;
 }
 
 export interface DeploymentIntelInput {

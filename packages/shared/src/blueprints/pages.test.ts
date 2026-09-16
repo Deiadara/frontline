@@ -4,10 +4,10 @@ import { ITEM_RARITIES, RARITY_ORDER, type ItemRarity } from '../items/rarity.js
 import { BLUEPRINTS, pageRarity, type BlueprintPage, type BlueprintSpec } from './catalog.js';
 
 /**
- * What a page is, beyond an id in a satchel.
+ * What a page is, beyond an id in an inventory.
  *
  * A page used to be a name and a count. It carries a written description and a rarity of its own
- * now, both of which are read by the shop, the satchel and the Blueprints screen, and all three of
+ * now, both of which are read by the shop, the inventory and the Blueprints screen, and all three of
  * those failures are silent: a missing description prints an empty hover, a rarity that disagrees
  * with the document paints the row the wrong colour. So the checks here are over the whole
  * catalogue rather than over a sample, because the failure mode is one entry out of a hundred and
@@ -35,7 +35,7 @@ function tally(rarities: readonly ItemRarity[]): Record<ItemRarity, number> {
 }
 
 describe('every page says what is on it', () => {
-  it('gives all one hundred and seventy-four a description', () => {
+  it('gives all two hundred and fifty-five a description', () => {
     for (const { blueprint, page } of ALL_PAGES) {
       expect(
         page.description.length,
@@ -43,7 +43,7 @@ describe('every page says what is on it', () => {
       ).toBeGreaterThan(20);
       expect(page.description.trim(), `${page.id} is padded`).toBe(page.description);
     }
-    expect(ALL_PAGES.length).toBe(174);
+    expect(ALL_PAGES.length).toBe(255);
   });
 
   /**

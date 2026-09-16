@@ -31,7 +31,7 @@ import { liveHub } from '../live/hub.js';
  * 1. **Fortifications**, because ground that finished digging in before the mark is dug in when it
  *    is attacked.
  * 2. **Movements**, because a column whose march ended before the mark is *in* the district, and
- *    settling the fight first would resolve it without those bodies and land the reinforcements in
+ *    settling the fight first would resolve it without those units and land the reinforcements in
  *    a battle that is already over.
  * 3. **Captured gates**, because a gate that finished going up before the mark changes how hard
  *    that ground is to take, and it changes it for somebody else.
@@ -42,7 +42,7 @@ import { liveHub } from '../live/hub.js';
  *
  * Both auctions are here rather than only on their own read paths, because a table closes at
  * midnight and a lot closes when the Runner packs up whether or not anybody is looking: the crew
- * that won should find the officer on the books or the goods in the satchel and a bell rung, not
+ * that won should find the officer on the books or the goods in the inventory and a bell rung, not
  * discover both by opening the right screen three days later.
  *
  * Crews coming home is passed in rather than imported, because it lives in `live/clock.ts` with the

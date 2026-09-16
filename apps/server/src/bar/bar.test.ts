@@ -2,7 +2,7 @@ import {
   DISMISSAL_WEEKS,
   MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
-  districtPopulationCapacity,
+  districtUnitSlotCapacity,
   noTerritoryEffects,
   ATTRIBUTE_NAMES,
   CommanderSchema,
@@ -55,6 +55,7 @@ import {
   findBarRecruit,
   recruitId,
 } from './roster.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /*
  * The clock, pinned.
@@ -118,13 +119,11 @@ async function makePlayer(app: FastifyInstance, username: string): Promise<Playe
   expect(register.statusCode).toBe(201);
   const registered = register.json<{ token: string; user: { id: string } }>();
 
-  const overseer = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: { authorization: `Bearer ${registered.token}` },
-    payload: { presetId: 'enforcer' },
-  });
+  const overseer = await chooseOverseer(app, registered.token);
   expect(overseer.statusCode).toBe(201);
+  // The room is the same eight tables for everybody on a given game day, and one §F6 signature
+  // widens the pool it is drawn from by 40%, which is the thing this file counts.
+  pinOverseer(app, registered.token);
   return {
     token: registered.token,
     userId: registered.user.id,
@@ -547,10 +546,10 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
     const bare = makeBase();
     expect(sign(fakeRepos().repos, bare, reserveFor(recruit())).kind).toBe('signed');
 
-    // Razors are one body each, so this roster fills the pool to the brim. The crew is who you
+    // Razors are one unit each, so this roster fills the pool to the brim. The crew is who you
     // are and the army is what you can field: filling one has nothing to say about the other.
     const packed = makeBase({
-      army: { razors: districtPopulationCapacity(bare.buildings, noTerritoryEffects()) },
+      army: { razors: districtUnitSlotCapacity(bare.buildings, noTerritoryEffects()) },
     });
     expect(sign(fakeRepos().repos, packed, reserveFor(recruit())).kind).toBe('signed');
   });

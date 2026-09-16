@@ -64,6 +64,12 @@ export interface CityRepo {
   scouted(baseId: string): Set<string>;
   markScouted(baseId: string, districtId: string, at: string): void;
   /**
+   * Every district this crew has seen inside, forgotten. The Console's Clean slate: a crew at its
+   * first second has walked nowhere, and `district_intel` does not cascade because the base row
+   * is rewritten rather than deleted.
+   */
+  forgetScouted(baseId: string): void;
+  /**
    * What this crew can see into right now: the districts its scouts have visited, or in admin
    * mode every district except the ones the Console has hidden. This is the read the city, the
    * board and the battles go through; `scouted` is the raw intel and stays that.
@@ -100,6 +106,7 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
     `INSERT INTO district_intel (base_id, district_id, scouted_at) VALUES (?, ?, ?)
      ON CONFLICT (base_id, district_id) DO NOTHING`,
   );
+  const forgetScoutedStmt = db.prepare('DELETE FROM district_intel WHERE base_id = ?');
   const fogStmt = db.prepare('SELECT district_id FROM admin_fog WHERE base_id = ?');
   const hideStmt = db.prepare(
     'INSERT INTO admin_fog (base_id, district_id) VALUES (?, ?) ON CONFLICT DO NOTHING',
@@ -156,6 +163,9 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
     },
     markScouted(baseId, districtId, at) {
       markStmt.run(baseId, districtId, at);
+    },
+    forgetScouted(baseId) {
+      forgetScoutedStmt.run(baseId);
     },
     visibleDistricts(baseId) {
       if (!admin) return this.scouted(baseId);

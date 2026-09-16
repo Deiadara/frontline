@@ -30,9 +30,9 @@ pnpm dev
 
 Open **http://localhost:5173** and log in with the MVP account:
 
-| Operator ID | Passphrase |
-| ----------- | ---------- |
-| `Nikos`     | `Nikos`    |
+| Operator ID | Password |
+| ----------- | -------- |
+| `Nikos`     | `Nikos`  |
 
 The login form arrives prefilled with these, so you can just press **Jack In**.
 

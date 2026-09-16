@@ -6,7 +6,7 @@ import {
   type ItemId,
   type ItemKind,
 } from '@frontline/shared';
-import type { JSX } from 'react';
+import { useId, type JSX } from 'react';
 import { cn } from '../../lib/cn';
 import { BlueprintGlyph, PageGlyph, type GlyphSize } from '../research/BlueprintGlyph';
 
@@ -83,18 +83,6 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
     </>
   ),
   // A faceted stone: worth money and nothing else.
-  relic: (
-    <>
-      <path
-        d="M8 2.6l4.6 3.1-1.7 6.6H5.1L3.4 5.7z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <path d="M3.4 5.7h9.2M8 2.6v9.7" stroke="currentColor" strokeWidth="1" />
-    </>
-  ),
   // A pressure plate over a charge: a board, and the thing under it. Built to go off once.
   consumable: (
     <>
@@ -133,92 +121,155 @@ const S = {
   strokeLinecap: 'round',
   strokeLinejoin: 'round',
 } as const;
+/**
+ * The eight components, drawn rather than plotted (maintainer request, 2026-09-14).
+ *
+ * These were exact geometry: true circles, right angles, paths that closed on themselves to the
+ * pixel. Correct, legible, and completely at odds with a screen whose frames, rules, buttons and
+ * seals are all pen strokes that wobble and overshoot. Next to a hand-inked frame an exact octagon
+ * reads as a placeholder, which is what "boring" meant.
+ *
+ * Two changes and they are both the house idiom. Every path now has a hand in it: corners run past
+ * where they should stop, opposite sides disagree by a fraction, a circle is drawn as two arcs that
+ * do not quite meet. And the whole glyph goes through the same `feTurbulence` and
+ * `feDisplacementMap` pair that `ClaimButton`, `.ink-box` and `PortraitFrame` use, which is what
+ * turns a clean stroke into an inked one.
+ *
+ * The silhouettes are unchanged on purpose. A player already knows a Coolant Cell by its shape, and
+ * the point of this pass was the line quality rather than a new vocabulary of pictures.
+ */
 const GOOD_GLYPHS: Partial<Record<ItemId, JSX.Element>> = {
+  // A servo can: unit, spindle, mounting feet, and the seam across the middle.
   scrap_servo: (
     <>
-      <path d="M3 5.5h7v5H3z" {...S} />
-      <path d="M10 8h3M13 7v2M1.5 8H3M4.5 10.5v2M8.5 10.5v2" {...S} />
-      <path d="M5 7.5h3" {...S} strokeWidth={0.9} />
+      <path d="M3.1 5.4 L10.1 5.2 L9.9 10.6 L2.9 10.4 Z" {...S} />
+      <path d="M10 8.1 L13.1 7.9 M13 6.9 L13.2 9.2 M1.4 8.2 L3 8.05" {...S} />
+      <path d="M4.4 10.5 L4.6 12.6 M8.4 10.5 L8.7 12.5" {...S} />
+      <path d="M5 7.4 Q6.5 7.7 8.1 7.3" {...S} strokeWidth={0.85} />
     </>
   ),
+  // A gyro: an outer ring drawn in two passes, with two gimbals inside it.
   gyro_assembly: (
     <>
-      <circle cx="8" cy="8" r="5.5" {...S} />
-      <path d="M2.5 8a5.5 2.2 0 1 0 11 0a5.5 2.2 0 1 0-11 0" {...S} strokeWidth={1} />
-      <path d="M8 2.5a2.2 5.5 0 1 0 0 11a2.2 5.5 0 1 0 0-11" {...S} strokeWidth={1} />
-      <circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+      <path d="M13.4 8.2 A5.4 5.4 0 1 1 8 2.6 A5.5 5.5 0 0 1 13.5 7.9" {...S} />
+      <path d="M2.7 8.2 Q8 5.6 13.3 8.1 Q8 10.7 2.7 8.2" {...S} strokeWidth={0.95} />
+      <path d="M8.1 2.8 Q5.4 8 8 13.2 Q10.7 8 8.05 2.9" {...S} strokeWidth={0.95} />
+      <circle cx="8" cy="8.1" r="0.85" fill="currentColor" stroke="none" />
     </>
   ),
+  // A plate: a hex cut from sheet, with the inner lamination showing.
   ceramic_plate: (
     <>
-      <path d="M8 2.2l5 2.9v5.8l-5 2.9-5-2.9V5.1z" {...S} />
-      <path d="M8 5.6l2.3 1.3v2.7L8 10.9 5.7 9.6V6.9z" {...S} strokeWidth={0.9} />
+      <path d="M8 2.1 L13.1 5.2 L12.9 10.9 L8 13.9 L3 10.8 L3.2 5.1 Z" {...S} />
+      <path
+        d="M8 5.5 L10.4 6.95 L10.3 9.7 L8 11 L5.6 9.55 L5.75 6.85 Z"
+        {...S}
+        strokeWidth={0.85}
+      />
+      <path d="M3.2 5.1 L4.4 4.4" {...S} strokeWidth={0.8} />
     </>
   ),
+  // A lens cluster: the big eye, its iris, and a smaller one behind it on a stalk.
   optic_cluster: (
     <>
-      <circle cx="7" cy="9" r="4.2" {...S} />
-      <circle cx="7" cy="9" r="1.6" {...S} strokeWidth={1} />
-      <circle cx="12.2" cy="4" r="1.8" {...S} strokeWidth={1} />
-      <path d="M9.8 6.2l1-1" {...S} strokeWidth={0.9} />
+      <path d="M11.2 9.1 A4.2 4.2 0 1 1 7 4.85 A4.25 4.25 0 0 1 11.25 8.8" {...S} />
+      <path
+        d="M8.6 9.1 A1.6 1.6 0 1 1 7 7.45 A1.65 1.65 0 0 1 8.65 8.9"
+        {...S}
+        strokeWidth={0.95}
+      />
+      <path
+        d="M14 4.1 A1.8 1.8 0 1 1 12.2 2.3 A1.85 1.85 0 0 1 13.95 3.9"
+        {...S}
+        strokeWidth={0.95}
+      />
+      <path d="M9.7 6.3 Q10.3 5.7 10.9 5.2" {...S} strokeWidth={0.85} />
     </>
   ),
+  // A shunt: the housing, the pins under it, and the lead going up out of the top.
   neural_shunt: (
     <>
-      <path d="M5 3.5h6v5.5H5z" {...S} />
-      <path d="M6.6 9v4.5M9.4 9v4.5M8 3.5V1.5" {...S} />
-      <path d="M6.6 6.2h2.8" {...S} strokeWidth={0.9} />
+      <path d="M5.1 3.4 L11 3.6 L10.8 9.1 L4.9 8.9 Z" {...S} />
+      <path d="M6.5 9 L6.7 13.4 M9.3 9 L9.5 13.3 M8 3.5 L7.9 1.4" {...S} />
+      <path d="M6.5 6.1 Q8 6.4 9.5 6" {...S} strokeWidth={0.85} />
+      <path d="M4.9 8.9 L4.2 9.4" {...S} strokeWidth={0.8} />
     </>
   ),
+  // A cell: a canister with a cap, two fill lines, and a rounded foot.
   coolant_cell: (
     <>
-      <path d="M5 3.8h6v8.7a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 5 12.5z" {...S} />
-      <path d="M6.5 3.8V2h3v1.8M5 7h6M5 9.8h6" {...S} strokeWidth={1} />
+      <path
+        d="M5 3.7 L11 3.9 L10.85 12.4 Q10.8 13.9 9.4 13.95 L6.5 13.9 Q5.1 13.85 5.05 12.4 Z"
+        {...S}
+      />
+      <path d="M6.4 3.75 L6.5 1.9 L9.5 2 L9.45 3.85" {...S} strokeWidth={0.95} />
+      <path
+        d="M5.05 7.05 Q8 7.35 10.95 6.95 M5.05 9.85 Q8 10.15 10.9 9.75"
+        {...S}
+        strokeWidth={0.9}
+      />
     </>
   ),
+  // A rotor hub: the boss, and three blades running off it at unequal lengths.
   rotor_hub: (
     <>
-      <circle cx="8" cy="8.5" r="2" {...S} />
-      <path d="M8 6.5V1.5M9.7 9.5l4.3 2.5M6.3 9.5L2 12" {...S} />
-      <circle cx="8" cy="8.5" r="0.6" fill="currentColor" stroke="none" />
+      <path d="M10 8.6 A2 2 0 1 1 8 6.55 A2.05 2.05 0 0 1 10.05 8.4" {...S} />
+      <path d="M8 6.5 L7.85 1.4 M9.75 9.6 L14.1 12.2 M6.3 9.5 L1.9 11.9" {...S} />
+      <path d="M7.85 1.4 L8.7 2.1 M14.1 12.2 L13.1 12.4" {...S} strokeWidth={0.8} />
+      <circle cx="8" cy="8.55" r="0.55" fill="currentColor" stroke="none" />
     </>
   ),
+  // A bundle of welding rod, banded, with one pulled out of it.
+  weld_rod: (
+    <>
+      <path
+        d="M4.4 12.9 L11.2 3.1 M6.2 13.2 L12.8 3.4 M8 13.3 L14.2 3.6"
+        {...S}
+        strokeWidth={1.05}
+      />
+      <path d="M5.4 9.2 Q9 8.2 12.6 7" {...S} strokeWidth={1.15} />
+      <path d="M2 13.6 L5.6 8.5" {...S} strokeWidth={0.95} />
+      <path d="M2 13.6 L2.9 13.2" {...S} strokeWidth={0.8} />
+    </>
+  ),
+  // A ram: the cylinder, the rod out of one end, and the eye it pins through.
+  hydraulic_ram: (
+    <>
+      <path d="M2.4 5.9 L9.1 5.7 L9 10.4 L2.3 10.2 Z" {...S} />
+      <path d="M9.05 8 L12.6 7.9" {...S} strokeWidth={1.3} />
+      <path d="M14.4 8 A1.5 1.5 0 1 1 12.9 6.5 A1.55 1.55 0 0 1 14.35 7.8" {...S} strokeWidth={1} />
+      <path d="M3.9 5.8 L3.8 10.3 M6 5.75 L5.95 10.3" {...S} strokeWidth={0.8} />
+    </>
+  ),
+  // A relay board: the case, the aerial stub, and the waves coming off it.
+  signal_relay: (
+    <>
+      <path d="M3.2 7.4 L9.6 7.2 L9.5 12.6 L3.1 12.4 Z" {...S} />
+      <path d="M6.3 7.3 L6.2 4.4" {...S} />
+      <path d="M4.6 9.5 L8.1 9.4 M4.6 11 L6.8 10.9" {...S} strokeWidth={0.8} />
+      <path d="M11 6.2 Q12.6 8 11.1 9.9 M12.9 4.6 Q15.3 8 13 11.4" {...S} strokeWidth={0.95} />
+    </>
+  ),
+  // A valve: the unit, the gland, and the handwheel across the top.
+  pressure_valve: (
+    <>
+      <path d="M5 7.6 L11 7.4 L10.9 11.9 L4.9 11.7 Z" {...S} />
+      <path d="M1.8 9.7 L5 9.6 M11 9.5 L14.2 9.4" {...S} strokeWidth={1.2} />
+      <path d="M7.9 7.5 L7.85 4.9" {...S} />
+      <path d="M5.3 4.7 Q8 3.5 10.7 4.6" {...S} strokeWidth={1.1} />
+      <path d="M5.3 4.7 L5.9 5.3" {...S} strokeWidth={0.8} />
+    </>
+  ),
+  // A targeting core: the block, the bracket lugs on all four sides, and the reticle.
   targeting_core: (
     <>
-      <path d="M4 4h8v8H4z" {...S} />
+      <path d="M4.1 3.9 L12 4.1 L11.9 12.1 L3.9 11.9 Z" {...S} />
       <path
-        d="M2.5 6h1.5M2.5 10h1.5M12 6h1.5M12 10h1.5M6 2.5V4M10 2.5V4M6 12v1.5M10 12v1.5"
+        d="M2.4 6 L4.05 5.9 M2.4 10 L4 10.05 M11.95 5.95 L13.6 5.85 M11.9 10.05 L13.5 10 M6 2.4 L5.9 4.05 M10 2.5 L9.95 4.05 M6.05 11.95 L5.95 13.6 M10 11.95 L10.05 13.5"
         {...S}
-        strokeWidth={1}
+        strokeWidth={0.95}
       />
-      <circle cx="8" cy="8" r="1.8" {...S} strokeWidth={1} />
-      <path d="M8 5.4v1M8 9.6v1M5.4 8h1M9.6 8h1" {...S} strokeWidth={0.9} />
-    </>
-  ),
-  combine_seal: (
-    <>
-      <circle cx="8" cy="8" r="5.6" {...S} />
-      <path
-        d="M8 4.3l1.1 2.3 2.5.3-1.8 1.7.5 2.5L8 9.9l-2.3 1.2.5-2.5L4.4 6.9l2.5-.3z"
-        {...S}
-        strokeWidth={1}
-      />
-    </>
-  ),
-  pre_collapse_ledger: (
-    <>
-      <path d="M4 2.6h7a1.4 1.4 0 0 1 1.4 1.4v9.4H5.4A1.4 1.4 0 0 1 4 12z" {...S} />
-      <path d="M4 12a1.4 1.4 0 0 1 1.4-1.4h7M6.6 5.6h3.4M6.6 8h3.4" {...S} strokeWidth={1} />
-    </>
-  ),
-  ivory_dice: (
-    <>
-      <path d="M7.2 2.6h6.2v6.2H7.2z" {...S} />
-      <path d="M2.6 7.2h6.2v6.2H2.6z" fill="rgb(20 18 26)" {...S} />
-      <circle cx="10.3" cy="5.7" r="0.7" fill="currentColor" stroke="none" />
-      <circle cx="4.4" cy="9" r="0.7" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="11.6" r="0.7" fill="currentColor" stroke="none" />
-      <circle cx="5.7" cy="10.3" r="0.7" fill="currentColor" stroke="none" />
+      <path d="M9.8 8.1 A1.8 1.8 0 1 1 8 6.2 A1.85 1.85 0 0 1 9.75 7.9" {...S} strokeWidth={0.95} />
     </>
   ),
 };
@@ -227,7 +278,6 @@ const TINT: Record<ItemKind, string> = {
   blueprint: 'text-iris-100',
   page: 'text-iris-300',
   component: 'text-verdigris-100',
-  relic: 'text-brass-300',
   consumable: 'text-oxblood-100',
 };
 
@@ -241,6 +291,7 @@ export function ItemGlyph({
   size?: GlyphSize | undefined;
   className?: string | undefined;
 }) {
+  const filterId = useId().replace(/:/g, '');
   const page = findBlueprintPage(id);
   const document = page === undefined ? undefined : blueprintOfPage(id);
   if (page !== undefined && document !== undefined) {
@@ -258,7 +309,30 @@ export function ItemGlyph({
       fill="none"
       className={cn(TINT[spec.kind], className)}
     >
-      {GOOD_GLYPHS[id] ?? GLYPHS[spec.kind]}
+      {/*
+       * The pen, not the plotter.
+       *
+       * Same `feTurbulence` + `feDisplacementMap` pair as `ClaimButton`, `.ink-box` and
+       * `PortraitFrame`, so an item glyph is made with the same instrument as the frame around it.
+       * The scale is small (0.25 on a 16-unit box, so a quarter of a stroke width) because these
+       * are drawn at 16 to 24px: the wobble that reads as a hand on a 120px button reads as damage
+       * at this size. What it buys is that no two edges are quite parallel.
+       *
+       * The id has to be unique per instance. A page drawing forty of these shares one document,
+       * and duplicate filter ids there mean every glyph resolves to whichever one mounted first.
+       */}
+      <defs>
+        <filter id={`ink-${filterId}`} x="-12%" y="-12%" width="124%" height="124%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="9" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            scale="0.25"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+      <g filter={`url(#ink-${filterId})`}>{GOOD_GLYPHS[id] ?? GLYPHS[spec.kind]}</g>
     </svg>
   );
 }

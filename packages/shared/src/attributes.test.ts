@@ -10,7 +10,12 @@ import {
   groupOf,
   makeAttributes,
 } from './attributes.js';
-import { OVERSEER_PRESETS, OverseerPresetSchema } from './overseer.js';
+import {
+  OVERSEER_OFFER_SIZE,
+  OVERSEER_POOL_SIZE,
+  OVERSEER_PRESETS,
+  OverseerPresetSchema,
+} from './overseer.js';
 import { OFFICER_ROLES, OFFICER_ROLE_LABELS, RESKILLING_ROLE } from './roles.js';
 import { PERK_CATALOG, PERK_CATEGORIES, findPerk } from './crew/perks.js';
 
@@ -126,10 +131,27 @@ describe('officer roles', () => {
 });
 
 describe('OVERSEER_PRESETS', () => {
-  // F6: the same four options as before, restated on the new model. F1: same sheet as everyone.
-  it('has one valid preset per archetype, inside the recruitment band', () => {
-    expect(OVERSEER_PRESETS).toHaveLength(4);
+  /*
+   * §F6: thirty characters, of which a player is shown four (maintainer request, 2026-09-15).
+   *
+   * It was four presets, one per archetype, and the archetype was the choice. Thirty of them with
+   * a signature perk each makes the character the choice instead, so what is pinned here is the
+   * shape every one of them has to hold rather than a count per archetype: every archetype still
+   * has somebody, no two share an id, a name, a face or a signature, and every sheet is a legal
+   * recruit (§F1, §B2a).
+   */
+  it('is a full pool of distinct characters, every sheet inside the recruitment band', () => {
+    expect(OVERSEER_PRESETS).toHaveLength(OVERSEER_POOL_SIZE);
+    expect(OVERSEER_POOL_SIZE).toBeGreaterThan(OVERSEER_OFFER_SIZE);
+    // Every archetype is still represented, so the four words keep meaning something on a card.
     expect(new Set(OVERSEER_PRESETS.map((p) => p.archetype)).size).toBe(4);
+    // Nothing is shared between two characters: an id keys a save, and the rest a player reads.
+    for (const field of ['presetId', 'name', 'portraitId'] as const) {
+      const seen = OVERSEER_PRESETS.map((preset) => preset[field]);
+      expect(new Set(seen).size, `two presets share a ${field}`).toBe(seen.length);
+    }
+    const signatures = OVERSEER_PRESETS.flatMap((preset) => preset.perks);
+    expect(new Set(signatures).size, 'two presets share a perk').toBe(signatures.length);
     for (const preset of OVERSEER_PRESETS) {
       expect(() => OverseerPresetSchema.parse(preset)).not.toThrow();
       for (const name of ATTRIBUTE_NAMES) {

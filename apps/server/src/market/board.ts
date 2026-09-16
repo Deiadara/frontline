@@ -37,6 +37,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { seatedRoles } from '../crew/roster.js';
+import { crewEffectsFor } from '../crew/standing.js';
 import { tellPagesFound } from '../social/pages.js';
 import {
   bidderNames,
@@ -84,6 +85,22 @@ export function sweepExpiredOffers(repos: Repositories, now: Date): void {
 }
 
 /**
+ * Every listing this crew has standing, closed with **no escrow back**: the Console's Clean slate.
+ *
+ * A reset rewrites the base row in place, and `market_offers` hangs off the id rather than the
+ * life, so a crew's listings survived its own wipe. The escrow in them was the old life's goods,
+ * and the ordinary close (`withdrawOffer`, the sweep) would have credited them to the fresh
+ * stockpile two days later: a level-one crew with a level-twenty crew's oil arriving by post.
+ * The counters other crews had standing against these listings are theirs and do come home.
+ */
+export function forfeitOffers(repos: Repositories, baseId: string): void {
+  for (const offer of repos.market.openBySeller(baseId)) {
+    repos.market.setStatus(offer.id, 'withdrawn');
+    releaseCounters(repos, offer.id);
+  }
+}
+
+/**
  * A counter is a bid on one particular listing, so it goes when the listing goes.
  *
  * Accepting a listing released its counters from the start; withdrawing one or letting it expire
@@ -111,6 +128,19 @@ function releaseEscrow(repos: Repositories, offer: MarketOffer): void {
 
 export function projectMarket(repos: Repositories, base: Base, now: Date): MarketResponse {
   const day = marketDay(now);
+  /*
+   * §F2: the Logistics the crew has, on the shelf the run is measured against.
+   *
+   * The bonus used to reach the production clamp and nothing else, so a crew that had researched
+   * room for another 55% of a warehouse was quoted the bare structures' figure here: the ration was
+   * sized off a store smaller than the one production was already filling, and `supplyAffordable`
+   * returned zero for a crew whose district plainly had room. Read once and handed to both the
+   * ration and the per-line room, so the two cannot disagree with each other either.
+   */
+  const bulk = storageCapacity(
+    base.buildings,
+    crewEffectsFor(repos, base, now).storageCapacityPercent,
+  );
   /*
    * The barrow is empty while he is away, and it is empty **here** rather than on the screen.
    *
@@ -176,9 +206,9 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
     supply: supplyBoard(
       base.level,
       base.resources,
-      storageCapacity(base.buildings),
+      bulk,
       repos.market.supplyUsed(base.id, day),
-      (key) => storageCapacityFor(base.buildings, key),
+      (key) => storageCapacityFor(base.buildings, key, bulk),
     ),
     barterRate: barterRateFor(base.level),
     // §G4: the two things the Blueprints screen cannot see for itself. Read from the same base
@@ -207,7 +237,13 @@ export function buySupply(
 ): MarketResult {
   const day = marketDay(now);
   // The ration is measured against the bulk shelf; the room is measured against this resource's own.
-  const allowance = supplyAllowance(base.level, storageCapacity(base.buildings));
+  // Both off the same figure the board quoted, the crew's own Logistics included, or the till would
+  // refuse a run the panel had just offered.
+  const bulk = storageCapacity(
+    base.buildings,
+    crewEffectsFor(repos, base, now).storageCapacityPercent,
+  );
+  const allowance = supplyAllowance(base.level, bulk);
   const used = repos.market.supplyUsed(base.id, day);
 
   const refusal = supplyRefusal({
@@ -215,7 +251,7 @@ export function buySupply(
     units,
     stock: base.resources,
     allowanceLeft: Math.max(0, allowance - used),
-    capacity: storageCapacityFor(base.buildings, key),
+    capacity: storageCapacityFor(base.buildings, key, bulk),
   });
   if (refusal !== null) return { kind: 'refused', reason: refusal };
 
@@ -414,7 +450,7 @@ export function acceptOffer(
    * largest reward in the catalogue, so that loop is worth running.
    *
    * Every other faucet is bounded by something real. Production is bounded by the clock, a job by
-   * the road, a fight by bodies, and the two vendor doors below by what they charge, since the
+   * the road, a fight by units, and the two vendor doors below by what they charge, since the
    * Broker and the supplier are the house rather than another player and take their cut. Trading
    * still moves wealth, and a crew that lives by it still earns through what it does with the
    * goods; what it cannot do is manufacture a lifetime record out of a handshake.
@@ -427,7 +463,7 @@ export function acceptOffer(
    *
    * A settlement can move pages in either direction: a listing that gives one, a listing that asks
    * for one, or both at once. The seller is the half that needs telling most, because nobody was
-   * on their screen when it happened. The escrow that came out of their satchel at posting is not
+   * on their screen when it happened. The escrow that came out of their inventory at posting is not
    * a page arriving, so it rings nothing; only what the trade actually brought in does.
    */
   tellPagesFound(repos, {

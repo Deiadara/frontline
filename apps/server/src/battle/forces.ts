@@ -1,7 +1,7 @@
 import { addToArmy, isCombatUnit, takeFromArmy, type Army } from '@frontline/shared';
 
 /**
- * Moving bodies between the four locations they can stand.
+ * Moving units between the four locations they can stand.
  *
  * A crew's units live in exactly one of: the roster at home (`base.army`), a garrison on a location
  * (`location_control.garrison`), a deployment for a coming fight, or the ring outside it. Every move

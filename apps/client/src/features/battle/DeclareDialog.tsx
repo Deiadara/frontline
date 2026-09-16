@@ -1,4 +1,6 @@
 import {
+  callPriceOf,
+  DECLARE_UNAFFORDABLE_MESSAGE,
   MAX_DECLARE_LEAD_HOURS,
   MIN_DECLARE_LEAD_HOURS,
   type BattleTarget,
@@ -8,6 +10,7 @@ import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
+import { useBattles } from '../../lib/queries';
 
 /**
  * Calling a fight for a time (GDD §A4, battle rework).
@@ -25,6 +28,8 @@ interface DeclareDialogProps {
   target: BattleTarget;
   targetName: string;
   slots: readonly string[];
+  /** What the crew's name is worth right now, which is what the call is paid out of (§D7). */
+  infamy: number;
   pending: boolean;
   error: unknown;
   onClose: () => void;
@@ -41,6 +46,7 @@ export function DeclareDialog({
   target,
   targetName,
   slots,
+  infamy,
   pending,
   error,
   onClose,
@@ -59,6 +65,21 @@ export function DeclareDialog({
   // Only a location can be occupied. A gate is a hole in a wall for a few hours, not a position, so
   // offering the choice there would be offering something that cannot happen.
   const holdable = target.kind === 'location';
+  /*
+   * §D7: the call's price, quoted off the board rather than worked out here.
+   *
+   * Only ground a player's crew holds is charged; the Combine, the looters, the AI rival and empty
+   * ground are free to call. The board lists what every visible target costs (`callPrices`),
+   * priced by the server through the same function the route charges with, so this is the same
+   * number read twice rather than a second copy of the rule. What it buys is a player who finds
+   * out before they have picked a mark and pressed the loudest button in the game, rather than
+   * after. Null until the board has answered, and the button waits with it: `slots` comes off the
+   * same read, so there is nothing to press yet anyway.
+   */
+  const board = useBattles();
+  const cost = board.data ? callPriceOf(target, board.data.callPrices) : null;
+  const charged = cost !== null && cost > 0;
+  const affordable = cost !== null && infamy >= cost;
 
   const days = slots.reduce<{ day: string; slots: string[] }[]>((groups, slot) => {
     const day = dayLabel(slot);
@@ -89,6 +110,8 @@ export function DeclareDialog({
           Everybody sees it coming. The soonest you may call it is {MIN_DECLARE_LEAD_HOURS} hours
           out, the latest {MAX_DECLARE_LEAD_HOURS}. Nobody is sent yet: you move people up between
           now and the mark.
+          {charged &&
+            ` Calling it on another player's crew costs ${cost} infamy, taken the moment it lands.`}
         </p>
       </div>
 
@@ -144,6 +167,34 @@ export function DeclareDialog({
           </label>
         )}
 
+        {/* The price against the wallet, so the two numbers a player is weighing are on one line
+            rather than one in the copy above and one on the HUD behind the dialog. Only for a
+            charged call: free ground has no price to weigh. */}
+        {charged && (
+          <p
+            data-testid="declare-price"
+            className={cn(
+              'rivets flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-sm border px-3.5 py-2.5 font-display text-[12px] uppercase tracking-[0.14em]',
+              affordable
+                ? 'border-surface-600 bg-surface-800/50 text-ink-200'
+                : 'border-oxblood-500/40 bg-oxblood-500/10 text-oxblood-100',
+            )}
+          >
+            <span>Cost to call: {cost} infamy</span>
+            <span className="tabular-nums text-ink-300">Your name: {Math.round(infamy)}</span>
+          </p>
+        )}
+
+        {charged && !affordable && (
+          <p
+            role="alert"
+            data-testid="declare-unaffordable"
+            className="font-body text-xs leading-relaxed text-oxblood-300"
+          >
+            {DECLARE_UNAFFORDABLE_MESSAGE}
+          </p>
+        )}
+
         {error !== null && error !== undefined && (
           <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
             {error instanceof ApiRequestError ? error.message : 'That did not go through'}
@@ -158,12 +209,12 @@ export function DeclareDialog({
         <Button
           size="sm"
           variant="danger"
-          disabled={chosen === null || pending}
+          disabled={chosen === null || pending || !affordable}
           data-testid="declare-confirm"
           // Not the confirm every other primary button gets. Calling a fight is the loudest thing
           // a player does in this game: everybody in the city sees it, and it cannot be taken back.
           data-sound="call"
-          onClick={() => chosen && onConfirm(chosen, holdable && hold)}
+          onClick={() => chosen && affordable && onConfirm(chosen, holdable && hold)}
         >
           {pending ? 'Working…' : 'Call it'}
         </Button>

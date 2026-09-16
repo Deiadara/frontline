@@ -136,7 +136,7 @@ export function offerRefusal(
    *
    * `give` was the only side checked, and an unlocked blueprint is the one thing in the catalogue
    * that may never change hands. A listing that *wanted* one settled without complaint: the buyer
-   * pays `want` out of their own satchel in `acceptOffer`, so the document walked from the buyer
+   * pays `want` out of their own inventory in `acceptOffer`, so the document walked from the buyer
    * to the seller through the half of the trade nobody was looking at.
    */
   const untradeable = [...Object.keys(give.items), ...Object.keys(want.items)].some(

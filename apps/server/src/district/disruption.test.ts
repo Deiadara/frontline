@@ -5,6 +5,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleDistrict } from './settle.js';
 import type { FastifyInstance } from 'fastify';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: a raid's disruption is a step function of time, and the settle walk has to treat it as one.
@@ -43,12 +44,7 @@ async function makeBase(): Promise<{ app: FastifyInstance; base: Base }> {
     payload: { username: 'the_raided', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
   const raw = app.repos.bases.findById(baseId);
   if (!raw) throw new Error('no base');

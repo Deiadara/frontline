@@ -30,7 +30,7 @@ describe('§I1b: the scenery switcher', () => {
     expect(to).toContain('/game/scrapyard');
   });
 
-  /** §D4's old home. The Satchel keeps a link to it; the walk of doors does not get a second one. */
+  /** §D4's old home, from before the Inventory page was retired: no door points into it. */
   it('carries no blueprints door of its own', () => {
     const to = DESTINATIONS.map((destination) => destination.to);
     expect(to).not.toContain('/game/research/blueprints');

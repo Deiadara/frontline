@@ -26,6 +26,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { cancelBuild, queueBuild } from '../district/build.js';
 import { cancelResearch } from '../research/start.js';
 import { recallScout, settleScouting } from '../scouting/scouting.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Calling things off (maintainer request, 2026-09-12; `time/cancel.ts`).
@@ -323,12 +324,7 @@ describe('over the wire', () => {
       payload: { username: 'wavering', password: 'hunter2pass' },
     });
     const token = registered.json<{ token: string }>().token;
-    const chosen = await app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { presetId: 'enforcer' },
-    });
+    const chosen = await chooseOverseer(app, token);
     return { app, token, baseId: chosen.json<{ base: { id: string } }>().base.id };
   }
 

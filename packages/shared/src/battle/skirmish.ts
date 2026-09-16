@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { TerritoryEffects } from '../city/index.js';
 import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
-import { breakOut, type Breakout } from './perimeter.js';
+import { breakOut, type Breakout, type BreakoutSide } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
 import { officerOutcomeOf, simulate, type Simulation } from './engine.js';
 import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
@@ -242,6 +242,28 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   // nobody ringed produces the exact stream it always did.
   const winnerRing =
     (simulation.winner === 'attacker' ? input.attackerPerimeter : input.defenderPerimeter) ?? {};
+  /*
+   * The same two books the first fight ran on, so the second one is not fought bare.
+   *
+   * `breakOut` used to be handed an army and a battlefield and nothing else, which switched off
+   * every crew effect, every fitted card and cohesion for both sides of it. The runners are the
+   * losing side and the ring is the winner's, so the mapping is the simulation's own verdict.
+   */
+  const attackerBook: BreakoutSide = {
+    ...(input.attackerTerritory ? { territory: input.attackerTerritory } : {}),
+    ...(input.attackerUpgrades ? { upgrades: input.attackerUpgrades } : {}),
+    ...(input.attackerCohesionPercent !== undefined
+      ? { cohesionPercent: input.attackerCohesionPercent }
+      : {}),
+  };
+  const defenderBook: BreakoutSide = {
+    ...(input.defenderTerritory ? { territory: input.defenderTerritory } : {}),
+    ...(input.defenderUpgrades ? { upgrades: input.defenderUpgrades } : {}),
+    ...(input.defenderCohesionPercent !== undefined
+      ? { cohesionPercent: input.defenderCohesionPercent }
+      : {}),
+  };
+  const attackerWonIt = simulation.winner === 'attacker';
   const breakout = breakOut(
     {
       fleeing: fled,
@@ -249,6 +271,8 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       battlefield: simulation.battlefield,
       seed: input.seed,
       context: routContext,
+      runners: attackerWonIt ? defenderBook : attackerBook,
+      guards: attackerWonIt ? attackerBook : defenderBook,
     },
     next,
   );

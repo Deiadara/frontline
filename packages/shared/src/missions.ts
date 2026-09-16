@@ -209,7 +209,7 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
     id: 'curfew-sweep',
     name: 'Curfew Sweep',
     brief:
-      'The Combine is short of bodies on the lower tiers, so it is paying crews to hold its curfew for it. Good money. Your neighbours will remember who took it.',
+      'The Combine is short of people on the lower tiers, so it is paying crews to hold its curfew for it. Good money. Your neighbours will remember who took it.',
     kind: 'battle',
     difficulty: 'hard',
     travelBand: 'close',
@@ -772,9 +772,14 @@ export function missionRewards(
  *
  * Only when it lands. A failed run is already priced in morale and in `Reckless`, and counting it
  * here would let a crew build a reputation out of things it did not manage to do.
+ *
+ * A battle job's row is zero on both sides since 2026-09-15: it pays for what it killed instead,
+ * half a point a unit slot rounded up (`missionInfamyForKills` in `economy/infamy.ts`), won or
+ * lost, the way a declared fight pays both sides. The flat two it used to pay for landing was a
+ * name for turning up, and the maintainer's rule is that a name is made by killing.
  */
 export const MISSION_INFAMY_DELTA: Record<MissionKind, Record<MissionOutcome, number>> = {
-  battle: { success: 2, failure: 0 },
+  battle: { success: 0, failure: 0 },
   standard: { success: 0, failure: 0 },
 };
 
@@ -872,7 +877,7 @@ export const MissionSchema = z.object({
    */
   overseerLed: z.boolean().default(false),
   /**
-   * The bodies that did not come home from a battle job, by unit. Empty on every standard run
+   * The units that did not come home from a battle job, by unit. Empty on every standard run
    * and on a battle nobody died in; `force` less this is what walked back into the district.
    */
   lost: ArmySchema.default({}),
@@ -900,8 +905,8 @@ export const MissionSchema = z.object({
   /**
    * What the crew turned up, as opposed to what it was paid: salvage, pages, the odd relic.
    *
-   * Written so the report can name it. It went straight into the satchel and was recorded
-   * nowhere, so a player who came home with a Rotor Hub learned that by counting the satchel.
+   * Written so the report can name it. It went straight into the inventory and was recorded
+   * nowhere, so a player who came home with a Rotor Hub learned that by counting the inventory.
    * Defaulted empty: a run settled before this existed found nothing it can prove.
    */
   found: InventorySchema.default({}),

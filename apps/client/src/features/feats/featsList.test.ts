@@ -34,9 +34,20 @@ describe('the ladders', () => {
     expect(runs?.rungs.map((rung) => rung.step)).toEqual([1, 2, 3, 4]);
   });
 
+  /**
+   * Taken off the catalogue rather than named.
+   *
+   * This used to hard-code `area_neon_docks`, which was a standalone feat until the district work
+   * grew a second rung and then silently became a test about a ladder. The property under test is
+   * "a feat with no chain gets a block to itself", and that is true of whichever one happens to be
+   * first, so the fixture asks the catalogue instead of remembering an answer.
+   */
   it('gives a feat that stands alone a block of its own', () => {
+    const solo = FEATS.find((feat) => feat.chain === null);
+    expect(solo, 'the catalogue must still hold at least one standalone feat').toBeDefined();
+
     const blocks = featBlocks(BOARD);
-    const alone = blocks.find((block) => block.key === 'area_neon_docks');
+    const alone = blocks.find((block) => block.key === solo!.id);
     expect(alone?.chain).toBeNull();
     expect(alone?.steps).toBe(1);
     expect(alone?.rungs).toHaveLength(1);
@@ -177,6 +188,22 @@ describe("a ladder's name", () => {
     expect(titleOf('runs_1')).toBe('Missions done');
     expect(titleOf('clean_1')).toBe('Missions won');
     expect(titleOf('fights_1')).toBe('Battles fought');
+  });
+
+  /**
+   * One measure id still says "bodies" (a persisted tally key, so it keeps its spelling), and the
+   * board must not: the game stopped using the word (maintainer, 2026-09-15). The title takes the
+   * measure's own unit instead, which for this one is a head count and so reads "units".
+   */
+  it('says units where the measure id still says bodies', () => {
+    expect(titleOf('roster_1')).toBe('Army units');
+    expect(titleOf('deployed_1')).toBe('Units deployed');
+  });
+
+  /** ...and the ladder that really is counting slots says so, off the same one field. */
+  it('says unit slots for the measures that count them', () => {
+    expect(titleOf('beds_1')).toBe('Army unit slots');
+    expect(titleOf('muster_1')).toBe('Unit slots deployed');
   });
 
   it('names a scoped one after the scope, opened out of whatever hand wrote it', () => {

@@ -2,7 +2,7 @@
 --
 -- Three columns on `bases` and one new table.
 --
--- The columns are the crew's own state: what is in the satchel, what the workshop has fitted, and
+-- The columns are the crew's own state: what is in the inventory, what the workshop has fitted, and
 -- what is parked in the yard. All three are JSON for the same reason every other collection here
 -- is: they are read whole, written whole, and validated by a Zod schema on the way out, so a
 -- normalised table would buy nothing and cost a join on every read.

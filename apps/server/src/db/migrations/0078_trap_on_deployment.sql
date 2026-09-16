@@ -7,7 +7,7 @@
 -- Nullable, defaulting to NULL, which is what every deployment written before today meant: nobody
 -- set a trap on it. Not a foreign key and not constrained to the catalogue, because a trap id is a
 -- string in `battle/traps.ts` rather than a table, and the settler re-reads the catalogue and the
--- satchel at the mark rather than trusting an id written sixteen hours ago.
+-- inventory at the mark rather than trusting an id written sixteen hours ago.
 --
 -- `location_control.trap_json` is deliberately left where it is. Traps used to be armed on a
 -- location and to sit there waiting; nothing reads or writes that column any more, and dropping it

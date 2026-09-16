@@ -4,6 +4,7 @@ import {
   enemyStrength,
   fieldStrength,
   findUnit,
+  findUnitModification,
   makeAttributes,
   MAX_ATTRIBUTE,
   TacticalSkirmishEngine,
@@ -112,7 +113,36 @@ describe('a crew in a battle job', () => {
     expect(total(fought.home) + total(fought.lost)).toBe(total(bigCrew));
   });
 
-  it('loses, and the loss is bodies rather than an empty bag', () => {
+  /**
+   * §D7: the job pays a name for the enemy's dead, so the fight has to say who they were.
+   *
+   * The crew fields nothing the skirmish roster does (`ENEMY_TIER_ROSTERS.skirmish` is Razors and
+   * Scrapers; this crew is all Wardens), so the two casualty lists cannot share a unit id and the
+   * engine's two lists cannot be confused for one another: a `killed` that named a Warden would
+   * be our own dead under the wrong heading. Bounded by who was waiting, per unit, because a list
+   * that named more than the tier fielded would be paying for a kill that did not happen.
+   */
+  it('names the enemy dead, and never more of them than were waiting', () => {
+    const wardens: Army = { wardens: 30 };
+    for (const draw of ENEMY_TIER_ROSTERS.skirmish) expect(draw.unitId).not.toBe('wardens');
+    const fought = fightMissionBattle({
+      seed: 7,
+      jobName: 'Foundry Raid',
+      force: wardens,
+      vehicles: {},
+      tier: 'skirmish',
+      level: 1,
+      anyRide: false,
+    });
+    expect(total(fought.killed)).toBeGreaterThan(0);
+    expect(fought.killed.wardens).toBeUndefined();
+    for (const [unitId, count] of Object.entries(fought.killed)) {
+      expect(fought.enemy[unitId], unitId).toBeDefined();
+      expect(count, unitId).toBeLessThanOrEqual(fought.enemy[unitId] ?? 0);
+    }
+  });
+
+  it('loses, and the loss is units rather than an empty bag', () => {
     const fought = fightMissionBattle({
       seed: 11,
       jobName: 'Refinery Assault',
@@ -156,6 +186,40 @@ describe('a crew in a battle job', () => {
     });
     expect(led).not.toEqual(alone);
     expect(total(led.lost)).toBeLessThan(total(alone.lost));
+  });
+
+  /**
+   * The yard's cards reach a battle job (maintainer, 2026-09-15: modifications fold onto every
+   * sheet the engine reads).
+   *
+   * The battle settler hands the engine `attacker.unitLoadouts`; this path handed it nothing, so
+   * Taped Grips on the Razors fought on a declared battle and did nothing on a job. Sixteen
+   * points of damage on a crew balanced on the edge is the measurement, and it is asserted as
+   * fewer dead rather than as "a different fight": a different fight is any change to the
+   * stream, and fewer dead is the card doing what its face says.
+   */
+  it('fights with what the yard bolted on, and loses fewer people for it', () => {
+    const force: Army = { razors: 9 };
+    const grips = findUnitModification('taped_grips');
+    expect(grips?.effect.offense ?? 0).toBeGreaterThan(0);
+    const fewerDead = [];
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const args = {
+        seed,
+        jobName: 'Convoy Ambush',
+        force,
+        vehicles: {},
+        tier: 'skirmish' as const,
+        level: 1,
+        anyRide: false,
+      };
+      const bare = fightMissionBattle(args);
+      const fitted = fightMissionBattle({ ...args, loadouts: { razors: ['taped_grips'] } });
+      if (total(fitted.lost) < total(bare.lost)) fewerDead.push(seed);
+      expect(total(fitted.lost), `seed ${seed}`).toBeLessThanOrEqual(total(bare.lost));
+    }
+    // Most seeds, not one lucky one: a card worth sixteen damage has to show on a crew this size.
+    expect(fewerDead.length).toBeGreaterThan(20);
   });
 
   it('is the same fight twice from the same row', () => {

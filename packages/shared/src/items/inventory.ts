@@ -17,7 +17,7 @@ import { ITEM_CATALOG, ItemIdSchema, type ItemId } from './catalog.js';
  * `partialRecord`, not `record`.
  *
  * Zod 4 made `z.record(someEnum, …)` *exhaustive*: it demands a key for every member of the enum,
- * which for a satchel would mean storing a zero for all eighteen items and would reject `{}`: the
+ * which for an inventory would mean storing a zero for all eighteen items and would reject `{}`: the
  * state every crew starts in. `partialRecord` is the sparse one, and sparse is the whole model
  * here: an item at zero and an item never held are the same fact.
  */
@@ -80,7 +80,7 @@ export function inventorySize(inventory: Inventory): number {
 }
 
 /**
- * Which blueprint pages arrived between two reads of a satchel, and how many of each.
+ * Which blueprint pages arrived between two reads of an inventory, and how many of each.
  *
  * A diff rather than a return value from each of the paths that hand a page over, because there
  * are six of them (a mission's prize, the Runner's close, the fence's shelf, the Lab's trade, and

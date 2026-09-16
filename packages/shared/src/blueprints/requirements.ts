@@ -61,7 +61,7 @@ export function blueprintForTrap(trapId: string): BlueprintSpec | undefined {
  * "Almost all" is the advanced half of each structure's five modifications, which is a line the
  * Scrapyard already draws (`ADVANCED_MODIFICATION_MAGNITUDE`) and which already decides which of
  * them cost high-quality metal. Reusing it means a player learns one threshold rather than two,
- * and the small bolt-ons stay open to a district with nothing in its satchel.
+ * and the small bolt-ons stay open to a district with nothing in its inventory.
  */
 export function blueprintForModification(spec: ModificationSpec): BlueprintSpec | undefined {
   if (spec.magnitude < ADVANCED_MODIFICATION_MAGNITUDE) return undefined;

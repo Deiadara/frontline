@@ -26,13 +26,22 @@ export interface OnPlateAt {
  * was not painted for this screen's shape: the alternative there is a small picture in a big empty
  * box. `whole` shows the entire painting at its true aspect, every time, on every monitor.
  *
- * `whole` is what a plate painted *for* a screen wants, and the reason is consistency rather than
- * composition. Under `cover`, which slice of the picture you get depends on the shape of your
- * window, so the same screen is a different picture windowed, full screen, and on a second monitor.
- * A player cannot learn where anything is. The city is painted at 21:10 for exactly this frame, so
- * it is drawn `whole` and the surround is filled rather than cropped into.
+ * `width` is the district screen's rule, lifted here so the city can share it (maintainer request,
+ * 2026-09-15). It is **always the band's full width**, with the height following from the plate's
+ * own aspect, and it is deliberately not `cover`: cover picks the larger of the two fits, so in a
+ * band taller than the plate it fits by height instead and runs the picture past both side edges,
+ * taking the marks near `x: 0` and `x: 1` off screen with it. Width is the side a player asked to
+ * see filled, so the width decides, and a tall band letterboxes above and below on the dark
+ * surface rather than cropping anything.
+ *
+ * The trade between `whole` and `width` is consistency against a filled frame, and it is a real
+ * one. Under `whole` every monitor shows the same picture and the surround has to be filled; under
+ * `width` the frame is full edge to edge and *which slice* you get depends on the shape of your
+ * window, so the same screen is a slightly different picture windowed and full screen. What makes
+ * that affordable here is {@link OnPlate}, which clamps a mark into the part of the painting that
+ * is actually on screen: a tag can drift off the roof it names, but it cannot go under a bar.
  */
-export type PlateFit = 'cover' | 'whole';
+export type PlateFit = 'cover' | 'whole' | 'width';
 
 /**
  * How far a `whole` painting's cut edge fades into the surround, in frame pixels.
@@ -60,6 +69,8 @@ export function fitting(
   if (room.width <= 0 || room.height <= 0) return { width: 0, height: 0 };
   const byWidth = { width: room.width, height: room.width / aspect };
   const byHeight = { width: room.height * aspect, height: room.height };
+  // Unconditional, which is the whole of what separates it from `cover`. See {@link PlateFit}.
+  if (fit === 'width') return byWidth;
   const fillsFrame = byWidth.height >= room.height;
   if (fit === 'cover') return fillsFrame ? byWidth : byHeight;
   return fillsFrame ? byHeight : byWidth;

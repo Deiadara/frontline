@@ -24,9 +24,11 @@ import {
   missionCarry,
   missionOdds,
   missionTimings,
+  UNIT_RULE_IDS,
   type Army,
   type BlueprintCategory,
   type MissionArea,
+  type UnitRuleId,
   type AttributeImportance,
   type AttributeName,
   type MissionKind,
@@ -157,7 +159,7 @@ function Keyword({
  * anybody is picked it is the real figure, and calling it a ceiling invited a player to assume the
  * run would come in quicker. The one state where it genuinely is a ceiling is an empty column,
  * where `columnSpeed` returns 0 and the road comes back at its full base length: nobody picked
- * reads as a body that cannot move, which is the slowest the run can possibly be.
+ * reads as a unit that cannot move, which is the slowest the run can possibly be.
  *
  * So: the exact time once anybody is going, the worst case before that, and the label says which
  * of the two is on screen. Drawn at the foot of the leader column, right-aligned under it, where
@@ -317,6 +319,13 @@ export interface MissionBoardProps {
    * whatever the player's machine is out by.
    */
   now: Date;
+  /**
+   * §A4: what the crew's holdings and perks add to every haul, as a percentage, and the marks they
+   * have been granted. Both pay the settle (`missions/resolve.ts`), so the dialog's "loot they
+   * could lift" has to read them or it quotes a smaller bag than the job brings home.
+   */
+  bagPercent: number;
+  marks: Readonly<Record<string, readonly string[]>>;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
   pendingTemplateId: string | null;
@@ -372,6 +381,8 @@ export function MissionBoard({
   unledRule,
   level,
   now,
+  bagPercent,
+  marks,
   atCapacity,
   pendingTemplateId,
   refusal,
@@ -487,6 +498,8 @@ export function MissionBoard({
           unledRule={unledRule}
           level={level}
           now={now}
+          bagPercent={bagPercent}
+          marks={marks}
           onClose={() => setSending(null)}
           onSend={(force, leaderId, vehicles) => {
             onLaunch(area.id, sending.templateId, force, leaderId, vehicles);
@@ -679,7 +692,7 @@ function Cell({ label, value, hint }: { label: string; value: string; hint: stri
  * Who goes (§A5, §E).
  *
  * A window rather than a row of steppers on the card, because picking a crew is a decision with
- * two numbers in it and neither fits in a third of a board: how many bodies can be spared, and
+ * two numbers in it and neither fits in a third of a board: how many units can be spared, and
  * whether they can carry what the job pays. Both are drawn here against the job's own figure, so
  * the answer to "did I send enough" is on screen before the crew leaves rather than in the report.
  */
@@ -693,6 +706,8 @@ function SendDialog({
   unledRule,
   level,
   now,
+  bagPercent,
+  marks,
   onClose,
   onSend,
 }: {
@@ -708,6 +723,10 @@ function SendDialog({
   level: number;
   /** The server's clock, for the wait printed beside a leader somebody else has. */
   now: Date;
+  /** §A4: what the crew's holdings and perks add to every haul, as a percentage. */
+  bagPercent: number;
+  /** ...and the marks they have been granted, which can add `picker` to a sheet that lacks it. */
+  marks: Readonly<Record<string, readonly string[]>>;
   onClose: () => void;
   onSend: (force: Army, leaderId?: string, vehicles?: Fleet) => void;
 }) {
@@ -723,7 +742,24 @@ function SendDialog({
     .sort((a, b) => a.unit.name.localeCompare(b.unit.name));
 
   const going = Object.values(force).reduce((total, count) => total + count, 0);
-  const carry = missionCarry(force);
+  // With the crew's brackets, as the settle pays it (`missions/resolve.ts` passes the same map):
+  // a Counterweight Harness on the Haulers was being quoted a smaller bag than the job paid.
+  // ...and with the crew's own bag on top of them. `lootCapacityPercent` (the Pawn Shop, the raid
+  // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
+  // that read the printed sheet quoted a smaller haul than the job brought home.
+  const carry = missionCarry(force, loadouts, bagPercent, {
+    carriersFight: false,
+    // Narrowed against the catalogue rather than asserted: the payload is a record of strings, and
+    // a mark this build has never heard of is one the arithmetic must not pretend to understand.
+    unitMarks: Object.fromEntries(
+      Object.entries(marks).map(([unitId, granted]) => [
+        unitId,
+        granted.filter((mark): mark is UnitRuleId =>
+          (UNIT_RULE_IDS as readonly string[]).includes(mark),
+        ),
+      ]),
+    ),
+  });
   /** §C3: whether anything is being driven at all, which is what makes "walks" worth saying. */
   const anyRiding = Object.values(riding).some((count) => (count ?? 0) > 0);
   /*
@@ -836,7 +872,7 @@ function SendDialog({
   return (
     <Modal onClose={onClose} size="wide" labelledBy="send-crew-title">
       {/*
-       * Header, body, footer, and only the body scrolls.
+       * Header, unit, footer, and only the unit scrolls.
        *
        * The window is taller than it was: the dial and the leader picker are a section of their
        * own now. At 1280x720 a flat column of everything in here is taller than the frame allows
@@ -1084,7 +1120,7 @@ function SendDialog({
                     <span className="min-w-0 font-display text-[12px] text-ink-200">
                       {spec.name}
                       <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
-                        seats {spec.capacity}
+                        {spec.capacity} unit slots
                       </span>
                     </span>
                     <NumberField

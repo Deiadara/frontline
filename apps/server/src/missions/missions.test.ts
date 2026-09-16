@@ -16,6 +16,10 @@ import {
   scaledSpoils,
   MISSION_INFAMY_DELTA,
   PLAYER_XP_AWARDS,
+  battleTierFor,
+  infamyForKills,
+  missionInfamyForKills,
+  type BattleTier,
   applyPlayerXp,
   createCommander,
   findMissionTemplate,
@@ -23,16 +27,20 @@ import {
   hastenedRoadMinutes,
   findUnit,
   findVehicle,
+  notorietyToField,
+  UNIT_CATALOG,
   effectiveSpeed,
   upgradedStats,
   MAX_LOCATION_LEVEL,
-  UNIT_UPGRADES,
+  UNIT_MODIFICATIONS,
   leading,
   TRAVEL_BAND_MINUTES,
   missionTimings,
   pricedTotalMinutes,
   playerLevelGrants,
   templateTimings,
+  type Army,
+  type UnitLoadouts,
   type Base,
   type Mission,
   type MissionTemplate,
@@ -49,10 +57,12 @@ import { areaStatesFor, projectAreas } from './board.js';
 import { launchMission } from './launch.js';
 import { projectUnits } from '../units/roster.js';
 import { removeForce } from '../battle/forces.js';
+import { fightMissionBattle } from './battle.js';
 import { resolveDueMissions } from './resolve.js';
 import { tickWorld } from '../live/clock.js';
 import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * Any job on any board today, with the area that offers it.
@@ -202,13 +212,11 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   expect(registered.statusCode).toBe(201);
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
 
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: { authorization: `Bearer ${token}` },
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode).toBe(201);
+  // This file checks road times and payouts against the catalogue's own arithmetic, and a
+  // signature perk moves both, so the crew gets a character rather than whoever §F6 dealt.
+  pinOverseer(app, token);
   const overseerId = chosen.json<{ overseer: { id: string } }>().overseer.id;
 
   const repos = createRepositories(db);
@@ -280,7 +288,7 @@ function planted(
    * Who goes. Enough bags by default that nothing is left on the floor: what a crew can carry is
    * measured elsewhere (`missions.areas.test.ts`), and a payout trimmed by accident here would
    * look like a pricing bug in every timer assertion below. The tests about the road override it,
-   * because the road's clock is now the *column's* speed and four hundred bodies need seats.
+   * because the road's clock is now the *column's* speed and four hundred units need seats.
    */
   force: Record<string, number> = { haulers: 400 },
 ): Mission {
@@ -318,6 +326,8 @@ function paidFor(template: MissionTemplate, stack: Stack) {
 }
 
 const after = (minutes: number, from: Date = T0) => new Date(from.getTime() + minutes * MINUTE_MS);
+
+const total = (army: Army): number => Object.values(army).reduce((sum, n) => sum + n, 0);
 
 /**
  * The base as it stands right now. Every route re-reads it per request, so anything simulating
@@ -505,28 +515,91 @@ describe('mission payout (§E1, §E5)', () => {
    * (2026-09-12) and the delta hangs off the half of it the maintainer kept, which is `kind`: a battle
    * job pays a name, standard work does not.
    */
-  it('raises infamy for a battle job that came home', async () => {
+  /**
+   * The fight the settler is about to run for a battle job, replayed off the same row.
+   *
+   * `planted` sends nobody to lead and a fresh crew has nothing that seats anybody, so the two
+   * inputs the settler adds (`leaderOf`, `anyRide`) are read the way it reads them; the seed and
+   * the tier are the row's own. What comes back is what the job killed, which is what it pays for.
+   */
+  function replayed(stack: Stack, template: MissionTemplate, seed: number, force: Army, at: Date) {
+    const fought = fightMissionBattle({
+      seed,
+      jobName: template.name,
+      force,
+      vehicles: {},
+      tier: battleTierFor(template) as BattleTier,
+      level: stack.base.level,
+      anyRide: standingEffectsFor(stack.repos, stack.base, at).anyRide,
+    });
+    const slots = infamyForKills(fought.killed);
+    expect(slots, 'the fixture has to kill somebody for this to measure anything').toBeGreaterThan(
+      0,
+    );
+    return { fought, slots };
+  }
+
+  it('raises infamy for a battle job by half a point per unit slot it killed, rounded up', async () => {
     const stack = await makeStack();
     const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
     expect(strike.kind).toBe('battle');
     planted(stack, strike, ALWAYS_SUCCEEDS, T0, {}, BATTLE_FORCE);
+    const settledAt = after(templateTimings(strike).totalMinutes);
+    const { fought, slots } = replayed(stack, strike, ALWAYS_SUCCEEDS, BATTLE_FORCE, settledAt);
+    expect(fought.outcome).toBe('success');
 
-    const { base } = resolveDueMissions(
-      stack.repos,
-      stack.base,
-      after(templateTimings(strike).totalMinutes),
-    );
+    const { base } = resolveDueMissions(stack.repos, stack.base, settledAt);
 
     /*
-     * Two anchors, and the literal is the load-bearing one.
-     *
-     * `expect(after).toBe(before + MISSION_INFAMY_DELTA.battle.success)` reads the table on both
-     * sides of the assertion, so setting the table to zero moves the expectation with the result
-     * and the test passes on a board that pays nothing. The board authored 2, so 2 is written
-     * here, and the table is checked against it separately.
+     * The flat two a battle job used to pay for landing is gone: the table is pinned at zero so a
+     * retune that quietly brought it back is caught, and the payout is the maintainer's rule
+     * stated as arithmetic rather than read back through the function that implements it.
      */
-    expect(MISSION_INFAMY_DELTA.battle.success).toBe(2);
-    expect(base.economy.infamy).toBe(stack.base.economy.infamy + 2);
+    expect(MISSION_INFAMY_DELTA.battle.success).toBe(0);
+    expect(base.economy.infamy).toBe(stack.base.economy.infamy + Math.ceil(slots / 2));
+    expect(base.economy.infamy - stack.base.economy.infamy).toBe(
+      missionInfamyForKills(fought.killed),
+    );
+  });
+
+  /**
+   * The maintainer's rule has no win clause: a declared fight pays the loser for its kills, and so
+   * does a battle job, as long as somebody came home to tell it. The seed is searched for rather
+   * than authored, because the three things the case needs (a lost field, a kill, a survivor) are
+   * the engine's to decide, and a fixed seed would go stale the first time the engine was retuned.
+   */
+  it('pays a lost battle job for what it killed, at the same rate', async () => {
+    const stack = await makeStack();
+    const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
+    const settledAt = after(templateTimings(strike).totalMinutes);
+    // Enough to kill somebody and not enough to hold the field.
+    const outmatched: Army = { razors: 8 };
+    const losing = (() => {
+      for (let seed = 1; seed < 500; seed += 1) {
+        const fought = fightMissionBattle({
+          seed,
+          jobName: strike.name,
+          force: outmatched,
+          vehicles: {},
+          tier: battleTierFor(strike) as BattleTier,
+          level: stack.base.level,
+          anyRide: false,
+        });
+        if (fought.outcome === 'failure' && total(fought.killed) > 0 && total(fought.home) > 0) {
+          return seed;
+        }
+      }
+      throw new Error('fixture: no seed loses the field, kills somebody and brings anybody home');
+    })();
+    planted(stack, strike, losing, T0, {}, outmatched);
+    const { fought } = replayed(stack, strike, losing, outmatched, settledAt);
+    expect(fought.outcome).toBe('failure');
+
+    const { base } = resolveDueMissions(stack.repos, stack.base, settledAt);
+    expect(base.economy.infamy - stack.base.economy.infamy).toBe(
+      missionInfamyForKills(fought.killed),
+    );
+    expect(base.economy.infamy).toBeGreaterThan(stack.base.economy.infamy);
   });
 
   /**
@@ -548,34 +621,88 @@ describe('mission payout (§E1, §E5)', () => {
 
     const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
     planted({ ...stack, base: notorious }, strike, ALWAYS_SUCCEEDS, T0, {}, BATTLE_FORCE);
+    const settledAt = after(templateTimings(strike).totalMinutes);
+    const { fought } = replayed(stack, strike, ALWAYS_SUCCEEDS, BATTLE_FORCE, settledAt);
+
+    const { base } = resolveDueMissions(stack.repos, notorious, settledAt);
+
+    // Past the old ceiling and by the whole of what the job killed: a clamp at a hundred would
+    // leave the crew at 480 and a clamp anywhere would leave it short of this.
+    expect(base.economy.infamy).toBe(480 + missionInfamyForKills(fought.killed));
+    expect(base.economy.infamy).toBeGreaterThan(480);
+  });
+
+  /**
+   * The yard's cards reach the settle (maintainer, 2026-09-15: modifications fold onto every
+   * sheet the engine reads).
+   *
+   * `fightMissionBattle` takes the crew's brackets, and the settler is the one place that has a
+   * crew to read them off. It handed over nothing, so a card bolted on in the yard fought on a
+   * declared battle and did nothing on a job. Pinned against two replays of the same row: the
+   * settle has to match the fitted one and not the bare one, and the two have to differ or the
+   * fixture measures nothing.
+   */
+  it('fights a battle job with what the crew has bolted on', async () => {
+    const stack = await makeStack();
+    stack.repos.bases.updateUnitLoadouts(stack.base.id, { razors: ['taped_grips'] });
+    const fitted = stack.repos.bases.findById(stack.base.id);
+    if (!fitted) throw new Error('fixture: base vanished after fitting it');
+    expect(fitted.unitLoadouts).toEqual({ razors: ['taped_grips'] });
+
+    const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
+    const edge: Army = { razors: 9 };
+    planted({ ...stack, base: fitted }, strike, ALWAYS_SUCCEEDS, T0, {}, edge);
+    const settledAt = after(templateTimings(strike).totalMinutes);
+    const replay = (loadouts: UnitLoadouts) =>
+      fightMissionBattle({
+        seed: ALWAYS_SUCCEEDS,
+        jobName: strike.name,
+        force: edge,
+        vehicles: {},
+        tier: battleTierFor(strike) as BattleTier,
+        level: fitted.level,
+        anyRide: standingEffectsFor(stack.repos, fitted, settledAt).anyRide,
+        loadouts,
+      });
+    const bare = replay({});
+    const withGrips = replay(fitted.unitLoadouts);
+    expect(withGrips.lost, 'the fixture has to feel the card').not.toEqual(bare.lost);
+
+    const { resolved } = resolveDueMissions(stack.repos, fitted, settledAt);
+    expect(resolved[0]?.lost).toEqual(withGrips.lost);
+  });
+
+  it('leaves infamy alone for standard work however well it went', async () => {
+    const stack = await makeStack();
+    const courier = findMissionTemplate('courier-contract') as MissionTemplate;
+    expect(courier.kind).toBe('standard');
+    planted(stack, courier, ALWAYS_SUCCEEDS);
 
     const { base } = resolveDueMissions(
       stack.repos,
-      notorious,
+      stack.base,
+      after(templateTimings(courier).totalMinutes),
+    );
+
+    expect(base.economy.infamy).toBe(stack.base.economy.infamy);
+  });
+
+  /**
+   * Porters are never in the line (`standsInLine`), so a job that sent nobody but porters killed
+   * nobody, and a lost one banks nothing: the rate is per kill, not per fight.
+   */
+  it('pays nothing for a lost battle job that killed nobody', async () => {
+    const stack = await makeStack();
+    const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
+    planted(stack, strike, ALWAYS_FAILS);
+
+    const { base } = resolveDueMissions(
+      stack.repos,
+      stack.base,
       after(templateTimings(strike).totalMinutes),
     );
 
-    // The literal for the same reason as above: a figure read off the table cannot police it.
-    expect(base.economy.infamy).toBe(482);
-  });
-
-  it('leaves infamy alone for a lost fight, and for standard work however well it went', async () => {
-    for (const [id, roll] of [
-      ['convoy-ambush', ALWAYS_FAILS],
-      ['courier-contract', ALWAYS_SUCCEEDS],
-    ] as const) {
-      const stack = await makeStack();
-      const template = findMissionTemplate(id) as MissionTemplate;
-      planted(stack, template, roll);
-
-      const { base } = resolveDueMissions(
-        stack.repos,
-        stack.base,
-        after(templateTimings(template).totalMinutes),
-      );
-
-      expect(base.economy.infamy, id).toBe(stack.base.economy.infamy);
-    }
+    expect(base.economy.infamy).toBe(stack.base.economy.infamy);
   });
 
   it('records what was actually banked on the mission row', async () => {
@@ -659,6 +786,43 @@ describe('the mission routes', () => {
     expect(body.missions[0]?.templateId).toBe(going.template.id);
     expect(body.activeLimit).toBe(BASE_CONCURRENT_MISSIONS);
     expect(Date.parse(body.serverNow)).not.toBeNaN();
+  });
+
+  /**
+   * §D7: the rank gate stands on every door onto a field, and this was the one it did not.
+   *
+   * `notorietyToField` says a unit past the crew's rank "will not take the field". The deployment
+   * screen refuses it and the city refuses it; the launch route checked the roster and the tier
+   * and never the name, so a rank-nothing crew that trained a Colossus could not send it to a
+   * declared fight and could send it to a battle job against the same engine.
+   */
+  it('refuses a unit the crew has not earned the name to field', async () => {
+    const stack = await makeStack();
+    const { app, token } = stack;
+    const leaderId = withOfficer(stack);
+
+    const heavy = UNIT_CATALOG.find((unit) => notorietyToField(unit) > 0);
+    if (!heavy) throw new Error('fixture: nothing in the catalogue is rank gated');
+    const base = app.repos.bases.findById(stack.base.id)!;
+    app.repos.bases.updateArmy(base.id, { ...base.army, [heavy.id]: 1 }, base.trainingQueue);
+    expect(base.economy.notoriety, 'the fixture crew must be a nobody').toBeLessThan(
+      notorietyToField(heavy),
+    );
+
+    const going = aJobToday();
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/missions',
+      headers: auth(token),
+      payload: {
+        templateId: going.template.id,
+        areaId: going.areaId,
+        force: { [heavy.id]: 1 },
+        leaderId,
+      },
+    });
+    expect(refused.statusCode, refused.body.slice(0, 200)).toBe(409);
+    expect(refused.body).toContain('name that small');
   });
 
   it('freezes the clock at launch so retuning the board cannot retime a run in flight', async () => {
@@ -862,16 +1026,16 @@ describe('the mission routes', () => {
  * §A1: a crew that is out is still a crew the district feeds.
  *
  * A launch takes the force out of `base.army` and parks it on the mission row, so unless the
- * population fold goes and reads that row, the people on it are counted nowhere: not at home, not
+ * unit-slot fold goes and reads that row, the people on it are counted nowhere: not at home, not
  * abroad, not against the ceiling. That made the cap dodgeable by anybody with a long job on the
  * board, which is the one thing a cap must not be.
  *
- * Measured through the roster projection rather than through `districtPopulation` directly,
+ * Measured through the roster projection rather than through `districtUnitSlots` directly,
  * because the roster is where a player reads it and where **Max** is sized from: a figure that is
  * right in the fold and wrong on the screen would let the same trick through the front door.
  */
 describe('a crew on a mission still eats (§A1, §E)', () => {
-  it('keeps them in the population draw and shows them as abroad', async () => {
+  it('keeps them in the unit-slot draw and shows them as abroad', async () => {
     const stack = await makeStack();
     const before = projectUnits(stack.repos, freshBase(stack), T0);
 
@@ -904,8 +1068,8 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
 
     const during = projectUnits(stack.repos, freshBase(stack), T0);
     // The ceiling has not moved and neither has the draw: they left the army and joined `abroad`.
-    expect(during.supplyCap).toBe(before.supplyCap);
-    expect(during.supplyUsed).toBe(before.supplyUsed);
+    expect(during.unitSlotsCap).toBe(before.unitSlotsCap);
+    expect(during.unitSlotsUsed).toBe(before.unitSlotsUsed);
     expect(during.abroad.razors).toBe(4);
     expect(during.army.razors ?? 0).toBe((before.army.razors ?? 0) - 4);
   });
@@ -1511,14 +1675,25 @@ describe('vehicles on a mission (§C3)', () => {
         (entry) => entry.travelBand === 'furthest' && entry.kind === 'standard',
       ) ?? scrapRun;
 
-    // Enough seats for all four hundred: twelve Heli Porters seat 360 and two Cheese Wagons take
-    // the rest, so nobody walks and the column moves at the slowest machine that is carrying
-    // anybody.
-    const walked = planted(walkers, template, ALWAYS_SUCCEEDS);
-    const rode = planted(riders, template, ALWAYS_SUCCEEDS, T0, {
-      heli_porter: 12,
-      armoured_car: 2,
-    });
+    /*
+     * Enough seats for everybody, counted in unit slots rather than in heads.
+     *
+     * A Hauler costs two slots, so two hundred of them ask for four hundred; twelve Heli Porters
+     * seat 360 and two Cheese Wagons take the rest. Nobody walks, and the column moves at the
+     * slowest machine that is carrying anybody. Written as the arithmetic rather than as a round
+     * number because the head count used to be the whole of it: four hundred Haulers against this
+     * yard left half of them on foot the moment a seat started costing what a bed costs.
+     */
+    const force = { haulers: 200 };
+    const walked = planted(walkers, template, ALWAYS_SUCCEEDS, T0, {}, force);
+    const rode = planted(
+      riders,
+      template,
+      ALWAYS_SUCCEEDS,
+      T0,
+      { heli_porter: 12, armoured_car: 2 },
+      force,
+    );
 
     // The precondition: a price off the row's own clock would differ.
     expect(rode.travelMinutes).toBeLessThan(walked.travelMinutes);
@@ -1618,7 +1793,7 @@ describe('vehicles on a mission (§C3)', () => {
    * ...and the workshop's own speed points reach both roads (§C3).
    *
    * `upgradedStats` is what the engine reads, so a Neural Lace is twelve points of speed inside a
-   * fight. Both roads read `unit.stats.speed` straight off the catalogue, so the same body crossed
+   * fight. Both roads read `unit.stats.speed` straight off the catalogue, so the same unit crossed
    * the city slower than it crossed a battlefield, and the one upgrade line whose flavour is "goes
    * faster" did nothing to the clock a player watches. The armour line's negative speed is the
    * same rule in the other direction and rides in on the same fix.
@@ -1626,10 +1801,10 @@ describe('vehicles on a mission (§C3)', () => {
   it('reads the road at the sheet the workshop actually fitted', async () => {
     const stack = await makeStack('laced');
     // The largest of them, so the two sheets are more than a rounding step apart on this road.
-    const quickening = [...UNIT_UPGRADES]
+    const quickening = [...UNIT_MODIFICATIONS]
       .sort((a, b) => (b.effect.speed ?? 0) - (a.effect.speed ?? 0))
-      .find((spec) => (spec.effect.speed ?? 0) > 0);
-    if (!quickening) throw new Error('no upgrade adds speed');
+      .find((spec) => (spec.effect.speed ?? 0) > 0 && spec.fits === undefined);
+    if (!quickening) throw new Error('no universal card adds speed');
     const base = stack.repos.bases.findById(stack.base.id)!;
     stack.repos.bases.updateUnitLoadouts(base.id, { razors: [quickening.id] });
     const leaderId = withOfficer(stack);

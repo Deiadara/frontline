@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { Confirm } from '../../components/ui/Confirm';
 import { Icon } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
@@ -84,6 +85,16 @@ export function MessagesPage() {
   const [folder, setFolder] = useState<FolderId>('inbox');
   const [open, setOpen] = useState<Opened | null>(null);
   const zone = usePlayerZone();
+  /*
+   * Whether a message is waiting to be thrown away, and has not been confirmed yet.
+   *
+   * Only ever set for a message carrying a *live* invitation. `InviteCard` is rendered on the
+   * message and nowhere else, so throwing that message away destroys the only door into that
+   * faction: getting back takes a fresh invitation from somebody who has no way of knowing you
+   * binned theirs. A plain message is cheap and asking about every one would be friction, which is
+   * why this is scoped to the case where something is actually lost.
+   */
+  const [binning, setBinning] = useState<{ id: string; factionName: string } | null>(null);
   const [composing, setComposing] = useState(false);
   const [to, setTo] = useState('');
   const [toFaction, setToFaction] = useState(false);
@@ -358,7 +369,13 @@ export function MessagesPage() {
                   <Button
                     size="sm"
                     variant="danger"
+                    data-testid="throw-away"
                     onClick={() => {
+                      const live = open.message.invite;
+                      if (live?.open === true) {
+                        setBinning({ id: open.message.id, factionName: live.factionName });
+                        return;
+                      }
                       remove.mutate({ id: open.message.id });
                       setOpen(null);
                     }}
@@ -471,6 +488,21 @@ export function MessagesPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {binning !== null && (
+        <Confirm
+          title="Throw away the invitation?"
+          body={`The message goes and ${binning.factionName}'s invitation goes with it. This card is the only place it can be answered, so getting back to their table takes a fresh invite from somebody who will not know you binned this one.`}
+          confirm="Throw it away"
+          testId="confirm-bin-invite"
+          onCancel={() => setBinning(null)}
+          onConfirm={() => {
+            remove.mutate({ id: binning.id });
+            setBinning(null);
+            setOpen(null);
+          }}
+        />
       )}
     </PageShell>
   );

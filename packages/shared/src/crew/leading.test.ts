@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { makeAttributes } from '../attributes.js';
 import { PERK_CATALOG, describePerkBonus, findPerk, type PerkBonus } from './perks.js';
-import { crewEffects, leading, noCrewEffects, type CrewMember } from './effects.js';
+import {
+  CONDITIONAL_CHANNEL_LABELS,
+  crewEffects,
+  leading,
+  noCrewEffects,
+  type CrewMember,
+} from './effects.js';
 
 /**
  * §D5: the perks that only pay while an officer is leading.
@@ -79,11 +85,44 @@ describe('leading perks (§D5)', () => {
     expect(leading(folded)).toEqual(folded);
   });
 
-  it('says *while leading* on every one of them, so the condition is on the chip', () => {
+  /*
+   * The copy, against what the engine actually does.
+   *
+   * This used to read `while leading`, and beside a chip on one officer's card that is a promise
+   * the engine does not keep: `battle/resolve.ts` spends the whole crew's fold the moment anybody
+   * leads, so every `lead_*` perk on the books pays whoever went. The maintainer kept the engine
+   * and moved the copy (2026-09-16), so the phrase names the crew rather than the carrier. The
+   * old wording is pinned as absent, because a chip that says `while leading` next to a face is
+   * read as a condition on that face.
+   */
+  const CONDITION = 'while any of your officers leads';
+
+  it('names the whole crew in the condition, which is what the engine pays on', () => {
     for (const perk of PERK_CATALOG) {
       if (!LEAD_KINDS.includes(perk.bonus.kind)) continue;
-      expect(describePerkBonus(perk.bonus), perk.id).toContain('while leading');
+      const line = describePerkBonus(perk.bonus);
+      expect(line, perk.id).toContain(CONDITION);
+      expect(line, perk.id).not.toContain('this officer');
     }
+  });
+
+  it('says the same thing on the channel labels the profile screens read', () => {
+    for (const channel of ['leadOffensePercent', 'leadArmorFlat', 'leadArrivalPercent'] as const) {
+      const { when } = CONDITIONAL_CHANNEL_LABELS[channel];
+      expect(when, channel).toContain('one of your officers');
+      expect(when, channel).not.toContain('this officer');
+    }
+  });
+
+  /**
+   * The behaviour the copy now describes, pinned so the two cannot drift apart again.
+   *
+   * One perk on one person, and `leading` spends it for the crew: nothing in this struct records
+   * who carried it, which is exactly why the chip could not honestly say "this officer".
+   */
+  it('pays a perk carried by somebody who is not the one leading', () => {
+    const folded = crewEffects([bearer(['front_rank']), bearer([])]);
+    expect(leading(folded).unitOffensePercent).toBe(folded.leadOffensePercent);
   });
 
   it('carries a real magnitude on each of the six', () => {

@@ -8,11 +8,11 @@ import { notify } from './notify.js';
  * §F puts pages behind six different doors: a mission's prize, the Runner's close, the fence's
  * shelf, the Lab's Reimagining trade, and each side of a settled offer. A player who was not
  * looking at the screen that door is on has no way of knowing a document moved a square closer,
- * and the page itself is a line in a satchel of eighteen other things.
+ * and the page itself is a line in an inventory of eighteen other things.
  *
  * One helper for all six rather than a sentence written out at each: the copy is the same
  * sentence with the door swapped, and the thing that decides *which* pages arrived is a diff of
- * the satchel (`pagesGained`) rather than anything a caller has to remember to report.
+ * the inventory (`pagesGained`) rather than anything a caller has to remember to report.
  */
 
 /** Which door the page came through. `offer` names the crew on the other side of the trade. */
@@ -44,7 +44,7 @@ function whereItCameFrom(source: PageSource): string {
 
 export interface PagesFoundInput {
   userId: string;
-  /** The satchel before the thing that happened, and after it. */
+  /** The inventory before the thing that happened, and after it. */
   before: Inventory;
   after: Inventory;
   source: PageSource;
@@ -67,7 +67,7 @@ export function tellPagesFound(repos: Repositories, input: PagesFoundInput): num
   for (const [pageId, count] of Object.entries(gained)) {
     const page = findBlueprintPage(pageId);
     const blueprint = blueprintOfPage(pageId);
-    // A page id that no document claims is a catalogue that has moved under a saved satchel. The
+    // A page id that no document claims is a catalogue that has moved under a saved inventory. The
     // page still landed; there is just no sentence to write about it.
     if (!page || !blueprint || !count) continue;
     const many = count > 1 ? ` ×${count}` : '';

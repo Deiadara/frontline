@@ -133,6 +133,7 @@ const boardWith = (view: BattleView): BattlesResponse => ({
   reports: [],
   slots: [],
   infamy: 40,
+  callPrices: { locations: {}, districts: {} },
   gates: [],
   structures: [],
   serverNow: NOW,
@@ -148,7 +149,7 @@ const reply = (body: unknown) =>
     json: () => Promise.resolve(body),
   } as Response);
 
-/** The last body posted to `/battles/trap`, so the request itself can be asserted. */
+/** The last unit posted to `/battles/trap`, so the request itself can be asserted. */
 let posted: unknown = null;
 
 function serve(board: BattlesResponse): void {

@@ -43,7 +43,7 @@ const member = (username: string, joinedAt: string) => ({
   infamy: 0,
   infamyEarned: 0,
   armySize: 10,
-  supplyUsed: 4,
+  unitSlotsUsed: 4,
   isBot: false,
   card: 'joker' as const,
   cardMark: 'F' as const,

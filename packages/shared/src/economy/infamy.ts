@@ -13,10 +13,11 @@ import { UNIT_TIERS, findUnit, type Army, type UnitSpec, type UnitTier } from '.
  *
  * ## Where it comes from
  *
- * Killing people. That is the headline rule and everything else is trim: every body that does not
- * walk off the field is worth {@link infamyForKill}, and a fight against a real army is worth
- * hundreds. Taking ground off the Combine pays a bonus on top ({@link infamyForRaidWon}), because
- * robbing the state is the kind of thing the street repeats.
+ * Killing people. That is the headline rule and everything else is trim: every unit slot that does
+ * not walk off the field is worth one point ({@link infamyForKill}), to the winner and the loser
+ * alike. A battle job pays half that, rounded up ({@link missionInfamyForKills}). Taking ground
+ * off the Combine pays a bonus on top ({@link infamyForRaidWon}), because robbing the state is the
+ * kind of thing the street repeats.
  *
  * ## What it is for
  *
@@ -48,66 +49,16 @@ export type Infamy = z.infer<typeof InfamySchema>;
 export const STARTING_INFAMY = 0;
 
 /**
- * What one body is worth, by what kind of body it was.
+ * What one kill is worth: the unit's own slots, which is what it took to house (maintainer,
+ * 2026-09-15).
  *
- * The board's shape, 1, 5, 25, 100 from the cheapest thing on the street to a legend, with the
- * heavy tier filled in between the two ends it sits between. The steps are deliberately not linear:
- * killing five hundred Razors should not be worth the same as killing the Abomination, because
- * anybody can find five hundred Razors and only one crew in the city has an Abomination.
+ * It was a hand-tuned figure per tier, scaled by unit slots and patched per unit where the tier's
+ * number disagreed with the roster. Three tables to keep in step, and they came apart every time
+ * the tiers were regrouped. The rule is now the one number every unit already carries: a Colossus
+ * is twelve slots and worth twelve, a Razor is one slot and worth one. A unit added tomorrow is
+ * priced the day its housing cost is written.
  */
-export const INFAMY_PER_TIER: Readonly<Record<UnitTier, number>> = {
-  // Nobody makes a name out of killing porters. Zero rather than a small number, because a
-  // support unit is never in a battle line to be killed in the first place.
-  carrier: 0,
-  rabble: 1,
-  specialist: 25,
-  // Above the specialists rather than beside them: a Cyberhound is a thing somebody *built*, and
-  // the crew that lost one is short a machine rather than short a person they can hire again.
-  wonder: 30,
-  heavy: 60,
-  legendary: 100,
-};
-
-/**
- * The supply cost a tier's *typical* member eats, which is what the tier's headline number is
- * quoted against.
- *
- * Scaling by supply rather than authoring a number per unit is what keeps this table honest as the
- * roster grows: the Twins are two Snipers' worth of bodies and are worth two Snipers' worth of
- * infamy without anybody remembering to say so. A unit added tomorrow is priced the day it is
- * written.
- */
-export const TYPICAL_SUPPLY: Readonly<Record<UnitTier, number>> = {
-  carrier: 1,
-  rabble: 1,
-  specialist: 2,
-  wonder: 2,
-  heavy: 5,
-  legendary: 8,
-};
-
-/**
- * The exceptions, where what a thing is worth to kill is not what it costs to field.
- *
- * The Colossus is the maintainer's own example. By supply it is twelve bodies; by reputation it is the
- * thing a district tells stories about, and killing one is the story. Anything in here is a
- * deliberate authorial call and needs a reason beside it.
- *
- * The other two are here because **tier does two jobs and they came apart**. A tier is a flavour
- * grouping on the roster screen and it is also this table's proxy for what a unit is worth, and
- * those agreed until the tiers were regrouped by what a unit *is* rather than by what it costs.
- * Both of these are wretched, desperate things that belong with the rabble on the screen, and
- * neither is remotely rabble to put on the street. Left on the tier's own number, killing one
- * earned less than killing a Warden off a Gauntlet 4. `infamy.test.ts` now refuses that shape
- * outright, so the next regroup fails loudly instead of quietly repricing the roster.
- */
-export const INFAMY_UNIT_VALUES: Readonly<Record<string, number>> = {
-  the_colossus: 250,
-  // Gauntlet 12 and a Fight Pit taken off somebody: a deeper gate than any specialist.
-  the_condemned: 45,
-  // Gauntlet 6 and a Greenhouse 5, and the only thing that walks into a chlorine leak on purpose.
-  ash_walkers: 24,
-};
+export const INFAMY_PER_UNIT_SLOT = 1;
 
 /**
  * What killing one of these is worth.
@@ -119,21 +70,29 @@ export const INFAMY_UNIT_VALUES: Readonly<Record<string, number>> = {
 export function infamyForKill(unit: UnitSpec | string): number {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
   if (!spec) return 0;
-  const override = INFAMY_UNIT_VALUES[spec.id];
-  if (override !== undefined) return override;
-  // A tier worth nothing is worth nothing, and the floor of 1 below must not override that: the
-  // support tier is not in a battle line to be killed, and nobody makes a name out of a porter.
-  const perTier = INFAMY_PER_TIER[spec.tier];
-  if (perTier <= 0) return 0;
-  return Math.max(1, Math.round((perTier * spec.supply) / TYPICAL_SUPPLY[spec.tier]));
+  return spec.unitSlots * INFAMY_PER_UNIT_SLOT;
 }
 
-/** What a whole casualty list is worth. The reading every battle settlement wants. */
+/** What a whole casualty list is worth. The reading every declared fight settles on. */
 export function infamyForKills(killed: Army): number {
   return Object.entries(killed).reduce(
     (total, [unitId, count]) => total + infamyForKill(unitId) * Math.max(0, count),
     0,
   );
+}
+
+/**
+ * A battle job pays half a point per unit slot killed, rounded **up** (maintainer, 2026-09-15).
+ *
+ * Half, because the ground is nobody's and nobody was called out: the enemy is whoever the board
+ * says was waiting, and killing them is work rather than a statement. Up rather than to nearest,
+ * in the maintainer's own words: kill three and you get two. The half and the rounding live here
+ * and nowhere else, so the mission settler and the screen cannot round in different directions.
+ */
+export const MISSION_INFAMY_PER_UNIT_SLOT = 0.5;
+
+export function missionInfamyForKills(killed: Army): number {
+  return Math.ceil(infamyForKills(killed) * MISSION_INFAMY_PER_UNIT_SLOT);
 }
 
 /** Infamy gained by taking any site by force (§D7), on top of whatever died taking it. */
@@ -204,12 +163,12 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
   rabble: 0,
   specialist: 0,
   /**
-   * `Ill-Reputed`, the same as Heavy, and paired with it in {@link SUPPLY_GATED_TIERS}.
+   * `Ill-Reputed`, the same as Heavy, and paired with it in {@link SLOT_GATED_TIERS}.
    *
    * Zero until §D12i moved the Hollow Men out of Heavy and into the wonders of engineering. The
    * rank a unit asks for is about how big a deal it is, not about which shelf of the catalogue it
    * was filed on, and a taxonomy change is not supposed to hand every crew in the city a shock
-   * trooper it had to earn the day before. The supply exemption below keeps the small engineered
+   * trooper it had to earn the day before. The slot exemption below keeps the small engineered
    * units (Road Reavers, Kite Crews, Cyberhounds, the Twins) open to anybody, exactly as they were.
    */
   wonder: 2,
@@ -220,7 +179,7 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
 };
 
 /**
- * The supply a unit has to eat before the middle band's rank gate applies to it.
+ * The unit slots a sheet has to eat before the middle band's rank gate applies to it.
  *
  * The gate is derived off the tier, and that stopped being sufficient when the line infantry moved
  * into Heavy: the tier now runs from Breakers, which a crew trains off a Gauntlet 4 in its first
@@ -228,11 +187,11 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
  * reputation nobody has yet, which is a progression wall where the reshuffle meant to put a shelf
  * of armour.
  *
- * Supply is the right axis for what the gate was always asking: not "is it armoured" but "is it a
+ * Unit slots are the right axis for what the gate was always asking: not "is it armoured" but "is it a
  * big deal". Five is where Juggernauts and Hollow Men sit and Breakers, Wardens, Sluggers and
  * Ironsides do not.
  */
-export const NOTORIETY_HEAVY_SUPPLY = 5;
+export const NOTORIETY_HEAVY_UNIT_SLOTS = 5;
 
 /**
  * The two tiers where the rank is decided by size rather than by the tier alone.
@@ -240,13 +199,13 @@ export const NOTORIETY_HEAVY_SUPPLY = 5;
  * Both of them hold cheap early units and expensive late ones, so both need the exemption. Rabble
  * and specialists are never gated, and a legend is always gated whatever it weighs.
  */
-const SUPPLY_GATED_TIERS: readonly UnitTier[] = ['heavy', 'wonder'];
+const SLOT_GATED_TIERS: readonly UnitTier[] = ['heavy', 'wonder'];
 
 export function notorietyToField(unit: UnitSpec | string): number {
   const spec = typeof unit === 'string' ? findUnit(unit) : unit;
   if (!spec) return 0;
-  // See `NOTORIETY_HEAVY_SUPPLY`: armour alone is not what the gate is about.
-  if (SUPPLY_GATED_TIERS.includes(spec.tier) && spec.supply < NOTORIETY_HEAVY_SUPPLY) return 0;
+  // See `NOTORIETY_HEAVY_UNIT_SLOTS`: armour alone is not what the gate is about.
+  if (SLOT_GATED_TIERS.includes(spec.tier) && spec.unitSlots < NOTORIETY_HEAVY_UNIT_SLOTS) return 0;
   return NOTORIETY_TO_FIELD[spec.tier];
 }
 
@@ -262,10 +221,8 @@ export function unitsBeyondNotoriety(force: Army, notoriety: number): string[] {
     .map(([unitId]) => unitId);
 }
 
-/** Guards the tier tables against a tier being added and silently going unpriced. */
+/** Guards the rank table against a tier being added and silently going ungated. */
 for (const tier of UNIT_TIERS) {
-  if (INFAMY_PER_TIER[tier] === undefined) throw new Error(`no infamy value for the ${tier} tier`);
-  if (TYPICAL_SUPPLY[tier] === undefined) throw new Error(`no typical supply for the ${tier} tier`);
   if (NOTORIETY_TO_FIELD[tier] === undefined) {
     throw new Error(`no notoriety gate for the ${tier} tier`);
   }

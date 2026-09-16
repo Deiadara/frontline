@@ -72,10 +72,10 @@ export const ENEMY_MIX_VARIANCE = 0.25;
 /**
  * How close to the tier's figure the built force lands, as a share of it.
  *
- * Bodies are lumpy: the cheapest sheet on the skirmish roster is worth 175 on `fieldStrength` and
- * a skirmish fields 1,400, so a whole body is an eighth of the job. The fill below adds and drops
+ * Units are lumpy: the cheapest sheet on the skirmish roster is worth 175 on `fieldStrength` and
+ * a skirmish fields 1,400, so a whole unit is an eighth of the job. The fill below adds and drops
  * that cheapest sheet while doing so moves the total *closer* to the figure, which bounds the
- * error at half a body, and this is that bound written as a fraction of the smallest tier.
+ * error at half a unit, and this is that bound written as a fraction of the smallest tier.
  */
 export const ENEMY_STRENGTH_TOLERANCE = 0.07;
 

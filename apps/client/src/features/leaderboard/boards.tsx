@@ -155,12 +155,18 @@ export function PlayerBoard({
   entries,
   youUserId,
   youRow,
+  focus,
+  focusRow,
   sort,
 }: {
   entries: readonly PlayerStanding[];
   youUserId: string;
   /** Hung on the reader's own row so the plaque at the foot of the page can scroll to it. */
   youRow: RefObject<HTMLLIElement>;
+  /** The username the standings were opened on, from `?focus=`, if any. */
+  focus: string | undefined;
+  /** The row that username landed on, so the page can scroll it into view. */
+  focusRow: RefObject<HTMLLIElement>;
   sort: PlayerSort;
 }) {
   return (
@@ -177,13 +183,22 @@ export function PlayerBoard({
       <ul className="shrink-0">
         {entries.map((entry) => {
           const you = entry.userId === youUserId;
+          // The crew the search sent the reader here to look at. Marked so the eye lands on it
+          // after the scroll: a page jumping to the middle of a hundred identical rows with
+          // nothing picked out is a page that has not answered the question.
+          const sought = focus !== undefined && entry.username === focus;
           return (
             <li
               key={entry.userId}
-              ref={you ? youRow : undefined}
+              ref={sought ? focusRow : you ? youRow : undefined}
               data-testid={`standing-${entry.username}`}
               data-you={you ? 'true' : undefined}
-              className={cn('relative flex items-center gap-3 px-4', you && 'bg-brass-300/[0.12]')}
+              data-sought={sought ? 'true' : undefined}
+              className={cn(
+                'relative flex items-center gap-3 px-4',
+                you && 'bg-brass-300/[0.12]',
+                sought && 'bg-iris-300/[0.16] ring-1 ring-inset ring-iris-300/40',
+              )}
               style={RULED_ROW}
             >
               {/* First, and holding nothing but the number: the ranking gates read this cell's

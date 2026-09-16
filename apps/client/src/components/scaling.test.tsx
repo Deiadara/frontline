@@ -259,7 +259,7 @@ const CASES: readonly { name: string; render: () => RenderResult }[] = [
   },
   {
     name: 'a panel whose title is the longest district name the game allows',
-    render: () => render(<Panel title={'W'.repeat(DISTRICT_NAME_MAX)}>body</Panel>),
+    render: () => render(<Panel title={'W'.repeat(DISTRICT_NAME_MAX)}>unit</Panel>),
   },
   {
     name: 'a number field at seven figures',

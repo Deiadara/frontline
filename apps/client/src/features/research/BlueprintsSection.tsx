@@ -42,12 +42,12 @@ import { BlueprintGlyph, PageGlyph } from './BlueprintGlyph';
  * Neither is persisted, so both come back off by default, which is the state that answers "what am
  * I short of".
  *
- * ## Everything is read off the satchel
+ * ## Everything is read off the inventory
  *
  * Pages and finished documents are items, so this screen needs no endpoint of its own: it reads
- * `inventory` off the market payload, the same object the Satchel is drawn from. The one write is
- * Unlock. It lived inside the Satchel until §I1d moved it here, beside the programmes the Lab runs,
- * because both answer the same question: what can be opened next.
+ * `inventory` off the market payload, the same object the retired Inventory page was drawn from.
+ * The one write is Unlock. It lived inside that page until §I1d moved it here, beside the
+ * programmes the Lab runs, because both answer the same question: what can be opened next.
  */
 export function BlueprintsSection() {
   const query = useMarket();
@@ -400,7 +400,7 @@ function PageStrip({ holding }: { holding: BlueprintHolding }) {
             <span className="sr-only">{filled ? 'held' : 'missing'}</span>
             {/* The threshold differs because "spare" does. On a document still being collected the
                 first copy is doing a job, so two is one spare. On an unlocked one the pages were
-                already spent assembling it, so every copy still in the satchel is spare and a
+                already spent assembling it, so every copy still in the inventory is spare and a
                 single one is worth marking: Reimagining will take it. */}
             {held > (unlocked ? 0 : 1) && (
               <span

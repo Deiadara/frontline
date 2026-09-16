@@ -54,7 +54,7 @@ const INVALIDATES: Record<LiveEventKind, readonly (readonly unknown[])[]> = {
   /*
    * Everything a `base` receipt can stand for. The server maps `officer_hired`, `training_done`,
    * `page_found` and `building_done` onto this one kind alongside the mission and research ones,
-   * so the Bar, the crew and its fold, the gym, the satchel (read off the market), the yard, the
+   * so the Bar, the crew and its fold, the gym, the inventory (read off the market), the yard, the
    * garage and the district's own read (`['base']` is the prefix of every base id) all go stale
    * with it. Most of those have no poll, so this is the only thing that ever re-reads them.
    */
@@ -260,7 +260,7 @@ export function useLiveEvents(): LiveStatus {
            * Nothing counts as a connection until a byte of it arrives.
            *
            * The backoff used to reset here, on the response *headers*, which is a weaker claim than
-           * it looks: a proxy that accepts the request and then closes the body immediately, an LB
+           * it looks: a proxy that accepts the request and then closes the unit immediately, an LB
            * idle timeout, or a server in a crash loop all produce `res.ok` with a stream that ends
            * at once. Every one of those iterations counted as a success, so `attempt` never grew
            * past zero and the tab reconnected roughly once a second, forever, taking a full cache

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The Console's grants (maintainer request, 2026-09-11): documents, pages, parts and rungs handed over
@@ -40,12 +41,7 @@ async function crew(app: FastifyInstance): Promise<string> {
     payload: { username: 'operator', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return token;
 }
 
@@ -73,7 +69,7 @@ describe('the Console hands over', () => {
     // Granting again does not stack a document: holding one is a yes or no.
     await grant(app, token, { blueprints: 'upgrade' });
     const again = await me(app, token);
-    expect(again.inventory.bp_composite_armour).toBe(1);
+    expect(again.inventory.bp_mod_filed_sights).toBe(1);
 
     const yard = await app.inject({ method: 'GET', url: '/api/scrapyard', headers: auth(token) });
     const entries = yard.json<ScrapyardResponse>().entries;

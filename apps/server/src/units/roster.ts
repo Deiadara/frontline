@@ -18,9 +18,10 @@ import {
   type UnitsResponse,
   upgradedStats,
   type FittedSlot,
-  type UpgradeSpec,
+  type UnitModificationSpec,
   fittedFor,
-  findUpgrade,
+  findUnitModification,
+  modificationsForUnit,
   homeTrainingBonus,
   slotsFor,
   ENV_LABEL_CATALOG,
@@ -30,7 +31,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { trainingRatesFor, unlockContextFor } from './training.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { districtPopulation, unitsAbroad } from '../district/population.js';
+import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
 
 /**
  * The unit roster (GDD §A5).
@@ -80,13 +81,12 @@ function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
 
 /** One bracket, as the card draws it: what is in it, or the fact that nothing is. */
 function describeSlot(upgradeId: string | null): FittedSlot {
-  const spec = upgradeId === null ? undefined : findUpgrade(upgradeId);
-  if (!spec) return { upgradeId: null, name: '', line: null, tier: 0, effect: {} };
+  const spec = upgradeId === null ? undefined : findUnitModification(upgradeId);
+  if (!spec) return { upgradeId: null, name: '', rarity: null, effect: {} };
   return {
     upgradeId: spec.id,
     name: spec.name,
-    line: spec.line,
-    tier: spec.tier,
+    rarity: spec.rarity,
     effect: spec.effect as Record<string, number>,
   };
 }
@@ -98,7 +98,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const rates = trainingRatesFor(repos, base);
   const garrisoned = garrisonedUnits(repos, base);
   const abroad = unitsAbroad(repos, base);
-  const population = districtPopulation(repos, base, garrisoned);
+  const slots = districtUnitSlots(repos, base, garrisoned);
 
   const units: UnitOption[] = UNIT_CATALOG.map((unit) => {
     // §A4: what the ground that trains this one takes off it, on top of the crew-wide figures.
@@ -110,11 +110,11 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       blurb: unit.blurb,
       trainedAt: unit.trainedAt,
       unique: unit.unique,
-      // The workshop's fitted upgrades, folded in at read time.
+      // The cards in this unit's brackets, folded in at read time.
       //
-      // Not written into the roster when an upgrade is bought: folding here is what makes a refit
-      // reach the units trained last week as well as the ones trained tomorrow, which is what
-      // "the workshop refits everybody" has to mean for a player not to find it maddening.
+      // Not written into the roster when a card is built: folding here is what makes a card reach
+      // the units trained last week as well as the ones trained tomorrow, which is what "the yard
+      // refits everybody" has to mean for a player not to find it maddening.
       stats: upgradedStats(unit.stats, fittedFor(base.unitLoadouts, unit.id)),
       modifiers: unit.modifiers.map((id) => ({
         label: UNIT_MODIFIERS[id].label,
@@ -133,13 +133,15 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       affinities: groundAffinities(unit),
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,
-      supply: unit.supply,
+      unitSlots: unit.unitSlots,
       homeCostReduction: home.costPercent,
       homeSpeedBonus: home.speedPercent,
       unlocked: isUnitUnlocked(unit, context),
       missing: missingRequirements(unit, context).map(describeRequirement),
       owned: base.army[unit.id] ?? 0,
       slots: slotsFor(base.unitLoadouts, unit.id).map(describeSlot),
+      // Off the same rule `slotRefusal` reads, so a greyed card and a `does_not_fit` agree.
+      eligible: modificationsForUnit(unit.id).map((spec) => spec.id),
     };
   });
 
@@ -150,22 +152,18 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     garrisoned,
     abroad,
     /*
-     * The two figures behind the roster's population chip, and behind **Max**.
+     * The two figures behind the roster's unit-slot chip, and behind **Max**.
      *
-     * `used` counts the garrisons and the bench as well as the army at home: a unit standing on a
-     * rooftop three districts away is still a unit this crew is feeding, and a batch already
-     * ordered has already claimed its beds. Leaving the bench out was a real defect rather than a
-     * rounding one: `supplyCap - supplyUsed` is exactly what Max offers, the training route
-     * subtracts the bench before it decides, and the difference was Max proposing a batch the route
-     * then refused.
-     *
-     * `cap` is what is left for soldiers once the officers have taken
-     * theirs, so the two subtract to `districtPopulation`'s own `spare` and nothing has to agree by
+     * `used` is the whole draw, not the army alone: the garrisons, the bench, the officers and the
+     * yard are all somebody this crew houses. Leaving any of them out is a real defect rather than
+     * a rounding one, because `unitSlotsCap - unitSlotsUsed` is exactly what Max offers and the training
+     * route subtracts the same figure before it decides: a difference is Max proposing a batch the
+     * route then refuses. Sending it as `slots.total` against `slots.capacity` keeps the
+     * two subtracting to `districtUnitSlots`'s own `spare` by construction rather than by
      * coincidence.
      */
-    supplyUsed: population.army + population.training,
-    // The whole ceiling: officers are not charged against it (`building/population.ts`).
-    supplyCap: population.capacity,
+    unitSlotsUsed: slots.total,
+    unitSlotsCap: slots.capacity,
     queue: base.trainingQueue,
     resources: base.resources,
     // §B5/§B6: the same three figures the route charges and clocks with, so the page's quoted
@@ -173,16 +171,15 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     trainingCostReduction: rates.costPercent,
     trainingSuppliesReduction: rates.suppliesPercent,
     built: base.fittedUpgrades
-      .map((id) => findUpgrade(id))
-      .filter((spec): spec is UpgradeSpec => spec !== undefined)
+      .map((id) => findUnitModification(id))
+      .filter((spec): spec is UnitModificationSpec => spec !== undefined)
       .map((spec) => {
         // §D5c: one of a thing is one of a thing, so this is a unit id or nothing.
         const [wearing] = fittedOn(base.unitLoadouts, spec.id);
         return {
           id: spec.id,
           name: spec.name,
-          line: spec.line,
-          tier: spec.tier,
+          rarity: spec.rarity,
           description: spec.description,
           effect: spec.effect as Record<string, number>,
           fittedTo: wearing ?? null,

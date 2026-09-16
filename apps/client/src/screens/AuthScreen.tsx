@@ -30,7 +30,7 @@ import { useSession } from '../store/session';
  * it is going to be. Rust, rivets, tape and a hand-drawn rule, over the district behind it.
  *
  * At narrow widths the pitch drops away and the board takes the column. A marketing panel that
- * pushes the passphrase field below the fold is worse than no marketing panel.
+ * pushes the password field below the fold is worse than no marketing panel.
  */
 
 type Mode = 'login' | 'register';
@@ -46,12 +46,12 @@ interface FieldErrors {
  *
  * Gated on `import.meta.env.DEV`, which Vite replaces with a literal at build time, so a
  * `vite build` drops both the prefill and the notice and the constant with them. Ungated, every
- * visitor to a deployed build got the seeded account's passphrase typed into the form and spelled
+ * visitor to a deployed build got the seeded account's password typed into the form and spelled
  * out below it: a credential that is seeded on every boot of the server is not a secret the
  * interface may also publish.
  *
  * `pnpm dev` and the Playwright stack both run the dev server, so the convenience survives where
- * it is for. Register mode starts blank either way: the dev passphrase is 5 characters and would
+ * it is for. Register mode starts blank either way: the dev password is 5 characters and would
  * fail `RegisterRequestSchema`'s 8-character minimum.
  */
 const DEV_PREFILL = import.meta.env.DEV;
@@ -226,7 +226,7 @@ export function AuthScreen() {
               <p className="font-body text-[13px] leading-snug text-ink-300">
                 {mode === 'login'
                   ? 'Back to the district. Nothing waited for you.'
-                  : 'Pick a handle the street can shout. Eight characters on the passphrase, minimum.'}
+                  : 'Pick a handle the street can shout. Eight characters on the password, minimum.'}
               </p>
 
               <Field
@@ -237,7 +237,7 @@ export function AuthScreen() {
                 error={fieldErrors.username}
               />
               <Field
-                label="Passphrase"
+                label="Password"
                 type="password"
                 value={password}
                 onChange={setPassword}

@@ -203,7 +203,7 @@ describe('the Broker', () => {
   });
 });
 
-describe('the satchel', () => {
+describe('the inventory', () => {
   it('adds, counts and takes back out', () => {
     const held = addItems(addItems({}, { scrap_servo: 2 }), { scrap_servo: 1, neural_shunt: 1 });
     expect(held).toEqual({ scrap_servo: 3, neural_shunt: 1 });
@@ -267,7 +267,7 @@ describe('listings', () => {
   /*
    * An unlocked blueprint is the one thing in the catalogue that may never change hands, and a
    * listing has two sides. `give` is escrowed at posting and was checked; `want` is paid out of the
-   * *buyer's* satchel at settlement and was not, so a document walked out of a crew that never
+   * *buyer's* inventory at settlement and was not, so a document walked out of a crew that never
    * agreed a document could be traded at all.
    */
   it('refuses a listing that moves an untradeable document, whichever side it is on', () => {

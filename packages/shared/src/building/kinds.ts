@@ -113,7 +113,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Quarters',
     description:
       'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
-    role: 'Raises the district population ceiling, and nothing else. Every soldier needs a bed, so this is the number that decides how big the army can be.',
+    role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every soldier, officer and machine takes a slot, so the first number decides how big the army can be and the second how many names you can pay.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.
@@ -125,7 +125,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Greenhouse',
     description:
       'Grow lamps over stacked trays, running day and night. The only food down here nobody had to fight for.',
-    role: 'Grows supplies around the clock, and every level takes a little more of the supplies bill off training a unit.',
+    role: 'Grows supplies and timber around the clock, and every level takes a little more of the supplies bill off training a unit.',
     requires: [nexus(1)],
     baseCost: { caps: 100, scrap: 70, supplies: 40, planks: 90, oil: 10 },
     baseSeconds: 20,
@@ -135,7 +135,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Generator',
     description:
       'A turbine block running on whatever burns. It is loud, it is filthy, and every crane in the district turns because of it.',
-    role: "Takes time off every other structure's build, by level, and sells a two-hour burn of oil that takes a quarter off the whole queue.",
+    role: "Refines oil around the clock, takes time off every other structure's build by level, and sells a two-hour burn that takes a quarter off the whole queue.",
     requires: [nexus(1)],
     // Mainly oil (§B4). The turbine is fed rather than built: the plant is a drum, a rotor and a
     // fuel line, and what a bigger one costs is what it swallows getting there.
@@ -147,7 +147,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Scrapyard',
     description:
       'Torch work, press lines and a sorting floor. Where wreckage is taken apart and something useful is made out of it.',
-    role: 'Strips salvage into scrap, fuel and the occasional length of good metal, and builds the add-ons that bolt onto a structure or a unit.',
+    role: 'Strips salvage into scrap and the occasional length of good metal, and builds the add-ons that bolt onto a structure or a unit.',
     requires: [nexus(2), needs('generator', 1)],
     baseCost: { caps: 140, scrap: 120, planks: 60, oil: 20 },
     baseSeconds: 25,

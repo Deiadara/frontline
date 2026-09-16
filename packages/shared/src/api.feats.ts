@@ -10,7 +10,7 @@ import { IsoDateTimeSchema } from './primitives.js';
  *
  * The response carries **progress only**, one small row per feat: an id, a state, two numbers. The
  * names, the blurbs, the eras and the rewards are in `@frontline/shared` and the client already
- * has them, so sending a hundred and sixty descriptions on every poll would be sending the client
+ * has them, so sending two hundred descriptions on every poll would be sending the client
  * its own source code. The screen joins the two by id.
  *
  * That also decides what happens when the two drift. A client one deploy behind gets progress rows
@@ -33,15 +33,22 @@ export type ClaimFeatRequest = z.infer<typeof ClaimFeatRequestSchema>;
 /**
  * Why a claim was refused.
  *
- * All four are 409s carrying one of these rather than a sentence, because none of them is a
+ * All five are 409s carrying one of these rather than a sentence, because none of them is a
  * malformed request: the caller is who they say they are and the feat exists, the game is just not
  * in a state where it can be collected. Which door is shut is the useful half.
+ *
+ * `no_unit_slots` is the only one a player can clear by playing rather than by waiting. A feat
+ * that pays units cannot be collected into a district with nowhere to put them (§A1), for the
+ * same reason the Gauntlet will not take the order: the crew would be over its ceiling and the
+ * roster would be a number the screen cannot explain. The feat stays **ready**, so being told to
+ * make room costs nothing but the trip.
  */
 export const FEAT_CLAIM_REFUSALS = [
   'unknown_feat',
   'not_finished',
   'locked',
   'already_claimed',
+  'no_unit_slots',
 ] as const;
 export const FeatClaimRefusalSchema = z.enum(FEAT_CLAIM_REFUSALS);
 export type FeatClaimRefusal = z.infer<typeof FeatClaimRefusalSchema>;
@@ -51,6 +58,8 @@ export const FEAT_CLAIM_REFUSAL_TEXT: Readonly<Record<FeatClaimRefusal, string>>
   not_finished: 'That one is not finished yet.',
   locked: 'Finish the one before it first.',
   already_claimed: 'You have already collected that one.',
+  no_unit_slots:
+    'Your district has nowhere to put the units that one pays. Make room and come back for it.',
 };
 
 /**
@@ -78,6 +87,18 @@ export type ClaimFeatResponse = z.infer<typeof ClaimFeatResponseSchema>;
  */
 export const ClaimAllResponseSchema = z.object({
   featIds: z.array(z.string().min(1)),
+  /**
+   * Feats that were waiting and were **not** collected, because the district has nowhere to put
+   * the units they pay (§A1).
+   *
+   * Sent because without it the button is a dead control: the backlog does not empty, the count on
+   * its face does not move, and pressing it again pays nothing and says nothing. The screen needs
+   * to be able to say *why* one is still red, and only the server knows what the beds are doing.
+   *
+   * Defaulted, so a client reading a response from a build that predates the cap sees an empty
+   * list rather than a parse error.
+   */
+  skipped: z.array(z.string().min(1)).default([]),
   /** The whole backlog's reward, folded. See `mergeFeatRewards`. */
   paid: FeatRewardSchema.or(z.object({})),
   feats: FeatsResponseSchema,

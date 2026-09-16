@@ -28,7 +28,7 @@ import { type BlueprintMotif } from './motifs.js';
  *
  * It names its targets by id as plain strings and imports nothing from the rest of the domain
  * except `items/rarity.ts`, which is a scale and four words and imports nothing itself.
- * `items/catalog.ts` turns every page into an item so a page can sit in a satchel and survive a
+ * `items/catalog.ts` turns every page into an item so a page can sit in an inventory and survive a
  * save, and `items` is below `units`, `building` and `battle` in the import graph. A blueprint
  * catalogue that reached back up into the unit catalogue would close that loop at module-load
  * time. The lookups that need both halves live in `requirements.ts`, which nothing below it
@@ -47,7 +47,7 @@ export const BLUEPRINT_CATEGORY_LABELS: Readonly<Record<BlueprintCategory, strin
 
 /** What each section of the Blueprints page is, in one line under its heading. */
 export const BLUEPRINT_CATEGORY_BLURBS: Readonly<Record<BlueprintCategory, string>> = {
-  unit: 'Bodies and machines. Vehicles count as units: somebody still has to be taught to make one.',
+  unit: 'Units and machines. Vehicles count as units: somebody still has to be taught to make one.',
   upgrade: 'What a structure or a squad becomes once the yard has the drawings for it.',
   consumable: 'Made for one night and gone by morning.',
 };
@@ -85,7 +85,7 @@ export interface BlueprintPage {
    *
    * Not derivable. Nothing about "a page of the Sniper Blueprint" says the Barrel Liners sheet
    * shows a rifled bore in section and the Range Cards sheet shows a ruled card, and that is
-   * exactly the difference a player uses to tell two sheets apart in a satchel row at 36px.
+   * exactly the difference a player uses to tell two sheets apart in an inventory row at 36px.
    * `motifs.test.ts` holds the rules: a page never repeats another page of its own document and
    * never draws its document's cover.
    */
@@ -135,7 +135,7 @@ export interface BlueprintSpec {
 }
 
 export const BLUEPRINTS = [
-  // ---------------------------------------------------------------- unit: trained bodies (§D12a)
+  // ---------------------------------------------------------------- unit: trained units (§D12a)
   {
     id: 'bp_snipers',
     name: 'Sniper Blueprint',
@@ -790,7 +790,7 @@ export const BLUEPRINTS = [
   },
   {
     // The ids keep the old machine's name (`building/vehicles.ts` says why); the words are the
-    // Offie's. Pages already sitting in satchels keep counting towards the document.
+    // Offie's. Pages already sitting in inventories keep counting towards the document.
     id: 'bp_dirt_runner',
     name: 'Offie Blueprint',
     motif: 'pickup',
@@ -1065,151 +1065,1011 @@ export const BLUEPRINTS = [
     ],
   },
 
-  // --------------------------------------------------------- upgrade: what the workshop fits
-  // §D12g. The gate is unchanged in shape: tier one of a line is open to anybody and the two above
-  // it want the line's document. What changed is that the document is now four pages, not one item.
+  // ------------------------------------------------- upgrade: what the Scrapyard fits to a squad
+  // §D12g, second model (`units/modifications.ts`, 2026-09-15): thirty cards with no ladder, and
+  // twenty-seven of them want drawings. One document per card on the `unit_upgrade` target kind.
+  // The four line documents of the tiered refits (Composite Armour, Munitions, Cybernetics,
+  // Discipline, thirteen pages between them) went with the refits: their targets no longer exist.
+  // Page counts follow the card's rarity against the §D bands in the module doc: two for a BASIC
+  // card, three for INTRICATE, four for ADVANCED, five or six for MASTERPIECE. The ids carry `mod_`
+  // so a card's document can never share an id with a boost's: `bp_shaped_charges` names the
+  // Shaped Charge boost, and the card that used to share its name is Breaching Charges now for
+  // the same reason.
   {
-    id: 'bp_composite_armour',
-    name: 'Composite Armour Blueprint',
-    motif: 'laminate',
+    id: 'bp_mod_filed_sights',
+    name: 'Filed Sights Blueprint',
+    motif: 'elevation',
     category: 'upgrade',
-    rarity: 'uncommon',
-    blurb: 'Lamination schedules for plate that is mostly air.',
-    targets: [
-      { kind: 'unit_upgrade', id: 'armour_2' },
-      { kind: 'unit_upgrade', id: 'armour_3' },
-    ],
+    rarity: 'common',
+    blurb: 'Where to take metal off a front post, and how to know when to stop.',
+    targets: [{ kind: 'unit_upgrade', id: 'filed_sights' }],
     pages: [
       {
-        id: 'pg_composite_armour_lamination',
-        name: 'Lamination Schedule',
-        motif: 'table',
+        id: 'pg_mod_filed_sights_sight_picture',
+        name: 'Sight Picture',
+        motif: 'dimension',
         description:
-          'Layer by layer, with the cure temperature written along the top of the sheet.',
-        rarity: 'rare',
+          'Post and notch drawn ten times life size, with the line of the eye ruled through both.',
       },
       {
-        id: 'pg_composite_armour_backing_weave',
-        name: 'Backing Weave',
-        motif: 'weave',
-        description: 'The weave behind the plate, drawn so close in that it reads as a pattern.',
+        id: 'pg_mod_filed_sights_filing_order',
+        name: 'Filing Order',
+        motif: 'tools',
+        description:
+          'Which face of the post goes first, and the needle files laid out in the order they are picked up.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_rag_wraps',
+    name: 'Rag Wraps Blueprint',
+    motif: 'weave',
+    category: 'upgrade',
+    rarity: 'common',
+    blurb: 'What to wrap, what to leave bare, and the knots that hold through a night of rain.',
+    targets: [{ kind: 'unit_upgrade', id: 'rag_wraps' }],
+    pages: [
+      {
+        id: 'pg_mod_rag_wraps_wrapping_runs',
+        name: 'Wrapping Runs',
+        motif: 'strap',
+        description:
+          'A buckle and a barrel each wound in strip, with arrows showing which way the cloth lays.',
       },
       {
-        id: 'pg_composite_armour_edge_binding',
-        name: 'Edge Binding',
+        id: 'pg_mod_rag_wraps_tie_offs',
+        name: 'Tie-Offs',
+        motif: 'knot',
+        description:
+          'Three knots, drawn large, and a note that the third one is the one that comes undone.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_whistle_code',
+    name: 'Whistle Code Blueprint',
+    motif: 'speaker',
+    category: 'upgrade',
+    rarity: 'common',
+    blurb:
+      'Six notes, what each one means, and how to be heard over a fight without being understood by it.',
+    targets: [{ kind: 'unit_upgrade', id: 'whistle_code' }],
+    pages: [
+      {
+        id: 'pg_mod_whistle_code_six_notes',
+        name: 'The Six Notes',
+        motif: 'list',
+        description:
+          'Six notes numbered down the sheet, each with the order it stands for written beside it in capitals.',
+      },
+      {
+        id: 'pg_mod_whistle_code_whistle_bore',
+        name: 'Whistle Bore',
         motif: 'section',
         description:
-          'How the edge is bound so the whole thing does not come apart on the first hit.',
+          'A whistle cut through along its length, pea and window drawn in, the pitch pencilled beside it.',
       },
     ],
   },
   {
-    id: 'bp_munitions',
-    name: 'Munitions Blueprint',
-    motif: 'cartridge',
+    id: 'bp_mod_hook_and_line',
+    name: 'Hook and Line Blueprint',
+    motif: 'knot',
     category: 'upgrade',
-    rarity: 'uncommon',
-    blurb: 'Load tables. The margins argue with the tables.',
-    targets: [
-      { kind: 'unit_upgrade', id: 'weapons_2' },
-      { kind: 'unit_upgrade', id: 'weapons_3' },
-    ],
+    rarity: 'common',
+    blurb: 'A grapple bent out of rebar, forty metres of rope, and the throws that land it.',
+    targets: [{ kind: 'unit_upgrade', id: 'hook_and_line' }],
     pages: [
       {
-        id: 'pg_munitions_load_tables',
-        name: 'Load Tables',
-        motif: 'table',
-        description: 'Charge weights by cartridge, with margin notes arguing against the tables.',
+        id: 'pg_mod_hook_and_line_grapple_bending',
+        name: 'Grapple Bending',
+        motif: 'dimension',
+        description:
+          'Four rebar tines bent round a jig and welded to a ring, with the bend radius dimensioned twice.',
       },
       {
-        id: 'pg_munitions_primer_mixes',
-        name: 'Primer Mixes',
-        motif: 'mortar_pestle',
-        description: 'Mixes by mass, in a hand that gets smaller and more careful down the page.',
+        id: 'pg_mod_hook_and_line_throwing_lines',
+        name: 'Throwing Lines',
+        motif: 'line_run',
+        description:
+          'The arc of a throw drawn against a three-storey wall, and the slack to leave coiled at the feet.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_knuckle_guards',
+    name: 'Knuckle Guards Blueprint',
+    motif: 'cut_list',
+    category: 'upgrade',
+    rarity: 'common',
+    blurb: 'Plate over the knuckles, cut from what the yard has, shaped to a fist that is closed.',
+    targets: [{ kind: 'unit_upgrade', id: 'knuckle_guards' }],
+    pages: [
+      {
+        id: 'pg_mod_knuckle_guards_finger_templates',
+        name: 'Finger Templates',
+        motif: 'pattern',
+        description:
+          'Four finger plates drawn flat to cut, traced round a hand with the fingers already curled.',
+      },
+      {
+        id: 'pg_mod_knuckle_guards_rivet_pattern',
+        name: 'Rivet Pattern',
+        motif: 'bolts',
+        description:
+          'The rivet pattern through the palm plate, so the guard is still where it was when the hand lands.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_ear_defenders',
+    name: 'Ear Defenders Blueprint',
+    motif: 'mould',
+    category: 'upgrade',
+    rarity: 'common',
+    blurb:
+      'Plugs cast to the ear that wears them, and the check that they are in before the shooting starts.',
+    targets: [{ kind: 'unit_upgrade', id: 'ear_defenders' }],
+    pages: [
+      {
+        id: 'pg_mod_ear_defenders_ear_casts',
+        name: 'Ear Casts',
+        motif: 'face',
+        description:
+          'An ear in three views with the canal shaded, and the wax pressed into it drawn alongside.',
+      },
+      {
+        id: 'pg_mod_ear_defenders_issue_roll',
+        name: 'Issue Roll',
+        motif: 'table',
+        description:
+          'A ruled table of names against plug pairs, ticked at the door on the way out each night.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_ablative_layers',
+    name: 'Ablative Layers Blueprint',
+    motif: 'exploded',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Plate that leaves in pieces so the person under it does not. Replaced after every fight, by design.',
+    targets: [{ kind: 'unit_upgrade', id: 'ablative_layers' }],
+    pages: [
+      {
+        id: 'pg_mod_ablative_layers_layer_stack',
+        name: 'Layer Stack',
+        motif: 'laminate',
+        description: 'Five layers in section, each one meant to come off before the one behind it.',
+      },
+      {
+        id: 'pg_mod_ablative_layers_shear_pins',
+        name: 'Shear Pins',
+        motif: 'bolts',
+        description:
+          'The pin pattern holding each tile, sized to let go under a hit rather than hold through one.',
         rarity: 'rare',
       },
       {
-        id: 'pg_munitions_barrel_wear',
-        name: 'Barrel Wear Charts',
+        id: 'pg_mod_ablative_layers_replacement_count',
+        name: 'Replacement Count',
+        motif: 'table',
+        description:
+          'Tiles gone against fights fought, kept per squad, with the bill from the yard along the bottom.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_recoil_dampers',
+    name: 'Recoil Dampers Blueprint',
+    motif: 'spring',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Springs, a gas port and the fitting that makes the second shot land where the first one did.',
+    targets: [{ kind: 'unit_upgrade', id: 'recoil_dampers' }],
+    pages: [
+      {
+        id: 'pg_mod_recoil_dampers_spring_rates',
+        name: 'Spring Rates',
         motif: 'chart',
         description:
-          'Wear against rounds fired, plotted, with the point marked where it stops grouping.',
-      },
-    ],
-  },
-  {
-    id: 'bp_cybernetics',
-    name: 'Cybernetics Blueprint',
-    motif: 'implant',
-    category: 'upgrade',
-    rarity: 'rare',
-    blurb: 'Surgical plates and a wiring diagram, annotated by somebody who stopped writing.',
-    targets: [
-      { kind: 'unit_upgrade', id: 'cybernetics_2' },
-      { kind: 'unit_upgrade', id: 'cybernetics_3' },
-    ],
-    pages: [
-      {
-        id: 'pg_cybernetics_socket_templates',
-        name: 'Socket Templates',
-        motif: 'pattern',
-        description: 'Socket outlines at full size, meant to be cut out and laid on the skin.',
+          'Compression against load plotted for a dozen springs, with two circled and the rest crossed out.',
       },
       {
-        id: 'pg_cybernetics_nerve_mapping',
-        name: 'Nerve Mapping',
-        motif: 'circuit',
-        description: 'A nerve map with the useful branches inked and the rest of it left grey.',
-      },
-      {
-        id: 'pg_cybernetics_anaesthetic_notes',
-        name: 'Anaesthetic Notes',
-        motif: 'table',
-        description: 'Doses by weight, and one line on what happens when you get it wrong.',
-        rarity: 'uncommon',
-      },
-      {
-        id: 'pg_cybernetics_rejection_ward',
-        name: 'Rejection Ward',
-        motif: 'plan',
+        id: 'pg_mod_recoil_dampers_gas_port_drilling',
+        name: 'Gas Port Drilling',
+        motif: 'bore',
         description:
-          'A ward plan for afterwards, with more beds on it than anyone expects to need.',
-        rarity: 'uncommon',
-      },
-    ],
-  },
-
-  {
-    id: 'bp_discipline',
-    name: 'Discipline Blueprint',
-    motif: 'footprints',
-    category: 'upgrade',
-    rarity: 'uncommon',
-    blurb: 'Drill, signals and the orders that hold a line together after the officer is down.',
-    targets: [
-      { kind: 'unit_upgrade', id: 'discipline_2' },
-      { kind: 'unit_upgrade', id: 'discipline_3' },
-    ],
-    pages: [
-      {
-        id: 'pg_discipline_drill_book',
-        name: 'Drill Book',
-        motif: 'list',
-        description: 'Movements numbered down the sheet, in the order a sergeant shouts them.',
-      },
-      {
-        id: 'pg_discipline_signal_lamps',
-        name: 'Signal Lamps',
-        motif: 'optics',
-        description: 'A lens stack behind a shutter, with the code for each flash down the margin.',
+          'A barrel in section with the port drilled at the angle that bleeds enough and no more.',
         rarity: 'rare',
       },
       {
-        id: 'pg_discipline_standing_orders',
-        name: 'Standing Orders',
+        id: 'pg_mod_recoil_dampers_buffer_assembly',
+        name: 'Buffer Assembly',
+        motif: 'exploded',
+        description:
+          'Buffer, spring and guide rod pulled apart along one axis, numbered in the order they go back.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_twitch_loop',
+    name: 'Twitch Loop Blueprint',
+    motif: 'circuit',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'A wire from the eye to the hand with nothing in between. The thinking was the slow part.',
+    targets: [{ kind: 'unit_upgrade', id: 'twitch_loop' }],
+    pages: [
+      {
+        id: 'pg_mod_twitch_loop_shunt_placement',
+        name: 'Shunt Placement',
+        motif: 'implant',
+        description:
+          'A shunt set into the forearm, with the two nerves it bridges inked and the rest left grey.',
+        rarity: 'rare',
+      },
+      {
+        id: 'pg_mod_twitch_loop_loop_timing',
+        name: 'Loop Timing',
+        motif: 'chart',
+        description:
+          'Reaction against loop gain, plotted, with the band where the hand starts moving first shaded.',
+      },
+      {
+        id: 'pg_mod_twitch_loop_tremor_notes',
+        name: 'Tremor Notes',
         motif: 'prose',
         description:
-          'Handwriting, no drawing, on what a section does when the order does not come.',
+          'Handwriting on what the hand does at rest afterwards, and how long that takes to stop.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_smoke_discipline',
+    name: 'Smoke Discipline Blueprint',
+    motif: 'prose',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Nothing lit, nothing cooked, nothing said on the approach. Written down so it can be read out.',
+    targets: [{ kind: 'unit_upgrade', id: 'smoke_discipline' }],
+    pages: [
+      {
+        id: 'pg_mod_smoke_discipline_approach_orders',
+        name: 'Approach Orders',
+        motif: 'list',
+        description:
+          'What stops at the last cover, numbered: the smokes, the stove, the talk, and then the walking pace.',
+      },
+      {
+        id: 'pg_mod_smoke_discipline_wind_cards',
+        name: 'Wind Cards',
+        motif: 'card',
+        description:
+          'A ruled card of wind against how far it carries, for smell as much as smoke, one row struck out.',
+      },
+      {
+        id: 'pg_mod_smoke_discipline_halt_plan',
+        name: 'Halt Plan',
+        motif: 'plan',
+        description:
+          'A courtyard from above with the door swing that hides a section, and the last place anybody smokes marked.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_drill_book',
+    name: 'Drill Book Blueprint',
+    motif: 'list',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb: 'Forty pages of standing still, read aloud every morning until nobody needs it read.',
+    targets: [{ kind: 'unit_upgrade', id: 'drill_book' }],
+    pages: [
+      {
+        id: 'pg_mod_drill_book_parade_grid',
+        name: 'Parade Grid',
+        motif: 'footprints',
+        description:
+          'Footprints on a numbered grid, every movement of the morning drill in the order it is called.',
+        rarity: 'common',
+      },
+      {
+        id: 'pg_mod_drill_book_reading_order',
+        name: 'Reading Order',
+        motif: 'board',
+        description:
+          'The forty pages ruled into a week, morning by morning, with the ones to repeat marked twice.',
+      },
+      {
+        id: 'pg_mod_drill_book_voice_of_command',
+        name: 'Voice of Command',
+        motif: 'speaker',
+        description:
+          'How a sergeant carries across a yard: the chest as a cavity in section, and where the breath goes.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_hardened_optics',
+    name: 'Hardened Optics Blueprint',
+    motif: 'optics',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Sealed glass, a coating that will not fog or flare, and the housing that keeps the two aligned.',
+    targets: [{ kind: 'unit_upgrade', id: 'hardened_optics' }],
+    pages: [
+      {
+        id: 'pg_mod_hardened_optics_coating_bath',
+        name: 'Coating Bath',
+        motif: 'vessel',
+        description:
+          'A drum with a level line for the coating bath, and the dwell time written on the side of it.',
+        rarity: 'rare',
+      },
+      {
+        id: 'pg_mod_hardened_optics_seal_section',
+        name: 'Seal Section',
+        motif: 'section',
+        description:
+          'A cut through the housing showing both seals and the dry nitrogen that sits between them.',
+      },
+      {
+        id: 'pg_mod_hardened_optics_collimation',
+        name: 'Collimation',
+        motif: 'dimension',
+        description:
+          'A dimension run down the optical axis, witness lines at each lens, tolerance in thousandths.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_counterweight_harness',
+    name: 'Counterweight Harness Blueprint',
+    motif: 'ballast',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Load on the hips instead of the shoulders. Twice the bag comes home at the same walking pace.',
+    targets: [{ kind: 'unit_upgrade', id: 'counterweight_harness' }],
+    pages: [
+      {
+        id: 'pg_mod_counterweight_harness_hip_frame',
+        name: 'Hip Frame',
+        motif: 'frame',
+        description:
+          'A frame that sits on the pelvis, members numbered, with the load path drawn down into the legs.',
+      },
+      {
+        id: 'pg_mod_counterweight_harness_balance_points',
+        name: 'Balance Points',
+        motif: 'balance',
+        description:
+          'A carrier as a beam on a fulcrum, with where the bag hangs against where the weight hangs.',
+      },
+      {
+        id: 'pg_mod_counterweight_harness_bag_lashings',
+        name: 'Bag Lashings',
+        motif: 'lace',
+        description:
+          'Lacing through an eyelet run down the bag, tightened in the order that keeps it off the spine.',
+        rarity: 'common',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_bone_lattice',
+    name: 'Bone Lattice Blueprint',
+    motif: 'frame',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Pins and mesh through the long bones, so the frame stops being the first thing that fails.',
+    targets: [{ kind: 'unit_upgrade', id: 'bone_lattice' }],
+    pages: [
+      {
+        id: 'pg_mod_bone_lattice_pin_sites',
+        name: 'Pin Sites',
+        motif: 'figure',
+        description:
+          'A body in elevation with every pin site marked, and the femur circled as the one to do first.',
+      },
+      {
+        id: 'pg_mod_bone_lattice_mesh_weave',
+        name: 'Mesh Weave',
+        motif: 'weave',
+        description:
+          'The mesh drawn close enough to read as a pattern, with the wire gauge in the corner.',
+      },
+      {
+        id: 'pg_mod_bone_lattice_setting_time',
+        name: 'Setting Time',
+        motif: 'bed',
+        description:
+          'A ward bed with a chart on the end, six weeks of it, and the day the patient may stand.',
+        rarity: 'rare',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_trophy_rack',
+    name: 'Trophy Rack Blueprint',
+    motif: 'rack',
+    category: 'upgrade',
+    rarity: 'uncommon',
+    blurb:
+      'Plate, teeth and body markings off everybody they have beaten, hung where it will be seen.',
+    targets: [{ kind: 'unit_upgrade', id: 'trophy_rack' }],
+    pages: [
+      {
+        id: 'pg_mod_trophy_rack_mounting_frame',
+        name: 'Mounting Frame',
+        motif: 'mount',
+        description:
+          'A bracket on the back plate taking a trophy, with the load path drawn so it does not swing.',
+      },
+      {
+        id: 'pg_mod_trophy_rack_markings_key',
+        name: 'Markings Key',
+        motif: 'card',
+        description:
+          'A ruled card of markings worth taking and what each is worth, one row struck out as no longer around.',
+      },
+      {
+        id: 'pg_mod_trophy_rack_display_order',
+        name: 'Display Order',
+        motif: 'elevation',
+        description:
+          'The rack in elevation with a centre line, the biggest piece on it and the rest ranked outward.',
+        rarity: 'common',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_composite_carapace',
+    name: 'Composite Carapace Blueprint',
+    motif: 'pattern',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'Panels cut to one body, the layup that makes them hard, and the hinges that let it come off.',
+    targets: [{ kind: 'unit_upgrade', id: 'composite_carapace' }],
+    pages: [
+      {
+        id: 'pg_mod_composite_carapace_body_casts',
+        name: 'Body Casts',
+        motif: 'figure',
+        description:
+          'A body in elevation on a ground line, with the plaster cast lines drawn where each panel will bear.',
+      },
+      {
+        id: 'pg_mod_composite_carapace_layup_schedule',
+        name: 'Layup Schedule',
+        motif: 'laminate',
+        description:
+          'Cloth, resin and plate in section, layer by layer, with the cure oven temperature along the top.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_composite_carapace_hinge_lines',
+        name: 'Hinge Lines',
+        motif: 'door',
+        description:
+          'Where the shell opens, drawn as a door leaf with its swing, so a medic can get in.',
+      },
+      {
+        id: 'pg_mod_composite_carapace_weight_budget',
+        name: 'Weight Budget',
+        motif: 'table',
+        description:
+          'A ruled table of every panel against its weight, totalled, and the total circled twice.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_ranging_gear',
+    name: 'Ranging Gear Blueprint',
+    motif: 'gear_train',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'A drum, a wire and a cam cut by hand that solves the drop. Arguments about elevation end.',
+    targets: [{ kind: 'unit_upgrade', id: 'ranging_gear' }],
+    pages: [
+      {
+        id: 'pg_mod_ranging_gear_cam_profile',
+        name: 'Cam Profile',
+        motif: 'chart',
+        description:
+          'The cam drawn as the curve it follows, drop against range, with the hand cuts visible in it.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_ranging_gear_drum_graduations',
+        name: 'Drum Graduations',
+        motif: 'dimension',
+        description:
+          'A drum unrolled flat, its graduations dimensioned from a zero mark, each one a range.',
+      },
+      {
+        id: 'pg_mod_ranging_gear_wire_tension',
+        name: 'Wire Tension',
+        motif: 'spring',
+        description:
+          'The return spring that keeps the wire honest, with its rate and the spacer that sets it.',
+      },
+      {
+        id: 'pg_mod_ranging_gear_zeroing_card',
+        name: 'Zeroing Card',
+        motif: 'card',
+        description:
+          'A ruled card of shots against range on the day it was zeroed, one row struck out as a flinch.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_dry_joints',
+    name: 'Dry Joints Blueprint',
+    motif: 'boot',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'Graphite and rubber through every hinge and sole. Gravel underfoot stops being a warning.',
+    targets: [{ kind: 'unit_upgrade', id: 'dry_joints' }],
+    pages: [
+      {
+        id: 'pg_mod_dry_joints_graphite_packing',
+        name: 'Graphite Packing',
+        motif: 'section',
+        description:
+          'A hinge cut through, with the graphite packed into the gap and the rubber lip that keeps it there.',
+      },
+      {
+        id: 'pg_mod_dry_joints_silent_soles',
+        name: 'Silent Soles',
+        motif: 'footprints',
+        description:
+          'Footprints on a numbered grid, the loud ones marked in red, before and after the new soles.',
+      },
+      {
+        id: 'pg_mod_dry_joints_servo_damping',
+        name: 'Servo Damping',
+        motif: 'governor',
+        description:
+          'The speed linkage on each servo with its stops moved in, so nothing slams at the end of travel.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_dry_joints_valve_bleed',
+        name: 'Valve Bleed',
+        motif: 'manifold',
+        description:
+          'A block with two circuits through it, one bled slow so the pressure comes up without a click.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_adrenal_regulator',
+    name: 'Adrenal Regulator Blueprint',
+    motif: 'governor',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'A pump under the collarbone, the dose it meters, and what to watch for once it is done metering.',
+    targets: [{ kind: 'unit_upgrade', id: 'adrenal_regulator' }],
+    pages: [
+      {
+        id: 'pg_mod_adrenal_regulator_pump_housing',
+        name: 'Pump Housing',
+        motif: 'vessel',
+        description:
+          'The reservoir as a drum with a level line, the size of a thumb, drawn at full size beside the sheet.',
+      },
+      {
+        id: 'pg_mod_adrenal_regulator_dose_curve',
+        name: 'Dose Curve',
+        motif: 'chart',
+        description:
+          'Dose against fear, plotted, with the band where the hands stop shaking and before they start again.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_adrenal_regulator_valve_timing',
+        name: 'Valve Timing',
+        motif: 'loop',
+        description:
+          'The pipe loop off the reservoir and back, with the valve that opens on a pulse rate rather than an order.',
+      },
+      {
+        id: 'pg_mod_adrenal_regulator_aftercare',
+        name: 'Aftercare',
+        motif: 'prose',
+        description:
+          'Handwriting on what the week after looks like, and the line about the bill that somebody underlined.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_breaching_charges',
+    name: 'Breaching Charges Blueprint',
+    motif: 'fuse',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'Cone liners carried into a fight rather than laid the night before, and the packing that makes them cut.',
+    targets: [{ kind: 'unit_upgrade', id: 'breaching_charges' }],
+    pages: [
+      {
+        id: 'pg_mod_breaching_charges_liner_spinning',
+        name: 'Liner Spinning',
+        motif: 'press',
+        description:
+          'A press with the spinning tool under it, turning copper sheet into a cone with a wall of one thickness.',
+      },
+      {
+        id: 'pg_mod_breaching_charges_packing_weights',
+        name: 'Packing Weights',
+        motif: 'balance',
+        description:
+          'A beam on a fulcrum with the charge in the pan, and the grain weight for each liner size beside it.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_breaching_charges_standoff_sleeves',
+        name: 'Standoff Sleeves',
+        motif: 'section',
+        description:
+          'A charge cut through with its sleeve on, the gap that lets the jet form drawn to scale.',
+      },
+      {
+        id: 'pg_mod_breaching_charges_handling_rules',
+        name: 'Handling Rules',
+        motif: 'list',
+        description:
+          'Numbered items down a sheet, all of them about hands, the last one about how many you have left.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_rescue_rig',
+    name: 'Rescue Rig Blueprint',
+    motif: 'winch',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'Winch, sled and a harness that will hold a body. What went out comes back, and sometimes who went out.',
+    targets: [{ kind: 'unit_upgrade', id: 'rescue_rig' }],
+    pages: [
+      {
+        id: 'pg_mod_rescue_rig_winch_gearing',
+        name: 'Winch Gearing',
+        motif: 'gear_train',
+        description:
+          'Two meshed wheels with the ratio that lets one person pull two up a bank, and the pawl that holds it.',
+      },
+      {
+        id: 'pg_mod_rescue_rig_sled_frame',
+        name: 'Sled Frame',
+        motif: 'frame',
+        description:
+          'A sled frame with its members numbered, wide enough for a stretcher and low enough to drag.',
+      },
+      {
+        id: 'pg_mod_rescue_rig_body_harness',
+        name: 'Body Harness',
+        motif: 'strap',
+        description:
+          'A harness strap over its anchor, rated in the margin for a body and a half, in case.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_rescue_rig_recovery_drill',
+        name: 'Recovery Drill',
+        motif: 'footprints',
+        description:
+          'Footprints on a numbered grid: who goes to the casualty, who holds the line, who works the winch.',
+        rarity: 'uncommon',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_monofilament_edge',
+    name: 'Monofilament Edge Blueprint',
+    motif: 'line_run',
+    category: 'upgrade',
+    rarity: 'rare',
+    blurb:
+      'An edge one molecule wide, and the handle that keeps it away from the hand that holds it.',
+    targets: [{ kind: 'unit_upgrade', id: 'monofilament_edge' }],
+    pages: [
+      {
+        id: 'pg_mod_monofilament_edge_filament_draw',
+        name: 'Filament Draw',
+        motif: 'press',
+        description:
+          'A press with the drawing die under it, pulling the filament down through eleven passes.',
+        rarity: 'exotic',
+      },
+      {
+        id: 'pg_mod_monofilament_edge_handle_keep',
+        name: 'Handle Keep',
+        motif: 'mount',
+        description:
+          'A bracket receiving the filament, with the load path drawn so the edge never turns toward the wrist.',
+      },
+      {
+        id: 'pg_mod_monofilament_edge_edge_testing',
+        name: 'Edge Testing',
+        motif: 'table',
+        description:
+          'A ruled table of what it went through and how far, plate at the bottom, with a note about the bench.',
+      },
+      {
+        id: 'pg_mod_monofilament_edge_injury_log',
+        name: 'Injury Log',
+        motif: 'prose',
+        description:
+          'Handwriting, no drawing, on every cut in the workshop, and the rule about holding it twice.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_hardshell_exoframe',
+    name: 'Hardshell Exoframe Blueprint',
+    motif: 'piston',
+    category: 'upgrade',
+    rarity: 'exotic',
+    blurb:
+      'A powered shell with its own cooling and its own opinion about doorways. Three streets hear it coming.',
+    targets: [{ kind: 'unit_upgrade', id: 'hardshell_exoframe' }],
+    pages: [
+      {
+        id: 'pg_mod_hardshell_exoframe_frame_members',
+        name: 'Frame Members',
+        motif: 'frame',
+        description:
+          'The frame with every member numbered, sized round a body, and the doorway width written beside it.',
+      },
+      {
+        id: 'pg_mod_hardshell_exoframe_actuator_manifold',
+        name: 'Actuator Manifold',
+        motif: 'manifold',
+        description:
+          'A block with two circuits through it, one for each leg, and the cross-feed that keeps them level.',
+      },
+      {
+        id: 'pg_mod_hardshell_exoframe_cooling_loop',
+        name: 'Cooling Loop',
+        motif: 'loop',
+        description:
+          'The coolant loop off its tank and round the back plate, with where it ices in the cold marked.',
+      },
+      {
+        id: 'pg_mod_hardshell_exoframe_power_plant',
+        name: 'Power Plant',
+        motif: 'engine',
+        description:
+          'The engine opened across the sheet, small enough to carry and loud enough to hear three streets off.',
+      },
+      {
+        id: 'pg_mod_hardshell_exoframe_shell_plating',
+        name: 'Shell Plating',
+        motif: 'plating',
+        description:
+          'A plate with rivets round its edge, one of forty, with the order they go on drawn in the corner.',
+        rarity: 'rare',
+      },
+      {
+        id: 'pg_mod_hardshell_exoframe_egress_drill',
+        name: 'Egress Drill',
+        motif: 'list',
+        description:
+          'Numbered items down a sheet for getting out of it in under a minute, the last one about the latch.',
+        rarity: 'rare',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_synaptic_lace',
+    name: 'Synaptic Lace Blueprint',
+    motif: 'lace',
+    category: 'upgrade',
+    rarity: 'exotic',
+    blurb:
+      'Six weeks of growing a net through a brain, and what to do about the parts of the person it displaces.',
+    targets: [{ kind: 'unit_upgrade', id: 'synaptic_lace' }],
+    pages: [
+      {
+        id: 'pg_mod_synaptic_lace_lace_pattern',
+        name: 'Lace Pattern',
+        motif: 'net',
+        description:
+          'A net drawn with its fringe, the pattern the filament grows along, fine enough to read as grey.',
+      },
+      {
+        id: 'pg_mod_synaptic_lace_growth_schedule',
+        name: 'Growth Schedule',
+        motif: 'board',
+        description:
+          'Six weeks ruled into columns, each with what should be working by then and what will not be yet.',
+      },
+      {
+        id: 'pg_mod_synaptic_lace_cortex_map',
+        name: 'Cortex Map',
+        motif: 'circuit',
+        description:
+          'A trace running between two pads, drawn on a brain, with the regions it crosses named and shaded.',
+      },
+      {
+        id: 'pg_mod_synaptic_lace_induction_coil',
+        name: 'Induction Coil',
+        motif: 'coil',
+        description:
+          'Windings on a former the width of a finger, the coil that keeps the lace from cooking what it sits in.',
+      },
+      {
+        id: 'pg_mod_synaptic_lace_what_comes_back',
+        name: 'What Comes Back',
+        motif: 'prose',
+        description:
+          'Handwriting, no drawing, listing what came back after six weeks and what did not, in two columns.',
+        rarity: 'rare',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_guided_rounds',
+    name: 'Guided Rounds Blueprint',
+    motif: 'cartridge',
+    category: 'upgrade',
+    rarity: 'exotic',
+    blurb:
+      'A round that turns in the last half second, the fins that turn it, and what each one costs to make.',
+    targets: [{ kind: 'unit_upgrade', id: 'guided_rounds' }],
+    pages: [
+      {
+        id: 'pg_mod_guided_rounds_fin_deployment',
+        name: 'Fin Deployment',
+        motif: 'exploded',
+        description:
+          'The round pulled apart along its axis: body, fins folded, fins out, and the pin that lets them go.',
+      },
+      {
+        id: 'pg_mod_guided_rounds_seeker_head',
+        name: 'Seeker Head',
+        motif: 'optics',
+        description:
+          'A lens stack in its housing the width of a thumbnail, looking down the bore before the round leaves it.',
+      },
+      {
+        id: 'pg_mod_guided_rounds_steering_coil',
+        name: 'Steering Coil',
+        motif: 'coil',
+        description:
+          'Windings on a former inside the round, and the current that pushes the fins one way or the other.',
+      },
+      {
+        id: 'pg_mod_guided_rounds_trajectory_tables',
+        name: 'Trajectory Tables',
+        motif: 'table',
+        description:
+          'A ruled table of how far a round will steer at each range, with the row for point blank left empty.',
+      },
+      {
+        id: 'pg_mod_guided_rounds_per_shot_cost',
+        name: 'Per-Shot Cost',
+        motif: 'card',
+        description:
+          'A ruled card of every part in one round against its caps value, totalled, one row struck out as unaffordable.',
+        rarity: 'rare',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_ghost_protocol',
+    name: 'Ghost Protocol Blueprint',
+    motif: 'hood',
+    category: 'upgrade',
+    rarity: 'exotic',
+    blurb:
+      'Heat, sound and signal, each killed by a different hand, so that afterwards nobody can prove you were there.',
+    targets: [{ kind: 'unit_upgrade', id: 'ghost_protocol' }],
+    pages: [
+      {
+        id: 'pg_mod_ghost_protocol_heat_shroud',
+        name: 'Heat Shroud',
+        motif: 'flue',
+        description:
+          'A flue with one bend, in section, drawing body heat down and out at the boot rather than off the head.',
+      },
+      {
+        id: 'pg_mod_ghost_protocol_footfall_damping',
+        name: 'Footfall Damping',
+        motif: 'footprints',
+        description:
+          'Footprints on a numbered grid with the sound of each in the margin, before and after the padding.',
+      },
+      {
+        id: 'pg_mod_ghost_protocol_signal_blackout',
+        name: 'Signal Blackout',
+        motif: 'mast',
+        description:
+          'A mast on its guys, drawn crossed out, and the note about what a handset still says when it is off.',
+      },
+      {
+        id: 'pg_mod_ghost_protocol_lens_baffles',
+        name: 'Lens Baffles',
+        motif: 'optics',
+        description:
+          'A lens stack in its housing with the baffles that stop a scope glinting back at whoever is looking for one.',
+      },
+      {
+        id: 'pg_mod_ghost_protocol_approach_timing',
+        name: 'Approach Timing',
+        motif: 'chart',
+        description:
+          'The curve of a patrol against the hour, plotted, with the gap a section walks through shaded in.',
+      },
+      {
+        id: 'pg_mod_ghost_protocol_combine_practice',
+        name: 'Combine Practice',
+        motif: 'prose',
+        description:
+          'Handwriting in a hand that was trained for it, on how this was done before, and who is still alive to ask.',
+        rarity: 'rare',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_colours_of_the_line',
+    name: 'Colours of the Line Blueprint',
+    motif: 'mast',
+    category: 'upgrade',
+    rarity: 'exotic',
+    blurb:
+      'A standard, the pole it hangs from, and who carries it. A line that can see it does not break.',
+    targets: [{ kind: 'unit_upgrade', id: 'colours_of_the_line' }],
+    pages: [
+      {
+        id: 'pg_mod_colours_of_the_line_standard_panel',
+        name: 'Standard Panel',
+        motif: 'pattern',
+        description:
+          'The standard flattened out to cut, in two colours, with the device drawn once and traced for the other side.',
+      },
+      {
+        id: 'pg_mod_colours_of_the_line_pole_ferrule',
+        name: 'Pole Ferrule',
+        motif: 'mount',
+        description:
+          'A bracket on the bearer harness receiving the pole, with the load path drawn against a wind.',
+      },
+      {
+        id: 'pg_mod_colours_of_the_line_bearer_roll',
+        name: 'Bearer Roll',
+        motif: 'list',
+        description:
+          'Numbered items down a sheet, names, every bearer the line has had and how each one stopped.',
+        rarity: 'rare',
+      },
+      {
+        id: 'pg_mod_colours_of_the_line_battle_honours',
+        name: 'Battle Honours',
+        motif: 'board',
+        description:
+          'A project ruled into columns, one for each fight the standard was carried in, and the ones it was not.',
+      },
+      {
+        id: 'pg_mod_colours_of_the_line_rally_signals',
+        name: 'Rally Signals',
+        motif: 'speaker',
+        description:
+          'The horn cavity in section, and the two calls it makes: one for stand, one for come back to the colours.',
       },
     ],
   },
@@ -1700,7 +2560,7 @@ export const BLUEPRINTS = [
    *
    * A trap is a consumable in the same sense a shaped charge is: cut for one night, gone by
    * morning. Their page counts run 2 or 3 against the §D3 bands, except the frontage collapse at
-   * 4, and they are written in the order the Security Officer's track opens them: the cheap ones
+   * 4, and they are written in the order the Head of Security's track opens them: the cheap ones
    * are a thing a district reaches early and the last two are a fortnight of collecting.
    */
   {

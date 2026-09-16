@@ -5,7 +5,8 @@ import {
   type LeaderboardBoard,
   type LeaderboardResponse,
 } from '@frontline/shared';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { cn } from '../../lib/cn';
 import { useLeaderboard, useMe } from '../../lib/queries';
 import { Dropdown } from '../../components/ui/Dropdown';
@@ -54,6 +55,40 @@ export function LeaderboardPage() {
   const me = useMe();
   const data = query.data;
   const youRow = useRef<HTMLLIElement>(null);
+
+  /*
+   * The crew the search sent us to look at (`?focus=<username>`).
+   *
+   * Read from the URL so the destination survives a reload and can be linked to, then **copied
+   * into state** and stripped from the bar. The two steps are separate on purpose. Consuming the
+   * param and marking the row off the param directly does not work: deleting it re-renders with
+   * no focus, so the highlight is gone on the same tick it was drawn and the reader is scrolled
+   * into the middle of a hundred identical rows with nothing picked out. The state holds the mark;
+   * the URL only has to carry the instruction once.
+   */
+  const [params, setParams] = useSearchParams();
+  const [sought, setSought] = useState<string | undefined>(undefined);
+  const focusParam = params.get('focus') ?? undefined;
+  const focusRow = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (focusParam === undefined) return;
+    setSought(focusParam);
+    const next = new URLSearchParams(params);
+    next.delete('focus');
+    setParams(next, { replace: true });
+  }, [focusParam, params, setParams]);
+
+  /*
+   * Scrolled once the row exists, which is not the same tick the instruction arrives: the table is
+   * drawn from a query that may still be in flight. `data` is in the dependencies so a board that
+   * loads after the search lands still gets its scroll.
+   */
+  useEffect(() => {
+    if (sought === undefined) return;
+    // Optional call: jsdom has no `scrollIntoView` at all, and the unit tests drive this path.
+    // Same precedent as `faction/Fights.tsx`.
+    focusRow.current?.scrollIntoView?.({ block: 'center' });
+  }, [sought, data]);
 
   const cityName = data?.scope ? (findCity(data.scope)?.name ?? data.scope) : null;
   /*
@@ -182,7 +217,14 @@ export function LeaderboardPage() {
                   Nobody on this board answers to “{search.trim()}”.
                 </p>
               ) : (
-                <PlayerBoard entries={rows} youUserId={youUserId} youRow={youRow} sort={sort} />
+                <PlayerBoard
+                  entries={rows}
+                  youUserId={youUserId}
+                  youRow={youRow}
+                  focus={sought}
+                  focusRow={focusRow}
+                  sort={sort}
+                />
               )
             ) : (
               <FactionBoard entries={data.entries} />

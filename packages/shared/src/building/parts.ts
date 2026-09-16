@@ -44,6 +44,32 @@ export const BUILDING_PART_GATES: Readonly<
   infirmary: {
     9: { neural_shunt: 1, ceramic_plate: 2 },
   },
+  /*
+   * The four gates below were added with the parts they spend (2026-09-14).
+   *
+   * A component with no sink is the relic problem wearing a different hat: an item that drops, is
+   * worth caps on a card, and can never be used for anything. So each new part was authored with
+   * the level that asks for it, and `parts.test.ts` refuses a component that nothing anywhere
+   * consumes.
+   */
+  // A Gate is a door that has to move, and a door that has to move is hydraulics.
+  gate: {
+    7: { hydraulic_ram: 2 },
+    13: { hydraulic_ram: 4, pressure_valve: 1 },
+  },
+  // Everything in the yard above the first bench is cut and welded rather than bolted.
+  scrapyard: {
+    5: { weld_rod: 6 },
+    11: { weld_rod: 12, hydraulic_ram: 2 },
+  },
+  // Glass, water and heat, all under pressure.
+  greenhouse: {
+    8: { pressure_valve: 1, weld_rod: 4 },
+  },
+  // Bunks are the cheap half. The hard half is talking to everybody in them at once.
+  quarters: {
+    10: { signal_relay: 2, weld_rod: 6 },
+  },
 };
 
 /** What raising `kind` to `level` asks for beyond materials. Empty for almost every level. */

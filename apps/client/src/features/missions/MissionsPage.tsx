@@ -23,7 +23,13 @@ import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
-import { useLaunchMission, useMe, useMissions, useRecallMission } from '../../lib/queries';
+import {
+  useCrewStanding,
+  useLaunchMission,
+  useMe,
+  useMissions,
+  useRecallMission,
+} from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
 import { MissionReportWindow } from './MissionReportWindow';
 import { ledBy } from './missionLines';
@@ -161,6 +167,9 @@ function ReturnedRow({
   leaders: readonly MissionLeader[];
   overseerName: string;
 }) {
+  // The crew's brackets, for the bag the report says the crew could lift; the settle read the
+  // same map, so the two agree unless a card has moved since.
+  const me = useMe();
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
   const failed = mission.outcome === 'failure';
@@ -193,7 +202,7 @@ function ReturnedRow({
   /*
    * Three things and a door (maintainer, 2026-09-12): which job, what it paid, whether it worked.
    *
-   * Who led it, what it cost in bodies and which sheet came home are all still recorded, in the
+   * Who led it, what it cost in units and which sheet came home are all still recorded, in the
    * window this row opens. They were on the row itself, four lines deep, and six crews of it
    * filled the left column with small capitals that nobody read: the detail was there and
    * unreadable, which is the same as not being there.
@@ -226,6 +235,7 @@ function ReturnedRow({
           mission={mission}
           leaders={leaders}
           overseerName={overseerName}
+          loadouts={me.data?.base?.unitLoadouts ?? {}}
           onClose={() => setOpen(false)}
         />
       )}
@@ -269,6 +279,9 @@ export function MissionsPage() {
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
   const me = useMe();
+  // §A4: what the crew's holdings and perks add to a haul. Its own query because the fold is not
+  // on the missions payload, and the send dialog has to quote the bag the settle will pay.
+  const standing = useCrewStanding();
   const launch = useLaunchMission();
 
   const data = missionsQuery.data;
@@ -473,6 +486,9 @@ export function MissionsPage() {
                   // is the gentlest reading of a tier and the safe fallback.
                   level={data.level}
                   now={now}
+                  // §A4: the crew's own bag, so the dialog quotes the haul the settle will pay.
+                  bagPercent={standing.data?.effects['lootCapacityPercent'] ?? 0}
+                  marks={standing.data?.marks ?? {}}
                   atCapacity={atCapacity}
                   pendingTemplateId={
                     launch.isPending ? (launch.variables?.templateId ?? null) : null

@@ -132,7 +132,7 @@ export function TooltipLayer() {
    * label in the chrome reads, small capitals with tracking. A few are a sentence, and the same
    * treatment turns "Send enough bags or you leave some of it on the floor" into a wall of spaced
    * capitals nobody finishes. So a tip past a label's length, or with a full stop in it, is set in
-   * the body face at reading size, like the note under a card.
+   * the unit face at reading size, like the note under a card.
    */
   const sentence = tip.text.length > 36 || /[.!?]/.test(tip.text);
   return (

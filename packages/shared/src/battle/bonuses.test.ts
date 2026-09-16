@@ -56,7 +56,7 @@ function fights(over: Partial<SideSetup>, defender: Partial<SideSetup> = {}) {
   return runs;
 }
 
-/** The attacker's share still standing, officers excluded: they are one body and not a roster. */
+/** The attacker's share still standing, officers excluded: they are one unit and not a roster. */
 function survival(over: Partial<SideSetup>): number {
   const shares = fights(over).map((sim) => {
     const stacks = sim.attacker.stacks.filter((stack) => stack.officer === undefined);
@@ -97,9 +97,9 @@ describe('bonuses reach the fight', () => {
     });
   }
 
-  it('carries a morale bonus, which is asked on the win and not on the body count', () => {
+  it('carries a morale bonus, which is asked on the win and not on the unit count', () => {
     // Both directions, because the surprising one is the point: this bonus wins fights and costs
-    // bodies, and a test that only knew the second half would call it a regression.
+    // units, and a test that only knew the second half would call it a regression.
     expect(winRate(territory({ unitMoraleFlat: 25 }))).toBeGreaterThan(winRate({}));
     expect(survival(territory({ unitMoraleFlat: 25 }))).toBeLessThan(flat);
   });

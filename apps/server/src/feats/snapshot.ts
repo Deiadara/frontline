@@ -1,17 +1,19 @@
 import {
+  BLUEPRINTS,
   BUILDING_KINDS,
   CITY_LOCATIONS,
-  ITEM_CATALOG,
+  isBlueprintUnlocked,
   OFFICER_ROLES,
   RESOURCE_KEYS,
+  completedSet,
   featMeasureKey,
+  findUnitModification,
   markFromPoints,
   markIndex,
-  supplyUsed,
+  unitSlotsUsed,
   type Base,
   type Commander,
   type FeatSnapshot,
-  type ItemId,
 } from '@frontline/shared';
 import { roleFit } from '../roles/requirements.js';
 import { districtsHeldWhole } from '../city/gates.js';
@@ -64,15 +66,48 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
     'buildings_total',
     base.buildings.reduce((total, building) => total + building.level, 0),
   );
+  /*
+   * The deck, counted two ways, because they are two different questions.
+   *
+   * `modifications_fitted` is how many cards are bolted in anywhere, which climbs steadily from
+   * the first slot at Scrapyard level 5. `modification_sets` is how many structures are built
+   * around one family end to end, which needs three open slots and so needs a structure at twenty:
+   * it is the late-game question, and a crew with thirty fittings and no set has still never
+   * committed a building to a plan.
+   *
+   * Read off the buildings rather than tallied. Both can go down, which is the point: dismantling
+   * is permanent, but losing a structure takes its fittings with it, and a feat that asked "have
+   * you ever" here would stay lit over an empty district.
+   */
+  put(
+    'modifications_fitted',
+    base.buildings.reduce((total, building) => total + building.modifications.length, 0),
+  );
+  put(
+    'modification_sets',
+    base.buildings.filter((building) => completedSet(building) !== null).length,
+  );
+  /*
+   * The unit bench, read off the brackets the same way the deck is read off the slots.
+   *
+   * Through `findUnitModification` rather than counting non-null ids, so a bracket holding an id
+   * the catalogue has since dropped counts for nothing, which is what it pays.
+   */
+  const cards = Object.values(base.unitLoadouts)
+    .flat()
+    .map((id) => (id === null ? undefined : findUnitModification(id)))
+    .filter((spec) => spec !== undefined);
+  put('unit_modifications_fitted', cards.length);
+  put('masterpieces_fitted', cards.filter((spec) => spec.rarity === 'masterpiece').length);
 
   // --- the roster ---
   const army = base.army;
   const counts = Object.values(army).filter((count): count is number => (count ?? 0) > 0);
   put(
-    'army_bodies',
+    'army_units',
     counts.reduce((total, count) => total + count, 0),
   );
-  put('army_supply', supplyUsed(army));
+  put('army_unit_slots', unitSlotsUsed(army));
   put('unit_kinds_held', counts.length);
   put(
     'fleet_size',
@@ -111,13 +146,22 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   put('faction_infamy', faction?.infamyEarned ?? 0);
   put('faction_seats', faction ? repos.factions.members(faction.id).length : 0);
 
-  // --- the satchel and the stockpile ---
+  // --- the inventory and the stockpile ---
   const held = Object.entries(base.inventory).filter(([, count]) => (count ?? 0) > 0);
+  /*
+   * Documents assembled, not paper on a shelf.
+   *
+   * This counted `kind: 'blueprint'` items, which is the generated document *and* six hand-written
+   * pre-war collectibles whose own `usedFor` reads "Nothing the Lab can use". Four of those six sit
+   * on the Black Market for infamy, so 440 infamy claimed the first rung of this ladder without a
+   * single page ever being found. `isBlueprintUnlocked` over `BLUEPRINTS` asks the question the
+   * feat is actually about: did this crew press Unlock.
+   */
   put(
     'blueprints_unlocked',
-    held.filter(([id]) => ITEM_CATALOG[id as ItemId]?.kind === 'blueprint').length,
+    BLUEPRINTS.filter((spec) => isBlueprintUnlocked(base.inventory, spec.id)).length,
   );
-  put('satchel_kinds', held.length);
+  put('inventory_kinds', held.length);
   for (const key of RESOURCE_KEYS) put('resources_held', base.resources[key] ?? 0, key);
 
   return snapshot;

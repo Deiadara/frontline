@@ -180,7 +180,7 @@ const stackOf = (side: ReturnType<typeof led>['attacker'], name: string): Stack 
 };
 
 describe('an officer in the line (§D3)', () => {
-  it('puts one extra body on the side that has a leader, and none on the one that does not', () => {
+  it('puts one extra unit on the side that has a leader, and none on the one that does not', () => {
     const leader = officer({ strength: 60, toughness: 50, resolve: 60 });
     const withLeader = led({ razors: 10 }, { razors: 10 }, leader);
     expect(officerStackOf(withLeader.attacker)?.started).toBe(1);
@@ -252,7 +252,7 @@ describe('an officer in the line (§D3)', () => {
     expect(officerOutcomeOf(sim.defender)).toBeNull();
   });
 
-  it('is excluded from the ledger rows, so committed counts bodies only', () => {
+  it('is excluded from the ledger rows, so committed counts units only', () => {
     const leader = officer({ strength: 60, toughness: 50, resolve: 60 });
     const withLeader = led({ razors: 10 }, { razors: 10 }, leader, 'ledger');
     const alone = led({ razors: 10 }, { razors: 10 }, undefined, 'ledger');

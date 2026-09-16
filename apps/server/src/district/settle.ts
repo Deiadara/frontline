@@ -5,6 +5,7 @@ import {
   applyQueueEntry,
   BUILDING_CATALOG,
   disruptionPercentAt,
+  drillEndsAt,
   findUnit,
   queueCompletesAt,
   splitDueQueue,
@@ -22,6 +23,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { tallyBuildingRaised, tallyResourcesEarned } from '../feats/tally.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import { settleTrainingFor } from '../crew/training.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
 import { settleTraining } from '../units/training.js';
@@ -315,9 +317,21 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
  * finished: not in `technologies`, so every door it opens stayed shut, and its receipt did not
  * ring until the player opened the page it points at. It goes last because nothing above it reads
  * a technology, and its own due check keeps a read that finished nothing to one comparison.
+ *
+ * The drills go **first**, and they were in the same place the Lab was: `settleTrainingFor` ran on
+ * the Training tab's routes and nowhere else, so an hour that finished while the player was on
+ * any other screen stayed unpaid. The point it buys is not decoration: `crewEffectsFor` and
+ * `standingEffectsFor` read the sheets on every settle below, so a Chemistry drill that landed at
+ * 09:00 priced nothing until the tab was opened, and a player who never opens it has a crew that
+ * never learns. Before the district rather than after, because the district's own settle is what
+ * reads the sheet. The due check is one comparison over the sessions in flight, so a read with
+ * nothing finished pays for no lookup.
  */
 export function settleBase(repos: Repositories, base: Base, now: Date): DistrictSettlement {
-  const district = settleDistrict(repos, base, now);
+  const drilled = base.training.sessions.some((session) => drillEndsAt(session) <= now.getTime())
+    ? settleTrainingFor(repos, base, now.toISOString()).base
+    : base;
+  const district = settleDistrict(repos, drilled, now);
   // Training second: a batch landing does not feed anything else in the settle.
   const trained = settleTraining(repos, district.base, now);
   const researched = settleResearchFor(repos, trained.base, now);

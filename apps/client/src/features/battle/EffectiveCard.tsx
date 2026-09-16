@@ -8,6 +8,8 @@ import {
   type Effective,
   type StatKey,
   type UnitStats,
+  fittedFor,
+  type UnitLoadouts,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { HoverCard } from '../../components/ui/HoverCard';
@@ -82,17 +84,38 @@ function changePercent(sheet: number, effective: number): number | null {
   return Math.round(((effective - sheet) / sheet) * 100);
 }
 
-export function EffectiveCard({ unitId, view }: { unitId: string; view: BattleView }) {
+export function EffectiveCard({
+  unitId,
+  view,
+  loadouts = {},
+}: {
+  unitId: string;
+  view: BattleView;
+  /** The crew's brackets (`Base.unitLoadouts`); what is bolted to this unit is folded in. */
+  loadouts?: UnitLoadouts;
+}) {
   const unit = findUnit(unitId);
   if (!unit) return null;
 
   const side = sideOf(view);
-  const effective = effectiveStats(unit, view.battlefield, side, noTerritoryEffects());
+  // With the unit's own cards, which the engine folds in the same way (`battle/resolve.ts` passes
+  // the attacker's loadouts). Without them this card showed the catalogue sheet under a footer
+  // claiming the workshop could only add, while Scrap Vest costs a point of speed.
+  const effective = effectiveStats(
+    unit,
+    view.battlefield,
+    side,
+    noTerritoryEffects(),
+    fittedFor(loadouts, unitId),
+  );
   const sheet: UnitStats = unit.stats;
 
   return (
+    // The eyebrow is the ground and only the ground (maintainer request, 2026-09-15). It read
+    // "Neon Docks - coming for it", and which side of a fight you are on is the one fact the
+    // screen around this card has already said three times over.
     <InfoWindow
-      eyebrow={`${view.battlefield.locationName} · ${side.defending ? 'holding it' : 'coming for it'}`}
+      eyebrow={view.battlefield.locationName}
       title={unit.name}
       plate="none"
       icon={<UnitPortrait unitId={unit.id} tier={unit.tier} fill />}
@@ -161,8 +184,8 @@ export function EffectiveCard({ unitId, view }: { unitId: string; view: BattleVi
       )}
 
       <p className="font-body text-[11px] leading-snug text-ink-400">
-        The ground and this unit only. What your holdings and the workshop are worth is not on this
-        payload, and both only ever add.
+        The ground, this unit and what is bolted to it. What your holdings are worth is not on this
+        payload.
       </p>
     </InfoWindow>
   );
@@ -178,12 +201,14 @@ export function EffectiveCard({ unitId, view }: { unitId: string; view: BattleVi
 export function OnThisGround({
   unitId,
   view,
+  loadouts = {},
   children,
   label,
   className = '',
 }: {
   unitId: string;
   view: BattleView;
+  loadouts?: UnitLoadouts;
   children: ReactNode;
   label: string;
   className?: string;
@@ -193,7 +218,7 @@ export function OnThisGround({
       label={label}
       size="window"
       className={className}
-      card={<EffectiveCard unitId={unitId} view={view} />}
+      card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
     >
       {children}
     </HoverCard>

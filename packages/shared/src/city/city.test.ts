@@ -5,6 +5,7 @@ import {
   CITY_DISTRICTS,
   CITY_LOCATIONS,
   CONTESTED_DISTRICTS,
+  DistrictSchema,
   RESIDENTIAL_DISTRICTS,
   districtDisplayName,
   sameDistrictName,
@@ -173,6 +174,63 @@ describe('the locations inside it (§A4)', () => {
       ).toBe(false);
     }
     expect(Object.keys(UNIFIED_BONUSES)).toHaveLength(CONTESTED_DISTRICTS.length);
+  });
+});
+
+describe('what a location says about itself (maintainer, 2026-09-15)', () => {
+  const blacksite = findDistrict('blacksite-7')!;
+
+  /**
+   * `z.object` strips keys it was not told about. The district schema used to carry its own copy
+   * of the location fields, so a blurb added to `LocationSchema` alone would have parsed cleanly
+   * on the client and arrived as `undefined` on every sheet.
+   */
+  it('keeps a location’s own blurb through the district schema', () => {
+    const parsed = DistrictSchema.parse(blacksite);
+    for (const location of parsed.locations) {
+      expect(location.blurb, location.id).toBe(
+        blacksite.locations.find((one) => one.id === location.id)?.blurb,
+      );
+      expect(location.blurb, location.id).toBeTruthy();
+    }
+  });
+
+  it('gives every Blacksite location its own line, none of them the kind’s', () => {
+    const lines = new Set<string>();
+    for (const location of blacksite.locations) {
+      const blurb = location.blurb ?? '';
+      expect(blurb.length, location.id).toBeGreaterThan(40);
+      expect(blurb.trim().endsWith('.'), location.id).toBe(true);
+      expect(blurb, location.id).not.toBe(LOCATION_CATALOG[location.kind].blurb);
+      lines.add(blurb);
+    }
+    expect(lines.size).toBe(blacksite.locations.length);
+  });
+
+  it('renamed three holds and kept their ids, so nothing persisted moved', () => {
+    expect(findLocation('blacksite-7-motorpool')?.name).toBe('Motor Pool');
+    expect(findLocation('blacksite-7-blackward')?.name).toBe('Psychic Ward');
+    expect(findLocation('blacksite-7-pit17')?.name).toBe('Robot Pit');
+    // The new names are what the descriptions follow: minds behind the glass, machines in the ring.
+    expect(findLocation('blacksite-7-blackward')?.blurb).toMatch(/minds/);
+    expect(findLocation('blacksite-7-pit17')?.blurb).toMatch(/[Mm]achines/);
+  });
+
+  it('puts the Glasshouses on the Green Belt, on a kind that pays supplies', () => {
+    const glasshouses = findLocation('glasshouse-fields-glasshouses');
+    expect(glasshouses?.kind).toBe('glasshouse');
+    expect(glasshouses?.blurb).toMatch(/glass/);
+    expect(LOCATION_CATALOG.glasshouse.bonuses).toContainEqual(
+      expect.objectContaining({ kind: 'resource', resource: 'supplies' }),
+    );
+    expect(findDistrict('glasshouse-fields')?.locations).toHaveLength(8);
+  });
+
+  // A location without a line is not a hole: everything outside the Blacksite still parses.
+  it('leaves the blurb optional for ground authored without one', () => {
+    const docks = findDistrict('neon-docks')!;
+    expect(docks.locations.every((location) => location.blurb === undefined)).toBe(true);
+    expect(() => DistrictSchema.parse(docks)).not.toThrow();
   });
 });
 

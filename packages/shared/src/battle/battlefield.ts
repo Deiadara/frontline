@@ -44,7 +44,7 @@ export const BattlefieldSchema = z.object({
   fortifyPercent: z.number().min(0),
   /** The location's own `baseDefense`, 0..10: how defensible it is before anybody works on it. */
   baseDefense: z.number().min(0),
-  /** How many bodies per side can be in contact at once. See {@link FRONTAGE_BY_CONTEXT}. */
+  /** How many units per side can be in contact at once. See {@link FRONTAGE_BY_CONTEXT}. */
   frontage: z.number().positive(),
 });
 export type Battlefield = z.infer<typeof BattlefieldSchema>;
@@ -109,10 +109,12 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   chapel: ['indoor'],
   graveyard: ['open_ground'],
   revolutionary_statue: ['open_ground', 'urban'],
+  // Glass walls and one-unit aisles between the beds: a room, with the sky showing through it.
+  glasshouse: ['indoor'],
 };
 
 /**
- * How many bodies a side can bring to bear at once, by what the ground is like.
+ * How many units a side can bring to bear at once, by what the ground is like.
  *
  * Combat width, from Hearts of Iron and every wargame before it, and the single mechanic that stops
  * "bring everything" from being the whole game. A sewer junction is a corridor: the fortieth Razor
@@ -185,7 +187,7 @@ export interface BattlefieldInput {
  * The ground for a fight over one location.
  *
  * `vs_structure` is on the list whenever anything has been dug in, which is what makes a Demolisher
- * worth its supply against a level-5 barricade and worth nothing against bare ground. `defending`
+ * worth its unit slots against a level-5 barricade and worth nothing against bare ground. `defending`
  * is *not* here: it is a property of a side rather than of the location, and `effects.ts` adds it to
  * whichever side is holding.
  */

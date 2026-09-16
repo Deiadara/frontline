@@ -10,6 +10,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { seedMvpWorld } from '../seed/index.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * A crew's file (maintainer request, 2026-09-11): one public page for you and for everybody else.
@@ -47,12 +48,16 @@ async function player(app: FastifyInstance, username: string, presetId = 'enforc
     payload: { username, password: PASSWORD },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId },
-  });
+  const chosen = await chooseOverseer(app, token);
+  expect(chosen.statusCode, chosen.body.slice(0, 200)).toBe(201);
+  /*
+   * The character is pinned after the pick rather than asked for in the payload.
+   *
+   * §F6 offers an account four of thirty and nobody can name one, but this file reads an
+   * Overseer's archetype off a crew file and reads holdings through fog, and two of the thirty
+   * signatures move exactly that: +2 districts of vision decides what the fogged case can see.
+   */
+  pinOverseer(app, token, presetId);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
   const body = me.json<{ user: { id: string }; base: { id: string; name: string } }>();
   return { token, username, userId: body.user.id, baseId: body.base.id, crewName: body.base.name };
@@ -168,16 +173,22 @@ describe('GET /crews/:id', () => {
    * saying where, and a whole district named under "held end to end" said where.
    */
   it('keeps their street and their whole districts behind the fog as well', async () => {
-    const me = await player(app, 'reader');
-    const reader = app.repos.bases.findByOwnerId(me.userId);
-    if (!reader) throw new Error('fixture error: the reader has no base');
     /*
      * The seeded neighbour rather than a second registered player: every new crew is planted on
      * the same starter plot, so a registered rival lives on the reader's own street, which is
      * always in sight. The house crew lives on its own ground, and the admin fog makes that
      * definitely dark, which is the case under test.
+     *
+     * Seeded *before* the reader registers, and that order is load-bearing. The house crews hold
+     * `fixer`, `enforcer` and `technocrat` (`seed/constants.ts`), §F6 makes a character one
+     * account's for the whole world, and `seedStep` reads the unique-index failure that follows
+     * from a player having taken one as "already seeded" and leaves the neighbour out of the
+     * world. Registering first made this case fail on a missing rival about one run in five.
      */
     await seedMvpWorld({ db: app.db, repos: app.repos });
+    const me = await player(app, 'reader');
+    const reader = app.repos.bases.findByOwnerId(me.userId);
+    if (!reader) throw new Error('fixture error: the reader has no base');
     const rival = app.repos.bases.findBotByDistrictId(BOT_DISTRICT_ID);
     if (!rival) throw new Error('fixture error: the seeded neighbour is missing');
     expect(rival.districtId).not.toBe(reader.districtId);

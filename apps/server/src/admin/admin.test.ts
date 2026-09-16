@@ -11,6 +11,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { ADMIN_ACTION_SECONDS, adminCost, adminMinutes, adminSeconds } from './mode.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Admin mode has two claims and they pull against each other, so both are pinned here:
@@ -56,12 +57,7 @@ async function crew(app: FastifyInstance): Promise<{ token: string }> {
     payload: { username: 'operator', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   return { token };
 }
 

@@ -19,7 +19,7 @@
  * ## The rules the catalogue keeps, and `motifs.test.ts` checks
  *
  * - Every document and every page names an id in this set.
- * - **Two documents never share a cover.** Forty-five covers, forty-five different drawings,
+ * - **Two documents never share a cover.** Seventy-two covers, seventy-two different drawings,
  *   because a cover is the thing a player recognises a document by in a row of them.
  * - **A document's pages never repeat, and never draw their own cover.** Where two pages of one
  *   document are close, they take different views of it: the Colossus draws its hull as a
@@ -27,8 +27,8 @@
  *
  * Two pages of *different* documents may share, and often should: the Heli Porter's Hydraulics and
  * anything else with a hydraulic block are both a `manifold`, and drawing them differently would be
- * a lie about the part. That is the whole reason a hundred and ten ids carry two hundred and
- * nineteen entries.
+ * a lie about the part. That is the whole reason a hundred and ten ids carry three hundred and
+ * forty entries.
  */
 
 /**
@@ -39,9 +39,9 @@
  */
 export const BLUEPRINT_MOTIFS = {
   // -------------------------------------------------------------- forty-one of the cover objects
-  // The other four covers were promoted out of the sections below, which is what those sections are
-  // for: a motif is the subject of a drawing, and nothing about a subject says it cannot carry a
-  // document as well as a page.
+  // The other thirty-one covers were promoted out of the sections below, which is what those
+  // sections are for: a motif is the subject of a drawing, and nothing about a subject says it cannot
+  // carry a document as well as a page.
   rifle: 'A long rifle with a scope on it',
   breach: 'A wall with a hole blown through it',
   kite: 'A kite on a line above its winch',

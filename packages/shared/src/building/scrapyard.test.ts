@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { TRAP_CATALOG } from '../battle/traps.js';
-import { UNIT_UPGRADES, UPGRADE_MAX_TIER } from '../units/upgrades.js';
+import { MODIFICATION_RARITIES } from '../modification-rarity.js';
+import { UNIT_MODIFICATIONS, unitModificationsOfRarity } from '../units/modifications.js';
 import { isAdvancedModification, modificationPrice } from './addons.js';
 import { MODIFICATIONS } from './modifications.js';
 import {
   MAX_SCRAPYARD_DISCOUNT,
   SCRAPYARD_DISCOUNT_PER_LEVEL,
   SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION,
+  SCRAPYARD_LEVEL_FOR_BASIC,
+  SCRAPYARD_LEVEL_FOR_RARITY,
   SCRAPYARD_LEVEL_FOR_TRAP,
-  SCRAPYARD_LEVEL_FOR_UPGRADE_TIER,
   nextScrapyardUnlock,
   scrapyardDiscountPercent,
   scrapyardLevelForModification,
@@ -58,15 +60,28 @@ describe('what each yard level opens', () => {
     expect(SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION).toBeGreaterThan(1);
   });
 
-  it('gives every refit tier a level, climbing with the tier', () => {
-    expect(SCRAPYARD_LEVEL_FOR_UPGRADE_TIER).toHaveLength(UPGRADE_MAX_TIER);
-    for (let tier = 2; tier <= UPGRADE_MAX_TIER; tier++) {
-      expect(SCRAPYARD_LEVEL_FOR_UPGRADE_TIER[tier - 1]!).toBeGreaterThan(
-        SCRAPYARD_LEVEL_FOR_UPGRADE_TIER[tier - 2]!,
+  /**
+   * The unit bench's ladder reads the card's rarity and nothing else.
+   *
+   * Strictly climbing in the order the four words are listed, so BASIC opens first and MASTERPIECE
+   * last, and the bottom rung is the yard standing at all: a BASIC card a level-one yard could not
+   * cut would hide the mechanic on the day a crew takes its first plot.
+   */
+  it('opens each rarity of unit card at a level that climbs with the rarity', () => {
+    expect(SCRAPYARD_LEVEL_FOR_RARITY.basic).toBe(SCRAPYARD_LEVEL_FOR_BASIC);
+    for (let index = 1; index < MODIFICATION_RARITIES.length; index += 1) {
+      const below = MODIFICATION_RARITIES[index - 1]!;
+      const above = MODIFICATION_RARITIES[index]!;
+      expect(SCRAPYARD_LEVEL_FOR_RARITY[above], `${above} above ${below}`).toBeGreaterThan(
+        SCRAPYARD_LEVEL_FOR_RARITY[below],
       );
     }
-    for (const spec of UNIT_UPGRADES) {
-      expect(scrapyardLevelForUpgrade(spec)).toBe(SCRAPYARD_LEVEL_FOR_UPGRADE_TIER[spec.tier - 1]);
+    for (const spec of UNIT_MODIFICATIONS) {
+      expect(scrapyardLevelForUpgrade(spec), spec.id).toBe(SCRAPYARD_LEVEL_FOR_RARITY[spec.rarity]);
+    }
+    // Every rung has cards on it, or a level on the ladder opens nothing.
+    for (const rarity of MODIFICATION_RARITIES) {
+      expect(unitModificationsOfRarity(rarity).length, rarity).toBeGreaterThan(0);
     }
   });
 
@@ -113,7 +128,7 @@ describe('what each yard level opens', () => {
 describe('the yard ladder', () => {
   const ladder = scrapyardUnlockLadder({
     modifications: MODIFICATIONS,
-    upgrades: UNIT_UPGRADES,
+    upgrades: UNIT_MODIFICATIONS,
     traps: TRAP_CATALOG,
   });
 
@@ -122,7 +137,7 @@ describe('the yard ladder', () => {
     expect(levels).toEqual([...levels].sort((a, b) => a - b));
     expect(new Set(levels).size).toBe(levels.length);
     expect(ladder.reduce((sum, rung) => sum + rung.modifications, 0)).toBe(MODIFICATIONS.length);
-    expect(ladder.reduce((sum, rung) => sum + rung.upgrades, 0)).toBe(UNIT_UPGRADES.length);
+    expect(ladder.reduce((sum, rung) => sum + rung.upgrades, 0)).toBe(UNIT_MODIFICATIONS.length);
     expect(ladder.reduce((sum, rung) => sum + rung.traps, 0)).toBe(TRAP_CATALOG.length);
     expect(levels[0]).toBe(1);
   });

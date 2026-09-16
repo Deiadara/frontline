@@ -80,9 +80,20 @@ export function PlayerSearch({
     setShut(false);
   };
 
+  /**
+   * Picking a suggestion goes to where they stand, not to their file.
+   *
+   * The search sits on the standings, and the question a player is asking it is almost always
+   * "where are they on this board", which is answered by the row itself: the rank, the figure, the
+   * faction, and the crews either side of them. Landing on a profile threw away the board the
+   * search was run against and the context the answer needed.
+   *
+   * The file is still one click away, on the name inside the row, which is the same grammar the
+   * ranked table already uses: the row is the position, the name is the person.
+   */
   const go = (entry: PlayerStanding) => {
     setShut(true);
-    void navigate(crewFileHref(entry.userId));
+    void navigate(`/game/leaderboard?focus=${encodeURIComponent(entry.username)}`);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -120,7 +131,7 @@ export function PlayerSearch({
       <span className="relative flex min-w-0 items-center">
         <span
           aria-hidden
-          className="pointer-events-none absolute left-2.5 text-ink-400 [&_svg]:h-4 [&_svg]:w-4"
+          className="pointer-events-none absolute left-3 text-ink-400 [&_svg]:h-4 [&_svg]:w-4"
         >
           <Icon name="eye" />
         </span>
@@ -138,7 +149,7 @@ export function PlayerSearch({
           placeholder="Find a player"
           aria-label="Find a player by name"
           data-testid="standings-search"
-          className="ink-box w-full bg-surface-900/80 py-2 pl-8 pr-8 font-body text-[14px] text-ink-100 placeholder:text-ink-500"
+          className="ink-field w-full bg-surface-900/80 py-2 pl-9 pr-9 font-body text-[14px] text-ink-100 placeholder:text-ink-500"
         />
         {query !== '' && (
           <button
@@ -146,7 +157,7 @@ export function PlayerSearch({
             onClick={() => type('')}
             aria-label="Clear the search"
             data-testid="standings-search-clear"
-            className="absolute right-2 flex h-5 w-5 items-center justify-center rounded-sm text-ink-400 hover:text-brass-300 [&_svg]:h-3.5 [&_svg]:w-3.5"
+            className="absolute right-2.5 flex h-5 w-5 items-center justify-center rounded-sm text-ink-400 hover:text-brass-300 [&_svg]:h-3.5 [&_svg]:w-3.5"
           >
             <Icon name="close" />
           </button>
@@ -178,13 +189,23 @@ export function PlayerSearch({
                 role="option"
                 aria-selected={index === at}
               >
-                <Link
-                  to={crewFileHref(entry.userId)}
-                  onClick={() => setShut(true)}
+                {/*
+                 * The row and the name are two different doors.
+                 *
+                 * Pressing anywhere on the row goes to where this crew stands on the board, which
+                 * is what the search was asked. The name inside it is a real link to their file,
+                 * so the other question is one click away and advertises itself by being a link.
+                 *
+                 * A `div` rather than a nested control: the row's job is already done by the
+                 * `li role="option"` around it and by the field's own keyboard handling, and a
+                 * button wrapping a link is invalid markup that browsers resolve unpredictably.
+                 */}
+                <div
+                  onClick={() => go(entry)}
                   onMouseEnter={() => setActive(index)}
                   data-testid={`standings-suggestion-${entry.username}`}
                   className={cn(
-                    'flex items-center gap-2.5 border-b border-surface-700/60 px-3 py-2 last:border-b-0',
+                    'flex cursor-pointer items-center gap-2.5 border-b border-surface-700/60 px-3 py-2 last:border-b-0',
                     index === at ? 'bg-brass-300/15' : 'hover:bg-brass-300/10',
                   )}
                 >
@@ -201,13 +222,23 @@ export function PlayerSearch({
                       </span>
                     )}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-stamp text-[14px] leading-tight text-ink-100">
+                  <Link
+                    to={crewFileHref(entry.userId)}
+                    onClick={(event) => {
+                      // The row behind this one goes to the board. Stopped here so the name keeps
+                      // its own destination rather than being swallowed by the row's handler.
+                      event.stopPropagation();
+                      setShut(true);
+                    }}
+                    data-testid={`standings-suggestion-name-${entry.username}`}
+                    className="min-w-0 flex-1 truncate font-stamp text-[14px] leading-tight text-ink-100 underline decoration-ink-500/50 underline-offset-2 hover:decoration-brass-300"
+                  >
                     {entry.username}
-                  </span>
+                  </Link>
                   <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
                     #<span className="tabular-nums">{entry.rank}</span>
                   </span>
-                </Link>
+                </div>
               </li>
             ))}
           </ul>

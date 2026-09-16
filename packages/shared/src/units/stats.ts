@@ -300,6 +300,26 @@ export const UNIT_RATING_KEYS: readonly StatKey[] = UNIT_STAT_KEYS.filter(
   (key) => !UNIT_FIGURE_KEYS.includes(key as (typeof UNIT_FIGURE_KEYS)[number]),
 );
 
+/** The top of every rating's track. */
+export const MAX_RATING = 100;
+
+/**
+ * A rating held inside its own scale, 0..{@link MAX_RATING}.
+ *
+ * Maintainer rule (2026-09-15): a hard cap of 100 on every rating, no matter what, bonuses
+ * included. This is the one place that rule is written down. Every path that sums something onto
+ * a rating (the yard's cards in `upgrades.ts`, the ground's reading in `city/labels.ts`, the
+ * battlefield's bonuses in `battle/effects.ts`) is meant to come through here rather than carry
+ * its own `Math.min(100, ...)`, so a rating drawn past the end of its bar is a defect in one
+ * function and not in whichever line somebody widened last.
+ *
+ * Not for the open figures (`UNIT_FIGURE_KEYS`): damage, hit points and loot are counts, and
+ * passing one through here is the defect `upgradedStats` describes in its own comment.
+ */
+export function capRating(value: number): number {
+  return Math.min(MAX_RATING, Math.max(0, value));
+}
+
 export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
   speed: 'Speed',
   vitality: 'Vitality',
@@ -324,7 +344,7 @@ export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> =
  */
 export const UNIT_STAT_EXPLAINERS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
   speed:
-    'How fast they cross the city, and who gets a shot away before the other side has decided anything. A column moves at its slowest body, and a machine lends its riders its own.',
+    'How fast they cross the city, and who gets a shot away before the other side has decided anything. A column moves at its slowest unit, and a machine lends its riders its own.',
   vitality: 'How much punishment one of them absorbs before they are out of the fight.',
   morale: 'How far it has to go badly before they break and run rather than hold the line.',
   armor: 'Taken off every hit that lands. Cheap weapons stop mattering against enough of it.',

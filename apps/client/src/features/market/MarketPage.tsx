@@ -600,14 +600,18 @@ function Ledger({
  * "More than you can pay for or store" covered all three and pointed at none of them.
  */
 function supplyStall(
-  key: SupplyLine['key'],
+  line: SupplyLine | undefined,
   market: MarketResponse,
   left: number,
   resetsAt: string,
 ): string {
   if (left === 0) return `Today's ration is spent, back at ${resetsAt}`;
-  if ((market.resources[key] ?? 0) >= market.supply.storageCapacity) {
-    return `Your store of ${RESOURCE_LABELS[key].toLowerCase()} is full`;
+  // This resource's own shelf, off the line, and not `supply.storageCapacity`, which is the bulk
+  // one. Oil and supplies get two thirds of bulk and HQ metal a third (`STORAGE_SHARES`), so the
+  // bulk comparison could never be true for four of the five materials on offer: a crew with a full
+  // alloy shelf and fifty thousand caps was told it did not have the caps.
+  if (line !== undefined && (market.resources[line.key] ?? 0) >= line.capacity) {
+    return `Your store of ${RESOURCE_LABELS[line.key].toLowerCase()} is full`;
   }
   return 'Not enough caps for a single unit';
 }
@@ -643,7 +647,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
   const units = Math.min(wanted, most);
   const price = supplyPrice(key, units);
   const blocked =
-    most === 0 ? supplyStall(key, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
+    most === 0 ? supplyStall(line, market, left, resetsAt) : units <= 0 ? 'Say how much' : null;
 
   return (
     <Panel
@@ -759,14 +763,14 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
   );
 }
 
-/** The whole item, as a window. Shared by the barrow, the satchel and the board. */
+/** The whole item, as a window. Shared by the barrow, the inventory and the board. */
 export function ItemWindow({ id }: { id: ItemId }) {
   const spec = ITEM_CATALOG[id];
   return (
     <InfoWindow
       eyebrow={ITEM_RARITY_LABELS[spec.rarity]}
       title={spec.name}
-      tone={spec.kind === 'blueprint' ? 'iris' : spec.kind === 'relic' ? 'brass' : 'verdigris'}
+      tone={spec.kind === 'blueprint' ? 'iris' : 'verdigris'}
       icon={<ItemGlyph id={id} className="h-full w-full" />}
       figure={
         <span className="font-display text-lg font-bold tabular-nums text-warning">

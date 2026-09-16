@@ -34,7 +34,7 @@ const DOCUMENTS: readonly {
 }));
 
 describe('every sheet names a drawing', () => {
-  it('gives all forty-five documents and all one hundred and seventy-four pages one', () => {
+  it('gives all sixty-eight documents and all two hundred and fifty-five pages one', () => {
     let pages = 0;
     for (const document of DOCUMENTS) {
       expect(isBlueprintMotif(document.motif), `${document.id} draws nothing`).toBe(true);
@@ -43,8 +43,8 @@ describe('every sheet names a drawing', () => {
         pages += 1;
       }
     }
-    expect(DOCUMENTS).toHaveLength(45);
-    expect(pages).toBe(174);
+    expect(DOCUMENTS).toHaveLength(68);
+    expect(pages).toBe(255);
   });
 
   /**
@@ -76,7 +76,7 @@ describe('every sheet names a drawing', () => {
 });
 
 describe('no two sheets draw the same picture where it would matter (§D8)', () => {
-  /** Forty-five covers, forty-five drawings: a cover is how a document is picked off a shelf. */
+  /** Seventy-two covers, seventy-two drawings: a cover is how a document is picked off a shelf. */
   it('never gives two documents the same cover', () => {
     const seen = new Map<string, string>();
     for (const document of DOCUMENTS) {
@@ -107,17 +107,17 @@ describe('no two sheets draw the same picture where it would matter (§D8)', () 
   /**
    * Sharing across documents is the point, so it is asserted rather than merely allowed.
    *
-   * A hundred and ten ids carry two hundred and nineteen entries, and the reason that is right is
-   * that a hydraulic block is a hydraulic block on whichever machine it is bolted to. A catalogue
-   * where every entry had its own id would have quietly become two hundred and nineteen drawings
-   * to keep.
+   * A hundred and ten ids carry three hundred and twenty-three entries, and the reason that is
+   * right is that a hydraulic block is a hydraulic block on whichever machine it is bolted to. A
+   * catalogue where every entry had its own id would have quietly become three hundred and
+   * twenty-three drawings to keep.
    */
   it('shares motifs between documents rather than authoring one per entry', () => {
     const used = DOCUMENTS.flatMap((document) => [
       document.motif,
       ...document.pages.map((page) => page.motif),
     ]);
-    expect(used).toHaveLength(219);
+    expect(used).toHaveLength(323);
     expect(BLUEPRINT_MOTIF_IDS.length).toBeLessThan(used.length);
   });
 });

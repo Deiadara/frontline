@@ -88,7 +88,8 @@ export const MISSION_LEANING_REASONS: Readonly<Record<MissionLeaning, string>> =
   salvage:
     'Worth is in the wreck. A salvager knows what is worth cutting out, and an engineer knows how to cut it out whole.',
   wire: 'It is a lock made of signal. Signals gets a way in and cryptography is what turns noise into an answer.',
-  medic: 'People are going to get hurt. Medicine is the difference between a casualty and a body.',
+  medic:
+    'People are going to get hurt. Medicine is the difference between a casualty and a corpse.',
 };
 
 export type MissionProfile = Partial<Record<AttributeName, AttributeImportance>>;
@@ -390,7 +391,7 @@ export function battleTierFor(
 }
 
 /**
- * A coarse yardstick for a force: what it hits with and what it can take, per body.
+ * A coarse yardstick for a force: what it hits with and what it can take, per unit.
  *
  * Only for the band on the card. The fight itself is the engine's, and the engine reads every
  * stat; this reads the two open figures a unit card prints large, which is what a player has in

@@ -2,7 +2,7 @@
  * The single source of asset-key truth.
  *
  * Keys, filenames and seeds are **derived** from the domain constants (`CITY_DISTRICTS`,
- * `BUILDING_CATALOG`, `OVERSEER_PRESETS`, `RESOURCE_ICON_SUBJECTS`, `OVERSEER_ARCHETYPES`,
+ * `BUILDING_CATALOG`, `OVERSEER_PORTRAIT_IDS`, `RESOURCE_ICON_SUBJECTS`, `OVERSEER_ARCHETYPES`,
  * `DISTRICT_KINDS`) so the `docs/ART-BIBLE.md` §7 naming rule cannot drift from the game model.
  * Resolutions and aspects come from the ART-BIBLE §6 table; prompts come from `./prompts.js`.
  */
@@ -14,8 +14,8 @@ import {
   LOCATION_KINDS,
   type DistrictKind,
 } from '../city/index.js';
-import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS, type OverseerArchetype } from '../overseer.js';
-import { OFFICER_PORTRAIT_IDS } from '../roles.js';
+import { OVERSEER_ARCHETYPES, type OverseerArchetype } from '../overseer.js';
+import { OFFICER_PORTRAIT_IDS, OVERSEER_PORTRAIT_IDS } from '../roles.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { UNIT_CATALOG, UNIT_IDS } from '../units/index.js';
 import {
@@ -246,10 +246,10 @@ export const ASSET_CLASS_SPECS: Readonly<Record<AssetClass, AssetClassSpec>> = {
    * The officer pool: the faces of the people a crew hires (§C).
    *
    * A class of its own rather than more `portrait` keys, because the two are different objects.
-   * An overseer portrait is one of four hero images a player picks from and sees at full size; an
-   * officer portrait is one of forty-three drawn from a pool, and it appears on a roster card at
-   * a couple of hundred pixels. 4:5 rather than the overseer's taller frame is the shape the maintainer
-   * delivered.
+   * An overseer portrait is one of thirty-four hero images a player picks from and sees at full
+   * size; an officer portrait is one of a hundred and sixty-four drawn from a pool, and it appears
+   * on a roster card at a couple of hundred pixels. 4:5 rather than the overseer's taller frame is
+   * the shape the maintainer delivered.
    *
    * 960×1200 is the largest size satisfying three constraints at once, and it took all three to
    * find it: every master in the drop must supply a 4:5 crop at least this big without upscaling
@@ -329,6 +329,9 @@ const UNREFERENCED_KEYS: readonly AssetKey[] = [
 /** ART-PROMPTS §0.3: `<class-base> + index`, so any asset can be regenerated without a log. */
 const SEED_BASE = {
   portrait: 110000,
+  // Its own base rather than `portrait + 4 + index`, so the thirty can be re-ordered or extended
+  // without moving the original four heroes' seeds, which ART-PROMPTS §1 prints.
+  overseerPortrait: 111000,
   officer: 115000,
   district: 120000,
   plate: 130000,
@@ -440,19 +443,77 @@ const officerDrafts = OFFICER_PORTRAIT_IDS.map((portraitId, index) =>
   }),
 );
 
-const portraitDrafts = OVERSEER_PRESETS.map((preset, index) =>
+/**
+ * What the thirty overseer portraits actually measure: see {@link overseerPortraitDrafts}.
+ *
+ * One shared constant rather than thirty entries, unlike the plate deliveries further down, and for the
+ * opposite reason. A plate's size is its own because controls are pinned to fractions of that
+ * exact painting; these thirty are one drop of one shape, and thirty copies of the same two
+ * numbers is thirty places for one of them to drift.
+ */
+const OVERSEER_PORTRAIT_DELIVERY = {
+  width: 928,
+  height: 1392,
+  aspect: '3:4',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The four heroes ART-PROMPTS §1 was written for, and the only portraits still on a text-to-image
+ * path. Their ids are unpadded, which is the whole of what keeps them clear of the thirty below.
+ *
+ * A literal rather than `OVERSEER_PRESETS.map`, which is what it used to be. The preset table is
+ * the *game's* list of who a player may be, and it is being rewritten to the thirty; the art is the
+ * list of what has been painted. Deriving one from the other meant a preset retired in `overseer.ts`
+ * silently orphaned a delivered file, and a preset added there failed the manifest at import.
+ */
+const LEGACY_OVERSEER_PORTRAIT_IDS: readonly string[] = [
+  'overseer-1',
+  'overseer-2',
+  'overseer-3',
+  'overseer-4',
+];
+
+const legacyPortraitDrafts = LEGACY_OVERSEER_PORTRAIT_IDS.map((portraitId, index) =>
   draft({
-    key: `portrait-${preset.portraitId}`,
+    key: `portrait-${portraitId}`,
     class: 'portrait',
     seed: SEED_BASE.portrait + index + 1,
     prompt: {
-      subject: subjectFor(PORTRAIT_SUBJECTS, preset.portraitId, 'portrait'),
+      subject: subjectFor(PORTRAIT_SUBJECTS, portraitId, 'portrait'),
       framing: FRAMING.portrait,
     },
     // ADR 0001 §6.6: gpt-image-1 leads on faces with specific direction.
     backend: 'openai',
   }),
 );
+
+/**
+ * The overseer pool (§C): thirty faces a player may wear, and no officer ever will.
+ *
+ * Delivered at 928x1392 rather than the class's 1024x1536, which is why every one of them is in
+ * {@link SIZE_EXCEPTIONS}. The masters are the officer drop's 4:5, and 928x1392 is the largest 2:3
+ * centre-crop a 1122x1402 master supplies without upscaling that also has both sides divisible by
+ * 16. The original four heroes ship at the same size for the same reason.
+ *
+ * `fal` rather than the heroes' `openai`: gpt-image-1 renders exactly three sizes and 928x1392 is
+ * not one of them. These arrived as a maintainer delivery anyway, so what the pin records is which
+ * backend *could* have produced them.
+ */
+const overseerPortraitDrafts = OVERSEER_PORTRAIT_IDS.map((portraitId, index) =>
+  draft({
+    key: `portrait-${portraitId}`,
+    class: 'portrait',
+    seed: SEED_BASE.overseerPortrait + index + 1,
+    ...OVERSEER_PORTRAIT_DELIVERY,
+    prompt: {
+      subject: subjectFor(PORTRAIT_SUBJECTS, portraitId, 'portrait'),
+      framing: FRAMING.portrait,
+    },
+    backend: 'fal',
+  }),
+);
+
+const portraitDrafts = [...legacyPortraitDrafts, ...overseerPortraitDrafts];
 
 const districtDrafts = CITY_DISTRICTS.map((district, index) =>
   draft({
@@ -621,6 +682,29 @@ const ANNEXES_PLATE_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
+ * Glasshouse Fields, the sixth contested district, delivered at 3780x1800 with a labelled copy
+ * (maintainer, 2026-09-15). Measured rather than taken from the file name, after the Annexes
+ * arrived named 3780x1800 and measuring 1817x866. Its own entry for the reason the others give:
+ * seven signs and a gate are fractions of this exact image (`features/city/marks.ts`).
+ */
+const GLASSHOUSE_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The Blacksite, the seventh contested district, delivered at 3780x1800 (maintainer, 2026-09-15),
+ * measured the same way. No labelled copy came with it; the eight signs and the gate in
+ * `features/city/marks.ts` are placed by eye against a twentieth grid, as Chrome Row's were.
+ */
+const BLACKSITE_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
  * The faction's back room, delivered at 3780x1800.
  *
  * The same shape as the contested plates, which is the shape of the band between the two bars,
@@ -636,6 +720,12 @@ const FACTION_ROOM_PLATE_DELIVERY = {
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
 > = {
+  ...Object.fromEntries(
+    OVERSEER_PORTRAIT_IDS.map((portraitId) => [
+      `portrait-${portraitId}`,
+      OVERSEER_PORTRAIT_DELIVERY,
+    ]),
+  ),
   'plate-district': DISTRICT_PLATE_DELIVERY,
   'plate-bar': BAR_PLATE_DELIVERY,
   'plate-city': CITY_PLATE_DELIVERY,
@@ -645,6 +735,8 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-faction-room': FACTION_ROOM_PLATE_DELIVERY,
   'plate-district-undergrid': UNDERGRID_PLATE_DELIVERY,
   'plate-district-datavault-sigma': ANNEXES_PLATE_DELIVERY,
+  'plate-district-glasshouse-fields': GLASSHOUSE_PLATE_DELIVERY,
+  'plate-district-blacksite-7': BLACKSITE_PLATE_DELIVERY,
 };
 
 /**
@@ -694,6 +786,9 @@ const plateDrafts = (
     // Appended after the faction room rather than beside the other districts: the seed is the index.
     ['plate-district-undergrid', 'plate'],
     ['plate-district-datavault-sigma', 'plate'],
+    // Appended, again: the seed is the index.
+    ['plate-district-glasshouse-fields', 'plate'],
+    ['plate-district-blacksite-7', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -717,6 +812,8 @@ const plateDrafts = (
     ...(key === 'plate-faction-room' ? FACTION_ROOM_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-undergrid' ? UNDERGRID_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-datavault-sigma' ? ANNEXES_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-glasshouse-fields' ? GLASSHOUSE_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-blacksite-7' ? BLACKSITE_PLATE_DELIVERY : {}),
   }),
 );
 
@@ -941,7 +1038,9 @@ export function parseAssetFileName(file: string): ParsedAssetFile | null {
 export function subjectResolvesToDomainId(assetClass: AssetClass, subject: string): boolean {
   switch (assetClass) {
     case 'portrait':
-      return OVERSEER_PRESETS.some((preset) => preset.portraitId === subject);
+      return (
+        OVERSEER_PORTRAIT_IDS.includes(subject) || LEGACY_OVERSEER_PORTRAIT_IDS.includes(subject)
+      );
     case 'officer':
       return OFFICER_PORTRAIT_IDS.includes(subject);
     case 'district':

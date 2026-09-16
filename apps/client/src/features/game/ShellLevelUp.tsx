@@ -1,6 +1,6 @@
 import type { LevelUp } from '@frontline/shared';
 import { useEffect, useRef, useState } from 'react';
-import { LevelUpBanner } from '../../components/LevelUp';
+import { LevelUpToast } from './LevelUpToast';
 
 /**
  * The level-up the shell's own poll found.
@@ -35,20 +35,26 @@ export function ShellLevelUp({ levelUp: polled }: { levelUp: LevelUp | undefined
 
   if (levelUp === null) return null;
   return (
+    /*
+     * Bottom right, above the bottom bar.
+     *
+     * Centred over the page, which is where it used to sit, it landed across whatever the player
+     * was reading and had to be dismissed before the screen could be used. The first move was to
+     * the top right, and a screenshot killed that one: every `PageShell` puts its primary action
+     * in exactly that corner, so on the feats screen the card sat straight over `Collect all 4`.
+     * Down here it clears both pieces of chrome, and it is where a transient notice belongs
+     * anyway. `--nav-h` is measured by the bottom bar itself, so this rides on the real height
+     * rather than a guess, and the fallback matches `PageShell`'s own.
+     *
+     * `LevelUpToast` owns the five second clock and the X; this only decides where it sits.
+     */
     <div
-      className="pointer-events-none absolute inset-x-0 z-50 flex justify-center px-4"
-      style={{ top: 'calc(var(--hud-h, 0px) + 12px)' }}
+      className="pointer-events-none absolute right-0 z-50 flex justify-end px-4"
+      style={{ bottom: 'calc(var(--nav-h, 104px) + 12px)' }}
       data-testid="shell-level-up"
     >
-      <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2">
-        <LevelUpBanner levelUp={levelUp} />
-        <button
-          type="button"
-          onClick={() => setLevelUp(null)}
-          className="self-end font-display text-[11px] uppercase tracking-[0.18em] text-ink-300 hover:text-ink-200"
-        >
-          Noted
-        </button>
+      <div className="pointer-events-auto">
+        <LevelUpToast levelUp={levelUp} onDismiss={() => setLevelUp(null)} />
       </div>
     </div>
   );

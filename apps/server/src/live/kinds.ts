@@ -29,6 +29,6 @@ export const NOTIFICATION_LIVE_KINDS: Partial<Record<NotificationKind, LiveEvent
   // when the bell rings is a crew short of the officer it just won.
   officer_hired: 'base',
   // A page can land without the player doing anything: the Runner's close and somebody accepting
-  // a listing both write into the satchel on their own clock.
+  // a listing both write into the inventory on their own clock.
   page_found: 'base',
 };

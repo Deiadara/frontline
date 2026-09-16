@@ -1,5 +1,5 @@
 /**
- * The satchel diff that the page bell is built on.
+ * The inventory diff that the page bell is built on.
  *
  * `pagesGained` is the whole of "did a document move a square closer?", and every one of the six
  * paths that hand a page over leans on it. What it has to get right is narrow and easy to get

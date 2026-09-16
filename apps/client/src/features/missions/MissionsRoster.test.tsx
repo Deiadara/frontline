@@ -205,7 +205,7 @@ async function openSend(offer: MissionOffer): Promise<HTMLElement> {
   return screen.getByRole('dialog');
 }
 
-/** The painted list is portalled to the body, so its options are found on `screen`. */
+/** The painted list is portalled to the unit, so its options are found on `screen`. */
 async function openPicker(dialog: HTMLElement): Promise<void> {
   fireEvent.click(within(dialog).getByTestId('send-leader'));
   await screen.findByRole('listbox');

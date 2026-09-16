@@ -107,6 +107,49 @@ export function breachExpiry(now: Date): string {
   return new Date(now.getTime() + GATE_BREACH_HOURS * 3_600_000).toISOString();
 }
 
+/**
+ * What calling a fight costs the crew that calls it, in infamy (§D7).
+ *
+ * A declaration used to be free, and free is what made the cap in `battle/declare.ts` load-bearing:
+ * with nothing at stake the correct opening move was to call everything in reach and work out later
+ * which one you meant, and the only thing standing in the way was a count. A price says the same
+ * thing the cap says, in the currency the rest of the war already runs on, and it says it to a crew
+ * that has three calls free as loudly as to one at its ceiling.
+ *
+ * Infamy rather than materials because a call commits no units and takes no ground: what it spends
+ * is the crew's standing to say in public that it is coming, which is the only thing a declaration
+ * actually is. It is charged once, when the call lands, and never handed back: a fight nobody turns
+ * up to still cost you the same announcement.
+ *
+ * Charged **only for calling out a person** (maintainer, 2026-09-15): ground held by a crew a
+ * player runs, in their own district or anywhere else. The Combine, the looters, an AI crew and
+ * empty ground are all free to call, because the announcement the price is for is the one made
+ * to somebody who can hear it. {@link declareInfamyCost} is the one place that rule is decided.
+ */
+export const DECLARE_INFAMY_COST = 100;
+
+/**
+ * What calling a fight on this ground costs.
+ *
+ * Takes the party the call is on and whether a person is behind them, rather than a district or a
+ * base, so the ledger never has to know what either is: the server reads the map and the roster
+ * and passes the two facts in. A `crew` holder is an AI crew as often as a player's, which is why
+ * the second argument exists at all.
+ */
+export function declareInfamyCost(holder: LocationHolder, holderIsPlayer: boolean): number {
+  return holder.kind === 'crew' && holderIsPlayer ? DECLARE_INFAMY_COST : 0;
+}
+
+/**
+ * The one sentence a crew that cannot cover it is told.
+ *
+ * Here rather than beside the route's other declaration wordings so the screen can say it before
+ * the player commits and the route can say it when they get there anyway (a second tab, a stale
+ * board). Two copies of this sentence is how a button's warning and a refusal quote different
+ * prices. Only ever said of a charged call: a free one has nothing to be short of.
+ */
+export const DECLARE_UNAFFORDABLE_MESSAGE = `Calling a fight on another player's crew costs ${DECLARE_INFAMY_COST} infamy, and your name is not worth that yet`;
+
 export const DECLARATION_REFUSALS = [
   'gate_armed',
   'no_gate',
@@ -208,13 +251,13 @@ export const BattleDeploymentSchema = z.object({
    * §I4: the one trap this crew has set under this fight, or null.
    *
    * Defenders only, enforced at the door in `battle/routes.ts` along with §I4's one per *side*.
-   * Free to name and free to change right up to the mark: nothing leaves the satchel until the
+   * Free to name and free to change right up to the mark: nothing leaves the inventory until the
    * fight resolves, which is the same rule contraband follows and for the same reason. It also
    * means the same trap may be named on two fights and only the first to resolve gets it, because
    * the second finds the bag empty (`springAnyTrap`).
    *
    * Not the item id by coincidence: a trap's `TrapSpec.id` and its `ItemSpec.id` are the same
-   * string, so the row names what has to come out of the satchel with no second table.
+   * string, so the row names what has to come out of the inventory with no second table.
    */
   trapId: z.string().min(1).nullable().default(null),
   /**
@@ -253,7 +296,7 @@ export const ScheduledBattleSchema = z.object({
   /**
    * Do the survivors hold the location they just took, or come home?
    *
-   * Chosen at declaration, before anybody has committed a body, because it is the question that
+   * Chosen at declaration, before anybody has committed a unit, because it is the question that
    * decides what the fight is *for*. Coming home is a raid: you take the ground, the map changes
    * colour, and the crew is back on the roster tonight to be sent somewhere else. Holding is an
    * occupation: the survivors become the location's garrison, they defend it against whoever comes to
@@ -271,7 +314,7 @@ export function isBattleDue(battle: ScheduledBattle, now: Date): boolean {
   return battle.resolvedAt === null && Date.parse(battle.scheduledFor) <= now.getTime();
 }
 
-/** Bodies committed to a deployment, both forces counted. */
+/** Units committed to a deployment, both forces counted. */
 export function deployedSize(deployment: Pick<BattleDeployment, 'army' | 'perimeter'>): number {
   const count = (force: Army): number =>
     Object.values(force).reduce((total, amount) => total + amount, 0);

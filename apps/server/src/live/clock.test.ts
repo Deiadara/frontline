@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   MISC_AREA_ID,
   declarationWindow,
   findDistrict,
@@ -16,6 +17,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { launchMission } from '../missions/launch.js';
 import { liveHub } from './hub.js';
 import { WORLD_TICK_MS, startWorldClock, tickWorld } from './clock.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The world clock: the promise that a fight happens on its mark.
@@ -70,13 +72,13 @@ async function makeStack(username: string): Promise<Stack> {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
@@ -85,7 +87,7 @@ async function makeStack(username: string): Promise<Stack> {
 }
 
 /**
- * Declares a fight, sends bodies to it, and moves both clocks into the past.
+ * Declares a fight, sends units to it, and moves both clocks into the past.
  *
  * Both, and this is the part a fixture gets wrong: sending units starts a *column*, so winding only
  * the battle's mark back resolves a fight nobody walked to. Unlike the fixture in `battle.test.ts`
@@ -134,7 +136,7 @@ describe('a fight lands on its mark', () => {
     expect(stack.app.repos.sieges.find(battleId)!.resolvedAt).not.toBeNull();
 
     /*
-     * And the four bodies that were walking to it were *in* it.
+     * And the four units that were walking to it were *in* it.
      *
      * This is the assertion that makes the tick's ordering real rather than asserted in a comment.
      * `resolvedAt` alone cannot see it: a fight settled before its column lands still resolves, and

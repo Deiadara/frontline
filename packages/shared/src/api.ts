@@ -39,7 +39,7 @@ import {
   MissionLeaningSchema,
   UnledRuleSchema,
 } from './missions.leading.js';
-import { OverseerSchema } from './overseer.js';
+import { OverseerPresetSchema, OverseerSchema } from './overseer.js';
 import { TrainingSessionSchema } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { ResourceKeySchema } from './resources.js';
@@ -47,7 +47,7 @@ import { MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
 import { SupplyBoardSchema, SupplyResourceSchema } from './market/supply.js';
 import { VendorAuctionResultSchema, VendorAuctionSchema } from './market/auction.js';
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
-import { UpgradeLineSchema } from './units/upgrades.js';
+import { UnitModificationRaritySchema } from './units/modifications.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PlayerLevelGrantsSchema, PlayerLevelUnlockSchema } from './progression/index.js';
 import { ActiveResearchSchema } from './research/index.js';
@@ -212,6 +212,25 @@ export const CreateOverseerResponseSchema = z.object({
   base: BaseSchema,
 });
 export type CreateOverseerResponse = z.infer<typeof CreateOverseerResponseSchema>;
+
+/**
+ * The characters this account may pick from (§F6, maintainer request 2026-09-15).
+ *
+ * The whole preset table is in `@frontline/shared` and the client already has it, so this could
+ * have been a list of ids. It sends the presets themselves because the pool **drains**: an id the
+ * client cannot find is either a character somebody took or a client a deploy behind, and the
+ * screen has no way to tell those apart. Sending the four it is meant to draw removes the question.
+ *
+ * `remaining` is how many are left in the whole pool, which is the one fact that makes the screen
+ * honest about what it is: four out of thirty at the start of a world and four out of five near the
+ * end of one are very different choices.
+ */
+export const OverseerChoicesResponseSchema = z.object({
+  choices: z.array(OverseerPresetSchema),
+  remaining: z.number().int().nonnegative(),
+  total: z.number().int().positive(),
+});
+export type OverseerChoicesResponse = z.infer<typeof OverseerChoicesResponseSchema>;
 
 // --- the city (GDD §A4) ---
 
@@ -447,13 +466,12 @@ export type CityMutationResponse = z.infer<typeof CityMutationResponseSchema>;
 
 // --- units (GDD §A5) ---
 
-/** One unit as the roster shows it: the sheet, and whether this crew can field it. */
-/** What is in one bracket: an upgrade the crew has built, or room for one. */
+/** What is in one bracket: a modification card the crew has built, or room for one. */
 export const FittedSlotSchema = z.object({
   upgradeId: z.string().nullable(),
   name: z.string(),
-  line: UpgradeLineSchema.nullable(),
-  tier: z.number().int().nonnegative(),
+  /** The card's rarity, which is what the bracket draws; null for an empty bracket. */
+  rarity: UnitModificationRaritySchema.nullable(),
   /** Already folded into `stats`; here so the bracket can say what it is paying for. */
   effect: z.record(z.string(), z.number()),
 });
@@ -497,7 +515,7 @@ export const UnitOptionSchema = z.object({
   ),
   cost: PartialResourcesSchema,
   trainSeconds: z.number().int().positive(),
-  supply: z.number().int().positive(),
+  unitSlots: z.number().int().positive(),
   /**
    * §A4: percentage points this unit's *own* ground takes off, on top of `trainingCostReduction`.
    *
@@ -523,6 +541,15 @@ export const UnitOptionSchema = z.object({
    * a unit with nothing in it should read as "there is room here" rather than as an absence.
    */
   slots: z.array(FittedSlotSchema).length(UNIT_UPGRADE_SLOTS),
+  /**
+   * The ids of every card in the catalogue this unit may take (`modificationsForUnit`).
+   *
+   * Empty for a legendary, which is the rule working rather than a gap. Sent so the picker can
+   * grey out a card the route would refuse with `does_not_fit`, and read the answer off the same
+   * function the route reads it off: the card's `fits` list is not on the wire and the screen
+   * should not have to know it exists.
+   */
+  eligible: z.array(z.string()),
 });
 export type UnitOption = z.infer<typeof UnitOptionSchema>;
 
@@ -530,8 +557,7 @@ export type UnitOption = z.infer<typeof UnitOptionSchema>;
 export const BuiltUpgradeSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  line: UpgradeLineSchema,
-  tier: z.number().int().positive(),
+  rarity: UnitModificationRaritySchema,
   description: z.string().min(1),
   effect: z.record(z.string(), z.number()),
   /**
@@ -559,13 +585,13 @@ export const UnitsResponseSchema = z.object({
   /**
    * Units committed to a fight: a muster on the ground, or a column still walking to one.
    *
-   * Sent for the same reason `garrisoned` is. Both are away and both are counted in `supplyUsed`
-   * (§A1: they are still people this crew feeds), so a roster that showed neither would report a
-   * population the player could not account for from anything on the screen.
+   * Sent for the same reason `garrisoned` is. Both are away and both are counted in `unitSlotsUsed`
+   * (§A1: they are still people this crew feeds), so a roster that showed neither would report
+   * unit slots the player could not account for from anything on the screen.
    */
   abroad: ArmySchema,
-  supplyUsed: z.number().int().nonnegative(),
-  supplyCap: z.number().int().nonnegative(),
+  unitSlotsUsed: z.number().int().nonnegative(),
+  unitSlotsCap: z.number().int().nonnegative(),
   queue: TrainingQueueSchema,
   resources: ResourcesSchema,
   /** Everything territory is doing to training right now, so the page can explain a price. */
@@ -584,9 +610,9 @@ export const UnitsResponseSchema = z.object({
    */
   trainingSuppliesReduction: z.number().optional(),
   /**
-   * Everything the workshop has built, whether or not it is in a bracket somewhere.
+   * Every card the Scrapyard has built, whether or not it is in a bracket somewhere.
    *
-   * The stock, in other words. Sent with the roster rather than fetched from `/workshop` when a
+   * The stock, in other words. Sent with the roster rather than fetched from `/scrapyard` when a
    * bracket is opened, because the one question the picker has to answer is "what can I put in
    * here", and a screen that has to go and ask cannot answer it while the menu is opening.
    */
@@ -594,7 +620,7 @@ export const UnitsResponseSchema = z.object({
 });
 export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
 
-/** Put something in a bracket, or empty it (`upgradeId: null`). */
+/** Put something in a bracket. Emptying one is a burn (`/units/burn`), never a null here. */
 export const FitSlotRequestSchema = z.object({
   unitId: z.string().min(1),
   slot: z
@@ -905,7 +931,7 @@ export type LaunchMissionRequest = z.infer<typeof LaunchMissionRequestSchema>;
  * `z.infer` is the shape after parsing, where `vehicles` has already been filled in with `{}`.
  * That is the right type for the route, which reads a parsed body, and the wrong one for the
  * client, which writes an unparsed one: it made every call site that does not send vehicles a type
- * error, including the ones that predate the Garage. The wire has always accepted a body without
+ * error, including the ones that predate the Garage. The wire has always accepted a unit without
  * it, and this is the type that says so.
  */
 export type LaunchMissionInput = z.input<typeof LaunchMissionRequestSchema>;
@@ -1208,8 +1234,8 @@ export type CrewOfficer = z.infer<typeof CrewOfficerSchema>;
 /**
  * The crew in one call (GDD §G): who is in which chair, and everything about them.
  *
- * It used to be the assignee layer, and most of it was pool arithmetic: a level-granted body count,
- * how much of it was placed, what one more body under an officer would pay. All of that is gone.
+ * It used to be the assignee layer, and most of it was pool arithmetic: a level-granted unit count,
+ * how much of it was placed, what one more unit under an officer would pay. All of that is gone.
  * What is left is the part a player was ever actually looking at, which is the people.
  */
 export const CrewResponseSchema = z.object({
@@ -1301,10 +1327,18 @@ export const CrewStandingResponseSchema = z.object({
   /** Best-of across the Overseer and every officer: the sheet the effects are computed from. */
   crewSheet: AttributesSchema,
   effects: z.record(z.string(), z.number()),
+  /**
+   * The marks this crew's research and holdings have granted, per unit id (`unit_mark`).
+   *
+   * Not a number, so it cannot ride on `effects`, and the screens need it: a granted `picker` is
+   * worth a flat load per unit on every haul, and a board that read the printed sheet quoted a
+   * smaller bag than the settle paid for a crew that had finished Haul Rigging.
+   */
+  marks: z.record(z.string(), z.array(z.string()).readonly()).default({}),
 });
 export type CrewStandingResponse = z.infer<typeof CrewStandingResponseSchema>;
 
-// --- the market, the satchel and the workshop ---
+// --- the market, the inventory and the workshop ---
 
 /**
  * One line on the Runner's barrow, as a player sees it.
@@ -1421,9 +1455,9 @@ export type MarketMutationResponse = z.infer<typeof MarketMutationResponseSchema
 /**
  * §D10: turn a complete set of pages into the blueprint itself.
  *
- * Answers with the refreshed market board, the same as every other write that moves the satchel.
+ * Answers with the refreshed market board, the same as every other write that moves the inventory.
  * The Blueprints page reads its pages off `MarketResponse.inventory`, so one payload puts the row
- * in its unlocked state, empties the pages it spent and updates the satchel behind it.
+ * in its unlocked state, empties the pages it spent and updates the inventory behind it.
  */
 export const UnlockBlueprintRequestSchema = z.object({ blueprintId: z.string().min(1) });
 export type UnlockBlueprintRequest = z.infer<typeof UnlockBlueprintRequestSchema>;

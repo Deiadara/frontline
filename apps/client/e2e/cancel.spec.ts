@@ -29,7 +29,7 @@ test.use({ viewport: { width: 1600, height: 1000 } });
  * One rule for everything that takes time: an X in the first tenth of the thing's own clock, the
  * time left to decide beside it, ninety percent of a spend back. The rule itself is unit-tested
  * in the shared package. What only a browser answers is whether each screen draws the X off the
- * right clock, hides it once the window is shut, sends the right body when it is pressed, takes
+ * right clock, hides it once the window is shut, sends the right unit when it is pressed, takes
  * the thing off the board on the read that follows, and lands the refund's figure under the X
  * rather than on a chip a screen away.
  */

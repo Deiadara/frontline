@@ -7,6 +7,7 @@ import {
   findMissionTemplate,
   findUnit,
   missionCarry,
+  unitSlotsUsed,
   type Mission,
   type Notification,
   type PartialResources,
@@ -17,7 +18,7 @@ import { Button } from '../../components/ui/Button';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
-import { useMissions } from '../../lib/queries';
+import { useMe, useMissions } from '../../lib/queries';
 
 /**
  * What is behind a notification (maintainer request).
@@ -138,7 +139,8 @@ function areaName(areaId: string): string {
 function MissionReport({ mission, where }: { mission: Mission; where: string }) {
   const template = findMissionTemplate(mission.templateId);
   const recalled = mission.recalledAt !== null;
-  const bodies = Object.values(mission.force).reduce((total, count) => total + count, 0);
+  // Unit slots, the word the field prints, rather than the head count it used to sum.
+  const slots = unitSlotsUsed(mission.force);
 
   return (
     <div className="flex flex-col gap-4" data-testid="mission-report">
@@ -150,11 +152,11 @@ function MissionReport({ mission, where }: { mission: Mission; where: string }) 
           value={recalled ? 'Recalled' : mission.outcome === 'success' ? 'Clean' : 'Failed'}
           tone={recalled ? 'plain' : mission.outcome === 'success' ? 'good' : 'bad'}
         />
-        <Field label="Sent" value={`${bodies} ${bodies === 1 ? 'body' : 'bodies'}`} />
+        <Field label="Sent" value={`${slots} ${slots === 1 ? 'unit slot' : 'unit slots'}`} />
       </div>
 
       {/* Who went, and what they could lift between them. */}
-      {bodies > 0 && (
+      {slots > 0 && (
         <section className="flex flex-col gap-2">
           <Heading>The crew that went</Heading>
           <ul className="flex flex-wrap gap-1.5" data-testid="report-force">
@@ -188,7 +190,10 @@ function MissionReport({ mission, where }: { mission: Mission; where: string }) 
  * bottom in the plainest sentence available.
  */
 function Haul({ mission }: { mission: Mission }) {
-  const carry = missionCarry(mission.force);
+  // The crew's brackets as they stand: what the settle paid against, unless a card has moved
+  // since. Without them a Counterweight Harness was quoted a smaller bag than the job paid.
+  const me = useMe();
+  const carry = missionCarry(mission.force, me.data?.base?.unitLoadouts ?? {});
   // An older row recorded only what was banked. Showing "120 of 120" there would be a claim the
   // data cannot support, so with no `spoils` the report says what came home and stops.
   const knownSpoils = Object.keys(mission.spoils).length > 0;
@@ -221,7 +226,7 @@ function Haul({ mission }: { mission: Mission }) {
             ))}
           </ul>
           <p className="font-body text-[12px] leading-snug text-ink-400">
-            The crew could lift <span className="tabular-nums text-ink-200">{carry}</span> kg
+            The crew could lift <span className="tabular-nums text-ink-200">{carry}</span> loot
             between them.
             {shortfall && (
               <span className="text-brass-300">

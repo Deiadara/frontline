@@ -14,8 +14,8 @@ import type { UserRecord } from '../types.js';
 /**
  * The player's own record: what they are called, what they look like, and what clock they read.
  *
- * Three handlers rather than one `PATCH /settings` that takes everything. A passphrase change needs
- * the old passphrase and a profile change does not, and folding them together would either demand a
+ * Three handlers rather than one `PATCH /settings` that takes everything. A password change needs
+ * the old password and a profile change does not, and folding them together would either demand a
  * password to change an icon or accept a password change without one. They are different
  * transactions with different proofs, so they are different endpoints.
  */
@@ -80,7 +80,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * Changing a passphrase.
+   * Changing a password.
    *
    * The current one is required even though the request already carries a valid token: see
    * `ChangePasswordRequestSchema`. The answer deliberately carries no new token: the JWT holds only
@@ -93,7 +93,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     if (!record) throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
 
     const matches = await bcrypt.compare(body.currentPassword, record.passwordHash);
-    if (!matches) throw new AppError('INVALID_CREDENTIALS', 'That is not your current passphrase');
+    if (!matches) throw new AppError('INVALID_CREDENTIALS', 'That is not your current password');
 
     const passwordHash = await bcrypt.hash(body.newPassword, BCRYPT_COST);
     /*
@@ -104,7 +104,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
      */
     const fresh = app.repos.users.findById(record.id);
     if (!fresh || fresh.passwordHash !== record.passwordHash) {
-      throw new AppError('INVALID_CREDENTIALS', 'Your passphrase changed while this was in flight');
+      throw new AppError('INVALID_CREDENTIALS', 'Your password changed while this was in flight');
     }
     app.repos.users.setPasswordHash(record.id, passwordHash);
     app.repos.history.record({

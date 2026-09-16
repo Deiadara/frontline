@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { tallyUnitsTrained } from '../feats/tally.js';
+import { tallyUnitsTrained, tallyVehicleBuilt } from '../feats/tally.js';
 import {
+  findVehicle,
   CITY_LOCATIONS,
   MAX_TRAINING_QUEUE,
   VEHICLES,
@@ -35,12 +36,14 @@ import {
   type TrainingOrder,
   type UnitSpec,
   type UnlockContext,
+  type Fleet,
+  type VehicleSpec,
 } from '@frontline/shared';
 import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { awardPlayerXp } from '../progression/award.js';
-import { districtPopulation } from '../district/population.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
 
 /**
  * Making units (GDD §A5).
@@ -58,7 +61,7 @@ export const TRAINING_REFUSALS = [
   'locked',
   'queue_full',
   'already_have_one',
-  'no_supply',
+  'no_unit_slots',
   'cannot_afford',
 ] as const;
 export type TrainingRefusal = (typeof TRAINING_REFUSALS)[number];
@@ -96,7 +99,7 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
       return control !== undefined && isHeldBy(control, base.id);
     }),
     buildableVehicles: buildableVehiclesFor(base),
-    // §D12a: thirteen units are behind a blueprint document, and the document lives in the satchel.
+    // §D12a: thirteen units are behind a blueprint document, and the document lives in the inventory.
     inventory: base.inventory,
   };
 }
@@ -176,10 +179,10 @@ export interface TrainingSettlement {
   /** §I1: one award per batch that landed. Empty on a read that finished nothing. */
   awards: PlayerXpAward[];
   /**
-   * Orders that handed over their **last** body on this read.
+   * Orders that handed over their **last** unit on this read.
    *
-   * Not the same thing as `delivered`: a batch trickles out one body at a time, so a receipt per
-   * body would ring every forty-five seconds for an order of ten. `unit_trained` says "a batch has
+   * Not the same thing as `delivered`: a batch trickles out one unit at a time, so a receipt per
+   * unit would ring every forty-five seconds for an order of ten. `unit_trained` says "a batch has
    * finished training", and this is the set that has.
    */
   finished: TrainingOrder[];
@@ -188,11 +191,11 @@ export interface TrainingSettlement {
 /**
  * Units that have finished training join the army at home.
  *
- * §I1 pays per *body*, at a rate priced off what that body takes to train.
+ * §I1 pays per *unit*, at a rate priced off what that unit takes to train.
  *
- * The two halves answer each other. Per body, because a batch hands its units over one at a time
+ * The two halves answer each other. Per unit, because a batch hands its units over one at a time
  * and paying on whichever read caught the last one would make the reward depend on how often the
- * page was open. Priced off the unit's own clock, because per-body at a flat rate is what would
+ * page was open. Priced off the unit's own clock, because per-unit at a flat rate is what would
  * make the cheapest rabble the fastest way to level: a Razor is 45 seconds and a Colossus is an
  * hour and a half, and the curve is what stops the faucet without going back to per-order.
  */
@@ -200,28 +203,61 @@ export function settleTraining(repos: Repositories, base: Base, now: Date): Trai
   const { delivered, pending } = splitDueTraining(base.trainingQueue, now);
   if (delivered.length === 0) return { base, awards: [], finished: [] };
 
-  // An order only leaves the queue when it has handed over its last body, so what is missing from
+  // An order only leaves the queue when it has handed over its last unit, so what is missing from
   // `pending` is exactly what finished on this read.
   const stillWaiting = new Set(pending.map((order) => order.id));
   const finished = base.trainingQueue.filter((order) => !stillWaiting.has(order.id));
 
-  const army: Army = delivered.reduce(
+  /*
+   * A finished batch goes to the roster or to the yard, depending on what it was.
+   *
+   * One bench builds both (maintainer request, 2026-09-15), so the delivery has to branch here:
+   * a unit is a count in `army` and a machine is a count in `fleet`, and they are stored in
+   * different columns. `findVehicle` is the discriminator rather than a flag on the order, because
+   * the id already says which catalogue it came from and a second field could disagree with it.
+   */
+  /*
+   * Narrowed through the catalogue rather than by a cast.
+   *
+   * `TrainingOrder.unitId` is a union of the two id enums, and `Fleet` is keyed by the vehicle one
+   * alone, so indexing it with the union does not typecheck. `findVehicle` returns the spec, whose
+   * `id` **is** a `VehicleId`, which is the honest narrowing: the catalogue is what decides which
+   * kind an id is, and this way a machine and its count travel together.
+   */
+  const machines = delivered.flatMap((batch) => {
+    const spec = findVehicle(batch.unitId);
+    return spec === undefined ? [] : [{ id: spec.id, count: batch.count }];
+  });
+  const recruits = delivered.filter((batch) => findVehicle(batch.unitId) === undefined);
+
+  const army: Army = recruits.reduce(
     (into, batch) => addToArmy(into, batch.unitId, batch.count),
     base.army,
   );
-  const settled: Base = { ...base, army, trainingQueue: pending };
+  const fleet: Fleet = machines.reduce(
+    (into, machine) => ({ ...into, [machine.id]: (into[machine.id] ?? 0) + machine.count }),
+    base.fleet,
+  );
+  const settled: Base = { ...base, army, fleet, trainingQueue: pending };
   repos.bases.updateArmy(settled.id, settled.army, settled.trainingQueue);
+  if (machines.length > 0) {
+    repos.bases.updateFleet(settled.id, fleet);
+    // Feats: machines built, counted here now that the yard is not what grants them. `fleet` is a
+    // current count and a machine lost in a fight takes one off it, so the lifetime figure cannot
+    // be read off the yard.
+    for (const machine of machines) tallyVehicleBuilt(repos, settled.id, machine.count);
+  }
 
-  // Feats: per body, for the same reason the XP below is per body. A read that happens to catch
+  // Feats: per unit, for the same reason the XP below is per unit. A read that happens to catch
   // the last unit of a batch must not be worth more than the read before it.
   tallyUnitsTrained(
     repos,
     settled.id,
-    delivered.reduce((total, batch) => total + batch.count, 0),
+    recruits.reduce((total, batch) => total + batch.count, 0),
   );
 
   /*
-   * §I1 pays per *body*, not per order.
+   * §I1 pays per *unit*, not per order.
    *
    * A batch hands its units over one at a time now, so paying an order's worth of XP on whichever
    * read happened to catch the last one would make the reward depend on how often the page was
@@ -229,8 +265,8 @@ export function settleTraining(repos: Repositories, base: Base, now: Date): Trai
    */
   let carried = settled;
   const awards: PlayerXpAward[] = [];
-  for (const batch of delivered) {
-    // Priced off what one body of *this* unit takes on the bench, on the shared curve: a Razor is
+  for (const batch of recruits) {
+    // Priced off what one of *this* unit takes on the bench, on the shared curve: a Razor is
     // 45 seconds and a Colossus is an hour and a half, and a flat table entry paid the same for
     // both. The catalogue's figure rather than the order's frozen one, deliberately: a workshop
     // discount should make the batch arrive sooner, not be worth less to have trained.
@@ -252,8 +288,8 @@ export interface TrainInput {
   /**
    * Testing mode: five seconds on the bench, no materials (`admin/mode.ts`).
    *
-   * The supply cap is *not* waived. A free army that ignores supply is not the game with the
-   * waiting removed, it is a different game, and supply is one of the things a reviewer is here
+   * The unit-slot cap is *not* waived. A free army that ignores housing is not the game with the
+   * waiting removed, it is a different game, and housing is one of the things a reviewer is here
    * to feel.
    */
   admin?: boolean;
@@ -262,7 +298,7 @@ export interface TrainInput {
 /**
  * Puts a batch on the bench.
  *
- * Supply is claimed at **order** time, counting the queue as well as the standing army: a crew
+ * Unit slots are claimed at **order** time, counting the queue as well as the standing army: a crew
  * cannot queue five Colossi against a cap that holds one and discover the problem an hour later.
  */
 /**
@@ -306,6 +342,66 @@ export function cancelTraining(
   return { kind: 'cancelled', base: cancelled, refund };
 }
 
+/**
+ * Put a machine on the same bench the units are built on (maintainer request, 2026-09-15).
+ *
+ * A vehicle used to land in the yard the instant it was paid for: the only thing in the game with
+ * a price and no clock, and the reason every vehicle spec's `buildSeconds` was dead data. It goes
+ * through the queue now, so a machine is something you wait for and can watch, the way a Razor is.
+ *
+ * Its own function rather than a branch inside `queueTraining`, because almost none of that
+ * function's gates apply to a machine: there is no unlock ladder, no unique-unit rule, and its
+ * price comes off the Garage's discount rather than the Gauntlet's rates. What the two share is
+ * the bench, and the bench is exactly the queue and the clock below.
+ *
+ * The beds are shared as well since 2026-09-15, but the comparison is not here: a machine costs
+ * one bed and `garage/routes.ts` asks for it in `blockerFor`, so the page's greyed button and this
+ * door quote the same sentence. `unitSlotDraw` charges the order from the moment it is written,
+ * which is what stops a crew ordering one machine at a time into a district with one bed left.
+ *
+ * The queue's length cap **is** shared, deliberately: it is a cap on the bench, and a bench that
+ * held five orders of units and another seven of machines would not be one bench.
+ */
+export function queueVehicle(
+  repos: Repositories,
+  input: {
+    base: Base;
+    vehicle: VehicleSpec;
+    /** Already discounted by the Garage, so a refund is against the price paid. */
+    cost: PartialResources;
+    now: Date;
+    admin?: boolean;
+  },
+): { kind: 'queued'; base: Base; order: TrainingOrder } | { kind: 'refused'; reason: string } {
+  const { base, vehicle, cost, now, admin = false } = input;
+
+  if (base.trainingQueue.length >= MAX_TRAINING_QUEUE && !adminWaives('queue_full', admin)) {
+    return { kind: 'refused', reason: 'The bench is full' };
+  }
+
+  const charged = adminCost(cost, admin);
+  const order: TrainingOrder = {
+    id: randomUUID(),
+    unitId: vehicle.id,
+    count: 1,
+    delivered: 0,
+    // Behind whatever is already on the bench, which is what makes it one bench rather than a
+    // second queue that happens to be drawn in the same list.
+    startedAt: trainingStartsAt(base.trainingQueue, now).toISOString(),
+    durationSeconds: adminSeconds(vehicle.buildSeconds, admin),
+    paid: charged,
+  };
+
+  const queued: Base = {
+    ...base,
+    resources: spendResources(base.resources, charged),
+    trainingQueue: [...base.trainingQueue, order],
+  };
+  repos.bases.updateResources(queued.id, queued.resources);
+  repos.bases.updateArmy(queued.id, queued.army, queued.trainingQueue);
+  return { kind: 'queued', base: queued, order };
+}
+
 export function queueTraining(repos: Repositories, input: TrainInput): TrainingResult {
   const { base, unit, count, now, admin = false } = input;
 
@@ -330,12 +426,12 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
 
   // §A4: the unit's own rates, so a worked Doghouse actually shows up on the Cyberhounds' bill.
   const rates = ratesForUnit(trainingRatesFor(repos, base), unit);
-  // §A1: soldiers come out of the district's population, alongside the officers and the placed
-  // assignees. `districtPopulation` has already counted everything standing, garrisons and the
+  // §A1: soldiers come out of the district's unit slots, alongside the officers and the placed
+  // assignees. `districtUnitSlots` has already counted everything standing, garrisons and the
   // training bench included, so what this order needs is only what it adds on top.
-  const population = districtPopulation(repos, base);
-  if (unit.supply * count > population.spare) {
-    const refused = refuse('no_supply');
+  const slots = districtUnitSlots(repos, base);
+  if (unit.unitSlots * count > slots.spare) {
+    const refused = refuse('no_unit_slots');
     if (refused) return refused;
   }
 

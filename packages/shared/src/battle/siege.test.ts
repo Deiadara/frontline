@@ -26,7 +26,7 @@ import { bareBattlefield } from './battlefield.js';
 import {
   MAX_COHESION_WIDTH,
   effectiveFrontage,
-  engagedBodies,
+  engagedUnits,
   simulate,
   type SideSetup,
   type SideState,
@@ -38,7 +38,8 @@ import {
   intelQualityLine,
   observedForceSize,
 } from './intel.js';
-import { PERIMETER_FLEE_PENALTY, breakOut, perimeterFights } from './perimeter.js';
+import { PERIMETER_FLEE_PENALTY, breakOut, perimeterFights, perimeterToll } from './perimeter.js';
+import { outcomeFrom } from './skirmish.js';
 import { pursuitSpeed, routSurvivors } from './rout.js';
 import { mulberry32, seedFrom } from '../rng.js';
 import {
@@ -66,6 +67,7 @@ import {
   type ScheduledBattle,
 } from './scheduled.js';
 import { TRAP_CATALOG, findTrap, springTrap, trapsAvailable } from './traps.js';
+import type { Army } from '../units/training.js';
 
 const NOON = new Date('2026-08-16T12:00:00.000Z');
 const at = (iso: string): Date => new Date(iso);
@@ -245,7 +247,7 @@ describe('the ring outside the fight (§A4)', () => {
     seed: 'ring-test',
     context: { pursuit: 0, lastRound: 3, away: true },
   };
-  const bodies = (army: Record<string, number>): number =>
+  const standingUnits = (army: Record<string, number>): number =>
     Object.values(army).reduce((sum, count) => sum + count, 0);
 
   /**
@@ -295,27 +297,171 @@ describe('the ring outside the fight (§A4)', () => {
   it('stops some of a withdrawal it is thick enough to hold, and pays for it', () => {
     const out = breakOut({ ...bare, fleeing: { razors: 40 }, ring: { wardens: 60 } }, stream());
     // Everybody is accounted for: a runner either got clear or did not, and nobody is invented.
-    expect(bodies(out.escaped) + bodies(out.caught)).toBe(40);
-    expect(bodies(out.caught), 'a ring this thick stopped nobody').toBeGreaterThan(0);
+    expect(standingUnits(out.escaped) + standingUnits(out.caught)).toBe(40);
+    expect(standingUnits(out.caught), 'a ring this thick stopped nobody').toBeGreaterThan(0);
     expect(out.rounds).toBeGreaterThan(0);
-    // The thing a toll could never do: standing in front of them costs the ring bodies.
-    expect(bodies(out.ringLosses), 'the ring held sixty people off for free').toBeGreaterThan(0);
+    // The thing a toll could never do: standing in front of them costs the ring units.
+    expect(
+      standingUnits(out.ringLosses),
+      'the ring held sixty people off for free',
+    ).toBeGreaterThan(0);
   });
 
   /*
    * The other thing a toll could never do.
    *
-   * The old model was a per-runner catch rate against ring thickness, so four bodies in front of
+   * The old model was a per-runner catch rate against ring thickness, so four units in front of
    * two hundred still collected their share and took nothing back. A ring is a fight now, so a thin
    * one in front of a mass breakout is ridden through.
    */
   it('is ridden through when it is thin and the withdrawal is not', () => {
     const out = breakOut({ ...bare, fleeing: { razors: 200 }, ring: { razors: 2 } }, stream());
-    expect(out.brokeThrough, 'two bodies turned two hundred back').toBe(true);
-    expect(bodies(out.escaped)).toBeGreaterThan(0);
-    expect(bodies(out.ringLosses), 'the ring was ridden through and lost nobody').toBeGreaterThan(
-      0,
+    expect(out.brokeThrough, 'two units turned two hundred back').toBe(true);
+    expect(standingUnits(out.escaped)).toBeGreaterThan(0);
+    expect(
+      standingUnits(out.ringLosses),
+      'the ring was ridden through and lost nobody',
+    ).toBeGreaterThan(0);
+  });
+
+  /**
+   * A withdrawal is read at the sheet the crew fields, not the one in the catalogue.
+   *
+   * `perimeterToll`'s own note says speed and stealth are "read the same way here" as in `rout.ts`,
+   * which reads them off the effective stack. This read the printed spec, so a Ghost Wrap bolted
+   * onto the Sleepers moved their odds of getting away from a lost fight and did nothing at all for
+   * the same units being pulled out of the deployment a day earlier.
+   */
+  it('reads a runner at the sheet the crew actually fields', () => {
+    const pulled = { razors: 40 };
+    const ring = { wardens: 30 };
+    const printed = perimeterToll(pulled, ring, stream());
+    const slippery = perimeterToll(pulled, ring, stream(), () => ({ speed: 100, stealth: 100 }));
+    expect(
+      standingUnits(slippery.caught),
+      'a crew that bought speed and cover was caught at the catalogue rate',
+    ).toBeLessThan(standingUnits(printed.caught));
+  });
+
+  /**
+   * ...and the engine hands those books over, with the runners and the ring the right way round.
+   *
+   * Driven through `outcomeFrom` against one fixed simulation, so the fight itself cannot move:
+   * the only thing that changes between the two calls is the losing side's book, and the only
+   * place it can reach from there is the breakout. Pinned separately from the two spreads inside
+   * `breakOut` because the mapping is its own decision and it is the half that can be wired
+   * backwards without any test in `perimeter.ts` noticing.
+   */
+  it('hands the loser the runners book and the winner the ring book', () => {
+    const fight = simulate({
+      seed: 'ring-wiring',
+      attacker: { name: 'them', army: { razors: 200 }, defending: false },
+      defender: { name: 'us', army: { razors: 80 }, defending: true },
+    });
+    expect(fight.winner, 'the fixture must be a fight the attacker wins').toBe('attacker');
+
+    const input = {
+      seed: 'ring-wiring',
+      attackerName: 'them',
+      defenderName: 'us',
+      locationName: 'open ground',
+      attacking: { razors: 200 },
+      defending: { razors: 80 },
+      attackerPerimeter: { razors: 30 },
+    };
+    const bareRun = outcomeFrom(fight, input);
+    const armedRun = outcomeFrom(fight, {
+      ...input,
+      // The defender lost, so this is the runners' book and nothing else in the fight can read it.
+      defenderTerritory: {
+        ...noTerritoryEffects(),
+        unitOffensePercent: 400,
+        unitVitalityPercent: 400,
+      },
+    });
+    expect(
+      standingUnits(armedRun.fled),
+      'the losing side broke out with none of what it owns',
+    ).toBeGreaterThan(standingUnits(bareRun.fled));
+  });
+
+  /**
+   * A ring stands on the road out, not behind the wall.
+   *
+   * `breakOut` runs the ring as the defending side, and a defending side reads the ground's
+   * `fortifyPercent` and `baseDefense` as toughness (`battle/effects.ts`). The ground handed to it
+   * is the location's, so an **attacker** who stormed a fortified place and left a ring behind was
+   * having the defender's own works applied to the people who had just breached them. Measured at
+   * the time: a ring of ten caught one runner out of sixty on open ground and two at 150% works.
+   *
+   * Pinned as an equality rather than as a direction, because the works must not help the ring in
+   * either direction: what a crew's own perks and held places are worth still reaches the second
+   * fight, through `guards`.
+   */
+  it('gives the ring nothing for works it is standing outside of', () => {
+    const fortified = {
+      ...bareBattlefield('the works'),
+      fortifyPercent: 150,
+      baseDefense: 40,
+    };
+    const open = { ...fortified, fortifyPercent: 0, baseDefense: 0 };
+
+    const behindWalls = breakOut(
+      { ...bare, fleeing: { razors: 60 }, ring: { razors: 10 }, battlefield: fortified },
+      stream(),
     );
+    const onTheRoad = breakOut(
+      { ...bare, fleeing: { razors: 60 }, ring: { razors: 10 }, battlefield: open },
+      stream(),
+    );
+    expect(standingUnits(behindWalls.caught), 'the works decided the breakout').toBe(
+      standingUnits(onTheRoad.caught),
+    );
+    expect(standingUnits(behindWalls.ringLosses)).toBe(standingUnits(onTheRoad.ringLosses));
+  });
+
+  /**
+   * The module says the breakout is fought "under the same rules as the first" fight. It was not.
+   *
+   * No territory, no fitted cards and no cohesion reached it on either side, so every perk, every
+   * held place and every bracket a crew had bought was switched off for the half of the fight that
+   * decides who gets home. Both halves are pinned here because they are separate spreads and one
+   * of them can be dropped without the other noticing.
+   */
+  it('fights the second battle on the same books as the first', () => {
+    const plain = breakOut({ ...bare, fleeing: { razors: 60 }, ring: { razors: 25 } }, stream());
+
+    const armed = breakOut(
+      {
+        ...bare,
+        fleeing: { razors: 60 },
+        ring: { razors: 25 },
+        runners: {
+          territory: { ...noTerritoryEffects(), unitOffensePercent: 300, unitVitalityPercent: 300 },
+        },
+      },
+      stream(),
+    );
+    expect(
+      standingUnits(armed.escaped),
+      'the runners fought the ring without a single thing they own',
+    ).toBeGreaterThan(standingUnits(plain.escaped));
+
+    const dugIn = breakOut(
+      {
+        ...bare,
+        fleeing: { razors: 60 },
+        ring: { razors: 25 },
+        guards: {
+          territory: { ...noTerritoryEffects(), unitOffensePercent: 300, unitVitalityPercent: 300 },
+        },
+      },
+      stream(),
+    );
+    expect(
+      standingUnits(dugIn.escaped),
+      'the ring fought the withdrawal without a single thing it owns',
+    ).toBeLessThan(standingUnits(plain.escaped));
   });
 
   /**
@@ -333,7 +479,7 @@ describe('the ring outside the fight (§A4)', () => {
       for (let seed = 0; seed < 60; seed += 1) {
         const next = mulberry32(seedFrom(`penalty:${seed}`));
         const { fled } = routSurvivorsAt(hardship, next);
-        got += bodies(fled);
+        got += standingUnits(fled);
       }
       return got;
     };
@@ -379,7 +525,7 @@ describe('the ring outside the fight (§A4)', () => {
       if (second.winner !== 'defender') continue;
       held += 1;
 
-      halved += bodies(
+      halved += standingUnits(
         breakOut({ ...bare, seed, fleeing, ring }, mulberry32(seedFrom(`${seed}:stream`))).escaped,
       );
       const { fled } = routSurvivors(
@@ -387,7 +533,7 @@ describe('the ring outside the fight (§A4)', () => {
         { ...context, pursuit: pursuitSpeed(second.defender), lastRound: second.rounds.length },
         mulberry32(seedFrom(`${seed}:stream`)),
       );
-      ordinary += bodies(fled);
+      ordinary += standingUnits(fled);
     }
 
     expect(held, 'the ring never held, so no second rout was ever rolled').toBeGreaterThan(0);
@@ -448,6 +594,90 @@ describe('traps (§A4)', () => {
     const toll = springTrap({}, findTrap('trap_pressure_plates')!);
     expect(toll.killed).toEqual({});
     expect(toll.wipedOut).toBe(false);
+  });
+
+  /**
+   * It takes what the Scrapyard row says it takes, whatever shape the force turns up in.
+   *
+   * Every other assertion here fires at a single stack, and a single stack was the one case that
+   * worked. The proportional share divided the **remaining** budget by the original head count, so
+   * each stack after the first was sized against a budget already spent: a Flooded Cellar sold as
+   * "20% of the attack, up to 34 units" took 20 of 100 from one stack, 15 from two and 14 from
+   * five. The trap got weaker the more varied the force it fired on, which is backwards, and it is
+   * the most expensive defensive item in the game (5,600 scrap, 1,800 planks, 900 oil, 340 high
+   * quality metal, 3,200 caps) spent whether the defence wins or loses.
+   *
+   * Swept over the real catalogue and over stack counts rather than asserted on one force, because
+   * how far short it fell was a function of how many stacks the attacker happened to bring.
+   */
+  it('takes exactly the bite it advertises, however many stacks the attacker brings', () => {
+    const headcount = (force: Army): number =>
+      Object.values(force).reduce((sum, count) => sum + count, 0);
+
+    for (const spec of TRAP_CATALOG) {
+      for (const units of [13, 37, 100, 250]) {
+        for (let stacks = 1; stacks <= 6; stacks += 1) {
+          // Deliberately lopsided, so the proportional pass rounds in both directions.
+          const force: Army = {};
+          let left = units;
+          for (let n = 0; n < stacks - 1; n += 1) {
+            const take = Math.max(1, Math.floor(left / (stacks - n)) + (n % 2 === 0 ? 3 : -2));
+            force[`unit_${n}`] = Math.min(take, left - (stacks - 1 - n));
+            left -= force[`unit_${n}`]!;
+          }
+          force[`unit_${stacks - 1}`] = left;
+
+          const advertised = Math.min(
+            spec.maxKills,
+            Math.max(1, Math.round(units * spec.killShare)),
+            units,
+          );
+          const toll = springTrap(force, spec);
+          const where = `${spec.id}, ${units} units in ${stacks} stacks`;
+
+          expect(headcount(toll.killed), `${where}: the bite was not what the row sells`).toBe(
+            advertised,
+          );
+          // ...and nobody was killed twice, or out of a stack that did not have them.
+          expect(headcount(toll.survivors) + headcount(toll.killed), `${where}: lost a unit`).toBe(
+            units,
+          );
+          for (const [unitId, dead] of Object.entries(toll.killed)) {
+            expect(dead, `${where}: killed more ${unitId} than turned up`).toBeLessThanOrEqual(
+              force[unitId] ?? 0,
+            );
+          }
+
+          /*
+           * ...and it is still spread in proportion, which is a separate claim with a separate
+           * way to break.
+           *
+           * The total above is restored by either half of the fix on its own: the pass that
+           * spends the rounding remainder hits the advertised number even when the proportional
+           * share is computed against the wrong base, it just dumps everything it was short onto
+           * the biggest stack. That is the bait the module doc says a trap cannot be led into
+           * ("cannot be baited by putting one Razor in front of the Colossus"). Measured: worst
+           * per-stack deviation is 1.5 units as written and 11.9 against the spent budget.
+           */
+          for (const [unitId, count] of Object.entries(force)) {
+            const ideal = (count / units) * advertised;
+            expect(
+              Math.abs((toll.killed[unitId] ?? 0) - ideal),
+              `${where}: ${unitId} took ${toll.killed[unitId] ?? 0} of an even ${ideal.toFixed(1)}`,
+            ).toBeLessThanOrEqual(2);
+          }
+        }
+      }
+    }
+  });
+
+  /** The rounding still lands on a stack that can absorb it, never on the lone heavy. */
+  it('does not spend its rounding on the smallest stack', () => {
+    const toll = springTrap(
+      { razors: 97, scrappers: 11, the_colossus: 1 },
+      findTrap('trap_gas_shell')!,
+    );
+    expect(toll.survivors.the_colossus).toBe(1);
   });
 });
 
@@ -605,13 +835,13 @@ describe('everything that feeds the engine (§A5)', () => {
     });
 
   /**
-   * The workshop was the one input the engine did not read: a crew could buy Slaved Optics for
-   * every unit it owns and fight exactly as well as one that had not, which made the whole refit a
-   * number on a screen.
+   * The yard's cards were the one input the engine did not read: a crew could build Guided Rounds
+   * for every unit it owns and fight exactly as well as one that had not, which made the whole card
+   * a number on a screen.
    */
-  it('fights better with the workshop refit fitted', () => {
+  it('fights better with the modification cards fitted', () => {
     const bare = run({});
-    const kitted = run({ upgrades: { razors: ['weapons_1', 'armour_1'] } });
+    const kitted = run({ upgrades: { razors: ['taped_grips', 'scrap_vest'] } });
 
     const offense = (side: SideState) => side.stacks[0]!.effective.offense;
     expect(offense(kitted.attacker)).toBeGreaterThan(offense(bare.attacker));
@@ -626,7 +856,7 @@ describe('everything that feeds the engine (§A5)', () => {
    * every sheet on the side and the choice of what to fit where did not exist.
    */
   it('pays only the unit the upgrade is slotted onto', () => {
-    const elsewhere = run({ upgrades: { sparks: ['weapons_1', 'armour_1'] } });
+    const elsewhere = run({ upgrades: { sparks: ['taped_grips', 'scrap_vest'] } });
     const bare = run({});
     expect(elsewhere.attacker.stacks[0]!.effective.offense).toBe(
       bare.attacker.stacks[0]!.effective.offense,
@@ -644,7 +874,7 @@ describe('everything that feeds the engine (§A5)', () => {
     const led: SideState = { ...crowd, cohesionPercent: 40 };
 
     expect(effectiveFrontage(led, frontage)).toBeGreaterThan(effectiveFrontage(crowd, frontage));
-    expect(engagedBodies(led, frontage)).toBeGreaterThan(engagedBodies(crowd, frontage));
+    expect(engagedUnits(led, frontage)).toBeGreaterThan(engagedUnits(crowd, frontage));
   });
 
   it('never widens the ground past the ceiling, however well led the crew is', () => {
@@ -655,10 +885,10 @@ describe('everything that feeds the engine (§A5)', () => {
   it('does nothing at all for a force that already fits on the ground', () => {
     const side = run({});
     const led: SideState = { ...side.attacker, cohesionPercent: 40 };
-    // Frontage far above the body count, so every one of them is already in contact and there is
+    // Frontage far above the unit count, so every one of them is already in contact and there is
     // nothing left for co-ordination to buy.
     const roomy = 1000;
-    expect(engagedBodies(led, roomy)).toBe(engagedBodies(side.attacker, roomy));
+    expect(engagedUnits(led, roomy)).toBe(engagedUnits(side.attacker, roomy));
   });
 
   /** Held ground the crew took: the Sewer Junction's stealth reaches the fight, not just the map. */

@@ -8,7 +8,7 @@ import {
 } from './battlefield.js';
 import {
   ambushShare,
-  engagedBodies,
+  engagedUnits,
   frontageShare,
   mergeLosses,
   simulate,
@@ -68,7 +68,7 @@ describe('combat width', () => {
    * labelled: a sewer junction is `Crammed IV` and gets *narrower* than bare `underground`, which
    * is the point of reading the label into the width at all. Pinning the raw constants made this
    * a restatement of `FRONTAGE_BY_CONTEXT` that could not see the label doing anything; what has
-   * to hold is that a tunnel takes fewer bodies than a room and a room fewer than a yard.
+   * to hold is that a tunnel takes fewer units than a room and a room fewer than a yard.
    */
   it('is narrowest where the ground is narrowest', () => {
     const tunnel = field('sewer_junction').frontage;
@@ -92,13 +92,13 @@ describe('combat width', () => {
     expect(frontageFor([])).toBe(DEFAULT_FRONTAGE);
   });
 
-  it('caps how many bodies are in contact, and never below one', () => {
+  it('caps how many units are in contact, and never below one', () => {
     const [side] = run({ razors: 40 }, { razors: 1 }, bareBattlefield(), 1).simulations;
     expect(side).toBeDefined();
     if (!side) return;
-    expect(engagedBodies(side.attacker, 10)).toBe(10);
-    expect(engagedBodies(side.attacker, 100)).toBe(40);
-    expect(engagedBodies(side.attacker, 0)).toBe(1);
+    expect(engagedUnits(side.attacker, 10)).toBe(10);
+    expect(engagedUnits(side.attacker, 100)).toBe(40);
+    expect(engagedUnits(side.attacker, 0)).toBe(1);
     expect(frontageShare(side.attacker, 10)).toBeCloseTo(0.25, 6);
     expect(frontageShare(side.attacker, 100)).toBe(1);
   });
@@ -120,13 +120,13 @@ describe('combat width', () => {
   });
 
   /**
-   * The claim the cap makes, isolated: past the frontage, extra bodies add almost no *output*.
+   * The claim the cap makes, isolated: past the frontage, extra units add almost no *output*.
    *
    * Doubling an army that already cannot deploy has to be close to worthless offensively: it still
    * buys durability, which is why the two are measured on what the *defender* has left rather than
    * on who won. Without the cap on fire, twice the razors is twice the damage and this collapses.
    */
-  it('stops extra bodies past the frontage from adding fire', () => {
+  it('stops extra units past the frontage from adding fire', () => {
     const narrow = { ...bareBattlefield(), frontage: 10 };
     /*
      * More seeds than the rest of this file, because this one compares two *estimates*.
@@ -147,7 +147,7 @@ describe('combat width', () => {
         }, 0) / simulations.length
       );
     };
-    // Four times the bodies, all of them past the width. The defender must come out of both in
+    // Four times the units, all of them past the width. The defender must come out of both in
     // roughly the same shape.
     expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.1);
   });
@@ -155,7 +155,7 @@ describe('combat width', () => {
   /**
    * ...and does nothing at all to a force that fits inside it.
    *
-   * Four bodies, because a sewer junction is five wide.
+   * Four units, because a sewer junction is five wide.
    *
    * This sent eight into both grounds and asserted that all of them deployed, which is not true of
    * a frontage of five and never was: it passed because an even 8-v-8 had already killed the
@@ -276,11 +276,11 @@ describe('regressions in the opening strike', () => {
         defender: { name: 'D', army: { wardens: 10 }, defending: true },
       }).defender.stacks[0]?.effective.reasons ?? [];
 
-    // Twelve real bodies against ten is not outnumbering anybody.
+    // Twelve real units against ten is not outnumbering anybody.
     expect(reasons({ razors: 12 })).not.toContain('Last Stand');
-    // ...and two hundred bodies that do not exist must not change that.
+    // ...and two hundred units that do not exist must not change that.
     expect(reasons({ razors: 12, not_a_unit: 200 })).not.toContain('Last Stand');
-    // The flag still fires when the bodies are real, or this would pass by never firing at all.
+    // The flag still fires when the units are real, or this would pass by never firing at all.
     expect(reasons({ razors: 40 })).toContain('Last Stand');
   });
 });

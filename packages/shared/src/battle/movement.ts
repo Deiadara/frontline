@@ -98,7 +98,7 @@ export function movementForce(movement: Movement): Record<string, number> {
   return total;
 }
 
-/** Bodies on the road. */
+/** Units on the road. */
 export function movementSize(movement: Movement): number {
   return Object.values(movementForce(movement)).reduce((total, count) => total + count, 0);
 }

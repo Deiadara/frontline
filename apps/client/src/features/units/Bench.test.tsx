@@ -24,7 +24,7 @@ vi.mock('../../lib/queries', () => ({
   useMe: () => ({ data: { base: { id: 'base-1' } } }),
   useTrainUnits: () => train,
   // The roster refreshes the crew when a batch lands, so the experience reaches the meter at the
-  // same moment the body reaches the card.
+  // same moment the unit reaches the card.
   useRefreshCrew: () => refreshCrew,
   useCancelTraining: () => cancel,
 }));
@@ -72,8 +72,8 @@ function bench(queue: TrainingOrder[]): {
       army: {},
       garrisoned: {},
       abroad: {},
-      supplyUsed: 0,
-      supplyCap: 100,
+      unitSlotsUsed: 0,
+      unitSlotsCap: 100,
       queue,
       resources: { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, planks: 0 },
       trainingCostReduction: 0,
@@ -98,7 +98,7 @@ beforeEach(() => {
  * The bench is a queue, and a queue runs one at a time.
  *
  * The roster only re-reads every poll interval, so between reads `data.queue` still carries an
- * order that has already handed its last body over. Rendering that snapshot straight out drew the
+ * order that has already handed its last unit over. Rendering that snapshot straight out drew the
  * finished order at `1/1  0s` with a full bar *above* the one that had started behind it, so two
  * batches appeared to be training at once. Deriving the display through `splitDueTraining`, which
  * is what the server settles with, is what makes the two agree.
@@ -132,7 +132,7 @@ describe('the training bench', () => {
    * for the shell's own poll: the two halves of one event, arriving up to five seconds apart, the
    * second with nothing on screen to explain it.
    */
-  it('refreshes the crew as well, so the experience lands with the body', () => {
+  it('refreshes the crew as well, so the experience lands with the unit', () => {
     useUnits.mockReturnValue(bench([order('done', 'sparks', 14, 10)]));
     render(<Page />);
     expect(refreshCrew).toHaveBeenCalled();
@@ -183,7 +183,7 @@ describe('when a write is refused', () => {
  * The bench-chasing effect depends on `query.refetch`, not on the query object.
  *
  * react-query hands back a **new result object every render**, so `[settled, query]` never matched
- * and the body ran after every one. `settled` is derived from a clock that ticks once a second, so
+ * and the unit ran after every one. `settled` is derived from a clock that ticks once a second, so
  * once it flipped true this fired again on each of the refetch's own re-renders and kept firing
  * until the response shrank the bench. The other cases in this file use `mockReturnValue`, which
  * hands back one frozen object and therefore cannot see this at all: this one returns a fresh

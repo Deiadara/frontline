@@ -2,7 +2,8 @@ import {
   STARTING_RESOURCES,
   battlefieldFor,
   columnSpeed,
-  findUpgrade,
+  findUnit,
+  findUnitModification,
   findVehicle,
   startingEconomy,
   startingProgression,
@@ -17,7 +18,7 @@ import {
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BattlePage } from './BattlePage';
 import { formatDuration } from '../base/format';
@@ -88,7 +89,7 @@ const me: MeResponse = {
   base,
 };
 
-/** The fight, with the machines loaded and a great many bodies already on the ground. */
+/** The fight, with the machines loaded and a great many units already on the ground. */
 const view: BattleView = {
   battle: {
     id: 'press',
@@ -114,7 +115,7 @@ const view: BattleView = {
   role: 'attacker',
   side: 'attacker',
   deploymentOpen: true,
-  // The whole side, allies included: 200 bodies already standing, not a column anybody is sending.
+  // The whole side, allies included: 200 units already standing, not a column anybody is sending.
   muster: { army: { razors: 200 }, perimeter: {}, size: 200 },
   enemySize: 10,
   enemyIntel: 'A rough count.',
@@ -135,6 +136,7 @@ const battles: BattlesResponse = {
   reports: [],
   slots: [],
   infamy: 40,
+  callPrices: { locations: {}, districts: {} },
   gates: [],
   structures: [],
   serverNow: NOW,
@@ -172,10 +174,10 @@ const AT_HOME = speedOf(base.army);
 const AT_MUSTER = speedOf(view.muster?.army ?? {});
 const ROAD = travelMinutes(HOME, view.battle.target.districtId, { speed: AT_HOME });
 
-/** The page, at the fight the fixture declares, with whatever `/me` this case wants. */
-async function openPicker(session: MeResponse = me) {
+/** The page, at the fight the fixture declares, with whatever `/me` and board this case wants. */
+async function openPicker(session: MeResponse = me, board: BattlesResponse = battles) {
   fetchMock.mockImplementation((path: string) => {
-    if (path.endsWith('/battles')) return reply(battles);
+    if (path.endsWith('/battles')) return reply(board);
     if (path.endsWith('/actions')) return reply({ movements: [], serverNow: NOW });
     if (path.endsWith('/me')) return reply(session);
     throw new Error(`unstubbed request: ${path}`);
@@ -200,7 +202,7 @@ async function openPicker(session: MeResponse = me) {
 
 describe('the machines panel', () => {
   it('is a precondition that the roster at home and the standing muster disagree', () => {
-    // Not the values themselves: that they differ. Eight bodies fit in one bus and ride at its
+    // Not the values themselves: that they differ. Eight units fit in one bus and ride at its
     // speed; two hundred overflow 90 seats and the rest walk at their own. A panel that quoted
     // either one would pass a test pinned to a single number.
     expect(AT_MUSTER).not.toEqual(AT_HOME);
@@ -208,15 +210,15 @@ describe('the machines panel', () => {
     expect(ROAD).not.toBeNull();
   });
 
-  it('quotes the seats and the column at home, not the standing muster', async () => {
+  it('quotes the unit slots and the column at home, not the standing muster', async () => {
     const panel = await openPicker();
     const picker = within(panel);
     // The per-vehicle rows carry a speed too, so the note is addressed by its own phrasing.
-    await waitFor(() => expect(picker.getByText(/seats ·/)).toBeInTheDocument());
-    const note = picker.getByText(/seats ·/);
-    // Eight Razors and 90 seats: nobody walks, so the machine under them is the slowest group.
+    await waitFor(() => expect(picker.getByText(/unit slots ·/)).toBeInTheDocument());
+    const note = picker.getByText(/unit slots ·/);
+    // Eight Razors and 90 slots: nobody walks, so the machine under them is the slowest group.
     expect(note).toHaveTextContent(
-      `${SEATS} seats · Held to ${AT_HOME} by the Cheese Wagon · ${formatDuration((ROAD ?? 0) * 60)} at most`,
+      `${SEATS} unit slots · Held to ${AT_HOME} by the Cheese Wagon · ${formatDuration((ROAD ?? 0) * 60)} at most`,
     );
     // The pace the standing muster would produce, and the phrase that promised a column.
     expect(note).not.toHaveTextContent(`Held to ${AT_MUSTER}`);
@@ -228,33 +230,80 @@ describe('the machines panel', () => {
    * `readColumn`.
    *
    * `battle/movement.ts` folds `fittedFor(base.unitLoadouts, unitId)` into every group's speed, and
-   * the armour line takes speed away. A panel reading the printed sheet quotes a road the crew then
+   * a heavy shell takes speed away. A panel reading the printed sheet quotes a road the crew then
    * overruns, under a label that says "at most". `column.test.ts` covers the arithmetic; what can
    * only fail here is the panel forgetting to hand its base's brackets over.
    *
    * Two hundred Razors against 90 seats, so most of them walk and the column *is* their sheet.
    * With everybody aboard the rig would be invisible: the machine would still be the slowest group.
    */
-  it('folds the workshop brackets on the crew base into the pace it quotes', async () => {
-    const rig = findUpgrade('armour_3');
-    expect(rig?.effect.speed, 'the armour line must still cost speed').toBeLessThan(0);
+  it('folds the Scrapyard brackets on the crew base into the pace it quotes', async () => {
+    const rig = findUnitModification('hardshell_exoframe');
+    expect(rig?.effect.speed, 'the exoframe must still cost speed').toBeLessThan(0);
 
     const walking = { razors: SEATS + 80 };
     const rigged: MeResponse = {
       ...me,
-      base: { ...base, army: walking, unitLoadouts: { razors: ['armour_3'] } },
+      base: { ...base, army: walking, unitLoadouts: { razors: ['hardshell_exoframe'] } },
     };
     const printed = speedOf(walking);
     const slowed = columnSpeed(FLEET, walking, (unitId) =>
-      unitColumnSpeed(unitId, { fitted: ['armour_3'] }),
+      unitColumnSpeed(unitId, { fitted: ['hardshell_exoframe'] }),
     );
     // The precondition: the rig has to move the answer, or this passes against a panel that
     // ignores the brackets entirely.
     expect(slowed).toBeLessThan(printed);
 
     const panel = await openPicker(rigged);
-    const note = within(panel).getByText(/seats ·/);
+    const note = within(panel).getByText(/unit slots ·/);
     expect(note).toHaveTextContent(`Held to ${slowed} by`);
     expect(note).not.toHaveTextContent(`Held to ${printed} by`);
+  });
+});
+
+/**
+ * §D1: the officer picker says how long each one takes to get there.
+ *
+ * `BattleLeader.travelMinutes` is priced per officer on the server (`officerTravelMinutesTo`),
+ * at their own speed and in whatever this crew has committed to the fight, so the choice is a
+ * better sheet against a shorter road. The field was on the wire and printed nowhere, so the
+ * picker offered two sheets and the road it was written for never reached the screen.
+ */
+describe('the officer picker', () => {
+  it('quotes each officer their own road beside their sheet', async () => {
+    const led: BattlesResponse = {
+      ...battles,
+      coming: [
+        {
+          ...view,
+          leaders: [
+            {
+              officerId: 'off-1',
+              name: 'Halvard Nyx',
+              role: null,
+              stats: findUnit('razors')!.stats,
+              travelMinutes: 37,
+            },
+            {
+              officerId: 'off-2',
+              name: 'Petra Voss',
+              role: null,
+              stats: findUnit('razors')!.stats,
+              travelMinutes: 112,
+            },
+          ],
+        },
+      ],
+    };
+    await openPicker(me, led);
+
+    fireEvent.click(await screen.findByTestId('lead-officer-picker'));
+    const options = await screen.findAllByRole('option');
+    const halvard = options.find((node) => node.textContent?.startsWith('Halvard Nyx'));
+    const petra = options.find((node) => node.textContent?.startsWith('Petra Voss'));
+    expect(halvard).toHaveTextContent('37 min on the road');
+    expect(petra).toHaveTextContent('112 min on the road');
+    // And not the other's: two officers, two roads, or the figure is the crew's rather than the person's.
+    expect(halvard).not.toHaveTextContent('112 min');
   });
 });

@@ -5,6 +5,7 @@ import {
   featMeasureKey,
   findFeat,
   mergeFeatRewards,
+  unitSlotsUsed,
   type ClaimFeatResponse,
   type FeatReward,
   type FeatsResponse,
@@ -15,6 +16,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { districtUnitSlots } from '../district/unit-slots.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Feats over HTTP: reading the board, and collecting one (maintainer request, 2026-09-13).
@@ -53,12 +56,7 @@ async function player(app: FastifyInstance, username: string) {
     payload: { username, password: PASSWORD },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
   const body = me.json<{ user: { id: string }; base: { id: string } }>();
   return { token, userId: body.user.id, baseId: body.base.id };
@@ -448,7 +446,7 @@ describe('collecting one', () => {
    * a payout that did not count meant collecting rung one handed over a document that did not move
    * the crew one step towards rung two. Every other door a page comes through (a mission, the
    * fence, the Runner, the Lab, either side of an offer) both counts it and tells the player; this
-   * one did neither, and a page landing silently in an eighteen-line satchel is a page nobody
+   * one did neither, and a page landing silently in an eighteen-line inventory is a page nobody
    * knows they have.
    */
   it('counts a page a feat paid, and tells the player it arrived', async () => {
@@ -511,6 +509,45 @@ describe('a claim that cannot be paid', () => {
     const response = await claim(app, one.token, 'letters_2');
     expect(response.statusCode).toBe(409);
     expect(response.json<{ error: { message: string } }>().error.message).toBe('locked');
+  });
+
+  /**
+   * §A1 is a ceiling on a district, and a feat is not an exemption from it.
+   *
+   * Seven feats pay units straight onto the roster, and the two largest pay 960 unit slots against
+   * a finished district's two thousand and a fresh one's twenty-six. Training refuses an order
+   * that would not fit and the Garage refuses a machine for the same reason; this was the one door
+   * left open, and it let a crew walk out of the feats screen holding an army its district could
+   * not house.
+   *
+   * Refused **without** marking it collected, which is the half that matters: the feat stays ready
+   * and the reward is still there once the crew has made room.
+   */
+  it('refuses a feat whose units the district cannot house, and leaves it ready', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_no_room');
+    const big = findFeat('deployed_3')!;
+    const asking = unitSlotsUsed(big.reward.units ?? {});
+    const spare = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!).spare;
+    // The precondition: this reward genuinely does not fit a fresh district. Read off the
+    // catalogue and the fold rather than written as a number, so retuning either moves with it.
+    expect(asking).toBeGreaterThan(spare);
+
+    const before = app.repos.bases.findById(one.baseId)!.army;
+
+    give(app, one.baseId, big.measure, big.target);
+    const stateOf = async () =>
+      (await board(app, one.token)).progress.find((row) => row.id === big.id)?.state;
+    expect(await stateOf()).toBe('ready');
+
+    const response = await claim(app, one.token, big.id);
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ error: { message: string } }>().error.message).toBe('no_unit_slots');
+
+    // Nothing was paid and nothing was spent: the roster is untouched and the feat is collectable
+    // the moment there is room for it.
+    expect(app.repos.bases.findById(one.baseId)!.army).toEqual(before);
+    expect(await stateOf()).toBe('ready');
   });
 
   it('refuses a feat that does not exist', async () => {
@@ -628,16 +665,39 @@ describe('the whole board, collected', () => {
      */
     const BUDGET = 100;
     let collected = 0;
+    /*
+     * The feats that pay units can run out of district before they run out of ladder (§A1), and
+     * being refused leaves them ready, so they are remembered and not offered again: without this
+     * the walk below would spend all twenty passes re-pressing the same shut door.
+     *
+     * That they are refused at all is the point of the whole cap, so it is asserted rather than
+     * tolerated silently, and the invariant it exists to keep is checked at the end.
+     */
+    const noRoom = new Set<string>();
     for (let pass = 0; pass < 20 && collected < BUDGET; pass += 1) {
-      const ready = (await board(app, one.token)).progress.filter((row) => row.state === 'ready');
+      const ready = (await board(app, one.token)).progress
+        .filter((row) => row.state === 'ready')
+        .filter((row) => !noRoom.has(row.id));
       if (ready.length === 0) break;
       for (const row of ready) {
         if (collected >= BUDGET) break;
         const response = await claim(app, one.token, row.id);
+        if (response.statusCode === 409) {
+          expect(response.json<{ error: { message: string } }>().error.message).toBe(
+            'no_unit_slots',
+          );
+          expect(unitSlotsUsed(findFeat(row.id)?.reward.units ?? {})).toBeGreaterThan(0);
+          noRoom.add(row.id);
+          continue;
+        }
         expect(response.statusCode, `${row.id}: ${response.body}`).toBe(200);
         collected += 1;
       }
     }
+
+    // The invariant the cap exists for: whatever the till paid out, the district still houses it.
+    const housed = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!);
+    expect(housed.total).toBeLessThanOrEqual(housed.capacity);
 
     // The ledger agrees with the claim table rather than with the counter above.
     expect(collected).toBeGreaterThan(60);
@@ -653,11 +713,11 @@ describe('the whole board, collected', () => {
     }
 
     /*
-     * The satchel, against the sum of what was collected.
+     * The inventory, against the sum of what was collected.
      *
      * Resources would be the obvious thing to add up and are the wrong one: production settles on
      * every read, so the stockpile has a second author. Nothing in this test puts an item in the
-     * satchel except a feat, so the satchel is the channel where a hundred payouts can be checked
+     * inventory except a feat, so the inventory is the channel where a hundred payouts can be checked
      * against a hundred receipts and the arithmetic has to come out exactly.
      */
     const owed = mergeFeatRewards(
@@ -722,12 +782,54 @@ describe('collecting the whole backlog at once', () => {
   });
 
   /**
+   * §A1 against the backlog, which is where the batch differs from a single press.
+   *
+   * `claim-all` folds every waiting reward into one payment, so the ceiling has to be spent down
+   * across the run rather than checked once: a feat that would fit on its own does not fit after
+   * the one before it has taken the room. A reward too big for the district is left **ready**, and
+   * the rest of the backlog is still paid, because the caps and pages behind the other feats have
+   * nothing to do with the roster.
+   */
+  it('pays the backlog it can house and leaves the rest ready', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_backlog_room');
+    const big = findFeat('deployed_3')!;
+
+    // A ladder whose top rung pays more units than any fresh district can hold, plus one feat that
+    // pays no units at all, so the run has something to collect either way.
+    give(app, one.baseId, big.measure, big.target);
+    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+
+    const spare = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!).spare;
+    expect(unitSlotsUsed(big.reward.units ?? {}), 'the top rung must not fit').toBeGreaterThan(
+      spare,
+    );
+    const waiting = (await board(app, one.token)).progress.filter((row) => row.state === 'ready');
+    expect(waiting.map((row) => row.id)).toContain(big.id);
+    expect(waiting.map((row) => row.id)).toContain(LETTER);
+
+    const response = await claimAll(app, one.token);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json<{ featIds: string[]; feats: FeatsResponse }>();
+
+    // The one that does not fit is left alone; the rest of the backlog is paid.
+    expect(body.featIds).not.toContain(big.id);
+    expect(body.featIds).toContain(LETTER);
+    expect(body.feats.progress.find((row) => row.id === big.id)?.state).toBe('ready');
+    expect(app.repos.feats.claimed(one.baseId).has(big.id)).toBe(false);
+
+    // And the run never put the district over its ceiling on the way through.
+    const housed = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!);
+    expect(housed.total).toBeLessThanOrEqual(housed.capacity);
+  });
+
+  /**
    * Collecting can finish other feats, and that is right rather than a leak.
    *
    * The first version of the test above asserted the board came back with nothing waiting and
    * found eight. The rewards are the reason: a feat paying experience raises the level, one paying
    * infamy fills the wallet, one paying units puts bodies on the roster, and `level`, `infamy_held`
-   * and `army_bodies` are all measures other feats are counting. So a backlog collected in one
+   * and `army_units` are all measures other feats are counting. So a backlog collected in one
    * press can leave a smaller one behind it.
    *
    * Nothing is paid twice for it, because each of those is a different feat with its own claim

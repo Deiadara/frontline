@@ -24,7 +24,13 @@ import { describe, expect, it } from 'vitest';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
 /** The districts with a delivered painting dense enough to need leader lines. */
-const PAINTED = ['neon-docks', 'rustyard', 'chrome-row'] as const;
+const PAINTED = [
+  'neon-docks',
+  'rustyard',
+  'chrome-row',
+  'glasshouse-fields',
+  'blacksite-7',
+] as const;
 
 function marksOf(district: string): [string, Mark][] {
   const gate = GATE_MARK[district];
@@ -102,4 +108,44 @@ describe('where the district signs stand', () => {
       });
     });
   }
+});
+
+/*
+ * Two placements pinned against the paintings themselves (maintainer, 2026-09-15).
+ *
+ * The sweeps above know nothing about the pictures, which is how the Psychic Ward's sign came to
+ * stand inside the glass room it names. The room's edges and the glass row's edges are measured
+ * off the masters and hard-coded here, because a unit test cannot open a 3780x1800 plate; if the
+ * painting is redelivered, re-measure and move these numbers with it.
+ */
+describe('signs measured against the paintings they stand on', () => {
+  // `plate-district-blacksite-7.png`, teal detector over the right-hand wall: the lit room.
+  const WARD_ROOM = { left: 0.865, right: 0.95, top: 0.46 };
+  // A plain sign is 18.5px tall at any width (`plateFit.test.ts`); the plate is 488px tall at
+  // 1024 wide, so this is the tallest a sign ever is as a fraction of the frame.
+  const SIGN_HEIGHT_AT_1024 = 18.5 / 488;
+
+  it('hangs the Psychic Ward sign above its glass room, centred on it, and not on it', () => {
+    const mark = LOCATION_MARKS['blacksite-7-blackward']!;
+    expect(mark.side).toBe('left');
+    // Bottom edge clear of the room's top on the shortest viewport.
+    expect(mark.y + SIGN_HEIGHT_AT_1024).toBeLessThanOrEqual(WARD_ROOM.top);
+    // Just above it, rather than somewhere up the wall where it names nothing.
+    expect(mark.y).toBeGreaterThan(WARD_ROOM.top - 2 * SIGN_HEIGHT_AT_1024);
+    // A left-growing sign a tenth of the frame wide: its centre is half of that back from `x`.
+    const centre = mark.x - 0.05;
+    expect(centre).toBeGreaterThan(WARD_ROOM.left);
+    expect(centre).toBeLessThan(WARD_ROOM.right);
+  });
+
+  // `plate-district-glasshouse-fields.png`: the three glass houses along the top of the fields.
+  const GLASS_ROW = { left: 0.46, right: 0.84, bottom: 0.3 };
+
+  it('stands the Glasshouses sign on the beds under the glass rather than on the panes', () => {
+    const mark = LOCATION_MARKS['glasshouse-fields-glasshouses']!;
+    expect(mark.y).toBeGreaterThanOrEqual(GLASS_ROW.bottom);
+    expect(mark.y).toBeLessThan(GLASS_ROW.bottom + 0.06);
+    expect(mark.x).toBeGreaterThan(GLASS_ROW.left);
+    expect(mark.x).toBeLessThan(GLASS_ROW.right);
+  });
 });

@@ -253,7 +253,7 @@ function SideTable({
       {/* §D1: who led, and what it came to. On the analysis since officers could lead a fight and
           drawn nowhere: a player could field a legend, have them fall, and read a report that did
           not mention it. Beside the unit rows rather than in them, because an officer is one person
-          who was there rather than a body count the settler writes back to a roster. */}
+          who was there rather than a unit count the settler writes back to a roster. */}
       {side.officer && (
         <p
           className="font-body text-[11px] leading-relaxed text-ink-300"

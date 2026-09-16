@@ -23,15 +23,15 @@ export const ATTRITION_K_SMALL = 1.5;
 export const ATTRITION_K_LARGE = 1.25;
 
 /**
- * The exponent for a fight of `bodies` total combatants.
+ * The exponent for a fight of `units` total combatants.
  *
  * Travian's `2 · (1.8592 − N^0.015)`, clamped. Below the clamp it is 1.5 and above it 1.25, which
- * is the whole behaviour: a hundred-body skirmish is decided cleanly, a thousand-body assault
+ * is the whole behaviour: a hundred-unit skirmish is decided cleanly, a thousand-unit assault
  * grinds both sides down. Reproduced rather than invented: the shape is the part that has been
  * tested by other people's players for twenty years.
  */
-export function attritionExponent(bodies: number): number {
-  const raw = 2 * (1.8592 - Math.max(1, bodies) ** 0.015);
+export function attritionExponent(units: number): number {
+  const raw = 2 * (1.8592 - Math.max(1, units) ** 0.015);
   return Math.min(ATTRITION_K_SMALL, Math.max(ATTRITION_K_LARGE, raw));
 }
 

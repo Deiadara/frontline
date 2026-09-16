@@ -6,7 +6,7 @@ import type { UnitSpec, UnitStats } from '../units/index.js';
  * An officer on the field (GDD §D, buildings-and-combat patch).
  *
  * Officers were a crew sheet and a book of perks: nineteen people whose thirty-five ratings were
- * cashed as district-wide percentages and never as a body standing anywhere. This is the other
+ * cashed as district-wide percentages and never as a unit standing anywhere. This is the other
  * half. One officer may lead a battle or a mission, and when they do their own sheet is folded
  * into eleven combat numbers and they fight in the line like anything else in the roster.
  *
@@ -26,7 +26,7 @@ import type { UnitSpec, UnitStats } from '../units/index.js';
  *
  * ## And the result is a unit
  *
- * {@link officerUnit} builds a one-body `UnitSpec` so the engine needs no second code path: the
+ * {@link officerUnit} builds a one-unit `UnitSpec` so the engine needs no second code path: the
  * officer is allocated fire, takes damage, breaks or holds, and is read by the same matchup table
  * as everybody else. Two rules make them not-quite-a-unit and both live in `engine.ts`: they are
  * half as likely to be shot at while anybody else is standing (§D3), and they are excluded from
@@ -220,7 +220,7 @@ export function isOfficerUnitId(unitId: string): boolean {
 }
 
 /**
- * The officer as a one-body unit.
+ * The officer as a one-unit unit.
  *
  * `specialist` rather than `legendary`, so a tier-scoped bonus a crew bought for its specialists
  * reaches the person leading them, and so an officer never lands in the report's legend paragraph,
@@ -238,7 +238,7 @@ export function officerUnit(officer: BattleOfficer): UnitSpec {
     requires: [],
     cost: {},
     trainSeconds: 0,
-    supply: 0,
+    unitSlots: 0,
     stats: officerBattleStats(officer.attributes),
     modifiers: [],
   };
@@ -294,7 +294,7 @@ export function officerInjuryChance(margin: number): number {
 /**
  * Whether the officer comes home injured.
  *
- * Two ways in, and the first is not a roll. An officer whose body was taken off the field *would
+ * Two ways in, and the first is not a roll. An officer whose unit was taken off the field *would
  * have died*, and the maintainer's rule is that the worst thing that happens to them is a stretcher, so
  * that case is settled rather than chanced. Everybody else rolls against the margin.
  */

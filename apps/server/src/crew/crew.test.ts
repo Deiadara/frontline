@@ -2,7 +2,9 @@ import {
   crewSheet,
   BENCH_SHARE,
   ATTRIBUTE_NAMES,
+  ATTRIBUTES_BY_GROUP,
   PERK_CATALOG,
+  RESEARCH_ITEMS,
   type Commander,
   BUILDING_CATALOG,
   MAX_ATTRIBUTE,
@@ -17,6 +19,9 @@ import {
   buildingBuildSeconds,
   buildingCost,
   createCommander,
+  findOverseerPreset,
+  findPerk,
+  overseerFromPreset,
   MAX_WAGE_DISCOUNT,
   askingWage,
   makeAttributes,
@@ -37,6 +42,7 @@ import { queueBuild } from '../district/build.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from './standing.js';
 import { seatedRoles } from './roster.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * The crew layer end to end: the Training tab's rules over HTTP, and a positive control for each
@@ -85,12 +91,10 @@ async function signIn(app: FastifyInstance): Promise<string> {
     payload: { username: 'driller', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  await chooseOverseer(app, token);
+  // This file reads the Overseer's own name and sheet off the page, and trains against their
+  // attributes, so it wants a character it can name rather than whoever §F6 dealt.
+  pinOverseer(app, token);
   return token;
 }
 
@@ -197,6 +201,48 @@ describe('the Training tab over HTTP', () => {
     expect(again.subjects.find((s) => s.id === OVERSEER_SUBJECT)?.attributes.cryptography).toBe(
       before + TRAINING_GAIN,
     );
+  });
+
+  /**
+   * The hour lands on any read, not only on the Training tab's own.
+   *
+   * `settleTrainingFor` ran on `/training` and `/overseer/me` and nowhere else, so a drill that
+   * finished while the player was on another screen stayed unpaid, and every fold that reads the
+   * sheet (`crewEffectsFor` on every settle) priced the crew as it was before the hour. Measured
+   * off `/me`, which settles the base and never touches the tab.
+   */
+  it('pays a finished hour out on a read that is not the Training tab', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const overseerBefore = (await board(app, token)).subjects.find(
+      (s) => s.id === OVERSEER_SUBJECT,
+    );
+    const before = overseerBefore?.attributes.cryptography ?? 0;
+    await train(app, token, OVERSEER_SUBJECT, 'cryptography');
+
+    const owner = app.repos.users.findByUsername('driller');
+    const base = app.repos.bases.findByOwnerId(owner?.id ?? '');
+    if (!base || !owner?.overseerId) throw new Error('no base');
+    app.repos.bases.updateTraining(
+      base.id,
+      {
+        ...base.training,
+        sessions: base.training.sessions.map((session) => ({
+          ...session,
+          startedAt: new Date(
+            Date.parse(session.startedAt) - TRAINING_SECONDS * 1000,
+          ).toISOString(),
+        })),
+      },
+      base.commanders,
+    );
+
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    expect(me.statusCode).toBe(200);
+    expect(app.repos.overseers.findById(owner.overseerId)?.attributes.cryptography).toBe(
+      before + TRAINING_GAIN,
+    );
+    expect(app.repos.bases.findById(base.id)?.training.sessions).toEqual([]);
   });
 
   it('will not let the same person drill the same thing twice running', async () => {
@@ -637,6 +683,156 @@ describe('a perk that lifts the other officers', () => {
     ]);
 
     expect(sheetOf(repos, base, 'alone').attributes[attribute]).toBe(20);
+  });
+
+  /**
+   * The Lab's rungs on the same two channels, which folded into the standing effects and were
+   * read by nobody: `crewSheetsFor` took the ground's lift off `territoryEffectsFor` and the perks'
+   * off `peerLift`, so nine finished programmes raised a number no sheet ever saw. Measured against
+   * the same officer with the rung unfinished, so the number has to move rather than merely exist.
+   */
+  const lesson = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'officer_attribute');
+  if (!lesson || lesson.payout.bonus.kind !== 'officer_attribute') {
+    throw new Error('no officer_attribute rung in the Lab');
+  }
+  const seminar = RESEARCH_ITEMS.find((item) => item.payout.bonus.kind === 'officer_group');
+  if (!seminar || seminar.payout.bonus.kind !== 'officer_group') {
+    throw new Error('no officer_group rung in the Lab');
+  }
+  // Destructured here, like `teacher` above: the narrowing from the two throws does not reach
+  // into the `it` closures below.
+  const { attribute: taughtAttribute, flat: taughtFlat } = lesson.payout.bonus;
+  const { group, flat: lift } = seminar.payout.bonus;
+
+  it('raises one attribute on every officer when the Lab has finished the rung that teaches it', () => {
+    const repos = openStack();
+    const alone = roster(repos, [
+      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+    ]);
+    const taught = { ...alone, research: { active: null, technologies: [lesson.id] } };
+
+    expect(sheetOf(repos, alone, 'alone').attributes[taughtAttribute]).toBe(20);
+    expect(sheetOf(repos, taught, 'alone').attributes[taughtAttribute]).toBe(20 + taughtFlat);
+  });
+
+  it('raises a whole attribute group on every officer for a group rung', () => {
+    const repos = openStack();
+    const alone = roster(repos, [
+      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+    ]);
+    const taught = { ...alone, research: { active: null, technologies: [seminar.id] } };
+
+    const before = sheetOf(repos, alone, 'alone').attributes;
+    const after = sheetOf(repos, taught, 'alone').attributes;
+    for (const name of ATTRIBUTES_BY_GROUP[group]) {
+      expect(after[name], name).toBe(before[name] + lift);
+    }
+    // Only that group: an unrelated attribute reads exactly as it did.
+    const elsewhere = ATTRIBUTE_NAMES.find((name) => !ATTRIBUTES_BY_GROUP[group].includes(name))!;
+    expect(after[elsewhere]).toBe(before[elsewhere]);
+  });
+});
+
+/**
+ * The same lift, paid by the Overseer instead of by another officer.
+ *
+ * `sig_drillmaster` is the whole of one character: +5 social to every officer on the books, which
+ * is roughly double what an ordinary teaching perk pays, because there is one Overseer and they
+ * carry it all game. It folded into `officerGroupFlat` and stopped there: the peer lift was built
+ * out of `base.commanders` alone and the Overseer is prepended to the sheets afterwards, so the
+ * signature moved no number while the profile screen printed it as +5 to officer social skills.
+ *
+ * The never-lift-yourself rule is untouched by this and is pinned below. The Overseer is not an
+ * officer, so nothing here lets them teach themselves.
+ */
+describe("the Overseer's teaching perk", () => {
+  const HOUR = '2026-08-16T12:00:00.000Z';
+  const DRILLMASTER = 'sig_drillmaster';
+
+  /** A fixture guard: the assertions below are written against these three numbers. */
+  it('is still +5 social to other officers in the book', () => {
+    const bonus = findPerk(DRILLMASTER)?.bonus;
+    expect(bonus).toEqual({ kind: 'officer_group', group: 'social', flat: 5 });
+  });
+
+  function yardWithOverseer(repos: Repositories, officers: Commander[]): Base {
+    repos.users.insert({ id: 'u', username: 'drill', passwordHash: 'x', createdAt: HOUR });
+    const preset = findOverseerPreset('drillmaster');
+    if (!preset) throw new Error('fixture: no drillmaster preset');
+    expect(preset.perks).toContain(DRILLMASTER);
+    const overseer = overseerFromPreset(preset, 'o');
+    repos.overseers.insert({ overseer, userId: 'u', presetId: preset.presetId, createdAt: HOUR });
+    repos.users.setOverseerId('u', overseer.id);
+    const base: Base = {
+      id: 'b',
+      ownerId: 'u',
+      name: 'The Yard',
+      districtId: 'neon-docks',
+      level: 1,
+      isBot: false,
+      resources: { ...STARTING_RESOURCES },
+      economy: startingEconomy(HOUR),
+      progression: startingProgression(),
+      research: startingResearch(),
+      buildings: [],
+      buildQueue: [],
+      army: {},
+      trainingQueue: [],
+      training: startingTraining(HOUR),
+      inventory: {},
+      fittedUpgrades: [],
+      unitLoadouts: {},
+      fleet: {},
+      commanders: officers,
+      createdAt: HOUR,
+    };
+    repos.bases.insert(base);
+    return base;
+  }
+
+  it('raises every social attribute on an officer who has never met another officer', () => {
+    const repos = openStack();
+    const base = yardWithOverseer(repos, [
+      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+    ]);
+
+    // Sheet order is the Overseer, then the officers.
+    const sheet = crewSheetsFor(repos, base)[1]!;
+    for (const name of ATTRIBUTES_BY_GROUP.social) {
+      expect(sheet.attributes[name], name).toBe(25);
+    }
+    const elsewhere = ATTRIBUTE_NAMES.find((name) => !ATTRIBUTES_BY_GROUP.social.includes(name))!;
+    expect(sheet.attributes[elsewhere]).toBe(20);
+  });
+
+  it('does not lift the Overseer, who is the one carrying it', () => {
+    const repos = openStack();
+    const base = yardWithOverseer(repos, [
+      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+    ]);
+
+    const overseer = repos.overseers.findById('o')!;
+    const sheet = crewSheetsFor(repos, base)[0]!;
+    for (const name of ATTRIBUTES_BY_GROUP.social) {
+      expect(sheet.attributes[name], name).toBe(overseer.attributes[name]);
+    }
+  });
+
+  it('stacks with an officer teaching the same group', () => {
+    const repos = openStack();
+    // House Host is the other social group-teacher in the book, at +3, so a pupil standing
+    // between the two reads 28 and neither source alone can produce that number.
+    const host = findPerk('house_host')?.bonus;
+    expect(host).toEqual({ kind: 'officer_group', group: 'social', flat: 3 });
+    const base = yardWithOverseer(repos, [
+      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), ['house_host']),
+      createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
+    ]);
+
+    const pupil = crewSheetsFor(repos, base)[2]!;
+    for (const name of ATTRIBUTES_BY_GROUP.social) {
+      expect(pupil.attributes[name], name).toBe(28);
+    }
   });
 });
 

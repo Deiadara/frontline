@@ -107,7 +107,7 @@ player reads.
 - [x] D1. A blueprint is made of **pages**. Each page is a unique, named part of that blueprint.
 - [x] D2. Blueprints have names (for example "Colossus Blueprint").
 - [x] D3. A blueprint needs **up to 8 pages**: easy ones 2 or 3, harder ones up to 8, scaling.
-- [x] D4. There is a **Blueprints page inside the Satchel page**, hand drawn like the rest, with
+- [x] D4. There is a **Blueprints page inside the Inventory page**, hand drawn like the rest, with
       clear sections.
 - [x] D5. A blueprint you have **no** pages for does not appear at all. You do not know it exists.
 - [x] D6. With at least one page it appears **locked and darkened**, with a row of squares: empty
@@ -289,7 +289,7 @@ defects.
       are all monotone functions of `roleFit`. Measure what a determined reader can invert from the
       wire, at roster scale rather than per officer.
 - [x] H3. **Blueprints, pages and the three shops.** Pages are items, so they flow through the
-      satchel, the barrow, the Black Market, the Scrapyard, missions, trades between players and
+      inventory, the barrow, the Black Market, the Scrapyard, missions, trades between players and
       storage caps. Look for the ones nobody wired: a page that cannot be sold, a page that counts
       against a cap it should not, a duplicate that is not spendable.
 - [x] H4. **The attribute rename.** Signals, Craft and Encyclopedia replaced Hacking, Fabrication
@@ -409,7 +409,7 @@ below was watched failing with its fix reverted.
   as distinct: clicking through shows one row per distinct page, so the number should predict what
   the next screen looks like rather than how much is in the bag. The spare copies are counted on the
   Blueprints page itself, where they are the thing you can act on.
-- `EMPTY_COPY.page` in `InventoryPage.tsx` can never render, because `SATCHEL_KINDS` filters `page`
+- `EMPTY_COPY.page` in `InventoryPage.tsx` can never render, because `INVENTORY_KINDS` filters `page`
   out. Left alone: the `Record<ItemKind, string>` type requires the key, so removing the string
   means loosening the type, which is worse.
 - Five exports with no consumer anywhere, tests included, were removed: `findItem`, `itemsOfKind`,
@@ -454,9 +454,9 @@ Status key as above. `[call]` marks a reading of the brief that was not spelled 
 - [x] I1b. Research is a door on the bottom bar again, with its own icon, level-gated like the rest.
 - [x] I1c. **Programmes** is the nineteen officer tracks as built under Section C, unchanged in rule.
 - [x] I1d. **Blueprints** is the page built under Section D (every document with at least one page
-      held, grouped by category, Unlock, the unlocked list, Reimagining), moved from the Satchel
+      held, grouped by category, Unlock, the unlocked list, Reimagining), moved from the Inventory
       into the research page. Reachable at `/game/research/blueprints`; the old
-      `/game/inventory/blueprints` redirects there. The Satchel's door to it points at the new home.
+      `/game/inventory/blueprints` redirects there. The Inventory's door to it points at the new home.
 - [x] I1e. The desk is gone: no Investigate, no Develop, no Modify bench, no "The desk" door.
 - [x] I1f. The files are gone: no facts, no pairings, no consultation panel, no "The files" door.
 - [x] I1g. A programme in flight still shows at the top of the page with its clock.
@@ -505,15 +505,15 @@ Status key as above. `[call]` marks a reading of the brief that was not spelled 
 
 - [x] I4a. A trap is an **item** of the new `consumable` kind, one per trap in `TRAP_CATALOG`,
       built in the Scrapyard on a **Traps** bench for scrap and metal. `ScrapyardEntry.kind` gains
-      `trap`; building one adds it to the satchel, not to a shelf.
+      `trap`; building one adds it to the inventory, not to a shelf.
 - [x] I4b. Each trap has a **blueprint document** (consumable category, 2 to 4 pages) and the
       existing Lab rung (`requiresTech`). `[call]` Both gate the build: the brief says "researched /
-      be a blueprint first", and the Security Officer track's rungs already name these traps as what
+      be a blueprint first", and the Head of Security track's rungs already name these traps as what
       they unlock.
 - [x] I4c. On a fight this crew is **defending**, beside the one boost, the crew can set **one
       trap**, chosen from the traps it holds. `trapId` lives on the deployment row beside
       `boostId`. Free to change up to the mark; nothing is spent by naming it.
-- [x] I4d. At the mark the trap is spent out of the satchel, then springs exactly as the engine
+- [x] I4d. At the mark the trap is spent out of the inventory, then springs exactly as the engine
       already runs it (`springTrap`): before contact, a bite off the attacking force, never a wall.
       A trap named on two fights lands on whichever resolves first and the second finds the bag
       empty, exactly as contraband does.
@@ -523,7 +523,7 @@ Status key as above. `[call]` marks a reading of the brief that was not spelled 
 - [x] I4f. `BattlesResponse.traps` moves onto each fight's view as `traps` (held, available, why
       not) and `trapId`. `location_control.trap_json` is no longer read or written.
 - [x] I4g. The battle report still names the trap and what it took.
-- [x] I4h. The satchel shows consumables on their own panel with their own glyph.
+- [x] I4h. The inventory shows consumables on their own panel with their own glyph.
 
 ### I1 to I3 as built
 
@@ -571,7 +571,7 @@ back.
 `trapId` sits on the deployment row beside `boostId` (migration 0078). `POST /battles/trap` takes
 `{ battleId, trapId | null }`; refusals in the fiction's order: no such trap, no such fight, not in
 it, not the defender, already on the ground, not carrying one, one per side. Nothing leaves the bag
-at the door. At the mark the defending side's row is read, the crew's satchel re-checked, one
+at the door. At the mark the defending side's row is read, the crew's inventory re-checked, one
 removed, and the trap springs as the engine always ran it. `location_control.trap_json` is no
 longer read or written; the column stays.
 
@@ -607,7 +607,7 @@ Scroll to the panel and shoot it as an element.
 
 - [x] I5b. Full gates and a clean full e2e run, with screenshots of the research page (both
       sections, four sizes), the Workshop's modifications view, a structure dialog, the Scrapyard's
-      Traps bench, the battle page as a defender with a trap set, and the satchel.
+      Traps bench, the battle page as a defender with a trap set, and the inventory.
 
 ### I5 as done
 
@@ -1257,7 +1257,7 @@ retired from the shelves or turned into page sets is a content call nobody has m
       The class ladder tests in `vehicles.test.ts` still hold.
 - [x] W3. The ids stay: `dirt_runner`, `bp_dirt_runner`, the three `pg_dirt_runner_*` pages and the
       `vehicle-dirt-runner` asset key. The Scar set the precedent (`scrap_car`): the id keys every
-      stored fleet and every page already in a satchel, and a label change is not worth a
+      stored fleet and every page already in an inventory, and a label change is not worth a
       migration. The pages read Bed Plating, Bull Bar and Lift Kit.
 - [x] W4. Portrait through the pipeline: master at `art-src/vehicle-dirt-runner.png`, shipped as
       `assets/vehicle-dirt-runner.webp` (opaque 1024 square, no matte, as the Scrappy and the
@@ -1532,7 +1532,7 @@ Two engineers walked the tree in parallel, one on the client and one on server a
 the orchestrator on the cross-cutting leftovers. Everything below has a test that was watched
 failing with its fix reverted unless it says otherwise.
 
-- [x] AB1. **Receipts.** Every stockpile chip, the infamy chip, the unit counts and the satchel's
+- [x] AB1. **Receipts.** Every stockpile chip, the infamy chip, the unit counts and the inventory's
       item counts throw a figure the moment they move: `-1,200` in oxblood for a spend, `+400` in
       verdigris for a gain, on a plate with the readout's icon, 18px, rising and fading over 2.4
       seconds, several in a row in their own lanes (`lib/deltas.ts`, `components/ui/Delta.tsx`).
@@ -2061,7 +2061,7 @@ figure for everybody); and a crew may sit at any number of lots at once, unlike 
 Two lanes, each over half the screens: every screen and everything it opens, at 1280x720,
 1440x900 and 1920x1080, looked at as pictures and read as code. The first half (city, district,
 units, missions, bar, crew, research) is in; the second (faction, training, market, workshop,
-satchel, settings, garage, scrapyard, battles, the social screens, the shell) follows below when it
+inventory, settings, garage, scrapyard, battles, the social screens, the shell) follows below when it
 lands.
 
 - [x] AI1. **The row of doors was three rows.** The bottom bar aligned its doors to their bottoms,
@@ -2075,7 +2075,7 @@ lands.
       moves when somebody sits down.
 - [x] AI3. **A locked unit cut a word in half.** The locked box joined every clause into one line
       and clamped it; it now prints two clauses and "N more", the whole list still on the hover.
-- [x] AI4. **The Blueprints view had no empty state**: with nothing in the satchel the body was a
+- [x] AI4. **The Blueprints view had no empty state**: with nothing in the inventory the body was a
       collapsed hover chip, indistinguishable from a failed read. The sentence is printed.
 - [x] AI5. **The level-up notice's only way off did not look like a control.** It is a button.
 - [x] AI6. Two seeds from the orchestrator's own look were measured and dismissed: the Research
@@ -2109,7 +2109,7 @@ The second half:
       mid-word on the one screen where you choose on the description; the whole bio is on the
       hover. The settings' twelve mark glyphs wrapped to an orphan; two rows of six.
 
-Reported, not changed: the messages fixture's unread count disagrees with its rows; the satchel's
+Reported, not changed: the messages fixture's unread count disagrees with its rows; the inventory's
 "Blueprints, no pages" door sits over a "Blueprint" panel (two item kinds share the word); the
 Garage page is two one-line panels over empty sheet since the machines moved; the faction log and a
 seat's file print ISO dates; the notifications screen's two controls wear two type registers; the
@@ -2242,7 +2242,7 @@ authored on a template.
 - [x] AN1. **Rarity** authored per document off what it unlocks (nine common, fifteen uncommon,
       ten rare, seven exotic) and per page (its document's tier, or one step off where the page
       is the hard one; two steps throws at load), exposed on the item catalogue and printed as
-      the colour and the word on the Blueprints screen, the satchel and the market.
+      the colour and the word on the Blueprints screen, the inventory and the market.
 - [x] AN2. **A description per page and per document**, 160 lines in the game's voice, on the
       hover of every page row; pages of one document read as different sheets.
 - [x] AN3. **Procedural sheets.** A page is a torn loose sheet, a document a bound cover; eleven
@@ -2376,8 +2376,8 @@ The research screen, by agent, reviewed:
       75% on a half-transparent plate and read as rows that had not loaded; every row, drawer and
       the list's frame carries a drawn edge and a plate of its own, the finished row the brass.
 - [x] AQ4. **The research quote**: "Research is finding out which bastard lied."
-- [x] AQ5. **A bell for every page that comes into the satchel** (by agent, reviewed): one kind,
-      "Pages found", one shared diff of the satchel before and after (pages only, upward only),
+- [x] AQ5. **A bell for every page that comes into the inventory** (by agent, reviewed): one kind,
+      "Pages found", one shared diff of the inventory before and after (pages only, upward only),
       one server helper naming the page, its document and where it came from, rung at six sites
       (a run coming home, the Runner's close beside the lot's own bell, the back room, the Lab,
       and both sides of an offer settling), a pair of one sheet ringing once with its count, each
@@ -2512,7 +2512,7 @@ has two nested scrollers, the crew list's cap predating the round.
       leading a run. It asks `officerDuty` now, keeping the officer already leading that fight;
       a mutant back to injury-only failed both new tests, one per direction.
 - [x] AU3. **No counts on Blueprints and Reimagining** (by agent, reviewed). Programmes keeps its
-      rungs; the other two tabs are their label alone, and the page no longer reads the satchel
+      rungs; the other two tabs are their label alone, and the page no longer reads the inventory
       for them. Pinned as exact label text plus no request to the market.
 - [x] AU4. **The locked Reimagining bench is a door** (by agent, reviewed). No Head of Research:
       `Hire a Head of Research at the Bar`, to the Bar, because without the chair every rung on

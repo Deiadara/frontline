@@ -157,6 +157,12 @@ export const FRAMING = {
  * `officer-100` and `resident-195` is `officer-139`. Each is named by the trade the maintainer painted
  * them at, because that is what the filename records and it is the one thing about the picture
  * that cannot be read off the face.
+ *
+ * `140` to `164` are the 2026-09-15 drop, appended in `character-196-*` to `character-235-*` file
+ * order with fifteen of that block held back: those fifteen and the fifteen `leader-*` paintings
+ * went to {@link PORTRAIT_SUBJECTS} as the overseer's own thirty faces, and a face on that list is
+ * never on this one. The same drop's `resident-*` files are not here twice; they are already
+ * `100` to `139`, which is what the signature sweep in `roles.ts` found when it was re-run.
  */
 export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
   '01': block(`
@@ -656,9 +662,119 @@ export const OFFICER_SUBJECTS: Readonly<Record<string, string>> = {
     A greenhouse worker in her twenties, a black fringe and a green scarf over a wet apron, rows
     of planting under warm lamps behind her.
   `),
+  '140': block(`
+    A tavern bookkeeper in her forties, dark curls and gold earrings, a leather apron over a red
+    coat, bottles and a hanging lamp behind her.
+  `),
+  '141': block(`
+    A neighbourhood mediator in his sixties, grey beard and a patterned blue robe, a folded blanket
+    and a lit lantern on the shelf behind him.
+  `),
+  '142': block(`
+    A junior civic officer in her twenties, cropped black hair and a grey work jacket, rusted filing
+    cabinets in teal light behind her.
+  `),
+  '143': block(`
+    A district council delegate in his fifties, silver hair and a pointed beard, a crimson-trimmed
+    navy robe, a panelled chamber behind him.
+  `),
+  '144': block(`
+    A printshop compositor with a shaved head and a maroon scarf, an ink-stained apron, the wheel of
+    a hand press at her shoulder.
+  `),
+  '145': block(`
+    A street food cook in his thirties, dark curls and a thin moustache, grinning in a smeared
+    apron, a copper pot over a lit burner behind him.
+  `),
+  '146': block(`
+    A utilities clerk in his forties, one eye clouded white, an olive coat over a loose tie, a brass
+    standpipe behind him.
+  `),
+  '147': block(`
+    A radio apprentice in his twenties, tousled blond hair and freckles, a scavenged headset at his
+    neck, a green trace on a scope behind him.
+  `),
+  '148': block(`
+    A residents' council elder in his seventies, white curls and beard, a blue shawl over an open
+    shirt, a cracked marble wall behind him.
+  `),
+  '149': block(`
+    A mechanical archivist in his forties, bald and black-bearded, a brass instrument on its stand
+    at his elbow, shelves of ledgers behind him.
+  `),
+  '150': block(`
+    A kitchen volunteer in his twenties, broad-shouldered in a stained apron with a towel over one
+    shoulder, a steaming pot on green tiles behind him.
+  `),
+  '151': block(`
+    A bar owner in his fifties, bald with a grey beard, a red brocade waistcoat over rolled sleeves,
+    a violet lamp and bottles behind him.
+  `),
+  '152': block(`
+    A maintenance courier in her thirties, locs tied back under safety glasses, a harness of tools,
+    a blue strip light on a steel door behind her.
+  `),
+  '153': block(`
+    A district oral historian in his seventies, white hair and a wispy beard, a green patterned
+    robe, faded wallpaper and a framed print behind him.
+  `),
+  '154': block(`
+    A logistics chief in his fifties, grey hair and a heavy leather coat over a blue scarf, stacked
+    shelving and rolled cloth behind him.
+  `),
+  '155': block(`
+    A delegate in his forties, grey-black curls and a full beard, a blue coat over a rust waistcoat
+    with a brass badge, bare plaster behind him.
+  `),
+  '156': block(`
+    A tram clerk in his forties, a thin moustache and a navy uniform coat with a service medallion,
+    an amber lamp on a wet street behind him.
+  `),
+  '157': block(`
+    A surveyor in her twenties, fair hair pinned up and freckles, a yellow-collared work coat,
+    painted pipework and peeling steel behind her.
+  `),
+  '158': block(`
+    An arbitrator in his sixties, white hair and moustache, a dark red coat over a scarlet scarf,
+    panelled wood behind him.
+  `),
+  '159': block(`
+    A waterworks inspector in his twenties, fair hair and a scar at his lip, a blue work coat, a
+    pressure gauge and standpipes behind him.
+  `),
+  '160': block(`
+    An archive magistrate in his fifties, round glasses and thinning hair, a grey coat, a wall of
+    card-index drawers under a green lamp behind him.
+  `),
+  '161': block(`
+    A night supervisor in his fifties, grey beard and a dark knitted collar, a riveted iron door and
+    one amber lamp behind him.
+  `),
+  '162': block(`
+    A grid coordinator in his thirties, brown hair and a grey scarf over a work coat, a blue
+    indicator light on a ribbed wall behind him.
+  `),
+  '163': block(`
+    A health inspector in his fifties, a dark moustache and a teal coat with a brass medallion,
+    white tiling and a brass pipe behind him.
+  `),
+  '164': block(`
+    An assembly elder in his seventies, a white moustache and a red-brown coat over a dark red
+    scarf, a lantern and a heavy curtain behind him.
+  `),
 };
 
-/** ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`. */
+/**
+ * ART-PROMPTS §1: keyed by `OverseerPreset.portraitId`, which is also what the client passes to
+ * `deliveredUrl({ type: 'portrait', portraitId })`.
+ *
+ * Two generations in one table. `overseer-1` to `overseer-4` are the original four heroes, written
+ * as directions for paintings that did not exist yet, down to the hex values the light was to be
+ * mixed from. `overseer-01` to `overseer-30` are {@link OVERSEER_PORTRAIT_IDS}, the maintainer's
+ * 2026-09-15 drop, and they are written the way {@link OFFICER_SUBJECTS} is: as the record of
+ * *which* painting each key is, so a re-encode or a re-order can be checked against something.
+ * The zero padding is the whole of what keeps the two sets apart, so do not drop it.
+ */
 export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
   'overseer-1': block(`
     A broad-shouldered man in his early fifties, ex-corporate security chief turned warlord.
@@ -697,6 +813,126 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
     folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
     already three steps into a plan. Behind her, the ribbed interior of a reactor gallery falling away
     into #1b2233 haze with one warm #8a5209 inspection lamp.
+  `),
+  'overseer-01': block(`
+    A man in his fifties, dark grey-streaked waves and a red-lined black coat, half smiling, the
+    tiered green benches of an assembly chamber lit by desk lamps behind him.
+  `),
+  'overseer-02': block(`
+    A gaunt man in his fifties, slicked grey-black hair and a deep red coat over navy, unsmiling, a
+    tall cracked committee-room window behind him.
+  `),
+  'overseer-03': block(`
+    A heavy-jawed man in his fifties, close grey hair and a black high-collared coat, a scaffolded
+    plenary hall and one amber lamp behind him.
+  `),
+  'overseer-04': block(`
+    A man in his fifties with grey curls and a grey-green jacket, the white colonnade of a rotunda
+    in cold daylight behind him.
+  `),
+  'overseer-05': block(`
+    A man in his fifties, hair receding at the temples, a navy tunic with copper piping, the red-
+    brown tiers of an archive gallery behind him.
+  `),
+  'overseer-06': block(`
+    A fair-haired man in his fifties with a faint smile and a green coat, the glazed dome and book
+    stacks of a parliamentary library behind him.
+  `),
+  'overseer-07': block(`
+    A man in his fifties, grey waves and a teal coat over a dark stock, a gilded assembly corridor
+    with a hanging lantern behind him.
+  `),
+  'overseer-08': block(`
+    A man in his fifties with dark hair, a moustache and a short beard, a plum coat over a red
+    scarf, an unlit debating floor behind him.
+  `),
+  'overseer-09': block(`
+    A tall pale man in his fifties, fair grey hair and a black coat with a rust sash, the steel and
+    glass of a rebuilt chamber behind him.
+  `),
+  'overseer-10': block(`
+    A man in his fifties with silver hair and a high-collared dark tunic, faintly amused, rows of
+    blue benches in pale northern light behind him.
+  `),
+  'overseer-11': block(`
+    A man in his fifties with black curls and a purple brocade coat, a red and gold constitutional
+    chamber behind him.
+  `),
+  'overseer-12': block(`
+    A man in his sixties, grey hair and a teal coat lined in rust, a stone parliamentary balcony
+    over an empty floor behind him.
+  `),
+  'overseer-13': block(`
+    A man in his fifties, grey-brown hair and a plain navy coat, the lamplit tiers of a restored
+    congress hall behind him.
+  `),
+  'overseer-14': block(`
+    A bearded man in his fifties in an olive coat over a dark red waistcoat, half smiling, a gilded
+    federal committee room behind him.
+  `),
+  'overseer-15': block(`
+    A lean man in his fifties, close silver hair and a black coat over a high white collar, rows of
+    desk consoles under pale windows behind him.
+  `),
+  'overseer-16': block(`
+    A woman in her sixties, grey hair pinned up, a heavy coat with a service disc and a red scarf,
+    rain and a red signal lamp behind her.
+  `),
+  'overseer-17': block(`
+    A woman in her fifties in a blue headwrap and a denim apron over a work coat, a shelter's crates
+    and hanging canvas behind her.
+  `),
+  'overseer-18': block(`
+    A woman in her thirties, dark curls over a shaved side, a scarf and a brass dispatcher's disc,
+    green canal water under an arch behind her.
+  `),
+  'overseer-19': block(`
+    A woman in her forties with a wine-dark birthmark across one cheek, a red and green robe over a
+    stethoscope, a clinic's glass cabinet behind her.
+  `),
+  'overseer-20': block(`
+    A woman in her thirties with cropped red hair and a red tie under a green coat, a ledger under
+    her arm, a leaded window behind her.
+  `),
+  'overseer-21': block(`
+    A woman in her sixties, a long grey-streaked braid and a red shawl over an embroidered coat, a
+    brass desk lamp and papers behind her.
+  `),
+  'overseer-22': block(`
+    A woman in her forties with a dark curly bob, a crimson coat over a green waistcoat, a brass
+    lamp and a records desk behind her.
+  `),
+  'overseer-23': block(`
+    A woman in her forties with a black pixie cut and a red cravat under a dark coat, a rain-
+    streaked window and a brass bell behind her.
+  `),
+  'overseer-24': block(`
+    A woman in her fifties, red hair going grey, a green coat over an apron, unsmiling, bottles and
+    a panelled bar behind her.
+  `),
+  'overseer-25': block(`
+    A woman in her forties, dark hair pinned up, a dark red coat with a brass brooch, the tiled
+    shelves of a clinic behind her.
+  `),
+  'overseer-26': block(`
+    A woman in her fifties, dark hair loose, a purple scarf over a leather apron, a stacked ration
+    crate behind her.
+  `),
+  'overseer-27': block(`
+    A woman in her forties with dark curls and a green-blue coat, a harbour at night with lit towers
+    behind her.
+  `),
+  'overseer-28': block(`
+    A woman in her forties, red curls and a purple scarf under a green vest, a patterned wall of
+    pinned notices behind her.
+  `),
+  'overseer-29': block(`
+    A woman in her fifties, silver hair pinned up, a black embroidered jacket over a white ruffled
+    collar, a stone arch behind her.
+  `),
+  'overseer-30': block(`
+    A woman in her twenties, fair bobbed hair and a black coat with a shoulder radio, a lit transit
+    diagram behind her.
   `),
 };
 
@@ -884,6 +1120,30 @@ export const PLATE_SUBJECTS = {
     towers closing the bottom edge. Fog between the roofs, standing water on the flagstones, lit
     windows the only warm notes. Painted signage is part of the street; nothing that reads as a
     label for a game object.
+  `),
+  'plate-district-glasshouse-fields': block(`
+    Glasshouse Fields from above and slightly forward, the same camera as the other contested
+    plates and **no sky**: state hydroponics behind a fence, furrowed beds and mud roads under a
+    grey overcast. Seven places a player can stand, each recognisable at a glance: a water intake of
+    silos, tanks and a guarded pipe gate at upper left, a grassed berm with a watch hut and sandbags
+    on its crown at centre left, a row of glasshouses along the top, a hauler yard of rail carts
+    under a timber crane at the right, a long kitchen shed with a chimney and trestle tables of
+    diners in the middle, a market of awnings and produce crates at lower left, a chapel with a bell
+    tower at lower right, and a camp of tents against the fence at the right edge. A timber gate
+    with a watch post closes the bottom edge. Wet earth, green beds, a few lit windows. Painted
+    signage is part of the street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-blacksite-7': block(`
+    The Blacksite from above and slightly forward, the same camera as the other contested plates
+    and **no sky**: a hardened ferrocrete garrison closed on every side by sheer walls. Eight
+    places a player can stand, each recognisable at a glance: a fortified compound with a great gate
+    and red diamond banners at upper left with layered berm walls running down the left edge, a
+    tall watchtower with a searchlight at the centre, a drill hall bunker with troops in formation
+    in front of it at upper right, a surgical room lit cyan high in the right wall, a central
+    armoury bunker with an orange-lit interior, trucks and tracked vehicles at lower right of
+    centre, reactor drums and a cooling tower at the far lower right, and a lit fighting ring at
+    lower left. Sodium lamps on wet concrete, the searchlight the only cold note. Painted signage is
+    part of the street; nothing that reads as a label for a game object.
   `),
   'plate-district-rustyard': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
@@ -1331,6 +1591,10 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   revolutionary_statue: block(`
     A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from
     above, cold #22d3ee floodlight up the front.
+  `),
+  glasshouse: block(`
+    A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one
+    grow-lamp inside reading warm #f59e0b.
   `),
 };
 

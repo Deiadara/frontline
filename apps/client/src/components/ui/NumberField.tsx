@@ -66,7 +66,7 @@ export function digitsOf(raw: string): string {
 /**
  * What the box shows while it is typed in: the digits, behind a minus where the floor allows one.
  *
- * A field whose floor is under zero is a field of deltas (the deploy dialog pulls bodies off a
+ * A field whose floor is under zero is a field of deltas (the deploy dialog pulls units off a
  * ring by typing a negative count), so the sign is kept there and only there. A bare minus is a
  * draft with no figure in it yet.
  */

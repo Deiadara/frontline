@@ -58,7 +58,7 @@ are handed out in. It is not map order and not difficulty order.
 | Chrome Row                         | contested   | independent               | 4          | 0.3, 0.62       | 8     |
 | The Undergrid                      | contested   | government                | 5          | 0.55, 0.58      | 7     |
 | The Annexes                        | contested   | government                | 6          | 0.76, 0.38      | 7     |
-| Glasshouse Fields                  | contested   | government                | 3          | 0.1, 0.58       | 7     |
+| Glasshouse Fields                  | contested   | government                | 3          | 0.1, 0.58       | 8     |
 | Blacksite                          | contested   | government, seat of power | 8          | 0.33, 0.3       | 8     |
 | CCS                                | contested   | government, seat of power | 10         | 0.57, 0.13      | 8     |
 | Player District (`upper-roofs`)    | residential | independent               | 2          | 0.91, 0.79      | none  |
@@ -198,6 +198,7 @@ Garrison before anybody takes it: a Combine enforcer squad behind riot plate.
 | The Long Ladle       | Soup Kitchen | easy      | Supplies off the ration line, and a crew that has eaten fights like one.                                             |
 | Chapel of the Furrow | The Chapel   | easy      | Everyone on your books holds together better under things that break people.                                         |
 | The Fence Camp       | Fence Camp   | easy      | More people than any building in your district could house, and every one of them looking for a reason to be useful. |
+| The Glasshouses      | Hydroponics  | medium    | Supplies straight off the beds, picked before they ever see a market.                                                |
 
 ### Blacksite
 
@@ -216,10 +217,10 @@ Garrison before anybody takes it: a Directorate rifle company dug into hardened 
 | Blacksite Armory | Armory                  | hard      | Cheaper units, and a bench that will fit anything you can find a part for.                                        |
 | Outer Berm       | Barricade               | hard      | A harder approach to everything behind it.                                                                        |
 | The Watchtower   | Watchtower              | hard      | Everything your scouts do, they do better: everywhere in the city, not just here.                                 |
-| Pit Seventeen    | Fight Pit               | medium    | Your people are harder to frighten, and better for the practice.                                                  |
-| Motor Pool Seven | War Machine Graveyard   | hard      | Hulls, plate and running gear, and troops that come back from more than they should.                              |
+| Robot Pit        | Fight Pit               | medium    | Your people are harder to frighten, and better for the practice.                                                  |
+| Motor Pool       | War Machine Graveyard   | hard      | Hulls, plate and running gear, and troops that come back from more than they should.                              |
 | The Drill Hall   | The Gym                 | medium    | One more session in the day than the day has room for.                                                            |
-| Ward Nine        | Black Clinic            | hard      | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                 |
+| Psychic Ward     | Black Clinic            | hard      | Syringes. Handed out before a fight, they bring somebody back to strength who had no right to be.                 |
 | The Pile         | Abandoned Nuclear Plant | hard      | High-quality metal out of the turbine hall, and a fuelling crew who make every barrel of oil you burn go further. |
 
 ### CCS (Civic Command Sector)
@@ -303,7 +304,7 @@ similar value, and why renaming ground has to leave its `kind` alone.
 | --------------------------------- | ------------------------------------ | ------------------------------------------------------------- |
 | Cyberhounds                       | `doghouse`                           | The Doghouse, Steelbelt (the only one in the city)            |
 | Juggernauts, Hollow Men           | `gene_clinic`                        | The Quiet Ward (Annexes), The Ascension Clinic (Spire)        |
-| The Condemned, The Crimson Dancer | `fight_pit`                          | Pit Seventeen, Blacksite                                      |
+| The Condemned, The Crimson Dancer | `fight_pit`                          | Robot Pit, Blacksite                                          |
 | The Specter                       | `satellite_uplink`                   | Annexe Uplink, Command Uplink                                 |
 | The Abomination                   | `mad_scientist_lair`                 | The Laundry Stair, Undergrid                                  |
 | The Colossus                      | `construction_site`                  | The Unfinished Faculty (Annexes), The Unfinished Wing (Spire) |

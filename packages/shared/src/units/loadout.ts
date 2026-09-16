@@ -1,26 +1,28 @@
 import { z } from 'zod';
-import { findUpgrade, type FittedUpgrades, type UpgradeSpec } from './upgrades.js';
+import { findUnitModification, modificationFitsUnit } from './modifications.js';
+import type { FittedUpgrades } from './upgrades.js';
 
 /**
  * Three slots on every unit, and what a crew is allowed to put in them.
  *
- * The workshop *builds* an upgrade once (`fittedUpgrades`, which is the crew's stock). This is the
- * other half: which three of the things you have built are actually bolted onto the Razors, and
- * which three onto the Juggernauts. Building a Hardshell Rig no longer improves everybody by
- * itself; it improves whoever you fit it to.
+ * The Scrapyard *builds* a modification card once (`fittedUpgrades`, which is the crew's stock).
+ * This is the other half: which three of the things you have built are actually bolted onto the
+ * Razors, and which three onto the Juggernauts. Building a Hardshell Exoframe does not improve
+ * everybody by itself; it improves whoever you fit it to.
  *
- * That is the whole point of a slot. Nine upgrades applied to nine unit types is not a decision,
+ * That is the whole point of a slot. Thirty cards applied to every unit type is not a decision,
  * it is a shopping list you work through in one order every game. Three slots per unit means the
- * Sparks can be the ones with the optics and the Scrapers the ones with the reflex wiring, and a
+ * Sparks can be the ones with the optics and the Scrapers the ones with the twitch loop, and a
  * crew that has built everything still has to say what each unit is *for*.
  *
- * A built upgrade is not consumed by fitting it: the same Scrap Plate goes on every unit you want
- * it on. It cannot go into two slots of the *same* unit, which would be a free doubling.
+ * Which cards a unit may take at all is `modificationFitsUnit` in `modifications.ts`: a card's
+ * `fits` list, and the rule that a legendary takes nothing. {@link slotRefusal} asks it, so the
+ * roster's greyed-out cards and the route's refusal are one answer.
  */
 
 export const UNIT_UPGRADE_SLOTS = 3;
 
-/** A slot is an upgrade id or an empty bracket. Length is capped; short arrays pad on read. */
+/** A slot is a card id or an empty bracket. Length is capped; short arrays pad on read. */
 export const UnitLoadoutSchema = z.array(z.string().nullable()).max(UNIT_UPGRADE_SLOTS);
 export type UnitLoadout = z.infer<typeof UnitLoadoutSchema>;
 
@@ -41,19 +43,44 @@ export function slotsFor(loadouts: UnitLoadouts, unitId: string): (string | null
 /**
  * What is actually bolted to this unit, in a shape `upgradedStats` accepts.
  *
- * Filtered against the catalogue on the way out, so an id left over from an upgrade that was
- * renamed or dropped costs a slot on screen but never silently pays stats.
+ * Filtered against the catalogue on the way out, so an id left over from a card that was renamed
+ * or dropped costs a slot on screen but never silently pays stats.
  */
 export function fittedFor(loadouts: UnitLoadouts, unitId: string): FittedUpgrades {
   const seen = new Set<string>();
   for (const id of slotsFor(loadouts, unitId)) {
-    if (id !== null && findUpgrade(id)) seen.add(id);
+    if (id !== null && findUnitModification(id)) seen.add(id);
   }
   return [...seen];
 }
 
 export type SlotRefusal =
-  'bad_slot' | 'unknown_upgrade' | 'not_built' | 'already_slotted' | 'slot_taken' | 'cannot_unfit';
+  | 'bad_slot'
+  | 'unknown_upgrade'
+  /** The card does not go on this unit: outside its `fits` list, or the unit is a legendary. */
+  | 'does_not_fit'
+  | 'not_built'
+  | 'already_slotted'
+  | 'slot_taken'
+  | 'skipped_slot';
+
+/**
+ * The first empty bracket in a row of them, or null when every one is full.
+ *
+ * Brackets fill from the left (maintainer request, 2026-09-15): whichever bracket a player
+ * presses, the card goes into the first free one, so three empty brackets are one decision and
+ * not three. Over the bare id row rather than over `UnitLoadouts`, so the client can ask it of the
+ * slots the wire hands it and land on the same index the server will insist on.
+ */
+export function firstFreeIndex(slots: readonly (string | null)[]): number | null {
+  const index = slots.findIndex((id) => id === null);
+  return index === -1 ? null : index;
+}
+
+/** {@link firstFreeIndex}, asked of a stored loadout. */
+export function firstFreeSlot(loadouts: UnitLoadouts, unitId: string): number | null {
+  return firstFreeIndex(slotsFor(loadouts, unitId));
+}
 
 /**
  * Every unit id this crew has bolted `upgradeId` to. Empty when it is still on the shelf.
@@ -94,11 +121,27 @@ export function slotRefusal(
   built: FittedUpgrades,
 ): SlotRefusal | null {
   if (!Number.isInteger(slot) || slot < 0 || slot >= UNIT_UPGRADE_SLOTS) return 'bad_slot';
-  if (!findUpgrade(upgradeId)) return 'unknown_upgrade';
+  const spec = findUnitModification(upgradeId);
+  if (!spec) return 'unknown_upgrade';
+  /*
+   * Before `not_built`, because it is the one refusal nothing the player does will change: a
+   * Counterweight Harness is never going on the Razors, and telling somebody to go and build one
+   * first would send them to the yard for a card they still could not fit when they got back.
+   */
+  if (!modificationFitsUnit(spec, unitId)) return 'does_not_fit';
   if (!built.includes(upgradeId)) return 'not_built';
   if (fittedOn(loadouts, upgradeId).length > 0) return 'already_slotted';
   // A bracket holds one thing, and taking the old one out means burning it.
-  if (slotsFor(loadouts, unitId)[slot] !== null) return 'slot_taken';
+  const slots = slotsFor(loadouts, unitId);
+  if (slots[slot] !== null) return 'slot_taken';
+  /*
+   * Left to right, and enforced here rather than left to the screen (maintainer request,
+   * 2026-09-15). The client always aims at the first free bracket, but a rule that lives only in
+   * one button is a rule the next screen forgets: the picker in the Scrapyard, a future drag, a
+   * hand-written request. Checked after `slot_taken`, because a press on a full bracket should
+   * hear that it is full, not that it is out of order.
+   */
+  if (slot !== firstFreeIndex(slots)) return 'skipped_slot';
   return null;
 }
 
@@ -130,7 +173,7 @@ export function burnUpgrade(
 }
 
 export function burnRefusal(loadouts: UnitLoadouts, upgradeId: string): BurnRefusal | null {
-  if (!findUpgrade(upgradeId)) return 'unknown_upgrade';
+  if (!findUnitModification(upgradeId)) return 'unknown_upgrade';
   if (fittedOn(loadouts, upgradeId).length === 0) return 'not_fitted';
   return null;
 }
@@ -148,20 +191,4 @@ export function withSlot(
   if (slots.every((id) => id === null)) delete next[unitId];
   else next[unitId] = slots;
   return next;
-}
-
-/**
- * A loadout for a crew that has never opened the screen: the best of what it has already built.
- *
- * Only used when the feature arrives on top of a save that predates it. Before slots existed
- * every built upgrade applied to every unit, so filling each unit with the three strongest is the
- * arrangement that costs an existing crew nothing on the day of the change. Highest tier first,
- * and within a tier the line order the workshop lists, so it is the same answer every time.
- */
-export function defaultLoadout(built: FittedUpgrades): UnitLoadout {
-  const specs = built
-    .map((id) => findUpgrade(id))
-    .filter((spec): spec is UpgradeSpec => spec !== undefined)
-    .sort((a, b) => b.tier - a.tier);
-  return specs.slice(0, UNIT_UPGRADE_SLOTS).map((spec) => spec.id);
 }

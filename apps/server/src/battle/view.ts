@@ -37,10 +37,12 @@ import {
   type BattleView,
   type ActionsResponse,
   type BattlesResponse,
+  type CallPrices,
   type Base,
   type BoostStash,
   type DistrictGateView,
   type BattleBoostOption,
+  type Fleet,
   type ScheduledBattle,
   type ItemId,
   type StructureDefence,
@@ -55,11 +57,12 @@ import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor, scoutingRunView } from '../city/view.js';
 import { sideOf } from './deploy.js';
-import { defendingBaseOf } from './declare.js';
+import { callPriceFor, defendingBaseOf } from './declare.js';
 import { districtsLivedIn, isInhabited, residentOf, targetName } from './ground.js';
-import { battlefieldOf } from './resolve.js';
+import { assemble, battlefieldOf } from './resolve.js';
 import { seatedRoles } from '../crew/roster.js';
 import { officerDuty } from '../crew/duty.js';
+import { officerTravelMinutesTo } from './movement.js';
 
 /**
  * The battle board, as one crew sees it (GDD §A4, battle rework).
@@ -125,7 +128,14 @@ function readEnemy(
     other === 'attacker'
       ? repos.bases.findById(battle.attackerBaseId)
       : defendingBaseOf(repos, battle);
-  const resistance = enemyBase ? crewEffectsFor(repos, enemyBase).intelResistancePercent : 0;
+  // §B7: their Gate is half of what a reading has to see past, the same way it is on the city map
+  // (`city/view.ts`). It was missing here, on the screen that draws the Gate's own figure two
+  // panels away: a level 10 Gate blurred a scout report and did nothing at all for the fight it
+  // was built for. Folded at the read rather than into `crewEffectsFor`, which is about people.
+  const resistance = enemyBase
+    ? crewEffectsFor(repos, enemyBase).intelResistancePercent +
+      gateIntelResistancePercent(enemyBase.buildings)
+    : 0;
 
   const blur = deploymentBlurPercent({
     resistancePercent: resistance,
@@ -187,7 +197,12 @@ function viewOf(
     boosts: side
       ? boostsFor(
           base,
-          muster?.army ?? {},
+          // The force the settle will price this against, not the one on the deployment rows.
+          // `reach` is what the drop-down promises, and for a defender the two are not close: a
+          // home raid folds in the whole roster and a location folds in the garrison, so a boost
+          // quoted at +35% on the screen landed as +7% in the fight. `assemble` is the settler's
+          // own function, so the two cannot drift apart again.
+          assemble(repos, battle, defenderBase)[side === 'attacker' ? 'attacking' : 'defending'],
           repos.blackMarket.stashFor(base.id),
           cityLevelFor(repos),
         )
@@ -201,7 +216,7 @@ function viewOf(
     yard: side ? base.fleet : {},
     // §D1: who this crew could send. A bystander gets nothing, for the same reason they get no
     // shelf: the list is the caller's own roster and it is not the other side's business.
-    leaders: side ? leadersFor(repos, base, battle.id, now) : [],
+    leaders: side ? leadersFor(repos, base, battle, now, deployment?.vehicles ?? {}) : [],
     // §I4: a trap goes under ground you are holding, so only the defender gets a list. An attacker
     // and a bystander get an empty one rather than no field, which is the same shape the boosts
     // take and keeps the payload from saying which side the reader is on twice.
@@ -220,16 +235,32 @@ function viewOf(
  * the injured alone, so it offered a name the route then turned away with "is out leading a run".
  * The officer already leading *this* fight stays on it, or the picker would lose its own answer.
  * Their combat sheet rides along so the player can weigh a person against a stack of Razors
- * before deciding, which is the whole decision §D1 adds.
+ * before deciding, which is the whole decision §D1 adds, and so does the road: a leader has to
+ * cross the city like anybody else, and how long *this* one takes depends on their own speed and
+ * on what the crew has already loaded onto this fight (`officerTravelMinutesTo`).
  */
-function leadersFor(repos: Repositories, base: Base, battleId: string, now: Date): BattleLeader[] {
+function leadersFor(
+  repos: Repositories,
+  base: Base,
+  battle: ScheduledBattle,
+  now: Date,
+  /** What this crew has committed to this fight, which is what the officer may ride. */
+  vehicles: Fleet,
+): BattleLeader[] {
   return base.commanders
-    .filter((officer) => officerDuty(repos, base, officer, now, battleId) === null)
+    .filter((officer) => officerDuty(repos, base, officer, now, battle.id) === null)
     .map((officer) => ({
       officerId: officer.id,
       name: officer.name,
       role: officer.role,
       stats: officerBattleStats(officer.attributes),
+      travelMinutes: officerTravelMinutesTo(
+        repos,
+        base,
+        battle.target.districtId,
+        officer,
+        vehicles,
+      ),
     }));
 }
 
@@ -298,7 +329,7 @@ function structuresOf(base: Base): StructureDefence[] {
  *
  * The whole catalogue, held or not, for the reason the boost list gives: a trap a player never
  * sees on this panel is a trap they never go to the yard for. What decides the button is the
- * satchel and only the satchel, because the document and the Lab rung were both answered before
+ * inventory and only the inventory, because the document and the Lab rung were both answered before
  * the yard would cut one, and repeating either here would be a second copy of the Scrapyard's
  * gate wording free to drift from it.
  */
@@ -319,9 +350,12 @@ function trapsFor(base: Base): TrapOption[] {
 /**
  * §D7: what this crew's name will buy on this particular fight.
  *
- * `reach` is computed against the force they have actually deployed, which is the number that makes
- * the drop-down honest: "+35% defence for your heavy units" on a force with no heavy units in it is
- * worth nothing, and a player should be able to see that before they pay rather than after.
+ * `reach` is computed against everything that will be standing on the ground at the mark, which is
+ * the number that makes the drop-down honest: "+35% defence for your heavy units" on a force with
+ * no heavy units in it is worth nothing, and a player should be able to see that before they pay
+ * rather than after. The caller reads it off `assemble`, the settler's own function, because the
+ * deployment rows are not the force for a defender: a location fight folds in the garrison and a
+ * home raid folds in the whole roster.
  */
 function boostsFor(
   base: Base,
@@ -336,7 +370,7 @@ function boostsFor(
     roles: seatedRoles(base.commanders),
   };
   // §D12e: the four manufactured boosts are behind their blueprint as well as behind whoever
-  // proposed them. Bound once here rather than per row: the satchel does not change mid-list.
+  // proposed them. Bound once here rather than per row: the inventory does not change mid-list.
   const boostGate = (boostId: string): boolean =>
     blueprintGateMet(base.inventory, 'battle_boost', boostId);
   const names = BATTLE_BOOSTS.map((spec) => ({
@@ -426,6 +460,33 @@ function gatesFor(
 }
 
 /**
+ * §D7: what calling a fight costs, for every target this crew can see (`CallPrices`).
+ *
+ * Priced through the same `callPriceFor` the declaration charges with, so the dialog's quote and
+ * the route's bill cannot disagree. Only charged ground is written down: the schema reads an
+ * absent entry as free, and most of the map is free, so the common case is a short list.
+ */
+function callPricesFor(repos: Repositories, visible: ReadonlySet<string>): CallPrices {
+  const prices: CallPrices = { locations: {}, districts: {} };
+  for (const district of CITY_DISTRICTS) {
+    if (!visible.has(district.id)) continue;
+    for (const location of district.locations) {
+      const target = {
+        kind: 'location',
+        districtId: district.id,
+        locationId: location.id,
+      } as const;
+      const price = callPriceFor(repos, target, district);
+      if (price > 0) prices.locations[location.id] = price;
+    }
+    // A gate and a raid are both a call on the district's own party, so one entry serves both.
+    const price = callPriceFor(repos, { kind: 'gate', districtId: district.id }, district);
+    if (price > 0) prices.districts[district.id] = price;
+  }
+  return prices;
+}
+
+/**
  * §A4: what this crew has on the road.
  *
  * A screen of its own rather than a section of the board, because it answers a different question:
@@ -481,6 +542,7 @@ export function projectBattles(repos: Repositories, base: Base, now: Date): Batt
     reports: reportsFor(repos, base),
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
+    callPrices: callPricesFor(repos, visible),
     gates: gatesFor(repos, visible, now),
     structures: structuresOf(base),
     serverNow: now.toISOString(),

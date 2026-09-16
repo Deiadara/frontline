@@ -47,6 +47,14 @@ export interface FeatsRepo {
    * and never updated, because collecting is not something that happens twice.
    */
   claim(baseId: string, featId: string, at: string): boolean;
+  /**
+   * Every counter and every claim this crew has, gone.
+   *
+   * For the Console's Clean slate and nothing else. The two tables cascade off a deleted base, and
+   * a reset does not delete the base: it rewrites the row in place to keep the id, so without this
+   * the fresh crew opened its feats screen on the old life's lifetime counts and collected rungs.
+   */
+  forget(baseId: string): void;
 }
 
 interface TallyRow {
@@ -64,6 +72,8 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
   const claimStmt = db.prepare(
     'INSERT OR IGNORE INTO crew_feats (base_id, feat_id, claimed_at) VALUES (?, ?, ?)',
   );
+  const forgetTalliesStmt = db.prepare('DELETE FROM crew_tallies WHERE base_id = ?');
+  const forgetClaimsStmt = db.prepare('DELETE FROM crew_feats WHERE base_id = ?');
 
   function bumpOne(baseId: string, tally: string, amount: number): void {
     if (amount < 0) {
@@ -99,6 +109,11 @@ export function createFeatsRepo(db: AppDatabase): FeatsRepo {
 
     claim(baseId, featId, at) {
       return claimStmt.run(baseId, featId, at).changes === 1;
+    },
+
+    forget(baseId) {
+      forgetTalliesStmt.run(baseId);
+      forgetClaimsStmt.run(baseId);
     },
   };
 }

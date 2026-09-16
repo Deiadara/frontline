@@ -40,6 +40,7 @@ import {
   TRAININGS_PER_DAY,
   applyGain,
   beginTraining,
+  cancelDrill,
   drillProgressAt,
   drillRemainingMs,
   rollDay,
@@ -389,6 +390,37 @@ describe('drilling', () => {
       const state = beginTraining(startingTraining(NOW), session(), NOW);
       expect(trainingBlocker(state, 'officer-1', 'stamina', sheet, NOW)).toBeNull();
     });
+
+    /**
+     * A cancelled hour is an hour that never happened, so the memory goes back to what it read
+     * before. Both directions are pinned: the cancelled drill is allowed again, and the drill that
+     * really was last is still refused, so a cancel cannot be used to drill one thing twice running.
+     */
+    it('forgets a cancelled drill and remembers the one before it', () => {
+      let state = beginTraining(startingTraining(NOW), session(), NOW);
+      state = settleTraining(state, later(TRAINING_SECONDS)).state;
+      state = beginTraining(state, session({ id: 's2', attribute: 'logic' }), NOW);
+      expect(trainingBlocker(state, OVERSEER_SUBJECT, 'logic', sheet, NOW)).toBe(
+        'Already in a session',
+      );
+
+      state = cancelDrill(state, 's2', NOW);
+      expect(state.last[OVERSEER_SUBJECT]).toBe('stamina');
+      expect(trainingBlocker(state, OVERSEER_SUBJECT, 'logic', sheet, NOW)).toBeNull();
+      expect(trainingBlocker(state, OVERSEER_SUBJECT, 'stamina', sheet, NOW)).toBe(
+        'Trained that last time',
+      );
+    });
+
+    it('leaves no memory at all when the very first drill is cancelled', () => {
+      const state = cancelDrill(
+        beginTraining(startingTraining(NOW), session(), NOW),
+        'session-1',
+        NOW,
+      );
+      expect(state.last).toEqual({});
+      expect(trainingBlocker(state, OVERSEER_SUBJECT, 'stamina', sheet, NOW)).toBeNull();
+    });
   });
 
   it('lets one person do only one thing at a time', () => {
@@ -632,7 +664,7 @@ describe('a raided crew, while the disruption lasts', () => {
      * `refitDiscountPercent` passed all fifty tests. An exemption is a channel a raid stops
      * reaching, which is the least visible way to undo this feature, so it costs a line here.
      */
-    expect([...DISRUPTION_EXEMPT_CHANNELS]).toEqual(['productionPercent']);
+    expect([...DISRUPTION_EXEMPT_CHANNELS]).toEqual(['productionPercent', 'unitArmorPercent']);
 
     // The list is exactly the derived one minus the named exemptions, so a channel quietly dropped
     // from the cut shows up here rather than as a bonus a raid silently stopped reaching.
@@ -653,6 +685,23 @@ describe('a raided crew, while the disruption lasts', () => {
       const cut = disrupted({ ...noCrewEffects(), [channel]: 40 }, 25);
       expect(cut[channel], `${channel} is exempt and was cut anyway`).toBe(40);
     }
+  });
+
+  /**
+   * ...and not off armour either, which is points on a rating wearing a `Percent` name.
+   *
+   * `unitArmorPercent` is added straight to a unit's 0..100 armour rating in `battle/effects.ts`
+   * rather than multiplied into it, for the reason its own doc gives: a percentage of a rating of
+   * 8 is nothing. The suffix is what puts a channel in the cut, so this one was being scaled while
+   * `unitMoraleFlat` and `leadArmorFlat`, which are the same kind of number, were not. A quarter
+   * off flat points is not a smaller bonus, it is a different one.
+   *
+   * Written against the channel by hand rather than through the exemption list, so it fails if
+   * somebody takes the exemption away again.
+   */
+  it('leaves armour points alone, because the name lies about the units', () => {
+    expect(disrupted({ ...noCrewEffects(), unitArmorPercent: 40 }, 25).unitArmorPercent).toBe(40);
+    expect([...DISRUPTED_CHANNELS]).not.toContain('unitArmorPercent');
   });
 
   it('leaves negatives and flat channels exactly where they were', () => {

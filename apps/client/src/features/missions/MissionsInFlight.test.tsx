@@ -257,7 +257,7 @@ describe('what a returned crew came back with (§E5)', () => {
     ...board,
     leaders: [ROOK, REZA],
     missions: [
-      // A fight that cost bodies, one that cost none, one nobody survived to report, and a
+      // A fight that cost units, one that cost none, one nobody survived to report, and a
       // standard run, which is the kind that never draws the line at all.
       home('r-mauled', 'foundry-raid', {
         outcome: 'failure',

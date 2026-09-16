@@ -44,7 +44,7 @@ const CITY_ASPECT = plateAspect('city');
  * cathedral. A district with no mark here would simply not be on the screen, so `CityView.test.tsx`
  * pins that the table covers every district in the city.
  */
-const DISTRICT_MARKS: Readonly<Record<string, OnPlateAt>> = {
+export const DISTRICT_MARKS: Readonly<Record<string, OnPlateAt>> = {
   // The mill roofs and their smoke, mid-left: the industry the Belt is named for.
   // Lifted clear of the parapet below it: the tag's lower edge was sitting exactly on the wall's
   // coping, which reads as a label stuck to the wall rather than one lying on the roofs it names.
@@ -201,7 +201,7 @@ export function CityView() {
 
   return (
     <div className="relative h-full w-full bg-surface-950">
-      <PlateRoom plate="city" aspect={CITY_ASPECT} fit="whole" testId="city-room">
+      <PlateRoom plate="city" aspect={CITY_ASPECT} fit="width" testId="city-room">
         {CITY_DISTRICTS.map((district) => {
           const at = DISTRICT_MARKS[district.id];
           if (at === undefined) return null;

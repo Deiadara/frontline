@@ -1,3 +1,4 @@
+import * as F from '../../../e2e/fixtures';
 import {
   BUILDING_CATALOG,
   STARTING_RESOURCES,
@@ -16,12 +17,13 @@ import {
   OVERSEER_PRESETS,
   makeAttributes,
   type CrewStandingResponse,
+  type UnitsResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BasePanel } from './BasePanel';
+import { BasePanel, RAIL_COLUMN_MIN_WIDTH_PX } from './BasePanel';
 import { DistrictScene } from './DistrictScene';
 import { formatDuration } from './format';
 import { useSession } from '../../store/session';
@@ -115,7 +117,7 @@ const BROKE = { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, pla
 /** `GET /overseer/me`: the crew's effect channels, which is where the payroll step discount lives. */
 const crewStanding = (effects: Record<string, number>): CrewStandingResponse => {
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
-  return { overseer: { ...preset, id: 'ov-1' }, crewSheet: makeAttributes(15), effects };
+  return { overseer: { ...preset, id: 'ov-1' }, crewSheet: makeAttributes(15), effects, marks: {} };
 };
 
 const fetchMock = vi.fn();
@@ -123,7 +125,13 @@ const fetchMock = vi.fn();
 interface Stubbed {
   detail?: Base;
   /** How `POST /base/build` answers. Defaults to accepting the order. */
-  build?: { ok: boolean; status: number; body: unknown };
+  build?: {
+    ok: boolean;
+    status: number;
+    body: unknown;
+  };
+  /** What `GET /units` answers; unstubbed by default so the panel's local fallback is exercised. */
+  roster?: UnitsResponse;
   /** The crew's effect channels, as `GET /overseer/me` answers them. */
   effects?: Record<string, number>;
   /** `/me`'s `buildQuotes`: what the server will actually charge for each plot's next level. */
@@ -132,7 +140,14 @@ interface Stubbed {
   clocks?: MeResponse['buildClocks'];
 }
 
-function stubApi({ detail = base, build, effects = {}, quotes, clocks }: Stubbed = {}): void {
+function stubApi({
+  detail = base,
+  build,
+  effects = {},
+  quotes,
+  clocks,
+  roster,
+}: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
     Promise.resolve({
       ok,
@@ -165,6 +180,7 @@ function stubApi({ detail = base, build, effects = {}, quotes, clocks }: Stubbed
         ...(clocks ? { buildClocks: clocks } : {}),
       });
     if (path.includes('/base/')) return reply({ base: current, serverNow: NOW });
+    if (roster && path.endsWith('/units')) return reply(roster);
     throw new Error(`unstubbed request: ${path}`);
   });
 }
@@ -190,7 +206,7 @@ const openReports = () => fireEvent.click(screen.getByTestId('reports-toggle'));
 const plot = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name},`) });
 const dialog = () => screen.getByRole('dialog');
 
-/** The body the page actually put on the wire for the one order it made. */
+/** The unit the page actually put on the wire for the one order it made. */
 function buildBody(): BuildStructureRequest {
   const post = fetchMock.mock.calls.find(
     ([path, init]) =>
@@ -251,6 +267,95 @@ describe('§A1: the district is a place, not a list', () => {
 
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A frame answering the rail's own media query one way or the other. jsdom has no `matchMedia`
+ * at all, which the rail reads as "wide": these stand in for a real viewport on each side of it.
+ */
+function stubFrame(wide: boolean): void {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: wide && query === `(min-width: ${RAIL_COLUMN_MIN_WIDTH_PX}px)`,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
+/** The district with one order under way, so the rail is drawn at all. */
+const withQueue = (): Base => ({ ...base, buildQueue: queued.base.buildQueue });
+
+describe('§A1: the in-flight rail stands where the plates are not', () => {
+  /*
+   * The geometry itself (a plate's centre answering its own click) is measured in the browser,
+   * `hideout.spec.ts`, because jsdom lays nothing out. What is pinned here is the decision that
+   * geometry hangs off: which way the rail runs at which width, and that the panel tells the scene
+   * about it when it runs across the top. Flip either and the Quarters' plate is back under the
+   * rail at 1024 (visual sweep, 2026-09-15).
+   */
+  it('runs down the left where the frame is wide enough, and says nothing to the scene', async () => {
+    stubFrame(true);
+    stubApi({ detail: withQueue() });
+    renderDistrict();
+
+    const rail = await screen.findByTestId('build-rail');
+    expect(rail).toHaveAttribute('data-layout', 'column');
+    expect(rail.parentElement?.style.getPropertyValue('--scene-safe-top')).toBe('');
+  });
+
+  it('runs across the top on a narrow frame, and publishes how far down it reaches', async () => {
+    stubFrame(false);
+    stubApi({ detail: withQueue() });
+    renderDistrict();
+
+    const rail = await screen.findByTestId('build-rail');
+    expect(rail).toHaveAttribute('data-layout', 'strip');
+    // jsdom measures every box at zero, so what is left is the inset above the first plate: the
+    // figure is `calc(HUD + rail)`, and the rail part is what a real browser fills in. Waited
+    // for, because the rail reports its height from an effect after it has mounted.
+    await waitFor(() =>
+      expect(rail.parentElement?.style.getPropertyValue('--scene-safe-top')).toBe(
+        'calc(var(--hud-h, 0px) + 12px)',
+      ),
+    );
+  });
+
+  /*
+   * The orders live in a box of their own, and the header does not.
+   *
+   * That split is the whole of "the queue is bounded but never hidden": the box is what carries
+   * the ceiling and the scroll, so an order that does not fit is scrolled to, while the count and
+   * the fold stay put. Structure only, because jsdom has no layout: what the ceiling actually
+   * comes out at, at each viewport and each queue depth, is measured in `hideout.spec.ts`.
+   */
+  it('puts the orders in a scroller and leaves the header outside it', async () => {
+    stubApi({ detail: withQueue() });
+    renderDistrict();
+
+    const rail = await screen.findByTestId('build-rail');
+    const orders = screen.getByTestId('build-rail-orders');
+    expect(rail).toContainElement(orders);
+    expect(orders).not.toContainElement(screen.getByTestId('build-rail-toggle'));
+    expect(orders).toContainElement(screen.getByTestId('build-rail-quarters'));
+  });
+
+  it('leaves the rail unbounded where nothing can be measured', async () => {
+    stubApi({ detail: withQueue() });
+    renderDistrict();
+
+    // jsdom gives every box a zero rect, so no plate is ever in the rail's path and the ceiling
+    // stays off. A cap derived from nothing would be a cap of zero: an invisible queue.
+    const rail = await screen.findByTestId('build-rail');
+    expect(rail.style.maxHeight).toBe('');
+  });
+
+  it('reads the frame as wide where there is no matchMedia to ask', async () => {
+    stubApi({ detail: withQueue() });
+    renderDistrict();
+
+    const rail = await screen.findByTestId('build-rail');
+    expect(rail).toHaveAttribute('data-layout', 'column');
   });
 });
 
@@ -464,7 +569,24 @@ describe('§A1: what the district houses and what it makes', () => {
     await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
     openReports();
     await waitFor(() => expect(screen.getByTestId('housing-balance')).toHaveTextContent('0 / 26'));
-    expect(screen.getByText(/beds spare/)).toBeInTheDocument();
+    expect(screen.getByText(/unit slots spare/)).toBeInTheDocument();
+  });
+
+  /**
+   * The roster's figure, not the district row's sum, once the roster has answered.
+   *
+   * `unitSlotDraw(base)` cannot see garrisons on held ground or units on the road; the server's
+   * count does, and it is what the Units page prints and what the training door refuses on. The
+   * fixture roster says six slots are taken while the district row alone says none, so the two
+   * numbers can be told apart.
+   */
+  it('reads the roster’s unit slots once the roster has answered, not the district row’s sum', async () => {
+    stubApi({ roster: { ...F.unitsResponse, unitSlotsUsed: 6, unitSlotsCap: 26 } });
+    renderDistrict();
+    await waitFor(() => expect(screen.getByTestId('reports-toggle')).toBeInTheDocument());
+    openReports();
+    await waitFor(() => expect(screen.getByTestId('housing-balance')).toHaveTextContent('6 / 26'));
+    expect(screen.getByText(/20 unit slots spare/)).toBeInTheDocument();
   });
 
   it('§A1: mentions no power, no energy and no grid anywhere on the district', async () => {

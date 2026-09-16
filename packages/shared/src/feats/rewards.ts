@@ -11,7 +11,7 @@ import { findUnit } from '../units/index.js';
  * ## One currency for the balance check, not for the player
  *
  * A feat can pay six different things and the maintainer asked for all of them. That makes "is this
- * reward fair" impossible to answer by eye across a hundred and sixty entries, so everything is
+ * reward fair" impossible to answer by eye across two hundred entries, so everything is
  * priced into one number, caps-equivalent, and every feat declares which band it is supposed to
  * land in. `catalog.test.ts` then checks the whole catalogue in one pass, which is the only way a
  * balance claim about a table this size survives its first edit.
@@ -62,7 +62,7 @@ export const FeatRewardSchema = z
     resources: PartialResourcesSchema.optional(),
     /** Blueprint pages, parts and relics, by catalogue id. */
     items: z.record(z.string(), z.number().int().positive()).optional(),
-    /** Bodies, delivered straight onto the roster at home rather than into the training queue. */
+    /** Units, delivered straight onto the roster at home rather than into the training queue. */
     units: ArmySchema.optional(),
     xp: z.number().int().positive().optional(),
     infamy: z.number().int().positive().optional(),
@@ -124,11 +124,20 @@ export const FEAT_ERA_LABELS: Readonly<Record<FeatEra, string>> = {
   late: 'Late',
 };
 
-/** One line per era, for the filter, so a player knows what they are filtering to. */
+/**
+ * One line per era, for the filter, so a player knows what they are filtering to.
+ *
+ * No level numbers in these. They used to read "Levels 1 to 10, before the Bar opens", which is a
+ * promise the catalogue cannot keep: an era is a rough weight class, and a crew that rushed the
+ * Gauntlet meets mid-era feats at level 8 while a slow builder is still on early ones at 15. A
+ * player reading a number treats it as a gate and then reads the screen as broken when it is not
+ * one. What each line says instead is what that part of the game *feels* like, which is the thing
+ * the filter is actually sorting on.
+ */
 export const FEAT_ERA_BLURBS: Readonly<Record<FeatEra, string>> = {
-  early: 'Your first streets. Levels 1 to 10, before the Bar opens.',
-  mid: 'A crew with a name. Levels 10 to 30, holding ground and picking fights.',
-  late: 'The long game. Level 30 and past it, where the city is the opponent.',
+  early: 'Your first scraps in the street, before anybody has learned the name.',
+  mid: 'A crew with a name on it, holding ground and picking its fights.',
+  late: 'The long game, where the city itself is what you are up against.',
 };
 
 export const FEAT_SIZES = ['small', 'medium', 'large'] as const;

@@ -75,7 +75,12 @@ const me: MeResponse = {
 
 const crewStanding = (): CrewStandingResponse => {
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
-  return { overseer: { ...preset, id: 'ov-1' }, crewSheet: makeAttributes(15), effects: {} };
+  return {
+    overseer: { ...preset, id: 'ov-1' },
+    crewSheet: makeAttributes(15),
+    effects: {},
+    marks: {},
+  };
 };
 
 const fetchMock = vi.fn();

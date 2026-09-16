@@ -61,7 +61,7 @@ export function ScreenLoad({
   onRetry,
   detail,
 }: {
-  /** What would not load, for the failure: "The market", "your satchel". */
+  /** What would not load, for the failure: "The market", "your inventory". */
   what: string;
   /** The line while it is still coming: "Walking down to the market…". */
   loading: string;

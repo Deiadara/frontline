@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * The back room, end to end.
@@ -58,12 +59,7 @@ async function crew(app: FastifyInstance, username: string): Promise<{ token: st
   });
   expect(registered.statusCode).toBe(201);
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode).toBe(201);
   return { token };
 }
@@ -158,7 +154,7 @@ describe('POST /api/black-market/take', () => {
     if (spec.boost) {
       expect(after.stash[spec.id]).toBe(1);
     } else {
-      // A delivery lands in the satchel the rest of the game already reads.
+      // A delivery lands in the inventory the rest of the game already reads.
       const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
       const inventory = me.json<{ base: { inventory: Record<string, number> } }>().base.inventory;
       for (const [item, count] of Object.entries(spec.grants ?? {})) {

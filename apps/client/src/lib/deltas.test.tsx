@@ -170,7 +170,7 @@ describe('shownDeltas', () => {
 
   /**
    * The floor is for stockpiles that produce. A counter with no passive source behind it (the
-   * infamy wallet, the unit roster, the satchel) announces every move: one found servo is +1 item
+   * infamy wallet, the unit roster, the inventory) announces every move: one found servo is +1 item
    * and there is nothing else it could have been.
    */
   it('shows a single unit on a reading with no production behind it', () => {

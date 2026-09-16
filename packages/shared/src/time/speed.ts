@@ -4,7 +4,7 @@
  * Two different quantities live in this file and the game used to spend both the same way, which
  * is where a long run of confusing numbers came from.
  *
- * **Speed** is a stat, 0 to 100, on units and on machines. It says how fast a body crosses the
+ * **Speed** is a stat, 0 to 100, on units and on machines. It says how fast a unit crosses the
  * city, and it is spent as a divisor: `base / (1 + speed/100)`. A unit on 100 halves the road, a
  * unit on 30 takes twenty minutes down to about fifteen and a half. That is the maintainer's rule,
  * "a 30 speed unit makes it 30% faster to go there", and it is the whole of {@link roadMinutes}.
@@ -28,7 +28,7 @@
 export const MAX_MISSION_SPEED_BONUS = 50;
 
 /**
- * The ceiling on a speed, for a body and for a machine alike.
+ * The ceiling on a speed, for a unit and for a machine alike.
  *
  * A road that takes no time is a map with no geography on it, and 100 is where the division stops
  * being interesting: it halves the walk, and every point below it is worth something.
@@ -55,7 +55,7 @@ const clamp = (value: number, low: number, high: number): number =>
  *
  * One helper for units and machines both, because the cap is the same rule for both: a flat +3 on
  * a sheet already at 99 is worth one point, not three, and a percentage channel on top of that
- * cannot push a body past the ceiling either. Deliberately not rounded: the battle engine reads a
+ * cannot push a unit past the ceiling either. Deliberately not rounded: the battle engine reads a
  * unit's effective speed as a continuous figure and rounding it here would move matchups.
  */
 export function effectiveSpeed(

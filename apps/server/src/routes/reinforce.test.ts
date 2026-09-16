@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   declarationWindow,
   randomBadge,
   skirmishOutcome,
@@ -13,6 +14,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from '../battle/movement.js';
 import { settleBattles } from '../battle/resolve.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: sending units to an ally's fight, for the case the feature exists for.
@@ -51,17 +53,13 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
     payload: { username, password: 'hunter2pass' },
   });
   const body = registered.json<{ token: string; user: { id: string } }>();
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(body.token),
-    payload: { presetId: 'enforcer' },
-  });
-  return {
-    token: body.token,
-    userId: body.user.id,
-    baseId: chosen.json<{ base: { id: string } }>().base.id,
-  };
+  const chosen = await chooseOverseer(app, body.token);
+  const baseId = chosen.json<{ base: { id: string } }>().base.id;
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
+  return { token: body.token, userId: body.user.id, baseId };
 }
 
 /** Raises a crew to the level and Nexus a faction needs, and gives it something to send. */
@@ -245,7 +243,7 @@ describe('reinforcing an ally who is being broken into', () => {
     const db = openDatabase(config.databasePath);
     runMigrations(db);
     // Decided by hand: the defence holds and nobody on it dies, so what comes home is exactly
-    // what was sent and the split is the only thing that can move a body.
+    // what was sent and the split is the only thing that can move a unit.
     const engine: SkirmishEngine = {
       resolve: (input) => skirmishOutcome({ winner: 'defender', log: [`${input.locationName}`] }),
     };

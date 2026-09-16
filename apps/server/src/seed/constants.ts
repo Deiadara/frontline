@@ -224,7 +224,7 @@ export const MVP_RIVAL_SECOND: BotBlueprint = {
     { id: 'sollen-gauntlet', kind: 'gauntlet', level: 3, modifications: [], damage: 0 },
     { id: 'sollen-quarters', kind: 'quarters', level: 3, modifications: [], damage: 0 },
   ],
-  // A salvage outfit: thin on bodies, heavy on the machines that pull a wreck apart. Different
+  // A salvage outfit: thin on units, heavy on the machines that pull a wreck apart. Different
   // again from the rival's line troops and the ally's mixed roster, so the three NPC crews read as
   // three different operations rather than one army at three levels.
   army: { ironsides: 6, razors: 14, scrapers: 9, breakers: 5, stitchers: 3 },

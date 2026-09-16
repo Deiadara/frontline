@@ -7,8 +7,8 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 
 /**
  * Settings is the one screen that can lock a player out of their own account, so the tests here
- * are mostly about the ways it must refuse: a username somebody else holds, a passphrase change
- * without the old passphrase, a timezone that is an offset rather than a zone.
+ * are mostly about the ways it must refuse: a username somebody else holds, a password change
+ * without the old password, a timezone that is an offset rather than a zone.
  *
  * The defaults are pinned too. A row written before this feature existed has NULL where the glyph,
  * the display name and the clock go, and the schema is what turns those into a shield, a username
@@ -184,7 +184,7 @@ describe('PATCH /api/settings/profile', () => {
       });
       expect(res.statusCode).toBe(200);
       // Read back through a fresh request rather than out of the write's own answer: what is being
-      // tested is that the column was written, not that the handler can echo its own body.
+      // tested is that the column was written, not that the handler can echo its own unit.
       expect((await settings(app, token)).user.soundVolume).toBe(volume);
     }
 
@@ -239,7 +239,7 @@ describe('PATCH /api/settings/profile', () => {
 });
 
 describe('POST /api/settings/password', () => {
-  it('changes the passphrase when the old one is given', async () => {
+  it('changes the password when the old one is given', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
 
@@ -266,7 +266,7 @@ describe('POST /api/settings/password', () => {
     expect(fresh.statusCode).toBe(200);
   });
 
-  it('refuses without the old passphrase, even with a valid token', async () => {
+  it('refuses without the old password, even with a valid token', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
 
@@ -287,7 +287,7 @@ describe('POST /api/settings/password', () => {
     expect(login.statusCode).toBe(200);
   });
 
-  it('refuses a new passphrase shorter than the registration rule', async () => {
+  it('refuses a new password shorter than the registration rule', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
     const res = await app.inject({

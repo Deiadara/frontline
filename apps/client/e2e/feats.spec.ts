@@ -14,7 +14,7 @@ import {
  * The feats screen, looked at rather than asserted about (maintainer request, 2026-09-13).
  *
  * The unit gates in `src/features/feats` say the right rungs exist in the right cards. This says
- * the screen *holds* them: a hundred and sixty of them in a sheet that scrolls, the four states of
+ * the screen *holds* them: two hundred of them in a sheet that scrolls, the four states of
  * a ladder legible in one card, the button reachable, and the two marks in the corner of the
  * bottom bar not drawn on top of each other.
  *
@@ -46,8 +46,11 @@ test('the board opens on every feat, grouped into ladders', async ({ page }) => 
   );
   await expect(page.getByTestId('feats-ledger-claimed')).toHaveText(String(featsBoard.claimed));
   await expect(page.getByTestId('feats-count-ready')).toHaveText(String(featsBoard.ready));
-  await expect(page.getByTestId('feats-ready-chip')).toContainText(
-    `${featsBoard.ready} to collect`,
+  // The waiting count reads in exactly two places now: the ledger row above, and the face of the
+  // button that acts on it. The red `N to collect` plate that used to sit beside the button was a
+  // third printing of the same number and went with the visibility pass.
+  await expect(page.getByTestId('feats-claim-all')).toContainText(
+    `Collect all ${featsBoard.ready}`,
   );
 
   await expectNothingOverflowsTheScreen(page);
@@ -55,7 +58,7 @@ test('the board opens on every feat, grouped into ladders', async ({ page }) => 
    * Scoped to the ledger, not swept over the whole page.
    *
    * The gate walks up from each drawing to the scope looking for a clipping edge, so an unscoped
-   * sweep of a sheet holding a hundred and sixty feats reports whichever rung mark happens to
+   * sweep of a sheet holding two hundred feats reports whichever rung mark happens to
    * straddle the fold: measured, and it is the claimed mark on the fourth card at 1280x720. That
    * is the scroller doing its job. The board is swept properly in the filtered test below, where
    * `growPastTheFold` has grown the window until there is no fold to straddle.
@@ -168,7 +171,7 @@ test('the two filters narrow the board, together', async ({ page }) => {
    * The whole narrowed board, swept for a cut line.
    *
    * The sweep grows the window until nothing is over its own fold, which is why it runs here and
-   * not on the unfiltered page: a hundred and sixty feats is a scroller several times taller than
+   * not on the unfiltered page: two hundred feats is a scroller several times taller than
    * the harness is willing to grow to, and the guard would refuse rather than measure. Nine rungs
    * is the same markup at a height the sweep can see all of at once.
    */
@@ -201,7 +204,7 @@ test('the sheet scrolls the whole way down, and the last card is whole', async (
   await expect(last).toBeVisible();
 
   // Whole, rather than merely present: the foot of the last card has to be inside the sheet's own
-  // scrolling body, or the bottom bar is drawn over it.
+  // scrolling unit, or the bottom bar is drawn over it.
   const card = await boxOf(last);
   const sheet = await boxOf(page.getByTestId('page-sheet'));
   expect(card.y + card.height).toBeLessThanOrEqual(sheet.y + sheet.height + 1);
@@ -245,7 +248,7 @@ test('the board holds at 1920x1080 as well as at 1280x720', async ({ page }) => 
   await expect(page.getByTestId('feats-board')).toBeVisible();
   await settleFonts(page);
 
-  // Two columns of cards past 1280, so sixty-two of them are half as far to scroll.
+  // Two columns of cards past 1280, so seventy-two of them are half as far to scroll.
   const board = await boxOf(page.getByTestId('feats-board'));
   const first = await boxOf(page.getByTestId('feats-board').locator('> article').first());
   expect(first.width).toBeLessThan(board.width * 0.6);
@@ -269,3 +272,52 @@ test('a crew with nothing waiting gets no red mark', async ({ page }) => {
   await expect(page.getByTestId('nav-feats')).toBeVisible();
   await expect(page.getByTestId('nav-feats-badge')).toHaveCount(0);
 });
+
+/**
+ * The level-up card, which is new art and therefore has to be looked at.
+ *
+ * The old banner was latched over the middle of the page with a `Noted` text link for an exit and
+ * no timer, so it read as stuck. This is the replacement: a drawn card in the corner with a real X
+ * and a five second clock. Two things are worth a browser rather than jsdom, and both are about
+ * the drawing: the `feTurbulence` frame has to render as a wobbled box rather than as nothing, and
+ * nothing in it may be cut at either viewport.
+ */
+for (const [tag, width, height] of [
+  ['1280x720', 1280, 720],
+  ['1920x1080', 1920, 1080],
+] as const) {
+  test(`the level-up card is drawn whole and can be dismissed at ${tag}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await installApi(page, {
+      ...featsMe,
+      levelUp: {
+        level: 24,
+        levelsGained: 2,
+        grants: { recruitSlots: 25 },
+        unlocks: [{ id: 'research', name: 'Research', description: 'The Lab opens.', level: 24 }],
+      },
+    });
+    await page.goto('/game/feats');
+
+    const card = page.getByTestId('level-up-toast');
+    await expect(card).toBeVisible();
+    await settleFonts(page);
+    await expect(card).toContainText('Level 24');
+    await expect(card).toContainText('+2 levels');
+    // What the level is worth, which is the half the old banner buried under a divider.
+    await expect(card).toContainText('25');
+
+    const clipped = await page.evaluate<string[]>(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-testid="level-up-toast"] *')]
+        .filter((el) => el.children.length === 0 && el.scrollWidth > el.clientWidth + 1)
+        .map((el) => `"${el.textContent?.trim()}" (${el.scrollWidth}>${el.clientWidth}px)`),
+    );
+    expect(clipped, `cut text in the level-up card: ${clipped.join(' | ')}`).toEqual([]);
+    await expectNothingOverflowsTheScreen(page);
+    await page.screenshot({ path: `e2e-out/level-up-card-${tag}.png` });
+
+    // The X, which is the exit the old one did not really have.
+    await page.getByTestId('level-up-dismiss').click();
+    await expect(page.getByTestId('shell-level-up')).toHaveCount(0);
+  });
+}

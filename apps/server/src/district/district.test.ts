@@ -30,7 +30,7 @@ import {
   type Resources,
   startingTraining,
   CITY_LOCATIONS,
-  POPULATION_PER_LOCATION,
+  UNIT_SLOTS_PER_LOCATION,
   xpForClock,
 } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -40,7 +40,9 @@ import { settleBase } from './settle.js';
 import { queueBuild, buildClocksFor } from './build.js';
 import { buyBuildBoost } from './boost.js';
 import { clearSlot, fitIntoSlot } from './modifications.js';
-import { districtPopulation } from './population.js';
+import { districtUnitSlots } from './unit-slots.js';
+import { setGarrison } from '../city/actions.js';
+import { projectUnits } from '../units/roster.js';
 import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
 
@@ -348,11 +350,11 @@ describe('settling the district (§A1)', () => {
   /**
    * The bench, and the same rule at its own call site.
    *
-   * Per body at a flat rate is what would make Razors an XP faucet: forty-five seconds apiece,
+   * Per unit at a flat rate is what would make Razors an XP faucet: forty-five seconds apiece,
    * twenty XP apiece, forever. The unit's own clock is what prices it, so a Colossus is worth
    * bringing off the bench and a Razor is worth what a Razor takes.
    */
-  it('pays more XP for a body that took longer to train', () => {
+  it('pays more XP for a unit that took longer to train', () => {
     const started = new Date(NOW.getTime() - 4 * HOUR_MS);
     const settleOne = (unitId: string) => {
       const repos = openStack();
@@ -447,6 +449,10 @@ describe('settling the district (§A1)', () => {
    * The Generator used to burn oil to hold the grid up, which meant a new crew who put the game
    * down for three days came back with less fuel than they left. Nothing in the game consumes a
    * resource on a clock any more, and this is the assertion that says so by name.
+   *
+   * Oil used to be pinned flat here for the same reason. The Generator is the fuel line as of
+   * 2026-09-15, so the fixture's one structure pays out over three days and the half that still
+   * has to hold is the direction: three days away is never a loss, on any resource.
    */
   it('§A1: takes nothing off the stockpile over a long absence', () => {
     const repos = openStack();
@@ -454,7 +460,9 @@ describe('settling the district (§A1)', () => {
     const base = seedBase(repos, { settledAt: start.toISOString() });
 
     const settled = settleDistrict(repos, base, NOW);
-    expect(settled.base.resources.oil).toBe(base.resources.oil);
+    expect(settled.base.resources.oil, 'the Generator runs while nobody is home').toBeGreaterThan(
+      base.resources.oil,
+    );
     for (const key of RESOURCE_KEYS) {
       expect(settled.base.resources[key], key).toBeGreaterThanOrEqual(base.resources[key]);
     }
@@ -469,15 +477,16 @@ describe('settling the district (§A1)', () => {
   });
 });
 
-describe('population (§A1: one pool)', () => {
+describe('unit slots (§A1: one pool)', () => {
   /**
-   * §A1, as the maintainer rewrote it: **the army draws on the pool and the officers do not.**
+   * §A1, as the maintainer rewrote it on 2026-09-15: **the officers and the yard draw on the pool
+   * too**, one bed each, alongside the army's slots.
    *
-   * Officers used to be charged a bed each, which put hiring somebody in competition with training
-   * somebody. That is not a trade the game wants: the crew is who you are, the army is what you can
-   * field. They are still counted and still reported, just not charged.
+   * Officers were charged, then were not on the argument that nineteen of them against a ceiling in
+   * the hundreds was a rounding error, and are charged again. The rule is the simple one now: if
+   * the crew feeds it or parks it, the district is housing it.
    */
-  it('charges the army against the ceiling and the officers against nothing', () => {
+  it('charges the army, the officers and the yard against the ceiling', () => {
     const repos = openStack();
     const officers = [createCommander('o1', 'One', 'head_spy')];
     const base = seedBase(repos, {
@@ -485,16 +494,23 @@ describe('population (§A1: one pool)', () => {
       buildings: [build('nexus', 1), build('generator', 1), build('quarters', 2)],
     });
 
-    const withOfficer = districtPopulation(repos, base);
-    expect(withOfficer.officers, 'still counted').toBe(1);
-    expect(withOfficer.total, 'and still not charged').toBe(0);
+    const withOfficer = districtUnitSlots(repos, base);
+    expect(withOfficer.officers).toBe(1);
+    expect(withOfficer.total, 'one officer, one bed').toBe(1);
 
-    // §A5: Razors are supply 1 apiece, so five of them is five bodies rather than one roster entry.
+    // §A5: Razors are one unit slot apiece, so five of them is five units rather than one roster entry.
     const withArmy: Base = { ...base, army: { razors: 5 } };
-    const fielded = districtPopulation(repos, withArmy);
+    const fielded = districtUnitSlots(repos, withArmy);
     expect(fielded.army).toBe(5);
-    expect(fielded.total).toBe(5);
+    expect(fielded.total).toBe(6);
     expect(fielded.spare).toBe(withOfficer.spare - 5);
+
+    // §C: and a machine is one bed whatever it seats. The Heli Porter carries twelve.
+    const withYard: Base = { ...withArmy, fleet: { motorcycle: 2, heli_porter: 1 } };
+    const parked = districtUnitSlots(repos, withYard);
+    expect(parked.fleet).toBe(3);
+    expect(parked.total).toBe(9);
+    expect(parked.spare).toBe(fielded.spare - 3);
   });
 
   /**
@@ -504,7 +520,7 @@ describe('population (§A1: one pool)', () => {
    * and a crew could fill both pools without either noticing; the only way to see that the merge
    * actually happened is to hire somebody and watch the roster get smaller.
    */
-  it('refuses an order the district has no beds for, and hiring does not make it refuse sooner', () => {
+  it('refuses an order the district has no beds for, and hiring makes it refuse sooner', () => {
     const repos = openStack();
     const base = seedBase(repos, {
       buildings: [build('nexus', 1), build('generator', 1), build('gauntlet', 4)],
@@ -518,31 +534,121 @@ describe('population (§A1: one pool)', () => {
       },
     });
     const razors = findUnit('razors')!;
-    const room = districtPopulation(repos, base).spare;
+    const room = districtUnitSlots(repos, base).spare;
 
     expect(queueTraining(repos, { base, unit: razors, count: room + 1, now: NOW })).toEqual({
       kind: 'refused',
-      reason: 'no_supply',
+      reason: 'no_unit_slots',
     });
 
     const filled = queueTraining(repos, { base, unit: razors, count: room, now: NOW });
     expect(filled.kind).toBe('queued');
 
-    // ...and signing somebody takes no bed off the army, which is the maintainer's rule (§A1).
+    // ...and signing somebody takes a bed off the army, which is the maintainer's rule (§A1).
     const withOfficer = { ...base, commanders: [createCommander('o1', 'One', 'head_spy')] };
-    expect(districtPopulation(repos, withOfficer).spare).toBe(room);
+    expect(districtUnitSlots(repos, withOfficer).spare).toBe(room - 1);
+  });
+
+  /**
+   * The roster's chip and **Max** subtract to the same figure the training door compares against.
+   *
+   * `unitSlotsCap - unitSlotsUsed` is exactly what Max offers, and the route refuses anything past
+   * `districtUnitSlots`'s `spare`. Sending the roster a draw that leaves the officers and the yard
+   * out is Max proposing a batch the door then turns away, which is the defect this pins: it needs
+   * a crew that actually has an officer and a machine, or the two numbers agree by accident.
+   */
+  it('sends the roster a draw that subtracts to the same beds the training door counts', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      officers: [createCommander('o1', 'One', 'head_spy'), createCommander('o2', 'Two', null)],
+      buildings: [build('nexus', 1), build('generator', 1), build('quarters', 4)],
+    });
+    const crew: Base = { ...base, army: { razors: 3 }, fleet: { motorcycle: 2 } };
+
+    const slots = districtUnitSlots(repos, crew);
+    const page = projectUnits(repos, crew, NOW);
+    expect(slots.officers).toBe(2);
+    expect(slots.fleet).toBe(2);
+    expect(page.unitSlotsCap - page.unitSlotsUsed).toBe(slots.spare);
+  });
+
+  /**
+   * One fixture through both counters, across the two doors this module owns for a unit leaving
+   * or entering the district: posting a garrison and calling a batch off. The refusal's `spare`
+   * and the roster's `unitSlotsCap - unitSlotsUsed` have to move together at every step, and a garrison
+   * has to move neither: a unit on a rooftop is still fed from home.
+   */
+  it('keeps the door and the roster on one figure through a garrison and a cancelled batch', () => {
+    const repos = openStack();
+    const base = seedBase(repos, {
+      buildings: [
+        build('nexus', 1),
+        build('generator', 1),
+        build('quarters', 4),
+        build('gauntlet', 4),
+      ],
+      resources: {
+        caps: 900_000,
+        supplies: 900_000,
+        oil: 900_000,
+        scrap: 900_000,
+        highQualityMetal: 0,
+        planks: 900_000,
+      },
+    });
+    const crew: Base = { ...base, army: { razors: 6 } };
+    repos.bases.updateArmy(crew.id, crew.army, crew.trainingQueue);
+    const agree = (at: Base, label: string): number => {
+      const slots = districtUnitSlots(repos, at);
+      const page = projectUnits(repos, at, NOW);
+      expect(page.unitSlotsUsed, label).toBe(slots.total);
+      expect(page.unitSlotsCap - page.unitSlotsUsed, label).toBe(slots.spare);
+      return slots.total;
+    };
+    const home = agree(crew, 'six at home');
+
+    // Two Razors onto held ground: the roster shrinks, the district does not.
+    const location = CITY_LOCATIONS[0]!;
+    repos.city.put({
+      ...repos.city.control(location.id)!,
+      holder: { kind: 'crew', baseId: crew.id },
+      garrison: {},
+    });
+    const posted = setGarrison(repos, { base: crew, location, changes: { razors: 2 } });
+    if (posted.kind !== 'ok') throw new Error(`fixture: garrison refused ${posted.reason}`);
+    expect(posted.base.army).toEqual({ razors: 4 });
+    expect(agree(posted.base, 'two posted'), 'a garrison is still fed from home').toBe(home);
+
+    // A batch of two claims two beds at the order, and hands them back when it is called off.
+    const razors = findUnit('razors')!;
+    const queued = queueTraining(repos, { base: posted.base, unit: razors, count: 2, now: NOW });
+    if (queued.kind !== 'queued') throw new Error(`fixture: order refused ${queued.reason}`);
+    expect(agree(queued.base, 'two on the bench')).toBe(home + 2);
+    const cancelled = cancelTraining(repos, queued.base, queued.order.id, NOW);
+    if (cancelled.kind !== 'cancelled') throw new Error('fixture: cancel refused');
+    expect(agree(cancelled.base, 'batch called off')).toBe(home);
+
+    // And bringing the two home changes nothing either: they were counted the whole time.
+    const recalled = setGarrison(repos, {
+      base: cancelled.base,
+      location,
+      changes: { razors: -2 },
+    });
+    if (recalled.kind !== 'ok') throw new Error('fixture: recall refused');
+    expect(recalled.base.army).toEqual({ razors: 6 });
+    expect(agree(recalled.base, 'two home again')).toBe(home);
   });
 
   it('houses more people for every location the crew holds', () => {
     const repos = openStack();
     const base = seedBase(repos, { buildings: [build('nexus', 1), build('quarters', 2)] });
-    const bare = districtPopulation(repos, base).capacity;
+    const bare = districtUnitSlots(repos, base).capacity;
 
     const location = CITY_LOCATIONS[0]!;
     const held = repos.city.control(location.id)!;
     repos.city.put({ ...held, holder: { kind: 'crew', baseId: base.id } });
 
-    expect(districtPopulation(repos, base).capacity).toBe(bare + POPULATION_PER_LOCATION);
+    expect(districtUnitSlots(repos, base).capacity).toBe(bare + UNIT_SLOTS_PER_LOCATION);
   });
 });
 

@@ -22,6 +22,23 @@ export interface NewOverseer {
 
 export interface OverseersRepo {
   insert(input: NewOverseer): void;
+  /**
+   * Drops the character an account is carrying, so it can pick another.
+   *
+   * `idx_overseers_user` is unique (migration 0074), so leaving the old row behind makes the next
+   * `POST /overseer` fail on the index rather than on a guard: the Console's Clean slate has to
+   * take the row with it, not only the pointer on `users`.
+   */
+  removeForUser(userId: string): void;
+  /**
+   * Every character somebody already holds (§F6): the pool, less what is left of it.
+   *
+   * Read off the `overseers` table rather than kept in a table of its own, because the table *is*
+   * the record: a character is claimed exactly when an account is carrying it, and a second store
+   * could only ever disagree with that. The Console's Clean slate drops the row, so it puts the
+   * character back in the pool by construction rather than by remembering to.
+   */
+  claimedPresetIds(): Set<string>;
   findById(id: string): Overseer | undefined;
   /** GDD §F2: the Overseer develops an attribute, which is the only thing that moves this sheet. */
   updateAttributes(id: string, attributes: Attributes): void;
@@ -56,6 +73,7 @@ function rowToOverseer(row: OverseerRow): Overseer {
 }
 
 export function createOverseersRepo(db: AppDatabase): OverseersRepo {
+  const removeStmt = db.prepare('DELETE FROM overseers WHERE user_id = ?');
   const insertStmt = db.prepare(
     `INSERT INTO overseers
        (id, user_id, preset_id, name, archetype, portrait_id, bio, attributes_json, perks_json, created_at)
@@ -63,6 +81,7 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
   );
   const byIdStmt = db.prepare('SELECT * FROM overseers WHERE id = ?');
   const updateAttributesStmt = db.prepare('UPDATE overseers SET attributes_json = ? WHERE id = ?');
+  const claimedStmt = db.prepare('SELECT DISTINCT preset_id FROM overseers');
 
   return {
     insert({ overseer, userId, presetId, createdAt }) {
@@ -78,6 +97,12 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
         JSON.stringify(overseer.perks),
         createdAt,
       );
+    },
+    removeForUser(userId) {
+      removeStmt.run(userId);
+    },
+    claimedPresetIds() {
+      return new Set((claimedStmt.all() as { preset_id: string }[]).map((row) => row.preset_id));
     },
     findById(id) {
       const row = byIdStmt.get(id) as OverseerRow | undefined;

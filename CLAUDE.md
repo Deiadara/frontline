@@ -36,6 +36,49 @@ punctuation, not about being terse.
 - **Zero visual bugs.** No cut text or images, no overflow, no overlapping elements. Verify with screenshots
   before declaring anything ready.
 
+## Finish the work, then ask
+
+**Do not stop to report progress.** A batch of ten items is done when ten items are done, not when
+six are done and there is a tidy summary of the six. Stopping early to say "here is where I got to,
+say the word and I will continue" spends a round trip to deliver nothing, and the work that is left
+is exactly the work that was hardest, which is why it got left.
+
+The one thing that justifies stopping is a **decision only the maintainer can make**: two designs
+that lead to materially different code, something destructive, or a product call with no defensible
+default. When one of those appears, do not down tools. **Finish everything the decision does not
+block**, and put the question at the end, with what you already did above it.
+
+Volume is not a reason to stop, and neither is a long conversation. Neither is "this last piece is
+substantial", which is a description of the job. If a batch is genuinely too large to hold at once,
+say so at the start and propose a split, rather than discovering it nine items in.
+
+## Feats move with the game
+
+**A feature change is not finished until the feats have moved with it.**
+`packages/shared/src/feats/catalog.ts` holds two hundred thresholds on named numbers, and every one
+of them points at a mechanic. When a mechanic moves underneath a feat, nothing breaks loudly: the
+feat sits at zero forever, on a screen that wears a red badge, and no gate says a word. That is the
+same failure the `character_xp_percent` fittings had, where seven Scrapyard cards were sold against
+a channel the game had deleted.
+
+In the same change, not a follow-up:
+
+- **Adding a feature.** Give it feats. A mechanic with none is invisible to the one screen that
+  tells a player what there is to do. Use a ladder where the thing has degrees and a standalone
+  feat where it does not. If it needs a number nobody counts yet, add the measure to
+  `feats/measures.ts` and the hook that bumps it to `apps/server/src/feats/tally.ts`.
+- **Changing a feature.** Re-read every feat that measures it. A retuned cost, a renamed scope or a
+  new ceiling can leave a target that is now trivial or now impossible. The two that have already
+  bitten are `building_level` against `BUILDING_MAX_LEVEL` and `faction_seats` against the five
+  seats a table actually has.
+- **Removing a feature.** Take its feats with it. Retire them, or repoint them at whatever replaced
+  the mechanic, and remove the measure from `measures.ts` and its tally hook in the same pass.
+
+Two tests hold this and are worth extending rather than working around: `feats/catalog.test.ts`
+prices every reward against its band, refuses a chain whose targets do not climb, and refuses a
+scope the game does not have; `apps/server/src/feats/snapshot.test.ts` refuses a feat whose number
+nothing produces.
+
 ## Shared working tree: commit discipline
 
 All agents share **one** working tree, and more than one run is often writing to it at the same time.

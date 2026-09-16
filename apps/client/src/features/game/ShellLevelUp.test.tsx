@@ -1,6 +1,6 @@
 import { playerLevelGrants, type LevelUp } from '@frontline/shared';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShellLevelUp } from './ShellLevelUp';
 
 /**
@@ -18,6 +18,52 @@ const crossed: LevelUp = {
 };
 
 describe('the level-up the shell found', () => {
+  // The toast dismisses itself on a timer now, so every case below has to be able to say "and no
+  // time passed". Without fake timers the five second clock is simply never reached in a test and
+  // the auto-dismiss would be the one behaviour with no coverage at all.
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * It leaves on its own after five seconds.
+   *
+   * The old banner had no timer: it sat over the page until the player found a `Noted` link set at
+   * 11px in a corner, which is the complaint that produced the rework. This is the half of the fix
+   * a click cannot demonstrate.
+   */
+  it('takes itself away after five seconds with nobody touching it', () => {
+    render(<ShellLevelUp levelUp={crossed} />);
+    expect(screen.getByTestId('shell-level-up')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    // Still there at four: the dwell is five, and a card that left early would be unreadable.
+    expect(screen.getByTestId('shell-level-up')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1_100);
+    });
+    expect(screen.queryByTestId('shell-level-up')).not.toBeInTheDocument();
+  });
+
+  /** Hovering holds the clock, so the one player who wants to read an unlock can. */
+  it('holds the clock while the pointer is on it', () => {
+    render(<ShellLevelUp levelUp={crossed} />);
+    fireEvent.mouseEnter(screen.getByTestId('level-up-toast'));
+
+    act(() => {
+      vi.advanceTimersByTime(12_000);
+    });
+    expect(screen.getByTestId('shell-level-up')).toBeInTheDocument();
+
+    fireEvent.mouseLeave(screen.getByTestId('level-up-toast'));
+    act(() => {
+      vi.advanceTimersByTime(5_100);
+    });
+    expect(screen.queryByTestId('shell-level-up')).not.toBeInTheDocument();
+  });
+
   it('stays up after the poll that carried it has moved on, until it is dismissed', () => {
     const { rerender } = render(<ShellLevelUp levelUp={crossed} />);
     expect(screen.getByTestId('shell-level-up')).toBeInTheDocument();
@@ -26,7 +72,7 @@ describe('the level-up the shell found', () => {
     rerender(<ShellLevelUp levelUp={undefined} />);
     expect(screen.getByTestId('shell-level-up')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Noted' }));
+    fireEvent.click(screen.getByTestId('level-up-dismiss'));
     expect(screen.queryByTestId('shell-level-up')).not.toBeInTheDocument();
   });
 
@@ -41,7 +87,7 @@ describe('the level-up the shell found', () => {
    */
   it('does not re-announce a level the player has already dismissed', () => {
     const { rerender } = render(<ShellLevelUp levelUp={crossed} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Noted' }));
+    fireEvent.click(screen.getByTestId('level-up-dismiss'));
     expect(screen.queryByTestId('shell-level-up')).not.toBeInTheDocument();
 
     rerender(<ShellLevelUp levelUp={undefined} />);
@@ -52,7 +98,7 @@ describe('the level-up the shell found', () => {
 
   it('still announces the next level after one has been dismissed', () => {
     const { rerender } = render(<ShellLevelUp levelUp={crossed} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Noted' }));
+    fireEvent.click(screen.getByTestId('level-up-dismiss'));
 
     rerender(<ShellLevelUp levelUp={undefined} />);
     rerender(<ShellLevelUp levelUp={{ ...crossed, level: 6, grants: playerLevelGrants(6) }} />);

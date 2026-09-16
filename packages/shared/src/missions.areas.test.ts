@@ -23,7 +23,8 @@ import {
 } from './missions.areas.js';
 import { CITY_DISTRICTS } from './city/index.js';
 import { MISSION_TEMPLATES } from './missions.js';
-import { RESOURCE_KG } from './raid.js';
+import { RESOURCE_KG, lootCapacityOf } from './raid.js';
+import { findUnit } from './units/index.js';
 import { MILESTONE_THIRD_CREW, playerUnlocksBetween } from './progression/index.js';
 
 const AREAS = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)];
@@ -308,8 +309,67 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
 
   it('adds up what a crew can carry, and pays a Scavenger for being a Scavenger', () => {
     expect(missionCarry({})).toBe(0);
-    expect(missionCarry({ scavengers: 3 })).toBe(30);
+    // Ten off the sheet plus the picker's flat load, which is what "for being a Scavenger" means
+    // and what this figure was missing until 2026-09-16: it read 30 for three of them while the
+    // raid path read 66 off the same sheets.
+    expect(missionCarry({ scavengers: 3 })).toBe(lootCapacityOf({ scavengers: 3 }));
+    expect(missionCarry({ scavengers: 3 })).toBeGreaterThan(30);
     expect(missionCarry({ scavengers: 1 })).toBeLessThan(missionCarry({ haulers: 1 }));
+  });
+
+  /**
+   * The bag a card promises on the roster is the bag the job honours.
+   *
+   * Three cards in `units/modifications.ts` move `lootCapacity`, so a force is read at its fitted
+   * sheet. Bolted to the Scavengers it moves their carry and nobody else's; an id the catalogue
+   * does not know pays nothing; and with no loadouts passed the figure is the printed one.
+   */
+  it('reads the bag off the fitted sheet, for the unit it is fitted to', () => {
+    const printed = missionCarry({ scavengers: 3, haulers: 2 });
+    const hooked = missionCarry(
+      { scavengers: 3, haulers: 2 },
+      { scavengers: ['hook_and_line', null, null] },
+    );
+    expect(hooked).toBe(printed + 3 * 12);
+    expect(missionCarry({ haulers: 2 }, { scavengers: ['hook_and_line'] })).toBe(
+      missionCarry({ haulers: 2 }),
+    );
+    expect(missionCarry({ scavengers: 3 }, { scavengers: ['armour_1'] })).toBe(
+      missionCarry({ scavengers: 3 }),
+    );
+  });
+
+  /**
+   * The job and the raid carry the same bag, which is what this function's own doc always claimed.
+   *
+   * It was a second arithmetic: `picker` was ignored, granted marks were ignored, and the crew's
+   * `lootCapacityPercent` (the Pawn Shop, the raid modifications, `sig_scavenger_king`) was ignored.
+   * A Scavenger carried 22 on a raid and 10 on a job off the same sheet, the research rung that
+   * grants Haulers `picker` was a slot and a wait for nothing, and the Pawn Shop was worth nothing
+   * to a crew that ran jobs.
+   */
+  it('carries exactly what a raid carries, marks and crew bag included', () => {
+    const force = { scavengers: 3, haulers: 2 };
+    expect(missionCarry(force)).toBe(lootCapacityOf(force));
+
+    // The picker load, printed on the sheet.
+    expect(findUnit('scavengers')?.picker, 'the premise: a Scavenger picks').toBe(true);
+    expect(missionCarry({ scavengers: 3 })).toBeGreaterThan(
+      3 * (findUnit('scavengers')?.stats.lootCapacity ?? 0),
+    );
+
+    // ...and granted, which is what the research rung buys.
+    const granted = { carriersFight: false, unitMarks: { haulers: ['picker'] } } as const;
+    expect(findUnit('haulers')?.picker, 'the premise: a Hauler is not born a picker').not.toBe(
+      true,
+    );
+    expect(missionCarry({ haulers: 2 }, {}, 0, granted)).toBeGreaterThan(
+      missionCarry({ haulers: 2 }),
+    );
+
+    // ...and the crew's own bag on top of the base, the same way a raid spends it.
+    expect(missionCarry(force, {}, 50)).toBeGreaterThan(missionCarry(force));
+    expect(missionCarry(force, {}, 50)).toBe(lootCapacityOf(force, 50));
   });
 
   it('brings the whole payout home when the crew can lift it', () => {

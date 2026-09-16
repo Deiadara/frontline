@@ -7,7 +7,7 @@ import { simulate } from './engine.js';
  * Whether the roster is a **web** or a **ladder**.
  *
  * Every other test in this directory checks a rule. This one checks the content the rules produce,
- * by playing every non-unique unit against every other at equal supply and reading the result as a
+ * by playing every non-unique unit against every other at equal unit slots and reading the result as a
  * graph. Two things have to be true of that graph, and neither is guaranteed by any amount of
  * correct arithmetic:
  *
@@ -24,7 +24,7 @@ import { simulate } from './engine.js';
  * matchup anybody can have.
  */
 
-/** Supply spent per side. Equal supply is the only fair way to compare a Razor with a Juggernaut. */
+/** Unit slots spent per side. Equal slots is the only fair way to compare a Razor with a Juggernaut. */
 const SUPPLY_BUDGET = 60;
 
 /** Seeds per pairing, per ground. Enough to settle a coin flip, few enough to stay quick. */
@@ -84,12 +84,12 @@ function beatsGraph(): Map<string, Set<string>> {
             battlefield,
             attacker: {
               name: 'A',
-              army: { [attacker.id]: Math.max(1, Math.floor(SUPPLY_BUDGET / attacker.supply)) },
+              army: { [attacker.id]: Math.max(1, Math.floor(SUPPLY_BUDGET / attacker.unitSlots)) },
               defending: false,
             },
             defender: {
               name: 'D',
-              army: { [defender.id]: Math.max(1, Math.floor(SUPPLY_BUDGET / defender.supply)) },
+              army: { [defender.id]: Math.max(1, Math.floor(SUPPLY_BUDGET / defender.unitSlots)) },
               defending: true,
             },
           });
@@ -142,7 +142,7 @@ describe('the roster is a web, not a ladder', () => {
       const inTier = ROSTER.filter((unit) => unit.tier === tier);
       return inTier.reduce((total, unit) => total + BEATS.get(unit.id)!.size, 0) / inTier.length;
     };
-    // Heavier units are better at the same supply. They are gated behind campaigns, not price.
+    // Heavier units are better at the same unit slots. They are gated behind campaigns, not price.
     expect(wins('heavy')).toBeGreaterThan(wins('rabble'));
     // ...but not so much better that the lower tiers stop beating anything.
     expect(wins('rabble')).toBeGreaterThan(2);
@@ -153,7 +153,7 @@ describe('the roster is a web, not a ladder', () => {
  * The ladder the roster actually claims, measured instead of asserted.
  *
  * `UNIT_CATALOG`'s module note states it plainly: a unit is balanced against its **requirement
- * list**, not against its price or its supply, because "a unit roster is a readout of a campaign".
+ * list**, not against its price or its unit slots, because "a unit roster is a readout of a campaign".
  * That is a testable claim. Weight each clause the way `economy/infamy.test.ts` weights it to price
  * a kill, then ask how well the ranking by gate depth predicts the ranking by result.
  *

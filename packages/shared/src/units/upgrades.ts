@@ -1,248 +1,46 @@
 import { z } from 'zod';
 import type { ItemCost } from '../items/inventory.js';
-import type { PartialResources } from '../resources.js';
-import { UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
+import {
+  findUnitModification,
+  unitModificationBlueprintMet,
+  type UnitModificationBlueprintGate,
+  type UnitModificationSpec,
+} from './modifications.js';
+import { capRating, UNIT_FIGURE_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
 
 /**
- * What the workshop does to a roster (GDD §A5, workshop extension).
+ * What the Scrapyard's unit bench does to a roster (GDD §A5).
  *
- * Training gives you *more* of a unit. This gives you a *better* one, and it is the sink that
- * makes scrap matter past the early game. Every upgrade is bought once and applies to every one of
- * that unit you will ever field, which is the version that respects a player's time: nobody wants
- * to re-buy a helmet for each recruit.
+ * Training gives you *more* of a unit. A modification card gives you a *better* one, and it is
+ * the sink that makes scrap matter past the early game. The cards themselves live in
+ * `modifications.ts`; this module is the two rules every door onto them shares: whether the yard
+ * will cut one ({@link upgradeRefusal}) and what a fitted set does to a sheet ({@link
+ * upgradedStats}).
  *
- * ## Four lines, each behind a blueprint
+ * ## History
  *
- * **Armour** is plate and padding: vitality and armour, at the cost of a little speed. **Weapons**
- * are what they carry: penetration, offense, range. **Cybernetics** are what goes *in* them:
- * reflex and speed and stealth, and the only line whose top tier asks for a Neural Shunt per
- * upgrade rather than per unit. **Discipline** is none of those: it is drill, and it buys morale
- * and the look of a unit that is not going to break, which is the only line that makes a crew
- * harder to fight without making it better at fighting.
- *
- * Each line's first tier is open to anybody. The second and third want the line's blueprint
- * **document** (§D12g), assembled out of pages, which is what puts the mission board on the
- * critical path: a crew that never goes looking tops out at tier one on everything.
- *
- * Which document that is lives in `blueprints/catalog.ts` and not here, on the document rather
- * than on the upgrade, because one document gates both tiers of a line. {@link upgradeRefusal}
- * therefore takes the answer as a predicate: this module sits below `blueprints/` in the import
- * graph, and a caller with a satchel to hand passes
- * `blueprintGateMet(inventory, 'unit_upgrade', id)` straight in.
+ * This file used to hold `UNIT_UPGRADES`: twelve tiered refits in four lines, each rung needing
+ * the rung below it and a Gauntlet level of its own. The maintainer retired that model on
+ * 2026-09-15 for the thirty cards in `modifications.ts`, and everything that only existed for the
+ * ladder went with it: `UPGRADE_LINES`, `upgradesInLine`, `findUpgrade`, the
+ * `needs_previous_tier` and `gauntlet_too_low` refusals, and the `requiresGauntletLevel` gate.
+ * The blueprint document and the yard's level are the whole gate now.
  *
  * ## Everything costs scrap
  *
- * That is the maintainer's rule and it is a good one: scrap is the material the city is made of, so
- * every physical improvement comes out of the same pile that the buildings do. High-quality metal
- * appears at tier two and above, components at tier two and three. **Scrap and metal are the only
- * two resources on the bill** (§B9), because these are built in the Scrapyard and that page shows
- * no other.
+ * That is the maintainer's rule and it is a good one: scrap is the material the city is made of,
+ * so every physical improvement comes out of the same pile that the buildings do. High-quality
+ * metal appears from INTRICATE up, components on every card the yard needs drawings for. **Scrap
+ * and metal are the only two resources on the bill** (§B9), because these are built in the
+ * Scrapyard and that page shows no other.
  */
 
-export const UPGRADE_LINES = ['armour', 'weapons', 'cybernetics', 'discipline'] as const;
-export const UpgradeLineSchema = z.enum(UPGRADE_LINES);
-export type UpgradeLine = z.infer<typeof UpgradeLineSchema>;
-
-export const UPGRADE_LINE_LABELS: Readonly<Record<UpgradeLine, string>> = {
-  armour: 'Armour',
-  weapons: 'Weapons',
-  cybernetics: 'Cybernetics',
-  discipline: 'Discipline',
-};
-
-export const UPGRADE_LINE_BLURBS: Readonly<Record<UpgradeLine, string>> = {
-  armour: 'Plate, padding and whatever else stops a round. Heavier people move slower.',
-  weapons: 'What they are carrying, and how far it reaches.',
-  cybernetics: 'Wet-side work. Faster than a body has any business being, and it costs.',
-  discipline: 'What keeps them standing when the maths says run.',
-};
-
-export const UPGRADE_MAX_TIER = 3;
-
-export interface UpgradeSpec {
-  id: string;
-  line: UpgradeLine;
-  tier: number;
-  name: string;
-  description: string;
-  /** Flat changes to every unit of the tiers this applies to. */
-  effect: Partial<UnitStats>;
-  /**
-   * Scrap and, past tier one, high-quality metal. Nothing else, ever.
-   *
-   * §B9: these are built in the Scrapyard, and the Scrapyard's whole argument is that a district
-   * improves itself out of what it strips down at home. The caps line that used to sit here was
-   * folded into the scrap line rather than dropped, so nothing got cheaper on the way.
-   */
-  cost: PartialResources;
-  /** Parts. Consumed on purchase, like everything else. */
-  parts: ItemCost;
-  /** Fitted in the Gauntlet, and it has to be standing at this level. */
-  requiresGauntletLevel: number;
-}
-
-const SPECS: readonly UpgradeSpec[] = [
-  // Armour: survivability, paid for in speed.
-  {
-    id: 'armour_1',
-    line: 'armour',
-    tier: 1,
-    name: 'Scrap Plate',
-    description: 'Road sign and truck panel, cut to shape and strapped on. Ugly, and it works.',
-    effect: { vitality: 10, armor: 3, speed: -2 },
-    cost: { scrap: 1300 },
-    parts: {},
-    requiresGauntletLevel: 2,
-  },
-  {
-    id: 'armour_2',
-    line: 'armour',
-    tier: 2,
-    name: 'Composite Weave',
-    description: 'Layered ceramic in a woven backing. Half the weight for twice the stopping.',
-    effect: { vitality: 17, armor: 7, speed: -1 },
-    cost: { scrap: 4000, highQualityMetal: 180 },
-    parts: { ceramic_plate: 4 },
-    requiresGauntletLevel: 6,
-  },
-  {
-    id: 'armour_3',
-    line: 'armour',
-    tier: 3,
-    name: 'Hardshell Rig',
-    description: 'A full carapace with its own cooling. You hear them coming.',
-    effect: { vitality: 27, armor: 12, intimidation: 5, speed: -3 },
-    cost: { scrap: 10600, highQualityMetal: 620 },
-    parts: { ceramic_plate: 8, coolant_cell: 2 },
-    requiresGauntletLevel: 12,
-  },
-
-  // Weapons: reach and damage.
-  {
-    id: 'weapons_1',
-    line: 'weapons',
-    tier: 1,
-    name: 'Machined Barrels',
-    description: 'Bored true instead of bored out. Everything lands where it was pointed.',
-    effect: { penetration: 5, offense: 20 },
-    cost: { scrap: 1500 },
-    parts: { scrap_servo: 2 },
-    requiresGauntletLevel: 3,
-  },
-  {
-    id: 'weapons_2',
-    line: 'weapons',
-    tier: 2,
-    name: 'Match Loads',
-    description: 'Powder measured by somebody who cared. The difference is at distance.',
-    effect: { penetration: 9, offense: 30, range: 8 },
-    cost: { scrap: 4800, highQualityMetal: 220 },
-    parts: { optic_cluster: 3 },
-    requiresGauntletLevel: 8,
-  },
-  {
-    id: 'weapons_3',
-    line: 'weapons',
-    tier: 3,
-    name: 'Slaved Optics',
-    description: 'The sight talks to the trigger. Nobody has to be a good shot any more.',
-    effect: { penetration: 14, offense: 60, range: 14 },
-    cost: { scrap: 12400, highQualityMetal: 780 },
-    parts: { targeting_core: 2, optic_cluster: 4 },
-    requiresGauntletLevel: 14,
-  },
-
-  // Cybernetics: speed, reflex, and the quiet approach.
-  {
-    id: 'cybernetics_1',
-    line: 'cybernetics',
-    tier: 1,
-    name: 'Reflex Wiring',
-    description: 'A cheap shunt down one arm. It twitches for a week and then it is yours.',
-    effect: { speed: 6, evasion: 4 },
-    cost: { scrap: 1900 },
-    parts: { scrap_servo: 3 },
-    requiresGauntletLevel: 4,
-  },
-  {
-    id: 'cybernetics_2',
-    line: 'cybernetics',
-    tier: 2,
-    name: 'Muffled Servos',
-    description: 'The same limbs, rebuilt to make no sound at all.',
-    effect: { speed: 8, stealth: 10, evasion: 5 },
-    cost: { scrap: 5600, highQualityMetal: 260 },
-    parts: { scrap_servo: 6, neural_shunt: 1 },
-    requiresGauntletLevel: 9,
-  },
-  {
-    id: 'cybernetics_3',
-    line: 'cybernetics',
-    tier: 3,
-    name: 'Full Interface',
-    description: 'Base of the skull, straight into the spine. It does not come out again.',
-    effect: { speed: 12, evasion: 10, stealth: 8, morale: -4 },
-    cost: { scrap: 14400, highQualityMetal: 900 },
-    parts: { neural_shunt: 4, coolant_cell: 2 },
-    requiresGauntletLevel: 16,
-  },
-
-  // Discipline: drill, signals and the nerve to stand. Nothing here makes a unit deadlier.
-  {
-    id: 'discipline_1',
-    line: 'discipline',
-    tier: 1,
-    name: 'Standing Drill',
-    description: 'An hour of it every morning until the order arrives before the thought does.',
-    effect: { morale: 8, intimidation: 3 },
-    cost: { scrap: 1100 },
-    parts: {},
-    requiresGauntletLevel: 2,
-  },
-  {
-    id: 'discipline_2',
-    line: 'discipline',
-    tier: 2,
-    name: 'Section Signals',
-    description: 'Lamps and hand signs down the line, so a section that cannot hear still knows.',
-    effect: { morale: 14, intimidation: 7, vitality: 6, evasion: 3 },
-    cost: { scrap: 4400, highQualityMetal: 200 },
-    parts: { optic_cluster: 2, scrap_servo: 3 },
-    requiresGauntletLevel: 7,
-  },
-  {
-    id: 'discipline_3',
-    line: 'discipline',
-    tier: 3,
-    name: 'Held Ground',
-    description: 'They do not fall back. It is worth what it costs and it costs somebody.',
-    effect: { morale: 22, intimidation: 14, vitality: 10, evasion: 5, speed: -2 },
-    cost: { scrap: 11200, highQualityMetal: 700 },
-    parts: { optic_cluster: 3, neural_shunt: 2 },
-    requiresGauntletLevel: 13,
-  },
-];
-
-export const UNIT_UPGRADES: readonly UpgradeSpec[] = SPECS;
-export const UPGRADE_IDS: readonly string[] = SPECS.map((spec) => spec.id);
-
-const BY_ID = new Map(SPECS.map((spec) => [spec.id, spec]));
-
-export function findUpgrade(id: string): UpgradeSpec | undefined {
-  return BY_ID.get(id);
-}
-
-/** Every upgrade in a line, in tier order. */
-export function upgradesInLine(line: UpgradeLine): UpgradeSpec[] {
-  return SPECS.filter((spec) => spec.line === line).sort((a, b) => a.tier - b.tier);
-}
-
-/** What a crew has fitted. Order does not matter; the set does. */
+/** What a crew has built. Order does not matter; the set does. */
 export const FittedUpgradesSchema = z.array(z.string());
 export type FittedUpgrades = readonly string[];
 
 /**
- * Why the workshop will not build this yet.
+ * Why the yard will not build this yet.
  *
  * A tuple rather than a bare union so the strings are readable at runtime: the testing build's
  * waiver list quotes refusals by name, and it has no way to check itself against a type.
@@ -250,57 +48,71 @@ export type FittedUpgrades = readonly string[];
 export const UPGRADE_REFUSALS = [
   'unknown_upgrade',
   'already_fitted',
-  'needs_previous_tier',
+  /** The Scrapyard itself is not senior enough to cut this rarity (§B9's ladder). */
+  'yard_too_low',
   'needs_blueprint',
-  'gauntlet_too_low',
   'cannot_afford',
   'missing_parts',
 ] as const;
 export type UpgradeRefusal = (typeof UPGRADE_REFUSALS)[number];
 
 /**
- * Whether the crew holds the blueprint document that gates an upgrade, by upgrade id.
+ * Whether the crew holds the blueprint document that gates a card, by card id.
  *
- * Pass `(upgradeId) => blueprintGateMet(inventory, 'unit_upgrade', upgradeId)`. An upgrade nothing
- * gates answers true, which is how tier one stays open to anybody without this module owning a
- * copy of the tier rule: `blueprints/catalog.ts` names tiers two and three as targets and says
- * nothing about tier one.
+ * Pass `(id) => blueprintGateMet(inventory, 'unit_upgrade', id)`. The card's own
+ * `requiresBlueprint` is consulted first, so the three open cards never ask the inventory at all.
  */
-export type UpgradeBlueprintGate = (upgradeId: string) => boolean;
+export type UpgradeBlueprintGate = UnitModificationBlueprintGate;
 
 /**
  * The order the checks run in is the order a player wants to hear them.
  *
  * "You need the blueprint" is more useful than "you cannot afford it" when both are true, because
  * one of them is a thing you can go and do something about today and the other is a number that
- * will fix itself. Cheapest-to-check-first would put them the other way round.
+ * will fix itself. Cheapest-to-check-first would put them the other way round. Money is last for
+ * the same reason, behind the parts: a missing part is an errand and a missing pile of scrap is a
+ * wait.
+ *
+ * ## The order is the Scrapyard's, because the Scrapyard asks this
+ *
+ * It was not, for a while. The yard had its own copy of these gates and this one had no idea the
+ * yard has a level, so the two answered differently and nothing noticed: `upgradeRefusal`'s only
+ * caller was its own test file, so every assertion here was checking a function the game did not
+ * run. `district/scrapyard.ts` now words this function's answer rather than deciding it, and
+ * `scrapyard.test.ts` holds the two together across the whole catalogue.
+ *
+ * Arguments in a bag rather than in a row, because a call site reading
+ * `upgradeRefusal(id, [], 4, gate, afford, parts)` cannot be checked by eye.
  */
-export function upgradeRefusal(
-  id: string,
-  fitted: FittedUpgrades,
-  gauntletLevel: number,
-  blueprintUnlocked: UpgradeBlueprintGate,
-  affordable: (cost: PartialResources) => boolean,
-  hasParts: (parts: ItemCost) => boolean,
-): UpgradeRefusal | null {
-  const spec = findUpgrade(id);
+export function upgradeRefusal(input: {
+  id: string;
+  fitted: FittedUpgrades;
+  /** The Scrapyard's own level, which gates the dearer rarities before anything else does. */
+  yardLevel: number;
+  requiredYardLevel: (spec: UnitModificationSpec) => number;
+  blueprintUnlocked: UpgradeBlueprintGate;
+  affordable: (spec: UnitModificationSpec) => boolean;
+  hasParts: (parts: ItemCost) => boolean;
+}): UpgradeRefusal | null {
+  const { id, fitted, yardLevel, requiredYardLevel, blueprintUnlocked, affordable, hasParts } =
+    input;
+
+  const spec = findUnitModification(id);
   if (!spec) return 'unknown_upgrade';
   if (fitted.includes(id)) return 'already_fitted';
-
-  const previous = upgradesInLine(spec.line).find((other) => other.tier === spec.tier - 1);
-  if (previous && !fitted.includes(previous.id)) return 'needs_previous_tier';
-  if (!blueprintUnlocked(spec.id)) return 'needs_blueprint';
-  if (gauntletLevel < spec.requiresGauntletLevel) return 'gauntlet_too_low';
-  if (!affordable(spec.cost)) return 'cannot_afford';
+  // The yard's own level, before the document: a crew four pages short of the drawings and three
+  // levels short of the yard has to raise the yard first either way.
+  if (yardLevel < requiredYardLevel(spec)) return 'yard_too_low';
+  if (!unitModificationBlueprintMet(spec, blueprintUnlocked)) return 'needs_blueprint';
   if (!hasParts(spec.parts)) return 'missing_parts';
-  return null;
+  return affordable(spec) ? null : 'cannot_afford';
 }
 
 /**
- * Every fitted upgrade, folded onto a unit's sheet.
+ * Every fitted card, folded onto a unit's sheet.
  *
- * Applied at read time rather than written into the roster, so an upgrade bought today improves
- * the units trained last week, which is what "the workshop refits everyone" means, and the only
+ * Applied at read time rather than written into the roster, so a card bolted on today improves
+ * the units trained last week, which is what "the yard refits everyone" means, and the only
  * version a player will not find infuriating. Clamped to each stat's own range on the way out.
  */
 export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStats {
@@ -308,18 +120,18 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
    * Summed first, clamped once, and that ordering is the whole of the fix here.
    *
    * The clamp used to run inside the loop, so a rating that touched the ceiling lost the headroom a
-   * later negative delta would have given back, and the answer depended on the *order* the upgrades
-   * happened to be fitted in. The Loose End (speed 95) with Hardshell Rig (-3), Neural Lace (+12)
-   * and Machined Barrels: cybernetics first is 95 -> 107 -> clamp 100 -> 97; armour first is
+   * later negative delta would have given back, and the answer depended on the *order* the cards
+   * happened to be fitted in. A unit on 95 speed with a card that costs 3 speed, one that adds 12
+   * and a third that adds nothing: speed-first is 95 -> 107 -> clamp 100 -> 97; cost-first is
    * 95 -> 92 -> 104 -> clamp 100. Three points of speed decided by which bracket the player dropped
-   * a refit into, with nothing on the screen saying bracket order means anything and this module's
+   * a card into, with nothing on the screen saying bracket order means anything and this module's
    * own doc saying the opposite ("Order does not matter; the set does"). Speed feeds
    * `engagementMultiplier` and, since the speed rebalance, both roads as well
    * (`units/catalog.ts`, `unitColumnSpeed`), so those points are real twice over.
    */
   const totals: Partial<Record<(typeof UNIT_STAT_KEYS)[number], number>> = {};
   for (const id of fitted) {
-    const spec = findUpgrade(id);
+    const spec = findUnitModification(id);
     if (!spec) continue;
     for (const key of UNIT_STAT_KEYS) {
       const delta = spec.effect[key];
@@ -337,18 +149,21 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
      * `UNIT_FIGURE_KEYS` rather than listed here.
      *
      * It used to name `lootCapacity` as the single exception, and that quietly became wrong the
-     * day damage and hit points stopped being ratings: a Razor on 160 damage fitted with Machined
-     * Barrels came out on 100, so the workshop's cheapest refit *halved* the unit it was bolted
-     * to, and every sheet in the game converged on 100 the moment anything was slotted onto it.
+     * day damage and hit points stopped being ratings: a Razor on 160 damage fitted with the
+     * cheapest weapons card came out on 100, so the yard's cheapest card *halved* the unit it was
+     * bolted to, and every sheet in the game converged on 100 the moment anything was slotted onto
+     * it.
      *
      * `range` is not an exception and must not become one. Both of its readers treat it as a
      * rating: `matchup.ts` clamps `range - speed` into 0..100, and `rangedShare` divides it by
-     * 100 to produce a share it documents as 0..1. Slaved Optics put a Sniper on 109, which drew
-     * a bar past the end of its own track on the roster and handed the engine a share of 1.09.
+     * 100 to produce a share it documents as 0..1. An uncapped range once put a Sniper on 109,
+     * which drew a bar past the end of its own track on the roster and handed the engine a share
+     * of 1.09.
      */
     const raw = next[key] + delta;
     const rating = !(UNIT_FIGURE_KEYS as readonly string[]).includes(key);
-    next[key] = Math.max(0, Math.round(rating ? Math.min(100, raw) : raw));
+    // The ceiling itself is `capRating`'s, so this line and the battlefield's agree by construction.
+    next[key] = Math.round(rating ? capRating(raw) : Math.max(0, raw));
   }
   return next;
 }

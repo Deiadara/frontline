@@ -167,7 +167,7 @@ export function targetBonusPercent(
 }
 
 export interface Exchange {
-  /** Damage one attacking body deals to one defending body, before stack sizes. */
+  /** Damage one attacking unit deals to one defending unit, before stack sizes. */
   perBody: number;
   /** The individual multipliers, kept for the report and for tests that pin one of them. */
   parts: {
@@ -198,7 +198,7 @@ export interface Exchange {
  * sheet in the game still takes better than half of what is aimed at it.
  *
  * At stack scale this is applied as its expectation rather than rolled per shot, and that is the
- * accurate version rather than a shortcut: a round is hundreds of bodies firing, `fireRound`
+ * accurate version rather than a shortcut: a round is hundreds of units firing, `fireRound`
  * settles the whole stack's output in one number, and the mean of hundreds of independent rolls is
  * the miss rate to four figures. The variance a player actually feels is already in the fight, and
  * it is seeded: `ROUND_LUCK` and `BATTLE_LUCK` are the dice, and they are drawn where a replay can
@@ -243,7 +243,7 @@ export function exchange(
  * How attractive a target is to this attacker: what drives who shoots at whom.
  *
  * This is the whole counter system, and it is one number. Rather than an authored "X counters Y"
- * table, every stack picks its target by *expected damage per body of enemy health*, so an
+ * table, every stack picks its target by *expected damage per unit of enemy health*, so an
  * armour-piercing unit walks toward the heavies, a fast unit runs down the shooters and a Terror
  * unit finishes whatever is already breaking: all without any of those three being written down
  * anywhere as a rule. A new unit with a new sheet slots into the same arithmetic.

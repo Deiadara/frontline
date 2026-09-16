@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BUILDING_KINDS } from '../building/index.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city/index.js';
-import { OVERSEER_ARCHETYPES, OVERSEER_PRESETS } from '../overseer.js';
+import { OVERSEER_ARCHETYPES } from '../overseer.js';
+import { OVERSEER_PORTRAIT_IDS } from '../roles.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import { UNIT_CATALOG, UNIT_TIER_LABELS } from '../units/index.js';
 import {
@@ -34,6 +35,36 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['portrait-overseer-2', 'portrait-overseer-2.webp', 110002],
   ['portrait-overseer-3', 'portrait-overseer-3.webp', 110003],
   ['portrait-overseer-4', 'portrait-overseer-4.webp', 110004],
+  ['portrait-overseer-01', 'portrait-overseer-01.webp', 111001],
+  ['portrait-overseer-02', 'portrait-overseer-02.webp', 111002],
+  ['portrait-overseer-03', 'portrait-overseer-03.webp', 111003],
+  ['portrait-overseer-04', 'portrait-overseer-04.webp', 111004],
+  ['portrait-overseer-05', 'portrait-overseer-05.webp', 111005],
+  ['portrait-overseer-06', 'portrait-overseer-06.webp', 111006],
+  ['portrait-overseer-07', 'portrait-overseer-07.webp', 111007],
+  ['portrait-overseer-08', 'portrait-overseer-08.webp', 111008],
+  ['portrait-overseer-09', 'portrait-overseer-09.webp', 111009],
+  ['portrait-overseer-10', 'portrait-overseer-10.webp', 111010],
+  ['portrait-overseer-11', 'portrait-overseer-11.webp', 111011],
+  ['portrait-overseer-12', 'portrait-overseer-12.webp', 111012],
+  ['portrait-overseer-13', 'portrait-overseer-13.webp', 111013],
+  ['portrait-overseer-14', 'portrait-overseer-14.webp', 111014],
+  ['portrait-overseer-15', 'portrait-overseer-15.webp', 111015],
+  ['portrait-overseer-16', 'portrait-overseer-16.webp', 111016],
+  ['portrait-overseer-17', 'portrait-overseer-17.webp', 111017],
+  ['portrait-overseer-18', 'portrait-overseer-18.webp', 111018],
+  ['portrait-overseer-19', 'portrait-overseer-19.webp', 111019],
+  ['portrait-overseer-20', 'portrait-overseer-20.webp', 111020],
+  ['portrait-overseer-21', 'portrait-overseer-21.webp', 111021],
+  ['portrait-overseer-22', 'portrait-overseer-22.webp', 111022],
+  ['portrait-overseer-23', 'portrait-overseer-23.webp', 111023],
+  ['portrait-overseer-24', 'portrait-overseer-24.webp', 111024],
+  ['portrait-overseer-25', 'portrait-overseer-25.webp', 111025],
+  ['portrait-overseer-26', 'portrait-overseer-26.webp', 111026],
+  ['portrait-overseer-27', 'portrait-overseer-27.webp', 111027],
+  ['portrait-overseer-28', 'portrait-overseer-28.webp', 111028],
+  ['portrait-overseer-29', 'portrait-overseer-29.webp', 111029],
+  ['portrait-overseer-30', 'portrait-overseer-30.webp', 111030],
   ['officer-01', 'officer-01.webp', 115001],
   ['officer-02', 'officer-02.webp', 115002],
   ['officer-03', 'officer-03.webp', 115003],
@@ -173,6 +204,31 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['officer-137', 'officer-137.webp', 115137],
   ['officer-138', 'officer-138.webp', 115138],
   ['officer-139', 'officer-139.webp', 115139],
+  ['officer-140', 'officer-140.webp', 115140],
+  ['officer-141', 'officer-141.webp', 115141],
+  ['officer-142', 'officer-142.webp', 115142],
+  ['officer-143', 'officer-143.webp', 115143],
+  ['officer-144', 'officer-144.webp', 115144],
+  ['officer-145', 'officer-145.webp', 115145],
+  ['officer-146', 'officer-146.webp', 115146],
+  ['officer-147', 'officer-147.webp', 115147],
+  ['officer-148', 'officer-148.webp', 115148],
+  ['officer-149', 'officer-149.webp', 115149],
+  ['officer-150', 'officer-150.webp', 115150],
+  ['officer-151', 'officer-151.webp', 115151],
+  ['officer-152', 'officer-152.webp', 115152],
+  ['officer-153', 'officer-153.webp', 115153],
+  ['officer-154', 'officer-154.webp', 115154],
+  ['officer-155', 'officer-155.webp', 115155],
+  ['officer-156', 'officer-156.webp', 115156],
+  ['officer-157', 'officer-157.webp', 115157],
+  ['officer-158', 'officer-158.webp', 115158],
+  ['officer-159', 'officer-159.webp', 115159],
+  ['officer-160', 'officer-160.webp', 115160],
+  ['officer-161', 'officer-161.webp', 115161],
+  ['officer-162', 'officer-162.webp', 115162],
+  ['officer-163', 'officer-163.webp', 115163],
+  ['officer-164', 'officer-164.webp', 115164],
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
@@ -198,6 +254,8 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-faction-room', 'plate-faction-room.webp', 130011],
   ['plate-district-undergrid', 'plate-district-undergrid.webp', 130012],
   ['plate-district-datavault-sigma', 'plate-district-datavault-sigma.webp', 130013],
+  ['plate-district-glasshouse-fields', 'plate-district-glasshouse-fields.webp', 130014],
+  ['plate-district-blacksite-7', 'plate-district-blacksite-7.webp', 130015],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -302,6 +360,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-chapel', 'icon-location-chapel.webp', 160072],
   ['icon-location-graveyard', 'icon-location-graveyard.webp', 160073],
   ['icon-location-revolutionary-statue', 'icon-location-revolutionary-statue.webp', 160074],
+  ['icon-location-glasshouse', 'icon-location-glasshouse.webp', 160075],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
   ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
@@ -381,8 +440,8 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 279 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(279);
+  it('holds the 337 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(337);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -414,6 +473,40 @@ describe('ART_MANIFEST', () => {
    * widened rule.
    */
   const SIZE_EXCEPTIONS: Record<string, { width: number; height: number; aspect: string }> = {
+    // The thirty overseer portraits, first in manifest order and the only exception that is not a
+    // plate. Not load-bearing the way the plates below are, because nothing is positioned on them;
+    // listed for the other half of the rule, that an asset off its class size is named. 928x1392
+    // is the largest 2:3 crop the 1122x1402 masters supply with both sides divisible by 16.
+    'portrait-overseer-01': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-02': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-03': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-04': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-05': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-06': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-07': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-08': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-09': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-10': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-11': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-12': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-13': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-14': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-15': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-16': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-17': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-18': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-19': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-20': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-21': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-22': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-23': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-24': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-25': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-26': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-27': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-28': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-29': { width: 928, height: 1392, aspect: '3:4' },
+    'portrait-overseer-30': { width: 928, height: 1392, aspect: '3:4' },
     // The city, at the size the maintainer painted it. Load-bearing the same way the district plate is:
     // the ten district tags on `/game` are positioned as fractions of this exact image, so a
     // district slides off the roof it names if the delivery size changes under it.
@@ -444,6 +537,10 @@ describe('ART_MANIFEST', () => {
     // file is named 3780x1800 and measures 1817x866. Wired at the measurement, so this number is
     // the one place a re-export at the full width has to be agreed to a second time.
     'plate-district-datavault-sigma': { width: 1817, height: 866, aspect: '21:10' },
+    // Glasshouse Fields and the Blacksite, delivered together on 2026-09-15 and both measured at
+    // the full 3780x1800: seven signs and a gate stand on the first, eight and a gate on the second.
+    'plate-district-glasshouse-fields': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-blacksite-7': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -511,10 +608,20 @@ describe('ART_MANIFEST', () => {
     }
   });
 
-  it('routes the overseer portraits to gpt-image-1 per ADR 0001 §6.6', () => {
-    for (const spec of ART_MANIFEST.filter((s) => s.class === 'portrait')) {
-      expect(spec.backend).toBe('openai');
-    }
+  /**
+   * Split by size rather than by taste. §6.6 routes faces to gpt-image-1, and the four heroes it
+   * was written for are 1024x1536, which gpt-image-1 renders. The thirty are 928x1392, which it
+   * does not: it takes exactly three sizes. So the pin on them records the only backend that
+   * *could* have produced them, which is the same thing the officer pool's pin records.
+   */
+  it('routes the four hero portraits to gpt-image-1 per ADR 0001 §6.6', () => {
+    const portraits = ART_MANIFEST.filter((spec) => spec.class === 'portrait');
+    const heroes = portraits.filter((spec) => /^portrait-overseer-\d$/.test(spec.key));
+    const pool = portraits.filter((spec) => /^portrait-overseer-\d\d$/.test(spec.key));
+    expect([heroes.length, pool.length]).toEqual([4, 30]);
+    expect(heroes.length + pool.length).toBe(portraits.length);
+    for (const spec of heroes) expect(spec.backend, spec.key).toBe('openai');
+    for (const spec of pool) expect(spec.backend, spec.key).toBe('fal');
   });
 
   /** The acceptance criterion of MOU-123: no manifest entry may be unbuildable. */
@@ -599,7 +706,7 @@ describe('ART_MANIFEST', () => {
 
   it('leaves the rest of the manifest needing no post-process at all', () => {
     /*
-     * 233 in the manifest, 69 of them post-processed.
+     * 282 in the manifest, 70 of them post-processed.
      *
      * Both figures move together whenever a subject is added or removed. It was 76: §C1's eight
      * machines were drafted as icons, which are rendered at 1024² and downscaled, and they are
@@ -607,7 +714,7 @@ describe('ART_MANIFEST', () => {
      * and delivery agree needs no step at all, which is the whole reason `postProcess` is derived
      * rather than written down.
      */
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(69);
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(70);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {
@@ -706,10 +813,17 @@ describe('file naming grammar (ART-BIBLE §7)', () => {
 });
 
 describe('subject resolution (ART-BIBLE §7)', () => {
-  it('resolves every portrait subject to a preset portraitId', () => {
-    const portraitIds = OVERSEER_PRESETS.map((preset) => preset.portraitId);
-    for (const id of portraitIds) expect(subjectResolvesToDomainId('portrait', id)).toBe(true);
+  it('resolves every portrait subject to an overseer portraitId', () => {
+    for (const id of OVERSEER_PORTRAIT_IDS) {
+      expect(subjectResolvesToDomainId('portrait', id), id).toBe(true);
+    }
+    // The four heroes are not in that list and still have to resolve: their art is delivered.
+    for (const id of ['overseer-1', 'overseer-2', 'overseer-3', 'overseer-4']) {
+      expect(subjectResolvesToDomainId('portrait', id), id).toBe(true);
+    }
+    // `overseer-9` is neither a hero nor a padded pool id, which is the point of the padding.
     expect(subjectResolvesToDomainId('portrait', 'overseer-9')).toBe(false);
+    expect(subjectResolvesToDomainId('portrait', 'overseer-31')).toBe(false);
   });
 
   it('resolves every district subject to a District.id', () => {

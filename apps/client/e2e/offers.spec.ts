@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { lateGame } from './fixtures';
+import { lateGame, market } from './fixtures';
 import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harness';
 
 /**
@@ -166,4 +166,72 @@ test('names the crew it is countering and sends the counter to that listing', as
   // press cannot escrow a second copy of the same pile against a listing that is already answered.
   await expect(composer).toContainText('Put something up');
   await expect(page.getByRole('button', { name: 'Post it' })).toBeDisabled();
+});
+
+/**
+ * Parts go up for sale (maintainer request, 2026-09-14).
+ *
+ * The composer was materials-only. `TradeBundle` has always carried `items` and `offerRefusal` has
+ * always checked them, so this is the screen catching up with the wire rather than a new mechanic.
+ *
+ * Three things are worth a browser here and none of them is the happy path. The menu must be
+ * **solid**: it floats over the listing panel, and the panel treatments it inherited blend with
+ * whatever is behind them, so the first cut was see-through. It must open **under its own door**:
+ * the wrapper is a flex item that stretched to 241px, and `top-full` put the give menu down beside
+ * the want row. And the parts actually chosen must reach the **request body**, which is the only
+ * part of this a screenshot cannot show.
+ */
+test('puts parts into an offer, and sends them', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.route('**/api/market', async (route) => {
+    await route.fulfill({
+      json: { ...market, inventory: { scrap_servo: 6, ceramic_plate: 2 } },
+    });
+  });
+  await page.goto('/game/market/offers');
+
+  const door = page.getByTestId('offer-give-parts');
+  await door.click();
+  const menu = page.getByTestId('offer-give-parts-menu');
+  await expect(menu).toBeVisible();
+
+  // Only what is in the bin: six parts exist, this crew holds two kinds.
+  await expect(menu.locator('[data-testid^="offer-give-parts-row-"]')).toHaveCount(2);
+
+  // Solid, and directly under the door it belongs to. Both were real defects.
+  const paint = await menu.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { blend: cs.mixBlendMode, bg: cs.backgroundColor };
+  });
+  expect(paint.blend).toBe('normal');
+  expect(paint.bg).not.toBe('rgba(0, 0, 0, 0)');
+  const doorBox = (await door.boundingBox())!;
+  const menuBox = (await menu.boundingBox())!;
+  expect(menuBox.y - (doorBox.y + doorBox.height)).toBeLessThan(20);
+
+  await page.getByTestId('offer-give-parts-more-scrap_servo').click();
+  await page.getByTestId('offer-give-parts-more-scrap_servo').click();
+  await expect(page.getByTestId('offer-give-parts-taking-scrap_servo')).toHaveText('2');
+  // Never past what the bin holds: the server would refuse it after escrowing the rest.
+  await expect(page.getByTestId('offer-give-parts-more-ceramic_plate')).toBeEnabled();
+  await page.getByTestId('offer-give-parts-more-ceramic_plate').click();
+  await page.getByTestId('offer-give-parts-more-ceramic_plate').click();
+  await expect(page.getByTestId('offer-give-parts-more-ceramic_plate')).toBeDisabled();
+
+  // The count rides on the door, so a closed menu still says there is something in the offer.
+  await page.getByTestId('offer-give-parts-done').click();
+  await expect(menu).toBeHidden();
+  await expect(page.getByTestId('offer-give-parts-count')).toHaveText('4');
+
+  await page.getByTestId('offer-want-caps').click();
+  const posted = page.waitForRequest(
+    (request) => request.url().includes('/api/market/offer') && request.method() === 'POST',
+  );
+  await page.getByRole('button', { name: 'Post it' }).click();
+  // Typed rather than `any`: the assertion is about one field, and reading it off an untyped parse
+  // is the thing that makes a green test meaningless if the shape ever moves.
+  const body = JSON.parse((await posted).postData() ?? '{}') as {
+    give?: { items?: Record<string, number> };
+  };
+  expect(body.give?.items).toEqual({ scrap_servo: 2, ceramic_plate: 2 });
 });

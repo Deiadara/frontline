@@ -151,7 +151,7 @@ export interface CrewOnlyEffects {
   /**
    * How much of a large force can actually be brought to bear at once (§A5).
    *
-   * The teamwork channel. Combat width (`battle/battlefield.ts`) means bodies past the frontage are
+   * The teamwork channel. Combat width (`battle/battlefield.ts`) means units past the frontage are
    * queuing rather than fighting, which is what stops "bring everything" being the whole game, and
    * this is the one thing that widens it. A crew that can co-ordinate gets more of a big force into
    * contact; a crew that cannot may as well have left half of them at home.
@@ -217,14 +217,20 @@ export interface ConditionalCrewEffects {
   officerAttributeFlat: Partial<Record<AttributeName, number>>;
   officerAttributeAtLeast: Partial<Record<AttributeName, { flat: number; threshold: number }>>;
   /*
-   * §D5: the channels that pay only while an officer is *leading* the fight.
+   * §D5: the channels that pay only while one of the crew's officers is *leading* the fight.
    *
    * Folded off perks like everything else and spent by {@link leading}, which is called by whoever
    * knows whether an officer actually went. That is the same shape `alliedOffensePercent` has and
    * it is the whole reason these are conditional rather than ordinary: a perk that pays whether or
-   * not its officer left the district is not a reason to send them anywhere.
+   * not anybody left the district is not a reason to send somebody anywhere.
+   *
+   * The condition is the crew's and not the carrier's, which is the one thing to hold on to when
+   * writing copy for these. Nothing in the struct records who carried a perk into it, and the
+   * settler spends the whole fold the moment a leader is named, so a bonus sitting on the officer
+   * who stayed behind pays the column that went. Say "any of your officers" on a chip, never
+   * "this officer": see `describePerkBonus` and {@link CONDITIONAL_CHANNEL_LABELS}.
    */
-  /** Offense, for every friendly unit, while this crew's officer is leading. */
+  /** Offense, for every friendly unit, while one of this crew's officers is leading. */
   leadOffensePercent: number;
   /** ...evasion, in flat points. */
   leadEvasionFlat: number;
@@ -341,11 +347,15 @@ export const PERCENT_EFFECT_CHANNELS: readonly PercentEffectChannel[] = Object.e
 /**
  * The percent channels a raid's disruption deliberately does **not** touch.
  *
- * One, and it is the one the production walk has already charged for.
- * `district/settle.ts` cuts `RAID_DISRUPTION_PERCENT` off the *hours* of every disrupted segment,
- * and `accrueProduction` then multiplies those hours by `1 + productionPercent / 100`. Both scale
- * the same output, so cutting the channel here as well charges a raided crew twice for one raid:
- * 25% off the hours and another 25% off the bonus that multiplies them.
+ * Two, for two different reasons. `productionPercent` is the one the production walk has already
+ * charged for: `district/settle.ts` cuts `RAID_DISRUPTION_PERCENT` off the *hours* of every
+ * disrupted segment, and `accrueProduction` then multiplies those hours by
+ * `1 + productionPercent / 100`. Both scale the same output, so cutting the channel here as well
+ * charges a raided crew twice for one raid: 25% off the hours and another 25% off the bonus that
+ * multiplies them.
+ *
+ * `unitArmorPercent` is the other, and it is exempt because the suffix on it is a misnomer: see
+ * the comment on the entry itself.
  *
  * Two near misses, named so the next reader does not have to work them out again:
  *
@@ -356,7 +366,13 @@ export const PERCENT_EFFECT_CHANNELS: readonly PercentEffectChannel[] = Object.e
  *     ceiling rather than the output, and the hour cut does not touch a ceiling, so cutting it is
  *     one effect applied once: a raided crew's store is tighter, which is what the maintainer asked for.
  */
-export const DISRUPTION_EXEMPT_CHANNELS = ['productionPercent'] as const;
+export const DISRUPTION_EXEMPT_CHANNELS = [
+  'productionPercent',
+  // Flat points wearing a `Percent` name: added straight to a unit's 0..100 armour rating in
+  // `battle/effects.ts`, so the cut was taking a quarter off points while `unitMoraleFlat` and
+  // `leadArmorFlat`, the same kind of number, kept all of theirs.
+  'unitArmorPercent',
+] as const;
 
 /**
  * Every percent channel a raid's disruption actually cuts.
@@ -415,29 +431,32 @@ export const CONDITIONAL_CHANNEL_LABELS: Readonly<
     label: 'What the work teaches you',
     when: 'On everything that pays experience',
   },
+  // The five below say "one of your officers" rather than "this officer" on purpose: the fold is
+  // the crew's, and any officer taking the column turns all of them on. See the doc on
+  // `ConditionalCrewEffects`.
   leadOffensePercent: {
     label: 'What the crew hits for behind them',
-    when: 'Only in a fight this officer is leading',
+    when: 'Only in a fight one of your officers is leading',
   },
   leadEvasionFlat: {
     label: 'How often the crew is missed',
-    when: 'Only in a fight this officer is leading',
+    when: 'Only in a fight one of your officers is leading',
   },
   leadArmorFlat: {
     label: 'What the crew is wearing',
-    when: 'Only in a fight this officer is leading',
+    when: 'Only in a fight one of your officers is leading',
   },
   leadMoraleFlat: {
     label: 'Whether the crew holds',
-    when: 'Only in a fight this officer is leading',
+    when: 'Only in a fight one of your officers is leading',
   },
   leadLootPercent: {
     label: 'What comes back off the ground',
-    when: 'Only in a fight this officer is leading',
+    when: 'Only in a fight one of your officers is leading',
   },
   leadArrivalPercent: {
     label: 'Time on the road',
-    when: 'Only when this officer is leading the column',
+    when: 'Only when one of your officers is leading the column',
   },
 };
 
@@ -461,7 +480,7 @@ export interface AttributeEffect {
  * all three holds it through anything.
  */
 export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>> = {
-  // Physical: what a body does when the plan stops working.
+  // Physical: what a unit does when the plan stops working.
   strength: {
     channel: 'unitOffensePercent',
     summary: 'Doors, walls and people give way faster when somebody strong is leaning on them.',

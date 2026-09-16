@@ -122,7 +122,7 @@ function entriesFor(
     cancel: {
       route: 'training' as const,
       id: order.id,
-      // The bench's own gate, not just the clock: a batch with a body already out is not
+      // The bench's own gate, not just the clock: a batch with a unit already out is not
       // cancellable however young its clock is (`trainingCancellable`).
       windowMs: trainingCancellable(order, now) ? trainingCancelWindowMs(order, now) : 0,
     },

@@ -27,7 +27,7 @@ import {
  * different questions: that one is "who lives here", this one is "who came running".
  */
 
-/** Bodies per point of district difficulty. Tuned against what a first real assault brings. */
+/** Units per point of district difficulty. Tuned against what a first real assault brings. */
 export const NPC_MUSTER_PER_DIFFICULTY = 1.6;
 
 /** ...and the spread the roll moves it over, so the same district is not the same fight twice. */

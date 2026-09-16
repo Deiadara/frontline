@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import { UNIT_TIERS, findUnit, type UnitTier } from '../units/index.js';
+import { bareLineRules, standsInLine, type LineRules } from './line.js';
 
 /**
  * What a name buys, one fight at a time (GDD §D7).
@@ -110,7 +111,7 @@ const TIER_LABELS: Readonly<Record<UnitTier, string>> = {
  * It was not. Measured against a force built to make each one land at full coverage, the shop ran
  * from 6.5 infamy per point (Paid In Advance) to 44 (They Came For This): a factor of seven between
  * the best buy and the worst, with no gate or flavour explaining it. The band is 13 to 28 now, and
- * the spread inside it is the honest part: a boost you can only use on one unique body is worth
+ * the spread inside it is the honest part: a boost you can only use on one unique unit is worth
  * less per point than one that lands on everything you own, because it is harder to cover.
  *
  * `boosts.test.ts` holds the band. A new boost is priced into it first and flavoured second.
@@ -276,22 +277,32 @@ export function boostAvailable(
 }
 
 /**
- * How much of a force one boost reaches, 0..1, weighted by supply.
+ * How much of a force one boost reaches, 0..1, by head count.
  *
- * Used to turn a narrow boost into a whole-force figure the engine can apply, and weighted by
- * supply rather than by headcount for the same reason population is: forty Razors and four
- * Juggernauts are not eleven to one in anything that matters on a battlefield.
+ * Used to turn a narrow boost into a whole-force figure the engine can apply. **Heads, not unit
+ * slots** (maintainer, 2026-09-15): a unit slot prices what a sheet costs to house, to carry and to
+ * kill, and it says nothing about a battlefield. This was the one reader of slots inside the
+ * engine, and it made a narrow boost on the heavy end worth more than the share of the line it
+ * actually reached, on an argument the rest of the engine does not make: combat width, nerve,
+ * menace and targeting have always counted the things that are standing there.
  */
 export function boostCoverage(
   effect: BoostEffect,
   force: Readonly<Record<string, number>>,
+  rules: LineRules = bareLineRules(),
 ): number {
   let total = 0;
   let covered = 0;
   for (const [unitId, count] of Object.entries(force)) {
     const spec = findUnit(unitId);
     if (!spec || count <= 0) continue;
-    const weight = spec.supply * count;
+    // Only the line. A porter is not standing anywhere a boost could reach (`standsInLine`), and
+    // counting it diluted every narrow boost by whoever was carrying the loot: ten Ironsides and
+    // forty Scavengers turned a bought "+35% for your heavy units" into +7% on the force, at full
+    // price, for owning porters. The rule is the engine's own, and a crew whose porters do fight
+    // passes it in, so the two answers cannot drift apart.
+    if (!standsInLine(spec, rules)) continue;
+    const weight = count;
     total += weight;
     const hit =
       effect.kind === 'force' ||
@@ -307,14 +318,16 @@ export function boostCoverage(
  *
  * A narrow boost is folded down by {@link boostCoverage} rather than applied at full strength,
  * because the engine resolves a force and not a unit list. `+50% attack for the Colossus` on a
- * force that is a third Colossus by supply is `+16.7%` on the force, which is the same arithmetic
- * a player would do in their head and the reason a narrow boost is priced by how narrow it is.
+ * force that is a third Colossus by head count is `+16.7%` on the force, which is the same
+ * arithmetic a player would do in their head and the reason a narrow boost is priced by how narrow
+ * it is.
  */
 export function boostBundle(
   effect: BoostEffect,
   force: Readonly<Record<string, number>>,
+  rules: LineRules = bareLineRules(),
 ): { offensePercent: number; defensePercent: number; moralePercent: number } {
-  const share = boostCoverage(effect, force) * effect.percent;
+  const share = boostCoverage(effect, force, rules) * effect.percent;
   return {
     offensePercent: effect.stat === 'offense' ? share : 0,
     defensePercent: effect.stat === 'defense' ? share : 0,

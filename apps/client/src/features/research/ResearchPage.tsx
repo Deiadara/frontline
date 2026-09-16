@@ -41,7 +41,7 @@ import { ReimaginingSection } from './ReimaginingSection';
  * can open next, asked from three directions: time and two chairs, paper, and the bench.
  *
  * Nothing on this page derives a rule. Every rung arrives with its price, its clock and the reason
- * it is shut already worded by `GET /research`, and the blueprint side reads the satchel it is
+ * it is shut already worded by `GET /research`, and the blueprint side reads the inventory it is
  * drawn from. Which tab is open is the URL, so a link into a document lands on the document.
  */
 
@@ -432,7 +432,7 @@ function TracksSection({
  * The three tabs of the archive.
  *
  * `path` is the whole of the section state. A player who bookmarks a document, or follows a link
- * out of the satchel, lands on the document rather than on the tracks with a second click to make.
+ * out of the inventory, lands on the document rather than on the tracks with a second click to make.
  *
  * A strip across the top rather than the rail of doors that stood here until the board's
  * 2026-09-10 call. The rail was 17rem of the frame spent on three rows, and the two screens that
@@ -441,7 +441,7 @@ function TracksSection({
  *
  * Only Programmes carries a count. The doors used to print one on all three, and two of them were
  * measuring the wrong thing: a document count next to Blueprints reads as progress through the
- * catalogue when it is progress through a satchel, and a page count next to Reimagining is the size
+ * catalogue when it is progress through an inventory, and a page count next to Reimagining is the size
  * of the pile the machine eats rather than anything a player is working towards. Rungs done out of
  * rungs there are is a real fraction, so it stayed.
  */

@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   createCommander,
@@ -36,6 +37,7 @@ import { projectMarket } from '../market/board.js';
 import { discountedCaps } from '../market/auction.js';
 import { settleBattles } from '../battle/resolve.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: what holding a location is worth, measured where it is meant to arrive.
@@ -108,13 +110,16 @@ async function makeStack(engine: SkirmishEngine = bloody): Promise<Stack> {
     payload: { username: 'holder', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
+  // Every case here is a number a structure is supposed to move, and a §F6 signature moves several
+  // of the same ones: +30% intel reads the garrison this file blurs on purpose.
+  pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
@@ -333,12 +338,10 @@ describe('the Watchtower', () => {
       payload: { username: 'rival_crew', password: 'hunter2pass' },
     });
     const rivalToken = registered.json<{ token: string }>().token;
-    const rivalBase = await stack.app.inject({
-      method: 'POST',
-      url: '/api/overseer',
-      headers: auth(rivalToken),
-      payload: { presetId: 'enforcer' },
-    });
+    const rivalBase = await chooseOverseer(stack.app, rivalToken);
+    // The liar on the books below is what the intel channel has to cut through, so the rival must
+    // not bring an intel signature of their own on top of it.
+    pinOverseer(stack.app, rivalToken);
     const rivalId = rivalBase.json<{ base: { id: string } }>().base.id;
 
     /*

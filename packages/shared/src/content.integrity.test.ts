@@ -5,14 +5,14 @@ import { ATTRIBUTE_EFFECTS, CHANNEL_LABELS, EFFECT_CHANNELS } from './crew/effec
 import { ROLE_IMPORTANCE } from './crew/importance.js';
 import { TRAINING_DRILLS } from './crew/training.js';
 import { CITY_DISTRICTS, CITY_LOCATIONS, ENV_LABEL_IDS, LOCATION_CATALOG } from './city/index.js';
-import { INFAMY_PER_TIER, NOTORIETY_TO_FIELD, TYPICAL_SUPPLY } from './economy/infamy.js';
+import { NOTORIETY_TO_FIELD } from './economy/infamy.js';
 import { ITEM_CATALOG } from './items/catalog.js';
 import { OFFICER_PORTRAIT_IDS, OFFICER_ROLES, OFFICER_ROLE_LABELS } from './roles.js';
 import { RESOURCE_KEYS, RESOURCE_LABELS } from './resources.js';
 import { ART_MANIFEST, tryResolveAssetKey } from './art/manifest.js';
 import { DAMAGE_TYPES, UNIT_MODIFIERS, UNIT_STAT_KEYS } from './units/stats.js';
 import { UNIT_CATALOG, UNIT_TIERS, UNIT_TIER_LABELS } from './units/catalog.js';
-import { UNIT_UPGRADES } from './units/upgrades.js';
+import { UNIT_MODIFICATIONS } from './units/modifications.js';
 
 /**
  * Every id in the game, checked against the table it points at.
@@ -114,8 +114,6 @@ describe('every id points at something that exists', () => {
     it('covers every tier in every table that is keyed by one', () => {
       for (const tier of UNIT_TIERS) {
         expect(UNIT_TIER_LABELS[tier], tier).toBeDefined();
-        expect(INFAMY_PER_TIER[tier], tier).toBeDefined();
-        expect(TYPICAL_SUPPLY[tier], tier).toBeDefined();
         expect(NOTORIETY_TO_FIELD[tier], tier).toBeDefined();
         expect(
           UNIT_CATALOG.some((u) => u.tier === tier),
@@ -173,9 +171,9 @@ describe('every id points at something that exists', () => {
     });
   });
 
-  describe('the workshop', () => {
+  describe('the unit bench', () => {
     it('moves only real stats, spends only real resources, and eats only real parts', () => {
-      for (const upgrade of UNIT_UPGRADES) {
+      for (const upgrade of UNIT_MODIFICATIONS) {
         for (const stat of Object.keys(upgrade.effect)) {
           expect(UNIT_STAT_KEYS, upgrade.id).toContain(stat);
         }

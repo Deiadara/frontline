@@ -7,6 +7,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { WAIVED_REFUSALS } from './mode.js';
 import { committedWage } from '../bar/hire.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Every gate admin mode waives, driven the way an ordinary player meets it.
@@ -55,12 +56,7 @@ async function makePlayer(app: FastifyInstance, username: string) {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   return {
     token,
     userId: registered.json<{ user: { id: string } }>().user.id,
@@ -240,7 +236,7 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
         'nexus_cap',
         'no_payroll',
         'no_slots',
-        'no_supply',
+        'no_unit_slots',
         'not_enough_infamy',
         'not_interested',
         'queue_full',

@@ -272,6 +272,8 @@ describe('backend selection', () => {
     'plate-faction-room',
     'plate-district-undergrid',
     'plate-district-datavault-sigma',
+    'plate-district-glasshouse-fields',
+    'plate-district-blacksite-7',
   ];
 
   /**

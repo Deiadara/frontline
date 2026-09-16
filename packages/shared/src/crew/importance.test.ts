@@ -209,10 +209,11 @@ describe('who wears which face', () => {
   it('still lists the duplicates as art that exists', () => {
     expect(OFFICER_PORTRAIT_IDS).toContain('42');
     expect(OFFICER_PORTRAIT_IDS).toContain('43');
-    // Forty faces added by the board on 2026-09-11. The assignable pool stays prime, which is
-    // what lets the probe in `officerPortraits` walk the whole of it whatever stride it draws.
-    expect(OFFICER_PORTRAIT_IDS).toHaveLength(139);
-    expect(ASSIGNABLE_OFFICER_PORTRAIT_IDS).toHaveLength(137);
+    // Twenty-five faces added by the board on 2026-09-15, on top of the forty from 2026-09-11.
+    // The assignable pool is 162 and is no longer prime, so the probe in `officerPortraits` can
+    // draw a stride that walks a subset: the linear sweep at the end of it is what covers that.
+    expect(OFFICER_PORTRAIT_IDS).toHaveLength(164);
+    expect(ASSIGNABLE_OFFICER_PORTRAIT_IDS).toHaveLength(162);
     expect(DUPLICATE_OFFICER_PORTRAIT_IDS).toEqual(['42', '43']);
   });
 

@@ -8,26 +8,26 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 
 ## Contents
 
-- [Blueprints and their pages](#blueprints-and-their-pages) (45 entries)
-- [Consumables and other items](#consumables-and-other-items) (68 entries)
+- [Blueprints and their pages](#blueprints-and-their-pages) (68 entries)
+- [Consumables and other items](#consumables-and-other-items) (92 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (161 entries)
+- [Feats](#feats) (210 entries)
 - [Missions](#missions) (38 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
-- [Locations](#locations) (103 entries)
+- [Locations](#locations) (105 entries)
 - [Environment labels and weather](#environment-labels-and-weather) (20 entries)
 - [Units](#units) (31 entries)
-- [Unit upgrades (refits)](#unit-upgrades-refits) (12 entries)
+- [Unit modifications](#unit-modifications) (30 entries)
 - [Vehicles](#vehicles) (7 entries)
 - [Buildings](#buildings) (11 entries)
-- [Building modifications](#building-modifications) (77 entries)
+- [Building modifications](#building-modifications) (89 entries)
 - [Research](#research) (190 entries)
-- [Officer perks](#officer-perks) (150 entries)
+- [Officer perks](#officer-perks) (180 entries)
 - [Training drills](#training-drills) (35 entries)
 - [Black market goods](#black-market-goods) (17 entries)
 - [Factions](#factions) (8 entries)
-- [Overseer presets](#overseer-presets) (4 entries)
+- [Overseer presets](#overseer-presets) (30 entries)
 - [Resources](#resources) (6 entries)
 - [Attributes and officer roles](#attributes-and-officer-roles) (54 entries)
 - [Notoriety tiers](#notoriety-tiers) (14 entries)
@@ -39,11 +39,11 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 
 Source: `packages/shared/src/blueprints/catalog.ts`
 
-45 documents, 174 pages between them. A page rarity of "as document" means the page inherits the document's own.
+68 documents, 255 pages between them. A page rarity of "as document" means the page inherits the document's own.
 
 #### Unit blueprints (20)
 
-Bodies and machines. Vehicles count as units: somebody still has to be taught to make one.
+Units and machines. Vehicles count as units: somebody still has to be taught to make one.
 
 | Id | Name | Rarity | Motif | Unlocks | Pages | Blurb |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -266,16 +266,39 @@ Bodies and machines. Vehicles count as units: somebody still has to be taught to
 | `pg_heli_porter_hydraulics` | Hydraulics | manifold | Rare | Two hydraulic circuits, one drawn in red for the day the other one fails. |
 | `pg_heli_porter_load_floor` | Load Floor | plan | as document | The cabin floor with its tie-downs, and thirty seats pencilled over the cargo plan. |
 
-#### Upgrade blueprints (15)
+#### Upgrade blueprints (38)
 
 What a structure or a squad becomes once the yard has the drawings for it.
 
 | Id | Name | Rarity | Motif | Unlocks | Pages | Blurb |
 | --- | --- | --- | --- | --- | --- | --- |
-| `bp_composite_armour` | Composite Armour Blueprint | Uncommon | laminate | `unit_upgrade:armour_2`, `unit_upgrade:armour_3` | 3 | Lamination schedules for plate that is mostly air. |
-| `bp_munitions` | Munitions Blueprint | Uncommon | cartridge | `unit_upgrade:weapons_2`, `unit_upgrade:weapons_3` | 3 | Load tables. The margins argue with the tables. |
-| `bp_cybernetics` | Cybernetics Blueprint | Rare | implant | `unit_upgrade:cybernetics_2`, `unit_upgrade:cybernetics_3` | 4 | Surgical plates and a wiring diagram, annotated by somebody who stopped writing. |
-| `bp_discipline` | Discipline Blueprint | Uncommon | footprints | `unit_upgrade:discipline_2`, `unit_upgrade:discipline_3` | 3 | Drill, signals and the orders that hold a line together after the officer is down. |
+| `bp_mod_filed_sights` | Filed Sights Blueprint | Common | elevation | `unit_upgrade:filed_sights` | 2 | Where to take metal off a front post, and how to know when to stop. |
+| `bp_mod_rag_wraps` | Rag Wraps Blueprint | Common | weave | `unit_upgrade:rag_wraps` | 2 | What to wrap, what to leave bare, and the knots that hold through a night of rain. |
+| `bp_mod_whistle_code` | Whistle Code Blueprint | Common | speaker | `unit_upgrade:whistle_code` | 2 | Six notes, what each one means, and how to be heard over a fight without being understood… |
+| `bp_mod_hook_and_line` | Hook and Line Blueprint | Common | knot | `unit_upgrade:hook_and_line` | 2 | A grapple bent out of rebar, forty metres of rope, and the throws that land it. |
+| `bp_mod_knuckle_guards` | Knuckle Guards Blueprint | Common | cut_list | `unit_upgrade:knuckle_guards` | 2 | Plate over the knuckles, cut from what the yard has, shaped to a fist that is closed. |
+| `bp_mod_ear_defenders` | Ear Defenders Blueprint | Common | mould | `unit_upgrade:ear_defenders` | 2 | Plugs cast to the ear that wears them, and the check that they are in before the shooting… |
+| `bp_mod_ablative_layers` | Ablative Layers Blueprint | Uncommon | exploded | `unit_upgrade:ablative_layers` | 3 | Plate that leaves in pieces so the person under it does not. Replaced after every fight,… |
+| `bp_mod_recoil_dampers` | Recoil Dampers Blueprint | Uncommon | spring | `unit_upgrade:recoil_dampers` | 3 | Springs, a gas port and the fitting that makes the second shot land where the first one d… |
+| `bp_mod_twitch_loop` | Twitch Loop Blueprint | Uncommon | circuit | `unit_upgrade:twitch_loop` | 3 | A wire from the eye to the hand with nothing in between. The thinking was the slow part. |
+| `bp_mod_smoke_discipline` | Smoke Discipline Blueprint | Uncommon | prose | `unit_upgrade:smoke_discipline` | 3 | Nothing lit, nothing cooked, nothing said on the approach. Written down so it can be read… |
+| `bp_mod_drill_book` | Drill Book Blueprint | Uncommon | list | `unit_upgrade:drill_book` | 3 | Forty pages of standing still, read aloud every morning until nobody needs it read. |
+| `bp_mod_hardened_optics` | Hardened Optics Blueprint | Uncommon | optics | `unit_upgrade:hardened_optics` | 3 | Sealed glass, a coating that will not fog or flare, and the housing that keeps the two al… |
+| `bp_mod_counterweight_harness` | Counterweight Harness Blueprint | Uncommon | ballast | `unit_upgrade:counterweight_harness` | 3 | Load on the hips instead of the shoulders. Twice the bag comes home at the same walking p… |
+| `bp_mod_bone_lattice` | Bone Lattice Blueprint | Uncommon | frame | `unit_upgrade:bone_lattice` | 3 | Pins and mesh through the long bones, so the frame stops being the first thing that fails. |
+| `bp_mod_trophy_rack` | Trophy Rack Blueprint | Uncommon | rack | `unit_upgrade:trophy_rack` | 3 | Plate, teeth and body markings off everybody they have beaten, hung where it will be seen. |
+| `bp_mod_composite_carapace` | Composite Carapace Blueprint | Rare | pattern | `unit_upgrade:composite_carapace` | 4 | Panels cut to one body, the layup that makes them hard, and the hinges that let it come o… |
+| `bp_mod_ranging_gear` | Ranging Gear Blueprint | Rare | gear_train | `unit_upgrade:ranging_gear` | 4 | A drum, a wire and a cam cut by hand that solves the drop. Arguments about elevation end. |
+| `bp_mod_dry_joints` | Dry Joints Blueprint | Rare | boot | `unit_upgrade:dry_joints` | 4 | Graphite and rubber through every hinge and sole. Gravel underfoot stops being a warning. |
+| `bp_mod_adrenal_regulator` | Adrenal Regulator Blueprint | Rare | governor | `unit_upgrade:adrenal_regulator` | 4 | A pump under the collarbone, the dose it meters, and what to watch for once it is done me… |
+| `bp_mod_breaching_charges` | Breaching Charges Blueprint | Rare | fuse | `unit_upgrade:breaching_charges` | 4 | Cone liners carried into a fight rather than laid the night before, and the packing that… |
+| `bp_mod_rescue_rig` | Rescue Rig Blueprint | Rare | winch | `unit_upgrade:rescue_rig` | 4 | Winch, sled and a harness that will hold a body. What went out comes back, and sometimes… |
+| `bp_mod_monofilament_edge` | Monofilament Edge Blueprint | Rare | line_run | `unit_upgrade:monofilament_edge` | 4 | An edge one molecule wide, and the handle that keeps it away from the hand that holds it. |
+| `bp_mod_hardshell_exoframe` | Hardshell Exoframe Blueprint | Exotic | piston | `unit_upgrade:hardshell_exoframe` | 6 | A powered shell with its own cooling and its own opinion about doorways. Three streets he… |
+| `bp_mod_synaptic_lace` | Synaptic Lace Blueprint | Exotic | lace | `unit_upgrade:synaptic_lace` | 5 | Six weeks of growing a net through a brain, and what to do about the parts of the person… |
+| `bp_mod_guided_rounds` | Guided Rounds Blueprint | Exotic | cartridge | `unit_upgrade:guided_rounds` | 5 | A round that turns in the last half second, the fins that turn it, and what each one cost… |
+| `bp_mod_ghost_protocol` | Ghost Protocol Blueprint | Exotic | hood | `unit_upgrade:ghost_protocol` | 6 | Heat, sound and signal, each killed by a different hand, so that afterwards nobody can pr… |
+| `bp_mod_colours_of_the_line` | Colours of the Line Blueprint | Exotic | mast | `unit_upgrade:colours_of_the_line` | 5 | A standard, the pole it hangs from, and who carries it. A line that can see it does not b… |
 | `bp_nexus_retrofit` | Nexus Retrofit Blueprint | Rare | switchboard | `building:nexus` | 4 | Cable runs and cipher racks. Everything the district knows goes through this room. |
 | `bp_quarters_retrofit` | Quarters Retrofit Blueprint | Common | hut | `building:quarters` | 2 | Bunk framing and a flue that draws. People sleep or they do not. |
 | `bp_greenhouse_retrofit` | Greenhouse Retrofit Blueprint | Common | greenhouse | `building:greenhouse` | 2 | Glazing bars and an irrigation loop that does not need anybody standing over it. |
@@ -288,38 +311,234 @@ What a structure or a squad becomes once the yard has the drawings for it.
 | `bp_infirmary_retrofit` | Infirmary Retrofit Blueprint | Uncommon | bed | `building:infirmary` | 3 | Ward layout and a sterile line people actually keep to. |
 | `bp_garage_retrofit` | Garage Retrofit Blueprint | Uncommon | hoist | `building:garage` | 4 | Pit layout, hoist ratings and a parts wall with everything where it should be. |
 
-##### Composite Armour Blueprint (`bp_composite_armour`)
+##### Filed Sights Blueprint (`bp_mod_filed_sights`)
 
 | Page id | Name | Motif | Rarity | Description |
 | --- | --- | --- | --- | --- |
-| `pg_composite_armour_lamination` | Lamination Schedule | table | Rare | Layer by layer, with the cure temperature written along the top of the sheet. |
-| `pg_composite_armour_backing_weave` | Backing Weave | weave | as document | The weave behind the plate, drawn so close in that it reads as a pattern. |
-| `pg_composite_armour_edge_binding` | Edge Binding | section | as document | How the edge is bound so the whole thing does not come apart on the first hit. |
+| `pg_mod_filed_sights_sight_picture` | Sight Picture | dimension | as document | Post and notch drawn ten times life size, with the line of the eye ruled through both. |
+| `pg_mod_filed_sights_filing_order` | Filing Order | tools | as document | Which face of the post goes first, and the needle files laid out in the order they are pi… |
 
-##### Munitions Blueprint (`bp_munitions`)
-
-| Page id | Name | Motif | Rarity | Description |
-| --- | --- | --- | --- | --- |
-| `pg_munitions_load_tables` | Load Tables | table | as document | Charge weights by cartridge, with margin notes arguing against the tables. |
-| `pg_munitions_primer_mixes` | Primer Mixes | mortar_pestle | Rare | Mixes by mass, in a hand that gets smaller and more careful down the page. |
-| `pg_munitions_barrel_wear` | Barrel Wear Charts | chart | as document | Wear against rounds fired, plotted, with the point marked where it stops grouping. |
-
-##### Cybernetics Blueprint (`bp_cybernetics`)
+##### Rag Wraps Blueprint (`bp_mod_rag_wraps`)
 
 | Page id | Name | Motif | Rarity | Description |
 | --- | --- | --- | --- | --- |
-| `pg_cybernetics_socket_templates` | Socket Templates | pattern | as document | Socket outlines at full size, meant to be cut out and laid on the skin. |
-| `pg_cybernetics_nerve_mapping` | Nerve Mapping | circuit | as document | A nerve map with the useful branches inked and the rest of it left grey. |
-| `pg_cybernetics_anaesthetic_notes` | Anaesthetic Notes | table | Uncommon | Doses by weight, and one line on what happens when you get it wrong. |
-| `pg_cybernetics_rejection_ward` | Rejection Ward | plan | Uncommon | A ward plan for afterwards, with more beds on it than anyone expects to need. |
+| `pg_mod_rag_wraps_wrapping_runs` | Wrapping Runs | strap | as document | A buckle and a barrel each wound in strip, with arrows showing which way the cloth lays. |
+| `pg_mod_rag_wraps_tie_offs` | Tie-Offs | knot | as document | Three knots, drawn large, and a note that the third one is the one that comes undone. |
 
-##### Discipline Blueprint (`bp_discipline`)
+##### Whistle Code Blueprint (`bp_mod_whistle_code`)
 
 | Page id | Name | Motif | Rarity | Description |
 | --- | --- | --- | --- | --- |
-| `pg_discipline_drill_book` | Drill Book | list | as document | Movements numbered down the sheet, in the order a sergeant shouts them. |
-| `pg_discipline_signal_lamps` | Signal Lamps | optics | Rare | A lens stack behind a shutter, with the code for each flash down the margin. |
-| `pg_discipline_standing_orders` | Standing Orders | prose | as document | Handwriting, no drawing, on what a section does when the order does not come. |
+| `pg_mod_whistle_code_six_notes` | The Six Notes | list | as document | Six notes numbered down the sheet, each with the order it stands for written beside it in… |
+| `pg_mod_whistle_code_whistle_bore` | Whistle Bore | section | as document | A whistle cut through along its length, pea and window drawn in, the pitch pencilled besi… |
+
+##### Hook and Line Blueprint (`bp_mod_hook_and_line`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_hook_and_line_grapple_bending` | Grapple Bending | dimension | as document | Four rebar tines bent round a jig and welded to a ring, with the bend radius dimensioned… |
+| `pg_mod_hook_and_line_throwing_lines` | Throwing Lines | line_run | as document | The arc of a throw drawn against a three-storey wall, and the slack to leave coiled at th… |
+
+##### Knuckle Guards Blueprint (`bp_mod_knuckle_guards`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_knuckle_guards_finger_templates` | Finger Templates | pattern | as document | Four finger plates drawn flat to cut, traced round a hand with the fingers already curled. |
+| `pg_mod_knuckle_guards_rivet_pattern` | Rivet Pattern | bolts | as document | The rivet pattern through the palm plate, so the guard is still where it was when the han… |
+
+##### Ear Defenders Blueprint (`bp_mod_ear_defenders`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_ear_defenders_ear_casts` | Ear Casts | face | as document | An ear in three views with the canal shaded, and the wax pressed into it drawn alongside. |
+| `pg_mod_ear_defenders_issue_roll` | Issue Roll | table | as document | A ruled table of names against plug pairs, ticked at the door on the way out each night. |
+
+##### Ablative Layers Blueprint (`bp_mod_ablative_layers`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_ablative_layers_layer_stack` | Layer Stack | laminate | as document | Five layers in section, each one meant to come off before the one behind it. |
+| `pg_mod_ablative_layers_shear_pins` | Shear Pins | bolts | Rare | The pin pattern holding each tile, sized to let go under a hit rather than hold through o… |
+| `pg_mod_ablative_layers_replacement_count` | Replacement Count | table | as document | Tiles gone against fights fought, kept per squad, with the bill from the yard along the b… |
+
+##### Recoil Dampers Blueprint (`bp_mod_recoil_dampers`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_recoil_dampers_spring_rates` | Spring Rates | chart | as document | Compression against load plotted for a dozen springs, with two circled and the rest cross… |
+| `pg_mod_recoil_dampers_gas_port_drilling` | Gas Port Drilling | bore | Rare | A barrel in section with the port drilled at the angle that bleeds enough and no more. |
+| `pg_mod_recoil_dampers_buffer_assembly` | Buffer Assembly | exploded | as document | Buffer, spring and guide rod pulled apart along one axis, numbered in the order they go b… |
+
+##### Twitch Loop Blueprint (`bp_mod_twitch_loop`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_twitch_loop_shunt_placement` | Shunt Placement | implant | Rare | A shunt set into the forearm, with the two nerves it bridges inked and the rest left grey. |
+| `pg_mod_twitch_loop_loop_timing` | Loop Timing | chart | as document | Reaction against loop gain, plotted, with the band where the hand starts moving first sha… |
+| `pg_mod_twitch_loop_tremor_notes` | Tremor Notes | prose | as document | Handwriting on what the hand does at rest afterwards, and how long that takes to stop. |
+
+##### Smoke Discipline Blueprint (`bp_mod_smoke_discipline`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_smoke_discipline_approach_orders` | Approach Orders | list | as document | What stops at the last cover, numbered: the smokes, the stove, the talk, and then the wal… |
+| `pg_mod_smoke_discipline_wind_cards` | Wind Cards | card | as document | A ruled card of wind against how far it carries, for smell as much as smoke, one row stru… |
+| `pg_mod_smoke_discipline_halt_plan` | Halt Plan | plan | as document | A courtyard from above with the door swing that hides a section, and the last place anybo… |
+
+##### Drill Book Blueprint (`bp_mod_drill_book`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_drill_book_parade_grid` | Parade Grid | footprints | Common | Footprints on a numbered grid, every movement of the morning drill in the order it is cal… |
+| `pg_mod_drill_book_reading_order` | Reading Order | board | as document | The forty pages ruled into a week, morning by morning, with the ones to repeat marked twi… |
+| `pg_mod_drill_book_voice_of_command` | Voice of Command | speaker | as document | How a sergeant carries across a yard: the chest as a cavity in section, and where the bre… |
+
+##### Hardened Optics Blueprint (`bp_mod_hardened_optics`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_hardened_optics_coating_bath` | Coating Bath | vessel | Rare | A drum with a level line for the coating bath, and the dwell time written on the side of… |
+| `pg_mod_hardened_optics_seal_section` | Seal Section | section | as document | A cut through the housing showing both seals and the dry nitrogen that sits between them. |
+| `pg_mod_hardened_optics_collimation` | Collimation | dimension | as document | A dimension run down the optical axis, witness lines at each lens, tolerance in thousandt… |
+
+##### Counterweight Harness Blueprint (`bp_mod_counterweight_harness`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_counterweight_harness_hip_frame` | Hip Frame | frame | as document | A frame that sits on the pelvis, members numbered, with the load path drawn down into the… |
+| `pg_mod_counterweight_harness_balance_points` | Balance Points | balance | as document | A carrier as a beam on a fulcrum, with where the bag hangs against where the weight hangs. |
+| `pg_mod_counterweight_harness_bag_lashings` | Bag Lashings | lace | Common | Lacing through an eyelet run down the bag, tightened in the order that keeps it off the s… |
+
+##### Bone Lattice Blueprint (`bp_mod_bone_lattice`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_bone_lattice_pin_sites` | Pin Sites | figure | as document | A body in elevation with every pin site marked, and the femur circled as the one to do fi… |
+| `pg_mod_bone_lattice_mesh_weave` | Mesh Weave | weave | as document | The mesh drawn close enough to read as a pattern, with the wire gauge in the corner. |
+| `pg_mod_bone_lattice_setting_time` | Setting Time | bed | Rare | A ward bed with a chart on the end, six weeks of it, and the day the patient may stand. |
+
+##### Trophy Rack Blueprint (`bp_mod_trophy_rack`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_trophy_rack_mounting_frame` | Mounting Frame | mount | as document | A bracket on the back plate taking a trophy, with the load path drawn so it does not swin… |
+| `pg_mod_trophy_rack_markings_key` | Markings Key | card | as document | A ruled card of markings worth taking and what each is worth, one row struck out as no lo… |
+| `pg_mod_trophy_rack_display_order` | Display Order | elevation | Common | The rack in elevation with a centre line, the biggest piece on it and the rest ranked out… |
+
+##### Composite Carapace Blueprint (`bp_mod_composite_carapace`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_composite_carapace_body_casts` | Body Casts | figure | as document | A body in elevation on a ground line, with the plaster cast lines drawn where each panel… |
+| `pg_mod_composite_carapace_layup_schedule` | Layup Schedule | laminate | Exotic | Cloth, resin and plate in section, layer by layer, with the cure oven temperature along t… |
+| `pg_mod_composite_carapace_hinge_lines` | Hinge Lines | door | as document | Where the shell opens, drawn as a door leaf with its swing, so a medic can get in. |
+| `pg_mod_composite_carapace_weight_budget` | Weight Budget | table | as document | A ruled table of every panel against its weight, totalled, and the total circled twice. |
+
+##### Ranging Gear Blueprint (`bp_mod_ranging_gear`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_ranging_gear_cam_profile` | Cam Profile | chart | Exotic | The cam drawn as the curve it follows, drop against range, with the hand cuts visible in… |
+| `pg_mod_ranging_gear_drum_graduations` | Drum Graduations | dimension | as document | A drum unrolled flat, its graduations dimensioned from a zero mark, each one a range. |
+| `pg_mod_ranging_gear_wire_tension` | Wire Tension | spring | as document | The return spring that keeps the wire honest, with its rate and the spacer that sets it. |
+| `pg_mod_ranging_gear_zeroing_card` | Zeroing Card | card | as document | A ruled card of shots against range on the day it was zeroed, one row struck out as a fli… |
+
+##### Dry Joints Blueprint (`bp_mod_dry_joints`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_dry_joints_graphite_packing` | Graphite Packing | section | as document | A hinge cut through, with the graphite packed into the gap and the rubber lip that keeps… |
+| `pg_mod_dry_joints_silent_soles` | Silent Soles | footprints | as document | Footprints on a numbered grid, the loud ones marked in red, before and after the new sole… |
+| `pg_mod_dry_joints_servo_damping` | Servo Damping | governor | Exotic | The speed linkage on each servo with its stops moved in, so nothing slams at the end of t… |
+| `pg_mod_dry_joints_valve_bleed` | Valve Bleed | manifold | as document | A block with two circuits through it, one bled slow so the pressure comes up without a cl… |
+
+##### Adrenal Regulator Blueprint (`bp_mod_adrenal_regulator`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_adrenal_regulator_pump_housing` | Pump Housing | vessel | as document | The reservoir as a drum with a level line, the size of a thumb, drawn at full size beside… |
+| `pg_mod_adrenal_regulator_dose_curve` | Dose Curve | chart | Exotic | Dose against fear, plotted, with the band where the hands stop shaking and before they st… |
+| `pg_mod_adrenal_regulator_valve_timing` | Valve Timing | loop | as document | The pipe loop off the reservoir and back, with the valve that opens on a pulse rate rathe… |
+| `pg_mod_adrenal_regulator_aftercare` | Aftercare | prose | as document | Handwriting on what the week after looks like, and the line about the bill that somebody… |
+
+##### Breaching Charges Blueprint (`bp_mod_breaching_charges`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_breaching_charges_liner_spinning` | Liner Spinning | press | as document | A press with the spinning tool under it, turning copper sheet into a cone with a wall of… |
+| `pg_mod_breaching_charges_packing_weights` | Packing Weights | balance | Exotic | A beam on a fulcrum with the charge in the pan, and the grain weight for each liner size… |
+| `pg_mod_breaching_charges_standoff_sleeves` | Standoff Sleeves | section | as document | A charge cut through with its sleeve on, the gap that lets the jet form drawn to scale. |
+| `pg_mod_breaching_charges_handling_rules` | Handling Rules | list | as document | Numbered items down a sheet, all of them about hands, the last one about how many you hav… |
+
+##### Rescue Rig Blueprint (`bp_mod_rescue_rig`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_rescue_rig_winch_gearing` | Winch Gearing | gear_train | as document | Two meshed wheels with the ratio that lets one person pull two up a bank, and the pawl th… |
+| `pg_mod_rescue_rig_sled_frame` | Sled Frame | frame | as document | A sled frame with its members numbered, wide enough for a stretcher and low enough to dra… |
+| `pg_mod_rescue_rig_body_harness` | Body Harness | strap | Exotic | A harness strap over its anchor, rated in the margin for a body and a half, in case. |
+| `pg_mod_rescue_rig_recovery_drill` | Recovery Drill | footprints | Uncommon | Footprints on a numbered grid: who goes to the casualty, who holds the line, who works th… |
+
+##### Monofilament Edge Blueprint (`bp_mod_monofilament_edge`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_monofilament_edge_filament_draw` | Filament Draw | press | Exotic | A press with the drawing die under it, pulling the filament down through eleven passes. |
+| `pg_mod_monofilament_edge_handle_keep` | Handle Keep | mount | as document | A bracket receiving the filament, with the load path drawn so the edge never turns toward… |
+| `pg_mod_monofilament_edge_edge_testing` | Edge Testing | table | as document | A ruled table of what it went through and how far, plate at the bottom, with a note about… |
+| `pg_mod_monofilament_edge_injury_log` | Injury Log | prose | as document | Handwriting, no drawing, on every cut in the workshop, and the rule about holding it twic… |
+
+##### Hardshell Exoframe Blueprint (`bp_mod_hardshell_exoframe`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_hardshell_exoframe_frame_members` | Frame Members | frame | as document | The frame with every member numbered, sized round a body, and the doorway width written b… |
+| `pg_mod_hardshell_exoframe_actuator_manifold` | Actuator Manifold | manifold | as document | A block with two circuits through it, one for each leg, and the cross-feed that keeps the… |
+| `pg_mod_hardshell_exoframe_cooling_loop` | Cooling Loop | loop | as document | The coolant loop off its tank and round the back plate, with where it ices in the cold ma… |
+| `pg_mod_hardshell_exoframe_power_plant` | Power Plant | engine | as document | The engine opened across the sheet, small enough to carry and loud enough to hear three s… |
+| `pg_mod_hardshell_exoframe_shell_plating` | Shell Plating | plating | Rare | A plate with rivets round its edge, one of forty, with the order they go on drawn in the… |
+| `pg_mod_hardshell_exoframe_egress_drill` | Egress Drill | list | Rare | Numbered items down a sheet for getting out of it in under a minute, the last one about t… |
+
+##### Synaptic Lace Blueprint (`bp_mod_synaptic_lace`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_synaptic_lace_lace_pattern` | Lace Pattern | net | as document | A net drawn with its fringe, the pattern the filament grows along, fine enough to read as… |
+| `pg_mod_synaptic_lace_growth_schedule` | Growth Schedule | board | as document | Six weeks ruled into columns, each with what should be working by then and what will not… |
+| `pg_mod_synaptic_lace_cortex_map` | Cortex Map | circuit | as document | A trace running between two pads, drawn on a brain, with the regions it crosses named and… |
+| `pg_mod_synaptic_lace_induction_coil` | Induction Coil | coil | as document | Windings on a former the width of a finger, the coil that keeps the lace from cooking wha… |
+| `pg_mod_synaptic_lace_what_comes_back` | What Comes Back | prose | Rare | Handwriting, no drawing, listing what came back after six weeks and what did not, in two… |
+
+##### Guided Rounds Blueprint (`bp_mod_guided_rounds`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_guided_rounds_fin_deployment` | Fin Deployment | exploded | as document | The round pulled apart along its axis: body, fins folded, fins out, and the pin that lets… |
+| `pg_mod_guided_rounds_seeker_head` | Seeker Head | optics | as document | A lens stack in its housing the width of a thumbnail, looking down the bore before the ro… |
+| `pg_mod_guided_rounds_steering_coil` | Steering Coil | coil | as document | Windings on a former inside the round, and the current that pushes the fins one way or th… |
+| `pg_mod_guided_rounds_trajectory_tables` | Trajectory Tables | table | as document | A ruled table of how far a round will steer at each range, with the row for point blank l… |
+| `pg_mod_guided_rounds_per_shot_cost` | Per-Shot Cost | card | Rare | A ruled card of every part in one round against its caps value, totalled, one row struck… |
+
+##### Ghost Protocol Blueprint (`bp_mod_ghost_protocol`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_ghost_protocol_heat_shroud` | Heat Shroud | flue | as document | A flue with one bend, in section, drawing body heat down and out at the boot rather than… |
+| `pg_mod_ghost_protocol_footfall_damping` | Footfall Damping | footprints | as document | Footprints on a numbered grid with the sound of each in the margin, before and after the… |
+| `pg_mod_ghost_protocol_signal_blackout` | Signal Blackout | mast | as document | A mast on its guys, drawn crossed out, and the note about what a handset still says when… |
+| `pg_mod_ghost_protocol_lens_baffles` | Lens Baffles | optics | as document | A lens stack in its housing with the baffles that stop a scope glinting back at whoever i… |
+| `pg_mod_ghost_protocol_approach_timing` | Approach Timing | chart | as document | The curve of a patrol against the hour, plotted, with the gap a section walks through sha… |
+| `pg_mod_ghost_protocol_combine_practice` | Combine Practice | prose | Rare | Handwriting in a hand that was trained for it, on how this was done before, and who is st… |
+
+##### Colours of the Line Blueprint (`bp_mod_colours_of_the_line`)
+
+| Page id | Name | Motif | Rarity | Description |
+| --- | --- | --- | --- | --- |
+| `pg_mod_colours_of_the_line_standard_panel` | Standard Panel | pattern | as document | The standard flattened out to cut, in two colours, with the device drawn once and traced… |
+| `pg_mod_colours_of_the_line_pole_ferrule` | Pole Ferrule | mount | as document | A bracket on the bearer harness receiving the pole, with the load path drawn against a wi… |
+| `pg_mod_colours_of_the_line_bearer_roll` | Bearer Roll | list | Rare | Numbered items down a sheet, names, every bearer the line has had and how each one stoppe… |
+| `pg_mod_colours_of_the_line_battle_honours` | Battle Honours | board | as document | A project ruled into columns, one for each fight the standard was carried in, and the one… |
+| `pg_mod_colours_of_the_line_rally_signals` | Rally Signals | speaker | as document | The horn cavity in section, and the two calls it makes: one for stand, one for come back… |
 
 ##### Nexus Retrofit Blueprint (`bp_nexus_retrofit`)
 
@@ -510,9 +729,9 @@ Made for one night and gone by morning.
 
 Source: `packages/shared/src/items/catalog.ts`
 
-The 174 page items are generated one per blueprint page and are listed under Blueprints above, so they are not repeated here. The blueprint rows below are the six standing Lab documents plus one per assembled blueprint.
+The 255 page items are generated one per blueprint page and are listed under Blueprints above, so they are not repeated here. The blueprint rows below are the six standing Lab documents plus one per assembled blueprint.
 
-#### Blueprint (51)
+#### Blueprint (74)
 
 | Id | Name | Rarity | Caps | Tradeable | Description | Used for |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -542,10 +761,33 @@ The 174 page items are generated one per blueprint page and are listed under Blu
 | `bp_gas_balloon` | Gas Balloon Blueprint | Rare | 4500 | no | Envelope panels and a page on the gas that nobody will put a source on. | Unlocked, permanently. Assembled from 5 pages. |
 | `bp_rotorcraft` | Rotorcraft Blueprint | Exotic | 8820 | no | Rotor geometry, in a hand that assumed the reader already knew how to fly. | Unlocked, permanently. Assembled from 7 pages. |
 | `bp_heli_porter` | Heli Porter Blueprint | Exotic | 8820 | no | A factory manual, complete, with corrections pencilled in the margins where the factory w… | Unlocked, permanently. Assembled from 7 pages. |
-| `bp_composite_armour` | Composite Armour Blueprint | Uncommon | 1620 | no | Lamination schedules for plate that is mostly air. | Unlocked, permanently. Assembled from 3 pages. |
-| `bp_munitions` | Munitions Blueprint | Uncommon | 1620 | no | Load tables. The margins argue with the tables. | Unlocked, permanently. Assembled from 3 pages. |
-| `bp_cybernetics` | Cybernetics Blueprint | Rare | 2880 | no | Surgical plates and a wiring diagram, annotated by somebody who stopped writing. | Unlocked, permanently. Assembled from 4 pages. |
-| `bp_discipline` | Discipline Blueprint | Uncommon | 1620 | no | Drill, signals and the orders that hold a line together after the officer is down. | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_filed_sights` | Filed Sights Blueprint | Common | 720 | no | Where to take metal off a front post, and how to know when to stop. | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_rag_wraps` | Rag Wraps Blueprint | Common | 720 | no | What to wrap, what to leave bare, and the knots that hold through a night of rain. | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_whistle_code` | Whistle Code Blueprint | Common | 720 | no | Six notes, what each one means, and how to be heard over a fight without being understood… | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_hook_and_line` | Hook and Line Blueprint | Common | 720 | no | A grapple bent out of rebar, forty metres of rope, and the throws that land it. | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_knuckle_guards` | Knuckle Guards Blueprint | Common | 720 | no | Plate over the knuckles, cut from what the yard has, shaped to a fist that is closed. | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_ear_defenders` | Ear Defenders Blueprint | Common | 720 | no | Plugs cast to the ear that wears them, and the check that they are in before the shooting… | Unlocked, permanently. Assembled from 2 pages. |
+| `bp_mod_ablative_layers` | Ablative Layers Blueprint | Uncommon | 1620 | no | Plate that leaves in pieces so the person under it does not. Replaced after every fight,… | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_recoil_dampers` | Recoil Dampers Blueprint | Uncommon | 1620 | no | Springs, a gas port and the fitting that makes the second shot land where the first one d… | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_twitch_loop` | Twitch Loop Blueprint | Uncommon | 1620 | no | A wire from the eye to the hand with nothing in between. The thinking was the slow part. | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_smoke_discipline` | Smoke Discipline Blueprint | Uncommon | 1620 | no | Nothing lit, nothing cooked, nothing said on the approach. Written down so it can be read… | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_drill_book` | Drill Book Blueprint | Uncommon | 1620 | no | Forty pages of standing still, read aloud every morning until nobody needs it read. | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_hardened_optics` | Hardened Optics Blueprint | Uncommon | 1620 | no | Sealed glass, a coating that will not fog or flare, and the housing that keeps the two al… | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_counterweight_harness` | Counterweight Harness Blueprint | Uncommon | 1620 | no | Load on the hips instead of the shoulders. Twice the bag comes home at the same walking p… | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_bone_lattice` | Bone Lattice Blueprint | Uncommon | 1620 | no | Pins and mesh through the long bones, so the frame stops being the first thing that fails. | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_trophy_rack` | Trophy Rack Blueprint | Uncommon | 1620 | no | Plate, teeth and body markings off everybody they have beaten, hung where it will be seen. | Unlocked, permanently. Assembled from 3 pages. |
+| `bp_mod_composite_carapace` | Composite Carapace Blueprint | Rare | 2880 | no | Panels cut to one body, the layup that makes them hard, and the hinges that let it come o… | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_ranging_gear` | Ranging Gear Blueprint | Rare | 2880 | no | A drum, a wire and a cam cut by hand that solves the drop. Arguments about elevation end. | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_dry_joints` | Dry Joints Blueprint | Rare | 2880 | no | Graphite and rubber through every hinge and sole. Gravel underfoot stops being a warning. | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_adrenal_regulator` | Adrenal Regulator Blueprint | Rare | 2880 | no | A pump under the collarbone, the dose it meters, and what to watch for once it is done me… | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_breaching_charges` | Breaching Charges Blueprint | Rare | 2880 | no | Cone liners carried into a fight rather than laid the night before, and the packing that… | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_rescue_rig` | Rescue Rig Blueprint | Rare | 2880 | no | Winch, sled and a harness that will hold a body. What went out comes back, and sometimes… | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_monofilament_edge` | Monofilament Edge Blueprint | Rare | 2880 | no | An edge one molecule wide, and the handle that keeps it away from the hand that holds it. | Unlocked, permanently. Assembled from 4 pages. |
+| `bp_mod_hardshell_exoframe` | Hardshell Exoframe Blueprint | Exotic | 6480 | no | A powered shell with its own cooling and its own opinion about doorways. Three streets he… | Unlocked, permanently. Assembled from 6 pages. |
+| `bp_mod_synaptic_lace` | Synaptic Lace Blueprint | Exotic | 4500 | no | Six weeks of growing a net through a brain, and what to do about the parts of the person… | Unlocked, permanently. Assembled from 5 pages. |
+| `bp_mod_guided_rounds` | Guided Rounds Blueprint | Exotic | 4500 | no | A round that turns in the last half second, the fins that turn it, and what each one cost… | Unlocked, permanently. Assembled from 5 pages. |
+| `bp_mod_ghost_protocol` | Ghost Protocol Blueprint | Exotic | 6480 | no | Heat, sound and signal, each killed by a different hand, so that afterwards nobody can pr… | Unlocked, permanently. Assembled from 6 pages. |
+| `bp_mod_colours_of_the_line` | Colours of the Line Blueprint | Exotic | 4500 | no | A standard, the pole it hangs from, and who carries it. A line that can see it does not b… | Unlocked, permanently. Assembled from 5 pages. |
 | `bp_nexus_retrofit` | Nexus Retrofit Blueprint | Rare | 2880 | no | Cable runs and cipher racks. Everything the district knows goes through this room. | Unlocked, permanently. Assembled from 4 pages. |
 | `bp_quarters_retrofit` | Quarters Retrofit Blueprint | Common | 720 | no | Bunk framing and a flue that draws. People sleep or they do not. | Unlocked, permanently. Assembled from 2 pages. |
 | `bp_greenhouse_retrofit` | Greenhouse Retrofit Blueprint | Common | 720 | no | Glazing bars and an irrigation loop that does not need anybody standing over it. | Unlocked, permanently. Assembled from 2 pages. |
@@ -568,7 +810,7 @@ The 174 page items are generated one per blueprint page and are listed under Blu
 | `bp_fuel_fougasse` | Fuel Fougasse Blueprint | Uncommon | 1620 | no | A drum on its side in a pit, the angle it is dug at, and the charge behind it. | Unlocked, permanently. Assembled from 3 pages. |
 | `bp_flooded_cellar` | Flooded Cellar Blueprint | Rare | 1620 | no | Which cellar to fill, where the water goes when it is let go, and what is in it. | Unlocked, permanently. Assembled from 3 pages. |
 
-#### Component (8)
+#### Component (12)
 
 | Id | Name | Rarity | Caps | Tradeable | Description | Used for |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -580,14 +822,10 @@ The 174 page items are generated one per blueprint page and are listed under Blu
 | `coolant_cell` | Coolant Cell | Rare | 760 | yes | Sealed, pressurised, and older than anyone using it. | Anything that runs hot: the Generator’s upper levels, and r… |
 | `rotor_hub` | Rotor Hub | Exotic | 2400 | yes | The one part of a helicopter nobody has worked out how to fabricate. | Rotorcraft. There is no substitute and no second use. |
 | `targeting_core` | Targeting Core | Exotic | 2100 | yes | A dead drone’s brain, still counting things it can no longer see. | The last tier of weapon upgrades. |
-
-#### Relic (3)
-
-| Id | Name | Rarity | Caps | Tradeable | Description | Used for |
-| --- | --- | --- | --- | --- | --- | --- |
-| `combine_seal` | Combine Seal | Uncommon | 450 | yes | An authority stamp from an office that no longer answers. | - |
-| `pre_collapse_ledger` | Pre-Collapse Ledger | Rare | 1050 | yes | Somebody’s accounts, kept immaculately, right up to the last page. | - |
-| `ivory_dice` | Ivory Dice | Exotic | 2600 | yes | A matched pair, weighted. Everyone in the district knows whose they were. | - |
+| `weld_rod` | Welding Rods | Common | 90 | yes | A bundle of flux-coated rod, the size somebody actually uses rather than the size sold. | Anything joined rather than bolted: the early structures, a… |
+| `hydraulic_ram` | Hydraulic Ram | Uncommon | 360 | yes | A cylinder with the seals still good, which is the rare part of a hydraulic ram. | Anything that has to lift or brace: the Gate, the yard, and… |
+| `signal_relay` | Signal Relay | Uncommon | 300 | yes | A repeater board off a Combine handset, still paired to a network nobody runs. | Talking to each other under fire: the Lab, and the discipli… |
+| `pressure_valve` | Pressure Valve | Rare | 820 | yes | Rated far past anything it will be asked to do here, which is why it is worth taking. | Anything that runs hot or wet: the Generator, the Greenhous… |
 
 #### Consumable (6)
 
@@ -622,7 +860,7 @@ Source: `packages/shared/src/battle/boosts.ts`
 | `boost_call_in_the_name` | Call In The Name | 200 | +12% attack for everything you send | Anybody | Every debt the street owes you, called in at once and spent on this one night. |
 | `boost_stand_your_ground` | Stand Your Ground | 200 | +15% defence for everything you send | Anybody | Word goes out that anybody who runs tonight does not come back to this district. |
 | `boost_make_an_example` | Make An Example | 320 | +20% morale for everything you send | Anybody | Something public, something ugly, and nobody on your side thinking about home. |
-| `boost_paid_in_advance` | Paid In Advance | 620 | +40% attack for your rabble | Proposed by your Finance Officer | The cheap end of the roster, paid before the fight instead of after it. They notice. |
+| `boost_paid_in_advance` | Paid In Advance | 620 | +40% attack for your rabble | Proposed by your Head of Finance | The cheap end of the roster, paid before the fight instead of after it. They notice. |
 | `boost_drilled_all_week` | Drilled All Week | 420 | +28% attack for your engineered units | Proposed by your Instructor of the Young | Seven days of the same approach, walked until nobody has to be told twice. |
 | `boost_the_right_doors` | The Right Doors | 560 | +30% attack for your specialists | Proposed by your Head Spy | Somebody has already been inside and marked which way the specialists go in. |
 | `boost_plated_overnight` | Plated Overnight | 700 | +35% defence for your heavy units | Proposed by the Lab: Standard Parts | Every heavy thing you own, up on blocks and welded to until the sun came up. |
@@ -645,6 +883,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `clean_1` | Clean Work | early | small | `clean` | - | `missions_won` | 10 | xp | 210 |
 | `clean_2` | Reliable | mid | small | `clean` | `clean_1` | `missions_won` | 60 | xp | 2,240 |
 | `clean_3` | Never Yet Failed Us | late | medium | `clean` | `clean_2` | `missions_won` | 250 | xp | 77,000 |
+| `clean_4` | Never a Bad Season | late | large | `clean` | `clean_3` | `missions_won` | 800 | xp | 364,000 |
 | `raids_1` | Shooting Work | early | small | `raids` | - | `missions_of_kind:battle` | 5 | infamy | 220 |
 | `raids_2` | The Loud Half | mid | medium | `raids` | `raids_1` | `missions_of_kind:battle` | 40 | infamy | 15,000 |
 | `raids_3` | Nothing Quiet Left | late | medium | `raids` | `raids_2` | `missions_of_kind:battle` | 150 | infamy | 80,000 |
@@ -654,14 +893,23 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `oddjobs_1` | Whatever Is Going | early | small | `oddjobs` | - | `missions_in_area:misc` | 3 | resources | 220 |
 | `oddjobs_2` | Odd Jobs | early | medium | `oddjobs` | `oddjobs_1` | `missions_in_area:misc` | 20 | resources | 1,364 |
 | `oddjobs_3` | Anything At All | mid | medium | `oddjobs` | `oddjobs_2` | `missions_in_area:misc` | 75 | resources | 17,700 |
-| `area_neon_docks` | Twenty Five in Neon Docks | early | medium | - | - | `missions_in_area:neon-docks` | 25 | resources | 1,364 |
-| `area_rustyard` | Twenty Five in Steelbelt | early | medium | - | - | `missions_in_area:rustyard` | 25 | resources | 1,364 |
-| `area_chrome_row` | Twenty Five in Chrome Row | mid | medium | - | - | `missions_in_area:chrome-row` | 25 | resources | 17,700 |
-| `area_undergrid` | Twenty Five in The Undergrid | mid | medium | - | - | `missions_in_area:undergrid` | 25 | resources | 17,700 |
-| `area_datavault_sigma` | Twenty Five in The Annexes | late | medium | - | - | `missions_in_area:datavault-sigma` | 25 | resources | 103,200 |
-| `area_glasshouse_fields` | Twenty Five in Glasshouse Fields | mid | medium | - | - | `missions_in_area:glasshouse-fields` | 25 | resources | 17,700 |
-| `area_blacksite_7` | Twenty Five in Blacksite | late | medium | - | - | `missions_in_area:blacksite-7` | 25 | resources | 103,200 |
-| `area_combine_spire` | Twenty Five in CCS | late | medium | - | - | `missions_in_area:combine-spire` | 25 | resources | 103,200 |
+| `oddjobs_4` | Whatever Needs Doing | late | medium | `oddjobs` | `oddjobs_3` | `missions_in_area:misc` | 250 | resources | 103,200 |
+| `area_neon_docks` | Ten in Neon Docks | early | small | `area_neon_docks` | - | `missions_in_area:neon-docks` | 10 | resources | 220 |
+| `area_neon_docks_2` | Fifty in Neon Docks | mid | medium | `area_neon_docks` | `area_neon_docks` | `missions_in_area:neon-docks` | 50 | resources | 17,700 |
+| `area_rustyard` | Ten in Steelbelt | early | small | `area_rustyard` | - | `missions_in_area:rustyard` | 10 | resources | 220 |
+| `area_rustyard_2` | Fifty in Steelbelt | mid | medium | `area_rustyard` | `area_rustyard` | `missions_in_area:rustyard` | 50 | resources | 17,700 |
+| `area_chrome_row` | Ten in Chrome Row | mid | small | `area_chrome_row` | - | `missions_in_area:chrome-row` | 10 | resources | 2,500 |
+| `area_chrome_row_2` | Fifty in Chrome Row | late | medium | `area_chrome_row` | `area_chrome_row` | `missions_in_area:chrome-row` | 50 | resources | 103,200 |
+| `area_undergrid` | Ten in The Undergrid | mid | small | `area_undergrid` | - | `missions_in_area:undergrid` | 10 | resources | 2,500 |
+| `area_undergrid_2` | Fifty in The Undergrid | late | medium | `area_undergrid` | `area_undergrid` | `missions_in_area:undergrid` | 50 | resources | 103,200 |
+| `area_datavault_sigma` | Ten in The Annexes | late | small | `area_datavault_sigma` | - | `missions_in_area:datavault-sigma` | 10 | resources | 12,200 |
+| `area_datavault_sigma_2` | Fifty in The Annexes | late | medium | `area_datavault_sigma` | `area_datavault_sigma` | `missions_in_area:datavault-sigma` | 50 | resources | 103,200 |
+| `area_glasshouse_fields` | Ten in Glasshouse Fields | mid | small | `area_glasshouse_fields` | - | `missions_in_area:glasshouse-fields` | 10 | resources | 2,500 |
+| `area_glasshouse_fields_2` | Fifty in Glasshouse Fields | late | medium | `area_glasshouse_fields` | `area_glasshouse_fields` | `missions_in_area:glasshouse-fields` | 50 | resources | 103,200 |
+| `area_blacksite_7` | Ten in Blacksite | late | small | `area_blacksite_7` | - | `missions_in_area:blacksite-7` | 10 | resources | 12,200 |
+| `area_blacksite_7_2` | Fifty in Blacksite | late | medium | `area_blacksite_7` | `area_blacksite_7` | `missions_in_area:blacksite-7` | 50 | resources | 103,200 |
+| `area_combine_spire` | Ten in CCS | late | small | `area_combine_spire` | - | `missions_in_area:combine-spire` | 10 | resources | 12,200 |
+| `area_combine_spire_2` | Fifty in CCS | late | medium | `area_combine_spire` | `area_combine_spire` | `missions_in_area:combine-spire` | 50 | resources | 103,200 |
 | `fights_1` | First Blood | early | small | `fights` | - | `battles_fought` | 1 | infamy | 220 |
 | `fights_2` | Known For It | early | medium | `fights` | `fights_1` | `battles_fought` | 10 | infamy | 1,300 |
 | `fights_3` | A Standing Army | mid | medium | `fights` | `fights_2` | `battles_fought` | 50 | resources, infamy | 20,100 |
@@ -669,6 +917,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `wins_1` | Win One | early | medium | `wins` | - | `battles_won` | 1 | infamy | 1,300 |
 | `wins_2` | Ten Straight | mid | medium | `wins` | `wins_1` | `battles_won` | 10 | infamy | 15,000 |
 | `wins_3` | Undefeated Enough | late | medium | `wins` | `wins_2` | `battles_won` | 50 | infamy | 80,000 |
+| `wins_4` | Two Hundred Standing | late | large | `wins` | `wins_3` | `battles_won` | 200 | resources, infamy | 183,200 |
 | `attack_1` | Go and Take It | early | medium | `attack` | - | `battles_attacked_won` | 5 | resources, infamy | 1,584 |
 | `attack_2` | On the Front Foot | mid | medium | `attack` | `attack_1` | `battles_attacked_won` | 25 | resources, infamy | 20,100 |
 | `attack_3` | Everything Is Somebody Else’s | late | large | `attack` | `attack_2` | `battles_attacked_won` | 100 | resources, infamy | 183,200 |
@@ -695,12 +944,24 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `whole_3` | Half the City | late | large | `whole` | `whole_2` | `districts_held_whole` | 6 | resources, xp | 499,000 |
 | `gates_1` | Through the Gate | mid | medium | `gates` | - | `gates_captured` | 1 | resources, infamy | 20,100 |
 | `gates_2` | Five Gates | late | medium | `gates` | `gates_1` | `gates_captured` | 5 | resources, infamy | 116,200 |
+| `gates_3` | Every Door in the Wall | late | large | `gates` | `gates_2` | `gates_captured` | 15 | resources, infamy | 183,200 |
 | `scouted_1` | Have a Look | early | small | `scouted` | - | `districts_scouted` | 3 | xp | 210 |
 | `scouted_2` | Eight Streets | early | medium | `scouted` | `scouted_1` | `districts_scouted` | 8 | xp | 1,260 |
 | `scouted_3` | Nowhere Left Dark | mid | medium | `scouted` | `scouted_2` | `districts_scouted` | 12 | xp | 14,000 |
 | `scouting_1` | Send a Scout | early | small | `scouting` | - | `scouting_runs` | 5 | items | 240 |
 | `scouting_2` | Eyes Out | mid | small | `scouting` | `scouting_1` | `scouting_runs` | 40 | items | 2,520 |
-| `scouting_3` | The Standing Watch | late | small | `scouting` | `scouting_2` | `scouting_runs` | 150 | items | 12,320 |
+| `scouting_3` | The Standing Watch | late | small | `scouting` | `scouting_2` | `scouting_runs` | 150 | resources, items | 7,700 |
+| `scouting_4` | Nothing Unmapped | late | medium | `scouting` | `scouting_3` | `scouting_runs` | 500 | xp | 77,000 |
+| `quarters_1` | Somewhere to Sleep | early | medium | `quarters` | - | `building_level:quarters` | 3 | resources, xp | 1,574 |
+| `quarters_2` | A Full House | mid | medium | `quarters` | `quarters_1` | `building_level:quarters` | 12 | resources, xp | 19,940 |
+| `gauntlet_1` | A Place to Drill | early | medium | `gauntlet` | - | `building_level:gauntlet` | 3 | resources, xp | 1,574 |
+| `gauntlet_2` | The Hard Yard | mid | medium | `gauntlet` | `gauntlet_1` | `building_level:gauntlet` | 12 | resources, xp | 19,940 |
+| `scrapyard_1` | Somebody Who Can Cut | early | medium | `scrapyard` | - | `building_level:scrapyard` | 3 | resources, xp | 1,574 |
+| `scrapyard_2` | The Whole Works | mid | medium | `scrapyard` | `scrapyard_1` | `building_level:scrapyard` | 12 | resources, xp | 19,940 |
+| `greenhouse_1` | Something Growing | early | medium | `greenhouse` | - | `building_level:greenhouse` | 3 | resources, xp | 1,574 |
+| `greenhouse_2` | Fed and Watered | mid | medium | `greenhouse` | `greenhouse_1` | `building_level:greenhouse` | 12 | resources, xp | 19,940 |
+| `generator_1` | The Lights Stay On | early | medium | `generator` | - | `building_level:generator` | 3 | resources, xp | 1,574 |
+| `generator_2` | Off the Grid Entirely | mid | medium | `generator` | `generator_1` | `building_level:generator` | 12 | resources, xp | 19,940 |
 | `nexus_1` | A Roof and a Desk | early | medium | `nexus` | - | `building_level:nexus` | 3 | resources, xp | 1,574 |
 | `nexus_2` | A Real Operation | mid | medium | `nexus` | `nexus_1` | `building_level:nexus` | 8 | resources, xp | 19,940 |
 | `nexus_3` | Headquarters | late | medium | `nexus` | `nexus_2` | `building_level:nexus` | 15 | resources, xp | 115,800 |
@@ -713,25 +974,40 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `estate_3` | A Hundred and Forty | late | large | `estate` | `estate_2` | `buildings_total` | 140 | resources, xp | 499,000 |
 | `gate_1` | Shut the Gate | early | medium | `gate` | - | `building_level:gate` | 3 | resources | 1,364 |
 | `gate_2` | A Serious Door | mid | medium | `gate` | `gate_1` | `building_level:gate` | 10 | resources | 17,700 |
+| `gate_3` | Nothing Gets Through | late | large | `gate` | `gate_2` | `building_level:gate` | 18 | resources, xp | 499,000 |
 | `lab_1` | Somewhere to Think | early | medium | `lab` | - | `building_level:lab` | 2 | items | 1,160 |
-| `lab_2` | The Archive | mid | medium | `lab` | `lab_1` | `building_level:lab` | 8 | items | 13,800 |
+| `lab_2` | The Archive | mid | medium | `lab` | `lab_1` | `building_level:lab` | 8 | resources, items | 5,700 |
+| `lab_3` | The Whole Library | late | large | `lab` | `lab_2` | `building_level:lab` | 16 | resources, xp | 499,000 |
 | `garage_1` | Under Cover | mid | medium | `garage` | - | `building_level:garage` | 1 | resources | 17,700 |
 | `garage_2` | A Real Yard | late | medium | `garage` | `garage_1` | `building_level:garage` | 8 | resources | 103,200 |
+| `garage_3` | A Yard With a Name | late | large | `garage` | `garage_2` | `building_level:garage` | 16 | resources, xp | 499,000 |
 | `traps_1` | Something Nasty | early | small | `traps` | - | `traps_built` | 1 | items | 240 |
 | `traps_2` | Ten Surprises | mid | small | `traps` | `traps_1` | `traps_built` | 10 | items | 2,520 |
-| `traps_3` | The Whole Yard Is a Trap | late | small | `traps` | `traps_2` | `traps_built` | 40 | items | 12,320 |
+| `traps_3` | The Whole Yard Is a Trap | late | small | `traps` | `traps_2` | `traps_built` | 40 | resources, items | 7,700 |
+| `fittings_1` | Bolted In | early | small | `fittings` | - | `modifications_fitted` | 1 | items | 240 |
+| `fittings_2` | Every Slot Earns | mid | small | `fittings` | `fittings_1` | `modifications_fitted` | 8 | items | 2,520 |
+| `fittings_3` | Rebuilt From The Inside | late | medium | `fittings` | `fittings_2` | `modifications_fitted` | 20 | resources, items | 82,540 |
+| `sets_1` | Built Around One Idea | late | small | `sets` | - | `modification_sets` | 1 | resources, items | 7,700 |
+| `sets_2` | A Hand, Not A Pile | late | medium | `sets` | `sets_1` | `modification_sets` | 3 | resources, items | 82,540 |
+| `sets_3` | Nothing Here By Accident | late | large | `sets` | `sets_2` | `modification_sets` | 5 | resources, items | 459,100 |
+| `kitted_1` | Taped Up | early | small | `kitted` | - | `unit_modifications_fitted` | 1 | items | 240 |
+| `kitted_2` | Three Full Racks | mid | small | `kitted` | `kitted_1` | `unit_modifications_fitted` | 9 | items | 2,520 |
+| `kitted_3` | Nobody Standard | late | medium | `kitted` | `kitted_2` | `unit_modifications_fitted` | 20 | resources, items | 82,540 |
+| `masterpiece_fitted` | Known By Name | late | small | - | - | `masterpieces_fitted` | 1 | resources, items | 7,700 |
 | `addons_1` | Fitted Out | early | small | `addons` | - | `addons_built` | 3 | items | 240 |
 | `addons_2` | The Yard Earns Its Keep | mid | small | `addons` | `addons_1` | `addons_built` | 25 | items | 2,520 |
-| `addons_3` | Nothing Left Standard | late | medium | `addons` | `addons_2` | `addons_built` | 80 | items | 87,000 |
-| `roster_1` | Twenty at Home | early | small | `roster` | - | `army_bodies` | 20 | resources | 220 |
-| `roster_2` | A Hundred and Fifty | mid | small | `roster` | `roster_1` | `army_bodies` | 150 | resources | 2,500 |
-| `roster_3` | Six Hundred | late | medium | `roster` | `roster_2` | `army_bodies` | 600 | resources | 103,200 |
-| `beds_1` | Forty Beds Full | early | small | `beds` | - | `army_supply` | 40 | resources | 220 |
-| `beds_2` | Three Hundred | mid | small | `beds` | `beds_1` | `army_supply` | 300 | resources | 2,500 |
-| `beds_3` | A Thousand at Home | late | medium | `beds` | `beds_2` | `army_supply` | 1,000 | resources | 103,200 |
+| `addons_3` | Nothing Left Standard | late | medium | `addons` | `addons_2` | `addons_built` | 80 | resources, items | 82,540 |
+| `skills_70` | Sharpened | late | medium | - | - | `overseer_skills_at:70` | 3 | xp | 77,000 |
+| `roster_1` | Twenty at Home | early | small | `roster` | - | `army_units` | 20 | resources | 220 |
+| `roster_2` | A Hundred and Fifty | mid | small | `roster` | `roster_1` | `army_units` | 150 | resources | 2,500 |
+| `roster_3` | Six Hundred | late | medium | `roster` | `roster_2` | `army_units` | 600 | resources | 103,200 |
+| `beds_1` | Forty Slots Full | early | small | `beds` | - | `army_unit_slots` | 40 | resources | 220 |
+| `beds_2` | Three Hundred | mid | small | `beds` | `beds_1` | `army_unit_slots` | 300 | resources | 2,500 |
+| `beds_3` | A Thousand at Home | late | medium | `beds` | `beds_2` | `army_unit_slots` | 1,000 | resources | 103,200 |
 | `trained_1` | Put Them Through It | early | small | `trained` | - | `units_trained` | 25 | xp | 210 |
 | `trained_2` | The Drill Yard | mid | medium | `trained` | `trained_1` | `units_trained` | 400 | xp | 14,000 |
 | `trained_3` | Two Thousand Through the Gate | late | medium | `trained` | `trained_2` | `units_trained` | 2,000 | xp | 77,000 |
+| `trained_4` | A Generation | late | large | `trained` | `trained_3` | `units_trained` | 10,000 | units | 402,790 |
 | `kinds_1` | Three Kinds of Trouble | early | small | `kinds` | - | `unit_kinds_held` | 3 | resources | 220 |
 | `kinds_2` | Combined Arms | mid | medium | `kinds` | `kinds_1` | `unit_kinds_held` | 8 | resources | 17,700 |
 | `kinds_3` | The Whole Catalogue | late | medium | `kinds` | `kinds_2` | `unit_kinds_held` | 15 | resources | 103,200 |
@@ -753,24 +1029,33 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `fleet_1` | Something With Wheels | mid | medium | `fleet` | - | `fleet_size` | 1 | resources | 17,700 |
 | `fleet_2` | A Convoy | late | medium | `fleet` | `fleet_1` | `fleet_size` | 5 | resources | 103,200 |
 | `fleet_3` | A Motor Pool | late | large | `fleet` | `fleet_2` | `fleet_size` | 12 | resources | 422,000 |
-| `vehicles_1` | Built, Not Bought | mid | medium | `vehicles` | - | `vehicles_built` | 1 | items | 13,800 |
-| `vehicles_2` | The Line | late | medium | `vehicles` | `vehicles_1` | `vehicles_built` | 6 | items | 87,000 |
+| `vehicles_1` | Built, Not Bought | mid | medium | `vehicles` | - | `vehicles_built` | 1 | resources, items | 5,700 |
+| `vehicles_2` | The Line | late | medium | `vehicles` | `vehicles_1` | `vehicles_built` | 6 | resources, items | 82,540 |
+| `vehicles_3` | A Column of Your Own | late | large | `vehicles` | `vehicles_2` | `vehicles_built` | 20 | resources, items | 459,100 |
+| `earn_scrap` | Half a Million in Scrap | late | medium | - | - | `resources_earned:scrap` | 500,000 | resources | 103,200 |
+| `earn_oil` | Everything Burns | late | medium | - | - | `resources_earned:oil` | 200,000 | resources | 103,200 |
+| `earn_planks` | Timber | mid | medium | - | - | `resources_earned:planks` | 150,000 | resources | 17,700 |
+| `hold_caps` | Cash on Hand | late | large | - | - | `resources_held:caps` | 250,000 | resources | 422,000 |
 | `caps_1` | Five Thousand Through the Till | early | medium | `caps` | - | `resources_earned:caps` | 5,000 | resources | 1,364 |
 | `caps_2` | A Quarter Million | mid | medium | `caps` | `caps_1` | `resources_earned:caps` | 250,000 | resources | 17,700 |
 | `caps_3` | Three Million | late | large | `caps` | `caps_2` | `resources_earned:caps` | 3,000,000 | resources | 422,000 |
 | `metal_1` | A Hundred Ingots | early | medium | `metal` | - | `resources_earned:highQualityMetal` | 100 | items | 1,160 |
-| `metal_2` | Five Thousand | mid | medium | `metal` | `metal_1` | `resources_earned:highQualityMetal` | 5,000 | items | 13,800 |
-| `metal_3` | Fifty Thousand | late | medium | `metal` | `metal_2` | `resources_earned:highQualityMetal` | 50,000 | items | 87,000 |
+| `metal_2` | Five Thousand | mid | medium | `metal` | `metal_1` | `resources_earned:highQualityMetal` | 5,000 | resources, items | 5,700 |
+| `metal_3` | Fifty Thousand | late | medium | `metal` | `metal_2` | `resources_earned:highQualityMetal` | 50,000 | resources, items | 82,540 |
 | `stock_1` | Two Thousand Scrap | early | medium | `stock` | - | `resources_held:scrap` | 2,000 | resources | 1,364 |
 | `stock_2` | Forty Thousand Scrap | mid | medium | `stock` | `stock_1` | `resources_held:scrap` | 40,000 | resources | 17,700 |
+| `stock_3` | Seventy-Five Thousand Scrap | late | large | `stock` | `stock_2` | `resources_held:scrap` | 75,000 | resources | 422,000 |
 | `trade_1` | First Sale | early | small | `trade` | - | `market_sales` | 1 | resources | 220 |
 | `trade_2` | A Going Concern | mid | small | `trade` | `trade_1` | `market_sales` | 15 | resources | 2,500 |
 | `trade_3` | The House Always Wins | late | small | `trade` | `trade_2` | `market_sales` | 60 | resources | 12,200 |
+| `trade_4` | The House Always Sells | late | medium | `trade` | `trade_3` | `market_sales` | 250 | resources | 103,200 |
 | `buys_1` | Buy Something | early | small | `buys` | - | `market_buys` | 3 | resources | 220 |
 | `buys_2` | A Standing Order | mid | small | `buys` | `buys_1` | `market_buys` | 30 | resources | 2,500 |
+| `buys_3` | The Best Customer | late | medium | `buys` | `buys_2` | `market_buys` | 150 | resources | 103,200 |
 | `contraband_1` | The Back Room | early | small | `contraband` | - | `contraband_taken` | 1 | resources | 220 |
 | `contraband_2` | A Regular Back There | mid | medium | `contraband` | `contraband_1` | `contraband_taken` | 15 | boosts | 15,000 |
-| `contraband_3` | Nothing Is Not For Sale | late | medium | `contraband` | `contraband_2` | `contraband_taken` | 50 | items | 87,000 |
+| `contraband_3` | Nothing Is Not For Sale | late | medium | `contraband` | `contraband_2` | `contraband_taken` | 50 | resources, items | 82,540 |
+| `contraband_4` | A Standing Arrangement | late | large | `contraband` | `contraband_3` | `contraband_taken` | 200 | resources, infamy | 183,200 |
 | `infamy_1` | Heard Of | early | medium | `infamy` | - | `infamy_earned` | 100 | resources | 1,364 |
 | `infamy_2` | Talked About | mid | medium | `infamy` | `infamy_1` | `infamy_earned` | 2,500 | resources | 17,700 |
 | `infamy_3` | A Name Like a Threat | late | large | `infamy` | `infamy_2` | `infamy_earned` | 25,000 | resources | 422,000 |
@@ -778,14 +1063,14 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `notoriety_2` | Four Rungs Up | mid | large | `notoriety` | `notoriety_1` | `notoriety` | 4 | resources | 63,800 |
 | `notoriety_3` | Seven | late | large | `notoriety` | `notoriety_2` | `notoriety` | 7 | resources | 422,000 |
 | `research_1` | Finish Something | early | small | `research` | - | `research_done` | 1 | items | 240 |
-| `research_2` | Fifteen Programmes | mid | medium | `research` | `research_1` | `research_done` | 15 | items | 13,800 |
-| `research_3` | Sixty | late | medium | `research` | `research_2` | `research_done` | 60 | items | 87,000 |
+| `research_2` | Fifteen Programmes | mid | medium | `research` | `research_1` | `research_done` | 15 | resources, items | 5,700 |
+| `research_3` | Sixty | late | medium | `research` | `research_2` | `research_done` | 60 | resources, items | 82,540 |
 | `pages_1` | A Page | early | medium | `pages` | - | `pages_found` | 1 | items | 540 |
-| `pages_2` | Twenty Pages | mid | medium | `pages` | `pages_1` | `pages_found` | 20 | items | 13,800 |
-| `pages_3` | Eighty Pages | late | medium | `pages` | `pages_2` | `pages_found` | 80 | items | 87,000 |
+| `pages_2` | Twenty Pages | mid | medium | `pages` | `pages_1` | `pages_found` | 20 | resources, items | 5,700 |
+| `pages_3` | Eighty Pages | late | medium | `pages` | `pages_2` | `pages_found` | 80 | resources, items | 82,540 |
 | `blueprints_1` | Something New | early | medium | `blueprints` | - | `blueprints_unlocked` | 1 | items | 1,160 |
-| `blueprints_2` | Five Blueprints | mid | medium | `blueprints` | `blueprints_1` | `blueprints_unlocked` | 5 | items | 13,800 |
-| `blueprints_3` | Twelve | late | large | `blueprints` | `blueprints_2` | `blueprints_unlocked` | 12 | items | 408,000 |
+| `blueprints_2` | Five Blueprints | mid | medium | `blueprints` | `blueprints_1` | `blueprints_unlocked` | 5 | resources, items | 5,700 |
+| `blueprints_3` | Twelve | late | large | `blueprints` | `blueprints_2` | `blueprints_unlocked` | 12 | resources, items | 459,100 |
 | `level_1` | Level Five | early | small | `level` | - | `level` | 5 | xp | 210 |
 | `level_2` | Level Ten | early | medium | `level` | `level_1` | `level` | 10 | xp | 1,260 |
 | `level_3` | Level Twenty | mid | medium | `level` | `level_2` | `level` | 20 | xp | 14,000 |
@@ -795,9 +1080,11 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `seats_2` | Five Seats Filled | mid | medium | `seats` | `seats_1` | `faction_seats` | 5 | resources | 17,700 |
 | `faction_1` | Under One Badge | mid | medium | `faction` | - | `faction_infamy` | 500 | resources | 17,700 |
 | `faction_2` | A Faction Worth the Name | late | medium | `faction` | `faction_1` | `faction_infamy` | 5,000 | resources | 103,200 |
+| `faction_3` | A Name Spoken Carefully | late | large | `faction` | `faction_2` | `faction_infamy` | 50,000 | infamy | 200,000 |
 | `letters_1` | Say Something | early | small | `letters` | - | `messages_sent` | 1 | resources | 220 |
 | `letters_2` | Correspondence | mid | small | `letters` | `letters_1` | `messages_sent` | 25 | resources | 2,500 |
-| `satchel_kinds_1` | A Full Satchel | mid | small | - | - | `satchel_kinds` | 10 | items | 2,520 |
+| `letters_3` | Everybody Knows Somebody | late | small | `letters` | `letters_2` | `messages_sent` | 150 | xp | 12,600 |
+| `inventory_kinds_1` | A Full Inventory | mid | small | - | - | `inventory_kinds` | 10 | items | 2,520 |
 | `infamy_held_1` | Money in the Bank | mid | large | - | - | `infamy_held` | 5,000 | resources | 63,800 |
 
 #### What a feat of each era and size may pay
@@ -830,7 +1117,7 @@ No template overrides battle tier, so those columns are left out: a job is read 
 | `fuel-siphon` | Fuel Siphon | standard | easy | further | 45m | 93% | 69 Oil, 15 Scrap | A haul, Salvage, Quiet work | Shift change at the Combine tank farm leaves twenty minutes with nobody watching the valv… |
 | `foundry-raid` | Foundry Raid | battle | hard | further | 60m | 74% | 41 Scrap, 10 HQ metal | - | The Combine smelter pours at two in the morning. Walk in while the metal is still moving… |
 | `courier-contract` | Courier Contract | standard | easy | further | 90m | 91% | 134 Caps | A haul, Salvage, Talking | A Combine broker wants a sealed crate carried three districts over. He is not saying what… |
-| `curfew-sweep` | Curfew Sweep | battle | hard | close | 40m | 82% | 88 Caps, 5 HQ metal | A fight, Talking | The Combine is short of bodies on the lower tiers, so it is paying crews to hold its curf… |
+| `curfew-sweep` | Curfew Sweep | battle | hard | close | 40m | 82% | 88 Caps, 5 HQ metal | A fight, Talking | The Combine is short of people on the lower tiers, so it is paying crews to hold its curf… |
 | `refinery-assault` | Refinery Assault | battle | hard | furthest | 480m | 70% | 27 Oil, 21 Scrap, 11 HQ metal | - | Take the outer Combine refinery and sit on it long enough to empty the alloy store. Getti… |
 | `deep-expedition` | Deep Expedition | standard | hard | furthest | 1440m | 88% | 15 Caps, 15 Supplies, 11 Oil, 18 Scrap, 15 Planks, 2 HQ metal | - | A full day out, past the last checkpoint, into ground nobody has mapped since the flood.… |
 | `water-run` | Water Run | standard | easy | close | 8m | 96% | 25 Caps, 83 Supplies | - | A standpipe two streets over runs clean for about an hour after the pumps cycle. Bring ev… |
@@ -876,7 +1163,7 @@ What a job leans on in whoever leads it. The reason is the sentence the board sh
 | `talk` | Talking | Somebody is going to have to be talked round. Negotiation sets the price and charisma is… |
 | `salvage` | Salvage | Worth is in the wreck. A salvager knows what is worth cutting out, and an engineer knows… |
 | `wire` | The wire | It is a lock made of signal. Signals gets a way in and cryptography is what turns noise i… |
-| `medic` | Casualties | People are going to get hurt. Medicine is the difference between a casualty and a body. |
+| `medic` | Casualties | People are going to get hurt. Medicine is the difference between a casualty and a corpse. |
 
 ## Mission areas and districts
 
@@ -893,7 +1180,7 @@ Pay premium is 9 percentage points per point of difficulty above 1. The misc boa
 | `chrome-row` | Chrome Row | the Old City Center | - | contested | independent | 4 | +27% | 8 | What is left of downtown: bank halls turned into markets, a picture house that never clos… |
 | `undergrid` | The Undergrid | the Power Spine | - | contested | government | 5 | +36% | 7 | The Combine meters the whole undercity from down here. Bundled conduit running the walls… |
 | `datavault-sigma` | The Annexes | the Tech District | - | contested | government | 6 | +45% | 7 | Faculty buildings the Combine never closed, because it was easier to move in. Everything… |
-| `glasshouse-fields` | Glasshouse Fields | the Green Belt | - | contested | government | 3 | +18% | 7 | State hydroponics behind a fence. Everything the undercity eats is grown here, and none o… |
+| `glasshouse-fields` | Glasshouse Fields | the Green Belt | - | contested | government | 3 | +18% | 8 | State hydroponics behind a fence. Everything the undercity eats is grown here, and none o… |
 | `blacksite-7` | Blacksite | the Military District | - | contested | government | 8 | +63% | 8 | Hardened ferrocrete, layered berms, and a Directorate rifle company that has never had to… |
 | `combine-spire` | CCS | the Spire | Civic Command Sector | contested | government | 10 | +81% | 8 | The surface spire the government rules from, and the household guard that has never been… |
 | `upper-roofs` | Player District | - | - | residential | independent | 2 | +9% | 0 | Roofs stacked on roofs above the wall, reached by ladders somebody bolted on in the dark.… |
@@ -904,9 +1191,9 @@ Pay premium is 9 percentage points per point of difficulty above 1. The misc boa
 
 Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/districts.ts`
 
-44 kinds of ground, 59 of them placed on the map. Bonuses and labels are the level 1 figures.
+45 kinds of ground, 60 of them placed on the map. Bonuses and labels are the level 1 figures.
 
-#### Kinds (44)
+#### Kinds (45)
 
 | Kind | Label | Defense | Holding it pays | Ground | First upgrade | Blurb | Reward |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -917,8 +1204,8 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `foundry` | Foundry | 4 | +3 HQ metal/h | Hot II, Noisy III, Crammed II | 600 Caps, 120 Oil, 260 Scrap, 100 Planks | Two cupola furnaces and a pour floor, running whenever there is fuel for it. | High-quality metal. Nothing else in the city makes it in qu… |
 | `gas_station` | Gas Station | 2 | +18 oil/h, +8 scrap/h | Open II, Toxic I | 260 Caps, 120 Scrap, 70 Planks | Four pumps under a sagging canopy, a shop with nothing in it, and tanks underneath that t… | Oil out of the ground, and the scrap off everything anybody… |
 | `nuclear_plant` | Abandoned Nuclear Plant | 7 | +5 HQ metal/h, oil goes 12% further | Toxic IV, Dark III, Crammed II, Eerie II | 900 Caps, 300 Scrap, 110 Planks, 40 HQ metal | Two cooling towers, a turbine hall with the roof half off, and a reactor building nobody… | High-quality metal out of the turbine hall, and a fuelling… |
-| `soup_kitchen` | Soup Kitchen | 1 | +14 supplies/h, +6 unit morale, +15 population | Crammed III, Noisy II | 200 Caps, 120 Supplies, 90 Planks | Trestle tables, a queue that starts before dawn, and two women who never sit down. | Supplies off the ration line, and a crew that has eaten fig… |
-| `refugee_camp` | Fence Camp | 1 | +50 population, +6 caps/h | Crammed III, Open II, Noisy II, Cold I | 240 Caps, 200 Supplies, 220 Planks | Two thousand people along the green belt fence, in whatever they could carry, because the… | More people than any building in your district could house,… |
+| `soup_kitchen` | Soup Kitchen | 1 | +14 supplies/h, +6 unit morale, +15 unit slots | Crammed III, Noisy II | 200 Caps, 120 Supplies, 90 Planks | Trestle tables, a queue that starts before dawn, and two women who never sit down. | Supplies off the ration line, and a crew that has eaten fig… |
+| `refugee_camp` | Fence Camp | 1 | +50 unit slots, +6 caps/h | Crammed III, Open II, Noisy II, Cold I | 240 Caps, 200 Supplies, 220 Planks | Two thousand people along the green belt fence, in whatever they could carry, because the… | More people than any building in your district could house,… |
 | `market` | Market | 3 | +30 caps/h | Crammed II, Noisy III | 380 Caps, 180 Planks | Awnings, arguments, and a hundred people moving goods nobody has papers for. | A cut of everything that changes hands. |
 | `downtown_market` | Downtown Market | 4 | -10% market prices, +12 caps/h | Crammed II, Noisy III, Open I | 550 Caps, 220 Planks | The old exchange floor, still trading, with the board on the wall repainted every morning… | Every trade in the city is quoted to you at a better number… |
 | `pawn_shop` | Pawn Shop | 1 | +15% loot capacity | Crammed III, Dark I | 240 Caps, 100 Planks | A barred window, a long counter, and a back room with better stock. | A smaller cut, and a fence who moves what a raid brings bac… |
@@ -929,7 +1216,7 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `watchtower` | Watchtower | 5 | +20% intel, sees 1 district, +1 scouting party out at once | Elevated IV, Open II, Windy II, Crammed I | 420 Caps, 180 Scrap, 200 Planks, 10 HQ metal | A lattice mast with a cabin on top, a working pair of glasses, and a line of sight over f… | Everything your scouts do, they do better: everywhere in th… |
 | `sewer_junction` | Sewer Junction | 2 | +15% unit stealth | Crammed IV, Dark III, Wet II, Toxic I | 220 Caps, 140 Scrap, 90 Planks | A brick chamber where six storm drains meet. It goes everywhere. | Your people can get places without being seen getting there. |
 | `smugglers_tunnel` | Smuggler's Tunnel | 4 | -11% mission time | Crammed IV, Dark IV, Eerie I | 480 Caps, 200 Scrap, 240 Planks | Cut by hand under the old customs line, shored with railway sleepers, and in continuous u… | Every crew you send anywhere is back sooner. There is a sho… |
-| `armory` | Armory | 6 | -12% training cost, -20% refit cost | Crammed III, Dark II | 520 Caps, 220 Scrap, 130 Planks, 20 HQ metal | Racks, a workbench, and a door that took three people to open the first time. | Cheaper units, and a bench that will fit anything you can f… |
+| `armory` | Armory | 6 | -12% training cost, -20% unit modification cost | Crammed III, Dark II | 520 Caps, 220 Scrap, 130 Planks, 20 HQ metal | Racks, a workbench, and a door that took three people to open the first time. | Cheaper units, and a bench that will fit anything you can f… |
 | `war_machine_graveyard` | War Machine Graveyard | 6 | +10% unit vitality, anything can be put on a machine | Open III, Eerie II, Toxic I | 560 Caps, 100 Oil, 320 Scrap, 120 Planks | A field of dead armour, half of it sunk, some of it not as dead as it looks. | Hulls, plate and running gear, a gantry that will lift anyt… |
 | `construction_site` | Construction Site | 6 | -9% build time, +22 planks/h | Open III, Elevated II, Noisy II, Windy I | 700 Caps, 340 Scrap, 380 Planks, 30 HQ metal | A tower crane, a poured raft the size of a city block, and thirty years of nobody finishi… | Lifting gear nothing else in the city has. Some things can… |
 | `fight_pit` | Fight Pit | 2 | +8 unit morale, porters fight, at half strength | Crammed III, Noisy IV | 300 Caps, 80 Supplies, 160 Planks | A sunk ring, a standing crowd, and a bookmaker who knows everyone. | Your people are harder to frighten, and everybody on the bo… |
@@ -954,8 +1241,9 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `chapel` | The Chapel | 2 | +5 to officer mental skills, a stack that breaks shakes nobody | Eerie II, Dark II, Crammed I, Cold I | 380 Caps, 160 Planks | Twelve pews, a working bell, and a man who has buried more of this district than anybody… | Everyone on your books holds together better under things t… |
 | `graveyard` | Graveyard | 3 | +15% infamy earned, +10 caps/h | Eerie IV, Dark II, Open II, Cold I | 300 Caps, 60 Scrap, 80 Planks | Terraced plots up the cut, the older half subsided, and a lodge at the gate with a light… | Holding this ground says something the city does not forget… |
 | `revolutionary_statue` | Statue in a Plaza | 4 | +10 unit morale | Open IV, Elevated II | 360 Caps, 90 Scrap, 60 Planks | The one in the middle of the district: a long coat, a raised fist, and a plinth every roa… | It is what they are fighting for. A crew that holds it walk… |
+| `glasshouse` | Hydroponics | 3 | +22 supplies/h | Hot III, Wet II, Crammed I | 300 Caps, 120 Scrap, 160 Planks | Glass houses on a steel frame, beds under grow-lamps, and pumps that never stop. Hot and… | Supplies straight off the beds, picked before they ever see… |
 
-#### Placed on the map (59)
+#### Placed on the map (60)
 
 | Id | Name | District | Kind | Fortify |
 | --- | --- | --- | --- | --- |
@@ -1002,13 +1290,14 @@ Source: `packages/shared/src/city/locations.ts`, `packages/shared/src/city/distr
 | `glasshouse-fields-ladle` | The Long Ladle | `glasshouse-fields` | `soup_kitchen` | easy |
 | `glasshouse-fields-fieldchapel` | Chapel of the Furrow | `glasshouse-fields` | `chapel` | easy |
 | `glasshouse-fields-fence` | The Fence Camp | `glasshouse-fields` | `refugee_camp` | easy |
+| `glasshouse-fields-glasshouses` | The Glasshouses | `glasshouse-fields` | `glasshouse` | medium |
 | `blacksite-7-armory` | Blacksite Armory | `blacksite-7` | `armory` | hard |
 | `blacksite-7-outer` | Outer Berm | `blacksite-7` | `barricade` | hard |
 | `blacksite-7-watchtower` | The Watchtower | `blacksite-7` | `watchtower` | hard |
-| `blacksite-7-pit17` | Pit Seventeen | `blacksite-7` | `fight_pit` | medium |
-| `blacksite-7-motorpool` | Motor Pool Seven | `blacksite-7` | `war_machine_graveyard` | hard |
+| `blacksite-7-pit17` | Robot Pit | `blacksite-7` | `fight_pit` | medium |
+| `blacksite-7-motorpool` | Motor Pool | `blacksite-7` | `war_machine_graveyard` | hard |
 | `blacksite-7-drill` | The Drill Hall | `blacksite-7` | `gym` | medium |
-| `blacksite-7-blackward` | Ward Nine | `blacksite-7` | `black_clinic` | hard |
+| `blacksite-7-blackward` | Psychic Ward | `blacksite-7` | `black_clinic` | hard |
 | `blacksite-7-pile` | The Pile | `blacksite-7` | `nuclear_plant` | hard |
 | `combine-spire-uplink` | Command Uplink | `combine-spire` | `satellite_uplink` | hard |
 | `combine-spire-armory` | Directorate Armory | `combine-spire` | `armory` | hard |
@@ -1061,14 +1350,14 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Carriers (2)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `scavengers` | Scavengers | no | no | 1 | 5 | 60 | 0 | 30 | ballistic | 25 Caps, 15 Supplies | 30s | The Gauntlet at level 1 | Picks the Field | - | They know which floors still hold weight and which pipes still have copper in them. Hand… |
 | `haulers` | Haulers | no | no | 2 | 5 | 75 | 2 | 22 | ballistic | 60 Caps, 20 Supplies, 30 Planks | 2m | The Gauntlet at level 4; The Nexus at level 4 | - | - | Barrow, harness and a back that has done this for twenty years. Slow, patient, and they n… |
 
 #### Rabble (6)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `razors` | Razors | no | yes | 1 | 160 | 75 | 5 | 45 | blade | 40 Caps, 10 Supplies | 45s | The Gauntlet at level 1 | - | Urban Bonus, Close Quarters | Light blade-wielding urban fighters. Cheap, willing, and not expected back. |
 | `anodics` | Anodics | no | yes | 2 | 190 | 140 | 15 | 40 | blade | 55 Caps, 15 Supplies, 10 Scrap | 1m | The Scrapyard at level 2 | - | Close Quarters, Last Stand | Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every… |
@@ -1079,7 +1368,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Specialists (6)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | 160 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
 | `snipers` | Snipers | no | yes | 2 | 350 | 85 | 8 | 30 | ballistic | 260 Caps, 40 Supplies, 60 Scrap, 12 HQ metal | 5m | The Sniper Blueprint; The Gate at level 7; Live-Fire Range | Opening Volley | Rooftop, Open Field | Long range, one shot, one kill. Everything else is spent waiting for it. |
@@ -1090,7 +1379,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Wonders of Engineering (5)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `road_reavers` | Road Reavers | no | yes | 2 | 250 | 115 | 18 | 65 | ballistic | 180 Caps, 25 Supplies, 60 Oil, 90 Scrap | 3m | The Scrappy Blueprint; The Gauntlet at level 7; The Garage at level 4; The Scrappys buildable in the Garage | - | Open Field, Urban Bonus | Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel. |
 | `kite_crews` | Kite Crews | no | yes | 2 | 290 | 135 | 16 | 85 | energy | 280 Caps, 40 Supplies, 40 Scrap, 18 HQ metal | 5m | The Kite Crew Blueprint; The Lab at level 5; The Generator at level 8 | - | Rooftop, Open Field, Tracking | Drone operators working off rooftops. They see the fight before anybody is in it. |
@@ -1100,7 +1389,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Heavy (5)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `breakers` | Breakers | no | yes | 2 | 225 | 122 | 24 | 40 | explosive | 120 Caps, 20 Supplies, 15 Oil, 60 Scrap | 3m | The Gauntlet at level 4 | - | Close Quarters, Breaching | Door-kicking close-quarters specialists. Whatever is behind it, they go through it. |
 | `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | ballistic | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | Dug In, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
@@ -1110,7 +1399,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Legendary (7)
 
-| Id | Name | Unique | Fights | Supply | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | - | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
 | `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 12; Hold The Mad Scientist's Lair | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
@@ -1168,55 +1457,73 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 | `ambush` | Ambush | urban | +25% | offense | The first exchange is decided before the enemy knows there is one. |
 | `rooftop` | Rooftop | urban | +15% | offense | Works from above, which in this city is most places. |
 
-## Unit upgrades (refits)
+## Unit modifications
 
-Source: `packages/shared/src/units/upgrades.ts`
+Source: `packages/shared/src/units/modifications.ts`
 
-#### Armour (3)
+#### BASIC (9)
 
-Plate, padding and whatever else stops a round. Heavier people move slower.
+Offcuts, tape and drill. Anybody can make one and everybody has.
 
-| Id | Tier | Name | Effect | Cost | Parts | Gauntlet | Yard level | Description |
+| Id | Name | Effect | Cost | Parts | Blueprint | Fits | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `armour_1` | 1 | Scrap Plate | -2 Speed, +10 Vitality, +3 Armour | 1300 Scrap | - | 2 | 1 | Road sign and truck panel, cut to shape and strapped on. Ugly, and it works. |
-| `armour_2` | 2 | Composite Weave | -1 Speed, +17 Vitality, +7 Armour | 4000 Scrap, 180 HQ metal | 4 Ceramic Plate | 6 | 3 | Layered ceramic in a woven backing. Half the weight for twice the stopping. |
-| `armour_3` | 3 | Hardshell Rig | -3 Speed, +27 Vitality, +12 Armour, +5 Intimidation | 10600 Scrap, 620 HQ metal | 8 Ceramic Plate, 2 Coolant Cell | 12 | 7 | A full carapace with its own cooling. You hear them coming. |
+| `taped_grips` | Taped Grips | +16 Damage, +2 Evasion | 500 Scrap | - | no | every unit | 1 | Friction tape round every handle in the squad. It stops one drop a week. |
+| `scrap_vest` | Scrap Vest | -1 Speed, +12 Vitality, +4 Armour | 550 Scrap | - | no | every unit | 1 | Bottle crate and carpet underlay, layered until a knife will not go through. Nobody looks… |
+| `broken_in_boots` | Broken-In Boots | +4 Speed, +2 Stealth | 600 Scrap | - | no | every unit | 1 | Somebody else wore them soft first. The squad stops leaving a trail of blisters and noise. |
+| `filed_sights` | Filed Sights | +2 Penetration, +4 Range, +8 Damage | 900 Scrap | 2 Welding Rods | yes | every unit | 1 | An afternoon with a needle file and a vice. The shot goes where the eye was. |
+| `rag_wraps` | Rag Wraps | +1 Speed, +6 Stealth | 950 Scrap | 1 Welding Rods | yes | every unit | 1 | Cloth over every buckle and barrel. Metal stops catching the light and stops announcing y… |
+| `whistle_code` | Whistle Code | +6 Morale, +2 Intimidation | 1000 Scrap | 1 Signal Relay | yes | every unit | 1 | Six notes that mean six things. A section that cannot see each other still moves together. |
+| `hook_and_line` | Hook and Line | +2 Speed, +12 Loot | 1050 Scrap | 2 Welding Rods | yes | `scavengers`, `haulers` | 1 | Forty metres of rope and a grapple. Whatever is on the third floor comes down to you. |
+| `knuckle_guards` | Knuckle Guards | +3 Armour, +12 Damage, +2 Intimidation | 1100 Scrap | 3 Welding Rods | yes | `razors`, `anodics`, `scrapers`, `ghosts`, `ironsides`, `stitchers`, `sleepers`, `cyber_dogs`, `hollow_men`, `the_condemned`, `the_twins` | 1 | Cut steel over the fingers. It saves the hand, and it does something to the face it lands… |
+| `ear_defenders` | Ear Defenders | +5 Morale, +2 Evasion | 1200 Scrap | 1 Scrap Servo | yes | every unit | 1 | Moulded plugs, issued and checked. People who can still hear the order do not run as earl… |
 
-#### Weapons (3)
+#### INTRICATE (9)
 
-What they are carrying, and how far it reaches.
+Somebody who knows the work, with the right stock in front of them.
 
-| Id | Tier | Name | Effect | Cost | Parts | Gauntlet | Yard level | Description |
+| Id | Name | Effect | Cost | Parts | Blueprint | Fits | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `weapons_1` | 1 | Machined Barrels | +5 Penetration, +20 Damage | 1500 Scrap | 2 Scrap Servo | 3 | 1 | Bored true instead of bored out. Everything lands where it was pointed. |
-| `weapons_2` | 2 | Match Loads | +9 Penetration, +8 Range, +30 Damage | 4800 Scrap, 220 HQ metal | 3 Optic Cluster | 8 | 3 | Powder measured by somebody who cared. The difference is at distance. |
-| `weapons_3` | 3 | Slaved Optics | +14 Penetration, +14 Range, +60 Damage | 12400 Scrap, 780 HQ metal | 2 Targeting Core, 4 Optic Cluster | 14 | 7 | The sight talks to the trigger. Nobody has to be a good shot any more. |
+| `ablative_layers` | Ablative Layers | -2 Speed, +24 Vitality, +9 Armour | 2600 Scrap, 130 HQ metal | 3 Ceramic Plate | yes | every unit | 3 | Plate that comes apart instead of the person behind it. You replace it after every fight. |
+| `recoil_dampers` | Recoil Dampers | +5 Penetration, +4 Range, +28 Damage | 2800 Scrap, 140 HQ metal | 4 Scrap Servo | yes | every unit | 3 | Springs and a gas port, fitted properly. The second shot arrives while the first is still… |
+| `twitch_loop` | Twitch Loop | +7 Speed, +6 Evasion | 3000 Scrap, 150 HQ metal | 3 Scrap Servo, 1 Neural Shunt | yes | every unit | 3 | A closed circuit from eye to hand with nothing in between. Thinking was the slow part. |
+| `smoke_discipline` | Smoke Discipline | +4 Evasion, +10 Stealth | 3100 Scrap, 160 HQ metal | 2 Signal Relay | yes | every unit | 3 | Nobody lights up, nobody cooks, nobody talks on the approach. It is a rule rather than a… |
+| `drill_book` | The Drill Book | +12 Morale, +5 Intimidation | 3300 Scrap, 170 HQ metal | 1 Signal Relay, 1 Optic Cluster | yes | every unit | 3 | Forty pages, most of it about standing still. Read aloud every morning until nobody needs… |
+| `hardened_optics` | Hardened Optics | +6 Penetration, +9 Range, +12 Damage | 3500 Scrap, 180 HQ metal | 3 Optic Cluster | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `netrunners`, `juggernauts`, `sluggers` | 3 | Sealed glass with a coating that does not fog or flare. You see the target on the bad day… |
+| `counterweight_harness` | Counterweight Harness | +2 Speed, +20 Vitality, +32 Loot | 3700 Scrap, 190 HQ metal | 2 Hydraulic Ram, 4 Welding Rods | yes | `scavengers`, `haulers` | 3 | Load on the hips instead of the shoulders. Twice the bag and the same walk home. |
+| `bone_lattice` | Bone Lattice | +32 Vitality, +7 Armour | 3900 Scrap, 210 HQ metal | 4 Ceramic Plate, 2 Hydraulic Ram | yes | `breakers`, `wardens`, `ironsides`, `juggernauts`, `sluggers` | 3 | Pins and mesh through the long bones. The frame stops being the thing that fails first. |
+| `trophy_rack` | Trophy Rack | +4 Morale, +11 Intimidation | 4100 Scrap, 220 HQ metal | 2 Ceramic Plate, 3 Welding Rods | yes | every unit | 3 | Plate, teeth and body markings off everybody they have beaten, worn where it shows. |
 
-#### Cybernetics (3)
+#### ADVANCED (7)
 
-Wet-side work. Faster than a body has any business being, and it costs.
+Engineering. It goes wrong when it is rushed and it is expensive when it is not.
 
-| Id | Tier | Name | Effect | Cost | Parts | Gauntlet | Yard level | Description |
+| Id | Name | Effect | Cost | Parts | Blueprint | Fits | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `cybernetics_1` | 1 | Reflex Wiring | +6 Speed, +4 Evasion | 1900 Scrap | 3 Scrap Servo | 4 | 1 | A cheap shunt down one arm. It twitches for a week and then it is yours. |
-| `cybernetics_2` | 2 | Muffled Servos | +8 Speed, +5 Evasion, +10 Stealth | 5600 Scrap, 260 HQ metal | 6 Scrap Servo, 1 Neural Shunt | 9 | 3 | The same limbs, rebuilt to make no sound at all. |
-| `cybernetics_3` | 3 | Full Interface | +12 Speed, -4 Morale, +10 Evasion, +8 Stealth | 14400 Scrap, 900 HQ metal | 4 Neural Shunt, 2 Coolant Cell | 16 | 7 | Base of the skull, straight into the spine. It does not come out again. |
+| `composite_carapace` | Composite Carapace | -3 Speed, +40 Vitality, +14 Armour, +5 Intimidation | 6200 Scrap, 430 HQ metal | 6 Ceramic Plate, 3 Hydraulic Ram | yes | every unit | 4 | A shell built to the body rather than strapped over it. Heavy, loud, and very hard to ope… |
+| `ranging_gear` | Ranging Gear | +10 Penetration, +8 Range, +48 Damage | 6600 Scrap, 460 HQ metal | 4 Optic Cluster, 1 Targeting Core | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `netrunners`, `juggernauts`, `sluggers` | 4 | Drum, wire and a hand-cut cam that solves the drop for you. Arguments about elevation end. |
+| `dry_joints` | Dry Joints | +7 Speed, +5 Evasion, +16 Stealth | 7000 Scrap, 500 HQ metal | 8 Scrap Servo, 2 Pressure Valve | yes | every unit | 4 | Graphite and rubber through every hinge and boot. A yard full of gravel stops being a war… |
+| `adrenal_regulator` | Adrenal Regulator | +6 Speed, +16 Vitality, +15 Morale | 7400 Scrap, 540 HQ metal | 2 Neural Shunt, 2 Pressure Valve | yes | every unit | 4 | A pump that decides when they are frightened. The dose is small and the bill comes later. |
+| `breaching_charges` | Breaching Charges | +20 Penetration, +32 Damage | 7800 Scrap, 580 HQ metal | 4 Ceramic Plate, 1 Coolant Cell | yes | `breakers`, `demolishers`, `juggernauts`, `sluggers` | 4 | Cones packed by somebody who has counted their own fingers recently. Plate stops being an… |
+| `rescue_rig` | Rescue Rig | +3 Speed, +24 Vitality, +8 Morale, +48 Loot | 8200 Scrap, 640 HQ metal | 4 Hydraulic Ram, 6 Scrap Servo | yes | `scavengers`, `haulers` | 4 | Winch, sled and a harness rated for a body. It brings back the load and occasionally the… |
+| `monofilament_edge` | Monofilament Edge | +12 Penetration, +56 Damage, +3 Evasion | 8600 Scrap, 700 HQ metal | 1 Targeting Core, 2 Coolant Cell | yes | `razors`, `anodics`, `scrapers`, `ghosts`, `ironsides`, `stitchers`, `sleepers`, `cyber_dogs`, `hollow_men`, `the_condemned`, `the_twins` | 4 | An edge one molecule wide, on a handle nobody is allowed to hold twice. It does not notic… |
 
-#### Discipline (3)
+#### MASTERPIECE (5)
 
-What keeps them standing when the maths says run.
+One of these turns up a year. The people who can build them are known by name.
 
-| Id | Tier | Name | Effect | Cost | Parts | Gauntlet | Yard level | Description |
+| Id | Name | Effect | Cost | Parts | Blueprint | Fits | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `discipline_1` | 1 | Standing Drill | +8 Morale, +3 Intimidation | 1100 Scrap | - | 2 | 1 | An hour of it every morning until the order arrives before the thought does. |
-| `discipline_2` | 2 | Section Signals | +6 Vitality, +14 Morale, +3 Evasion, +7 Intimidation | 4400 Scrap, 200 HQ metal | 2 Optic Cluster, 3 Scrap Servo | 7 | 3 | Lamps and hand signs down the line, so a section that cannot hear still knows. |
-| `discipline_3` | 3 | Held Ground | -2 Speed, +10 Vitality, +22 Morale, +5 Evasion, +14 Intimidation | 11200 Scrap, 700 HQ metal | 3 Optic Cluster, 2 Neural Shunt | 13 | 7 | They do not fall back. It is worth what it costs and it costs somebody. |
+| `hardshell_exoframe` | Hardshell Exoframe | -4 Speed, +64 Vitality, +20 Armour, +10 Intimidation | 13000 Scrap, 980 HQ metal | 6 Hydraulic Ram, 10 Ceramic Plate, 3 Coolant Cell | yes | every unit | 7 | A powered shell with its own cooling and its own opinion about doorways. You hear it thre… |
+| `synaptic_lace` | Synaptic Lace | +14 Speed, -4 Morale, +15 Evasion, +10 Stealth | 14000 Scrap, 1060 HQ metal | 6 Neural Shunt, 2 Coolant Cell, 2 Pressure Valve | yes | every unit | 7 | Grown through the cortex over six weeks. Everything gets faster and some of it does not c… |
+| `guided_rounds` | Guided Rounds | +15 Penetration, +11 Range, +72 Damage | 15000 Scrap, 1180 HQ metal | 3 Targeting Core, 6 Optic Cluster | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `netrunners`, `juggernauts`, `sluggers` | 7 | Each round steers for the last half second. Cover becomes a suggestion, and the price is… |
+| `ghost_protocol` | Ghost Protocol | +8 Speed, +12 Evasion, +22 Stealth | 16500 Scrap, 1300 HQ metal | 4 Neural Shunt, 5 Optic Cluster, 3 Coolant Cell | yes | every unit | 7 | Heat, sound and signature all handled at once, by people who used to do this for the Comb… |
+| `colours_of_the_line` | Colours of the Line | +16 Vitality, +22 Morale, +14 Intimidation | 18000 Scrap, 1450 HQ metal | 4 Signal Relay, 6 Ceramic Plate, 1 Targeting Core | yes | every unit | 7 | A standard carried by somebody who has held one before. Nothing breaks in front of it, an… |
 
 ## Vehicles
 
 Source: `packages/shared/src/building/vehicles.ts`
 
-| Id | Name | Class | Garage | Cost | Build | Speed | Seats | Fragile | Description |
+| Id | Name | Class | Garage | Cost | Build | Speed | Seats (unit slots) | Fragile | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `motorcycle` | The Scrappy | motorbike | 1 | 200 Oil, 900 Scrap | 30m | 65 | 2 | no | Two wheels, a rebuilt engine and no lights. Gets a pair across the district before anybod… |
 | `scrap_car` | Scar | car | 4 | 800 Oil, 2600 Scrap, 180 HQ metal | 2h | 55 | 8 | no | Three donor bodies and one working engine. Everybody fits and nobody is comfortable. |
@@ -1233,10 +1540,10 @@ Source: `packages/shared/src/building/kinds.ts`
 | Kind | Name | Short | Requires | Level 1 cost | Level 1 build | Role | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `nexus` | The Nexus | Nexus | nothing | 400 Caps, 60 Oil, 200 Scrap, 120 Planks | 45s | Authorises every other structure. Each of them has a level it cannot pass until the Nexus… | A commandeered transit hub with the maps still on the walls. Everything the district deci… |
-| `quarters` | The Quarters | Quarters | The Nexus at 1 | 120 Caps, 70 Supplies, 10 Oil, 90 Scrap, 110 Planks | 20s | Raises the district population ceiling, and nothing else. Every soldier needs a bed, so t… | Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they… |
-| `greenhouse` | The Greenhouse | Greenhouse | The Nexus at 1 | 100 Caps, 40 Supplies, 10 Oil, 70 Scrap, 90 Planks | 20s | Grows supplies around the clock, and every level takes a little more of the supplies bill… | Grow lamps over stacked trays, running day and night. The only food down here nobody had… |
-| `generator` | The Generator | Generator | The Nexus at 1 | 150 Caps, 220 Oil, 70 Scrap, 55 Planks | 30s | Takes time off every other structure's build, by level, and sells a two-hour burn of oil… | A turbine block running on whatever burns. It is loud, it is filthy, and every crane in t… |
-| `scrapyard` | The Scrapyard | Scrapyard | The Nexus at 2; The Generator at 1 | 140 Caps, 20 Oil, 120 Scrap, 60 Planks | 25s | Strips salvage into scrap, fuel and the occasional length of good metal, and builds the a… | Torch work, press lines and a sorting floor. Where wreckage is taken apart and something… |
+| `quarters` | The Quarters | Quarters | The Nexus at 1 | 120 Caps, 70 Supplies, 10 Oil, 90 Scrap, 110 Planks | 20s | Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every… | Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they… |
+| `greenhouse` | The Greenhouse | Greenhouse | The Nexus at 1 | 100 Caps, 40 Supplies, 10 Oil, 70 Scrap, 90 Planks | 20s | Grows supplies and timber around the clock, and every level takes a little more of the su… | Grow lamps over stacked trays, running day and night. The only food down here nobody had… |
+| `generator` | The Generator | Generator | The Nexus at 1 | 150 Caps, 220 Oil, 70 Scrap, 55 Planks | 30s | Refines oil around the clock, takes time off every other structure's build by level, and… | A turbine block running on whatever burns. It is loud, it is filthy, and every crane in t… |
+| `scrapyard` | The Scrapyard | Scrapyard | The Nexus at 2; The Generator at 1 | 140 Caps, 20 Oil, 120 Scrap, 60 Planks | 25s | Strips salvage into scrap and the occasional length of good metal, and builds the add-ons… | Torch work, press lines and a sorting floor. Where wreckage is taken apart and something… |
 | `apothecary` | The Apothecary | Apothecary | The Nexus at 3; The Scrapyard at 2; Crew level 3 | 180 Caps, 25 Oil, 140 Scrap, 80 Planks | 35s | Sets the ceiling on how much of each resource the district can hold. Production stops the… | Racks, cages and a ledger nobody else can read. Half dispensary, half the only honest war… |
 | `gate` | The Gate | Gate | The Nexus at 2; The Scrapyard at 3 | 100 Caps, 30 Oil, 220 Scrap, 150 Planks | 30s | Adds a percentage of defence to every unit holding this district, and makes the place har… | Ferrocrete, razorwire and a firing step. The first thing anyone coming for this district… |
 | `lab` | The Lab | Lab | The Nexus at 4; The Apothecary at 2; Crew level 5 | 260 Caps, 40 Oil, 130 Scrap, 60 Planks, 10 HQ metal | 50s | The door to research, and the clock on it: every project takes less time as the Lab grows. | Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Idea… |
@@ -1250,7 +1557,7 @@ Source: `packages/shared/src/building/modifications.ts`, `packages/shared/src/bu
 
 An advanced modification is one worth 12 points or more: it costs high quality metal on top of the scrap, and it sits behind the structure’s retrofit blueprint. Prices are list prices; the Scrapyard takes 2% off per level above its first, to a cap of 30%, and each entry opens at the yard level shown (`packages/shared/src/building/scrapyard.ts`).
 
-#### The Nexus (7)
+#### The Nexus (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1261,8 +1568,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `nexus_priority_bus` | Priority Bus | `build_time_reduction` | +8 | 2000 Scrap | no | 1 | The Nexus decides which job goes first, and it is never the one that can wait. |
 | `nexus_filed_drawings` | Filed Drawings | `research_time_reduction` | +8 | 2000 Scrap | no | 1 | Every drawing the district has ever paid for, filed where the Lab can find it again. |
 | `nexus_stores_register` | Stores Register | `storage_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | One register for every store in the district, so nothing is counted twice or lost behind… |
+| `nexus_busbar_spine` | Busbar Spine | `build_time_reduction` | +6 | 1500 Scrap | no | 1 | One heavy run of copper down the building, tapped wherever it is wanted. |
 
-#### The Quarters (7)
+#### The Quarters (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1273,8 +1581,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `quarters_turnout_drills` | Turnout Drills | `training_time_reduction` | +8 | 2000 Scrap | no | 1 | Bunk to boots in ninety seconds, and the same again on every other parade. |
 | `quarters_mess_rota` | Mess Rota | `training_supplies_reduction` | +8 | 2000 Scrap | no | 1 | One kitchen, one sitting, and what a recruit is fed stops being an argument. |
 | `quarters_undercroft_billets` | Undercroft Billets | `housing_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | The cellars dug out, drained and bunked. Cold, dry, and out of the wind. |
+| `quarters_standpipe_run` | Standpipe Run | `housing_percent` | +8 | 2000 Scrap | no | 1 | Clean water to every floor instead of one tap in the yard. People stop being ill. |
 
-#### The Greenhouse (7)
+#### The Greenhouse (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1285,8 +1594,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `greenhouse_seed_vault` | Seed Vault | `payroll_percent` | +18 | 4500 Scrap, 216 HQ metal | yes | 4 | A cold locker of everything that grows here. Nobody has to be paid in advance against a b… |
 | `greenhouse_root_cellars` | Root Cellars | `storage_percent` | +9 | 2250 Scrap | no | 1 | Cold stores under the benches, so a good month keeps until a bad one. |
 | `greenhouse_hydroponic_racks` | Hydroponic Racks | `production_percent` | +13 | 3250 Scrap, 156 HQ metal | yes | 4 | Trays stacked four high on a pump loop. The floor grows what an acre used to. |
+| `greenhouse_grey_water_loop` | Grey Water Loop | `training_supplies_reduction` | +7 | 1750 Scrap | no | 1 | Nothing leaves the building that could be used again first. |
 
-#### The Generator (7)
+#### The Generator (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1296,9 +1606,10 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `generator_load_balancers` | Load Balancers | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Work is smoothed across the day, so nothing spikes and no crew stands idle waiting for on… |
 | `generator_instrument_bench` | Instrument Bench | `faction_xp_percent` | +3 | 750 Scrap | no | 1 | The turbine gets a bench and a log book beside it. Everything that breaks is written down… |
 | `generator_clean_feed` | Clean Feed | `research_time_reduction` | +7 | 1750 Scrap | no | 1 | The Lab bench gets its power off the top of the load, so no run dies in a brownout. |
+| `generator_fuel_cracking_column` | Fuel Cracking Column | `production_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Heavy ends into something an engine will actually take. |
 | `generator_standby_bank` | Standby Bank | `defense_percent` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Charged cells that hold the lights and the turrets up when the main set is hit. |
 
-#### The Scrapyard (7)
+#### The Scrapyard (9)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1309,8 +1620,10 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `scrapyard_cutting_bay_extraction` | Cutting Bay Extraction | `production_percent` | +10 | 2500 Scrap | no | 1 | Fume hoods and local extraction, so the floor runs a full shift instead of clearing the a… |
 | `scrapyard_parts_cage` | Parts Cage | `storage_percent` | +9 | 2250 Scrap | no | 1 | Everything worth keeping behind mesh, tagged, with one key and one list. |
 | `scrapyard_alloy_furnace` | Alloy Furnace | `production_percent` | +15 | 3750 Scrap, 180 HQ metal | yes | 4 | Mixed metal in, one grade out. The yard stops selling good stock at scrap prices. |
+| `scrapyard_overhead_rail` | Overhead Rail | `build_cost_reduction` | +6 | 1500 Scrap | no | 1 | A gantry the length of the shop. Nobody carries anything heavy twice. |
+| `scrapyard_load_balancer` | Load Balancer | `production_percent` | +8 | 2000 Scrap | no | 1 | Decides what goes dark first, so the thing that pays never does. |
 
-#### The Apothecary (7)
+#### The Apothecary (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1321,8 +1634,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `apothecary_bulk_requisition` | Bulk Requisition | `build_cost_reduction` | +8 | 2000 Scrap | no | 1 | Buy for the year, not for the job. What the district builds gets cheaper across the board. |
 | `apothecary_stimulant_line` | Stimulant Line | `training_time_reduction` | +8 | 2000 Scrap | no | 1 | Measured doses for the drill yard, and a recruit is through the course a week sooner. |
 | `apothecary_dispensary_apprenticeships` | Dispensary Apprenticeships | `training_supplies_reduction` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Apprentices grinding and weighing under somebody who has seen a wrong dose. Nothing is sp… |
+| `apothecary_cold_store` | Cold Store | `storage_percent` | +9 | 2250 Scrap | no | 1 | A room that stays cold whatever the district is doing. Nothing spoils. |
 
-#### The Gate (7)
+#### The Gate (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1333,8 +1647,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `gate_ferrocrete_recycling` | Ferrocrete Recycling | `build_cost_reduction` | +7 | 1750 Scrap | no | 1 | Rubble goes back into the mixer. Every wall in the district costs less to raise. |
 | `gate_toll_house` | Toll House | `payroll_percent` | +8 | 2000 Scrap | no | 1 | Everything coming in pays at the step, and the book covers another name for it. |
 | `gate_kill_funnel` | Kill Funnel | `defense_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | The approach narrowed to one lane that nothing wide can turn around in. |
+| `gate_blast_shutters` | Blast Shutters | `defense_percent` | +9 | 2250 Scrap | no | 1 | Steel that comes down faster than anybody can get under it. |
 
-#### The Lab (7)
+#### The Lab (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1345,8 +1660,9 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `lab_shielded_datacore` | Shielded Datacore | `defense_percent` | +10 | 2500 Scrap | no | 1 | Faraday mesh and an air gap. What the district knows cannot be taken off it. |
 | `lab_written_drill` | Written Drill | `training_time_reduction` | +7 | 1750 Scrap | no | 1 | Drill set down properly, so the Gauntlet stops teaching the same hour twice. |
 | `lab_materials_bench` | Materials Bench | `build_cost_reduction` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Substitutes tested before they are ordered, so the district buys the cheap one that holds. |
+| `lab_sensor_mesh` | Sensor Mesh | `defense_percent` | +7 | 1750 Scrap | no | 1 | Cheap sensors everywhere rather than good ones somewhere. Nothing crosses unseen. |
 
-#### The Gauntlet (7)
+#### The Gauntlet (9)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1357,8 +1673,10 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `gauntlet_salvaged_simulators` | Salvaged Simulators | `training_time_reduction` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Combine training rigs, repurposed. A recruit walks the course before they walk it. |
 | `gauntlet_kit_store` | Kit Store | `training_supplies_reduction` | +9 | 2250 Scrap | no | 1 | Kit issued, signed for and handed back, so a course stops eating a new set every intake. |
 | `gauntlet_night_course` | Night Course | `training_time_reduction` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | The same run made in the dark until dark stops being a reason to slow down. |
+| `gauntlet_mess_hall` | Mess Hall | `training_time_reduction` | +7 | 1750 Scrap | no | 1 | Hot food at the end of a shift. It is not complicated and it works. |
+| `gauntlet_range_optics` | Range Optics | `training_time_reduction` | +6 | 1500 Scrap | no | 1 | Glass on the targets and a screen in the shed. Arguments about hits end. |
 
-#### The Infirmary (7)
+#### The Infirmary (8)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1369,18 +1687,19 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 | `infirmary_cold_storage` | Cold Storage | `storage_percent` | +10 | 2500 Scrap | no | 1 | A cold chain that runs the length of the district, for far more than medicine. |
 | `infirmary_convalescent_beds` | Convalescent Beds | `housing_percent` | +8 | 2000 Scrap | no | 1 | Beds that stand empty most weeks and billet the overflow the rest of the time. |
 | `infirmary_prosthetics_bench` | Prosthetics Bench | `training_time_reduction` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Limbs fitted and tuned here, so somebody is back on the course in days rather than months. |
+| `infirmary_quiet_wing` | Quiet Wing | `payroll_percent` | +8 | 2000 Scrap | no | 1 | Thick walls and no through traffic. People come out of it faster than they went in. |
 
 #### The Garage (7)
 
 | Id | Name | Effect | Points | Price | Advanced | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `garage_rotor_bay` | Rotor Bay | `production_percent` | +20 | 5000 Scrap, 240 HQ metal | yes | 4 | High enough for a mast, wide enough for blades. The thing nobody will discuss gets finish… |
-| `garage_fuel_cracking_column` | Fuel Cracking Column | `production_percent` | +16 | 4000 Scrap, 192 HQ metal | yes | 4 | Heavy ends into something an engine will actually take. |
+| `garage_rotor_bay` | Rotor Bay | `raid_loot_percent` | +20 | 5000 Scrap, 240 HQ metal | yes | 4 | High enough for a mast, wide enough for blades. The thing nobody will discuss gets finish… |
 | `garage_haulage_rigs` | Haulage Rigs | `raid_loot_percent` | +22 | 5500 Scrap, 264 HQ metal | yes | 4 | Flatbeds and a crane. A raid stops being limited by what people can carry. |
 | `garage_machine_shop` | Machine Shop | `build_time_reduction` | +12 | 3000 Scrap, 144 HQ metal | yes | 4 | Parts made here instead of waited for. Every build in the district stops queuing behind a… |
 | `garage_mobile_rigs` | Mobile Rigs | `build_time_reduction` | +10 | 2500 Scrap | no | 1 | Vehicle powerplants dragged out to whichever site needs one, when nothing is on the ramp. |
 | `garage_tyre_bank` | Tyre Bank | `raid_loot_percent` | +9 | 2250 Scrap | no | 1 | Rims and treads sorted by size, so nothing comes home on a bare hub. |
 | `garage_fuel_bowsers` | Fuel Bowsers | `storage_percent` | +14 | 3500 Scrap, 168 HQ metal | yes | 4 | Tankage on wheels. What the district cannot hold standing still, it holds parked. |
+| `garage_parts_carousel` | Parts Carousel | `training_supplies_reduction` | +6 | 1500 Scrap | no | 1 | The part you want arrives in front of you instead of being looked for. |
 
 ## Research
 
@@ -1422,7 +1741,7 @@ What is standing, how fast it went up, and what it cost.
 | 9 | `tech_rebar_schedules` | Rebar Schedules | +9% defence | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Steel in the concrete, laid to a drawing rather than to a mood. |
 | 10 | `tech_the_standing_order` | The Standing Order | -15% build time | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | A structure is finished when the file is closed, and not before. |
 
-#### Finance Officer (10)
+#### Head of Finance (10)
 
 What everything costs and what you actually pay.
 
@@ -1448,7 +1767,7 @@ More of everything, off the same ground.
 | 1 | `tech_shift_rotation` | Shift Rotation | +5% production | 600 Caps, 400 Scrap | 45 | F- | - | Three watches instead of two. Nothing stands idle between them. |
 | 2 | `tech_word_of_mouth` | Word of Mouth | +8% recruits at the Bar | 1550 Caps, 950 Scrap | 70 | F | - | People come because somebody they trust told them to. |
 | 3 | `tech_yield_records` | Yield Records | supplies goes 8% further | 2650 Caps, 1600 Scrap | 95 | F+ | - | What each line made, every day, on a board where everyone sees it. |
-| 4 | `tech_open_intake` | Open Intake | +20 population | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | The door is open two nights a week and the room is warm. |
+| 4 | `tech_open_intake` | Open Intake | +20 unit slots | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | The door is open two nights a week and the room is warm. |
 | 5 | `tech_line_balancing` | Line Balancing | +8% production | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Somebody finally timed every station and moved the slow one. |
 | 6 | `tech_overflow_yards` | Overflow Yards | +12% storage | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Ground nobody was using, fenced and drained. |
 | 7 | `tech_apprentice_pipeline` | Apprentice Pipeline | +1 training session/day | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Every hand teaches the next one, on the clock. |
@@ -1516,7 +1835,7 @@ Making the thing, out of whatever there is.
 | 1 | `tech_jigs_and_fixtures` | Jigs and Fixtures | -5% training cost | 600 Caps, 400 Scrap | 45 | F- | - | Held the same way every time, so it comes out the same way every time. |
 | 2 | `tech_tool_steel` | Tool Steel | -5% build cost | 1550 Caps, 950 Scrap | 70 | F | - | Harder than the thing it cuts, and it stays that way. |
 | 3 | `tech_batch_runs` | Batch Runs | -7% training cost | 2650 Caps, 1600 Scrap | 95 | F+ | - | Forty of them, then set up for the next thing. Never one at a time. |
-| 4 | `tech_standard_parts` | Standard Parts | Opens the Plated Overnight battle boost, and -10% refit cost | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | One thread, one gauge, one size of bolt. It took two years to agree on. |
+| 4 | `tech_standard_parts` | Standard Parts | Opens the Plated Overnight battle boost, and -10% unit modification c… | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | One thread, one gauge, one size of bolt. It took two years to agree on. |
 | 5 | `tech_cold_forming` | Cold Forming | -9% build cost | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Shaped without heat, which is most of the cost gone. |
 | 6 | `tech_reimagining` | Reimagining | Opens the Reimagining bench on the Blueprints page, and 8% of losses… | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Three drawings that suit nothing, read together until a fourth falls out. |
 | 7 | `tech_investment_casting` | Investment Casting | +8% Rabble armour | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | A wax model, a shell around it, and a part with no seam anywhere. |
@@ -1592,7 +1911,7 @@ What you can get for what you have.
 | 9 | `tech_bonded_storage` | Bonded Storage | +15% storage | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Held, sealed, and not yours until it is. |
 | 10 | `tech_the_better_price` | The Better Price | +40 caps/h | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | Everybody comes to you first, which is worth more than the margin. |
 
-#### Security Officer (10)
+#### Head of Security (10)
 
 Getting in should cost them.
 
@@ -1628,7 +1947,7 @@ How many of them come back.
 
 #### Instructor of the Young (10)
 
-How fast a body becomes a soldier.
+How fast a unit becomes a soldier.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1641,7 +1960,7 @@ How fast a body becomes a soldier.
 | 7 | `tech_cadre_system` | Cadre System | -11% training time | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The veterans train the intake and then go back to their units. |
 | 8 | `tech_standard_syllabus` | Standard Syllabus | -12% training cost | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | One course, one book, no favourites. |
 | 9 | `tech_continuation_training` | Continuation Training | +10% Specialists vitality | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Nobody is finished. Everybody trains, monthly. |
-| 10 | `tech_the_intake` | The Intake | +2 training sessions/day | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | They arrive as bodies and leave six weeks later as soldiers. |
+| 10 | `tech_the_intake` | The Intake | +2 training sessions/day | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | They arrive as recruits and leave six weeks later as soldiers. |
 
 #### Raid Boss (10)
 
@@ -1715,7 +2034,7 @@ Somebody has to sit with the files.
 
 Source: `packages/shared/src/crew/perks.ts`
 
-#### Economy (32)
+#### Economy (38)
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
@@ -1739,7 +2058,7 @@ Source: `packages/shared/src/crew/perks.ts`
 | `haggler` | Haggler | -6% market prices | Enjoys this part more than is decent. |
 | `back_door_price` | Back Door Price | -6% black-market infamy | Knows which stall keeps the real ledger. |
 | `fence_contact` | Fence Contact | -9% black-market infamy | Has moved worse things than this, for worse people. |
-| `parts_bin` | Parts Bin | -6% refit cost | Every job leaves something. They keep it. |
+| `parts_bin` | Parts Bin | -6% unit modification cost | Every job leaves something. They keep it. |
 | `chassis_hoard` | Chassis Hoard | -8% vehicle cost | Three of everything, in a lock-up off the strip. |
 | `scrap_tithe` | Scrap Tithe | 5% of losses refunded | What dies still owes the crew something. |
 | `battlefield_broker` | Battlefield Broker | 8% of losses refunded | Sells the wreck before the smoke clears. |
@@ -1751,8 +2070,14 @@ Source: `packages/shared/src/crew/perks.ts`
 | `wall_money` | Wall Money | -24% The Gate cost | Paid for the last door and will pay for this one. |
 | `green_thumb` | Green Thumb | -20% The Greenhouse cost | Grew food on a roof nobody thought would hold. |
 | `turbine_hand` | Turbine Hand | -20% The Generator cost | Kept a dead generator running for a winter. |
+| `sig_industrialist` | Industrialist | +16% production | Ran a plant that never once stopped. |
+| `sig_hoarder` | Hoarder | +30% storage | Has never in their life thrown anything away. |
+| `sig_contractor` | Contractor | -15% build cost | Builds it for what the parts cost. |
+| `sig_smelter` | Smelter | HQ metal goes 25% further | Gets good metal out of what everyone else buried. |
+| `sig_broker` | Broker | -15% market prices | Never pays a list price for anything. |
+| `sig_landlord` | Landlord | +25% defense holding the whole district | Every roof in the district is theirs by Friday. |
 
-#### Military (56)
+#### Military (62)
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
@@ -1808,12 +2133,18 @@ Source: `packages/shared/src/crew/perks.ts`
 | `dog_handler` | Dog Handler | +18% Cyberhounds vitality | The Cyber Dogs come back to them, not to you. |
 | `colossus_wright` | Colossus Wright | +8% The Colossus vitality | One of four people who can still service it. |
 | `specter_handler` | Specter Handler | +7% The Specter damage | Talks to it. It is not clear that it listens. |
-| `front_rank` | Front Rank | +8% offense while leading | Stands where the line is thinnest, every time. |
-| `read_the_room` | Read the Room | +6 evasion while leading | Calls the shift a half second before it happens. |
-| `plate_hoarder` | Plate Hoarder | +5 armour while leading | Nobody walks out without a chest rig on. |
-| `holds_the_line` | Holds the Line | +8 morale while leading | Has never once told anybody to fall back. |
+| `front_rank` | Front Rank | +8% offense while any of your officers leads | Stands where the line is thinnest, every time. |
+| `read_the_room` | Read the Room | +6 evasion while any of your officers leads | Calls the shift a half second before it happens. |
+| `plate_hoarder` | Plate Hoarder | +5 armour while any of your officers leads | Nobody walks out without a chest rig on. |
+| `holds_the_line` | Holds the Line | +8 morale while any of your officers leads | Has never once told anybody to fall back. |
+| `sig_warlord` | Warlord | +9% unit offense | Has never been anywhere except the front of it. |
+| `sig_ironbacked` | Ironbacked | +11% unit vitality | Lost a district once. Not twice. |
+| `sig_gatekeeper` | Gatekeeper | +30% Gate defense | The door is the whole plan. |
+| `sig_banner` | Banner | +9 unit morale | People fight harder where they can see them. |
+| `sig_coalition` | Coalition | +20% offense fighting alongside allies | Has never once fought a war alone. |
+| `sig_vanguard` | Vanguard | +18% offense while any of your officers leads | Leads from in front, which is why it works. |
 
-#### Logistics (23)
+#### Logistics (29)
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
@@ -1838,10 +2169,16 @@ Source: `packages/shared/src/crew/perks.ts`
 | `bonded_courier` | Bonded Courier | +8% mission pay | Paid on delivery, and always delivers. |
 | `name_in_the_papers` | Name In The Papers | +6% infamy earned | Makes sure the right people hear about it. |
 | `legend_builder` | Legend Builder | +9% infamy earned | The story is always a little better than the job. |
-| `picks_the_crate` | Picks the Crate | +12% loot while leading | Knows which pallet is the real one. |
-| `short_way` | Short Way | -10% off the road while leading | Has never taken the road anybody else would. |
+| `picks_the_crate` | Picks the Crate | +12% loot while any of your officers leads | Knows which pallet is the real one. |
+| `short_way` | Short Way | -10% off the road while any of your officers leads | Has never taken the road anybody else would. |
+| `sig_instructor` | Instructor | -17% training time | Turns them out trained, not merely alive. |
+| `sig_foreman` | Foreman | -17% build time | The scaffolding goes up while you are still talking. |
+| `sig_roadwise` | Roadwise | -18% off the road | Knows a way through that is not on any map. |
+| `sig_scavenger_king` | Scavenger King | +25% loot capacity | Comes back with more than went out. |
+| `sig_researcher` | Researcher | -18% research time | Reads the manual nobody else finished. |
+| `sig_machinist` | Machinist | -25% vehicle cost | Keeps the yard running on parts that should not fit. |
 
-#### People (29)
+#### People (35)
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
@@ -1852,8 +2189,8 @@ Source: `packages/shared/src/crew/perks.ts`
 | `bank_contact` | Bank Contact | -8% to widen payroll | Knows somebody who lends at a laughable rate. |
 | `bar_regular` | Bar Regular | +8% recruits at the Bar | Everybody worth hiring drinks with them eventually. |
 | `talent_scout` | Talent Scout | +12% recruits at the Bar | Spots the one worth hiring across a full room. |
-| `bunk_builder` | Bunk Builder | +3 population | Fits four where the plans allowed two. |
-| `block_landlord` | Block Landlord | +5 population | Holds paper on the tenement next door. |
+| `bunk_builder` | Bunk Builder | +3 unit slots | Fits four where the plans allowed two. |
+| `block_landlord` | Block Landlord | +5 unit slots | Holds paper on the tenement next door. |
 | `hard_trainer` | Hard Trainer | +3 to officer physical skills | Everybody on the books is stronger for knowing them. |
 | `reading_circle` | Reading Circle | +3 to officer mental skills | Runs a class on the nights nothing is happening. |
 | `house_host` | House Host | +3 to officer social skills | The crew talks to each other because of them. |
@@ -1874,8 +2211,14 @@ Source: `packages/shared/src/crew/perks.ts`
 | `masters_table` | Master's Table | +8 Strategy to officers already at 50 | Only argues with people worth arguing with. |
 | `reading_room` | Reading Room | +8 Encyclopedia to officers already at 50 | Will not waste an evening on a beginner. |
 | `closed_ward` | Closed Ward | +8 Medicine to officers already at 50 | Teaches the ones who already know how to cut. |
+| `sig_drillmaster` | Drillmaster | +5 to officer social skills | Every officer here was taught by them. |
+| `sig_headhunter` | Headhunter | +40% recruits at the Bar | Knows who is unhappy before their chief does. |
+| `sig_paymaster` | Paymaster | -18% wages | Nobody has ever queried one of their envelopes. |
+| `sig_field_surgeon` | Field Surgeon | +14% wounded recovered | Argues with the dead until they get up. |
+| `sig_quartermaster` | Quartermaster | -20% to widen payroll | The books balance and the shelves are full. |
+| `sig_organiser` | Organiser | +22% cohesion | Turns a mob into a shift rota in an afternoon. |
 
-#### Intel (10)
+#### Intel (16)
 
 | Id | Name | Bonus | Description |
 | --- | --- | --- | --- |
@@ -1889,6 +2232,12 @@ Source: `packages/shared/src/crew/perks.ts`
 | `archive_key` | Archive Key | -8% research time | Still has the pass to a library that burned. |
 | `cipher_desk` | Cipher Desk | +15% intel | Reads the traffic faster than it is sent. |
 | `survey_hand` | Survey Hand | sees 2 districts | Maps a district in a night and gets it right. |
+| `sig_spymaster` | Spymaster | +30% intel | Has a file on everybody, including you. |
+| `sig_ghost` | Ghost | +30% counter-intel | There is no photograph of them anywhere. |
+| `sig_cartographer` | Cartographer | sees 2 districts | Has walked every street in the city twice. |
+| `sig_infiltrator` | Infiltrator | +22% unit stealth | Gets in before anybody decides to stop them. |
+| `sig_terror` | Terror | +12 intimidation | The street clears before they reach the end of it. |
+| `sig_name_maker` | Name Maker | +25% infamy earned | Makes sure the right people hear about it. |
 
 ## Training drills
 
@@ -1936,25 +2285,25 @@ Source: `packages/shared/src/crew/training.ts`
 
 Source: `packages/shared/src/market/blackmarket.ts`
 
-The shelf also carries every blueprint page as a good (174 of them), generated one per page and priced off the document's length. Those are not listed again here.
+The shelf also carries every blueprint page as a good (255 of them), generated one per page and priced off the document's length. Those are not listed again here.
 
 #### Contraband (5)
 
 | Id | Name | Infamy | Effect | Grants | Description |
 | --- | --- | --- | --- | --- | --- |
-| `crate_neural_shunts` | Crate of Neural Shunts | 240 | Three Neural Shunts into the satchel. The Runner will never carry the… | 3 Neural Shunt | Surgical stock, still sterile, still in Combine packaging. |
-| `looted_targeting_cores` | Looted Targeting Cores | 220 | Two Targeting Cores into the satchel. | 2 Targeting Core | Pulled off something that was still warm. |
-| `salvaged_rotor_hub` | Salvaged Rotor Hub | 200 | One Rotor Hub into the satchel. | 1 Rotor Hub | A whole hub, off the books, no questions about the airframe it left. |
-| `coolant_run` | Coolant Run | 160 | Six Coolant Cells into the satchel. | 6 Coolant Cell | Six cells on a hand truck, condensation still on them. |
-| `ceramic_consignment` | Ceramic Consignment | 150 | Eight Ceramic Plates into the satchel. | 8 Ceramic Plate | A pallet of plate that was written off in transit, by somebody paid to write it off. |
+| `crate_neural_shunts` | Crate of Neural Shunts | 240 | Three Neural Shunts into the inventory. The Runner will never carry t… | 3 Neural Shunt | Surgical stock, still sterile, still in Combine packaging. |
+| `looted_targeting_cores` | Looted Targeting Cores | 220 | Two Targeting Cores into the inventory. | 2 Targeting Core | Pulled off something that was still warm. |
+| `salvaged_rotor_hub` | Salvaged Rotor Hub | 200 | One Rotor Hub into the inventory. | 1 Rotor Hub | A whole hub, off the books, no questions about the airframe it left. |
+| `coolant_run` | Coolant Run | 160 | Six Coolant Cells into the inventory. | 6 Coolant Cell | Six cells on a hand truck, condensation still on them. |
+| `ceramic_consignment` | Ceramic Consignment | 150 | Eight Ceramic Plates into the inventory. | 8 Ceramic Plate | A pallet of plate that was written off in transit, by somebody paid to write it off. |
 
-#### Off-book refit (3)
+#### Off-book kit (3)
 
 | Id | Name | Infamy | Effect | Grants | Description |
 | --- | --- | --- | --- | --- | --- |
-| `refit_hardshell` | Hardshell Refit Kit | 380 | Eight Ceramic Plates and two Coolant Cells: a Hardshell Rig without t… | 8 Ceramic Plate, 2 Coolant Cell | Everything the Gauntlet needs for a carapace, in one crate, minus the paperwork. |
-| `refit_wetwork` | Wetwork Refit Kit | 420 | Two Neural Shunts and three Optic Clusters: cybernetics fitted out of… | 2 Neural Shunt, 3 Optic Cluster | Shunts, optics and a sealed bag of things the fitter will not name. |
-| `refit_gunsmith` | Gunsmith's Set | 340 | Four Scrap Servos and two Targeting Cores: the weapons line, off the… | 4 Scrap Servo, 2 Targeting Core | Servos, cores and a jig, in a toolbox with somebody else's name on it. |
+| `refit_hardshell` | Hardshell Kit | 380 | Eight Ceramic Plates and two Coolant Cells: most of a Hardshell Exofr… | 8 Ceramic Plate, 2 Coolant Cell | Everything the Gauntlet needs for a carapace, in one crate, minus the paperwork. |
+| `refit_wetwork` | Wetwork Kit | 420 | Two Neural Shunts and three Optic Clusters: cybernetics fitted out of… | 2 Neural Shunt, 3 Optic Cluster | Shunts, optics and a sealed bag of things the fitter will not name. |
+| `refit_gunsmith` | Gunsmith's Set | 340 | Four Scrap Servos and two Targeting Cores: gun work, off the books. | 4 Scrap Servo, 2 Targeting Core | Servos, cores and a jig, in a toolbox with somebody else's name on it. |
 
 #### Blueprint (4)
 
@@ -2003,10 +2352,36 @@ Source: `packages/shared/src/overseer.ts`
 
 | Preset | Name | Archetype | Top ratings | Perks | Bio |
 | --- | --- | --- | --- | --- | --- |
-| `enforcer` | Marcus "Bulwark" Kane | enforcer | Intimidation 34, Leadership 31, Toughness 30, Organization 28 | reputation | Ex-corporate security chief who turned his riot squad into a private army. Rules through… |
-| `netrunner` | Yumi "Ghostwire" Tanaka | netrunner | Signals 36, Cybernetics 30, Analysis 29, Stealth 26 | wire_tap | Legendary intrusion specialist who once blacked out three arcology grids in a single nigh… |
-| `fixer` | Silas Vex | fixer | Negotiation 35, Strategy 30, Deception 29, Charisma 27 | haggler | Broker of favors, contraband, and loyalties across every district. Never fires first. Som… |
-| `technocrat` | Dr. Adaeze Okafor | technocrat | Engineering 35, Craft 30, Intuition 29, Encyclopedia 28 | sorted_heap | Former arcology infrastructure director who believes the city is a machine that can be re… |
+| `enforcer` | Marcus "Bulwark" Kane | enforcer | Intimidation 34, Leadership 31, Toughness 30, Organization 28 | sig_ironbacked | Ex-corporate security chief who turned his riot squad into a private army. Rules through… |
+| `netrunner` | Yumi "Ghostwire" Tanaka | netrunner | Signals 36, Cybernetics 30, Analysis 29, Stealth 26 | sig_spymaster | Legendary intrusion specialist who once blacked out three arcology grids in a single nigh… |
+| `fixer` | Dante "Silver" Okonkwo | fixer | Negotiation 35, Charisma 31, Empathy 28, Diplomacy 28 | sig_broker | Broker who never carried a gun and never needed to. Every favour in this city passes thro… |
+| `technocrat` | Dr. Adaeze Okafor | technocrat | Engineering 35, Craft 30, Intuition 29, Encyclopedia 28 | sig_foreman | Former arcology infrastructure director who believes the city is a machine that can be re… |
+| `drillmaster` | Sergeant Ilse Vantner | enforcer | Authority 33, Leadership 32, Resolve 29, Composure 27 | sig_drillmaster | Ran a training yard for twenty years and outlived every class she put through it. Believe… |
+| `headhunter` | Corrine Vey | fixer | Empathy 33, Communication 31, Intuition 29, Negotiation 27 | sig_headhunter | Kept a list of everybody in the district who was one bad week from walking out on their c… |
+| `paymaster` | Otto Brand | technocrat | Logistics 34, Organization 31, Logic 28, Composure 27 | sig_paymaster | Kept the books for three crews at once and none of them ever found out about the other tw… |
+| `surgeon` | Dr. Miriam Halloway | technocrat | Medicine 36, Composure 30, Dexterity 27, Resolve 27 | sig_field_surgeon | Field hospital on a rooftop for six years. Has argued more people back from the edge than… |
+| `quartermaster` | Ansel Rooke | technocrat | Logistics 33, Organization 30, Salvage 28, Analysis 26 | sig_quartermaster | Ran the depot nobody could rob, because he already knew which shelf they would try. |
+| `organiser` | Beatriz Nunes | fixer | Organization 34, Communication 30, Leadership 29, Diplomacy 27 | sig_organiser | Turned a rent strike into a district in eleven days. The rota is still on the wall. |
+| `warlord` | Kassim "The Hammer" Dris | enforcer | Strength 34, Intimidation 32, Strategy 28, Stamina 27 | sig_warlord | Has taken four districts and given none of them back. Believes a fight you did not start… |
+| `gatekeeper` | Halvard Stenn | enforcer | Toughness 35, Resolve 31, Engineering 28, Composure 27 | sig_gatekeeper | Held one door for nine days. The people behind it are still alive and they still send him… |
+| `banner` | Sol Ferreira | enforcer | Charisma 34, Leadership 31, Resolve 29, Composure 28 | sig_banner | Carries no rank and no weapon. Everybody knows where they are standing and everybody stay… |
+| `coalition` | Nadia Roskova | fixer | Diplomacy 34, Negotiation 31, Communication 29, Strategy 27 | sig_coalition | Has never fought a war alone and has never lost one. Keeps three tables talking at once. |
+| `vanguard` | Tomas Ilic | enforcer | Reflexes 33, Speed 31, Strength 29, Stamina 27 | sig_vanguard | First through every door for eleven years. Has the scars in the front, which is the point. |
+| `industrialist` | Wren Achebe | technocrat | Engineering 33, Logistics 30, Organization 29, Craft 28 | sig_industrialist | Kept a plant running through two sieges and a blackout. It has never once stopped since. |
+| `hoarder` | Petra Mink | technocrat | Salvage 35, Organization 30, Encyclopedia 28, Intuition 26 | sig_hoarder | Has never thrown anything away in her life and has been right about it four times. |
+| `contractor` | Gideon Arce | technocrat | Craft 33, Engineering 30, Negotiation 28, Logistics 27 | sig_contractor | Builds it for what the parts cost and pockets the difference, which he is open about. |
+| `smelter` | Yusuf Baran | technocrat | Craft 34, Chemistry 30, Salvage 29, Stamina 27 | sig_smelter | Gets good metal out of what everybody else buried. Will not say how and does not need to. |
+| `landlord` | Ivo Sarkany | fixer | Negotiation 33, Authority 30, Organization 29, Deception 27 | sig_landlord | Owns every roof in the district by Friday. Has never once raised the rent, which is what… |
+| `instructor` | Kenji Aramaki | technocrat | Encyclopedia 33, Communication 30, Analysis 28, Composure 27 | sig_instructor | Turns them out trained rather than merely alive. The difference is the first week. |
+| `roadwise` | Lark Oduya | netrunner | Navigation 35, Speed 30, Intuition 28, Stealth 27 | sig_roadwise | Knows a way through that is on no map, because she took the map off the wall. |
+| `scavenger_king` | Bram Teague | fixer | Salvage 34, Stamina 30, Navigation 28, Improvisation 27 | sig_scavenger_king | Comes back with more than went out, every time, and nobody has worked out where from. |
+| `researcher` | Dr. Sunniva Lind | technocrat | Logic 34, Encyclopedia 31, Analysis 29, Cryptography 27 | sig_researcher | Read the manual nobody else finished and then wrote the corrections in the margin. |
+| `machinist` | Odile Vasquez | technocrat | Craft 34, Engineering 30, Dexterity 29, Improvisation 27 | sig_machinist | Keeps the yard running on parts that should not fit, using a method she calls persuasion. |
+| `ghost` | Ren "Nobody" Aslan | netrunner | Stealth 36, Cryptography 30, Composure 28, Deception 27 | sig_ghost | There is no photograph of them anywhere. There used to be three. |
+| `cartographer` | Esme Dalgaard | netrunner | Navigation 34, Analysis 30, Encyclopedia 28, Intuition 27 | sig_cartographer | Has walked every street in this city twice and drawn it once, from memory, correctly. |
+| `infiltrator` | Cass Moreau | netrunner | Stealth 34, Dexterity 31, Reflexes 29, Deception 27 | sig_infiltrator | Gets in before anybody has decided to stop them, which is earlier than it sounds. |
+| `terror` | Vasska Grell | enforcer | Intimidation 36, Resolve 30, Strength 28, Toughness 27 | sig_terror | The street clears before she reaches the end of it. She has never asked it to. |
+| `name_maker` | Dorian Vale | fixer | Communication 34, Charisma 31, Deception 29, Negotiation 27 | sig_name_maker | Makes sure the right people hear about it, in the right order, from the right mouth. |
 
 ## Resources
 
@@ -2014,12 +2389,12 @@ Source: `packages/shared/src/resources.ts`
 
 | Key | Label | What it is | Spent on | Comes from |
 | --- | --- | --- | --- | --- |
-| `caps` | Caps | Bottle caps. The city stopped believing in anything else a long time ago. | Wages, every week, whether you have them or not; Recruiting at the Bar; Research projects; Buying from the market | Contracts, raids, and selling what you do not need. |
-| `supplies` | Supplies | Ration bricks, tank protein, whatever the Greenhouse manages to grow. | Feeding the crew every week; Training the units that eat before they fight | The Greenhouse, and anything you take off somebody else. |
-| `oil` | Oil | Refined fuel. Everything with a motor in it drinks this. | Building and upgrading structures; The Generator's two-hour burn, which takes a quarter off the whole build queue; Vehicles, once the Garage is standing | The Scrapyard and the Garage, and holds like the Chemical P… |
+| `caps` | Caps | Bottle caps. The city stopped believing in anything else a long time ago. | Wages, as a standing commitment: the book has a ceiling and every contract takes a slice of it; Recruiting at the Bar; Research projects; Buying from the market | Contracts, raids, and selling what you do not need. |
+| `supplies` | Supplies | Ration bricks, tank protein, whatever the Greenhouse manages to grow. | Training the units that eat before they fight; The structures that are stocked as much as built: the Quarters, the Gauntlet, the Infirmary | The Greenhouse, and anything you take off somebody else. |
+| `oil` | Oil | Refined fuel. Everything with a motor in it drinks this. | Building and upgrading structures; The Generator's two-hour burn, which takes a quarter off the whole build queue; Vehicles, once the Garage is standing | The Generator, and holds like the Chemical Plant. |
 | `scrap` | Scrap | Torn plate, cable, dead machines. The city is made of it and so is everything you build. | Every structure you raise; Weapons, armour and unit upgrades; Contraptions and vehicles in the Garage | The Scrapyard, salvage runs, and anything you pull apart. |
-| `planks` | Planks | Sawn timber, pulled out of whatever the city was before it was this. | Every structure you raise, alongside scrap; Digging a position in; Working a location up | The Scrapyard, which strips the wood out of a ruin as well… |
-| `highQualityMetal` | HQ metal | Milled alloy. Rare, and the only thing precise enough for the work that matters. | The heavy end of the roster; Cybernetics and the better implants; Late structures and their modifications | Foundries, deep salvage, and the market when somebody is se… |
+| `planks` | Planks | Sawn timber, pulled out of whatever the city was before it was this. | Every structure you raise, alongside scrap; Digging a position in; Working a location up | The Greenhouse, which grows timber under the same lamps as… |
+| `highQualityMetal` | HQ metal | Milled alloy. Rare, and the only thing precise enough for the work that matters. | The heavy end of the roster; Cybernetics and the better implants; Late structures and their modifications | The Scrapyard, deep salvage, and the market when somebody i… |
 
 ## Attributes and officer roles
 
@@ -2040,7 +2415,7 @@ What a role actually asks of a sheet is server-side and deliberately not in this
 | --- | --- | --- |
 | `head_spy` | Head Spy | What they never find out, and what you do. |
 | `lead_engineer` | Lead Engineer | What is standing, how fast it went up, and what it cost. |
-| `finance_officer` | Finance Officer | What everything costs and what you actually pay. |
+| `finance_officer` | Head of Finance | What everything costs and what you actually pay. |
 | `head_of_growth` | Head of Growth | More of everything, off the same ground. |
 | `field_commander` | Field Commander | How much of what you brought is really in the fight. |
 | `head_of_research` | Head of Research | Everything the Lab does, done sooner. |
@@ -2050,9 +2425,9 @@ What a role actually asks of a sheet is server-side and deliberately not in this
 | `right_hand` | Right Hand | The room runs whether you are in it or not. |
 | `cartographer` | Cartographer | How long it takes to get anywhere. |
 | `trader` | Trader | What you can get for what you have. |
-| `security_officer` | Security Officer | Getting in should cost them. |
+| `security_officer` | Head of Security | Getting in should cost them. |
 | `chief_medic` | Chief Medic | How many of them come back. |
-| `instructor_of_the_young` | Instructor of the Young | How fast a body becomes a soldier. |
+| `instructor_of_the_young` | Instructor of the Young | How fast a unit becomes a soldier. |
 | `raid_boss` | Raid Boss | Going and taking it. |
 | `scout` | Scout | Knowing before you go. |
 | `consigliere` | Consigliere | What is said, and what is meant. |
@@ -2118,7 +2493,7 @@ Source: `packages/shared/src/social/notifications.ts`
 | `district_attacked` | Attacks on your district | yes | Somebody has called a fight on ground you hold. |
 | `market_won` | Lots you won | no | A lot you were bidding on at the barrow closed with you on top. |
 | `market_outbid` | Lots at the barrow | no | A lot you were bidding on has gone to somebody else, or gone unsold. |
-| `page_found` | Pages found | no | A blueprint page came into the satchel. |
+| `page_found` | Pages found | no | A blueprint page came into the inventory. |
 | `scout_home` | Scouts returning | no | Somebody you sent out has walked a district and come back with it. |
 
 #### The crew (3)

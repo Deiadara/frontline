@@ -10,7 +10,7 @@ import { buildingLevel, findBuilding, type Building } from './state.js';
  * Gauntlet trains everybody faster, and the Greenhouse takes supplies off a training bill. Each is
  * one exported function, so "what does the Gate actually do" has exactly one answer.
  *
- * The Quarters is the one exception, because it also houses people, and that is `population.ts`.
+ * The Quarters is the one exception, because it also houses people, and that is `unit-slots.ts`.
  */
 
 // --- the payroll book (§H7): how many names the district can carry ---

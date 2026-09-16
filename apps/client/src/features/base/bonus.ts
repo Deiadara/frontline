@@ -7,7 +7,7 @@ import {
   generatorTimeDiscount,
   infirmaryRecoveryPercent,
   payrollBonusPercent,
-  populationCapacity,
+  unitSlotCapacity,
   researchTimeReduction,
   storageCapacity,
   storageCapacityFor,
@@ -79,14 +79,22 @@ function perHour(rates: PartialResources): string {
  * dialog for that structure quietly saying less than the others, which is the failure mode a
  * `Record` keyed on the union makes impossible.
  */
-const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureBonus> = {
+const LINES: Record<
+  BuildingKind,
+  (
+    buildings: readonly Building[],
+    level?: number,
+    /** §F2: what the crew's own Logistics adds, for the one line that has a ceiling in it. */
+    crewStoragePercent?: number,
+  ) => StructureBonus
+> = {
   nexus: (buildings) => ({
     label: 'Authorises every other structure up to',
     value: `Nexus ${buildings.find((b) => b.kind === 'nexus')?.level ?? 0}`,
   }),
   quarters: (buildings) => ({
-    label: 'Beds for the district, and what the payroll book stretches to',
-    value: `${round(populationCapacity(buildings))} beds · +${round(payrollBonusPercent(buildings))}% payroll`,
+    label: 'Unit slots for the district, and what the payroll book stretches to',
+    value: `${round(unitSlotCapacity(buildings))} unit slots · +${round(payrollBonusPercent(buildings))}% payroll`,
   }),
   greenhouse: (buildings) => ({
     label: 'Grows, and off the supplies a recruit eats',
@@ -120,8 +128,9 @@ const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureB
    * that said "of each material" overstated the metal ceiling threefold, so a player banking alloy
    * against an Apothecary 5 read 2,162 here and watched the standing bar cap at 721.
    */
-  apothecary: (buildings) => {
-    const bulk = storageCapacity(buildings);
+  apothecary: (buildings, _level, crewStoragePercent = 0) => {
+    // ...and with the crew's own Logistics on it, which is what the settle fills the store to.
+    const bulk = storageCapacity(buildings, crewStoragePercent);
     return {
       label: 'Holds of scrap or planks · oil or supplies · HQ metal',
       value: [
@@ -133,10 +142,19 @@ const LINES: Record<BuildingKind, (buildings: readonly Building[]) => StructureB
         .join(' · '),
     };
   },
+  /*
+   * Both halves, because the Generator has had two jobs since the production split.
+   *
+   * It quoted the build-clock discount alone, which was the whole truth while the Scrapyard made
+   * the oil. The Generator is the only source of oil in the game now, and a player pressing the
+   * plot that refines fuel was told about somebody else's build queue and nothing about the fuel.
+   * Same shape as the Greenhouse above: what it makes, then what it takes off a clock.
+   */
   generator: (buildings) => ({
-    label: 'Off every other structure’s build clock',
-    // Quoted against a structure that is not the Generator: it never discounts its own next level.
-    value: `${round(generatorTimeDiscount('quarters', buildings))}%`,
+    label: 'Refines, and off every other structure’s build clock',
+    // The discount is quoted against a structure that is not the Generator: it never discounts its
+    // own next level.
+    value: `${perHour(buildingProduction('generator', buildings))} · ${round(generatorTimeDiscount('quarters', buildings))}%`,
   }),
   gate: (buildings) => ({
     label: 'A raider has to beat, and a scout has to see past',
@@ -161,6 +179,8 @@ export function structureBonus(
   kind: BuildingKind,
   buildings: readonly Building[],
   level: number,
+  /** §F2: the crew's storage channel, which the Apothecary's ceiling is filled to. */
+  crewStoragePercent = 0,
 ): StructureBonus {
-  return LINES[kind](districtWith(buildings, kind, level));
+  return LINES[kind](districtWith(buildings, kind, level), level, crewStoragePercent);
 }

@@ -5,6 +5,9 @@ import {
   RESOURCE_ORDER,
   bundleValue,
   offerExpiresAt,
+  ITEM_CATALOG,
+  ITEM_IDS,
+  type Inventory,
   type MarketOffer,
   type MarketResponse,
   type ResourceKey,
@@ -15,6 +18,20 @@ import { Button } from '../../components/ui/Button';
 import { NumberField } from '../../components/ui/NumberField';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
+import { PartsPicker } from './PartsPicker';
+
+/**
+ * Every part, at a count high enough that the stepper never runs out.
+ *
+ * The picker's `held` means "what may be chosen here". On the give side that is the crew's own bin.
+ * On the want side it is the whole catalogue: what a crew asks for is by definition what they do
+ * not have, so passing their inventory would hide the one part they are stuck on, which is the only
+ * part anybody asks for. The ceiling is a stepper bound rather than a rule; `offerRefusal` on the
+ * server is what actually decides whether a listing is legal.
+ */
+const ASK_FOR_ANY: Inventory = Object.fromEntries(
+  ITEM_IDS.filter((id) => ITEM_CATALOG[id].kind === 'component').map((id) => [id, 99]),
+);
 import { useAcceptOffer, useMarket, usePostOffer, useWithdrawOffer } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
@@ -312,6 +329,10 @@ function OfferComposer({
   const post = usePostOffer();
   const [giveRes, setGiveRes] = useState<Partial<Record<ResourceKey, number>>>({});
   const [wantRes, setWantRes] = useState<Partial<Record<ResourceKey, number>>>({});
+  // Parts, on both sides. `TradeBundle` has carried `items` since the board existed and
+  // `offerRefusal` has always checked them; until now nothing filled the field. See `PartsPicker`.
+  const [giveParts, setGiveParts] = useState<Inventory>({});
+  const [wantParts, setWantParts] = useState<Inventory>({});
 
   /*
    * Emptied on a successful post, and this is not tidiness.
@@ -329,12 +350,12 @@ function OfferComposer({
   const clear = () => {
     setGiveRes({});
     setWantRes({});
+    setGiveParts({});
+    setWantParts({});
   };
 
-  // Materials only (maintainer request, 2026-09-09): the item slot went with the verdict badges. The
-  // wire still carries items so a listing is one shape everywhere; this screen just never fills it.
-  const give = { resources: giveRes, items: {} };
-  const want = { resources: wantRes, items: {} };
+  const give = { resources: giveRes, items: giveParts };
+  const want = { resources: wantRes, items: wantParts };
   const empty = bundleValue(give) === 0 && bundleValue(want) === 0;
 
   return (
@@ -353,6 +374,15 @@ function OfferComposer({
         onChange={setGiveRes}
         held={market.resources}
         testId="offer-give"
+        parts={
+          <PartsPicker
+            label="You give"
+            chosen={giveParts}
+            held={market.inventory}
+            onChange={setGiveParts}
+            testId="offer-give-parts"
+          />
+        }
       />
 
       <BundleBuilder
@@ -362,6 +392,23 @@ function OfferComposer({
         onChange={setWantRes}
         held={market.resources}
         testId="offer-want"
+        parts={
+          /*
+           * The want side offers the whole catalogue, not the bin.
+           *
+           * What a crew is asking *for* is by definition something they do not have, so passing
+           * their own inventory as `held` would make the interesting case, the part you are stuck
+           * on, the one part you cannot ask for. The picker's `held` is "what may be chosen", and
+           * on this side that is everything a part can be.
+           */
+          <PartsPicker
+            label="You want"
+            chosen={wantParts}
+            held={ASK_FOR_ANY}
+            onChange={setWantParts}
+            testId="offer-want-parts"
+          />
+        }
       />
 
       {/* The deal as the board will print it, before anybody else sees it. */}
@@ -414,6 +461,7 @@ function BundleBuilder({
   onChange,
   held,
   testId,
+  parts,
 }: {
   label: string;
   tone: 'give' | 'take';
@@ -421,6 +469,8 @@ function BundleBuilder({
   onChange: (next: Partial<Record<ResourceKey, number>>) => void;
   held: Partial<Record<ResourceKey, number>>;
   testId: string;
+  /** The parts door, drawn at the end of the row of material tiles. */
+  parts?: ReactNode;
 }) {
   const chosen = RESOURCE_ORDER.filter((key) => (state[key] ?? 0) > 0);
 
@@ -459,6 +509,9 @@ function BundleBuilder({
             </button>
           );
         })}
+        {/* The parts door, at the end of the materials it sits beside: one row, two kinds of
+            thing, and the eight parts stay behind one press rather than eight dim tiles. */}
+        {parts}
       </div>
 
       {chosen.length > 0 && (

@@ -58,6 +58,7 @@ import {
   RenameDistrictResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
+  OverseerChoicesResponseSchema,
   BidResponseSchema,
   LaunchMissionResponseSchema,
   MeResponseSchema,
@@ -210,6 +211,10 @@ export const getMe = () => apiFetch('/me', MeResponseSchema);
 export const createOverseer = (body: CreateOverseerRequest) =>
   apiFetch('/overseer', CreateOverseerResponseSchema, jsonBody(body));
 
+/** §F6: the four this account may pick from, and how much of the pool is left. */
+export const getOverseerChoices = () =>
+  apiFetch('/overseer/choices', OverseerChoicesResponseSchema);
+
 export const getCity = () => apiFetch('/city', CityResponseSchema);
 
 export const getBase = (id: string) => apiFetch(`/base/${id}`, BaseDetailResponseSchema);
@@ -343,7 +348,7 @@ export const getMarket = () => apiFetch('/market', MarketResponseSchema);
 export const placeVendorBid = (body: PlaceVendorBidRequest) =>
   apiFetch('/market/bid', MarketMutationResponseSchema, jsonBody(body));
 
-/** §D10: spend one of every page and take the finished document. Answers with the satchel. */
+/** §D10: spend one of every page and take the finished document. Answers with the inventory. */
 export const unlockBlueprint = (body: UnlockBlueprintRequest) =>
   apiFetch('/blueprints/unlock', MarketMutationResponseSchema, jsonBody(body));
 
@@ -398,6 +403,9 @@ export const setAdminKnobs = (body: AdminKnobsRequest) =>
 /** The Console's grants: documents, pages, parts and rungs for testing the yard at any stage. */
 export const grantAdmin = (body: AdminGrantRequest) =>
   apiFetch('/admin/grant', AdminMutationResponseSchema, jsonBody(body));
+
+/** §Console: this crew back to its first second, character included. */
+export const resetAdmin = () => apiFetch('/admin/reset', AdminMutationResponseSchema, jsonBody({}));
 
 /** Show or hide one district on the Console's fog of war. */
 export const setAdminFog = (body: AdminFogRequest) =>

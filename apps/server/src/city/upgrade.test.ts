@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
   bonusesAt,
   declarationWindow,
@@ -19,6 +20,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from '../battle/resolve.js';
 import { UPGRADE_SECONDS_SCALE, upgradeSeconds } from './upgrade.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * §A4: a location is a post you take, work up, and lose.
@@ -73,13 +75,13 @@ async function makeStack(): Promise<Stack> {
     payload: { username: 'landlord', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
+
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(baseId)!.economy;
+  app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,

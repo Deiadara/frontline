@@ -9,14 +9,14 @@ import { ladderTitle, type FeatBlock, type FeatRung } from './featsList';
 /**
  * One ladder, drawn as a ladder.
  *
- * The maintainer asked for feats, and a catalogue of a hundred and sixty of them laid out as a hundred
- * and sixty rows is a spreadsheet: the fourth step of a chain reads as an unrelated fourth entry
+ * The maintainer asked for feats, and a catalogue of two hundred of them laid out as two hundred
+ * rows is a spreadsheet: the fourth step of a chain reads as an unrelated fourth entry
  * that happens to ask for a bigger number. Grouping the steps under one upright, numbering them,
- * and running the pen line between the marks is what turns "field 100 bodies / field 500 bodies /
- * field 2,000 bodies" back into the one idea it is.
+ * and running the pen line between the marks is what turns "field 100 units / field 500 units /
+ * field 2,000 units" back into the one idea it is.
  *
  * A feat with no chain is drawn by the same component with a single rung and no upright. One kind
- * of card, not two: the page has sixty-two of these on it and a second silhouette in the mix would
+ * of card, not two: the page has seventy-two of these on it and a second silhouette in the mix would
  * read as damage rather than as a distinction.
  */
 
@@ -25,6 +25,22 @@ const BAR_TONE: Readonly<Record<'open' | 'ready' | 'claimed', ProgressTone>> = {
   open: 'iris',
   ready: 'brass',
   claimed: 'verdigris',
+};
+
+/**
+ * One pigment per era, so the tag is readable without being read.
+ *
+ * Every rung used to wear the same grey outline whatever era it was in, which made the tag a thing
+ * you had to stop and read on all two hundred of them. A chain climbs through the eras, so the tag
+ * is the one piece of a rung that says how far up the game this step sits: colouring it turns a
+ * column of cards into something a player can skim for "what is near me". Green reads as early and
+ * safe, brass as the working middle, red as the deep end, which is the order these three pigments
+ * already carry everywhere else in this interface.
+ */
+const ERA_PILL: Readonly<Record<'early' | 'mid' | 'late', string>> = {
+  early: 'border-verdigris-300/50 bg-verdigris-500/10 text-verdigris-100',
+  mid: 'border-brass-300/50 bg-brass-500/10 text-brass-100',
+  late: 'border-oxblood-300/50 bg-oxblood-500/12 text-oxblood-100',
 };
 
 function Rung({
@@ -69,7 +85,12 @@ function Rung({
           >
             {spec.name}
           </h4>
-          <span className="shrink-0 rounded-sm border border-surface-600/80 px-1.5 py-px font-display text-[9px] font-bold uppercase tracking-[0.16em] text-ink-300">
+          <span
+            className={cn(
+              'shrink-0 rounded-sm border px-1.5 py-px font-display text-[9px] font-bold uppercase tracking-[0.16em]',
+              ERA_PILL[spec.era],
+            )}
+          >
             {FEAT_ERA_LABELS[spec.era]}
           </span>
         </div>
@@ -84,12 +105,12 @@ function Rung({
            * crew already past the next tier would read an empty bar as the game having lost their
            * progress. What the rung says instead is the one true thing about it.
            */
-          <p className="font-body text-[12.5px] italic leading-snug text-ink-400">
+          <p className="font-body text-[13px] italic leading-snug text-ink-300">
             Shut. Take the step above it first.
           </p>
         ) : (
           <>
-            <p className="font-body text-[12.5px] leading-snug text-ink-300">{spec.blurb}</p>
+            <p className="font-body text-[13px] leading-snug text-ink-200">{spec.blurb}</p>
             <div className="flex min-w-0 items-center gap-2">
               <ProgressBar
                 progress={progress.progress}
@@ -99,7 +120,7 @@ function Rung({
                 data-testid={`feat-bar-${spec.id}`}
               />
               <span
-                className="shrink-0 font-display text-[11px] font-bold tabular-nums text-ink-200"
+                className="shrink-0 font-display text-[11.5px] font-bold tabular-nums text-ink-100"
                 data-testid={`feat-count-${spec.id}`}
               >
                 {/*
@@ -142,12 +163,15 @@ function Rung({
 
 export function FeatLadder({
   block,
-  claimingId,
+  claiming,
   onClaim,
 }: {
   block: FeatBlock;
-  /** Which feat's claim is in flight, if any. One at a time: the page runs one mutation. */
-  claimingId: string | null;
+  /**
+   * Which feats have a claim in flight. A set rather than one id, because a player can press a
+   * second CLAIM before the first answers and both rungs have to stay pending while they do.
+   */
+  claiming: ReadonlySet<string>;
   onClaim: (featId: string) => void;
 }) {
   const first = block.rungs[0];
@@ -155,6 +179,17 @@ export function FeatLadder({
   // Built from the measure rather than invented per chain. See `ladderTitle`.
   const title = ladderTitle(first.spec);
   const ladder = block.steps > 1;
+  /*
+   * How far up this particular ladder the crew is.
+   *
+   * The header said `4 steps` and nothing else, so the only way to find out whether a card was
+   * finished was to read all four rungs. Achievement screens in other games put the fraction on
+   * the group header for exactly this reason: it turns a wall of cards into a list you can triage.
+   * Counted over the rungs actually drawn, so under a filter the figure describes what is on
+   * screen rather than a total the player cannot see.
+   */
+  const collected = block.rungs.filter((rung) => rung.progress.state === 'claimed').length;
+  const waiting = block.rungs.filter((rung) => rung.progress.state === 'ready').length;
 
   return (
     <article
@@ -169,8 +204,23 @@ export function FeatLadder({
         >
           {title}
         </h3>
-        <span className="shrink-0 font-display text-[10px] font-bold uppercase tracking-[0.16em] text-ink-400">
-          {ladder ? `${block.steps} steps` : 'On its own'}
+        <span className="flex shrink-0 items-center gap-1.5">
+          {/* The one thing on this card that is asking for a press, said once at the top so a
+              player scrolling past a finished ladder does not have to look for a button in it. */}
+          {waiting > 0 && (
+            <span
+              className="rounded-sm border border-brass-300/60 bg-brass-500/15 px-1.5 py-px font-display text-[9px] font-bold uppercase tracking-[0.14em] text-brass-100"
+              data-testid={`feat-block-waiting-${block.key}`}
+            >
+              {waiting} ready
+            </span>
+          )}
+          <span
+            className="font-display text-[10px] font-bold uppercase tracking-[0.16em] tabular-nums text-ink-300"
+            data-testid={`feat-block-done-${block.key}`}
+          >
+            {ladder ? `${collected}/${block.rungs.length}` : collected > 0 ? 'Done' : 'On its own'}
+          </span>
         </span>
         <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
       </header>
@@ -197,7 +247,7 @@ export function FeatLadder({
             key={rung.spec.id}
             rung={rung}
             first={index === 0}
-            claiming={claimingId === rung.spec.id}
+            claiming={claiming.has(rung.spec.id)}
             onClaim={onClaim}
           />
         ))}

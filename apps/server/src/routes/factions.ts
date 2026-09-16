@@ -43,7 +43,7 @@ import { settleBase } from '../district/settle.js';
  *
  * All of these are 409s carrying a `FactionRefusal`, because none of them is a malformed request:
  * the caller is who they say they are and the thing they named exists, the game is just not in a
- * state where it can happen. The reason is in the body so one screen can say *which* door is shut,
+ * state where it can happen. The reason is in the unit so one screen can say *which* door is shut,
  * which is the whole of what §H3 taught this codebase about refusals.
  */
 
@@ -445,7 +445,7 @@ export function registerFactionRoutes(app: FastifyInstance): void {
    * (`adjustDeployment`), which is what makes this feature real rather than cosmetic: the units
    * leave this crew's roster, walk for the same travel time, land in this crew's own row on that
    * side, fight in the same engine and come home to this crew through the same split. A second
-   * bespoke path would have been a second set of rules about supply, travel and losses.
+   * bespoke path would have been a second set of rules about unit slots, travel and losses.
    */
   app.post(
     '/factions/reinforce',

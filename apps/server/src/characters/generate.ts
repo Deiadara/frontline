@@ -2,7 +2,7 @@ import {
   ATTRIBUTE_NAMES,
   MAX_RECRUITMENT_ATTRIBUTE,
   OFFICER_ROLES,
-  PERK_IDS,
+  ROLLABLE_PERK_IDS,
   type AttributeName,
   type Attributes,
   type OfficerRole,
@@ -255,8 +255,12 @@ function rollPerkCount(rng: Rng): number {
 function rollPerks(rng: Rng, minPerks = 0): string[] {
   const wanted = Math.max(minPerks, rollPerkCount(rng));
   const picked: string[] = [];
-  for (let attempt = 0; picked.length < wanted && attempt < PERK_IDS.length * 2; attempt += 1) {
-    const id = PERK_IDS[randomInt(rng, 0, PERK_IDS.length - 1)];
+  for (
+    let attempt = 0;
+    picked.length < wanted && attempt < ROLLABLE_PERK_IDS.length * 2;
+    attempt += 1
+  ) {
+    const id = ROLLABLE_PERK_IDS[randomInt(rng, 0, ROLLABLE_PERK_IDS.length - 1)];
     if (id !== undefined && !picked.includes(id)) picked.push(id);
   }
   return picked;

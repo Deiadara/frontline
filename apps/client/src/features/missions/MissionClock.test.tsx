@@ -208,7 +208,7 @@ describe('the send dialog clock', () => {
 
     /*
      * The picker is the painted `Dropdown`, not a native select, so it is clicked open and the
-     * option is pressed. Its list is portalled to the body, which is why the options are found on
+     * option is pressed. Its list is portalled to the unit, which is why the options are found on
      * `screen` rather than inside the dialog. `fireEvent.change` on it does nothing at all, which
      * is how the first version of this test managed to read the same clock twice.
      */
@@ -249,7 +249,7 @@ describe('the send dialog clock', () => {
      * Before anything is loaded, the bare template clock is the right answer, and it says so.
      *
      * An empty column is the one state where the figure really is a ceiling (`columnSpeed` gives
-     * a body that cannot move 0, and the road comes back at its base length), so it is the one
+     * a unit that cannot move 0, and the road comes back at its base length), so it is the one
      * state where the readout is allowed to hedge. See `RoundTrip`.
      */
     const clock = within(dialog).getByTestId('round-trip-clock');
@@ -258,7 +258,7 @@ describe('the send dialog clock', () => {
       'At most, with nobody picked',
     );
 
-    // Six Razors in a Rotorcraft: more seats than bodies, so the whole column rides at its rate.
+    // Six Razors in a Rotorcraft: more seats than units, so the whole column rides at its rate.
     fireEvent.change(within(dialog).getByLabelText('How many Razors'), { target: { value: '6' } });
     fireEvent.change(within(dialog).getByLabelText('How many Rotorcraft'), {
       target: { value: '1' },
@@ -278,7 +278,7 @@ describe('the send dialog clock', () => {
     /*
      * ...and the line says which group set that pace, not a percentage.
      *
-     * Six bodies in eighteen seats, so nobody walks and the machine itself is the slowest group in
+     * Six units in eighteen seats, so nobody walks and the machine itself is the slowest group in
      * the column: `columnSpeed` returns the Rotorcraft's own speed and the dialog names it.
      */
     expect(within(dialog).getByTestId('mission-column')).toHaveTextContent(

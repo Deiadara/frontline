@@ -21,6 +21,7 @@ import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { cn } from '../../lib/cn';
 import { useAnnouncedMarks, useDeltaMarks, xpBehind } from '../../lib/deltas';
 import type { LiveStatus } from '../../lib/live';
+import { useCrewStanding } from '../../lib/queries';
 import { badgeCount, type UnreadCounts } from '@frontline/shared';
 
 /**
@@ -160,6 +161,8 @@ export function TopHud({
   unread,
   live,
 }: TopHudProps) {
+  const standing = useCrewStanding();
+  const storagePercent = standing.data?.effects['storageCapacityPercent'] ?? 0;
   /*
    * Three shelves, not one, and caps are on none of them.
    *
@@ -168,7 +171,11 @@ export function TopHud({
    * chip prints `125K` and the exact figure has to live somewhere, but there is no bar and no
    * "x of y" in it. An absent capacity means something else again: see `ResourceChipProps`.
    */
-  const bulk = storageCapacity(buildings);
+  // §F2: with the crew's own Logistics on top of the structure, which is how the settle fills it
+  // (`accrueProduction`). Without it the bar read 112% full for a crew that had finished the
+  // storage research, and the market refused to sell them anything into the space it did not know
+  // about. Its own query because the fold is not on the session payload.
+  const bulk = storageCapacity(buildings, storagePercent);
   const ceiling = (kind: ResourceKey): number | 'uncapped' => {
     const room = storageCapacityFor(buildings, kind, bulk);
     return Number.isFinite(room) ? room : 'uncapped';
@@ -315,14 +322,22 @@ export function TopHud({
             label="Battles"
             title="Declared fights, and what came back"
           />
+          {/*
+           * "Monitor", not "Actions" (maintainer request, 2026-09-14).
+           *
+           * The route stays `/game/actions`: the label is what a player reads and the path is
+           * what their bookmarks and this codebase's forty other references point at, and there
+           * is no reason for the two to be the same word. Note the test id follows the label
+           * (`hud-monitor` now), because `HudDoor` derives it from what it is called.
+           */}
           <HudDoor
             to="/game/actions"
             icon="actions"
-            label="Actions"
+            label="Monitor"
             title="Who is on the road, and how long they have left"
           />
-          {/* The standings, next to Actions (board's placement). The last door in the group, and
-              the only one that is about somebody other than you. */}
+          {/* The standings, next to the Monitor (board's placement). The last door in the group,
+              and the only one that is about somebody other than you. */}
           <HudDoor
             to="/game/leaderboard"
             icon="standings"

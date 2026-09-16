@@ -1,7 +1,12 @@
 import { z } from 'zod';
 import { BattleAnalysisSchema } from './battle/analysis.js';
 import { BattlefieldSchema } from './battle/battlefield.js';
-import { BattleSideSchema, BattleTargetSchema, ScheduledBattleSchema } from './battle/scheduled.js';
+import {
+  BattleSideSchema,
+  BattleTargetSchema,
+  ScheduledBattleSchema,
+  type BattleTarget,
+} from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
 import { FleetSchema } from './building/vehicles.js';
 import { LevelUpSchema, ScoutingRunViewSchema } from './api.js';
@@ -26,6 +31,17 @@ export const BattleLeaderSchema = z.object({
   role: OfficerRoleSchema.nullable(),
   /** What they would fight as, so the player can compare them to a unit before sending them. */
   stats: UnitStatsSchema,
+  /**
+   * §D1: whole minutes this one would take to reach the fight (maintainer request, 2026-09-15).
+   *
+   * A leader has to get there like everybody else, at their own `speed` and in whatever machine
+   * this crew has committed to the fight, so the picker's choice is between a better sheet and a
+   * shorter road rather than between two sheets. Per officer rather than one figure for the crew,
+   * because the pace is the person: the Head of Finance and the Scout are not the same number.
+   *
+   * Defaulted so a payload written before the field existed still parses.
+   */
+  travelMinutes: z.number().int().nonnegative().default(0),
 });
 export type BattleLeader = z.infer<typeof BattleLeaderSchema>;
 
@@ -45,7 +61,7 @@ export type BattleRole = z.infer<typeof BattleRoleSchema>;
 export const BattleMusterSchema = z.object({
   army: ArmySchema,
   perimeter: ArmySchema,
-  /** Bodies, both forces counted. */
+  /** Units, both forces counted. */
   size: z.number().int().nonnegative(),
 });
 export type BattleMuster = z.infer<typeof BattleMusterSchema>;
@@ -90,7 +106,7 @@ export type BattleBoostOption = z.infer<typeof BattleBoostOptionSchema>;
  *
  * Every trap in the catalogue is on the list, including the ones the crew holds none of, for the
  * reason the boost list gives: a thing you never see is a thing you never build. `held` is the
- * count in the satchel and `available` is `held > 0`, because by the time a trap is an item the
+ * count in the inventory and `available` is `held > 0`, because by the time a trap is an item the
  * document and the Lab rung have already been answered at the Scrapyard.
  */
 export const TrapOptionSchema = z.object({
@@ -253,7 +269,7 @@ export const MovementViewSchema = z.object({
   side: BattleSideSchema,
   army: ArmySchema,
   perimeter: ArmySchema,
-  /** Bodies, both halves counted. */
+  /** Units, both halves counted. */
   size: z.number().int().nonnegative(),
   departedAt: IsoDateTimeSchema,
   arrivesAt: IsoDateTimeSchema,
@@ -286,6 +302,28 @@ export type ActionsResponse = z.infer<typeof ActionsResponseSchema>;
 export const RecallColumnRequestSchema = z.object({ movementId: IdSchema });
 export type RecallColumnRequest = z.infer<typeof RecallColumnRequestSchema>;
 
+/**
+ * §D7: what calling a fight costs, on every piece of ground this crew can see.
+ *
+ * Only charged ground is listed, and a target that is not here is free to call. Keyed by location
+ * id for a location, and by district id for a gate or a raid, both of which are a call on the
+ * same party (whoever lives there, or failing that whoever holds the whole of it). The server
+ * prices each entry through `declareInfamyCost`, so the dialog quotes a number it was handed
+ * rather than one it worked out from a holder plate.
+ */
+export const CallPricesSchema = z.object({
+  locations: z.record(z.string(), z.number().int().nonnegative()),
+  districts: z.record(z.string(), z.number().int().nonnegative()),
+});
+export type CallPrices = z.infer<typeof CallPricesSchema>;
+
+/** The price the board quotes for one target. Absent is free. */
+export function callPriceOf(target: BattleTarget, prices: CallPrices): number {
+  return target.kind === 'location'
+    ? (prices.locations[target.locationId] ?? 0)
+    : (prices.districts[target.districtId] ?? 0);
+}
+
 export const BattlesResponseSchema = z.object({
   /** Fights still coming that the caller is in or can see, soonest first. */
   coming: z.array(BattleViewSchema),
@@ -295,6 +333,7 @@ export const BattlesResponseSchema = z.object({
   slots: z.array(IsoDateTimeSchema),
   /** §D7: what the caller's name is worth. Boosts are priced per fight, on each `BattleView`. */
   infamy: z.number().int().nonnegative(),
+  callPrices: CallPricesSchema,
   /** Every district this crew can see into, and whether its gate is armed or down. */
   gates: z.array(DistrictGateViewSchema),
   structures: z.array(StructureDefenceSchema),
@@ -356,7 +395,7 @@ export type DeployRequest = z.infer<typeof DeployRequestSchema>;
  * §I4: set the one trap this side is allowed under a fight, or take it back up.
  *
  * `trapId: null` is the un-set, and it is free, exactly as {@link LeadBattleRequestSchema}'s is.
- * Nothing leaves the satchel until the fight resolves, so there is nothing to refund and nothing
+ * Nothing leaves the inventory until the fight resolves, so there is nothing to refund and nothing
  * to punish: a player who changes their mind about which of two fights gets the shell has to be
  * able to say so.
  *
@@ -389,5 +428,14 @@ export const BattleMutationResponseSchema = z.object({
   battles: BattlesResponseSchema,
   base: BaseSchema,
   levelUp: LevelUpSchema.optional(),
+  /**
+   * §A4: who the other side's ring took off a withdrawal, on the request that pulled them out.
+   *
+   * The toll has always been charged and never reported: the units came off the roster and the
+   * screen said nothing, so a crew that pulled forty people back out of a fight and got thirty
+   * four home had no way to know the other six had not simply been miscounted. Only ever on the
+   * response to the pull-out itself, because that is the one moment it is news.
+   */
+  caughtLeaving: z.record(z.string(), z.number().int().nonnegative()).default({}),
 });
 export type BattleMutationResponse = z.infer<typeof BattleMutationResponseSchema>;

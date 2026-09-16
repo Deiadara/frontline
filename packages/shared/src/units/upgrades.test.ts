@@ -1,172 +1,201 @@
 import { describe, expect, it } from 'vitest';
 import { blueprintForUnitUpgrade, blueprintGateMet } from '../blueprints/index.js';
-import { ITEM_CATALOG } from '../items/catalog.js';
-import {
-  UNIT_UPGRADES,
-  UPGRADE_LINES,
-  UPGRADE_MAX_TIER,
-  upgradeRefusal,
-  upgradedStats,
-  upgradesInLine,
-} from './upgrades.js';
+import { BUILDING_MAX_LEVEL } from '../building/kinds.js';
+import { scrapyardLevelForUpgrade } from '../building/scrapyard.js';
+import { UNIT_MODIFICATIONS, findUnitModification } from './modifications.js';
+import { UPGRADE_REFUSALS, upgradeRefusal, upgradedStats } from './upgrades.js';
 import { UNIT_CATALOG, findUnit } from './catalog.js';
-import { UNIT_RATING_KEYS, UNIT_STAT_KEYS } from './stats.js';
+import { UNIT_RATING_KEYS, capRating } from './stats.js';
 
 const YES = () => true;
 const NO = () => false;
 
-describe('the workshop catalogue', () => {
-  it('gives every one of the four lines the same three rungs', () => {
-    for (const line of UPGRADE_LINES) {
-      expect(
-        upgradesInLine(line).map((spec) => spec.tier),
-        line,
-      ).toEqual([1, 2, 3]);
-    }
-    expect(UNIT_UPGRADES).toHaveLength(UPGRADE_LINES.length * UPGRADE_MAX_TIER);
-  });
+/** Three cards with nothing in common but the bench: open, gated and costly, universal all. */
+const open = findUnitModification('taped_grips');
+const gated = findUnitModification('ablative_layers');
+const dear = findUnitModification('hardshell_exoframe');
+if (!open || !gated || !dear) throw new Error('fixture: expected three named cards');
 
-  /** The board's rule: scrap is what the city is made of, so every physical thing costs it. */
-  it('charges scrap for everything', () => {
-    for (const spec of UNIT_UPGRADES) {
-      expect(spec.cost.scrap, spec.id).toBeGreaterThan(0);
-    }
-  });
-
-  it('asks for the scarce metal only past the first rung', () => {
-    for (const spec of UNIT_UPGRADES) {
-      if (spec.tier === 1) expect(spec.cost.highQualityMetal, spec.id).toBeUndefined();
-      else expect(spec.cost.highQualityMetal, spec.id).toBeGreaterThan(0);
-    }
-  });
-
-  it('gets dearer and asks for more of the Gauntlet as it climbs', () => {
-    for (const line of UPGRADE_LINES) {
-      const rungs = upgradesInLine(line);
-      for (let index = 1; index < rungs.length; index++) {
-        const below = rungs[index - 1];
-        const above = rungs[index];
-        if (!below || !above) throw new Error('expected a full ladder');
-        expect(above.cost.scrap ?? 0, above.id).toBeGreaterThan(below.cost.scrap ?? 0);
-        expect(above.requiresGauntletLevel, above.id).toBeGreaterThan(below.requiresGauntletLevel);
-      }
-    }
-  });
-
+describe('building a card at the yard', () => {
   /**
-   * §D12g: tiers two and three are behind a document, tier one is open.
+   * An empty inventory, asked through the real mapping rather than through a flat `NO`.
    *
-   * Read off `blueprints/catalog.ts` rather than off a table here, which is the whole point of the
-   * move: the upgrade catalogue no longer names a blueprint, so there is nothing left to disagree
-   * with the Blueprints page about.
-   */
-  it('puts every rung past the first behind a document, and leaves the first open', () => {
-    for (const spec of UNIT_UPGRADES) {
-      const document = blueprintForUnitUpgrade(spec.id);
-      if (spec.tier === 1) expect(document, spec.id).toBeUndefined();
-      else expect(document?.category, spec.id).toBe('upgrade');
-    }
-    // One document per line, shared by both of its gated rungs, not one per rung.
-    for (const line of UPGRADE_LINES) {
-      const gated = upgradesInLine(line).filter((spec) => spec.tier > 1);
-      const documents = new Set(gated.map((spec) => blueprintForUnitUpgrade(spec.id)?.id));
-      expect(documents.size, line).toBe(1);
-    }
-  });
-
-  it('reads the gate out of the satchel, per rung', () => {
-    const [tierOne, tierTwo] = upgradesInLine('armour');
-    if (!tierOne || !tierTwo) throw new Error('expected a full armour ladder');
-    expect(blueprintGateMet({}, 'unit_upgrade', tierOne.id)).toBe(true);
-    expect(blueprintGateMet({}, 'unit_upgrade', tierTwo.id)).toBe(false);
-    const document = blueprintForUnitUpgrade(tierTwo.id)!;
-    expect(blueprintGateMet({ [document.id]: 1 }, 'unit_upgrade', tierTwo.id)).toBe(true);
-  });
-
-  it('names a real part in every recipe', () => {
-    for (const spec of UNIT_UPGRADES) {
-      for (const id of Object.keys(spec.parts)) {
-        expect(ITEM_CATALOG[id as keyof typeof ITEM_CATALOG], `${spec.id}: ${id}`).toBeDefined();
-      }
-    }
-  });
-
-  it('moves only stats that exist', () => {
-    for (const spec of UNIT_UPGRADES) {
-      for (const key of Object.keys(spec.effect)) {
-        expect(UNIT_STAT_KEYS, `${spec.id}: ${key}`).toContain(key);
-      }
-    }
-  });
-});
-
-describe('fitting an upgrade', () => {
-  const armour = upgradesInLine('armour');
-  const [one, two, three] = armour;
-  if (!one || !two || !three) throw new Error('expected three rungs');
-
-  /**
-   * An empty satchel, asked through the real mapping rather than through a flat `NO`.
-   *
-   * The tier rule moved out of `upgradeRefusal` and into `blueprints/catalog.ts`, so a blanket
-   * "holds nothing" predicate would now refuse tier one as well and this suite would be asserting
-   * the gate against itself. Reading the answer off `blueprintGateMet` is what keeps "tier one is
-   * open to anybody" a measurement of the shipped catalogue.
+   * The card says whether it wants drawings (`requiresBlueprint`) and `blueprints/catalog.ts`
+   * says which document those are. Reading the answer off `blueprintGateMet` is what keeps "three
+   * cards are open to anybody" a measurement of the shipped catalogue.
    */
   const NO_DOCUMENTS = (id: string) => blueprintGateMet({}, 'unit_upgrade', id);
 
-  it('takes the first rung with nothing but a Gauntlet and the money', () => {
-    expect(
-      upgradeRefusal(one.id, [], one.requiresGauntletLevel, NO_DOCUMENTS, YES, YES),
-    ).toBeNull();
+  /**
+   * One call, with every gate open except the ones a test names.
+   *
+   * `yardLevel` defaults to the top of the ladder so that only the test that cares about it sees
+   * it at all.
+   */
+  const refuse = (over: Partial<Parameters<typeof upgradeRefusal>[0]>) =>
+    upgradeRefusal({
+      id: open.id,
+      fitted: [],
+      yardLevel: BUILDING_MAX_LEVEL,
+      requiredYardLevel: scrapyardLevelForUpgrade,
+      blueprintUnlocked: YES,
+      affordable: YES,
+      hasParts: YES,
+      ...over,
+    });
+
+  it('takes an open card with nothing but a standing yard and the money', () => {
+    expect(refuse({ yardLevel: 1, blueprintUnlocked: NO_DOCUMENTS })).toBeNull();
   });
 
-  it('refuses a rung whose predecessor is not fitted', () => {
-    expect(upgradeRefusal(two.id, [], 99, YES, YES, YES)).toBe('needs_previous_tier');
+  /** No tiers and no prerequisites: the two refusals that were the ladder are gone from the list. */
+  it('has no rung below a card to ask for, and no Gauntlet to measure', () => {
+    expect(UPGRADE_REFUSALS).not.toContain('needs_previous_tier');
+    expect(UPGRADE_REFUSALS).not.toContain('gauntlet_too_low');
+    // The dearest card in the catalogue, on a bare roster: nothing about what else is built is
+    // asked, so the only thing between a crew and a masterpiece is the yard, the drawings and the
+    // bill.
+    expect(refuse({ id: dear.id, fitted: [] })).toBeNull();
   });
 
   /**
    * The blueprint gate is checked before the money.
    *
    * Both can be true at once, and "you need the blueprint" is the one a player can act on today:
-   * the caps will fix themselves.
+   * the scrap will fix itself.
    */
   it('names the blueprint before it names the price', () => {
-    expect(upgradeRefusal(two.id, [one.id], 99, NO_DOCUMENTS, NO, YES)).toBe('needs_blueprint');
+    expect(refuse({ id: gated.id, blueprintUnlocked: NO_DOCUMENTS, affordable: NO })).toBe(
+      'needs_blueprint',
+    );
   });
 
-  it('opens the second rung the moment the document is in the satchel', () => {
-    const document = blueprintForUnitUpgrade(two.id)!;
+  it('opens a gated card the moment its document is in the inventory', () => {
+    const document = blueprintForUnitUpgrade(gated.id);
+    if (!document) throw new Error('fixture: the gated card has no document');
     const held = (id: string) => blueprintGateMet({ [document.id]: 1 }, 'unit_upgrade', id);
-    expect(upgradeRefusal(two.id, [one.id], two.requiresGauntletLevel, held, YES, YES)).toBeNull();
-    expect(
-      upgradeRefusal(two.id, [one.id], two.requiresGauntletLevel, NO_DOCUMENTS, YES, YES),
-    ).toBe('needs_blueprint');
+    expect(refuse({ id: gated.id, blueprintUnlocked: held })).toBeNull();
+    expect(refuse({ id: gated.id, blueprintUnlocked: NO_DOCUMENTS })).toBe('needs_blueprint');
   });
 
-  it('refuses a Gauntlet that is too low even with everything else in hand', () => {
-    expect(upgradeRefusal(two.id, [one.id], 1, YES, YES, YES)).toBe('gauntlet_too_low');
+  /** The yard's own level comes before the drawings: raising it is the errand either way. */
+  it('names the yard before the document when both are short', () => {
+    const opens = scrapyardLevelForUpgrade(dear);
+    expect(opens).toBeGreaterThan(1);
+    expect(refuse({ id: dear.id, yardLevel: opens - 1, blueprintUnlocked: NO_DOCUMENTS })).toBe(
+      'yard_too_low',
+    );
+    expect(refuse({ id: dear.id, yardLevel: opens, blueprintUnlocked: NO_DOCUMENTS })).toBe(
+      'needs_blueprint',
+    );
   });
 
-  it('refuses on money, then on parts', () => {
-    expect(upgradeRefusal(two.id, [one.id], 99, YES, NO, YES)).toBe('cannot_afford');
-    expect(upgradeRefusal(two.id, [one.id], 99, YES, YES, NO)).toBe('missing_parts');
+  it('refuses on parts, then on money', () => {
+    expect(refuse({ id: gated.id, hasParts: NO, affordable: NO })).toBe('missing_parts');
+    expect(refuse({ id: gated.id, affordable: NO })).toBe('cannot_afford');
   });
 
-  it('refuses to fit the same thing twice', () => {
-    expect(upgradeRefusal(one.id, [one.id], 99, YES, YES, YES)).toBe('already_fitted');
+  it('refuses to build the same card twice', () => {
+    expect(refuse({ fitted: [open.id] })).toBe('already_fitted');
   });
 
-  it('does not know what an invented upgrade is', () => {
-    expect(upgradeRefusal('not_a_thing', [], 99, YES, YES, YES)).toBe('unknown_upgrade');
+  it('does not know what an invented card is', () => {
+    expect(refuse({ id: 'not_a_thing' })).toBe('unknown_upgrade');
+    expect(refuse({ id: 'armour_1' }), 'a retired refit id is not a card').toBe('unknown_upgrade');
   });
 
-  it('takes the top rung with the whole ladder underneath it', () => {
-    expect(upgradeRefusal(three.id, [one.id, two.id], 99, YES, YES, YES)).toBeNull();
+  /** Every gate open, across the whole catalogue: no card is refused for a reason nobody named. */
+  it('takes every card in the catalogue once every gate is open', () => {
+    for (const spec of UNIT_MODIFICATIONS) {
+      expect(refuse({ id: spec.id }), spec.id).toBeNull();
+    }
   });
 });
 
-describe('what a refit does to a sheet', () => {
+/**
+ * A rating is out of a hundred, and nothing in the game may put one past it.
+ *
+ * The rule the maintainer stated (2026-09-15): every stat except damage and hit points is a 0..100
+ * figure, and no modification may exceed it. `upgradedStats` clamps, and this is what stops that
+ * clamp being quietly undone by a code change. Whether the *catalogue* respects the ceiling before
+ * the clamp is a different question, measured on the raw sum in `modifications.test.ts`.
+ *
+ * Every card at once, on every unit, which is the worst case and not a realistic loadout. A test
+ * over the realistic ones would pass the day somebody widened the brackets.
+ */
+describe('the hundred-point ceiling', () => {
+  /*
+   * The ceiling is one function, and this is the function.
+   *
+   * `upgradedStats`, `city/labels.ts` and `battle/effects.ts` each used to carry their own
+   * `Math.min(100, ...)`, which is three places for the maintainer's rule to drift apart in. The
+   * absurd inputs are the point: a bonus nobody has written yet still lands on 100.
+   */
+  it('is `capRating`, and it answers 100 to any bonus at all', () => {
+    expect(capRating(100)).toBe(100);
+    expect(capRating(101)).toBe(100);
+    expect(capRating(340)).toBe(100);
+    expect(capRating(Number.MAX_SAFE_INTEGER)).toBe(100);
+    expect(capRating(Number.POSITIVE_INFINITY)).toBe(100);
+    // ...and nothing to a penalty past the floor. Not rounded: the battlefield keeps speed's fraction.
+    expect(capRating(-40)).toBe(0);
+    expect(capRating(62.5)).toBe(62.5);
+  });
+
+  it('holds a sheet fed an absurd card total at 100, through `capRating`', () => {
+    const razors = findUnit('razors');
+    if (!razors) throw new Error('fixture: no Razors');
+    // Every card in the catalogue, twice over: nothing the yard sells reaches this total honestly.
+    const twice = [...UNIT_MODIFICATIONS, ...UNIT_MODIFICATIONS].map((spec) => spec.id);
+    const sheet = upgradedStats(razors.stats, twice);
+    for (const key of UNIT_RATING_KEYS) {
+      expect(sheet[key], key).toBeLessThanOrEqual(100);
+    }
+    // A guard on the guard: the doubled catalogue does push at least one rating over the top.
+    const raw = UNIT_RATING_KEYS.map(
+      (key) =>
+        razors.stats[key] +
+        twice.reduce((total, id) => total + (findUnitModification(id)?.effect[key] ?? 0), 0),
+    );
+    expect(Math.max(...raw)).toBeGreaterThan(100);
+  });
+
+  it('cannot be passed by fitting every card in the catalogue at once', () => {
+    const everything = UNIT_MODIFICATIONS.map((spec) => spec.id);
+    // A guard on the guard: with nothing to fit, the loop below would prove nothing at all.
+    expect(everything.length).toBeGreaterThan(5);
+
+    const over: string[] = [];
+    for (const unit of Object.values(UNIT_CATALOG)) {
+      const sheet = upgradedStats(unit.stats, everything);
+      for (const key of UNIT_RATING_KEYS) {
+        if (sheet[key] > 100) over.push(`${unit.id}.${key} = ${sheet[key]}`);
+        if (sheet[key] < 0) over.push(`${unit.id}.${key} = ${sheet[key]}`);
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+  });
+
+  /*
+   * Damage and hit points are deliberately outside it.
+   *
+   * They are figures rather than ratings: a Colossus is worth twenty Razors and says so in the
+   * hundreds. Clamping them was a real bug once (`upgradedStats` records it: a Razor on 160 damage
+   * came out on 100, so the cheapest card halved the unit), so this pins the exception rather
+   * than leaving it as something a future tidy-up could "fix".
+   */
+  it('does not apply to damage or hit points', () => {
+    const heavy = Object.values(UNIT_CATALOG).find((unit) => unit.stats.offense > 100);
+    expect(heavy, 'some unit hits harder than a rating could').toBeDefined();
+    const sheet = upgradedStats(
+      heavy!.stats,
+      UNIT_MODIFICATIONS.map((spec) => spec.id),
+    );
+    expect(sheet.offense).toBeGreaterThan(100);
+  });
+});
+
+describe('what a card does to a sheet', () => {
   const razors = UNIT_CATALOG.find((unit) => unit.id === 'razors');
   if (!razors) throw new Error('expected the razors');
 
@@ -174,21 +203,16 @@ describe('what a refit does to a sheet', () => {
     expect(upgradedStats(razors.stats, [])).toEqual(razors.stats);
   });
 
-  it('adds every fitted line together', () => {
-    const [armour] = upgradesInLine('armour');
-    const [weapons] = upgradesInLine('weapons');
-    if (!armour || !weapons) throw new Error('expected two rungs');
-    const both = upgradedStats(razors.stats, [armour.id, weapons.id]);
-    expect(both.vitality).toBe(razors.stats.vitality + (armour.effect.vitality ?? 0));
-    expect(both.penetration).toBe(razors.stats.penetration + (weapons.effect.penetration ?? 0));
+  it('adds every fitted card together', () => {
+    const both = upgradedStats(razors.stats, [gated.id, open.id]);
+    expect(both.vitality).toBe(razors.stats.vitality + (gated.effect.vitality ?? 0));
+    expect(both.offense).toBe(razors.stats.offense + (open.effect.offense ?? 0));
   });
 
-  /** Armour is meant to cost speed. A fold that only ever added would quietly drop the tradeoff. */
+  /** Plate is meant to cost speed. A fold that only ever added would quietly drop the tradeoff. */
   it('applies a penalty as a penalty', () => {
-    const [armour] = upgradesInLine('armour');
-    if (!armour) throw new Error('expected a rung');
-    expect(armour.effect.speed ?? 0).toBeLessThan(0);
-    expect(upgradedStats(razors.stats, [armour.id]).speed).toBeLessThan(razors.stats.speed);
+    expect(gated.effect.speed ?? 0).toBeLessThan(0);
+    expect(upgradedStats(razors.stats, [gated.id]).speed).toBeLessThan(razors.stats.speed);
   });
 
   /**
@@ -196,46 +220,45 @@ describe('what a refit does to a sheet', () => {
    *
    * Both halves are asserted, because the interesting failure is the *second* one: this used to cap
    * everything except `lootCapacity`, and once damage and hit points became counts rather than
-   * ratings that cap became a shredder. A Razor on 160 damage came out of the cheapest refit in the
+   * ratings that cap became a shredder. A Razor on 160 damage came out of the cheapest card in the
    * game on 100, and every sheet converged on 100 the moment anything was slotted onto it. A test
    * that only checked the ceiling would have called that a pass.
    */
   it('caps the ratings and lets the open figures climb past 100', () => {
     const maxed = { ...razors.stats, vitality: 99, armor: 99, speed: 1, offense: 99 };
-    const all = upgradedStats(
-      maxed,
-      UNIT_UPGRADES.map((spec) => spec.id),
-    );
+    const set = ['scrap_vest', 'ablative_layers', 'composite_carapace', 'taped_grips'];
+    const all = upgradedStats(maxed, set);
     for (const key of UNIT_RATING_KEYS) {
       expect(all[key], key).toBeGreaterThanOrEqual(0);
       expect(all[key], key).toBeLessThanOrEqual(100);
     }
-    // Damage and hit points took the whole workshop and kept it: no ceiling, and the refit is
-    // still worth what it says on it. Written out per rung, armour then discipline, rather than
-    // summed off the catalogue: a total read back out of `UNIT_UPGRADES` would agree with itself
-    // whatever the catalogue said.
-    expect(all.vitality).toBe(99 + 10 + 17 + 27 + 6 + 10);
-    expect(all.offense).toBe(99 + 20 + 30 + 60);
+    // Damage and hit points took the whole set and kept it: no ceiling, and the card is still
+    // worth what it says on it. Written out per card rather than summed off the catalogue: a
+    // total read back out of `UNIT_MODIFICATIONS` would agree with itself whatever it said.
+    expect(all.vitality).toBe(99 + 12 + 24 + 40);
+    expect(all.offense).toBe(99 + 16);
   });
 
-  it('ignores an upgrade id it does not recognise rather than throwing', () => {
+  it('ignores a card id it does not recognise rather than throwing', () => {
     expect(upgradedStats(razors.stats, ['nonsense'])).toEqual(razors.stats);
   });
 });
 
 /**
- * Which bracket a refit was dropped into must not change the sheet.
+ * Which bracket a card was dropped into must not change the sheet.
  *
- * The clamp used to run per upgrade, so a rating that touched the ceiling lost the headroom a later
- * negative delta would have given back, and the result depended on the order of `fittedUpgrades`.
- * That array is positional and the player chooses the slot (`FitSlotRequestSchema`), while this
- * module's own doc says "Order does not matter; the set does".
+ * The clamp used to run per card, so a rating that touched the ceiling lost the headroom a later
+ * negative delta would have given back, and the result depended on the order of the fitted ids.
+ * That array is positional and the brackets fill left to right, while this module's own doc says
+ * "Order does not matter; the set does".
  */
-describe('the order upgrades were fitted in', () => {
+describe('the order cards were fitted in', () => {
+  /** A speed card past the ceiling, a plate that takes speed back, and a third that adds some. */
+  const set = ['synaptic_lace', 'hardshell_exoframe', 'twitch_loop'];
+
   it('makes no difference to the sheet, on the case that used to differ', () => {
     const hound = findUnit('cyber_dogs');
     if (!hound) throw new Error('fixture: no cyber dogs');
-    const set = ['armour_3', 'cybernetics_3', 'weapons_3'];
     // The precondition: this set really does cross the ceiling on speed, or the case is vacuous.
     expect(hound.stats.speed).toBeGreaterThan(85);
 
@@ -246,8 +269,7 @@ describe('the order upgrades were fitted in', () => {
     expect(shuffled).toEqual(forwards);
   });
 
-  it('makes no difference for any unit and any permutation of the three lines', () => {
-    const set = ['armour_3', 'cybernetics_3', 'weapons_3'];
+  it('makes no difference for any unit and any permutation of the three cards', () => {
     const permutations = [
       [0, 1, 2],
       [0, 2, 1],

@@ -149,6 +149,9 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
           (entry): entry is [string, number] => typeof entry[1] === 'number',
         ),
       ),
+      // Beside the numbers rather than inside them: the screens that quote a haul need to know
+      // which sheets have been granted `picker`, and a record of arrays cannot ride on `effects`.
+      marks: effects.unitMarks,
     };
   });
 }

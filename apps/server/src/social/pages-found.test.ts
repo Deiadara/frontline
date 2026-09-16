@@ -1,5 +1,5 @@
 /**
- * `page_found`: a bell whenever a blueprint page lands in the satchel, whatever door it came in.
+ * `page_found`: a bell whenever a blueprint page lands in the inventory, whatever door it came in.
  *
  * §F puts pages behind five doors and every one of them was silent. The rate at which each door
  * hands one over is measured in shared; what only this level can answer is the chain, once per
@@ -41,6 +41,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { acceptOffer, postOffer } from '../market/board.js';
 import { resolveDueMissions, rollMissionOutcome } from '../missions/resolve.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -75,12 +76,7 @@ async function signIn(app: FastifyInstance, username: string): Promise<Crew> {
     payload: { username, password: 'hunter2pass' },
   });
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode).toBe(201);
   const base = chosen.json<{ base: Base }>().base;
   app.repos.bases.updateResources(base.id, { ...base.resources, caps: 1_000_000 });

@@ -1,37 +1,38 @@
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
+  BUILDING_MAX_LEVEL,
   ITEM_CATALOG,
   MAX_MODIFICATION_SLOTS,
   MODIFICATIONS,
+  MODIFICATION_RARITIES,
+  MODIFICATION_RARITY_LABELS,
   TRAP_CATALOG,
+  UNIT_MODIFICATIONS,
+  UNIT_MODIFICATION_RARITY_BLURBS,
   UNIT_STAT_LABELS,
-  UNIT_UPGRADES,
-  UPGRADE_LINES,
-  UPGRADE_LINE_BLURBS,
-  UPGRADE_LINE_LABELS,
   addonsOf,
   findBuilding,
   findModification,
-  findUpgrade,
+  findUnitModification,
   modificationSlots,
   MAX_SCRAPYARD_DISCOUNT,
   SCRAPYARD_DISCOUNT_PER_LEVEL,
   SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION,
   SCRAPYARD_LEVEL_FOR_BASIC,
-  SCRAPYARD_LEVEL_FOR_UPGRADE_TIER,
+  SCRAPYARD_LEVEL_FOR_RARITY,
   nextScrapyardUnlock,
   scrapyardUnlockLadder,
   shelvedModifications,
   type Base,
   type BuildingKind,
   type ItemId,
+  type ModificationRarity,
   type Resources,
   type ScrapyardEntry,
   type ScrapyardResponse,
-  type UpgradeLine,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -42,7 +43,10 @@ import { cn } from '../../lib/cn';
 import { useBuildAddon, useMe, useScrapyard } from '../../lib/queries';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { ItemGlyph } from '../inventory/ItemGlyph';
+import { PartsBench } from './PartsBench';
+import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
 import { ItemWindow } from '../market/MarketPage';
+import { RARITY_TEXT, RarityTag } from './rarity';
 import { YardGlyph, YardPlate, type YardMark } from './YardGlyph';
 
 /**
@@ -56,11 +60,19 @@ import { YardGlyph, YardPlate, type YardMark } from './YardGlyph';
  *
  * ## Three benches, one strip of tabs
  *
- * **Modifications** is the structure half: a rail of the eleven structures on the left, and the
- * one chosen open on the right with its brackets (fitted, empty, or waiting on a level), its shelf,
- * and the five things the yard can cut for it. **Refits** is the roster half, laid out as three
- * ladders because the decision is which line to climb rather than which item to buy. **Traps** is
- * the consumable half: cut for one night, set under one fight.
+ * **Building Modifications** is the structure half: a rail of the eleven structures on the left,
+ * and the one chosen open on the right with its brackets (fitted, empty, or waiting on a level),
+ * its shelf, and the seven things the yard can cut for it. **Unit Modifications** is the roster
+ * half: thirty cards with no ladder between them. **Traps** is the consumable half: cut for one
+ * night, set under one fight.
+ *
+ * ## Four grades, four colours
+ *
+ * Both catalogues of cards are grouped by rarity (maintainer request, 2026-09-15): BASIC, INTRICATE,
+ * ADVANCED, MASTERPIECE, each group under its label, and the grade carried as a colour on the card
+ * (`rarity.tsx`). The four refit ladders this replaced were a shape for a decision the game no
+ * longer asks; a card has no rung above or below it, so the only order worth drawing is how much
+ * engineering went into it, which is also the order the yard's level opens them in.
  *
  * ## What the yard's own level buys
  *
@@ -69,17 +81,35 @@ import { YardGlyph, YardPlate, type YardMark } from './YardGlyph';
  * prices and gates with, so the box and the bill cannot disagree.
  *
  * Nothing on this screen derives a rule. Every entry arrives with its `blocker` already worded by
- * the server, out of the yard's level, the documents in the satchel and the Lab's finished rungs.
+ * the server, out of the yard's level, the documents in the inventory and the Lab's finished rungs.
  * The **Ready to build** filter is the direct answer to §E3: it leaves exactly the entries the crew
  * could cut this evening.
  */
 
+/*
+ * The labels say what the bench bolts things onto (maintainer request, 2026-09-15).
+ *
+ * "Modifications" and "Refits" were two words for the same verb, and nothing in either said which
+ * half of the game it touched. The ids are untouched: `?view=` links, the `scrapyard-view-*`
+ * testids and the `?bench=refits` deep link all hang off them.
+ */
 const VIEWS = [
-  { id: 'modifications', label: 'Modifications', icon: 'build' },
-  { id: 'refits', label: 'Refits', icon: 'units' },
+  { id: 'modifications', label: 'Building Modifications', icon: 'build' },
+  { id: 'refits', label: 'Unit Modifications', icon: 'units' },
   { id: 'traps', label: 'Traps', icon: 'shield' },
+  // The parts bin, which came off the retired Inventory page. Last, because it is the only tab with
+  // nothing to press: the three before it build things, this one says what there is to build with.
+  { id: 'components', label: 'Components', icon: 'inventory' },
 ] as const satisfies readonly { id: string; label: string; icon: IconName }[];
 type ViewId = (typeof VIEWS)[number]['id'];
+
+/**
+ * The benches that build something, which is every one except the parts bin.
+ *
+ * `readyOnly` filters entries, and the bin has none: a filter over a list it cannot touch is a
+ * control that lies about having worked.
+ */
+const BUILDS: ReadonlySet<string> = new Set(['modifications', 'refits', 'traps']);
 
 const isView = (value: string | null): value is ViewId => VIEWS.some((view) => view.id === value);
 const isBuildingKind = (value: string | null): value is BuildingKind =>
@@ -93,7 +123,7 @@ const isBuildingKind = (value: string | null): value is BuildingKind =>
  */
 const BENCH_ICON: Readonly<Record<BuildingKind, IconName>> = {
   nexus: 'district',
-  quarters: 'population',
+  quarters: 'unit-slots',
   greenhouse: 'supplies',
   generator: 'power',
   scrapyard: 'scrap',
@@ -108,24 +138,35 @@ const BENCH_ICON: Readonly<Record<BuildingKind, IconName>> = {
 /** The ladder is a property of the catalogues, not of this crew: computed once. */
 const LADDER = scrapyardUnlockLadder({
   modifications: MODIFICATIONS,
-  upgrades: UNIT_UPGRADES,
+  upgrades: UNIT_MODIFICATIONS,
   traps: TRAP_CATALOG,
 });
+
+/**
+ * The grade of a card, or null for a trap, which has none.
+ *
+ * A unit card's rarity is on the wire. A building card's is not (`rarity` is null on a
+ * `modification` row), so it is read off the catalogue by id, the same way the card's mark is.
+ */
+function rarityOf(entry: ScrapyardEntry): ModificationRarity | null {
+  if (entry.kind === 'trap') return null;
+  if (entry.kind === 'upgrade')
+    return entry.rarity ?? findUnitModification(entry.id)?.rarity ?? null;
+  return findModification(entry.id)?.rarity ?? null;
+}
 
 /** Which mark an entry wears, read off the catalogue it came from. */
 function markOf(entry: ScrapyardEntry): YardMark {
   if (entry.kind === 'trap') return { kind: 'trap', id: entry.id };
-  if (entry.kind === 'upgrade') {
-    return { kind: 'line', line: findUpgrade(entry.id)?.line ?? 'armour' };
-  }
+  if (entry.kind === 'upgrade') return { kind: 'rarity', rarity: rarityOf(entry) ?? 'basic' };
   return { kind: 'effect', effect: findModification(entry.id)?.effect ?? 'production_percent' };
 }
 
 /**
  * Whether the yard would cut this one now.
  *
- * The server leaves `blocker` null on a refit the crew has already built (there is nothing left to
- * refuse), but a refit is built once, so it is not something the yard can cut again: it is neither
+ * The server leaves `blocker` null on a unit card the crew has already built (there is nothing
+ * left to refuse), but a card is built once, so it is not something the yard can cut again: it is neither
  * "ready" in the count nor kept by the filter. A modification or a trap the crew owns can be cut
  * again, and is.
  */
@@ -156,9 +197,9 @@ function Withheld({ count, bench }: { count: number; bench: string }) {
       data-testid={`scrapyard-hidden-${bench}`}
     >
       <Icon name="lock" className="h-3.5 w-3.5 shrink-0 text-ink-400" />
-      {count === 1
-        ? 'One more waits on a blueprint you have not assembled.'
-        : `${count} more wait on blueprints you have not assembled.`}
+      {/* One sentence for both counts (maintainer request, 2026-09-15). The number was the whole
+          message and it is the half a player can do nothing about; where to go is the other half. */}
+      Go out there and find some more blueprints.
     </p>
   );
 }
@@ -216,7 +257,7 @@ export function ScrapyardPage() {
 
   if (data.scrapyardLevel <= 0) {
     return (
-      <PageShell quote="Somebody has to take it apart before anybody can put it back together.">
+      <PageShell quote="A version of recycling that actually works.">
         <InfoNote label="No yard yet">
           The Scrapyard has not been built. Lay it on the district and come back: add-ons are cut,
           pressed and welded here and nowhere else.
@@ -237,51 +278,48 @@ export function ScrapyardPage() {
   const onBuild = (entry: ScrapyardEntry) => build.mutate({ kind: entry.kind, id: entry.id });
 
   return (
-    <PageShell
-      quote="Somebody has to take it apart before anybody can put it back together."
-      wide
-      fills
-    >
+    <PageShell quote="A version of recycling that actually works." wide fills>
       {/*
-       * How the yard works, on the quote's own line at the top right (maintainer request, 2026-09-11),
-       * directly over the yard's plate. Positioned rather than placed in the strip, so nothing in
-       * the strip moves to make room for it: the sheet's body is the positioned ancestor and the
-       * quote is the first thing in it, so `top-4` is the quote's line.
+       * The head of the page: the benches, the filter and the yard's own plate, all on one line.
+       * Outside the scroller on purpose, the way the Lab learned the expensive way: a control that
+       * scrolls with sixty rows disappears the moment you use the thing it controls.
+       *
+       * One row, with the two boxes pushed to the right edge (maintainer request, 2026-09-15). It
+       * was two rows, and the row this replaces was worth a whole line of vertical space to a
+       * screen whose bench is the thing a player is actually reading: the workspace below is
+       * `flex-1`, so the line the filter used to occupy goes straight to the benches.
+       *
+       * It wraps rather than overflows, and that is deliberate. The four tabs are 765px and the two
+       * boxes 454px, so at 1024 there is no one-line reading to have and the boxes drop to a line of
+       * their own, which is where they used to live anyway. `scrapyard.spec.ts` sweeps the widths.
        */}
-      <div className="absolute right-5 top-4 z-10" data-testid="scrapyard-how">
-        <InfoNote label="How the yard works" size="sm">
-          <p>
-            The yard's level opens the catalogue a rung at a time: basic modifications and the first
-            refit tier from level {SCRAPYARD_LEVEL_FOR_BASIC}, advanced modifications from level{' '}
-            {SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION}, the second and third refit tiers at levels{' '}
-            {SCRAPYARD_LEVEL_FOR_UPGRADE_TIER[1]} and {SCRAPYARD_LEVEL_FOR_UPGRADE_TIER[2]}, and
-            each trap at its own.
-          </p>
-          <p className="mt-2">
-            Every level above the first takes {SCRAPYARD_DISCOUNT_PER_LEVEL}% off every bill, to{' '}
-            {MAX_SCRAPYARD_DISCOUNT}% at most. The plate under this says where the yard stands.
-          </p>
-          <p className="mt-2">
-            A row is drawn only once its blueprint is assembled; the line under the benches counts
-            what is waiting on paper. Refits fit every unit of their tier at once. Traps go to the
-            satchel and are spent under one fight you are defending.
-          </p>
-        </InfoNote>
-      </div>
-
-      {/*
-       * One strip: the three benches, the filter, and the yard's own plate on the right. Outside
-       * the scroller on purpose, the way the Lab learned the expensive way: a control that scrolls
-       * with sixty rows disappears the moment you use the thing it controls.
-       */}
-      <div className="flex shrink-0 flex-wrap items-stretch gap-2">
-        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="The yard">
+      <div className="flex shrink-0 flex-wrap items-center gap-2" data-testid="scrapyard-head">
+        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="The yard">
           {VIEWS.map((entry) => {
-            const count = readyIn(
-              entriesOf(
-                entry.id === 'refits' ? 'upgrade' : entry.id === 'traps' ? 'trap' : 'modification',
-              ),
-            );
+            /*
+             * The parts bin counts what is held, not what is ready to build.
+             *
+             * The three building benches badge "how many of these can I afford right now", which is
+             * the useful number for a bench. Components have nothing to build, so the same question
+             * has no answer: the fall-through gave them the *modifications* count, and the tab read
+             * `COMPONENTS 66` on a crew holding none at all.
+             */
+            const count =
+              entry.id === 'components'
+                ? Object.entries(base?.inventory ?? {}).reduce(
+                    (sum, [id, n]) =>
+                      ITEM_CATALOG[id as ItemId]?.kind === 'component' ? sum + (n ?? 0) : sum,
+                    0,
+                  )
+                : readyIn(
+                    entriesOf(
+                      entry.id === 'refits'
+                        ? 'upgrade'
+                        : entry.id === 'traps'
+                          ? 'trap'
+                          : 'modification',
+                    ),
+                  );
             return (
               <button
                 key={entry.id}
@@ -292,7 +330,7 @@ export function ScrapyardPage() {
                 data-testid={`scrapyard-view-${entry.id}`}
                 data-sound="click"
                 className={cn(
-                  'door-tile flex items-center gap-2 rounded-md border px-3.5 py-2 transition-all duration-150',
+                  'door-tile flex items-center gap-1.5 rounded-md border px-3 py-2 transition-all duration-150',
                   'font-display text-[12px] font-bold uppercase tracking-[0.16em]',
                   view === entry.id
                     ? 'door-tile-active -translate-y-0.5 border-brass-300 text-brass-100'
@@ -307,25 +345,39 @@ export function ScrapyardPage() {
               </button>
             );
           })}
-          <button
-            type="button"
-            onClick={() => setReadyOnly(!readyOnly)}
-            aria-pressed={readyOnly}
-            data-testid="scrapyard-ready-only"
-            className={cn(
-              'brushed relative flex items-center gap-2 rounded-md border px-3 py-2 transition-colors',
-              'font-display text-[11px] font-bold uppercase tracking-[0.14em]',
-              readyOnly
-                ? 'border-bile-300/70 bg-bile-300/10 text-bile-300'
-                : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-bile-300/50 hover:text-bile-300',
-            )}
-          >
-            <Icon name="check" className="h-3.5 w-3.5" />
-            Ready to build
-            <span className="tabular-nums opacity-80">{ready}</span>
-          </button>
         </div>
-        <YardInfoBox data={data} />
+        {/*
+         * Ready to build, beside the plate rather than at the end of the bench row, and only on a
+         * bench that builds things.
+         *
+         * It filtered the *entries*, so on the Components tab it was a control over a list it does
+         * not touch: pressing it there narrowed nothing and left a lit button suggesting it had
+         * (maintainer request, 2026-09-14). The parts bin is a bin. Moving it here also puts it
+         * next to the discount, which is the other fact on this screen about what a crew can
+         * afford right now.
+         */}
+        <div className="ml-auto flex items-stretch gap-2" data-testid="scrapyard-head-boxes">
+          {BUILDS.has(view) && (
+            <button
+              type="button"
+              onClick={() => setReadyOnly(!readyOnly)}
+              aria-pressed={readyOnly}
+              data-testid="scrapyard-ready-only"
+              className={cn(
+                'brushed relative flex shrink-0 items-center gap-2 rounded-md border px-3',
+                'font-display text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                readyOnly
+                  ? 'border-bile-300/70 bg-bile-300/10 text-bile-300'
+                  : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-bile-300/50 hover:text-bile-300',
+              )}
+            >
+              <Icon name="check" className="h-3.5 w-3.5" />
+              Ready to build
+              <span className="tabular-nums opacity-80">{ready}</span>
+            </button>
+          )}
+          <YardInfoBox data={data} />
+        </div>
       </div>
 
       {build.error !== null && (
@@ -351,7 +403,7 @@ export function ScrapyardPage() {
           />
         )}
         {view === 'refits' && (
-          <RefitsBench
+          <UnitBench
             entries={shown(entriesOf('upgrade'))}
             keptBack={keptBack('upgrade')}
             stock={data.resources}
@@ -368,6 +420,7 @@ export function ScrapyardPage() {
             onBuild={onBuild}
           />
         )}
+        {view === 'components' && <PartsBench held={base?.inventory ?? {}} />}
       </div>
     </PageShell>
   );
@@ -382,7 +435,7 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
   const opens = next
     ? [
         next.modifications > 0 && `${next.modifications} modifications`,
-        next.upgrades > 0 && `${next.upgrades} refits`,
+        next.upgrades > 0 && `${next.upgrades} unit modifications`,
         next.traps > 0 && `${next.traps} ${next.traps === 1 ? 'trap' : 'traps'}`,
       ]
         .filter((part): part is string => typeof part === 'string')
@@ -392,14 +445,41 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
   return (
     <div
       data-testid="scrapyard-info"
-      className="steel-plate hazard-edge ml-auto flex min-w-0 items-center gap-3 rounded-md px-3 py-1.5"
+      className="steel-plate hazard-edge flex min-w-0 items-center gap-3 rounded-md px-3 py-1.5"
     >
       <span aria-hidden className="text-brass-300">
         <YardGlyph mark={{ kind: 'yard' }} className="h-8 w-8" />
       </span>
+      {/*
+       * Every section says what it is worth, on hover.
+       *
+       * The "How the yard works" note that used to sit over this plate was three paragraphs of
+       * rules a player had to read *before* the numbers meant anything, and it was gone from the
+       * screen the moment they looked away. It is retired (maintainer request, 2026-09-14) and what
+       * it said now lives on the figures it was explaining: hover the level and it tells you what
+       * that level has opened, hover the discount and it tells you where the cut comes from and
+       * where it stops. `data-tip` is the same hover the rest of the interface uses.
+       */}
       <dl className="grid min-w-0 grid-cols-[auto_auto] gap-x-4 gap-y-0 font-display">
-        <dt className="text-[9px] uppercase tracking-[0.18em] text-ink-400">The yard</dt>
-        <dt className="text-[9px] uppercase tracking-[0.18em] text-ink-400">Every bill</dt>
+        <dt
+          className="cursor-help text-[9px] uppercase tracking-[0.18em] text-ink-400"
+          // Two ladders, not one. A unit card opens at its grade's rung; a building card opens
+          // with the yard or, once it is engineering (`ADVANCED_MODIFICATION_MAGNITUDE`), at the
+          // rung the advanced bracket shares with the ADVANCED unit cards. This used to say the
+          // grades opened "for building and unit cards alike", which put INTRICATE brackets at
+          // level 3 in the tip while a level-1 yard was cutting them.
+          data-tip={`The Scrapyard's level opens the catalogue a grade at a time. Unit cards: BASIC at ${SCRAPYARD_LEVEL_FOR_RARITY.basic}, INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}, ADVANCED at ${SCRAPYARD_LEVEL_FOR_RARITY.advanced}, MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_RARITY.masterpiece}. Building cards: BASIC and INTRICATE at ${SCRAPYARD_LEVEL_FOR_BASIC}, ADVANCED and MASTERPIECE at ${SCRAPYARD_LEVEL_FOR_ADVANCED_MODIFICATION}. Each trap opens at a level of its own.`}
+          data-testid="scrapyard-level-tip"
+        >
+          Scrapyard
+        </dt>
+        <dt
+          className="cursor-help text-[9px] uppercase tracking-[0.18em] text-ink-400"
+          data-tip={`Every level above the first takes ${SCRAPYARD_DISCOUNT_PER_LEVEL}% off every bill on this screen: building cards, unit cards and traps alike. The Scrapyard caps at level ${BUILDING_MAX_LEVEL}, which is ${MAX_SCRAPYARD_DISCOUNT}% off.`}
+          data-testid="scrapyard-discount-tip"
+        >
+          Every bill
+        </dt>
         <dd
           className="text-[13px] font-bold tabular-nums text-ink-100"
           data-testid="scrapyard-level"
@@ -417,7 +497,8 @@ function YardInfoBox({ data }: { data: ScrapyardResponse }) {
             nothing, and the plate is narrower without it. */}
         {next && opens && (
           <dd
-            className="col-span-2 break-words text-[10px] uppercase tracking-[0.12em] text-ink-300"
+            className="col-span-2 cursor-help break-words text-[10px] uppercase tracking-[0.12em] text-ink-300"
+            data-tip={`Raising the Scrapyard to ${next.level} puts ${opens} on the benches. A row is drawn only once its blueprint is assembled, so the count is what the level opens rather than what you can build today.`}
             data-testid="scrapyard-next"
           >
             Level {next.level} opens {opens}
@@ -458,14 +539,31 @@ function ModificationsBench({
   const hidden = keptBack.filter((entry) => entry.building === structure).length;
 
   return (
-    <div className="grid h-full min-h-0 items-stretch gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <Panel title="Structures" className="min-h-0 border border-surface-500/70">
+    <div className="grid h-full min-h-0 items-stretch gap-4 lg:grid-cols-[15.5rem_minmax(0,1fr)]">
+      {/*
+       * A dense head, because this panel shares a frame that does not scroll: eleven doors have to
+       * stand in whatever the scene leaves, and a full head is most of a door.
+       */}
+      <Panel title="Structures" dense className="min-h-0 border border-surface-500/70">
+        {/*
+         * The eleven doors share the whole column (maintainer request, 2026-09-15).
+         *
+         * Stacked at their natural height they left the rail short: 19px of nothing under the
+         * last door at 1440x900 and 257px at 1920x1080, a list that stopped where its content ran
+         * out inside a panel that did not. `minmax(min-content, 1fr)` rows stretch every door by
+         * the same share of whatever is left, so the rail is full at any height that fits them.
+         *
+         * `min-content` is the floor, and it is what keeps 1280x720 honest: eleven two-line doors
+         * want 450px and the scene leaves 289, so the rows refuse to shrink below their text and
+         * the list scrolls, which is the behaviour it had before and the only correct one there.
+         * A plain `1fr` would have crushed the doors into each other instead.
+         */}
         <ul
-          className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
+          className="grid min-h-0 flex-1 auto-rows-[minmax(min-content,1fr)] divide-y divide-surface-700 overflow-y-auto"
           data-testid="scrapyard-menu"
         >
           {BUILDING_KINDS.map((kind) => (
-            <li key={kind}>
+            <li key={kind} className="flex min-h-0">
               <StructureDoor
                 kind={kind}
                 base={base}
@@ -480,7 +578,7 @@ function ModificationsBench({
       </Panel>
 
       <section
-        className="steel-plate rivets edge-lit flex min-h-0 flex-col gap-3 overflow-y-auto rounded-sm border border-surface-500/70 p-4 shadow-panel"
+        className={cn(BENCH_BOARD, 'flex min-h-0 flex-col gap-3 overflow-y-auto p-4')}
         data-testid={`scrapyard-bench-${structure}`}
       >
         <BracketRack kind={structure} base={base} />
@@ -491,8 +589,11 @@ function ModificationsBench({
             and out of the Lab.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2" data-testid={`scrapyard-${structure}`}>
-            {shown.map((entry) => (
+          <RarityTray
+            entries={shown}
+            columns={STRUCTURE_COLUMNS}
+            testId={`scrapyard-${structure}`}
+            card={(entry) => (
               <EntryCard
                 key={entry.id}
                 entry={entry}
@@ -501,8 +602,8 @@ function ModificationsBench({
                 onBuild={() => onBuild(entry)}
                 ownedLabel={entry.owned > 0 ? `Cut ×${entry.owned}` : null}
               />
-            ))}
-          </ul>
+            )}
+          />
         )}
       </section>
     </div>
@@ -536,7 +637,9 @@ function StructureDoor({
       data-testid={`scrapyard-bench-${BUILDING_CATALOG[kind].name.toLowerCase().replace(/[^a-z]+/g, '-')}`}
       data-sound="click"
       className={cn(
-        'flex w-full items-center gap-3 border-l-[3px] py-2 pl-2.5 pr-3 text-left transition-all duration-150',
+        // Tight on purpose. Eleven doors have to stand in the height the scene leaves the rail, so
+        // the padding and the plate are the smallest that still read as a door rather than a row.
+        'flex h-full w-full items-center gap-2 border-l-[3px] py-0.5 pl-2 pr-2.5 text-left transition-all duration-150',
         selected
           ? 'border-brass-300 bg-brass-300/10'
           : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
@@ -545,19 +648,19 @@ function StructureDoor({
       <span
         aria-hidden
         className={cn(
-          'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm',
+          'icon-plate flex h-7 w-7 shrink-0 items-center justify-center rounded-sm',
           selected ? 'text-brass-300' : standing ? 'text-ink-200' : 'text-ink-400',
         )}
       >
-        <Icon name={BENCH_ICON[kind]} className="h-5 w-5" />
+        <Icon name={BENCH_ICON[kind]} className="h-[1.125rem] w-[1.125rem]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block break-words font-stamp text-[14px] leading-[1.15] text-ink-100">
+        <span className="block break-words font-stamp text-[13px] leading-[1.1] text-ink-100">
           {BUILDING_CATALOG[kind].shortName}
         </span>
         <span
           className={cn(
-            'block break-words font-body text-[11px] leading-snug',
+            'block break-words font-body text-[10px] leading-tight',
             standing ? 'text-ink-300' : 'text-oxblood-300',
           )}
           data-testid={`scrapyard-fitted-${kind}`}
@@ -706,17 +809,42 @@ function BracketRack({ kind, base }: { kind: BuildingKind; base: Base | null }) 
   );
 }
 
-// --- Refits -------------------------------------------------------------------------------------
-
-const TIER_MARKS = ['I', 'II', 'III'] as const;
+// --- Unit modifications ---------------------------------------------------------------------------
 
 /**
- * Three ladders, side by side: the shape of the decision is which line to climb.
+ * The columns a grouped tray runs at each width, and the classes that draw them.
  *
- * Every rung in a line is built in order (`Build Scrap Plate first`), so the rungs hang off one
- * rail with the tier cut into it, and a built rung lights the rail up to the next.
+ * Both halves of the same fact, kept side by side because `RarityTray` needs the count to work out
+ * how many rows each group takes and Tailwind needs the class written out to generate it. A
+ * mismatch here draws blank rows or none.
  */
-function RefitsBench({
+interface TrayColumns {
+  /** Cards per row below `md`, at `md`, at `xl`, and at `2xl`. */
+  counts: readonly [number, number, number, number];
+  classes: string;
+}
+
+/** The structure bench shares its width with the rail, so it holds one card fewer per row. */
+const STRUCTURE_COLUMNS: TrayColumns = {
+  counts: [1, 2, 2, 3],
+  classes: 'md:grid-cols-2 2xl:grid-cols-3',
+};
+
+/** The unit bench has the whole width. */
+const UNIT_COLUMNS: TrayColumns = {
+  counts: [1, 2, 3, 4],
+  classes: 'md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4',
+};
+
+/**
+ * The thirty unit cards, grouped by grade, each group under its label.
+ *
+ * This was four ladders, one per refit line, with the tiers subgridded so that tier N started on
+ * one line across all four. The refits are gone (2026-09-15) and nothing in the catalogue that
+ * replaced them is a rung: a Scrap Vest is not the first step towards a Hardshell Exoframe, it is a
+ * different card. So the bench is one tray, and the only structure in it is the grade.
+ */
+function UnitBench({
   entries,
   keptBack,
   stock,
@@ -729,81 +857,144 @@ function RefitsBench({
   pending: boolean;
   onBuild: (entry: ScrapyardEntry) => void;
 }) {
-  const inLine = (line: UpgradeLine) =>
-    entries
-      .filter((entry) => findUpgrade(entry.id)?.line === line)
-      .sort((a, b) => (findUpgrade(a.id)?.tier ?? 0) - (findUpgrade(b.id)?.tier ?? 0));
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto"
+      data-testid="scrapyard-refits"
+    >
+      <Withheld count={keptBack} bench="refits" />
+      {entries.length === 0 ? (
+        <p className="py-6 text-center font-body text-[13px] leading-relaxed text-ink-300">
+          Nothing on this bench the yard could cut today. The drawings come off the mission board
+          and out of the Lab.
+        </p>
+      ) : (
+        <div className={cn(BENCH_BOARD, 'p-4')}>
+          <RarityTray
+            entries={entries}
+            columns={UNIT_COLUMNS}
+            blurbs={UNIT_MODIFICATION_RARITY_BLURBS}
+            testId="scrapyard-unit-modifications"
+            card={(entry) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                stock={stock}
+                pending={pending}
+                onBuild={() => onBuild(entry)}
+                ownedLabel={entry.owned > 0 ? 'Built' : null}
+              />
+            )}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The yard level a group's cards open at, read off the rows rather than off the grade.
+ *
+ * The two benches climb the yard's ladder differently. A unit card opens at its grade's rung
+ * (`SCRAPYARD_LEVEL_FOR_RARITY`: 1, 3, 4, 7). A building card opens with the yard until it is
+ * engineering, then at the advanced rung (`scrapyardLevelForModification`: 1 or 4), so an
+ * INTRICATE bracket is open on day one and a MASTERPIECE one at level 4. This heading read the
+ * unit ladder for both benches and printed "opens at yard level 3" over Nexus brackets a level-1
+ * yard was cutting, with no "Yard 3" stamp on any card under it. `requiresLevel` is the level the
+ * server gated each row with, so it is the number the heading says. Every row in a group shares
+ * one level on both benches today; the minimum is what the heading would have to say if that
+ * ever stopped being true, since it is the level at which the first of them opens.
+ */
+function opensAt(entries: readonly ScrapyardEntry[]): number {
+  return Math.min(...entries.map((entry) => entry.requiresLevel));
+}
+
+/**
+ * One tray, four groups, every card the same height (maintainer request, 2026-09-15).
+ *
+ * The cards are grouped by grade in the order the yard opens them, each group under a heading in
+ * its colour. The obvious layout is four trays, one per group, and it fails the one measurement
+ * the template exists for: `BENCH_TRAY` equalises card heights through `grid-auto-rows: 1fr`, and
+ * a `1fr` row only knows about the grid it is in, so a MASTERPIECE bill that wraps would lift its
+ * own group's cards by a line and leave the BASIC cards above them shorter. Every card on a bench
+ * is meant to come out of the same press.
+ *
+ * So it is one grid. The headings span the full row, and the rows are declared rather than left
+ * implicit: `auto` for each heading and `repeat(n, 1fr)` for the rows its cards fill, with `n`
+ * worked out from the card count and the column count at each breakpoint. Every `1fr` row in a
+ * grid resolves to the same height, so every card on the bench does too, across group boundaries.
+ * The template is handed in through four custom properties because it depends on the column
+ * count, which is a media query, and an inline style cannot carry one: the class names stay
+ * static for Tailwind to find and the values change per render.
+ *
+ * A group with nothing to show is not drawn. Under **Ready to build** that is what the filter
+ * means; on a structure's bench it is a grade the structure has no card of, which is not a fact
+ * worth a heading.
+ */
+function RarityTray({
+  entries,
+  columns,
+  blurbs,
+  testId,
+  card,
+}: {
+  entries: readonly ScrapyardEntry[];
+  columns: TrayColumns;
+  /** A line under each heading. The unit bench has one per grade; the structure bench has none. */
+  blurbs?: Readonly<Record<ModificationRarity, string>>;
+  testId: string;
+  card: (entry: ScrapyardEntry) => ReactNode;
+}) {
+  const groups = MODIFICATION_RARITIES.map((rarity) => ({
+    rarity,
+    entries: entries.filter((entry) => rarityOf(entry) === rarity),
+  })).filter((group) => group.entries.length > 0);
+
+  const rowsAt = (perRow: number) =>
+    groups
+      .map((group) => `auto repeat(${Math.ceil(group.entries.length / perRow)}, 1fr)`)
+      .join(' ');
+  const rows = {
+    '--rows-1': rowsAt(columns.counts[0]),
+    '--rows-2': rowsAt(columns.counts[1]),
+    '--rows-3': rowsAt(columns.counts[2]),
+    '--rows-4': rowsAt(columns.counts[3]),
+  } as CSSProperties;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
-      <Withheld count={keptBack} bench="refits" />
-      {/* Four ladders since the Discipline line (2026-09-11): one per column from 1280 up, two by
-          two under it, so no line hides below the fold on the widths the game is drawn at. */}
-      <div
-        className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-4"
-        data-testid="scrapyard-refits"
-      >
-        {UPGRADE_LINES.map((line) => {
-          const rungs = inLine(line);
-          return (
-            <section
-              key={line}
-              className="steel-plate rivets edge-lit flex min-w-0 flex-col gap-3 rounded-sm border border-surface-500/70 p-4 shadow-panel"
-              data-testid={`scrapyard-line-${line}`}
-            >
-              <header className="flex items-start gap-3 border-b border-surface-600/70 pb-3">
-                <YardPlate mark={{ kind: 'line', line }} tone="brass" size="lg" />
-                <div className="min-w-0 flex-1">
-                  <h3 className="break-words font-stamp text-[19px] leading-tight text-ink-100">
-                    {UPGRADE_LINE_LABELS[line]}
-                  </h3>
-                  <p className="break-words font-body text-[12px] leading-relaxed text-ink-300">
-                    {UPGRADE_LINE_BLURBS[line]}
-                  </p>
-                </div>
-              </header>
-              {rungs.length === 0 ? (
-                <p className="py-4 text-center font-body text-[13px] leading-relaxed text-ink-300">
-                  Nothing on this line the yard could cut today.
-                </p>
-              ) : (
-                <ol className="relative ml-3 flex flex-col gap-3 border-l-2 border-dashed border-surface-500/70 pl-5">
-                  {rungs.map((entry) => {
-                    const tier = findUpgrade(entry.id)?.tier ?? 1;
-                    return (
-                      <li key={entry.id} className="relative">
-                        <span
-                          aria-hidden
-                          className={cn(
-                            'absolute -left-[2.05rem] top-3 flex h-6 w-6 items-center justify-center rounded-full border font-display text-[10px] font-bold',
-                            entry.owned > 0
-                              ? 'border-bile-300/70 bg-surface-900 text-bile-300'
-                              : entry.blocker === null
-                                ? 'border-brass-300/70 bg-surface-900 text-brass-300'
-                                : 'border-surface-600 bg-surface-900 text-ink-400',
-                          )}
-                        >
-                          {TIER_MARKS[tier - 1] ?? tier}
-                        </span>
-                        <EntryCard
-                          entry={entry}
-                          stock={stock}
-                          pending={pending}
-                          onBuild={() => onBuild(entry)}
-                          ownedLabel={entry.owned > 0 ? 'Built' : null}
-                          tag={`Tier ${tier}`}
-                          withPlate={false}
-                        />
-                      </li>
-                    );
-                  })}
-                </ol>
-              )}
-            </section>
-          );
-        })}
-      </div>
-    </div>
+    <ul
+      className={cn(
+        BENCH_TRAY,
+        columns.classes,
+        '[grid-template-rows:var(--rows-1)] md:[grid-template-rows:var(--rows-2)]',
+        'xl:[grid-template-rows:var(--rows-3)] 2xl:[grid-template-rows:var(--rows-4)]',
+      )}
+      style={rows}
+      data-testid={testId}
+    >
+      {groups.map((group) => (
+        <Fragment key={group.rarity}>
+          <li
+            className="col-span-full flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-surface-600/70 pb-1.5 [&:not(:first-child)]:mt-2"
+            data-testid={`scrapyard-rarity-${group.rarity}`}
+          >
+            <h3 className={cn('font-stamp text-[17px] leading-tight', RARITY_TEXT[group.rarity])}>
+              {MODIFICATION_RARITY_LABELS[group.rarity]}
+            </h3>
+            <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-400">
+              {group.entries.length} {group.entries.length === 1 ? 'card' : 'cards'} · opens at yard
+              level {opensAt(group.entries)}
+            </span>
+            {blurbs && (
+              <span className="min-w-0 basis-full break-words font-body text-[12px] italic leading-snug text-ink-300">
+                {blurbs[group.rarity]}
+              </span>
+            )}
+          </li>
+          {group.entries.map(card)}
+        </Fragment>
+      ))}
+    </ul>
   );
 }
 
@@ -824,10 +1015,10 @@ function TrapsBench({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+      {/* One rule, which is the one a player gets wrong: a trap is not something you take with you
+          on a raid (maintainer request, 2026-09-15). */}
       <p className="shrink-0 font-body text-[13px] leading-relaxed text-ink-300">
-        Cut for one night. A trap goes into the satchel and is set under a fight you are defending;
-        the attack still comes, a piece of it does not. Priced in whatever is lying around rather
-        than in scrap alone.
+        Traps can only be used when defending a location.
       </p>
       <Withheld count={keptBack} bench="traps" />
       {entries.length === 0 ? (
@@ -836,22 +1027,23 @@ function TrapsBench({
           and the rungs out of the Lab.
         </p>
       ) : (
-        <ul
-          className="grid items-start gap-4 md:grid-cols-2 xl:grid-cols-3"
-          data-testid="scrapyard-traps"
-        >
-          {entries.map((entry) => (
-            <EntryCard
-              key={entry.id}
-              entry={entry}
-              stock={stock}
-              pending={pending}
-              onBuild={() => onBuild(entry)}
-              ownedLabel={entry.owned > 0 ? `${entry.owned} in the satchel` : null}
-              tall
-            />
-          ))}
-        </ul>
+        <div className={cn(BENCH_BOARD, 'p-4')}>
+          <ul
+            className={cn(BENCH_TRAY, 'md:grid-cols-2 xl:grid-cols-3')}
+            data-testid="scrapyard-traps"
+          >
+            {entries.map((entry) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                stock={stock}
+                pending={pending}
+                onBuild={() => onBuild(entry)}
+                ownedLabel={null}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );
@@ -859,7 +1051,7 @@ function TrapsBench({
 
 // --- One entry ----------------------------------------------------------------------------------
 
-/** A refit's parts, each hoverable so nobody has to remember what a Gyro Assembly is. */
+/** A unit card's parts, each hoverable so nobody has to remember what a Gyro Assembly is. */
 function PartsRow({ parts }: { parts: Partial<Record<ItemId, number>> }) {
   const entries = Object.entries(parts) as [ItemId, number][];
   if (entries.length === 0) return null;
@@ -881,7 +1073,7 @@ function PartsRow({ parts }: { parts: Partial<Record<ItemId, number>> }) {
   );
 }
 
-/** What a refit does to a sheet, as a row of deltas rather than a sentence. */
+/** What a unit card does to a sheet, as a row of deltas rather than a sentence. */
 function DeltaRow({ effect }: { effect: Record<string, unknown> }) {
   const deltas = Object.entries(effect).filter(
     (pair): pair is [string, number] => typeof pair[1] === 'number',
@@ -905,7 +1097,7 @@ function DeltaRow({ effect }: { effect: Record<string, unknown> }) {
   );
 }
 
-/** A small stamped fact on a row: the tier, the yard level, the document. */
+/** A small stamped fact on a row: the yard level, whether a trap's bill wants metal. */
 function Stamp({
   tone,
   children,
@@ -930,6 +1122,29 @@ function Stamp({
     </span>
   );
 }
+/**
+ * The six rows every card on every bench is cut to (maintainer request, 2026-09-15).
+ *
+ * A card used to size itself off its own content, so on the Traps bench a trap with five resources
+ * in its bill and a requirement line under it stood half a card taller than the one beside it, and
+ * six of them read as a broken fence. The regions are declared here instead: the head, what it
+ * does, what it is, what it costs, which document it wants, and the control. Every card puts the
+ * same thing in the same place, so a player comparing two of them is comparing the contents rather
+ * than hunting for where the price went.
+ *
+ * `minmax(reserve, auto)` is a floor, not a clamp. The reserve is what the region needs in the
+ * usual case at 1280, which is the narrowest column the game is drawn at; a bill that wraps to a
+ * second line still gets its second line rather than being cut off, and `BENCH_TRAY` carries that
+ * extra height to every other card on the bench.
+ *
+ * `content-start` with a `1fr` last track is what decides where the slack goes. Left at the default
+ * the grid stretched every `auto` track a little, which put the same six regions at six slightly
+ * different heights on every card: the bill sat three pixels lower on the trap with four resources
+ * in it than on the trap with three. Pinned to the start, each region is exactly its reserve or
+ * exactly its content, and all of the slack lands in the footer track under the button.
+ */
+const CARD_ROWS =
+  '[grid-template-rows:minmax(3rem,auto)_minmax(2.25rem,auto)_minmax(3.25rem,auto)_minmax(3.25rem,auto)_minmax(1.25rem,auto)_minmax(2.4375rem,1fr)] content-start';
 
 /**
  * One entry on any bench: the mark, what it is, what it does, what it costs, and the one control.
@@ -943,60 +1158,78 @@ function EntryCard({
   pending,
   onBuild,
   ownedLabel,
-  tag,
-  withPlate = true,
-  tall = false,
 }: {
   entry: ScrapyardEntry;
   stock: Resources;
   pending: boolean;
   onBuild: () => void;
-  /** What owning one reads as on this bench: "Built", "Cut ×2", "3 in the satchel". */
+  /** What owning one reads as on this bench: "Built", "Cut ×2". Traps count on the mark instead. */
   ownedLabel: string | null;
-  tag?: string;
-  withPlate?: boolean;
-  /** A tile rather than a row: the plate above the words, for a bench of three. */
-  tall?: boolean;
 }) {
   const owned = entry.owned > 0;
   const live = buildable(entry);
   const tone = owned ? 'bile' : live ? 'brass' : 'ink';
-  const upgrade = entry.kind === 'upgrade' ? findUpgrade(entry.id) : undefined;
+  const upgrade = entry.kind === 'upgrade' ? findUnitModification(entry.id) : undefined;
+  const rarity = rarityOf(entry);
   const levelShut = entry.blocker?.startsWith('Needs the Scrapyard at level') ?? false;
+  /*
+   * How many are held rides on the mark rather than in a line of its own (maintainer request,
+   * 2026-09-15). It is one number about the thing the glyph is already showing, and a sentence
+   * spent saying it pushed the button down a line on exactly the cards that had the longest bill.
+   */
+  const heldOnMark = entry.kind === 'trap' && entry.owned > 0 ? entry.owned : null;
 
   return (
     <li
       data-testid={`addon-${entry.id}`}
       className={cn(
-        'card-paper washed relative flex min-w-0 gap-3 rounded-sm border p-3 transition-colors',
-        tall ? 'flex-col items-center text-center' : 'items-start',
+        'relative grid h-full min-w-0 gap-1.5 rounded-sm border p-3 transition-colors',
+        CARD_ROWS,
+        SLOT_WELL,
         owned
-          ? 'border-bile-300/50 bg-bile-300/10'
+          ? 'border-bile-300/50'
           : live
             ? 'border-brass-300/40'
             : 'border-surface-700 opacity-85',
+        // No grade stripe down the left edge (maintainer request, 2026-09-15). It was a 3px band
+        // in the grade's colour, and on a BASIC card that colour is grey: the card read as a brass
+        // frame with one grey side, which looks like a rendering fault rather than a code. The
+        // grade is still on the card, in the tag beside the name, where it is a word rather than a
+        // stripe a player has to learn.
       )}
     >
-      {withPlate && <YardPlate mark={markOf(entry)} tone={tone} size={tall ? 'lg' : 'md'} />}
-
-      <div className={cn('flex min-w-0 flex-1 flex-col gap-1.5', tall && 'w-full items-center')}>
-        <div
-          className={cn('flex flex-wrap items-baseline gap-x-2 gap-y-1', tall && 'justify-center')}
-        >
+      <div className="flex min-w-0 items-center gap-3">
+        <YardPlate mark={markOf(entry)} tone={tone} size="md" count={heldOnMark} />
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
           <h4 className="min-w-0 break-words font-display text-[14px] font-bold text-ink-100">
             {entry.name}
           </h4>
-          {tag && <Stamp tone="ink">{tag}</Stamp>}
-          <Stamp tone={entry.advanced ? 'iris' : 'ink'}>
-            {entry.advanced ? 'Advanced' : 'Basic'}
-          </Stamp>
+          {/* A card has a grade; a trap only has whether its bill wants high-quality metal. */}
+          {/* Traps carry no grade. Their `advanced` flag means one thing (the bill wants
+              high-quality metal, `api.district.ts`), so the stamp says that, and says nothing for a
+              trap that wants none: "Advanced" here read as the ADVANCED grade the unit bench one
+              tab over uses for a different fact (bug pass, 2026-09-15). */}
+          {rarity !== null ? (
+            <RarityTag rarity={rarity} />
+          ) : (
+            entry.advanced && <Stamp tone="iris">Good metal</Stamp>
+          )}
           {entry.requiresLevel > 1 && (
             <Stamp tone={levelShut ? 'oxblood' : 'ink'}>Yard {entry.requiresLevel}</Stamp>
           )}
+          {/* The plate's multiplier is `aria-hidden` with the rest of the glyph, so the count is
+              said once here for anybody who is not looking at it. */}
+          {heldOnMark !== null && (
+            <span className="sr-only" data-testid={`addon-owned-${entry.id}`}>
+              {heldOnMark} held
+            </span>
+          )}
         </div>
+      </div>
 
-        {/* A refit's effect is a row of deltas off the catalogue; the server's one-line wording
-            of the same numbers would print them twice. */}
+      {/* A unit card's effect is a row of deltas off the catalogue; the server's one-line wording
+          of the same numbers would print them twice. */}
+      <div className="min-w-0">
         {upgrade ? (
           <DeltaRow effect={upgrade.effect} />
         ) : (
@@ -1004,24 +1237,31 @@ function EntryCard({
             {entry.effect}
           </p>
         )}
-        <p className="break-words font-body text-[12px] italic leading-snug text-ink-300">
-          {entry.description}
-        </p>
+      </div>
 
-        <div
-          className={cn('flex flex-wrap items-center gap-x-4 gap-y-1.5', tall && 'justify-center')}
-        >
-          <CostLine cost={entry.cost} stock={stock} />
-          {upgrade && <PartsRow parts={upgrade.parts} />}
-        </div>
+      <p className="min-w-0 break-words font-body text-[12px] italic leading-snug text-ink-300">
+        {entry.description}
+      </p>
 
-        {entry.blueprint !== null && (
-          <span className="break-words font-body text-[11px] leading-snug text-ink-300">
-            Blueprint: {entry.blueprint}
-          </span>
-        )}
+      <div className="flex min-w-0 flex-col justify-start gap-1.5 border-t border-surface-700/60 pt-1.5">
+        <CostLine cost={entry.cost} stock={stock} />
+        {upgrade && <PartsRow parts={upgrade.parts} />}
+      </div>
 
-        <div className={cn('mt-0.5 flex flex-wrap items-center gap-2.5', tall && 'justify-center')}>
+      <span className="min-w-0 break-words font-body text-[11px] leading-snug text-ink-300">
+        {entry.blueprint !== null ? `Blueprint: ${entry.blueprint}` : ''}
+      </span>
+
+      {/*
+       * The control's row is reserved whatever is standing in it: Build, Built, or a blocker.
+       *
+       * `min-h-8` is the height of the `sm` Button, and it is on the inner row rather than on the
+       * bordered box: building a unit card swaps a 32px button for a 16px "Built", and with the rule
+       * and its padding on the same element the box came out 39px one way and 32px the other, so
+       * the footer sat seven pixels lower on a built card than on a buildable one.
+       */}
+      <div className="self-end border-t border-surface-700/60 pt-1.5">
+        <div className="flex min-h-8 flex-wrap items-center gap-2.5">
           {ownedLabel !== null && (
             <span
               className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-bile-300"
@@ -1037,7 +1277,7 @@ function EntryCard({
               data-testid={`addon-build-${entry.id}`}
               onClick={onBuild}
             >
-              {pending ? 'Cutting…' : entry.kind === 'trap' ? 'Cut one' : 'Build'}
+              {pending ? 'Cutting…' : entry.kind === 'trap' ? 'Put one together' : 'Build'}
             </Button>
           ) : (
             entry.blocker !== null && (

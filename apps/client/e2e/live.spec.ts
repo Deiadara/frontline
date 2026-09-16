@@ -1,6 +1,7 @@
 import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
+  OVERSEER_PRESETS,
   STARTING_RESOURCES,
   buildingCost,
   spendResources,
@@ -104,15 +105,25 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.goto('/auth');
   await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
   await expect(page.getByLabel('Operator ID')).toHaveValue(MVP_DEV_CREDENTIALS.username);
-  await expect(page.getByLabel('Passphrase')).toHaveValue(MVP_DEV_CREDENTIALS.password);
+  await expect(page.getByLabel('Password')).toHaveValue(MVP_DEV_CREDENTIALS.password);
   await expect(page.getByText(/MVP build. Dev login prefilled/)).toBeVisible();
   await shootEveryViewport(page, 'login');
   await page.getByRole('button', { name: 'Jack In' }).click();
 
   // --- STEP 2: overseer select (the seeded operator has no overseer yet) ---
   await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
-  const overseerName = 'Marcus "Bulwark" Kane';
-  await page.getByText(overseerName).click();
+  /*
+   * §F6: whichever character this account was offered, not a named one.
+   *
+   * The pool drains and the seeded rivals claim from it before any player registers, so a name is
+   * not a thing a live test can press: on a fresh world the rival already holds the one this used
+   * to ask for. The name is read back off the card that was actually pressed, because STEP 3 below
+   * checks the HUD is carrying that person.
+   */
+  const offeredCard = page.locator('[data-testid^="overseer-card-"]').first();
+  const pickedId = (await offeredCard.getAttribute('data-testid'))!.replace('overseer-card-', '');
+  const overseerName = OVERSEER_PRESETS.find((one) => one.presetId === pickedId)!.name;
+  await offeredCard.click();
   const confirm = page.getByRole('button', { name: 'Confirm Overseer' });
   await expect(confirm).toBeEnabled();
   await shootEveryViewport(page, 'overseer-select');
@@ -271,7 +282,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // --- STEP 6: the roster reflects what the city has opened up (§A5) ---
   await page.getByRole('link', { name: 'Units', exact: true }).click();
   await expect(page.getByTestId('unit-catalogue')).toBeVisible();
-  await expect(page.getByTestId('supply')).toBeVisible();
+  await expect(page.getByTestId('unit-slots')).toBeVisible();
   // The catalogue opens on the carriers (maintainer request), so the fighting tier is one click away.
   await page.getByRole('button', { name: 'Rabble' }).click();
   /*

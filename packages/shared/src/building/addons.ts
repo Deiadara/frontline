@@ -1,17 +1,20 @@
 import { z } from 'zod';
+import { scrapyardLevelForModification } from './scrapyard.js';
 import type { PartialResources } from '../resources.js';
 import {
-  MODIFICATIONS,
   MODIFICATION_SLOT_LEVELS,
+  SET_BONUSES,
   MAX_MODIFICATION_SLOTS,
   findModification,
+  modificationFits,
   modificationSlotsAt,
   type ModificationSpec,
   type ModificationEffect,
+  type ModificationFamily,
 } from './modifications.js';
 import type { BuildingKind } from './kinds.js';
-import { buildingLevel, findBuilding, type Building } from './state.js';
-import { UNIT_UPGRADES, findUpgrade, type UpgradeSpec } from '../units/upgrades.js';
+import { findBuilding, type Building } from './state.js';
+import type { UnitModificationSpec } from '../units/modifications.js';
 
 /**
  * The Scrapyard's add-ons (§B9) and the slots they go in (§E).
@@ -39,7 +42,7 @@ import { UNIT_UPGRADES, findUpgrade, type UpgradeSpec } from '../units/upgrades.
  *
  * The document half is not read here. `blueprints/requirements.ts` imports this module for
  * {@link ADVANCED_MODIFICATION_MAGNITUDE}, so reaching back the other way would close the loop at
- * module-load time; the answer comes in as a predicate instead, and a caller with a satchel to
+ * module-load time; the answer comes in as a predicate instead, and a caller with an inventory to
  * hand passes `(spec) => modificationGateMet(inventory, spec)`.
  */
 
@@ -64,8 +67,6 @@ export function noAddons(): Addons {
  * same set of things anyway.
  */
 export const ADVANCED_MODIFICATION_MAGNITUDE = 12;
-/** For a unit upgrade, the tier at which the same is true. Tier one is open to anybody. */
-export const ADVANCED_UPGRADE_TIER = 2;
 
 /** Scrap per point of magnitude, for a building modification. */
 export const ADDON_SCRAP_PER_MAGNITUDE = 250;
@@ -90,8 +91,8 @@ export function modificationPrice(spec: ModificationSpec): PartialResources {
     : { scrap };
 }
 
-/** The same question for a unit upgrade, off the catalogue's own figures. */
-export function upgradePrice(spec: UpgradeSpec): PartialResources {
+/** The same question for a unit modification card, off the catalogue's own figures. */
+export function upgradePrice(spec: UnitModificationSpec): PartialResources {
   const price: PartialResources = { scrap: spec.cost.scrap ?? 0 };
   if (spec.cost.highQualityMetal !== undefined) {
     price.highQualityMetal = spec.cost.highQualityMetal;
@@ -99,9 +100,15 @@ export function upgradePrice(spec: UpgradeSpec): PartialResources {
   return price;
 }
 
-/** Whether this unit upgrade is one of the advanced ones. */
-export function isAdvancedUpgrade(spec: UpgradeSpec): boolean {
-  return spec.tier >= ADVANCED_UPGRADE_TIER;
+/**
+ * Whether this card is one of the advanced ones, for the yard's `advanced` flag.
+ *
+ * Read off the rarity: BASIC is the bolt-on end of the bench and everything above it is
+ * engineering. That keeps the flag saying the same thing it says for a building modification,
+ * because a card costs high-quality metal from INTRICATE up (`modifications.test.ts` holds it).
+ */
+export function isAdvancedUpgrade(spec: UnitModificationSpec): boolean {
+  return spec.rarity !== 'basic';
 }
 
 // --- what the crew owns -----------------------------------------------------------------------
@@ -199,7 +206,16 @@ export function fitSlotRefusal(input: {
 
   const spec = findModification(modificationId);
   if (!spec) return 'unknown_modification';
-  if (spec.building !== kind) return 'wrong_structure';
+  /*
+   * Fits, not home.
+   *
+   * This read `spec.building !== kind`, which was right while every card belonged to exactly one
+   * structure. Cross-building fittings (2026-09-14) name a set, and leaving this line alone would
+   * have made the district's picker offer a plumbing run for the Quarters that the route then
+   * refused with `wrong_structure`: the gate the UI asks and the gate the write enforces have to
+   * be the same gate.
+   */
+  if (!modificationFits(spec, kind)) return 'wrong_structure';
   if (standing.modifications.includes(modificationId)) return 'already_fitted';
   if (!shelvedModifications(addons, buildings).includes(modificationId)) return 'not_built';
   return null;
@@ -292,9 +308,9 @@ export function clearSlotRefusal(
  */
 export const ADDON_REFUSALS = [
   'unknown_addon',
+  /** The yard itself is not senior enough to cut this one (§B9's ladder). */
+  'yard_too_low',
   'needs_blueprint',
-  'needs_previous_tier',
-  'gauntlet_too_low',
   'already_built',
   'cannot_afford',
 ] as const;
@@ -318,11 +334,6 @@ export interface AddonEntry {
   blocker: AddonRefusal | null;
 }
 
-/** Everything the Scrapyard can turn out, modifications first then unit upgrades. */
-export function addonCatalogue(): { modifications: ModificationSpec[]; upgrades: UpgradeSpec[] } {
-  return { modifications: [...MODIFICATIONS], upgrades: [...UNIT_UPGRADES] };
-}
-
 /**
  * Whether the crew holds the retrofit blueprint that gates a modification.
  *
@@ -338,18 +349,26 @@ export type ModificationBlueprintGate = (spec: ModificationSpec) => boolean;
  * The document before the money. The price is last for the reason `upgradeRefusal` gives, that it
  * is the one gate which fixes itself.
  *
- * `affordable` is passed in rather than computed, because the price a crew actually pays depends
- * on discounts this module has no business knowing about: the same shape `vehicleRefusal` and
- * `upgradeRefusal` already use.
+ * `affordable` takes the **spec**, not a price, and is passed in rather than computed: what a crew
+ * actually pays depends on yard discounts this module has no business knowing about. It used to
+ * take a `PartialResources` that this function filled in from `modificationPrice`, which quietly
+ * undid the point, since the caller then had to ignore the argument to apply its own bill.
+ *
+ * The yard level is a gate here rather than only on the server. It was only on the server, which
+ * is how this function came to disagree with the door it describes: see the note on
+ * `modificationBlockerFor` in `district/scrapyard.ts`.
  */
 export function modificationBuildRefusal(input: {
   spec: ModificationSpec;
+  /** The Scrapyard's own level. The first gate, and the one that fixes nothing else. */
+  yardLevel: number;
   blueprintUnlocked: ModificationBlueprintGate;
-  affordable: (cost: PartialResources) => boolean;
+  affordable: (spec: ModificationSpec) => boolean;
 }): AddonRefusal | null {
-  const { spec, blueprintUnlocked, affordable } = input;
+  const { spec, yardLevel, blueprintUnlocked, affordable } = input;
+  if (yardLevel < scrapyardLevelForModification(spec)) return 'yard_too_low';
   if (!blueprintUnlocked(spec)) return 'needs_blueprint';
-  return affordable(modificationPrice(spec)) ? null : 'cannot_afford';
+  return affordable(spec) ? null : 'cannot_afford';
 }
 
 /**
@@ -368,15 +387,28 @@ const ADDON_EFFECT_LABELS: Readonly<Record<ModificationEffect, string>> = {
   defense_percent: 'holding your ground',
   faction_xp_percent: 'faction experience',
   research_time_reduction: 'off how long research takes',
-  housing_percent: 'beds',
+  housing_percent: 'unit slots',
   payroll_percent: 'room on the payroll',
   raid_loot_percent: 'what a raid brings home',
   training_time_reduction: 'off how long training takes',
   training_supplies_reduction: 'off the supplies a unit costs',
 };
 
+/**
+ * What completing a family's set is worth, in the same voice as a single card.
+ *
+ * Written here rather than in the dialog that shows it because the direction of each channel is
+ * already encoded in `ADDON_EFFECT_LABELS` above, and half of them are reductions: a set bonus
+ * phrased as "pays 8% on top" is plainly wrong for the Power set, which takes 8% *off* the build
+ * clock. Anything reading a magnitude out loud has to go through these labels.
+ */
+export function describeSetBonus(family: ModificationFamily): string {
+  const bonus = SET_BONUSES[family];
+  return `+${bonus.magnitude}% ${ADDON_EFFECT_LABELS[bonus.effect]}`;
+}
+
 /** One line saying what an entry does, for the Scrapyard's list. */
-export function describeAddonEffect(spec: ModificationSpec | UpgradeSpec): string {
+export function describeAddonEffect(spec: ModificationSpec | UnitModificationSpec): string {
   if ('magnitude' in spec) {
     return `+${spec.magnitude}% ${ADDON_EFFECT_LABELS[spec.effect]}`;
   }
@@ -409,14 +441,4 @@ export function slotSummary(
 /** Convenience for callers that only have a level to hand. */
 export function slotsOpenAtLevel(level: number): number {
   return modificationSlotsAt(level);
-}
-
-/** The Gauntlet level a unit upgrade wants, read off its own spec. */
-export function upgradeGauntletLevel(id: string): number {
-  return findUpgrade(id)?.requiresGauntletLevel ?? 0;
-}
-
-/** Whether the district's Gauntlet is tall enough for this upgrade. */
-export function gauntletTallEnough(id: string, buildings: readonly Building[]): boolean {
-  return buildingLevel(buildings, 'gauntlet') >= upgradeGauntletLevel(id);
 }

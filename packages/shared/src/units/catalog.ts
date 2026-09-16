@@ -6,6 +6,7 @@ import {
   findVehicle,
   type BuildingKind,
   type ColumnUnit,
+  type RiderGroup,
 } from '../building/index.js';
 import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
 import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
@@ -33,11 +34,11 @@ export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './t
  *
  * ## What these numbers are balanced *against*
  *
- * The requirement list, not the price and not the supply. If a roster is a readout of a campaign,
+ * The requirement list, not the price and not the slots. If a roster is a readout of a campaign,
  * then the thing that has to be true of it is that **a unit you had to work harder for is worth
  * more**, and that is a claim about `requires` rather than about `cost`. It is measurable: give
  * every clause a weight (a building level counts its level, a location counts 12, a fitted
- * modification counts 8), play the roster against itself at equal supply across nine kinds of
+ * modification counts 8), play the roster against itself at equal unit slots across nine kinds of
  * ground, and ask how well the ranking by gate depth predicts the ranking by result. The same
  * weights price a kill in `economy/infamy.test.ts`, which is not a coincidence: it is one idea.
  *
@@ -45,17 +46,17 @@ export { UNIT_TIERS, UnitTierSchema, UNIT_TIER_LABELS, type UnitTier } from './t
  * "a gate at least ten deeper that loses anyway" down from 37 to 11. Three things did most of it,
  * and none of them was nudging a stat:
  *
- * - Two sheets were priced in supply rather than in numbers (`anodics`, `cyber_dogs`). See both.
+ * - Two sheets were priced in unit slots rather than in numbers (`anodics`, `cyber_dogs`). See both.
  * - One sheet promised a mechanic the engine could not read (`stitchers`, now `mends`).
  * - One stat had no counter at all. Armour has had `penetration` on every sheet since the first
  *   draft; evasion had nothing, so the two most evasive units in the game were simply better than
  *   everything against everything. `tracking` is the missing half, and it is deliberately a
  *   modifier rather than a stat: plate is ordinary, and reading somebody's movement is not.
  *
- * Unique units are **not** in that round robin and must not be put in it. A 24-supply budget buys
+ * Unique units are **not** in that round robin and must not be put in it. A 24-slot budget buys
  * four Cartographers and a fight between four Cartographers is not a fight anybody can have; every
  * conclusion drawn from one is an artefact. They are measured the way the game asks about them
- * instead: one of it plus an escort, against the same supply of escort alone.
+ * instead: one of it plus an escort, against the same slots of escort alone.
  */
 
 /**
@@ -150,7 +151,7 @@ export interface UnitSpec {
    * Morale is the fastest way to lose a fight in this engine: one stack breaks, the cascade term
    * pushes the next one over, and a force that was winning on casualties walks off the ground. A
    * stalwart sheet is the answer to that and it is deliberately not "high morale", which is a
-   * number the same cascade eats. It cannot rout while over half its bodies are standing, full
+   * number the same cascade eats. It cannot rout while over half its units are standing, full
    * stop, and once it is under half it breaks like anything else: the rule buys a line that holds
    * long enough to be worth rallying behind, never a stack that cannot be beaten.
    */
@@ -170,14 +171,14 @@ export interface UnitSpec {
    *
    * The one bonus a player buys by *massing a single sheet*, which is a decision the roster had no
    * way to reward: combat width punishes stacking, tier bonuses reward fielding a class, and
-   * nothing at all rewarded fielding forty of one thing. Per body of the same unit, capped at
+   * nothing at all rewarded fielding forty of one thing. Per unit of the same unit, capped at
    * {@link MAX_PACK_BONUS}, so it is a reason to commit and never a reason to bring everything.
    */
   pack?: boolean;
   /**
    * Whether this unit comes back with more than its hands full.
    *
-   * A flat {@link PICKER_EXTRA_LOAD} per body on top of the sheet's `lootCapacity`, and flat is the
+   * A flat {@link PICKER_EXTRA_LOAD} per unit on top of the sheet's `lootCapacity`, and flat is the
    * whole point: `lootCapacity` is multiplied by every carry percentage in the game, so raising it
    * makes the crews that already carry well carry better. This is worth the same to everybody, which
    * is what makes it a reason to bring a few of these along rather than a bigger number on a sheet
@@ -187,8 +188,14 @@ export interface UnitSpec {
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
-  /** What one costs against the standing army cap. A Colossus is not one soldier. */
-  supply: number;
+  /**
+   * What one of these costs against the district's unit slots, and against a vehicle's seats.
+   *
+   * A Colossus is not one soldier. One currency, spent in two places: the beds
+   * (`building/unit-slots.ts`) and the machines that carry a column (`building/vehicles.ts`), so a
+   * sheet that takes three slots at home takes three off a truck's thirty.
+   */
+  unitSlots: number;
   stats: UnitStats;
   modifiers: readonly UnitModifierId[];
   /**
@@ -284,7 +291,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(1)],
     cost: { caps: 40, supplies: 10 },
     trainSeconds: 45,
-    supply: 1,
+    unitSlots: 1,
     stats: sheet({
       speed: 45,
       vitality: 75,
@@ -321,11 +328,11 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * What Anodics are *for* is the ground, not the sheet: a room, a tunnel, a factory floor with a
      * press running. Fight them in a yard and they are worse than Razors.
      *
-     * **Two supply, and the sheet is the thing that stayed.** At one they were the single largest
+     * **Two unit slots, and the sheet is the thing that stayed.** At one they were the single largest
      * distortion in the roster: a gate-2 unit taking 76% of its matchups and beating the Twins, the
      * Cyberhounds and every specialist in the game, which put eight of the roster's gate inversions
-     * behind this one row. The cause was the count, not the numbers: at one supply a budget bought
-     * twenty-four of them, and twenty-four bodies with a Warden's constitution is a wall that also
+     * behind this one row. The cause was the count, not the numbers: at one slot a budget bought
+     * twenty-four of them, and twenty-four units with a Warden's constitution is a wall that also
      * shoots. Three fixes were measured and this is the one that left the unit recognisable: gutting
      * the sheet to 115 offense and 100 vitality moved the roster's gate-to-strength correlation from
      * 0.64 only to 0.67, while pricing the count properly took it to 0.80 with the sheet almost
@@ -333,7 +340,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      */
     cost: { caps: 55, supplies: 15, scrap: 10 },
     trainSeconds: 60,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 40,
       vitality: 140,
@@ -373,7 +380,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('generator', 2)],
     cost: { caps: 45, supplies: 5, scrap: 20 },
     trainSeconds: 50,
-    supply: 1,
+    unitSlots: 1,
     stats: sheet({
       speed: 40,
       vitality: 55,
@@ -399,7 +406,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(2)],
     cost: { caps: 50, supplies: 10, scrap: 25 },
     trainSeconds: 55,
-    supply: 1,
+    unitSlots: 1,
     stats: sheet({
       speed: 50,
       vitality: 78,
@@ -428,7 +435,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(4)],
     cost: { caps: 120, supplies: 20, scrap: 60, oil: 15 },
     trainSeconds: 150,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 40,
       vitality: 122,
@@ -457,7 +464,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(5)],
     cost: { caps: 130, supplies: 20, scrap: 80 },
     trainSeconds: 160,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 28,
       vitality: 168,
@@ -484,7 +491,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(6)],
     cost: { caps: 160, supplies: 25, oil: 20 },
     trainSeconds: 180,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 50,
       vitality: 115,
@@ -512,7 +519,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(7), structure('garage', 4), canBuild('motorcycle')],
     cost: { caps: 180, supplies: 25, scrap: 90, oil: 60 },
     trainSeconds: 200,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 65,
       vitality: 115,
@@ -534,7 +541,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
    * The wall, and the only unit in the game that is not trying to win the fight.
    *
    * Its damage is the lowest of anything that fights at all: 45 against a Razor's 160, which is
-   * roughly one Razor's worth of harm from three bodies. Everything it has is on the other side of
+   * roughly one Razor's worth of harm from three units. Everything it has is on the other side of
    * the ledger, 520 hit points and 70 points of plate, and `bulwark` adds seventy percent of that
    * again while it is holding ground. It cannot take a location. It can make one cost more than it
    * is worth.
@@ -556,7 +563,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('scrapyard', 5), structure('gate', 6)],
     cost: { caps: 200, supplies: 30, scrap: 140, highQualityMetal: 10 },
     trainSeconds: 240,
-    supply: 3,
+    unitSlots: 3,
     stats: sheet({
       speed: 22,
       vitality: 470,
@@ -571,7 +578,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       stealth: 5,
       lootCapacity: 25,
       // Deliberately unimpressive, and it is the number that makes the sheet *bad at attacking*.
-      // Measured, not guessed: at 40 a stack of these took every equal-supply fight it started,
+      // Measured, not guessed: at 40 a stack of these took every equal-slot fight it started,
       // because this engine settles a stalemate by who breaks first and a wall never breaks. It
       // was winning by outlasting rather than by killing, which is the opposite of the brief. At
       // 25 the same stack loses the fights it starts and holds the ones it is given.
@@ -593,7 +600,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(6), structure('greenhouse', 5)],
     cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
     trainSeconds: 220,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 35,
       vitality: 170,
@@ -629,7 +636,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('gate', 7), fitted('gauntlet_live_fire_range')],
     cost: { caps: 260, supplies: 40, scrap: 60, highQualityMetal: 12 },
     trainSeconds: 300,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 30,
       vitality: 85,
@@ -666,7 +673,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * The one unit in the game that is worth nothing on its own and changes every fight it is in.
      *
      * `mends` is what the blurb has always claimed and the engine could not read: for four
-     * revisions this sheet was 60 offense and a middling body, which is to say a bad Razor, and it
+     * revisions this sheet was 60 offense and a middling unit, which is to say a bad Razor, and it
      * won 0 of 290 matchups because losing every straight fight was the entire mechanic. It still
      * loses every straight fight. What is different is that it now costs the other side something
      * to *cause* the casualties it is standing there to undo.
@@ -677,10 +684,10 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainSeconds: 280,
     /**
      * One, and the rest of this sheet, is what makes the mechanic playable rather than merely
-     * present. Measured, at 42 supply of defenders against 16 Breakers across nine grounds:
+     * present. Measured, at 42 slots of defenders against 16 Breakers across nine grounds:
      *
-     * - At supply 2 the flag alone was still a losing trade. Four medics cost four Wardens and the
-     *   line came out 2.9 bodies *worse*, because a fight here is decided by breaking the other
+     * - At two slots the flag alone was still a losing trade. Four medics cost four Wardens and the
+     *   line came out 2.9 units *worse*, because a fight here is decided by breaking the other
      *   side's morale and four fewer Wardens is four fewer people shooting.
      * - The medics were also dying first. Targeting is damage per point of enemy health
      *   (`threatWeight`), so a 100-vitality bag of bandages standing beside 185-vitality armour is
@@ -688,13 +695,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      *   hospital was gone. Evasion is the answer that fixes both halves at once: it is a miss
      *   chance, so it lowers what they take *and* what they are worth shooting at.
      *
-     * At supply 1 with 45 evasion behind 120 vitality, two medics are worth +0.4 bodies and ten are
+     * At one slot with 45 evasion behind 120 vitality, two medics are worth +0.4 units and ten are
      * worth +4.6, while holding the ground still dips in the middle of that range. That dip is the
      * design: medics are a real choice and not a free one. A stronger sheet was measured too (55
      * evasion, 130 vitality) and rejected for being strictly better at every count, which is a unit
      * with no decision in it.
      */
-    supply: 1,
+    unitSlots: 1,
     stats: sheet({
       speed: 35,
       vitality: 120,
@@ -726,7 +733,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('scrapyard', 6), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
     trainSeconds: 330,
-    supply: 3,
+    unitSlots: 3,
     stats: sheet({
       speed: 28,
       vitality: 180,
@@ -753,7 +760,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 5), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 40, highQualityMetal: 18 },
     trainSeconds: 310,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 85,
       vitality: 135,
@@ -782,7 +789,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(9), structure('lab', 8), fitted('lab_quantum_modeling')],
     cost: { caps: 360, supplies: 55, highQualityMetal: 30 },
     trainSeconds: 380,
-    supply: 3,
+    unitSlots: 3,
     stats: sheet({
       speed: 40,
       vitality: 150,
@@ -811,7 +818,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('nexus', 9), fitted('nexus_encrypted_core')],
     cost: { caps: 340, supplies: 50, oil: 30 },
     trainSeconds: 360,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 40,
       vitality: 125,
@@ -845,14 +852,14 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * Two, because one was the best buy in the game by a factor of two and nothing on the sheet
      * said so.
      *
-     * Measured as power per point of supply (`sqrt(offense x effective hit points) / supply`, the
+     * Measured as power per unit slot (`sqrt(offense x effective hit points) / unitSlots`, the
      * ratio a fixed army cap actually spends against): the Cyberhounds came out at 179 against a
      * roster median of 78. That is not a strong unit, it is a mispriced one, and it showed up as a
      * gate-18 unit beating the Hollow Men, the Twins and two legendaries. The sheet is untouched:
      * a hound is still fast, still hunts by nose, and still hits like a hound. What changed is that
      * it comes with a handler.
      */
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 90,
       vitality: 90,
@@ -886,7 +893,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('generator', 10), structure('infirmary', 12), holds('gene_clinic')],
     cost: { caps: 700, supplies: 105, scrap: 300, oil: 200, highQualityMetal: 90 },
     trainSeconds: 900,
-    supply: 6,
+    unitSlots: 6,
     stats: sheet({
       speed: 25,
       vitality: 365,
@@ -918,7 +925,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('infirmary', 10), structure('lab', 13), holds('gene_clinic')],
     cost: { caps: 650, supplies: 200, highQualityMetal: 70 },
     trainSeconds: 840,
-    supply: 5,
+    unitSlots: 5,
     stats: sheet({
       speed: 45,
       vitality: 225,
@@ -950,7 +957,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('quarters', 12), holds('fight_pit')],
     cost: { caps: 300, supplies: 120 },
     trainSeconds: 600,
-    supply: 3,
+    unitSlots: 3,
     stats: sheet({
       speed: 40,
       vitality: 120,
@@ -982,7 +989,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 15), fitted('lab_shielded_datacore'), holds('satellite_uplink')],
     cost: { caps: 1500, supplies: 225, oil: 300, highQualityMetal: 250 },
     trainSeconds: 3600,
-    supply: 8,
+    unitSlots: 8,
     stats: sheet({
       speed: 80,
       vitality: 300,
@@ -1018,7 +1025,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 16), structure('infirmary', 12), holds('mad_scientist_lair')],
     cost: { caps: 1400, supplies: 400, highQualityMetal: 200 },
     trainSeconds: 4200,
-    supply: 10,
+    unitSlots: 10,
     stats: sheet({
       speed: 40,
       vitality: 700,
@@ -1060,7 +1067,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('garage', 16), structure('generator', 14), holds('construction_site')],
     cost: { caps: 2200, supplies: 330, scrap: 900, oil: 600, highQualityMetal: 400 },
     trainSeconds: 5400,
-    supply: 12,
+    unitSlots: 12,
     // §C3: the blurb has said "it arrives slowly" since the first draft and nothing enforced it, so
     // a Colossus in a Heli Porter crossed the city at 95. It rides in nothing now, and the column
     // it is in arrives when it does.
@@ -1098,7 +1105,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('quarters', 12), structure('infirmary', 15), holds('tavern')],
     cost: { caps: 1200, supplies: 300, highQualityMetal: 120 },
     trainSeconds: 3000,
-    supply: 6,
+    unitSlots: 6,
     stats: sheet({
       speed: 45,
       vitality: 265,
@@ -1125,7 +1132,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 12), holds('rail_yard'), holds('satellite_uplink')],
     cost: { caps: 1000, supplies: 150, oil: 150, highQualityMetal: 100 },
     trainSeconds: 2700,
-    supply: 5,
+    unitSlots: 5,
     stats: sheet({
       speed: 88,
       vitality: 270,
@@ -1179,12 +1186,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 12), holds('mad_scientist_lair'), holds('gene_clinic')],
     cost: { caps: 460, supplies: 75, scrap: 190, oil: 90, highQualityMetal: 70 },
     trainSeconds: 520,
-    supply: 4,
+    unitSlots: 4,
     /*
      * Brought down the ladder with the tier, not carried down it.
      *
      * The sheet was legendary scale, 420 vitality behind 78 armour, against a specialist band that
-     * tops out at 80 and 25. Left alone it beat every other unit in the game at equal supply, which
+     * tops out at 80 and 25. Left alone it beat every other unit in the game at equal unit slots, which
      * `balance.test.ts` is there to forbid: a roster is a web and this was the top of a ladder.
      * What it keeps is the shape rather than the numbers, because the shape is the unit: heavy for
      * its tier, slow, almost impossible to move, and carrying almost no way to hurt anyone.
@@ -1223,7 +1230,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   // cannot be deployed to a fight, they cannot hold ground, and on a battle mission they walk in
   // behind the people who can. What they are is the cheapest loot capacity in the game and the
   // only unit the Nexus itself signs, which makes a standard mission something a crew can run on
-  // day one without spending a single body it might have wanted for a fight.
+  // day one without spending a single unit it might have wanted for a fight.
   {
     id: 'scavengers',
     name: 'Scavengers',
@@ -1238,7 +1245,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(1)],
     cost: { caps: 25, supplies: 15 },
     trainSeconds: 30,
-    supply: 1,
+    unitSlots: 1,
     stats: sheet({
       // A little under average on the road, which is the trade: the biggest bag in the game on
       // the slowest legs that still count as quick.
@@ -1271,7 +1278,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(4), structure('nexus', 4)],
     cost: { caps: 60, supplies: 20, planks: 30 },
     trainSeconds: 90,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 22,
       vitality: 75,
@@ -1293,7 +1300,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
    * up in the legendary block would renumber every unit between there and here.
    *
    * A duellist rather than a brawler, and the sheet says so: the highest offense and evasion on the
-   * roster against almost no armour and a body that a solid hit takes apart. Everything about it is
+   * roster against almost no armour and a unit that a solid hit takes apart. Everything about it is
    * the first exchange. `close_quarters` because the thing was made for a ballroom and fights like
    * it, `terror` because people who have seen it work do not stay to see it twice.
    */
@@ -1314,7 +1321,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('lab', 12), structure('quarters', 15), holds('fight_pit')],
     cost: { caps: 1400, supplies: 260, oil: 180, highQualityMetal: 200 },
     trainSeconds: 3300,
-    supply: 6,
+    unitSlots: 6,
     stats: sheet({
       speed: 92,
       vitality: 250,
@@ -1340,7 +1347,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
   /**
    * Appended for the same reason the Dancer is: a unit's art seed is its index in this array.
    *
-   * The gap in the roster this fills is *reach on a body that can take a hit*. Everything tanky was
+   * The gap in the roster this fills is *reach on a unit that can take a hit*. Everything tanky was
    * melee, at 10 to 15, and everything with range was made of paper: a Sniper reaches 95 behind 45
    * vitality and 8 armour. A slug gun is 30, which is further than anything can walk in the time it
    * takes to fire twice and nowhere near far enough to sit at the back, so it holds a line and
@@ -1357,7 +1364,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [gauntlet(6), structure('scrapyard', 4)],
     cost: { caps: 210, supplies: 30, scrap: 110, highQualityMetal: 8 },
     trainSeconds: 230,
-    supply: 2,
+    unitSlots: 2,
     stats: sheet({
       speed: 30,
       vitality: 135,
@@ -1405,7 +1412,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     requires: [structure('garage', 12), structure('generator', 16), holds('rail_yard')],
     cost: { caps: 1600, supplies: 240, oil: 220, highQualityMetal: 260 },
     trainSeconds: 3600,
-    supply: 7,
+    unitSlots: 7,
     stats: sheet({
       speed: 95,
       vitality: 200,
@@ -1468,10 +1475,10 @@ export function isUnitId(value: string): boolean {
  * the fight does (`battle/effects.ts`): whatever the workshop bolted on (`fitted`, folded through
  * `upgradedStats` exactly as the engine folds it), then the crew's `unitSpeedPercent` channel and
  * any flat points on top. A Neural Lace is twelve points of speed on a sheet; a road that read the
- * printed number instead had the same body crossing the city slower than it crosses a battlefield.
+ * printed number instead had the same unit crossing the city slower than it crosses a battlefield.
  *
- * A unit id with no sheet behind it walks at the roster's middle rather than at nothing. A body the
- * catalogue has forgotten is a body that still has legs, and answering 0 would quietly hold an
+ * A unit id with no sheet behind it walks at the roster's middle rather than at nothing. A unit the
+ * catalogue has forgotten is a unit that still has legs, and answering 0 would quietly hold an
  * entire column at a standstill over a renamed row.
  */
 export function unitColumnSpeed(
@@ -1497,23 +1504,48 @@ export function unitColumnSpeed(
   return {
     speed: effectiveSpeed(sheet.speed, bonus),
     rides: bonus.anyRide === true || unit?.no_ride !== true,
+    // What one of these takes off a machine's seats, in the same unit slots the district bills it
+    // a bed in. A forgotten sheet still has to sit somewhere: one slot, as `ridingUnitSlots`.
+    unitSlots: unit?.unitSlots ?? 1,
   };
 }
 
 /**
- * How many of a force can actually take a seat: what `loadable` means by `bodies` (§C3).
+ * How many unit slots of a force can actually take a seat: what `loadable` spends (§C3).
+ *
+ * **Unit slots, not a head count.** A seat is measured in the same currency the district's beds
+ * are, so an Ironside at two slots fills two of a machine's and a Colossus would fill twelve. That
+ * is the one rule this number exists to keep: the deploy window caps a batch by unit slots, and a
+ * settle that counted heads here seated a Cheese Wagon with thirty Ironsides the window would only
+ * let fifteen of into it.
  *
  * A sheet carrying `no_ride` fills no seat whatever is in the yard, so counting it keeps a machine
  * "on the road" that nobody was ever in. The settle spends that count, and an empty truck it
  * believed was carrying somebody is a truck it wrecks on a bad day and pays the enemy its whole
  * capacity in infamy for.
  */
-export function ridingBodies(force: Readonly<Record<string, number>>, anyRide = false): number {
-  return Object.entries(force).reduce(
-    (total, [unitId, count]) =>
-      total + (!anyRide && findUnit(unitId)?.no_ride === true ? 0 : count),
-    0,
-  );
+export function ridingGroups(
+  force: Readonly<Record<string, number>>,
+  anyRide = false,
+): RiderGroup[] {
+  const groups: RiderGroup[] = [];
+  for (const [unitId, count] of Object.entries(force)) {
+    const unit = findUnit(unitId);
+    if (!anyRide && unit?.no_ride === true) continue;
+    if ((count ?? 0) <= 0) continue;
+    groups.push({ unitSlots: unit?.unitSlots ?? 1, count });
+  }
+  return groups;
+}
+
+export function ridingUnitSlots(force: Readonly<Record<string, number>>, anyRide = false): number {
+  return Object.entries(force).reduce((total, [unitId, count]) => {
+    const unit = findUnit(unitId);
+    if (!anyRide && unit?.no_ride === true) return total;
+    // A unit the catalogue has forgotten still has to sit somewhere, and one slot is the floor
+    // every other reader of a missing sheet uses (`unitColumnSpeed` walks it, it does not vanish).
+    return total + (unit?.unitSlots ?? 1) * count;
+  }, 0);
 }
 
 export const UNIT_IDS: readonly string[] = UNIT_CATALOG.map((unit) => unit.id);

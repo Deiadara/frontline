@@ -12,7 +12,7 @@ import {
   type StatKey,
   type UnitOption,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { DeltaFloat } from '../../components/ui/Delta';
@@ -24,7 +24,7 @@ import { cn } from '../../lib/cn';
 import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
-import { RULE_CHIP, RULE_INK, RULE_WINDOW_TONE, ruleTone } from './rules';
+import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
 import { UnitPortrait } from './UnitPortrait';
 import { UpgradeSlots } from './UpgradeSlots';
 
@@ -51,7 +51,7 @@ export interface UnitCardProps {
    */
   training?: UnitCardTraining;
   /**
-   * What this count just did: a batch landing off the bench, or bodies leaving for a fight.
+   * What this count just did: a batch landing off the bench, or units leaving for a fight.
    *
    * From the page's one `useDeltaMarks`, for the reason the standing bar's chips take theirs from
    * the HUD's: one diff of one payload rather than one per card.
@@ -182,13 +182,29 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
           Owned, over the picture's corner, where a strategy game puts a count.
 
           Three numbers, not one: at home, on held ground, and at a fight. All three are in the
-          population chip at the top of the page (§A1 feeds them all), so a card that showed only
+          unit-slot chip at the top of the page (§A1 feeds them all), so a card that showed only
           the first would leave a player counting beds they cannot see. Brass is ground, tangerine
           is a fight, matching the colour each of those screens already uses.
+
+          The fight count is separated by a slash rather than a `+` (maintainer request,
+          2026-09-15): `12 / 6` is how a game writes a figure against the fight it is in, and the
+          `+` had the two reading as one sum a player had to do in their head. The slash stays in
+          ink so the orange is the count and nothing else. Nothing is drawn at all when nobody is
+          away, so a card with everybody at home is still one number.
+
+          **The leading figure is the whole roster, not what is left at home.** `unit.owned` is
+          `base.army`, which a deployed unit has already left, so printing it raw made `12 / 6`
+          mean twelve at home and six more elsewhere: eighteen units, and a slash that read as a
+          fraction of a number it was not part of. The maintainer's reading is the ordinary one,
+          six of your twelve are at a fight, so the total is what goes in front of the slash and
+          the six is a slice of it.
         */}
-        <span className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+        <span
+          className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100"
+          data-testid={`unit-count-${unit.id}`}
+        >
           <DeltaFloat marks={deltas ?? []} data-testid={`delta-unit-${unit.id}`} />
-          {unit.owned}
+          {unit.owned + garrisoned + abroad}
           {garrisoned > 0 && (
             <span className="text-brass-300" data-tip={`${garrisoned} on held ground`}>
               {' '}
@@ -196,9 +212,9 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
             </span>
           )}
           {abroad > 0 && (
-            <span className="text-tangerine-300" data-tip={`${abroad} at a fight`}>
-              {' '}
-              +{abroad}
+            <span data-tip={`${abroad} at a fight`}>
+              <span className="text-ink-300">{' / '}</span>
+              <span className="text-tangerine-300">{abroad}</span>
             </span>
           )}
         </span>
@@ -220,7 +236,9 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
               </span>
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                 {UNIT_TIER_LABELS[unit.tier]} · {BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
-                {unit.supply} pop
+                {/* The housing budget is called Unit Slots everywhere now (maintainer request,
+                    2026-09-15), so the cost a unit puts on it is a slot, not a "pop". */}
+                {unit.unitSlots} {unit.unitSlots === 1 ? 'slot' : 'slots'}
               </span>
             </HoverCard>
           </span>
@@ -496,12 +514,12 @@ function Marks({ unit }: { unit: UnitOption }) {
     <ul className="flex min-h-6 flex-wrap items-center gap-1" data-testid={`marks-${unit.id}`}>
       {rules.map((rule) => (
         <li key={rule.id} className="min-w-0">
-          <RuleTag rule={rule} unit={unit.name} />
+          <RuleTag rule={rule} />
         </li>
       ))}
       {modifiers.map((modifier) => (
         <li key={modifier.label} className="min-w-0">
-          <ModifierTag modifier={modifier} unit={unit.name} />
+          <ModifierTag modifier={modifier} />
         </li>
       ))}
       {affinities.map((affinity) => (
@@ -549,7 +567,7 @@ function Marks({ unit }: { unit: UnitOption }) {
 function UnitDossier({ unit }: { unit: UnitOption }) {
   return (
     <InfoWindow
-      eyebrow={`${UNIT_TIER_LABELS[unit.tier]} · ${unit.supply} population`}
+      eyebrow={`${UNIT_TIER_LABELS[unit.tier]} · ${unit.unitSlots} ${unit.unitSlots === 1 ? 'unit slot' : 'unit slots'}`}
       title={unit.name}
       tone={unit.unlocked ? 'brass' : 'oxblood'}
       // `plate="none"`: the portrait is a painting, not a glyph, so it keeps its own frame and
@@ -603,7 +621,7 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
       {unit.modifiers.length > 0 && (
         <WindowSection label="What they do">
           {/* Label over sentence, not label *inside* sentence. Run together on one paragraph the
-              tracked uppercase and the body face fight each other and every entry sets to a
+              tracked uppercase and the unit face fight each other and every entry sets to a
               different number of lines; stacked, each rule is three lines at one leading and the
               list reads as a list. */}
           <ul className="flex flex-col gap-2">
@@ -658,6 +676,32 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * `InfoWindow` rather than by the card.
  */
 /**
+ * What a tag says when you point at it (maintainer request, 2026-09-14).
+ *
+ * A torn scrap with a name on it and one line of what the thing does. It was an `InfoWindow`: an
+ * eyebrow with the unit's name, a stamped icon, a tone-coloured header bar and the answer filed
+ * under a heading reading "What it does". That is a panel, and a panel is what you open; this is a
+ * label you brushed past with a pointer, and it has to be readable in the time it takes to move on.
+ *
+ * The name is kept because a tag can be pointed at from a row of six and the card has to say which
+ * one answered. Everything else went: the eyebrow repeated the unit whose card the pointer is
+ * already inside, and the section heading announced the sentence underneath it instead of being it.
+ *
+ * The tone stays on the *name* rather than on a frame. A rule that takes something away (§ the
+ * Colossus, which cannot ride) has to keep reading as a cost, and the red word does that without
+ * a coloured bar that made a two-line hover look like a dialog.
+ */
+function TagScrap({ title, ink, children }: { title: string; ink: string; children: ReactNode }) {
+  return (
+    <>
+      <h4 className={cn('font-stamp text-[14px] leading-none', ink)}>{title}</h4>
+      <span aria-hidden className="ink-rule mt-2 block" />
+      <p className="mt-2 font-body text-[13px] leading-relaxed text-ink-200">{children}</p>
+    </>
+  );
+}
+
+/**
  * A rule, which is not a modifier and must not look like one.
  *
  * `taunts` and `mends` change what *happens* rather than what a number is, and a player who reads
@@ -670,23 +714,15 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * reading it as the reason the column is walking. Same red as the locked box and the missing
  * clauses, so the card has one colour for "this is against you".
  */
-function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: string }) {
+function RuleTag({ rule }: { rule: UnitOption['rules'][number] }) {
   const tone = ruleTone(rule);
   return (
     <HoverCard
       label={rule.label}
-      size="window"
       card={
-        <InfoWindow
-          eyebrow={unit}
-          title={rule.label}
-          tone={RULE_WINDOW_TONE[tone]}
-          icon={<Icon name="spark" className="h-full w-full text-surface-950" />}
-        >
-          <WindowSection label="What it does">
-            <p className="font-body text-[14px] leading-relaxed text-ink-100">{rule.description}</p>
-          </WindowSection>
-        </InfoWindow>
+        <TagScrap title={rule.label} ink={RULE_INK[tone]}>
+          {rule.description}
+        </TagScrap>
       }
     >
       <span
@@ -702,33 +738,23 @@ function RuleTag({ rule, unit }: { rule: UnitOption['rules'][number]; unit: stri
   );
 }
 
-function ModifierTag({
-  modifier,
-  unit,
-}: {
-  modifier: UnitOption['modifiers'][number];
-  unit: string;
-}) {
+function ModifierTag({ modifier }: { modifier: UnitOption['modifiers'][number] }) {
   return (
     <HoverCard
       label={modifier.label}
-      size="window"
       card={
-        <InfoWindow
-          eyebrow={unit}
-          title={modifier.label}
-          tone="verdigris"
-          icon={<Icon name="spark" className="h-full w-full text-surface-950" />}
-        >
-          <WindowSection label="When it happens">
-            <p className="font-body text-[14px] leading-relaxed text-ink-100">{modifier.when}</p>
-          </WindowSection>
-          <WindowSection label="What it does">
-            <p className="font-body text-[14px] leading-relaxed text-ink-200">
-              {modifier.description}
-            </p>
-          </WindowSection>
-        </InfoWindow>
+        <TagScrap title={modifier.label} ink="text-verdigris-100">
+          {modifier.description}{' '}
+          {/*
+           * The condition, folded into the sentence rather than filed under its own heading.
+           *
+           * It had one ("When it happens"), and the heading was longer than the answer: `when` is a
+           * clause, "in the city" or "when holding ground", never a sentence. Dropping it outright
+           * would have been the easy reading of the ask and the wrong one, because Ambush without
+           * "in the city" is a flat +25% and the whole point of the modifier is that it is not.
+           */}
+          <span className="text-ink-400">Counts {modifier.when}.</span>
+        </TagScrap>
       }
     >
       <span className="flex h-5 items-center whitespace-nowrap rounded-sm border border-verdigris-500/60 bg-verdigris-700/25 px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-verdigris-100">

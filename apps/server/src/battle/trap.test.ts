@@ -1,4 +1,5 @@
 import {
+  DECLARE_INFAMY_COST,
   TRAP_CATALOG,
   blueprintForTrap,
   declarationWindow,
@@ -26,12 +27,13 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createSiegeRepo } from '../db/repos/sieges.js';
 import { settleBattles } from './resolve.js';
 import { settleMovements } from './movement.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 /**
  * Traps as a defensive consumable, end to end (plan §I4).
  *
  * The arithmetic of a trap going off is `battle/traps.ts` in the shared package and has not moved.
- * What is new is everything around it: the yard builds one behind two gates, it sits in a satchel,
+ * What is new is everything around it: the yard builds one behind two gates, it sits in an inventory,
  * a **defender** names it on a coming fight for nothing, and it leaves the bag at the mark.
  *
  * The fixture is deliberately two real crews rather than one crew and the looters, because almost
@@ -98,12 +100,7 @@ async function signUp(app: FastifyInstance, username: string): Promise<Crew> {
   });
   expect(registered.statusCode, registered.body.slice(0, 200)).toBe(201);
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode, chosen.body.slice(0, 200)).toBe(201);
   const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
   // The premise of the whole fixture. A crew planted in the Rustyard would be its *resident* and
@@ -111,6 +108,10 @@ async function signUp(app: FastifyInstance, username: string): Promise<Crew> {
   expect(base.districtId, `${username} was planted in the district they are holding`).not.toBe(
     'rustyard',
   );
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(base.id)!.economy;
+  app.repos.bases.updateEconomy(base.id, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
   return { token, id: base.id };
 }
 
@@ -175,7 +176,7 @@ async function declareOn(stack: Stack, target: BattleTarget = PRESS): Promise<st
   return named!.battle.id;
 }
 
-/** Puts `count` of one item straight into a crew's satchel, leaving the stockpile alone. */
+/** Puts `count` of one item straight into a crew's inventory, leaving the stockpile alone. */
 function give(stack: Stack, baseId: string, item: ItemId, count: number): void {
   const base = stack.app.repos.bases.findById(baseId)!;
   const inventory = { ...base.inventory };
@@ -416,7 +417,7 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
     };
   }
 
-  it('takes a bite out of the attack and one trap out of the satchel', async () => {
+  it('takes a bite out of the attack and one trap out of the inventory', async () => {
     const seen = { attacking: 0 };
     const stack = await makeStack(counting(seen));
     const battleId = await declareOn(stack);
@@ -604,7 +605,7 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
     give(stack, stack.defender.id, document.id as ItemId, 0);
     expect(entryFor(await yard(stack)).blocker).toBe(`Needs the ${document.name}`);
 
-    // Both, and the money: the yard cuts it into the satchel and takes the bill.
+    // Both, and the money: the yard cuts it into the inventory and takes the bill.
     give(stack, stack.defender.id, document.id as ItemId, 1);
     const before = stack.app.repos.bases.findById(stack.defender.id)!.resources;
     expect(entryFor(await yard(stack)).blocker).toBeNull();
@@ -744,5 +745,73 @@ describe('the catalogues that have to agree', () => {
       expect(blueprintForTrap(spec.id), `${spec.id} has no blueprint`).toBeDefined();
       expect(findTech(spec.requiresTech), `${spec.id} names a rung nobody has`).toBeDefined();
     }
+  });
+});
+
+/**
+ * §I1 and §A4: a trap's victims are dead units, and dead units pay.
+ *
+ * They were the one way to kill somebody in this game that paid nobody anything. `springAnyTrap`
+ * takes its bite out of the attacking force before the engine is handed it, so the engine never
+ * sees the victims, and the settler built both casualty lists out of the engine's answer alone:
+ * no infamy for the crew that set the shell, no Bone Market refund for the crew that walked into
+ * it, and nothing on the feat counter that counts kills.
+ *
+ * The engine here kills nobody at all, so every figure below is the trap's and only the trap's.
+ */
+describe('§I1: what a trap is worth on the ledger', () => {
+  /** Nobody dies in the fight itself: the defender wins and the attackers walk away. */
+  function bloodless(): SkirmishEngine {
+    return {
+      resolve: (input) =>
+        skirmishOutcome({
+          winner: 'defender',
+          log: ['done'],
+          fled: input.attacking,
+        }),
+    };
+  }
+
+  it('pays the crew that set it, and refunds the crew that walked into it', async () => {
+    const stack = await makeStack(bloodless());
+    const battleId = await declareOn(stack);
+    give(stack, stack.defender.id, TRAP_ITEM, 1);
+    expect((await setTrap(stack, stack.defender.token, battleId, TRAP.id)).statusCode).toBe(200);
+
+    // §A4: a refund needs somewhere to pay it from, so the attacker is given the Bone Market. It
+    // stands in this same district, which is why this fixture can hand it over rather than invent
+    // a percentage nothing in the game grants.
+    const bones = stack.app.repos.city.control('rustyard-bones')!;
+    stack.app.repos.city.put({
+      ...bones,
+      holder: { kind: 'crew', baseId: stack.attacker.id },
+      garrison: {},
+    });
+
+    const attackerCaps = stack.app.repos.bases.findById(stack.attacker.id)!.resources.caps;
+    const defenderBefore = stack.app.repos.bases.findById(stack.defender.id)!.economy.infamy;
+    const killsBefore = stack.app.repos.feats.tallies(stack.defender.id)['kills'] ?? 0;
+    await sendAttackers(stack, battleId, { razors: 30 });
+    bringForward(stack, battleId, new Date(Date.now() - 60_000));
+    const [resolved] = settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
+
+    const killed = resolved!.analysis.trap!.killed;
+    expect(killed, 'the trap bit nobody, so there is nothing to price').toBeGreaterThan(0);
+
+    // Razors are one unit slot each, and §I1 prices a slot that does not walk off the field at one.
+    const defenderAfter = stack.app.repos.bases.findById(stack.defender.id)!.economy.infamy;
+    expect(defenderAfter - defenderBefore, 'the trap paid its owner nothing').toBe(killed);
+    expect(resolved!.analysis.defender.infamy).toBe(killed);
+    // ...and the attacker is charged for them on their own side of the report.
+    expect(resolved!.analysis.attacker.infamy).toBe(0);
+
+    // The Bone Market pays on the same list. Nobody died in the fight itself, so every cap of this
+    // is the trap's victims coming back as salvage.
+    const paid = stack.app.repos.bases.findById(stack.attacker.id)!.resources.caps - attackerCaps;
+    expect(paid, 'the Bone Market refunded nothing for the units the trap took').toBeGreaterThan(0);
+
+    // ...and the feat counter that asks how many units this crew has killed sees them too.
+    const killsAfter = stack.app.repos.feats.tallies(stack.defender.id)['kills'] ?? 0;
+    expect(killsAfter - killsBefore, 'the kill counter missed the trap').toBe(killed);
   });
 });

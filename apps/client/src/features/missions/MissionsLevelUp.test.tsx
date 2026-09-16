@@ -9,6 +9,9 @@ const launchMutate = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/queries', () => ({
   useMissions,
   useCrew: () => ({ data: undefined }),
+  // §A4: the send dialog quotes the crew's bag off this. Undefined is a crew with nothing on top
+  // of the printed sheets, which is what this fixture is.
+  useCrewStanding: () => ({ data: undefined }),
   // §C3: the send dialog reads the yard off the session snapshot. Empty is a crew with no Garage.
   useMe: () => ({ data: undefined }),
   useLaunchMission: () => ({ mutate: launchMutate, isPending: false, variables: undefined }),

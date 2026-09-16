@@ -16,6 +16,7 @@
  * back off a stockpile read before the loot. The same fight minted resources out of nothing.
  */
 import {
+  DECLARE_INFAMY_COST,
   GATE_BREACH_HOURS,
   declarationWindow,
   type BattleTarget,
@@ -26,6 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
+import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -50,14 +52,13 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
     payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await app.inject({
-    method: 'POST',
-    url: '/api/overseer',
-    headers: auth(token),
-    payload: { presetId: 'enforcer' },
-  });
+  const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode, chosen.body.slice(0, 200)).toBe(201);
   const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
+  // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
+  // call this file makes.
+  const purse = app.repos.bases.findById(base.id)!.economy;
+  app.repos.bases.updateEconomy(base.id, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
   return { token, baseId: base.id, districtId: base.districtId };
 }
 

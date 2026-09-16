@@ -68,7 +68,7 @@ export interface MissionResolution {
   resolvedAt: string;
   /** §F1f: the page this run won, or null. Named by the mission report. */
   pageWon?: string | null;
-  /** The bodies a battle job did not bring home. Empty on every standard run. */
+  /** The units a battle job did not bring home. Empty on every standard run. */
   lost?: Mission['lost'];
   /** Whether anybody came back to tell it. False only on a battle job that was wiped out. */
   reported?: boolean;

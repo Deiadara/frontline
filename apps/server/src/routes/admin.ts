@@ -5,6 +5,8 @@ import {
   BLUEPRINT_PAGE_IDS,
   CITY_DISTRICTS,
   ITEM_CATALOG,
+  BLACK_MARKET_GOODS,
+  CONSUMABLE_ITEM_IDS,
   ITEM_IDS,
   findBlueprint,
   RESEARCH_ITEMS,
@@ -28,10 +30,12 @@ import {
   type ScheduledBattle,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { startingBase } from '../crew/starting.js';
 import { ADMIN_ACTION_SECONDS } from '../admin/mode.js';
 import { listBackups } from '../db/backup.js';
 import { AppError, parseBody } from '../errors.js';
 import { declareBattle } from '../battle/declare.js';
+import { forfeitOffers } from '../market/board.js';
 import { ownBase } from './own-base.js';
 
 /**
@@ -179,6 +183,9 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
       target,
       scheduledFor: declarationWindow(now).earliest,
       now,
+      // This route only exists while admin mode is on (`requireAdmin`), and admin mode waives the
+      // call's infamy price: a bot that has never fought has no name to spend.
+      admin: app.config.admin,
     });
     if (result.kind === 'ok') return result.battle;
     refusal = result.reason;
@@ -190,7 +197,7 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
 }
 
 /**
- * What one grant puts in the satchel (maintainer request, 2026-09-11).
+ * What one grant puts in the inventory (maintainer request, 2026-09-11).
  *
  * Documents rather than pages for `blueprints`, because the point is to open the yard's benches
  * and a document is what opens them; `pages` is the other screen's fixture. Both go through
@@ -216,7 +223,28 @@ function grantedItems(body: AdminGrantRequest): ItemCost {
       if (ITEM_CATALOG[id].kind === 'component') items[id] = body.parts;
     }
   }
+  /*
+   * The traps, off `CONSUMABLE_ITEM_IDS` rather than off a `kind` scan of `ITEM_IDS`.
+   *
+   * A trap is deliberately kept out of `ITEM_IDS` so the Runner's barrow and the salvage table
+   * cannot deal in one, which means the loop above cannot see them however it is spelled. This is
+   * the same array the battles Inventory walks, and it is the only list of them there is.
+   */
+  if (body.consumables !== undefined) {
+    for (const id of CONSUMABLE_ITEM_IDS) items[id] = body.consumables;
+  }
   return items;
+}
+
+/** The rungs one grant finishes: a whole track, everything, or everything up to a depth. */
+function grantedRungs(body: AdminGrantRequest): string[] {
+  return RESEARCH_ITEMS.filter((spec) => {
+    const byTrack =
+      body.technologies !== undefined &&
+      (body.technologies === 'all' || spec.track === body.technologies);
+    const byDepth = body.researchDepth !== undefined && spec.step <= body.researchDepth;
+    return byTrack || byDepth;
+  }).map((spec) => spec.id);
 }
 
 export function registerAdminRoutes(app: FastifyInstance): void {
@@ -229,12 +257,12 @@ export function registerAdminRoutes(app: FastifyInstance): void {
 
       const items = grantedItems(body);
       if (Object.keys(items).length > 0) {
-        // Added, never set: a grant on top of a satchel is a satchel with more in it. A document
+        // Added, never set: a grant on top of an inventory is an inventory with more in it. A document
         // the crew already holds is not doubled, since holding it is a yes or no.
         //
         // The clamp walks the **granted** documents rather than every document in the catalogue.
         // Walking all of them was a no-op today, because nothing else can put a second copy of one
-        // in a satchel, but it would have silently destroyed a spare the day something could.
+        // in an inventory, but it would have silently destroyed a spare the day something could.
         const inventory = addItems(next.inventory, items);
         for (const id of Object.keys(items) as ItemId[]) {
           if (findBlueprint(id) !== undefined) inventory[id] = 1;
@@ -243,14 +271,28 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateHoldings(next.id, next.resources, inventory);
       }
 
-      if (body.technologies !== undefined) {
-        const rungs = RESEARCH_ITEMS.filter(
-          (spec) => body.technologies === 'all' || spec.track === body.technologies,
-        ).map((spec) => spec.id);
-        const technologies = [...new Set([...next.research.technologies, ...rungs])];
+      if (body.technologies !== undefined || body.researchDepth !== undefined) {
+        const technologies = [...new Set([...next.research.technologies, ...grantedRungs(body)])];
         const research = { ...next.research, technologies };
         next = { ...next, research };
         app.repos.bases.updateResearch(next.id, research);
+      }
+
+      /*
+       * The back room's shelf, which is not in the inventory and so not in `grantedItems`.
+       *
+       * A boost lives in its own table keyed by crew (`black_market_stash`), because it is a favour
+       * owed rather than a thing carried. Added to whatever is already there, for the same reason
+       * the inventory is: a grant tops a crew up, it does not replace them.
+       */
+      if (body.boosts !== undefined) {
+        let stash = app.repos.blackMarket.stashFor(next.id);
+        for (const good of Object.values(BLACK_MARKET_GOODS).filter(
+          (one) => one.kind === 'battle_boost',
+        )) {
+          stash = { ...stash, [good.id]: (stash[good.id] ?? 0) + body.boosts };
+        }
+        app.repos.blackMarket.writeStash(next.id, stash);
       }
 
       app.repos.history.record({
@@ -260,6 +302,93 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         payload: body,
       });
       return { admin: snapshot(app, next) };
+    })();
+  });
+
+  /**
+   * Clean slate: this crew, back to its first second (maintainer request, 2026-09-14).
+   *
+   * The other three presets move a crew *along* the game. This one puts it back at the start,
+   * including the character: the overseer is cleared, so the next screen the player sees is the
+   * one where they pick an archetype, and `POST /overseer` re-attaches a new one to the base this
+   * route has just emptied.
+   *
+   * ## Why it rewrites rather than deletes
+   *
+   * A base cannot be deleted while the crew has done anything. `battles`, `district_intel`,
+   * `scheduled_battles`, `market_supply_runs` and `troop_movements` all reference `bases(id)`
+   * without `ON DELETE CASCADE`, so the delete is refused by the first of them holding a row, and
+   * a crew that has called one fight would get an error instead of a fresh start. Rewriting every
+   * column keeps the id, which is also what keeps `location_control.holder_base_id` honest: that
+   * column has no foreign key at all, so a deleted base would leave ground held by a crew that no
+   * longer exists.
+   *
+   * The ground is therefore released **explicitly**, before the rewrite, and so is everything
+   * else keyed on the id that is not derived from the row: the feats ledger and its counters,
+   * the crew's standing listings, and the districts it has scouted. "Everything else cascades"
+   * was the first cut's claim and it was false in exactly the way a rewrite makes it false: a
+   * cascade fires on a delete, and nothing here is deleted, so a fresh crew opened its feats
+   * screen on the old life's lifetime counts and had its old escrow posted back to it.
+   *
+   * What still survives, and is another module's call: active missions and columns on the road
+   * (`missions`, `troop_movements`, `battle_deployments`), which walk home into the fresh base,
+   * and bids at the Bar and on the barrow, which the next close settles against it.
+   */
+  app.post('/admin/reset', { preHandler: app.authenticate }, (request): AdminMutationResponse => {
+    requireAdmin(app);
+    return app.db.transaction(() => {
+      const base = ownBase(app, request.currentUser.id);
+
+      // The ground first, while the id still means something.
+      for (const control of app.repos.city.controls().values()) {
+        if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) continue;
+        app.repos.city.put({
+          ...control,
+          holder: { kind: 'unoccupied' },
+          garrison: {},
+          level: 0,
+          fortification: 0,
+          fortifyingUntil: null,
+          upgradingUntil: null,
+        });
+      }
+
+      const fresh = startingBase({
+        id: base.id,
+        ownerId: base.ownerId,
+        // The district keeps its name. It is the one thing on the screen the player wrote
+        // themselves, and a reset that renames it reads as a different account rather than a
+        // fresh start on this one.
+        name: base.name,
+        now: new Date().toISOString(),
+      });
+      app.repos.bases.replace(fresh);
+      app.repos.blackMarket.writeStash(base.id, {});
+      app.repos.feats.forget(base.id);
+      forfeitOffers(app.repos, base.id);
+      // The map closes again. `POST /overseer` opens the nearest district when the player
+      // re-picks, which is the one a first-second crew has.
+      app.repos.city.forgetScouted(base.id);
+
+      /*
+       * Last, because everything above reads the base and this is what sends the player away from
+       * it: `/me` answers with no overseer, and the shell routes to the picker.
+       *
+       * The row goes as well as the pointer. `idx_overseers_user` is unique (migration 0074), so a
+       * cleared `users.overseer_id` with the old character still in `overseers` lets the player
+       * reach the picker and then fails their next pick on the index. That is exactly what the
+       * first cut of this did.
+       */
+      app.repos.users.clearOverseerId(request.currentUser.id);
+      app.repos.overseers.removeForUser(request.currentUser.id);
+
+      app.repos.history.record({
+        actorId: request.currentUser.id,
+        baseId: base.id,
+        kind: 'admin.reset',
+        payload: {},
+      });
+      return { admin: snapshot(app, fresh) };
     })();
   });
 

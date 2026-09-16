@@ -221,13 +221,13 @@ describe('the ground changes how the fight goes', () => {
   });
 
   /**
-   * Measured as **whether the location is held**, not as how many bodies walked away.
+   * Measured as **whether the location is held**, not as how many units walked away.
    *
    * Those two come apart, and the way they come apart is the design working: a stack that breaks
    * early loses fewer people and loses the ground, so an unfortified defender can finish a fight
    * with *more* survivors and no location. Fortification buys the objective. Measured at 30 v 26,
    * level 5 turns 3 holds in 24 into 24 in 24; by 32 v 26 it is nearly worthless, which is the
-   * intended ceiling: a quarter more defence does not beat a quarter more bodies.
+   * intended ceiling: a quarter more defence does not beat a quarter more units.
    */
   it('makes digging in decide who holds the location', () => {
     const held = (fortifyLevel: number) => {
@@ -267,7 +267,7 @@ describe('the ground changes how the fight goes', () => {
     expect(held(FORTIFY_MAX_LEVEL)).toBeGreaterThan(held(0) * 3);
   });
 
-  /** ...and does not make a location unbreakable. Enough bodies still take it. */
+  /** ...and does not make a location unbreakable. Enough units still take it. */
   it('leaves a fortified location takeable by weight of numbers', () => {
     let taken = 0;
     for (let seed = 0; seed < 24; seed += 1) {

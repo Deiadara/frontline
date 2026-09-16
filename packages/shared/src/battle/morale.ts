@@ -87,7 +87,7 @@ export interface MoraleShock {
   enemyCasualtyFraction: number;
   /** The enemy's average intimidation, 0..100. */
   enemyIntimidation: number;
-  /** Enemy bodies ÷ own bodies. Below 1 is an advantage and costs nothing. */
+  /** Enemy units ÷ own units. Below 1 is an advantage and costs nothing. */
   outnumberedRatio: number;
   /** How many friendly stacks broke this round. */
   alliesBroken: number;

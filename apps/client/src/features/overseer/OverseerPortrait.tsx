@@ -101,16 +101,29 @@ export function OverseerPortrait({
       )}
     >
       {painted ? (
-        // The 3:4 delivery is framed face-in-the-central-70%, so a square avatar can crop to fill.
+        /*
+         * Every crop is aimed at the **top**, in every shape (maintainer request, 2026-09-15: the
+         * head has to fit comfortably at the size the standing bar draws it).
+         *
+         * The deliveries are 928x1392 with the head in the top half: the skull starts about 40px
+         * down and the chin sits around 730. A centred crop therefore always takes its first bite
+         * out of the top of the head, and the narrower the box the bigger the bite. Measured
+         * against the delivery, a centred crop loses 232px at `square` and 77px at `portrait`,
+         * so the one place the game drew a 40px avatar was the one place it cut the most.
+         *
+         * `object-top` only had the `fill` case before, where the same reasoning was already
+         * written down. Nothing about that argument was specific to `fill`: it is a fact about how
+         * the art is framed, so it belongs to all three shapes.
+         *
+         * This aims the crop rather than shrinking the picture, because it cannot do both: at
+         * `object-cover` the scale is set by the box's narrow side, so in a square box the widest
+         * view available *is* the full width of the delivery. Showing the face smaller than that
+         * needs a taller box, which is the standing bar's layout rather than this component's.
+         */
         <img
           src={painted}
           alt=""
-          className={cn(
-            'absolute inset-0 h-full w-full object-cover',
-            // A `fill` box is as tall as the parent has room for and can be much squarer than the
-            // 2:3 delivery, and a centred crop of a squarer box takes its bite out of the top.
-            aspect === 'fill' && 'object-top',
-          )}
+          className="absolute inset-0 h-full w-full object-cover object-top"
         />
       ) : (
         <Silhouette />

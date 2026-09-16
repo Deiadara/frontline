@@ -16,6 +16,158 @@
     overscroll-behavior: none;
   }
 
+  /**
+   * The scrollbars, drawn (maintainer request, 2026-09-14).
+   *
+   * The last piece of operating-system chrome in the game, and the same complaint as the `title`
+   * tooltip that `TooltipLayer` replaced: a hand-inked frame, painted artwork and six sodium
+   * resource chips, and then a flat grey Windows scrollbar down the side of the panel. A scroller
+   * appears in sixty-three places here, so leaving it to the platform meant sixty-three places
+   * where the interface stopped being the game's.
+   *
+   * ## Why the textures repeat rather than stretch
+   *
+   * A thumb has no fixed length: it is a fraction of the track, so the same element is 30px tall
+   * on a long list and 300px on a short one. `.ink-box` is authored in a 200x56 box and painted at
+   * `background-size: 100% 100%`, and the note above `.ink-field` records what that costs when the
+   * box is the wrong shape: the roughness stretches with everything else and the wobble turns into
+   * a visible waver. So these are **tiles** that repeat along the bar's own axis, and each one is
+   * drawn to start and finish at the same offset so the seam between repeats does not show.
+   *
+   * ## Firefox
+   *
+   * `scrollbar-color` takes two colours and no images, so that build gets the palette without the
+   * pen: brass on ink, which is the right pair and the same one the tiles are drawn in. Declared
+   * first so a browser that understands both still uses the drawn version.
+   */
+  /*
+   * Gated, and the gate is load-bearing.
+   *
+   * Chromium has supported `scrollbar-width` and `scrollbar-color` since 121, and setting either
+   * one makes it **ignore every `::-webkit-scrollbar` rule** on that element. Declaring them on
+   * `*` therefore did not add a fallback, it deleted the drawn scrollbar everywhere and left
+   * `thin`, which on macOS is an overlay bar that is invisible until it moves: the first build of
+   * this had no scrollbar on screen at all, in either style.
+   *
+   * `@supports not selector(::-webkit-scrollbar)` is the right question to ask, because it is the
+   * exact condition: a browser with the pseudo-elements takes the drawn version below, and one
+   * without them takes the palette.
+   */
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: theme('colors.brass.500') theme('colors.surface.900');
+    }
+  }
+
+  ::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* The gutter: ink, with a faint ruled guide down it the way a page is ruled before it is written
+     on. Deliberately quiet, because the track is the part that is always there. */
+  /**
+   * The channel the bar runs in, and the bar in it: two pills, both inset (maintainer request).
+   *
+   * A scrollbar reads as a control because the bar sits *in* something, so the gutter carries a
+   * recess with a thin brass rail down each side of it. The recess stops short of both ends and
+   * closes in a round cap rather than running off the edge of the panel, which is what every
+   * platform's own does and the reason theirs looks finished.
+   *
+   * ## How both shapes are made
+   *
+   * `border: 3px solid transparent` with `background-clip: padding-box` is the inset: scrollbar
+   * parts take no padding, so the transparent border is the only way to hold the paint off the
+   * edge, and the clip is what stops it painting under the border anyway. That leaves an 8px strip
+   * inside a 14px gutter, and `border-radius: 999px` rounds **that** strip, which is why the caps
+   * come out as half-circles on an 8px width rather than as the nibbled corners a small radius on
+   * the 14px box would give.
+   *
+   * The `margin` is what holds the channel off the top and bottom. It shortens the bar's travel by
+   * the same amount, which is correct: the thumb should not be able to sit where the channel has
+   * already closed.
+   *
+   * The groove is a gradient rather than a tile because it is the one part that runs the whole
+   * length of the scroller: a tile would have to repeat and a stretched drawing would waver (see
+   * `.ink-field`). Flat colour stops do neither, at any height, and the rounded clip crops them
+   * into the caps for free.
+   *
+   * The fill is near-black at half alpha rather than a palette ink, so the recess reads as a
+   * shadow *on whatever surface it is cut into*: a scroller appears in cards, dialogs and the torn
+   * `.scrap`, and an opaque stripe is a gap in a lighter panel rather than part of it.
+   */
+  ::-webkit-scrollbar-track {
+    margin: 10px 0;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+    background-color: transparent;
+    background-image: linear-gradient(
+      to right,
+      rgb(240 173 76 / 0.22) 0 0.8px,
+      rgb(12 9 18 / 0.55) 0.8px 7.2px,
+      rgb(240 173 76 / 0.22) 7.2px 8px
+    );
+  }
+
+  ::-webkit-scrollbar-track:horizontal {
+    margin: 0 10px;
+    background-image: linear-gradient(
+      to bottom,
+      rgb(240 173 76 / 0.22) 0 0.8px,
+      rgb(12 9 18 / 0.55) 0.8px 7.2px,
+      rgb(240 173 76 / 0.22) 7.2px 8px
+    );
+  }
+
+  /**
+   * The bar: a strip of brass with an inked line ruled down each side, capped round at both ends.
+   *
+   * The whole bar is drawn by the tile rather than by a background colour, and the tile is 8px
+   * wide to match the padding box it is clipped into. It was 14px and drawn with its own inset,
+   * which put the two ruled edges outside the clip once the inset moved onto the border, so they
+   * vanished and the bar came out plain.
+   *
+   * The rectangle in each tile is drawn past every edge of its own box for a second reason:
+   * `feDisplacementMap` roughens whatever it can reach, and a displaced edge at a tile boundary is
+   * a notch at every repeat. Pushed outside, the seam falls in unbroken fill and cannot be seen.
+   *
+   * Lit on the left and shadowed on the right (brass-100 against brass-700), the same light every
+   * other panel in the game is drawn under.
+   */
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+    background-color: transparent;
+    background-repeat: repeat-y;
+    background-position: center top;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='44'%3E%3Cfilter id='v'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.045' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.8'/%3E%3C/filter%3E%3Cg filter='url(%23v)'%3E%3Crect x='-2' y='-6' width='12' height='56' fill='%23c1832a'/%3E%3Cpath d='M0.8 -6 L0.8 50' stroke='%23ffe4ae' stroke-opacity='0.5' stroke-width='1' fill='none'/%3E%3Cpath d='M7.2 -6 L7.2 50' stroke='%2377500f' stroke-opacity='0.75' stroke-width='1.2' fill='none'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  ::-webkit-scrollbar-thumb:horizontal {
+    background-repeat: repeat-x;
+    background-position: left center;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='8'%3E%3Cfilter id='h'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.045' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.8'/%3E%3C/filter%3E%3Cg filter='url(%23h)'%3E%3Crect x='-6' y='-2' width='56' height='12' fill='%23c1832a'/%3E%3Cpath d='M-6 0.8 L50 0.8' stroke='%23ffe4ae' stroke-opacity='0.5' stroke-width='1' fill='none'/%3E%3Cpath d='M-6 7.2 L50 7.2' stroke='%2377500f' stroke-opacity='0.75' stroke-width='1.2' fill='none'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /* The tile carries the colour now, so hover and press cannot be a `background-color` swap: they
+     lift the brass the tile is already painted in. */
+  ::-webkit-scrollbar-thumb:hover {
+    filter: brightness(1.25);
+  }
+
+  ::-webkit-scrollbar-thumb:active {
+    filter: brightness(1.45);
+  }
+
+  /* Where a vertical and a horizontal bar meet. Left as ink rather than the platform's own square,
+     which arrives a different grey from everything around it. */
+  ::-webkit-scrollbar-corner {
+    background-color: transparent;
+  }
+
   ::selection {
     @apply bg-brass-300/35 text-ink-100;
   }
@@ -142,8 +294,10 @@
   .scrap {
     position: relative;
     background:
-      linear-gradient(148deg, rgb(58 48 40 / 0.97), rgb(38 32 30 / 0.98) 55%, rgb(30 25 26 / 0.99)),
-      radial-gradient(circle at 18% 12%, rgb(240 200 140 / 0.06), transparent 60%);
+      /* The torn sheet is the same material as `.card-paper` and moves with it: ink black since
+         the colour study, one step lighter so a scrap still reads as a page on top of a panel. */
+      linear-gradient(148deg, rgb(44 44 49 / 0.97), rgb(29 29 34 / 0.98) 55%, rgb(22 22 27 / 0.99)),
+      radial-gradient(circle at 18% 12%, rgb(220 220 230 / 0.055), transparent 60%);
     box-shadow:
       0 14px 30px -12px rgb(8 6 12 / 0.85),
       0 2px 0 0 rgb(255 255 255 / 0.04) inset;
@@ -214,9 +368,37 @@
    */
   .card-paper {
     position: relative;
+    /*
+     * Ink black, chosen off the twelve-way colour study (maintainer request, 2026-09-14).
+     *
+     * This was umber: `#342c28 -> #221d1e -> #1c181a`, a warm brown sheet on a violet shell. The
+     * brown is gone and the ground is now very dark neutral, so the only warm thing left on a panel
+     * is the brass the frame and the rules are drawn in, which is what they are for.
+     *
+     * Whatever this becomes, it has to move **with** the wash below it. `.washed::after` paints a
+     * cloud over every panel in soft-light, and that cloud carries its own tint: changing only this
+     * gradient leaves the warmth in the overlay and produces a half-brown panel. The first pass of
+     * the study did exactly that and the ladder cards stayed brown while the ledger shifted.
+     */
     background:
-      linear-gradient(152deg, rgb(52 44 40 / 0.9), rgb(34 29 30 / 0.94) 60%, rgb(28 24 26 / 0.96)),
-      radial-gradient(circle at 22% 8%, rgb(240 200 140 / 0.05), transparent 62%);
+      linear-gradient(152deg, rgb(36 36 40 / 0.9), rgb(24 24 28 / 0.94) 60%, rgb(18 18 22 / 0.96)),
+      radial-gradient(circle at 22% 8%, rgb(220 220 230 / 0.045), transparent 62%);
+    /*
+     * The ground, said again as a colour, and it is load-bearing (maintainer report, 2026-09-15:
+     * a unit's card is see-through over the deploy dialog).
+     *
+     * The shorthand above is the whole of this sheet, and a shorthand sets **every** background
+     * longhand: it puts the gradients in `background-image` and resets `background-color` to
+     * transparent. Any class that then sets a `background-image` of its own replaces the gradients
+     * and leaves nothing at all behind the panel. `.rivets` does exactly that, and eleven elements
+     * in this app carry `card-paper` and `rivets` together: every one of them was fully
+     * transparent, computing to `rgba(0, 0, 0, 0)`.
+     *
+     * Declared after the shorthand so it survives it, and as the longhand so a later
+     * `background-image` cannot touch it. The colour is the darkest stop of the gradient at full
+     * alpha, so a panel that is still drawing its gradients looks exactly as it did.
+     */
+    background-color: rgb(18 18 22);
   }
 
   /**
@@ -288,6 +470,27 @@
     background-position: center;
     background-size: 100% 100%;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.8'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 6 L192 5 L194 50 L7 51 Z' stroke-opacity='0.75' stroke-width='2'/%3E%3Cpath d='M7 51 L10 49 L26 50' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
+   * The same pen, drawn for a wide field rather than a small button.
+   *
+   * `.ink-box` is authored in a 200x56 viewBox and painted with `background-size: 100% 100%`, so it
+   * is *stretched* to whatever it is on. That is fine on a button, which is roughly that shape. On
+   * the standings search field, 320px wide and 38 tall, the horizontal stretch is about 1.6x and
+   * the vertical about 0.7: the 8-unit inset became a 13px gap between the drawn line and the edge
+   * of the control, so the eye glyph and the placeholder sat outside their own box, and the
+   * displacement wobble was stretched with everything else into a visible waver.
+   *
+   * This is the field-shaped version: a 320x44 viewBox so a text input barely stretches at all, the
+   * path 3 units from the edge instead of 8, and half the displacement. It reads as drawn without
+   * reading as shaky, which is what the rest of the chrome does.
+   */
+  .ink-field {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='44' viewBox='0 0 320 44' preserveAspectRatio='none'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.04' numOctaves='2' seed='5'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.9'/%3E%3C/filter%3E%3Cg filter='url(%23f)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3 L317 2.5 L317.5 41 L2.5 41.5 Z' stroke-opacity='0.7' stroke-width='1.5'/%3E%3Cpath d='M2.5 41.5 L6 40 L30 40.8' stroke-opacity='0.4' stroke-width='1.2'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**
@@ -386,7 +589,7 @@
     border-radius: inherit;
     opacity: 0.5;
     mix-blend-mode: soft-light;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.03' numOctaves='4' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0.85 0 0 0 0 0.8 0 0 0 0 0.72 0 0 0 -1.1 0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.03' numOctaves='4' seed='3'/%3E%3CfeColorMatrix values='0 0 0 0 0.84 0 0 0 0 0.84 0 0 0 0 0.86 0 0 0 -1.1 0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23w)'/%3E%3C/svg%3E");
     background-size: cover;
   }
 

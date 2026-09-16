@@ -19,7 +19,7 @@ import {
  * bar, because the widest document in the game has eight pages and they have to sit on one line at
  * 1280 without the row growing or the sheets shrinking to specks.
  *
- * The satchel here is hand-built rather than taken off `market.inventory`: the interesting states
+ * The inventory here is hand-built rather than taken off `market.inventory`: the interesting states
  * are one page in, most of the way there, complete, and unlocked, and a fixture that happened to
  * hold none of them would take a screenshot of an empty page and pass.
  */
@@ -27,7 +27,7 @@ import {
 test.use({ viewport: { width: 1280, height: 800 } });
 
 /** One of each state, across all three categories. Shared with the research page's sweep. */
-const SATCHEL = pagesHeld;
+const INVENTORY = pagesHeld;
 
 test('the blueprints page holds its rows without cutting any of them', async ({ page }) => {
   // Tall enough for the whole cabinet with the unlocked row shown: the sheet scrolls, and a
@@ -37,7 +37,7 @@ test('the blueprints page holds its rows without cutting any of them', async ({ 
   await installApi(page, lateGame);
   // Registered after `installApi`, so it wins: Playwright matches the most recent handler first.
   await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
+    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
   });
 
   await page.goto('/game/research/blueprints');
@@ -84,7 +84,7 @@ test('the blueprints page holds its rows without cutting any of them', async ({ 
 test('puts the widest document on one line at 1280', async ({ page }) => {
   await installApi(page, lateGame);
   await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
+    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
   });
 
   await page.goto('/game/research/blueprints');
@@ -112,7 +112,7 @@ test('puts the widest document on one line at 1280', async ({ page }) => {
   expect([...new Set(heights)], `rows came out at ${heights.join(', ')}px`).toHaveLength(1);
 });
 
-/** §D5, from the outside: a crew with an empty satchel is told nothing about what exists. */
+/** §D5, from the outside: a crew with an empty inventory is told nothing about what exists. */
 test('shows a crew with no pages nothing at all', async ({ page }) => {
   await installApi(page, lateGame);
   await page.route('**/api/market', async (route) => {
@@ -121,7 +121,7 @@ test('shows a crew with no pages nothing at all', async ({ page }) => {
 
   await page.goto('/game/research/blueprints');
   // Printed on the page, not folded into a hover chip: collapsed, that chip was the whole of this
-  // screen for a crew with nothing in the satchel, and a blank sheet is indistinguishable from a
+  // screen for a crew with nothing in the inventory, and a blank sheet is indistinguishable from a
   // read that failed.
   await expect(page.getByTestId('blueprints-empty')).toContainText(
     'A blueprint is a set of named pages, and you have none of them',
@@ -136,7 +136,7 @@ test('shows a crew with no pages nothing at all', async ({ page }) => {
 test('opens one drawer at a time and counts the other two', async ({ page }) => {
   await installApi(page, lateGame);
   await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
+    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
   });
 
   await page.goto('/game/research/blueprints');
@@ -152,37 +152,11 @@ test('opens one drawer at a time and counts the other two', async ({ page }) => 
   await page.screenshot({ path: 'e2e-out/blueprints-upgrades.png', fullPage: true });
 });
 
-/**
- * §I1d: the documents moved out of the Satchel and into research, and the Satchel keeps the door.
- *
- * The pages are still items in the bag, so the Satchel is still where a player notices they have
- * some; what they add up to is a screen, and that screen is now the second tab of the archive.
- */
-test('opens from the satchel, and says how many pages are in it', async ({ page }) => {
+/** The Inventory page's old address still resolves: it is in bookmarks and in old notifications. */
+test('redirects the old inventory address to the new one', async ({ page }) => {
   await installApi(page, lateGame);
   await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
-  });
-
-  await page.goto('/game/inventory');
-  await expect(page.getByText('13 pages')).toBeVisible();
-  await settleFonts(page);
-  await expectNothingOverflowsTheScreen(page);
-  await expectNothingClippedVertically(page);
-  await page.screenshot({ path: 'e2e-out/blueprints-satchel.png', fullPage: true });
-
-  await page.getByRole('link', { name: /Blueprints/ }).click();
-  await expect(page).toHaveURL(/\/game\/research\/blueprints$/);
-  await expect(page.getByTestId('blueprint-bp_snipers')).toBeVisible();
-  // ...and it arrives with the archive's strip over it rather than as a page of its own.
-  await expect(page.getByTestId('research-tab-blueprints')).toHaveAttribute('aria-current', 'page');
-});
-
-/** The Satchel's old address still resolves: it is in bookmarks and in old notifications. */
-test('redirects the old satchel address to the new one', async ({ page }) => {
-  await installApi(page, lateGame);
-  await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: SATCHEL } });
+    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
   });
 
   await page.goto('/game/inventory/blueprints');

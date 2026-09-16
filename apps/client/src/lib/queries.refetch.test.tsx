@@ -19,6 +19,8 @@ const getCrewStanding = vi.hoisted(() => vi.fn());
 const reassignOfficer = vi.hoisted(() => vi.fn());
 const releaseOfficer = vi.hoisted(() => vi.fn());
 const startTraining = vi.hoisted(() => vi.fn());
+const burnUpgrade = vi.hoisted(() => vi.fn());
+const getScrapyard = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
@@ -35,12 +37,16 @@ vi.mock('./api', async (importOriginal) => ({
   reassignOfficer,
   releaseOfficer,
   startTraining,
+  burnUpgrade,
+  getScrapyard,
 }));
 
 const { ApiRequestError } = await import('./api');
 const {
   useActions,
   useBuildAddon,
+  useBurnUpgrade,
+  useScrapyard,
   useCrew,
   useCrewStanding,
   useDeployToBattle,
@@ -91,6 +97,8 @@ beforeEach(() => {
   getMe.mockReset().mockResolvedValue({ user: null, base: null });
   getCrew.mockReset().mockResolvedValue(EMPTY_CREW);
   deployToBattle.mockReset();
+  burnUpgrade.mockReset();
+  getScrapyard.mockReset().mockResolvedValue({ entries: [] });
   getActions.mockReset().mockResolvedValue({ movements: [], missions: [] });
   getBattles.mockReset().mockResolvedValue({ coming: [], reports: [] });
   buildAddon.mockReset();
@@ -216,6 +224,31 @@ describe('a refused write that had already settled the crew', () => {
     await waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));
   });
 
+  /**
+   * A burn shrinks the stock the Scrapyard's rows read `owned` off, and the Scrapyard query has no
+   * poll. `useBuildAddon` invalidates `units` when the yard adds to the stock; this is the other
+   * direction, which was missing: for the 30s `staleTime` the bench went on showing a burned card
+   * as Built, with nothing to press.
+   */
+  it('makes the Scrapyard re-read after a burn', async () => {
+    burnUpgrade.mockResolvedValueOnce({ units: [], built: [] });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false, staleTime: 30_000 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => ({ burn: useBurnUpgrade(), yard: useScrapyard() }), {
+      wrapper,
+    });
+    await waitFor(() => expect(getScrapyard).toHaveBeenCalledTimes(1));
+
+    result.current.burn.mutate({ upgradeId: 'taped_grips' });
+    await waitFor(() => expect(result.current.burn.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getScrapyard).toHaveBeenCalledTimes(2));
+  });
+
   it('makes the HUD re-read after a refused research start', async () => {
     startTech.mockRejectedValueOnce(
       new ApiRequestError(409, 'RESEARCH_OPTION_LOCKED', 'Locked', LEVELLED),
@@ -269,7 +302,7 @@ describe('the district screen, which settles on its own read', () => {
  *
  * `settleVendorAuctions` runs on the route's second line, outside the transaction and ahead of
  * every refusal `placeVendorBid` can give. So "you are already leading this lot" is an answer given
- * after the server has handed lots over, taken the caps for them and put the goods in a satchel,
+ * after the server has handed lots over, taken the caps for them and put the goods in the inventory,
  * and the HUD beside the refusal is quoting the tin from before all of that.
  */
 describe('a refused bid at the barrow', () => {

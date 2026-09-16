@@ -117,7 +117,7 @@ export const GAIN_FLOOR = 2;
 
 export interface Reading<K extends string> {
   /**
-   * Partial, so a satchel keyed by item id (where an item held none of is simply absent) reads
+   * Partial, so an inventory keyed by item id (where an item held none of is simply absent) reads
    * the same way a stockpile with every key present does.
    */
   values: Readonly<Partial<Record<K, number | undefined>>>;
@@ -159,7 +159,7 @@ export function trickleAllowance<K extends string>(
  *
  * A rise has to clear `max(GAIN_FLOOR, allowance)` before it counts, and only on a reading that
  * carries {@link TrickleRates}. A counter with no passive source behind it (the infamy
- * wallet, the unit roster, the satchel) is announced whatever it moves by, because a single found
+ * wallet, the unit roster, the inventory) is announced whatever it moves by, because a single found
  * servo is +1 and there is nothing else it could have been.
  */
 export function shownDeltas<K extends string>(

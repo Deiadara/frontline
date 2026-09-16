@@ -114,7 +114,7 @@ for (const count of [10, 14, 18, 20, 22, 26, 30, 40]) {
     attacker: { razors: count },
     defender: { razors: 20 },
   });
-  if (p + 0.02 < previous) console.log('   NOT MONOTONE: more bodies won less often');
+  if (p + 0.02 < previous) console.log('   NOT MONOTONE: more units won less often');
   previous = p;
 }
 
