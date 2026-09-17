@@ -161,6 +161,25 @@ describe('reinforcing an ally who is being broken into', () => {
     expect(app.repos.bases.findById(ally.baseId)?.army.razors).toBe(15);
 
     /*
+     * And the person told about it is the crew being helped, not the crew doing the raiding.
+     *
+     * The notification read `battle.attackerBaseId` whichever side the column was going to, so
+     * helping a friend's defence told the raider "units are on the road to a fight of yours" and
+     * told the defender nothing at all. That is the one fact the game works hardest to hide: the
+     * whole of `deploymentBlurPercent`, and the ring that exists to buy a silence, handed over in
+     * a push notification.
+     */
+    const heard = (crew: Crew): string[] =>
+      app.repos.social
+        .notifications(crew.userId, 20)
+        .filter((row) => row.kind === 'reinforcement_arrived')
+        .map((row) => row.title);
+
+    expect(heard(victim), 'the defender was never told help was coming').toHaveLength(1);
+    expect(heard(victim)[0]).toContain('the_ally');
+    expect(heard(raider), 'the raider was told the defence was being reinforced').toEqual([]);
+
+    /*
      * §D7: one boost per side, and it is the principal's.
      *
      * `side.ts` reads the first row on a side that names a boost, so an ally's purchase was either

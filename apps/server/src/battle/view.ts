@@ -1,5 +1,6 @@
 import {
   blueprintGateMet,
+  capRating,
   describeBlueprintGate,
   BUILDING_CATALOG,
   CITY_DISTRICTS,
@@ -14,6 +15,9 @@ import {
   deploymentIsOpen,
   deployedSize,
   findDistrict,
+  findUnit,
+  fittedFor,
+  upgradedStats,
   blackMarketEffect,
   boostAvailable,
   boostCoverage,
@@ -57,8 +61,14 @@ import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor, scoutingRunView } from '../city/view.js';
 import { sideOf } from './deploy.js';
-import { callPriceFor, defendingBaseOf } from './declare.js';
-import { districtsLivedIn, isInhabited, residentOf, targetName } from './ground.js';
+import { callPriceFor } from './declare.js';
+import {
+  defendingBaseOf,
+  districtsLivedIn,
+  isInhabited,
+  residentOf,
+  targetName,
+} from './ground.js';
 import { assemble, battlefieldOf } from './resolve.js';
 import { seatedRoles } from '../crew/roster.js';
 import { officerDuty } from '../crew/duty.js';
@@ -137,10 +147,30 @@ function readEnemy(
       gateIntelResistancePercent(enemyBase.buildings)
     : 0;
 
+  /*
+   * What they are actually fielding, not what the catalogue prints.
+   *
+   * Off the same base the resistance term above comes from, which keeps the two halves of one
+   * reading consistent: both are measured against the crew that owns the ground rather than
+   * against each ally's own books. `upgradedStats` folds their fitted cards and the crew's
+   * `unitStealthPercent` then scales the result, in that order, exactly as `battle/effects.ts`
+   * does it for the line, so the number this hides behind is the number that fights.
+   */
+  const theirStealthPercent = enemyBase ? crewEffectsFor(repos, enemyBase).unitStealthPercent : 0;
+  const stealthOf = (unitId: string): number => {
+    const unit = findUnit(unitId);
+    if (!unit) return 0;
+    const fitted = enemyBase
+      ? upgradedStats(unit.stats, fittedFor(enemyBase.unitLoadouts, unitId))
+      : unit.stats;
+    return capRating(Math.round(fitted.stealth * (1 + theirStealthPercent / 100)));
+  };
+
   const blur = deploymentBlurPercent({
     resistancePercent: resistance,
     yieldPercent: reading,
     force,
+    stealthOf,
   });
   return { size: observedForceSize(force, blur), quality: intelQualityLine(blur) };
 }

@@ -129,7 +129,7 @@ export function ForcePicker({
                   {unit.name}
                 </span>
                 <span className="block font-body text-[12px] text-ink-300">
-                  {unit.stats.lootCapacity} loot each ·{' '}
+                  {unit.stats.lootCapacity} loot slots each ·{' '}
                   {unit.modifiers.map((id) => UNIT_MODIFIERS[id].label).join(', ') ||
                     'no modifiers'}
                 </span>
@@ -154,7 +154,7 @@ export function ForcePicker({
         <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Row label="Sending" value={String(chosen)} />
           {returning > 0 && <Row label="Bringing back" value={String(returning)} />}
-          <Row label="Can carry" value={`${capacity} loot`} />
+          <Row label="Can carry" value={`${capacity} loot slots`} />
         </dl>
 
         {/*

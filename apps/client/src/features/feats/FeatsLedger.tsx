@@ -54,13 +54,27 @@ export function FeatsLedger({
   ];
 
   return (
-    <section
-      className="ink-frame card-paper washed grain flex flex-wrap items-center gap-x-5 gap-y-3 rounded-sm px-4 py-3 shadow-panel"
-      data-testid="feats-ledger"
-    >
-      <FeatSeal>
+    /*
+     * No frame of its own any more (maintainer, 2026-09-17).
+     *
+     * The ledger, the filters and the Collect-all button were three framed panels across the top
+     * of the sheet, which is three hand-inked edges around two figures and four chips. They are one
+     * box now and this is the left third of it, so what is left here is the seal, the stroke and
+     * the three lines: a frame inside a frame is the thing that read as clutter.
+     */
+    <section className="flex flex-wrap items-center gap-x-5 gap-y-3" data-testid="feats-ledger">
+      {/*
+       * A tenth off the seal, which is a tenth off the box (maintainer, 2026-09-17).
+       *
+       * The seal is the tallest thing in the summary box, so it alone decides how much of the
+       * sheet that box takes and how much is left for the board under it. Measured: the box was
+       * 156px with a 120px seal, of which 36px is padding and rule, so 6.5rem (104px) is the ten
+       * per cent off the **box** rather than off the drawing. The seal holds at the smaller size
+       * because it is a rosette scaled by its own viewBox rather than a photograph.
+       */}
+      <FeatSeal className="h-[6.5rem] w-[6.5rem]">
         <span
-          className="font-stamp text-[30px] leading-none text-brass-100"
+          className="font-stamp text-[27px] leading-none text-brass-100"
           data-testid="feats-ledger-claimed"
         >
           {claimed}
@@ -70,7 +84,9 @@ export function FeatsLedger({
         </span>
       </FeatSeal>
 
-      <div className="flex min-w-[13rem] flex-1 flex-col gap-2">
+      {/* A longer stroke than the ledger used to carry: it sat in a panel of its own at a third
+          of the sheet, and in the joined box it has the room to be a measure rather than a chip. */}
+      <div className="flex min-w-[19rem] flex-1 flex-col gap-2">
         {/*
          * No `remaining` on the bar.
          *

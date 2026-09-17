@@ -136,9 +136,12 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
               {line}
             </p>
           ))}
-          {analysis.decidedOnPower && (
+          {analysis.settledBy !== 'standing' && (
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              Called on who was left standing.
+              {analysis.settledBy === 'cap'
+                ? 'Called on who was left standing.'
+                : // Both lines fell in the same round, so there was nobody left to call it on.
+                  'Both lines went down. Called on who had more left on the ground.'}
             </p>
           )}
           {/* The ring, when one was there to be met. Meeting it is a second fight now, so it has a

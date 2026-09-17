@@ -24,7 +24,7 @@ import {
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSession } from '../../store/session';
 import { ScrapyardPage } from './ScrapyardPage';
@@ -166,17 +166,22 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
     expect(screen.getByTestId('scrapyard-discount')).toHaveTextContent('4% off');
   });
 
-  it('names what is in a bracket, what is waiting, and what has not opened', async () => {
+  it('names what is in a bracket and what has not opened', async () => {
     stubApi();
     renderYard('/game/scrapyard?bench=lab');
     const lab = within(await screen.findByTestId('scrapyard-bench-lab'));
     // Bolted in: the first bracket says which one.
     expect(within(lab.getByTestId('scrapyard-slot-lab-0')).getByText(FITTED.name)).toBeVisible();
     expect(lab.getByTestId('scrapyard-slot-lab-1')).toHaveTextContent('Empty');
-    // Cut and not bolted in anywhere: on the shelf, and not confused with the fitted one.
-    const shelf = within(lab.getByTestId('scrapyard-shelf-lab'));
-    expect(shelf.getByText(SHELVED.name)).toBeVisible();
-    expect(shelf.queryByText(FITTED.name)).toBeNull();
+    /*
+     * And nothing about a shelf, because there is not one (maintainer rule, 2026-09-16).
+     *
+     * The yard used to cut a card onto a shelf and the district used to bolt it in, so the head of
+     * the bench had a column for what was "cut for it and waiting". One press does both now, so
+     * there is no such state and no such column: what a player owns for a structure is what is in
+     * its brackets.
+     */
+    expect(lab.queryByTestId('scrapyard-shelf-lab')).toBeNull();
 
     // A structure too low for its first bracket says which level opens it rather than "Empty".
     fireEvent.click(screen.getByTestId('scrapyard-bench-the-generator'));
@@ -184,10 +189,21 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
     expect(generator.getByTestId('scrapyard-slot-generator-0')).toHaveTextContent(
       `Opens at level ${MODIFICATION_SLOT_LEVELS[0]}`,
     );
-    // ...and the one cut for it is still on its shelf, waiting for the level.
-    expect(
-      within(generator.getByTestId('scrapyard-shelf-generator')).getByText(GENERATOR_MOD.name),
-    ).toBeVisible();
+  });
+
+  /**
+   * The bench is where a card is bolted in now, so it does not send anybody anywhere to do it.
+   *
+   * This used to assert a "Fit in the district" link at the head of every bench, which was the
+   * other half of the two-step the maintainer removed: the yard cut it, the district bolted it in.
+   * The link is gone and the press is here.
+   */
+  it('does not send a player to the district to bolt one in', async () => {
+    stubApi();
+    renderYard('/game/scrapyard?bench=lab');
+    await screen.findByTestId('scrapyard-bench-lab');
+    expect(screen.queryByTestId('scrapyard-fit-lab')).toBeNull();
+    expect(screen.queryByText('Fit in the district')).toBeNull();
   });
 
   /**
@@ -209,15 +225,8 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
     );
     // A structure that is not standing says so rather than counting brackets it does not have.
     expect(screen.getByTestId('scrapyard-fitted-gate')).toHaveTextContent('Not built yet');
-    // ...and a structure with nothing cut for it says so rather than drawing an empty list.
+    // ...and no structure has a shelf at all any more: see the bracket test above.
     expect(screen.queryByTestId('scrapyard-shelf-nexus')).toBeNull();
-  });
-
-  it('sends a player to the district to bolt one in', async () => {
-    stubApi();
-    renderYard('/game/scrapyard?bench=lab');
-    fireEvent.click(await screen.findByTestId('scrapyard-fit-lab'));
-    expect(await screen.findByText('the district')).toBeInTheDocument();
   });
 
   /**
@@ -243,6 +252,9 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
       requiresLevel: 1,
       documentHeld: true,
       blocker: null,
+      // A trap belongs to no structure and asks for none of the four gates.
+      targets: [],
+      requirement: [],
     });
     stubApi({
       ...scrapyard,
@@ -330,6 +342,9 @@ describe('the grade headings say the level their own cards open at', () => {
     requiresLevel: scrapyardLevelForModification(spec),
     documentHeld: true,
     blocker: null,
+    // Open on its own structure, which is the state these tests are about.
+    targets: [{ id: spec.building, name: spec.building, fitted: false, blocker: null }],
+    requirement: [],
   });
   const unitRow = (spec: UnitModificationSpec): ScrapyardEntry => ({
     id: spec.id,
@@ -346,6 +361,8 @@ describe('the grade headings say the level their own cards open at', () => {
     requiresLevel: scrapyardLevelForUpgrade(spec),
     documentHeld: true,
     blocker: null,
+    targets: [{ id: 'razors', name: 'Razors', fitted: false, blocker: null }],
+    requirement: [],
   });
 
   const board: ScrapyardResponse = {
@@ -393,5 +410,299 @@ describe('the grade headings say the level their own cards open at', () => {
     expect(tip).toContain(`INTRICATE at ${SCRAPYARD_LEVEL_FOR_RARITY.intricate}`);
     expect(tip).toContain('Building cards: BASIC and INTRICATE at 1');
     expect(tip).not.toContain('alike');
+  });
+});
+
+/**
+ * "Go out there and find some more blueprints." is the empty state of a bench, not a running count.
+ *
+ * It used to be drawn whenever any row was withheld, so a crew holding thirty refits still got
+ * told to go and find some (maintainer report, 2026-09-16). The rule is now about what the bench
+ * holds rather than about what it is keeping back: the line is for the player who opened a bench
+ * and found nothing on it, and it goes the moment the first card lands there.
+ */
+describe('the line under a bench is an empty state', () => {
+  const trap = (
+    id: string,
+    documentHeld: boolean,
+    blocker: string | null = null,
+  ): ScrapyardEntry => ({
+    id,
+    kind: 'trap',
+    name: id,
+    description: 'A hole with an opinion.',
+    building: null,
+    effect: 'Slows the approach.',
+    cost: { caps: 40 },
+    advanced: false,
+    rarity: null,
+    blueprint: null,
+    owned: 0,
+    requiresLevel: 1,
+    documentHeld,
+    blocker: documentHeld ? blocker : 'Needs the drawings',
+    targets: [],
+    requirement: [],
+  });
+
+  const unit = (
+    id: string,
+    documentHeld: boolean,
+    blocker: string | null = null,
+  ): ScrapyardEntry => ({
+    ...trap(id, documentHeld, blocker),
+    kind: 'upgrade',
+    rarity: 'basic',
+    // The unit bench is per sheet now, so a row needs a sheet to be about.
+    targets: [
+      {
+        id: 'razors',
+        name: 'Razors',
+        fitted: false,
+        blocker: documentHeld ? blocker : 'Needs the drawings',
+      },
+    ],
+  });
+
+  /** A bracket for one structure, optionally one the crew could not cut today. */
+  const bracket = (
+    spec: ModificationSpec,
+    documentHeld: boolean,
+    blocker: string | null = null,
+  ): ScrapyardEntry => ({
+    id: spec.id,
+    kind: 'modification',
+    name: spec.name,
+    description: spec.description,
+    building: spec.building,
+    effect: '',
+    cost: modificationPrice(spec),
+    advanced: isAdvancedModification(spec),
+    rarity: null,
+    blueprint: null,
+    owned: 0,
+    requiresLevel: 1,
+    documentHeld,
+    blocker: null,
+    targets: [
+      {
+        id: spec.building,
+        name: spec.building,
+        fitted: false,
+        blocker: documentHeld ? blocker : 'Needs the drawings',
+      },
+    ],
+    requirement: [],
+  });
+
+  it('says nothing on a traps bench that has a card on it', async () => {
+    stubApi({ ...scrapyard, entries: [trap('trap_held', true), trap('trap_locked', false)] });
+    renderYard('/game/scrapyard?view=traps');
+    expect(await screen.findByTestId('addon-trap_held')).toBeVisible();
+    expect(screen.queryByTestId('scrapyard-hidden-traps')).toBeNull();
+  });
+
+  it('says it on a traps bench the crew holds nothing for', async () => {
+    stubApi({ ...scrapyard, entries: [trap('trap_locked', false), trap('trap_other', false)] });
+    renderYard('/game/scrapyard?view=traps');
+    expect(await screen.findByTestId('scrapyard-hidden-traps')).toHaveTextContent(
+      'find some more blueprints',
+    );
+  });
+
+  /** A bench with nothing behind a document either has nothing to go and find. */
+  it('says nothing on a bare bench with no withheld rows behind it', async () => {
+    stubApi({ ...scrapyard, entries: [] });
+    renderYard('/game/scrapyard?view=traps');
+    expect(await screen.findByTestId('scrapyard-view-traps')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByTestId('scrapyard-hidden-traps')).toBeNull();
+  });
+
+  it('keeps the same rule on the refits bench', async () => {
+    stubApi({ ...scrapyard, entries: [unit('unit_held', true), unit('unit_locked', false)] });
+    renderYard('/game/scrapyard?view=refits');
+    expect(await screen.findByTestId('addon-unit_held')).toBeVisible();
+    expect(screen.queryByTestId('scrapyard-hidden-refits')).toBeNull();
+
+    stubApi({ ...scrapyard, entries: [unit('unit_locked', false)] });
+    renderYard('/game/scrapyard?view=refits');
+    expect(await screen.findByTestId('scrapyard-hidden-refits')).toBeVisible();
+  });
+
+  /**
+   * ...and per structure on the add-ons bench, because that is the bench a player is looking at.
+   *
+   * The Lab holds one of its two; the Generator holds none of its one. A rule read over the whole
+   * `modification` kind would print the line on both or on neither.
+   */
+  it('reads the rule off the structure whose bench is open, not off the whole kind', async () => {
+    const lab = modificationsFor('lab');
+    const generator = modificationsFor('generator');
+    const board: ScrapyardResponse = {
+      ...scrapyard,
+      entries: [
+        bracket(lab[0]!, true),
+        bracket(lab[1]!, false),
+        bracket(generator[0]!, false),
+        bracket(generator[1]!, false),
+      ],
+    };
+    stubApi(board);
+    renderYard('/game/scrapyard?bench=lab');
+    expect(await screen.findByTestId('scrapyard-lab')).toBeVisible();
+    expect(screen.queryByTestId('scrapyard-hidden-lab')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('scrapyard-bench-the-generator'));
+    expect(await screen.findByTestId('scrapyard-hidden-generator')).toHaveTextContent(
+      'find some more blueprints',
+    );
+  });
+
+  /**
+   * The same, over the two benches whose held count is worked out by the page above them.
+   *
+   * The refits and the traps are handed rows the filter has already been through, so their count
+   * of what is held is passed separately. A count taken after the filter would light the line on
+   * both of these benches the moment a player pressed Ready to build.
+   */
+  it('stays away on the refits and traps benches the filter has emptied', async () => {
+    stubApi({
+      ...scrapyard,
+      entries: [
+        unit('unit_held', true, 'Not enough scrap'),
+        unit('unit_locked', false),
+        trap('trap_held', true, 'Not enough scrap'),
+        trap('trap_locked', false),
+      ],
+    });
+    renderYard('/game/scrapyard?view=refits');
+    expect(await screen.findByTestId('addon-unit_held')).toBeVisible();
+
+    fireEvent.click(screen.getByTestId('scrapyard-ready-only'));
+    expect(screen.queryByTestId('addon-unit_held')).toBeNull();
+    expect(screen.queryByTestId('scrapyard-hidden-refits')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('scrapyard-view-traps'));
+    expect(await screen.findByTestId('scrapyard-view-traps')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByTestId('addon-trap_held')).toBeNull();
+    expect(screen.queryByTestId('scrapyard-hidden-traps')).toBeNull();
+  });
+
+  /**
+   * The Ready-to-build filter cannot turn the line on.
+   *
+   * The filter hides rows the crew *does* hold, so a bench emptied by it is not a bench with
+   * nothing on it: the line is read off what is held, before the filter runs.
+   */
+  it('stays away when the ready filter is what emptied the bench', async () => {
+    const lab = modificationsFor('lab');
+    stubApi({
+      ...scrapyard,
+      entries: [bracket(lab[0]!, true, 'Not enough scrap'), bracket(lab[1]!, false)],
+    });
+    renderYard('/game/scrapyard?bench=lab');
+    expect(await screen.findByTestId(`addon-${lab[0]!.id}`)).toBeVisible();
+
+    fireEvent.click(screen.getByTestId('scrapyard-ready-only'));
+    expect(screen.queryByTestId(`addon-${lab[0]!.id}`)).toBeNull();
+    expect(screen.queryByTestId('scrapyard-hidden-lab')).toBeNull();
+  });
+});
+
+/**
+ * §E as the maintainer rewrote it on 2026-09-16: one press cuts the card and bolts it in.
+ *
+ * The bench used to say Build, put the card on a shelf, and send the player to the district to fit
+ * it. Now the press names the structure the bench is open on, the button on a card already in that
+ * structure reads Dismantle, and dismantling is asked for first because nothing comes back.
+ */
+describe('bolting a card in from the bench', () => {
+  const posted = () =>
+    fetchMock.mock.calls
+      .filter(([path, init]) => String(path).endsWith('/scrapyard/build') && init !== undefined)
+      .map(
+        ([, init]) => JSON.parse((init as RequestInit).body as string) as Record<string, string>,
+      );
+
+  const card = (over: Partial<ScrapyardEntry> = {}): ScrapyardEntry => ({
+    id: 'nexus_priority_bus',
+    kind: 'modification',
+    name: 'Priority Bus',
+    description: 'The Nexus decides which job goes first.',
+    building: 'nexus',
+    effect: '+8% off how long a build takes',
+    cost: { scrap: 100 },
+    advanced: false,
+    rarity: 'basic',
+    blueprint: null,
+    owned: 0,
+    requiresLevel: 1,
+    documentHeld: true,
+    blocker: null,
+    targets: [{ id: 'nexus', name: 'The Nexus', fitted: false, blocker: null }],
+    requirement: ['The Nexus at level 2', 'District level 2', 'Lead Engineer at F+ or better'],
+    ...over,
+  });
+
+  it('asks first, then sends the structure the bench is open on with the press', async () => {
+    stubApi({ ...scrapyard, entries: [card()] });
+    renderYard('/game/scrapyard?bench=nexus');
+    fireEvent.click(await screen.findByTestId('addon-build-nexus_priority_bus'));
+
+    // The bill is spent on the press and taking it out again destroys it, so it is asked for.
+    const asked = await screen.findByTestId('scrapyard-bolt');
+    expect(asked).toHaveTextContent('The Nexus');
+    expect(posted(), 'the yard cut it before anybody said yes').toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId('scrapyard-bolt-yes'));
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(posted()[0]).toEqual({
+      kind: 'modification',
+      id: 'nexus_priority_bus',
+      target: 'nexus',
+    });
+  });
+
+  it('reads Dismantle on a structure already wearing it, and asks before it does', async () => {
+    stubApi({
+      ...scrapyard,
+      entries: [
+        card({
+          targets: [{ id: 'nexus', name: 'The Nexus', fitted: true, blocker: null }],
+          owned: 1,
+        }),
+      ],
+    });
+    renderYard('/game/scrapyard?bench=nexus');
+    fireEvent.click(await screen.findByTestId('addon-dismantle-nexus_priority_bus'));
+    // Nothing is posted until the player says yes: taking one out destroys it.
+    expect(await screen.findByTestId('scrapyard-dismantle')).toBeVisible();
+    expect(screen.getByTestId('scrapyard-dismantle')).toHaveTextContent('Nothing is refunded');
+    expect(screen.queryByTestId('addon-build-nexus_priority_bus')).toBeNull();
+  });
+
+  it('says what the card asks for, not only what is in the way', async () => {
+    stubApi({
+      ...scrapyard,
+      entries: [
+        card({
+          targets: [{ id: 'nexus', name: 'The Nexus', fitted: false, blocker: 'District level 2' }],
+        }),
+      ],
+    });
+    renderYard('/game/scrapyard?bench=nexus');
+    const requires = within(await screen.findByTestId('addon-requires-nexus_priority_bus'));
+    expect(requires.getByText('The Nexus at level 2')).toBeVisible();
+    expect(requires.getByText('Lead Engineer at F+ or better')).toBeVisible();
+    // ...and the one gate that is actually shut is the sentence under the dead button.
+    expect(screen.getByTestId('addon-blocker-nexus_priority_bus')).toHaveTextContent(
+      'District level 2',
+    );
   });
 });

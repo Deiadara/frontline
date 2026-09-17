@@ -18,8 +18,13 @@ import {
   MAX_BLACK_MARKET_POTENCY,
   stashCount,
   takeFromStash,
-  takeRefusal,
+  blackBidRefusal,
+  blackLotId,
+  blackLotReserve,
+  blackLotSeed,
+  blackMarketClosesAt,
 } from './blackmarket.js';
+import { nextLotBid } from './auction.js';
 import { GAME_TIMEZONE } from '../time/zone.js';
 
 const NO_TURNOVER = Array.from({ length: BLACK_MARKET_SLOTS }, () => 0);
@@ -140,97 +145,101 @@ describe('the shelf', () => {
   });
 });
 
-describe('taking something', () => {
+describe('bidding on a slot', () => {
   const board = blackMarketBoard('2026-08-16', NO_TURNOVER);
   const first = board[0]!;
-  const price = BLACK_MARKET_GOODS[first.goodId]!.infamy;
+  const spec = BLACK_MARKET_GOODS[first.goodId]!;
+  const reserve = blackLotReserve(spec, 1);
 
-  it('lets a crew with the name for it through', () => {
-    expect(
-      takeRefusal({
-        slotIndex: 0,
-        goodId: first.goodId,
-        board,
-        infamy: price,
-        takenToday: 0,
-        cityLevel: 1,
-        level: 1,
-      }),
-    ).toBeNull();
+  /** Everything a bid is judged against, with the one field under test overridden per case. */
+  const ask = (patch: Record<string, unknown> = {}) =>
+    blackBidRefusal({
+      slotIndex: 0,
+      goodId: first.goodId,
+      board,
+      amount: reserve,
+      infamy: reserve,
+      cityLevel: 1,
+      leading: null,
+      leadingIsYou: false,
+      notoriety: 99,
+      ...patch,
+    });
+
+  it('opens at the weighted price and takes a bid that meets it', () => {
+    expect(reserve).toBe(blackMarketPrice(spec, 1));
+    expect(ask()).toBeNull();
   });
 
-  it('refuses one infamy short', () => {
-    expect(
-      takeRefusal({
-        slotIndex: 0,
-        goodId: first.goodId,
-        board,
-        infamy: price - 1,
-        takenToday: 0,
-        cityLevel: 1,
-        level: 1,
-      }),
-    ).toBe('not_enough_infamy');
+  it('refuses a number under where the lot opens', () => {
+    expect(ask({ amount: reserve - 1, infamy: reserve })).toBe('too_low');
   });
 
-  it('refuses the second thing on the same day, however rich the crew is', () => {
+  it('refuses a number that does not clear the crew in front', () => {
+    const leading = reserve * 2;
+    const minimum = nextLotBid(reserve, leading);
+    expect(minimum, 'the step is what makes this case real').toBeGreaterThan(leading);
+    expect(ask({ leading, amount: minimum - 1, infamy: 10 ** 9 })).toBe('too_low');
+    expect(ask({ leading, amount: minimum, infamy: 10 ** 9 })).toBeNull();
+  });
+
+  it('refuses a crew bidding against its own leading number', () => {
     expect(
-      takeRefusal({
-        slotIndex: 0,
-        goodId: first.goodId,
-        board,
-        infamy: 10 ** 9,
-        takenToday: BLACK_MARKET_TAKES_PER_DAY,
-        cityLevel: 1,
-        level: 1,
-      }),
-    ).toBe('daily_limit');
+      ask({ leading: reserve, leadingIsYou: true, amount: reserve * 3, infamy: 10 ** 9 }),
+    ).toBe('outbid_yourself');
+  });
+
+  it('refuses a bid the crew could not cover tonight', () => {
+    expect(ask({ amount: reserve, infamy: reserve - 1 })).toBe('not_enough_infamy');
   });
 
   it('refuses a slot that moved between the read and the click', () => {
-    // The player is looking at a stale board: somebody else emptied the slot and something else is
-    // standing in it. Charging them for the replacement is the defect this refusal exists for.
-    expect(
-      takeRefusal({
-        slotIndex: 0,
-        goodId: board[1]!.goodId,
-        board,
-        infamy: 10 ** 9,
-        takenToday: 0,
-        cityLevel: 1,
-        level: 1,
-      }),
-    ).toBe('moved_on');
+    // The player is looking at a stale board: the shelf turned over and something else is standing
+    // in that slot. Writing their number against the replacement is the defect this exists for.
+    expect(ask({ goodId: board[1]!.goodId, infamy: 10 ** 9, amount: 10 ** 8 })).toBe('moved_on');
   });
 
   it('refuses a slot that is not on the shelf', () => {
-    expect(
-      takeRefusal({
-        slotIndex: BLACK_MARKET_SLOTS,
-        goodId: first.goodId,
-        board,
-        infamy: 10 ** 9,
-        takenToday: 0,
-        cityLevel: 1,
-        level: 1,
-      }),
-    ).toBe('unknown_slot');
+    expect(ask({ slotIndex: BLACK_MARKET_SLOTS, infamy: 10 ** 9 })).toBe('unknown_slot');
   });
 
-  it('checks the limit before the price, so the message is the useful one', () => {
-    // A crew that is both out of allowance and short of infamy is told the thing they can do
-    // something about tomorrow, not the thing they cannot do anything about at all.
+  it('checks the rank before the price, so the message is the useful one', () => {
+    // A crew that is both unknown and broke is told the thing that is actually in their way, not
+    // sent off to earn a number that was never the reason.
+    const gated = board.find((slot) => (findBlackMarketGood(slot.goodId)?.minNotoriety ?? 0) > 0);
+    const target = gated ?? first;
+    const wanted = findBlackMarketGood(target.goodId)?.minNotoriety ?? 0;
     expect(
-      takeRefusal({
-        slotIndex: 0,
-        goodId: first.goodId,
+      blackBidRefusal({
+        slotIndex: target.index,
+        goodId: target.goodId,
         board,
+        amount: blackLotReserve(findBlackMarketGood(target.goodId)!, 1),
         infamy: 0,
-        takenToday: 1,
-        level: 1,
         cityLevel: 1,
+        leading: null,
+        leadingIsYou: false,
+        notoriety: wanted > 0 ? wanted - 1 : 0,
       }),
-    ).toBe('daily_limit');
+    ).toBe(wanted > 0 ? 'not_known_enough' : 'not_enough_infamy');
+  });
+});
+
+describe('the fence settles at midnight', () => {
+  it('closes a day at the first instant of the next one, on the Athens clock', () => {
+    // The shelf turns over and the lots settle at the same instant rather than a second apart.
+    expect(blackMarketClosesAt('2026-07-15', GAME_TIMEZONE).toISOString()).toBe(
+      '2026-07-15T21:00:00.000Z',
+    );
+  });
+
+  it('names every slot a lot of its own, and seeds each one differently', () => {
+    const ids = new Set(
+      Array.from({ length: BLACK_MARKET_SLOTS }, (_, index) => blackLotId('2026-08-16', index)),
+    );
+    expect(ids.size).toBe(BLACK_MARKET_SLOTS);
+    expect(blackLotSeed('2026-08-16', 0)).not.toBe(blackLotSeed('2026-08-16', 1));
+    expect(blackLotSeed('2026-08-16', 0)).not.toBe(blackLotSeed('2026-08-17', 0));
   });
 });
 
@@ -324,7 +333,7 @@ describe('what the city’s average level does to the back room', () => {
     expect(blackMarketEffect(blueprint, 30)).toBe(blueprint.effect);
   });
 
-  it('charges the weighted price at the door, not the catalogue one', () => {
+  it('opens a lot at the weighted price, not at the catalogue one', () => {
     const board = blackMarketBoard('2026-08-16', NO_TURNOVER);
     const slot = board[0]!;
     const spec = BLACK_MARKET_GOODS[slot.goodId]!;
@@ -332,92 +341,94 @@ describe('what the city’s average level does to the back room', () => {
       slotIndex: 0,
       goodId: slot.goodId,
       board,
-      takenToday: 0,
-      level: 1,
+      cityLevel: 25,
+      leading: null,
+      leadingIsYou: false,
+      notoriety: 99,
+      infamy: 10 ** 9,
     };
-    // Exactly the catalogue price, in a city that has run on for a while: refused, because the
-    // dealer is not asking the catalogue price any more.
-    expect(takeRefusal({ ...request, infamy: spec.infamy, cityLevel: 25 })).toBe(
-      'not_enough_infamy',
-    );
-    expect(
-      takeRefusal({ ...request, infamy: blackMarketPrice(spec, 25), cityLevel: 25 }),
-    ).toBeNull();
+    // Exactly the catalogue price, in a city that has run on for a while: under the reserve,
+    // because the dealer is not asking the catalogue price any more.
+    expect(blackBidRefusal({ ...request, amount: spec.infamy })).toBe('too_low');
+    expect(blackBidRefusal({ ...request, amount: blackMarketPrice(spec, 25) })).toBeNull();
   });
 });
 
 /**
- * §A4: the guard and the door must ask for the same number.
+ * §A4: the guard and the close must ask for the same number.
  *
- * `takeFromBlackMarket` spends the discounted price and the shelf marks a slot affordable against
- * the discounted price, but `takeRefusal` compared the crew's infamy against the *undiscounted*
- * one. The window where that shows is narrow and entirely real: hold the Statue of the
- * Revolutionist, stand between 85% and 100% of a price, and the button is lit, the dealer has the
- * goods, the crew can afford them, and pressing it says "He has heard of you, but not enough."
+ * The close spends the discounted figure and the card marks a slot biddable against the discounted
+ * figure, and the guard used to compare the crew's infamy against the *undiscounted* one. The
+ * window where that shows is narrow and entirely real: hold the Statue of the Revolutionist, stand
+ * between 85% and 100% of a price, and the control is lit, the dealer has the goods, the crew can
+ * afford them, and saying a number says "He has heard of you, but not enough."
  *
  * Written as a sweep over the window rather than one number, because the bug is the *shape* of the
  * disagreement and a single sample sits wherever the author happened to put it.
  */
 describe('a crew with a standing discount (§A4)', () => {
   const DISCOUNT = 15;
+  const day = '2026-04-11';
+  const board = blackMarketBoard(day, []);
+  const slot = board[0]!;
+  const spec = findBlackMarketGood(slot.goodId)!;
+  const full = blackLotReserve(spec, 10);
 
-  it('is refused only below what the door would actually charge', () => {
-    const day = '2026-04-11';
-    const board = blackMarketBoard(day, []);
-    const slot = board[0];
-    if (!slot) throw new Error('fixture error: the shelf is empty');
-    const spec = findBlackMarketGood(slot.goodId);
-    if (!spec) throw new Error('fixture error: the slot holds nothing');
+  const ask = (infamy: number, discountPercent?: number) =>
+    blackBidRefusal({
+      slotIndex: 0,
+      goodId: slot.goodId,
+      board,
+      amount: full,
+      infamy,
+      cityLevel: 10,
+      leading: null,
+      leadingIsYou: false,
+      notoriety: 99,
+      // Spread rather than assigned: `exactOptionalPropertyTypes` is on, so an optional field
+      // cannot be handed an explicit `undefined`, and this helper's whole job is to omit it.
+      ...(discountPercent === undefined ? {} : { discountPercent }),
+    });
 
-    const full = blackMarketPrice(spec, 10);
+  it('is refused only below what the close would actually charge', () => {
     const asking = discountedInfamy(full, DISCOUNT);
     expect(
       asking,
       'the fixture discount does not move this price, so nothing is proved',
     ).toBeLessThan(full);
 
-    const ask = (infamy: number) =>
-      takeRefusal({
-        slotIndex: 0,
-        goodId: slot.goodId,
-        board,
-        infamy,
-        takenToday: 0,
-        level: 20,
-        cityLevel: 10,
-        discountPercent: DISCOUNT,
-      });
-
     // Every point of infamy across the window the discount opens up.
     for (let infamy = asking; infamy < full; infamy += 1) {
       expect(
-        ask(infamy),
-        `refused at ${infamy} infamy while the door charges ${asking}`,
+        ask(infamy, DISCOUNT),
+        `refused at ${infamy} infamy while the close charges ${asking}`,
       ).toBeNull();
     }
     // And it still refuses below the discounted price, which is the half a permissive fix loses.
-    expect(ask(asking - 1)).toBe('not_enough_infamy');
+    expect(ask(asking - 1, DISCOUNT)).toBe('not_enough_infamy');
   });
 
-  it('charges a crew with no discount the full price, as before', () => {
-    const day = '2026-04-11';
-    const board = blackMarketBoard(day, []);
-    const slot = board[0];
-    if (!slot) throw new Error('fixture error: the shelf is empty');
-    const spec = findBlackMarketGood(slot.goodId);
-    if (!spec) throw new Error('fixture error: the slot holds nothing');
-    const full = blackMarketPrice(spec, 10);
-
-    const ask = (infamy: number) =>
-      takeRefusal({
+  it('leaves the reserve alone: a discount is not a lower floor for one crew', () => {
+    // Two crews at the same table are bidding against the same number. The discount moves what the
+    // winner pays, never what anybody is allowed to say.
+    expect(blackLotReserve(spec, 10)).toBe(full);
+    expect(
+      blackBidRefusal({
         slotIndex: 0,
         goodId: slot.goodId,
         board,
-        infamy,
-        takenToday: 0,
-        level: 20,
+        amount: full - 1,
+        infamy: 10 ** 9,
         cityLevel: 10,
-      });
+        leading: null,
+        leadingIsYou: false,
+        notoriety: 99,
+        discountPercent: DISCOUNT,
+      }),
+    ).toBe('too_low');
+  });
+
+  it('charges a crew with no discount the full price, as before', () => {
     expect(ask(full)).toBeNull();
     expect(ask(full - 1)).toBe('not_enough_infamy');
   });

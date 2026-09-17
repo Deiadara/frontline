@@ -9,7 +9,7 @@ import {
 } from '@frontline/shared';
 import type { JSX } from 'react';
 import { cn } from '../../lib/cn';
-import { RARITY_INK } from '../../lib/rarity';
+import { RARITY_TEXT } from '../../lib/rarity';
 
 /**
  * The drawing on a blueprint's cover, and on each of its pages (§D8).
@@ -1915,7 +1915,7 @@ function Sheet({
        * item window all hand this component a box they own and none of them can be edited from
        * here. The one it costs is a thin lilac frame where a caller still wraps it in a tile.
        */
-      className={cn('icon-plate rounded-[3px]', RARITY_INK[rarity], className)}
+      className={cn('icon-plate rounded-[3px]', RARITY_TEXT[rarity], className)}
     >
       {children}
     </svg>

@@ -1,8 +1,12 @@
 import { z } from 'zod';
 import { BLUEPRINTS } from '../blueprints/catalog.js';
+import { PAGE_DRAW_WEIGHT } from '../blueprints/prize.js';
+import type { ItemRarity } from '../items/rarity.js';
+import { DEFAULT_CITY_ID } from '../city/cities.js';
 import type { ItemCost } from '../items/inventory.js';
 import { MILESTONE_STANDING_INVITATION, isPlayerUnlockActive } from '../progression/unlocks.js';
-import { dayInZone, GAME_TIMEZONE } from '../time/zone.js';
+import { dayInZone, GAME_TIMEZONE, instantAtHourInZone } from '../time/zone.js';
+import { LotAuctionSchema, canOpenLot, lotSeed, nextLotBid } from './auction.js';
 
 /**
  * The back room of the market (black-market extension).
@@ -20,16 +24,34 @@ import { dayInZone, GAME_TIMEZONE } from '../time/zone.js';
  * to say to anybody about it. Here everyone is looking at the same five things and knows that
  * somebody else can take the one they want.
  *
- * ## One a day, and the shelf never empties
+ * ## Every slot is a lot (maintainer, 2026-09-17)
  *
- * A crew may take **one thing per day**. Not one per slot, not one per kind: one. That is what
- * makes the five a *choice* rather than a shopping list, and it is why the prices can be steep
- * without the screen turning into a grind.
+ * It used to be first press wins: the shelf was shared, but buying off it was not, so five crews
+ * looking at the same crate were racing a network round trip and the one with the best connection
+ * took it. That is the failure the Runner's barrow had, and it was fixed there the same way it is
+ * fixed here. Every slot is a **lot** now. Bids are in the open all day under the crew's name, and
+ * at midnight the fence settles: highest bidder takes the crate at what they bid.
  *
- * What is taken is replaced immediately, so the shelf is always five deep. A slot that emptied
- * until midnight would punish everybody in the city for whoever got there first, and the interesting
- * version of scarcity here is "somebody took the one I wanted and something else is there now",
- * not "come back tomorrow".
+ * The machinery is the barrow's, not a second copy of it. `nextLotBid`, `rankLotBids` and
+ * `lotSeed` in `auction.ts` decide the step, the ranking and the tie-break for both counters, and
+ * {@link BlackMarketLotSchema} extends the same `LotAuctionSchema` the Runner's lots are drawn
+ * from. Two things differ and both are deliberate: the currency is **infamy**, which is what this
+ * room has always taken, and the close is the day boundary rather than the end of a two-hour visit,
+ * because the fence never leaves.
+ *
+ * ## One a day, at the close
+ *
+ * A crew may win **one lot per day**, or two with a standing invitation. Not one bid: a crew may
+ * be in on all five, and if it is leading more than it is allowed to win, the surplus falls to the
+ * next crew down at the close. That is what makes the five a *choice* rather than a shopping list,
+ * and it is why the prices can be steep without the screen turning into a grind.
+ *
+ * Nothing is escrowed at the bid, exactly as at the barrow: infamy is checked at the table and
+ * again at the close, and a leader who has spent theirs in between passes to the crew behind them.
+ *
+ * The shelf stands for the whole day. A slot cannot empty mid-day any more, because nothing is
+ * taken mid-day, so the generation below moves at the close of a lot that sold rather than at a
+ * purchase.
  *
  * ## Almost no state
  *
@@ -61,16 +83,20 @@ export const BLACK_MARKET_KIND_LABELS: Readonly<Record<BlackMarketKind, string>>
   blueprint_page: 'Blueprint page',
 };
 
-/** How many slots stand at once, and how many a crew may empty in a day. */
+/** How many slots stand at once, and how many lots a crew may win in a day. */
 export const BLACK_MARKET_SLOTS = 5;
 export const BLACK_MARKET_TAKES_PER_DAY = 1;
 
 /**
- * §I3, and how many a crew the door knows may empty.
+ * §I3, and how many lots a crew the door knows may win at one close.
  *
  * `MILESTONE_STANDING_INVITATION` at level 50 is the only thing that has ever moved this. One
  * extra, not an unlimited shelf: the point of the daily limit is that the five things on it are a
  * choice, and a crew that could take all five would be shopping rather than choosing.
+ *
+ * Enforced at the **close** rather than at the table. A crew may bid on every slot; the settle
+ * walks the ranking and skips anybody already at their allowance for that day, so the fifth crate
+ * a crew is leading goes to whoever is second on it.
  */
 export function blackMarketTakesPerDay(level: number): number {
   return (
@@ -109,6 +135,19 @@ export interface BlackMarketGoodSpec {
   effect: string;
   /** The price, in infamy. Nothing here is priced in anything else. */
   infamy: number;
+  /**
+   * §D7: the rank the fence will deal this to, or absent for anything he sells to anybody.
+   *
+   * Money is not the only thing a fence wants. The back room's whole premise is that walking in is
+   * supposed to feel like walking somewhere you should not be, and a crew nobody has heard of
+   * buying the best drawings in the city off a stranger is the one transaction that breaks it.
+   * It is also the gate the notoriety ladder was missing: past `Marked` a rank changed no number
+   * and opened no door, so the eight rungs above it were a word on a chip.
+   *
+   * On the *good* stock only. The syringes and the ordinary crates stay open to everybody, because
+   * a shelf a new crew cannot buy from is a shelf they stop opening.
+   */
+  minNotoriety?: number;
   /** Battle boosts only: what a fight the crate is taken into gets. */
   boost?: BattleBoost;
   /** Everything else: what lands in the inventory. */
@@ -172,6 +211,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     effect:
       'Any fight you take it into: +26% offense, -8% morale. Your own people know what you brought.',
     infamy: 320,
+    minNotoriety: 3,
     boost: { offensePercent: 26, defensePercent: 0, moralePercent: -8 },
   },
 
@@ -232,6 +272,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     effect:
       'Eight Ceramic Plates and two Coolant Cells: most of a Hardshell Exoframe, without the wait.',
     infamy: 380,
+    minNotoriety: 4,
     grants: { ceramic_plate: 8, coolant_cell: 2 },
   },
   {
@@ -241,6 +282,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'Shunts, optics and a sealed bag of things the fitter will not name.',
     effect: 'Two Neural Shunts and three Optic Clusters: cybernetics fitted out of hours.',
     infamy: 420,
+    minNotoriety: 5,
     grants: { neural_shunt: 2, optic_cluster: 3 },
   },
   {
@@ -250,6 +292,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: "Servos, cores and a jig, in a toolbox with somebody else's name on it.",
     effect: 'Four Scrap Servos and two Targeting Cores: gun work, off the books.',
     infamy: 340,
+    minNotoriety: 4,
     grants: { scrap_servo: 4, targeting_core: 2 },
   },
 
@@ -261,6 +304,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'A drum of microfiche and a reader that only works if you hold it level.',
     effect: 'The Cybernetics blueprint. Permanent, and nobody else has to know where it came from.',
     infamy: 520,
+    minNotoriety: 7,
     grants: { blueprint_cybernetics: 1 },
   },
   {
@@ -270,6 +314,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'Hand-copied, in three different hands, and the last page is missing.',
     effect: 'The Munitions blueprint. Enough of it survived to be worth having.',
     infamy: 480,
+    minNotoriety: 6,
     grants: { blueprint_munitions: 1 },
   },
   {
@@ -279,6 +324,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'A full airframe set, rolled in a length of pipe.',
     effect: 'The Rotorcraft blueprint. Somebody died carrying this out of the yard.',
     infamy: 560,
+    minNotoriety: 8,
     grants: { blueprint_rotorcraft: 1 },
   },
   {
@@ -288,6 +334,7 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     description: 'Two decades of a war nobody won, in handwriting that gets worse towards the end.',
     effect: 'The Field Medicine blueprint. Read it before a raid, not after.',
     infamy: 440,
+    minNotoriety: 5,
     grants: { blueprint_field_medicine: 1 },
   },
 ];
@@ -402,21 +449,35 @@ function rngFrom(seed: string): () => number {
  */
 export const PAGES_ON_THE_SHELF = 4;
 
-/** Which pages the fence has today, drawn from the day alone so every player sees the same shelf. */
+/**
+ * Which pages the fence has today, drawn from the day alone so every player sees the same shelf.
+ *
+ * Weighted by rarity (2026-09-17), the same ladder the mission prize draws on: see
+ * {@link PAGE_DRAW_WEIGHT} for why it is as gentle as it is. This was the second of the two places
+ * a page was drawn flat, and the two together were the whole of how a player finds one, so a
+ * Masterpiece sheet was exactly as easy to come across as a Basic one on either channel.
+ *
+ * A weighted shuffle rather than a weighted pick repeated four times, because the four have to be
+ * *different* pages: picking four times over would sometimes stock the same sheet twice and the
+ * shelf would read as broken. Each page draws a key of `random ** (1 / weight)` and the top four
+ * keys win, which is the standard way to take a weighted sample without replacement.
+ */
 export function pagesOnShelf(day: string): string[] {
   const rng = rngFrom(`${day}:black:pages`);
-  const pages = BLUEPRINTS.flatMap((blueprint) =>
-    blueprint.pages.map((page) => pageGoodId(page.id)),
+  const keyed = BLUEPRINTS.flatMap((blueprint) =>
+    blueprint.pages.map((page) => {
+      const rarity =
+        ('rarity' in page ? (page.rarity as ItemRarity | undefined) : undefined) ??
+        blueprint.rarity;
+      return { id: pageGoodId(page.id), key: rng() ** (1 / PAGE_DRAW_WEIGHT[rarity]) };
+    }),
   );
-  for (let index = pages.length - 1; index > 0; index--) {
-    const swap = Math.floor(rng() * (index + 1));
-    [pages[index], pages[swap]] = [pages[swap]!, pages[index]!];
-  }
-  return pages.slice(0, PAGES_ON_THE_SHELF);
+  keyed.sort((a, b) => b.key - a.key);
+  return keyed.slice(0, PAGES_ON_THE_SHELF).map((entry) => entry.id);
 }
 
-function decksFor(day: string): string[][] {
-  const rng = rngFrom(`${day}:black:deal`);
+function decksFor(day: string, room: string): string[][] {
+  const rng = rngFrom(`${room}${day}:black:deal`);
   const shuffled = [...BLACK_MARKET_GOOD_IDS, ...pagesOnShelf(day)];
   // Fisher-Yates, drawn from the same stream so the deal is reproducible from the date alone.
   for (let index = shuffled.length - 1; index > 0; index--) {
@@ -442,8 +503,8 @@ function decksFor(day: string): string[][] {
  * round six times as often as a blueprint. Each pass is rotated by one, which is what keeps the
  * item at the end of a pass different from the item at the start of the next.
  */
-function sequenceFor(day: string, index: number, deck: readonly string[]): string[] {
-  const rng = rngFrom(`${day}:black:${index}:order`);
+function sequenceFor(day: string, index: number, deck: readonly string[], room: string): string[] {
+  const rng = rngFrom(`${room}${day}:black:${index}:order`);
   const distinct = [...deck];
   for (let at = distinct.length - 1; at > 0; at--) {
     const swap = Math.floor(rng() * (at + 1));
@@ -592,14 +653,24 @@ export type BlackMarketSlot = z.infer<typeof BlackMarketSlotSchema>;
  * *differ* from what was just taken, which is the visible half of the rule: a slot that restocked
  * with the same crate would read as a purchase that did not happen.
  */
-export function blackMarketBoard(day: string, generations: readonly number[]): BlackMarketSlot[] {
-  const decks = decksFor(day);
+export function blackMarketBoard(
+  day: string,
+  generations: readonly number[],
+  cityId: string = DEFAULT_CITY_ID,
+): BlackMarketSlot[] {
+  const room = blackRoomKey(cityId);
+  const decks = decksFor(day, room);
   return Array.from({ length: BLACK_MARKET_SLOTS }, (_, index) => {
     const generation = Math.max(0, generations[index] ?? 0);
     // A deck can only run short if the catalogue is smaller than the shelf, which a test forbids;
     // falling back to everything keeps this total rather than throwing on a data edit.
     const deck = decks[index] ?? [];
-    const sequence = sequenceFor(day, index, deck.length > 0 ? deck : [...BLACK_MARKET_GOOD_IDS]);
+    const sequence = sequenceFor(
+      day,
+      index,
+      deck.length > 0 ? deck : [...BLACK_MARKET_GOOD_IDS],
+      room,
+    );
     return {
       index,
       generation,
@@ -612,7 +683,14 @@ export const BLACK_MARKET_REFUSALS = [
   'unknown_slot',
   'moved_on',
   'not_enough_infamy',
-  'daily_limit',
+  /** §D7: he has the thing. He does not hand it to somebody the street has not heard of. */
+  'not_known_enough',
+  /** Under the opening price, or under whoever is in front. */
+  'too_low',
+  /** Already leading it. Raising your own number buys nothing and costs the reputation. */
+  'outbid_yourself',
+  /** §H7a: `MAX_OPEN_LOTS` lots at once, counted across the shelf on the night they stand. */
+  'too_many_lots',
 ] as const;
 export const BlackMarketRefusalSchema = z.enum(BLACK_MARKET_REFUSALS);
 export type BlackMarketRefusal = z.infer<typeof BlackMarketRefusalSchema>;
@@ -621,8 +699,20 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
   unknown_slot: 'There is nothing in that slot.',
   moved_on: 'Somebody got there first. Something else is in that slot now.',
   not_enough_infamy: 'He has heard of you, but not enough. Come back with a worse reputation.',
-  daily_limit: 'One a day. He is not greedy and he is not stupid.',
+  not_known_enough: 'He keeps this for people with a name. Yours is not one of them yet.',
+  too_low: 'He will not write that down. Somebody has already said more.',
+  too_many_lots: 'You have a name down on every crate you can hold. Wait for one to close.',
+  outbid_yourself: 'You are the one in front. Bidding against yourself is not a negotiation.',
 };
+
+/*
+ * There is no `daily_limit` refusal any more, and that is a statement about where the limit lives.
+ *
+ * It used to refuse the second *take* of a day. Nothing is taken now: a crew may say a number on
+ * all five lots, and the allowance is spent at the close, where `settleBlackMarketLots` walks past
+ * a crew that is already at it and hands the crate to whoever is behind them. A refusal nothing can
+ * return is a sentence a player will never see, so it is not written.
+ */
 
 /**
  * §A4: the Statue of the Revolutionist takes infamy off what the dealer asks.
@@ -631,10 +721,15 @@ export const BLACK_MARKET_REFUSAL_TEXT: Readonly<Record<BlackMarketRefusal, stri
  * price of zero would turn the daily limit into the only gate the black market has.
  *
  * This lives beside `blackMarketPrice` rather than on the server because three places need the same
- * answer: the shelf that quotes it, the door that charges it, and `takeRefusal` that decides
- * whether the door opens. It used to live only next to the first two, and the third compared
- * against the undiscounted figure: a crew holding the Statue with infamy between 85% and 100% of a
- * price saw an affordable button, pressed it, and was told the dealer had not heard enough of them.
+ * answer: the card that quotes it, the close that charges it, and `blackBidRefusal` that decides
+ * whether a number can be written down at all. It used to live only next to the first two, and the
+ * third compared against the undiscounted figure: a crew holding the Statue with infamy between 85%
+ * and 100% of a price saw an affordable button, pressed it, and was told the dealer had not heard
+ * enough of them.
+ *
+ * It comes off the **bid**, not off the reserve. The reserve is the city's floor and has to be the
+ * same number for everybody at the table; the discount is what the winner is charged, exactly as a
+ * crew's ground comes off what they pay at the Runner's close.
  */
 export const MAX_BLACK_MARKET_DISCOUNT = 50;
 
@@ -644,41 +739,169 @@ export function discountedInfamy(price: number, percent: number): number {
   return Math.max(1, Math.round(price * (1 - off / 100)));
 }
 
-export interface TakeRequest {
-  /** Which slot, and what the player believed was in it. Both, so a race is refused rather than
-   *  silently charged for something else. */
+/**
+ * Which city's back room this is, as a prefix.
+ *
+ * Every city, the open one included. The first version folded Ashfall to an empty string so that
+ * lot ids already filed in `black_market_bids` and `black_market_lot_results` kept their names;
+ * with nothing released there is nothing to keep, and one scheme with no special case is worth more
+ * than a migration-safety trick nobody needs (maintainer, 2026-09-17: breaking changes are fine).
+ */
+export function blackRoomKey(cityId: string): string {
+  return `${cityId}:`;
+}
+
+/**
+ * Which city a stored lot id belongs to.
+ *
+ * The close reads its work out of `black_market_lot_results` and `black_market_bids`, where the
+ * only thing identifying the room is the id's own prefix, so this is the one place it is read back.
+ * A city id can never contain a colon (they are slugs, see `city/atlas.ts`), which is what makes
+ * splitting on the first one total rather than a guess.
+ */
+export function cityOfBlackLot(lotId: string): string {
+  const colon = lotId.indexOf(':');
+  return colon === -1 ? DEFAULT_CITY_ID : lotId.slice(0, colon);
+}
+
+/**
+ * The lot id a bid names: the slot, on the day it stood, in the room it stood in.
+ *
+ * The city goes in the id rather than beside it because that is what keeps two cities' slot 3 from
+ * being one auction: the bids table is keyed `(day, lot_id, user_id)` and the results table on
+ * `(day, lot_id)`, so unique ids are the whole of what makes the rooms separate ledgers. Every
+ * city is named, so `ashfall:2026-09-17-black-3` and nothing is a special case.
+ */
+export function blackLotId(
+  day: string,
+  slotIndex: number,
+  cityId: string = DEFAULT_CITY_ID,
+): string {
+  return `${blackRoomKey(cityId)}${day}-black-${slotIndex}`;
+}
+
+/**
+ * When the fence settles: the end of the Athens day the shelf belongs to.
+ *
+ * Hour 24, which `instantAtHourInZone` reads as the first instant of the next day, so the close and
+ * the shelf's own turnover are the same instant rather than two clocks a second apart. The Runner's
+ * `visitClosesAt` spells the same trick for the same reason.
+ */
+export function blackMarketClosesAt(day: string, zone: string = GAME_TIMEZONE): Date {
+  return instantAtHourInZone(day, 24, zone);
+}
+
+/** What seeds a lot's tie-break coin. The barrow's function, with the fence's one session. */
+export function blackLotSeed(
+  day: string,
+  slotIndex: number,
+  cityId: string = DEFAULT_CITY_ID,
+): string {
+  return lotSeed(day, 0, blackLotId(day, slotIndex, cityId));
+}
+
+/** One slot's auction, as this reader sees it. The barrow's shape with the fence's lot id on it. */
+export const BlackMarketLotSchema = LotAuctionSchema.extend({
+  lotId: z.string().min(1),
+  /** Which slot on the shelf, so a card and its lot cannot be matched up wrongly. */
+  slotIndex: z.number().int().nonnegative(),
+});
+export type BlackMarketLot = z.infer<typeof BlackMarketLotSchema>;
+
+/** Bidding names the slot, what was believed to be in it, and the number. */
+export const PlaceBlackMarketBidRequestSchema = z.object({
+  slotIndex: z.number().int().min(0),
+  goodId: z.string().min(1),
+  amount: z.number().int().positive(),
+  /**
+   * Which city's back room the bid is placed in. Absent means the crew's own.
+   *
+   * Carried on the request, unlike the barrow's bid, and the difference is the identifier: a
+   * vendor bid names a line id that already has the room in it, while a fence bid names a slot
+   * index, which is 0 to 4 in every city. Without this field a crew standing in Saltmarch would
+   * bid on Ashfall's slot 3.
+   */
+  city: z.string().min(1).optional(),
+});
+export type PlaceBlackMarketBidRequest = z.infer<typeof PlaceBlackMarketBidRequestSchema>;
+
+export interface BlackBidRequest {
+  /** Which slot, and what the player believed was in it. Both, so a shelf that turned over under
+   *  the reader is refused rather than bid on by accident. */
   slotIndex: number;
   goodId: string;
   /** The shelf as it actually stands, server-side. */
   board: readonly BlackMarketSlot[];
+  /** The number said, in infamy. */
+  amount: number;
+  /** What the crew has to spend right now. Checked again at the close; nothing is escrowed. */
   infamy: number;
-  /** How many things this crew has already taken today. */
-  takenToday: number;
-  /** §I3: the player level, which is what decides how many takes a day they get. */
-  level: number;
-  /** The city's average player level, which is what the price is weighted by. */
+  /** The city's average player level, which is what the opening price is weighted by. */
   cityLevel: number;
-  /** §A4: this crew's standing discount, so the guard tests the price the door will charge. */
+  /** The highest bid already on this lot, or null on an untouched one. */
+  leading: number | null;
+  /** Whether the reader is the crew holding that leading bid. */
+  leadingIsYou: boolean;
+  /** §A4: this crew's standing discount, so the guard tests what the close will actually charge. */
   discountPercent?: number;
+  /** §D7: the crew's rank, for the stock the fence keeps for people with a name. */
+  notoriety?: number;
+  /**
+   * The slots this crew already has money on tonight (maintainer, 2026-09-17).
+   *
+   * §H7a's rule, which the Bar has always had and neither shelf did: `MAX_OPEN_LOTS` at once. Slots
+   * rather than a count, so raising on a lot the crew is already in is never the one refused. The
+   * shelf stands for the whole day, so the slot is the lot's identity for as long as the limit
+   * counts. Left out entirely by a caller that has not read them, which reads as "no lots" and
+   * therefore never refuses: a guard that fired on an unsupplied argument would be a guard that
+   * refused everybody the day somebody forgot to pass it.
+   */
+  openSlots?: readonly number[];
 }
 
-/** The first reason this cannot be taken, or `null`. Nothing here writes anything. */
-export function takeRefusal(request: TakeRequest): BlackMarketRefusal | null {
+/**
+ * Where a lot opens: the city's number, with nobody's standing on it.
+ *
+ * The same call the barrow makes and for the same reason. Two crews bidding against each other have
+ * to be bidding against the same floor, or one crew's legal offer is under the other's reserve.
+ * A winner's own discount comes off what they **pay** at the close.
+ */
+export function blackLotReserve(spec: BlackMarketGoodSpec, cityLevel: number): number {
+  return blackMarketPrice(spec, cityLevel);
+}
+
+/** The first reason this bid cannot be written down, or `null`. Nothing here writes anything. */
+export function blackBidRefusal(request: BlackBidRequest): BlackMarketRefusal | null {
   const slot = request.board.find((entry) => entry.index === request.slotIndex);
   if (!slot) return 'unknown_slot';
-  // The good is named in the request as well as the slot, so a player who clicked a moment after
-  // somebody else took it is told what happened instead of being sold the replacement.
+  // The good is named in the request as well as the slot, so a reader whose shelf turned over
+  // under them bids on nothing rather than on the replacement.
   if (slot.goodId !== request.goodId) return 'moved_on';
   const spec = findBlackMarketGood(slot.goodId);
   if (!spec) return 'unknown_slot';
-  if (request.takenToday >= blackMarketTakesPerDay(request.level)) return 'daily_limit';
-  // The weighted price, discounted, which is exactly what `takeFromBlackMarket` will spend. Any
-  // other figure here refuses a purchase the door would have allowed.
-  const asking = discountedInfamy(
-    blackMarketPrice(spec, request.cityLevel),
-    request.discountPercent ?? 0,
-  );
-  if (request.infamy < asking) return 'not_enough_infamy';
+  /*
+   * Before the number, because it is the refusal a player can do nothing about tonight.
+   *
+   * Being told "you are short of infamy" about a crate he was never going to sell you sends a
+   * player away to earn a number that was not the reason.
+   */
+  if ((request.notoriety ?? 0) < (spec.minNotoriety ?? 0)) return 'not_known_enough';
+  if (request.leadingIsYou) return 'outbid_yourself';
+  /*
+   * Before the price, for the same reason the rank gate is: a crew who cannot open another lot
+   * cannot open this one at any number, and telling them to bid higher sends them to do something
+   * that was never going to work.
+   */
+  if (!canOpenLot(request.openSlots ?? [], request.slotIndex)) return 'too_many_lots';
+
+  const reserve = blackLotReserve(spec, request.cityLevel);
+  if (request.amount < nextLotBid(reserve, request.leading)) return 'too_low';
+  // What the close would actually charge this crew, which is the bid after their own standing.
+  // A gate on the raw bid would refuse bids the crew could comfortably cover, and the two numbers
+  // would then disagree about the same crew at the table and at the close.
+  if (request.infamy < discountedInfamy(request.amount, request.discountPercent ?? 0)) {
+    return 'not_enough_infamy';
+  }
   return null;
 }
 

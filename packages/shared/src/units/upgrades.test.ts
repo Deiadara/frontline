@@ -48,10 +48,17 @@ describe('building a card at the yard', () => {
     expect(refuse({ yardLevel: 1, blueprintUnlocked: NO_DOCUMENTS })).toBeNull();
   });
 
-  /** No tiers and no prerequisites: the two refusals that were the ladder are gone from the list. */
-  it('has no rung below a card to ask for, and no Gauntlet to measure', () => {
+  /**
+   * No tiers: a card never asks for the card below it.
+   *
+   * The Gauntlet came back on 2026-09-16 and it is a different rule, so it is no longer asserted
+   * away here. A card used to ask for nothing but the yard, the drawings and the bill, and the
+   * maintainer's ruling is that the good ones should be hard to get: `boltOntoUnitRefusal` asks
+   * the Gauntlet's level, the crew's level and an officer's mark on top. `upgradeRefusal`, which
+   * this exercises, is still the cut-it-at-all half and still asks none of them.
+   */
+  it('has no rung below a card to ask for', () => {
     expect(UPGRADE_REFUSALS).not.toContain('needs_previous_tier');
-    expect(UPGRADE_REFUSALS).not.toContain('gauntlet_too_low');
     // The dearest card in the catalogue, on a bare roster: nothing about what else is built is
     // asked, so the only thing between a crew and a masterpiece is the yard, the drawings and the
     // bill.

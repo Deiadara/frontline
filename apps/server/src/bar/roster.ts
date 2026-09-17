@@ -2,10 +2,13 @@ import {
   RECRUIT_MAX_MIN_FACTION_INFAMY,
   RECRUIT_MAX_MIN_INFAMY,
   RECRUIT_MAX_MIN_LEVEL,
+  DEFAULT_CITY_ID,
   RECRUIT_MAX_MIN_NOTORIETY,
+  perksWorth,
   RECRUIT_MIN_FACTION_INFAMY_GATE,
   RECRUIT_MIN_INFAMY_GATE,
   RECRUIT_MIN_LEVEL_GATE,
+  RECRUIT_LEGEND_NOTORIETY,
   RECRUIT_MIN_NOTORIETY_GATE,
   type Attributes,
   seedFrom,
@@ -121,6 +124,16 @@ export const STANDOUT_ROLL: RollShape = {
   minPerks: STANDOUT_MIN_PERKS,
   extraStrengths: STANDOUT_EXTRA_STRENGTHS,
   noWeaknesses: true,
+  /*
+   * And the tags they draw are the good ones (maintainer, 2026-09-16).
+   *
+   * This is the lever that works best of the four at the ceiling, better even than
+   * `STANDOUT_EXTRA_STRENGTHS`: attributes are trainable and clamped, so two sheets at
+   * `MAX_CALIBRE` converge, while a tag is permanent and there is no ceiling on how good one is.
+   * A standout carrying two tags off the rich draw is a different object from the room around it in
+   * the one way a player cannot erase with a month at the training floor.
+   */
+  perkDraw: 'rich',
 };
 
 /** Whether seat `index` is one of the two the good ones sit in. */
@@ -209,6 +222,27 @@ export function barDay(now: Date, zone: string = GAME_TIMEZONE): string {
 }
 
 /**
+ * What a tag is worth in rungs of the §H3 door (maintainer, 2026-09-16).
+ *
+ * "You can rank their rarity and price based on their tags too, and that matters a lot because tags
+ * do not change and attributes can be trained." The price already reads them (`askingWage`); this is
+ * the other half. A grade decides how high a *sheet* lets somebody reach, and a sheet is the half of
+ * a person a crew can train up themselves, so a recruit whose whole value is a permanent tag was
+ * asking for whatever their middling attributes allowed.
+ *
+ * One rung per this many points of `perksWorth`, so the best single tag in the game (the ceiling is
+ * 20) is worth two rungs on its own and an ordinary one is worth none. Deliberately coarse: it is
+ * meant to move the genuinely rare ones and leave the rest of the room where it was.
+ */
+export const WORTH_PER_DOOR_RUNG = 9;
+
+/** How high this person may ask, sheet and tags together, bounded by the game's own top rung. */
+export function doorCeilingFor(grade: RecruitGrade, perks: readonly string[]): number {
+  const lift = Math.floor(perksWorth(perks) / WORTH_PER_DOOR_RUNG);
+  return Math.min(RECRUIT_MAX_MIN_NOTORIETY, grade.maxNotoriety + lift);
+}
+
+/**
  * §H3: what this character asks of a crew. Most people at the Bar will talk to anyone; the rest
  * want a name that has already been heard, and a few want both that and a crew that has lasted.
  *
@@ -216,7 +250,12 @@ export function barDay(now: Date, zone: string = GAME_TIMEZONE): string {
  * scaled up by a level-thirty city asks for a level-thirty crew, so the good ones that turn up
  * late are gated at something a crew playing that city has actually reached.
  */
-function rollRequirement(rng: Rng, cityLevel: number, grade: RecruitGrade): JoinRequirement {
+function rollRequirement(
+  rng: Rng,
+  cityLevel: number,
+  grade: RecruitGrade,
+  perks: readonly string[],
+): JoinRequirement {
   // Everything shut off. The two wide doors belong to the standout seats and are written out
   // rather than defaulted, so a reader of this function can see that it does not roll them.
   const open: JoinRequirement = {
@@ -226,10 +265,12 @@ function rollRequirement(rng: Rng, cityLevel: number, grade: RecruitGrade): Join
     minFactionInfamy: 0,
   };
   // Somebody with nothing to offer is in no position to ask. The grade decides how high they can
-  // reach, which is what keeps the sheet and the door on a card telling the same story.
-  if (grade.maxNotoriety < RECRUIT_MIN_NOTORIETY_GATE) return open;
+  // reach, which is what keeps the sheet and the door on a card telling the same story, and the
+  // tags they carry lift that ceiling: see `doorCeilingFor`.
+  const ceilingRank = doorCeilingFor(grade, perks);
+  if (ceilingRank < RECRUIT_MIN_NOTORIETY_GATE) return open;
   if (rng() < OPEN_DOOR_CHANCE) return open;
-  const minNotoriety = randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, grade.maxNotoriety);
+  const minNotoriety = randomInt(rng, RECRUIT_MIN_NOTORIETY_GATE, ceilingRank);
   if (rng() >= BOTH_DOORS_CHANCE) return { ...open, minNotoriety };
   const ceiling = Math.min(RECRUIT_MAX_MIN_LEVEL, Math.max(RECRUIT_MIN_LEVEL_GATE, cityLevel));
   return { ...open, minNotoriety, minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling) };
@@ -248,7 +289,18 @@ function rollStandoutRequirement(rng: Rng, cityLevel: number): JoinRequirement {
   const floor = Math.ceil((RECRUIT_MIN_NOTORIETY_GATE + RECRUIT_MAX_MIN_NOTORIETY) / 2);
   const ceiling = Math.min(RECRUIT_MAX_MIN_LEVEL, Math.max(RECRUIT_MIN_LEVEL_GATE, cityLevel));
   return {
-    minNotoriety: randomInt(rng, floor, RECRUIT_MAX_MIN_NOTORIETY),
+    /*
+     * §D7: up to `Feared`, not up to `Marked` (maintainer, 2026-09-16).
+     *
+     * The ordinary room tops out at `RECRUIT_MAX_MIN_NOTORIETY`, and the standout seats used to
+     * stop at the same rank, which meant the best two people in the city were available to a crew
+     * that had bought five rungs of a fourteen-rung ladder. Past that rank nothing in the game
+     * asked for anything at all, so the top half was a word on a chip. These two chairs are the
+     * strongest sheets the Bar ever draws and they are the right thing to put behind it: the
+     * ceiling is what a rank *buys*, and the floor is unchanged so a standout is still something
+     * a mid-game crew can reach for.
+     */
+    minNotoriety: randomInt(rng, floor, RECRUIT_LEGEND_NOTORIETY),
     minLevel: randomInt(rng, RECRUIT_MIN_LEVEL_GATE, ceiling),
     minInfamy: randomInt(rng, RECRUIT_MIN_INFAMY_GATE, RECRUIT_MAX_MIN_INFAMY),
     minFactionInfamy: randomInt(
@@ -275,24 +327,36 @@ export interface BarCharacter {
  * order is W1's to change; drawing the name and disposition from a *separate* stream means a
  * retune of the attribute roll cannot silently rename everyone.
  */
-function recruitAt(day: string, index: number, cityLevel: number): BarCharacter {
+/**
+ * What a city's room is seeded off, so two cities are not the same eight people (2026-09-17).
+ *
+ * Empty for the default city, which keeps Ashfall's room exactly the room it has always been: every
+ * fixture, screenshot and pinned recruit id in the suite is Ashfall's, and a prefix on all of them
+ * would have rewritten the whole Bar to add a door nobody can walk through yet.
+ */
+function roomKey(cityId: string): string {
+  return cityId === DEFAULT_CITY_ID ? '' : `${cityId}:`;
+}
+
+function recruitAt(day: string, index: number, cityLevel: number, cityId: string): BarCharacter {
+  const room = roomKey(cityId);
   const standout = isStandoutSeat(index);
   // The standout seats are the top of the ladder outright and do not draw a grade: what they are
   // is the whole reason those two chairs exist.
-  const grade = gradeOf(seedFrom(`${day}:${index}:${SEAT_GENERATION}:grade`));
+  const grade = gradeOf(seedFrom(`${room}${day}:${index}:${SEAT_GENERATION}:grade`));
   const calibre = standout
     ? barCalibre(cityLevel) + STANDOUT_CALIBRE_LIFT
     : barCalibre(cityLevel) + grade.calibre;
   const { attributes, perks } = generateCharacter(
-    seedFrom(`${day}:${index}:${SEAT_GENERATION}:sheet`),
+    seedFrom(`${room}${day}:${index}:${SEAT_GENERATION}:sheet`),
     Math.min(MAX_CALIBRE, Math.max(MIN_CALIBRE, calibre)),
     standout ? STANDOUT_ROLL : ORDINARY_ROLL,
   );
-  const rng = createRng(seedFrom(`${day}:${index}:${SEAT_GENERATION}:disposition`));
+  const rng = createRng(seedFrom(`${room}${day}:${index}:${SEAT_GENERATION}:disposition`));
   const openDoor = index < BAR_OPEN_DOOR_FLOOR;
 
   return {
-    id: recruitId(day, index),
+    id: recruitId(day, index, cityId),
     name: rollName(rng),
     attributes,
     perks,
@@ -300,7 +364,7 @@ function recruitAt(day: string, index: number, cityLevel: number): BarCharacter 
       ? rollStandoutRequirement(rng, cityLevel)
       : openDoor
         ? { minNotoriety: 0, minLevel: 1, minInfamy: 0, minFactionInfamy: 0 }
-        : rollRequirement(rng, cityLevel, grade),
+        : rollRequirement(rng, cityLevel, grade, perks),
   };
 }
 
@@ -325,18 +389,27 @@ export function barCalibre(cityLevel: number): number {
  * the auction are stored in the signing log and would otherwise stop parsing, and because a bid
  * carries this string across a midnight boundary: an id has to name a day and a seat for ever.
  */
-export function recruitId(day: string, index: number): string {
-  return `bar-${day}-${index}-${SEAT_GENERATION}`;
+/**
+ * The id a seat's recruit is known by, which is also the id a bid is filed under.
+ *
+ * The city belongs in it for that second reason: two rooms on the same day would otherwise mint the
+ * same eight ids, and a bid placed in one city would be a bid on a different person in another.
+ * Ashfall's ids are unprefixed, so the ones already in the table still name the seats they were
+ * placed on. See `roomKey`.
+ */
+export function recruitId(day: string, index: number, cityId: string = DEFAULT_CITY_ID): string {
+  return `bar-${roomKey(cityId)}${day}-${index}-${SEAT_GENERATION}`;
 }
 
-/** §H2: the whole room for one game day. */
+/** §H2: the whole room for one game day, in one city. */
 export function barRoster(
   day: string,
   seats: number = BAR_ROSTER_SIZE,
   cityLevel = 0,
+  cityId: string = DEFAULT_CITY_ID,
 ): BarCharacter[] {
   return Array.from({ length: Math.max(BAR_ROSTER_SIZE, seats) }, (_, index) =>
-    recruitAt(day, index, cityLevel),
+    recruitAt(day, index, cityLevel, cityId),
   );
 }
 

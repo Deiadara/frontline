@@ -1,6 +1,7 @@
 import {
   pageWonFrom,
   mergeFleets,
+  earnedInfamy,
   gainInfamy,
   missionInfamyForKills,
   MISSION_INFAMY_DELTA,
@@ -298,9 +299,11 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
       infamyDelta:
         template && reported
           ? Math.round(
-              (MISSION_INFAMY_DELTA[template.kind][outcome] +
-                (battle ? missionInfamyForKills(battle.killed) : 0)) *
-                (1 + Math.max(0, crew?.infamyGainPercent ?? 0) / 100),
+              earnedInfamy(
+                MISSION_INFAMY_DELTA[template.kind][outcome] +
+                  (battle ? missionInfamyForKills(battle.killed) : 0),
+                crew?.infamyGainPercent ?? 0,
+              ),
             )
           : 0,
       /*

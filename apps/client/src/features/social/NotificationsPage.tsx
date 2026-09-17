@@ -56,13 +56,22 @@ function Row({
         <span
           aria-hidden
           className={cn(
-            'icon-plate mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-sm [&_svg]:h-5 [&_svg]:w-5',
+            'icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm [&_svg]:h-5 [&_svg]:w-5',
             entry.readAt === null ? 'text-brass-300' : 'text-ink-400',
           )}
         >
           <Icon name={spec.icon as IconName} />
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {/*
+         * Centred against the icon plate, and the same height as it whether or not there is a body.
+         *
+         * The row is `items-start`, so a notification with a title and no body hung its one line
+         * off the top of a 36px plate while the two-line rows either side of it filled the plate:
+         * the same list read as three different alignments. Matching the plate's height and
+         * centring inside it lines every row up on one axis, one line or two. `min-h-9` rather
+         * than a fixed height, so a title that does wrap still grows the row instead of spilling.
+         */}
+        <span className="flex min-h-9 min-w-0 flex-1 flex-col justify-center gap-0.5">
           <span
             className={cn(
               'truncate text-[14px] leading-tight',
@@ -77,7 +86,7 @@ function Row({
             </span>
           )}
         </span>
-        <span className="flex shrink-0 items-center gap-2">
+        <span className="flex min-h-9 shrink-0 items-center gap-2">
           {entry.readAt === null && (
             <span aria-hidden className="h-2 w-2 rounded-full bg-oxblood-300" />
           )}

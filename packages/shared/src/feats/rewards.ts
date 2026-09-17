@@ -114,31 +114,24 @@ export function featRewardValue(reward: FeatReward): number {
   );
 }
 
+/**
+ * The three pricing bands, and what happened to them (maintainer, 2026-09-17).
+ *
+ * These used to be a **player-facing mechanic**: every rung wore an Early / Mid / Late pill, and
+ * the feats board's first filter was a row of era chips. Both are gone. The word was never
+ * something a player could aim at, because an era is a rough weight class rather than a gate (a
+ * crew that rushed the Gauntlet meets mid-era feats at level 8 while a slow builder is still on
+ * early ones at 15), and on a board of ladders it was worse than useless: a chain's whole shape is
+ * that it starts early and finishes late, so the chips split every ladder into three.
+ *
+ * What is left is what the field always actually was: the axis `FEAT_REWARD_BANDS` is keyed on,
+ * next to the size, so that an author cannot pay a first rung what a last one pays. It is
+ * catalogue bookkeeping and nothing reads it onto a screen. `FEAT_ERA_LABELS` and
+ * `FEAT_ERA_BLURBS`, which existed only to print it, went with the chips.
+ */
 export const FEAT_ERAS = ['early', 'mid', 'late'] as const;
 export const FeatEraSchema = z.enum(FEAT_ERAS);
 export type FeatEra = z.infer<typeof FeatEraSchema>;
-
-export const FEAT_ERA_LABELS: Readonly<Record<FeatEra, string>> = {
-  early: 'Early',
-  mid: 'Mid',
-  late: 'Late',
-};
-
-/**
- * One line per era, for the filter, so a player knows what they are filtering to.
- *
- * No level numbers in these. They used to read "Levels 1 to 10, before the Bar opens", which is a
- * promise the catalogue cannot keep: an era is a rough weight class, and a crew that rushed the
- * Gauntlet meets mid-era feats at level 8 while a slow builder is still on early ones at 15. A
- * player reading a number treats it as a gate and then reads the screen as broken when it is not
- * one. What each line says instead is what that part of the game *feels* like, which is the thing
- * the filter is actually sorting on.
- */
-export const FEAT_ERA_BLURBS: Readonly<Record<FeatEra, string>> = {
-  early: 'Your first scraps in the street, before anybody has learned the name.',
-  mid: 'A crew with a name on it, holding ground and picking its fights.',
-  late: 'The long game, where the city itself is what you are up against.',
-};
 
 export const FEAT_SIZES = ['small', 'medium', 'large'] as const;
 export const FeatSizeSchema = z.enum(FEAT_SIZES);
@@ -176,7 +169,21 @@ export const FEAT_REWARD_BANDS: Readonly<
   late: {
     small: { min: 5_000, max: 26_000 },
     medium: { min: 26_000, max: 160_000 },
-    large: { min: 160_000, max: 700_000 },
+    /*
+     * The ceiling was a Rotorcraft, 700,000, and a ladder that runs to tier X cannot live under it.
+     *
+     * The deep rungs of a ten-step chain are all `late`/`large`: there is no band above this one to
+     * climb into, so six rungs in a row would have had to pay inside a factor of 1.6 of each other
+     * while asking for twenty times the work. That is the rung-that-pays-the-same problem §D7 found
+     * on the notoriety ladder, and it is worse here, because a feat is claimed once and the only
+     * thing a player weighs it by is what lands.
+     *
+     * So the top band holds a multiple of the Rotorcraft rather than one of them, and `deep` in the
+     * catalogue is the only thing that spends the new headroom. Widening a ceiling cannot make an
+     * existing feat fail this gate; what it costs is that the gate catches a little less, which is
+     * why nothing else in the file was moved with it.
+     */
+    large: { min: 160_000, max: 1_500_000 },
   },
 };
 

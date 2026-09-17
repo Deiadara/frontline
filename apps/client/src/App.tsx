@@ -35,6 +35,9 @@ import { SettingsPage } from './features/settings/SettingsPage';
 import { AdminPage } from './features/admin/AdminPage';
 import { ScrapyardPage } from './features/scrapyard/ScrapyardPage';
 import { FeatsPage } from './features/feats/FeatsPage';
+import { LevelLadderPage } from './features/standing/LevelLadderPage';
+import { NotorietyLadderPage } from './features/standing/NotorietyLadderPage';
+import { LEVEL_LADDER_ROUTE, NOTORIETY_LADDER_ROUTE } from './components/Meters';
 import {
   RequireAuth,
   RequireGuest,
@@ -219,6 +222,13 @@ export default function App() {
               that is meant to be readable from the first minute, because half of what is on it is
               what a new crew is about to do anyway. */}
           <Route path="feats" element={<FeatsPage />} />
+          {/* The two screens the standing bar's chips open (maintainer request, 2026-09-17): the
+              XP curve with what each level opens, and the notoriety ladder with what each rank
+              costs and pays. Reached only from those chips, so both keep a title and a drawn way
+              out rather than a door in the scenery switcher. The paths come off the chips
+              themselves, so there is one statement of where these live. */}
+          <Route path={LEVEL_LADDER_ROUTE} element={<LevelLadderPage />} />
+          <Route path={NOTORIETY_LADDER_ROUTE} element={<NotorietyLadderPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/game" replace />} />
       </Routes>

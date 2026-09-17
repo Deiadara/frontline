@@ -1,41 +1,32 @@
 import {
   MODIFICATION_RARITY_LABELS,
+  describeAddonEffect,
   findUnit,
   findUnitModification,
   modificationsForUnit,
-  type BuiltUpgrade,
   type UnitModificationSpec,
   type UnitOption,
 } from '@frontline/shared';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
  * The brackets on the roster card, against the rules that live in `@frontline/shared`.
  *
- * Fill-from-left (`firstFreeIndex`, and the `skipped_slot` refusal the server answers with), who
- * may take what (`modificationFitsUnit`, carried on the wire as `UnitOption.eligible`), and the
- * legendary rule (an empty `eligible`) are all proved where they live. What only a rendered screen
- * can prove is that the buttons agree with them: that pressing the *third* bracket sends the card
- * to the *second*, that a card the unit cannot take is on the menu but dead with a reason, and
- * that a legendary is told it takes nothing rather than offered three dashed brackets to a menu
- * the server would refuse.
+ * A bracket stopped being a picker on 2026-09-16: the yard cuts a card for a named unit and bolts
+ * it on in one press, so `POST /units/loadout` and the menu that called it are gone. What a
+ * rendered screen can still prove is that the three controls agree with the rules around them:
+ * that an empty bracket is a door to that unit's bench, that a filled one says what is in it in
+ * the catalogue's words, that burning one asks first, and that a legendary is told it takes
+ * nothing rather than offered three dashed brackets to a bench that would refuse it.
  */
-const fit = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false }));
-vi.mock('../../lib/queries', () => ({
-  useFitSlot: () => fit,
-  useBurnUpgrade: () => ({ mutate: vi.fn(), isPending: false }),
-}));
+const burn = vi.hoisted(() => ({ mutate: vi.fn(), isPending: false, isError: false }));
+vi.mock('../../lib/queries', () => ({ useBurnUpgrade: () => burn }));
 
 const { UpgradeSlots } = await import('./UpgradeSlots');
 
-const ironsides = findUnit('ironsides')!;
-/** Two open BASIC cards anybody can take. */
 const vest = findUnitModification('scrap_vest')!;
-const grips = findUnitModification('taped_grips')!;
-/** An INTRICATE card written for the rifle units: Ironsides are not on its `fits` list. */
-const optics = findUnitModification('hardened_optics')!;
-/** A MASTERPIECE card, universal, for the picker's ordering. */
 const exoframe = findUnitModification('hardshell_exoframe')!;
 
 /**
@@ -86,37 +77,64 @@ function option(unitId: string, fitted: readonly UnitModificationSpec[] = []): U
   };
 }
 
-/** One line of the crew's stock: on the shelf, or bolted to `wearer`. */
-function built(card: UnitModificationSpec, wearer?: UnitOption): BuiltUpgrade {
-  return {
-    id: card.id,
-    name: card.name,
-    rarity: card.rarity,
-    description: card.description,
-    effect: figures(card.effect),
-    fittedTo: wearer?.id ?? null,
-    fittedToName: wearer?.name ?? '',
-  };
+/** Where a door led, printed, so a navigation is an assertion rather than a mock. */
+function Landed() {
+  return <p data-testid="landed">{useLocation().search}</p>;
 }
 
-function openPicker(unit: UnitOption, stock: BuiltUpgrade[], bracket: number) {
-  fit.mutate.mockClear();
-  render(<UpgradeSlots unit={unit} built={stock} />);
-  fireEvent.click(screen.getByTestId(`slot-${bracket}`));
-  return screen.getByRole('dialog');
+function renderAt(unit: UnitOption) {
+  render(
+    <MemoryRouter initialEntries={['/game/units']}>
+      <Routes>
+        <Route path="/game/units" element={<UpgradeSlots unit={unit} />} />
+        <Route path="/game/scrapyard" element={<Landed />} />
+      </Routes>
+    </MemoryRouter>,
+  );
 }
 
-describe('the brackets fill from the left', () => {
-  it('sends a card pressed into the third bracket to the second, the first empty one', () => {
-    // Open the picker from the last bracket, the one furthest from where the card belongs.
-    const picker = openPicker(option('ironsides', [vest]), [built(grips)], 2);
-    fireEvent.click(within(picker).getByRole('button', { name: new RegExp(grips.name) }));
+/**
+ * A bracket is a door to the yard, not a picker (2026-09-16).
+ *
+ * The yard cuts a card for a named unit and bolts it on in one press, so there is no shelf to
+ * choose from here any more: an empty bracket sends the player to the unit bench with this unit
+ * already chosen. What stays on this screen is the half the yard cannot do: reading what is bolted
+ * on, and burning it.
+ */
+describe('a bracket is a door to the yard', () => {
+  it('sends an empty bracket to the unit bench with this unit chosen', () => {
+    renderAt(option('ironsides'));
+    fireEvent.click(screen.getByTestId('slot-1'));
+    expect(screen.getByTestId('landed')).toHaveTextContent('?view=refits&unit=ironsides');
+  });
 
-    expect(fit.mutate).toHaveBeenCalledTimes(1);
-    expect(fit.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ unitId: ironsides.id, upgradeId: grips.id, slot: 1 }),
+  it('says what is bolted in on the hover, in the catalogue’s own words', () => {
+    renderAt(option('ironsides', [vest]));
+    const tip = screen.getByTestId('slot-0').getAttribute('data-tip') ?? '';
+    expect(tip).toContain(vest.name);
+    expect(tip).toContain(describeAddonEffect(vest));
+  });
+
+  it('dismantles a filled bracket through a confirm, and burns the card', () => {
+    burn.mutate.mockClear();
+    renderAt(option('ironsides', [vest]));
+    fireEvent.click(screen.getByTestId('slot-0'));
+    // The press asks first: burning destroys the card and refunds nothing.
+    expect(screen.getByTestId('slot-burn-ironsides')).toBeInTheDocument();
+    expect(burn.mutate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('slot-burn-ironsides-yes'));
+    expect(burn.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ upgradeId: vest.id }),
       expect.anything(),
     );
+  });
+
+  /** A filled bracket never leaves the roster: burning is a dialog, not a trip to the yard. */
+  it('does not walk away from the roster when a filled bracket is pressed', () => {
+    renderAt(option('ironsides', [vest]));
+    fireEvent.click(screen.getByTestId('slot-0'));
+    expect(screen.queryByTestId('landed')).toBeNull();
   });
 });
 
@@ -125,151 +143,20 @@ describe('who may take what', () => {
     const legendary = option('the_specter');
     expect(legendary.eligible, 'the fixture must be a unit that takes nothing').toEqual([]);
 
-    render(<UpgradeSlots unit={legendary} built={[built(grips)]} />);
+    renderAt(legendary);
 
     expect(screen.queryByTestId('slot-0')).toBeNull();
     expect(screen.getByTestId('slots-the_specter')).toHaveTextContent(/takes no modifications/i);
   });
 
   it('draws brackets on a carrier like anyone else', () => {
-    render(<UpgradeSlots unit={option('scavengers')} built={[]} />);
+    renderAt(option('scavengers'));
     expect(screen.getByTestId('slot-0')).toBeVisible();
     expect(screen.getByTestId('slot-2')).toBeVisible();
   });
 
-  it('shows a card the unit cannot take, greyed, with the reason, and refuses the press', () => {
-    const unit = option('ironsides');
-    expect(unit.eligible, 'the fixture card must not fit the fixture unit').not.toContain(
-      optics.id,
-    );
-
-    const picker = openPicker(unit, [built(optics), built(grips)], 0);
-    const dead = within(picker).getByTestId(`slot-option-${optics.id}`);
-    expect(dead).toBeDisabled();
-    expect(dead.className).toContain('opacity-45');
-    expect(within(picker).getByTestId(`slot-option-note-${optics.id}`)).toHaveTextContent(
-      `Not made for ${ironsides.name}`,
-    );
-    fireEvent.click(dead);
-    expect(fit.mutate).not.toHaveBeenCalled();
-
-    // The control: a card that does fit, on the same menu, is live and carries its own blurb.
-    const live = within(picker).getByTestId(`slot-option-${grips.id}`);
-    expect(live).toBeEnabled();
-    expect(within(picker).getByTestId(`slot-option-note-${grips.id}`)).toHaveTextContent(
-      grips.description,
-    );
-  });
-});
-
-/**
- * Every row the server would refuse, or could do nothing with, is dead on the menu with its reason.
- *
- * Two rows used to be live and lead nowhere. The card sitting in the bracket the picker was opened
- * from was highlighted and still a button, and pressing it sent the same card at the first empty
- * bracket, which the server refused as `already_slotted`. And with all three brackets full, a card
- * on the shelf was live and the press returned early with nothing sent, a click the screen ate.
- */
-describe('a row that cannot be pressed says why', () => {
-  /** A BASIC card anybody can take, with drawings, so the shelf has something universal on it. */
-  const wraps = findUnitModification('rag_wraps')!;
-
-  it('greys the card already in the opened bracket, and refuses the press', () => {
-    const unit = option('ironsides', [vest]);
-    const picker = openPicker(unit, [built(vest, unit), built(grips)], 0);
-
-    const here = within(picker).getByTestId(`slot-option-${vest.id}`);
-    expect(here).toBeDisabled();
-    expect(within(picker).getByTestId(`slot-option-note-${vest.id}`)).toHaveTextContent(
-      /in this bracket/i,
-    );
-    fireEvent.click(here);
-    expect(fit.mutate).not.toHaveBeenCalled();
-
-    // The control: the card on the shelf is live on the same menu and goes to bracket 2.
-    fireEvent.click(within(picker).getByTestId(`slot-option-${grips.id}`));
-    expect(fit.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ unitId: unit.id, upgradeId: grips.id, slot: 1 }),
-      expect.anything(),
-    );
-  });
-
-  it('greys a shelf card when every bracket is full, and says to burn one', () => {
-    expect(option('ironsides').eligible, 'the fixture card must fit the fixture unit').toContain(
-      wraps.id,
-    );
-    const full = option('ironsides', [vest, grips, exoframe]);
-    const stock = [built(vest, full), built(grips, full), built(exoframe, full), built(wraps)];
-    const picker = openPicker(full, stock, 0);
-
-    const shelved = within(picker).getByTestId(`slot-option-${wraps.id}`);
-    expect(shelved).toBeDisabled();
-    expect(within(picker).getByTestId(`slot-option-note-${wraps.id}`)).toHaveTextContent(
-      `Every bracket on your ${ironsides.name} is full`,
-    );
-    fireEvent.click(shelved);
-    expect(fit.mutate).not.toHaveBeenCalled();
-  });
-
-  it('is only the full roster that greys a shelf card: with a bracket free it is live', () => {
-    const room = option('ironsides', [vest, grips]);
-    const picker = openPicker(room, [built(vest, room), built(grips, room), built(wraps)], 0);
-
-    const shelved = within(picker).getByTestId(`slot-option-${wraps.id}`);
-    expect(shelved).toBeEnabled();
-    expect(within(picker).getByTestId(`slot-option-note-${wraps.id}`)).toHaveTextContent(
-      wraps.description,
-    );
-    fireEvent.click(shelved);
-    expect(fit.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ unitId: room.id, upgradeId: wraps.id, slot: 2 }),
-      expect.anything(),
-    );
-  });
-});
-
-describe('the picker reads like the bench', () => {
-  it('groups the stock by rarity in the order the yard sells it, each card under its tag', () => {
-    // Handed in out of order on purpose: the grouping is the component's, not the array's.
-    const picker = openPicker(
-      option('ironsides'),
-      [built(exoframe), built(grips), built(optics)],
-      0,
-    );
-
-    const headings = within(picker)
-      .getAllByTestId(/^slot-options-ironsides-/)
-      .map((heading) => heading.textContent);
-    expect(headings).toEqual([
-      MODIFICATION_RARITY_LABELS.basic,
-      MODIFICATION_RARITY_LABELS.intricate,
-      MODIFICATION_RARITY_LABELS.masterpiece,
-    ]);
-
-    // The rows follow their headings: every card after BASIC and before INTRICATE is basic.
-    const rows = [...within(picker).getByTestId('slot-options-ironsides').children].map(
-      (row) => row.getAttribute('data-testid') ?? row.querySelector('button')?.dataset.testid,
-    );
-    expect(rows).toEqual([
-      'slot-options-ironsides-basic',
-      `slot-option-${grips.id}`,
-      'slot-options-ironsides-intricate',
-      `slot-option-${optics.id}`,
-      'slot-options-ironsides-masterpiece',
-      `slot-option-${exoframe.id}`,
-    ]);
-
-    for (const card of [grips, optics, exoframe]) {
-      expect(
-        within(within(picker).getByTestId(`slot-option-${card.id}`)).getByTestId(
-          `rarity-${card.rarity}`,
-        ),
-      ).toHaveTextContent(MODIFICATION_RARITY_LABELS[card.rarity]);
-    }
-  });
-
   it('stamps a filled bracket with the rarity of the card in it', () => {
-    render(<UpgradeSlots unit={option('ironsides', [vest, exoframe])} built={[]} />);
+    renderAt(option('ironsides', [vest, exoframe]));
     expect(screen.getByTestId('slot-rarity-0')).toHaveTextContent(
       MODIFICATION_RARITY_LABELS[vest.rarity],
     );

@@ -14,13 +14,29 @@ import { chooseOverseer } from '../testing/overseer.js';
  * Who "the crew that lives here" is, on a map with four residential districts and no cap on
  * accounts.
  *
- * Every human account is created in `STARTER_DISTRICT_ID` (`routes/overseer.ts`), the `bases` table
- * has no unique index on `district_id`, and there is no writer for the column, so a district holds
- * as many crews as have registered. Both city projections used to answer "the resident" with the
- * first row of an unordered `SELECT ... FROM bases`, which meant the earliest-registered player's
- * whole structure list, damage and all, was served to every other player on the one screen nobody
- * has to scout: their own front door.
+ * The `bases` table has no unique index on `district_id`, so a district holds as many crews as land
+ * on it. Both city projections used to answer "the resident" with the first row of an unordered
+ * `SELECT ... FROM bases`, which meant the earliest-registered player's whole structure list, damage
+ * and all, was served to every other player on the one screen nobody has to scout: their own front
+ * door.
+ *
+ * Sharing used to be the default, because every account was created in `STARTER_DISTRICT_ID`. New
+ * crews are spread across the four residential districts now (`quietestDistrict`), so these tests
+ * put the second crew back on the first's ground **on purpose**: the bug is about a shared district
+ * and a shared district has to be built rather than assumed. It is still an ordinary state, reached
+ * as soon as there are more players than districts.
  */
+
+/**
+ * Moves a crew onto somebody else's ground, which is the state both cases here are about.
+ *
+ * Written straight to the column because there is no route for it: a player does not choose where
+ * they live. `quietestDistrict` spreads new crews, so two on one district is now something a test
+ * has to arrange, and arranging it in one named helper says that out loud.
+ */
+function share(app: FastifyInstance, baseId: string, districtId: string): void {
+  app.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(districtId, baseId);
+}
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
@@ -61,6 +77,7 @@ describe('the crew a residential district page is about', () => {
     const app = await makeApp();
     const first = await makePlayer(app, 'operator_one');
     const second = await makePlayer(app, 'operator_two');
+    share(app, second.baseId, STARTER_DISTRICT_ID);
 
     // Something to tell the two apart: the second crew lays a structure the first has not.
     const withStore = app.repos.bases.findById(second.baseId);
@@ -95,6 +112,7 @@ describe('the crew a residential district page is about', () => {
     const app = await makeApp();
     const first = await makePlayer(app, 'operator_one');
     const second = await makePlayer(app, 'operator_two');
+    share(app, second.baseId, STARTER_DISTRICT_ID);
 
     const map = await app.inject({
       method: 'GET',

@@ -74,7 +74,27 @@ export type JoinRequirement = z.infer<typeof JoinRequirementSchema>;
  * been doing the thing the game is about, and stays shut for one that has not started.
  */
 export const RECRUIT_MIN_NOTORIETY_GATE = 1;
+/**
+ * The hardest door the *ordinary* room rolls. The two chairs at the end of it ask more.
+ *
+ * `Marked` is the fifth rung of fourteen and the rank a legendary unit asks for, so an ordinary
+ * seat tops out where "has been doing the thing the game is about" tops out.
+ */
 export const RECRUIT_MAX_MIN_NOTORIETY = 5;
+
+/**
+ * ...and the hardest door in the Bar, which belongs to the people worth building a crew around
+ * (maintainer, 2026-09-16).
+ *
+ * The room used to stop asking at `Marked`, which is also where every other notoriety gate in the
+ * game stopped: past rank five a crew had bought a word on a chip and nothing else, and the best
+ * sheet the Bar could roll was already available to them. `Feared` is the eighth rung, well past
+ * the point where the ladder used to go quiet, and it is what the `legend` grade below asks for.
+ *
+ * Still reachable, which is the rule the ordinary ceiling is held to as well: a door no crew can
+ * clear is a character who is never recruitable, and that reads as a bug rather than a locked one.
+ */
+export const RECRUIT_LEGEND_NOTORIETY = 8;
 
 /** And the same shape for the level door: reachable, and worth reaching. */
 export const RECRUIT_MIN_LEVEL_GATE = 2;

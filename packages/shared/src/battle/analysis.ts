@@ -111,6 +111,8 @@ export const BattleAnalysisSchema = z.object({
   rounds: z.number().int().nonnegative(),
   /** Nobody broke and the round cap called it on who was left standing. */
   decidedOnPower: z.boolean(),
+  /** How it ended: somebody standing, the round cap, or both lines falling together. */
+  settledBy: z.enum(['standing', 'cap', 'collapse']).default('standing'),
   attacker: SideAnalysisSchema,
   defender: SideAnalysisSchema,
   /** The narrative from `report.ts`. */
@@ -368,6 +370,7 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     winner: simulation.winner,
     rounds: simulation.rounds.length,
     decidedOnPower: simulation.decidedOnPower,
+    settledBy: simulation.settledBy,
     attacker,
     defender,
     log: [...(input.log ?? narrate(simulation, findings))],

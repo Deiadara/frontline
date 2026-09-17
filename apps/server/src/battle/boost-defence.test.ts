@@ -34,7 +34,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
-import { chooseOverseer } from '../testing/overseer.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -102,6 +102,15 @@ async function makeStack(): Promise<Stack> {
   });
   const token = registered.json<{ token: string }>().token;
   const chosen = await chooseOverseer(app, token);
+  /*
+   * The same character in both worlds.
+   *
+   * This test is an A/B: one crew burns the name, one does not, and the difference is supposed to
+   * be the name. `chooseOverseer` draws from the pool, so the two worlds were also fighting with
+   * different signature perks, and a perk that moves vitality landed in that difference as if it
+   * were the boost. Pinning the seed above fixed the ground; this fixes the person.
+   */
+  pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
   app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
@@ -158,6 +167,19 @@ async function attack(stack: Stack, burn: string | null): Promise<void> {
     });
     expect(applied.statusCode, applied.body.slice(0, 200)).toBe(200);
   }
+
+  /*
+   * One seed for both halves of the comparison.
+   *
+   * A declaration draws its own, and the seed is what rolls the ground: the weather and the
+   * `city/labels.ts` verdict that `effectiveStats` reads. Left random, the bare world and the
+   * boosted world were measured on *different ground*, so a label swing could swamp the few points
+   * the name buys and the assertion below failed about three runs in eight. Pinned, the only
+   * difference between the two worlds is the thing under test.
+   */
+  stack.db
+    .prepare('UPDATE scheduled_battles SET seed = ? WHERE id = ?')
+    .run('boost-defence-fixture', battleId);
 
   // Both clocks back, so the settler picks the fight up with the column already standing on it.
   const at = new Date(Date.now() - 60_000);

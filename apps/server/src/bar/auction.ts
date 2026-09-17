@@ -69,7 +69,7 @@ export const MAX_BIDS_SHOWN = 20;
 
 /** What this person will not go below, and where their table opens. The city's number, not a crew's. */
 export function reserveFor(recruit: BarCharacter): number {
-  return reservationWage(askingWage(recruit.attributes));
+  return reservationWage(askingWage(recruit.attributes, 0, recruit.perks));
 }
 
 /** What a crew is actually in for at a table: the higher of the two numbers they put down. */

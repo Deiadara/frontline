@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   NOTIFICATION_KINDS,
+  OVERSEER_SUBJECT,
+  TRAINING_SECONDS,
   findUnit,
   trainingSeconds,
   type Base,
@@ -50,14 +52,19 @@ const NOT_EMITTED_YET: Readonly<Partial<Record<NotificationKind, string>>> = {
    */
   battle_incoming: 'no reminder marker on the battle row; the interval is a design call',
   /*
-   * "Somebody has finished an hour on the floor." The settle that would write it,
-   * `settleTrainingFor`, runs on `GET /training` and `POST /training` and nowhere else, so the
-   * receipt would only ever ring while the player was already looking at the screen it points at.
-   * Moving that settle onto every read path is the same change made for the Lab, and it is harder:
-   * it writes two tables (the base's training book and the Overseer's attributes) and its own doc
-   * requires both inside one transaction at the call site, which `settleBase` does not provide.
+   * `training_done` was here, and its reason expired without anybody noticing.
+   *
+   * It read "the officer-drill settle runs on the Training tab's routes and nowhere else", which
+   * was true when it was written and stopped being true the day the drills were moved into
+   * `settleBase` (`district/settle.ts`, "The drills go **first**"). `settleBase` has seventeen
+   * call sites across the server, so an hour that lands while the player is anywhere in the game
+   * is now paid on the next read, and a receipt written at that settle rings where the player is.
+   * The switch on the settings page controls something for the first time.
+   *
+   * Left as a note rather than deleted, because the thing worth remembering is not that the kind
+   * is emitted now: it is that an excuse can go stale silently, and the only reason this one was
+   * caught is the test below that refuses an entry which has quietly been built.
    */
-  training_done: 'the officer-drill settle runs only on its own screen; see settleTrainingFor',
 };
 
 /** Every non-test TypeScript file under `apps/server/src`. */
@@ -116,6 +123,94 @@ describe('the notification catalogue', () => {
  * (`trainingArrivedBy`), so the naive emitter, one per delivery, would ring every forty-five
  * seconds for an order of ten Razors and put ten rows in the list for one decision.
  */
+/**
+ * The drills, which is the kind this pass gave an emitter to.
+ *
+ * `training_done` sat on `NOT_EMITTED_YET` with a reason that had expired: the officer-drill settle
+ * was moved into `settleBase` when the Lab was, so an hour that lands while the player is anywhere
+ * in the game is paid on the next read. What is asserted here is the half the source scan cannot
+ * see: that the receipt rings from a settle the player did not ask for, once, and only when an
+ * hour actually finished.
+ */
+describe('an hour on the floor', () => {
+  const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
+  afterEach(async () => {
+    for (const { app, db } of instances.splice(0)) {
+      await app.close();
+      db.close();
+    }
+  });
+
+  async function drilling() {
+    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    const app = await buildApp({ config, db, logger: false });
+    instances.push({ app, db });
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'driller', password: 'hunter2pass' },
+    });
+    const { token, user } = registered.json<{ token: string; user: { id: string } }>();
+    const chosen = await chooseOverseer(app, token);
+    expect(chosen.statusCode).toBe(201);
+    const base = chosen.json<{ base: Base }>().base;
+
+    const startedAt = new Date('2026-09-07T09:00:00.000Z');
+    app.repos.bases.updateTraining(
+      base.id,
+      {
+        ...base.training,
+        day: '2026-09-07',
+        used: 1,
+        sessions: [
+          {
+            id: 'drill-1',
+            subjectId: OVERSEER_SUBJECT,
+            attribute: 'chemistry',
+            startedAt: startedAt.toISOString(),
+            durationSeconds: TRAINING_SECONDS,
+          },
+        ],
+      },
+      base.commanders,
+    );
+    return { app, token, userId: user.id, baseId: base.id, startedAt };
+  }
+
+  const bells = (app: FastifyInstance, userId: string) =>
+    app.repos.social.notifications(userId, 50).filter((note) => note.kind === 'training_done');
+
+  it('rings from a settle the player did not ask for, once', async () => {
+    const { app, userId, baseId, startedAt } = await drilling();
+
+    // Half an hour in: nothing has finished, so nothing rings.
+    const half = new Date(startedAt.getTime() + (TRAINING_SECONDS / 2) * 1000);
+    settleBase(app.repos, app.repos.bases.findById(baseId)!, half);
+    expect(bells(app, userId), 'an unfinished hour rang a bell').toHaveLength(0);
+
+    /*
+     * Past the end, through `settleBase` rather than the Training tab's own routes. That is the
+     * whole point: the old excuse said the settle "runs on its own screen and nowhere else", so a
+     * receipt would only reach somebody already looking at it.
+     */
+    const after = new Date(startedAt.getTime() + (TRAINING_SECONDS + 60) * 1000);
+    settleBase(app.repos, app.repos.bases.findById(baseId)!, after);
+    const rung = bells(app, userId);
+    expect(rung, 'a finished hour rang nothing').toHaveLength(1);
+    expect(rung[0]?.link).toBe('/game/training');
+    expect(rung[0]?.title).toContain('Chemistry');
+
+    // And the sheet actually moved, so this is a receipt for something that happened.
+    expect(app.repos.bases.findById(baseId)!.training.sessions).toEqual([]);
+
+    // Settled again: banked once, so rung once.
+    settleBase(app.repos, app.repos.bases.findById(baseId)!, after);
+    expect(bells(app, userId)).toHaveLength(1);
+  });
+});
+
 describe('units coming off the bench', () => {
   const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
   afterEach(async () => {

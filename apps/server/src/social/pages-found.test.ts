@@ -20,6 +20,7 @@ import {
   MISSION_TEMPLATES,
   REIMAGINING_RESEARCH_ID,
   blackMarketBoard,
+  blackMarketClosesAt,
   createCommander,
   instantAtHourInZone,
   nextLotBid,
@@ -35,7 +36,11 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
-import { takeFromBlackMarket } from '../blackmarket/shelf.js';
+import {
+  placeBlackMarketBid,
+  projectBlackMarket,
+  settleBlackMarketLots,
+} from '../blackmarket/shelf.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
@@ -305,15 +310,25 @@ describe('a page out of the back room', () => {
     // A crew cannot earn a reputation inside a unit test, and the fence takes nothing else.
     app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 5_000 });
 
-    const taken = takeFromBlackMarket(
-      app.repos,
-      baseOf(app, crew),
+    // The shelf is five lots now, so the page is won at the close rather than taken off the shelf:
+    // bid the opening number during the day, then settle after midnight.
+    const shelf = projectBlackMarket(app.repos, baseOf(app, crew), now, GAME_TIMEZONE);
+    const lot = shelf.offers.find((offer) => offer.slot.index === slotIndex)?.lot;
+    if (!lot) throw new Error('fixture: the slot has no lot on it');
+
+    const bid = placeBlackMarketBid(app.repos, {
+      base: baseOf(app, crew),
+      userId: crew.userId,
       slotIndex,
       goodId,
+      amount: lot.nextBid,
       now,
-      GAME_TIMEZONE,
-    );
-    expect(taken.kind, 'the fence refused the take').toBe('taken');
+      zone: GAME_TIMEZONE,
+    });
+    expect(bid.kind, 'the fence refused the bid').toBe('placed');
+
+    const closed = blackMarketClosesAt(shelf.day, GAME_TIMEZONE);
+    settleBlackMarketLots(app.repos, closed, GAME_TIMEZONE);
     expect(baseOf(app, crew).inventory[pageId as ItemId]).toBe(1);
 
     const rung = pageBells(app, crew);

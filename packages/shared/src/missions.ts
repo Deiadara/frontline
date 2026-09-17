@@ -325,6 +325,14 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   },
   {
     id: 'relay-sabotage',
+    /*
+     * A relay mast taken off the air. The fight is the easy half; knowing which cabinet to open is the
+     * other, which is the whole of what `wire` asks for.
+     *
+     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
+     * spelled here in full: authoring the extra one alone would silently drop the rest.
+     */
+    leanings: ['fight', 'wire'],
     name: 'Relay Sabotage',
     brief:
       'One Combine relay mast, one night, and a district that stops being watched for a week afterwards. They will rebuild it. Let them.',
@@ -511,6 +519,14 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   },
   {
     id: 'tower-strip',
+    /*
+     * Aerial gear off a signal mast: `salvage` and `haul` are what it is, and the wire is what makes it
+     * worth sending a Signals officer rather than whoever is free.
+     *
+     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
+     * spelled here in full: authoring the extra one alone would silently drop the rest.
+     */
+    leanings: ['haul', 'salvage', 'wire'],
     name: 'Tower Strip',
     brief:
       'The signal tower on the co-op roof has been leaning since the storm, and the aerial gear on it is worth more than the tower. Climb light.',
@@ -523,6 +539,14 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   },
   {
     id: 'holding-pen-break',
+    /*
+     * Nineteen people out of a Combine yard, and nobody comes out of one of those walking. The fight
+     * gets in; medicine is what decides how many of them are still alive at the gate.
+     *
+     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
+     * spelled here in full: authoring the extra one alone would silently drop the rest.
+     */
+    leanings: ['fight', 'medic'],
     name: 'Holding Pen Break',
     brief:
       'The Combine is holding nineteen people in a yard behind the depot until somebody signs for them. Go and sign for them.',
@@ -598,6 +622,14 @@ export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
   },
   {
     id: 'outpost-siege',
+    /*
+     * Eleven hours on a road outpost with a relief column coming. The longest fight on the board, so it
+     * is the one that most wants somebody who can keep the wounded.
+     *
+     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
+     * spelled here in full: authoring the extra one alone would silently drop the rest.
+     */
+    leanings: ['fight', 'road', 'medic'],
     name: 'Outpost Siege',
     brief:
       'Sit on a Combine road outpost until the garrison runs out of water. Eleven hours, and the relief column is the part nobody plans for.',

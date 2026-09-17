@@ -4,10 +4,13 @@ import {
   DISTRICT_NAME_MAX,
   MAX_FACTION_MEMBERS,
   findOverseerPreset,
+  OVERSEER_HOLD_MS,
+  type OverseerPreset,
   OVERSEER_PRESETS,
   overseerOffer,
   overseerRemaining,
   CITY_DISTRICTS,
+  STARTER_DISTRICT_ID,
   findDistrict,
   travelMinutesBetween,
   type Base,
@@ -92,11 +95,100 @@ function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): 
   if (nearest) repos.city.markScouted(base.id, nearest.id, nowIso);
 }
 
-/** Whether a character is in this account's own four, and therefore pickable by them. */
-function offered(repos: Repositories, accountId: string, presetId: string): boolean {
-  return overseerOffer(repos.overseers.claimedPresetIds(), accountId).some(
-    (preset) => preset.presetId === presetId,
+/**
+ * Which residential district a new crew moves into (maintainer, 2026-09-17).
+ *
+ * The one fewest *players* live on, ties going to {@link STARTER_DISTRICT_ID} and then to the id.
+ * Every human account used to be created in the starter, which put the whole player base in one
+ * district: a crew calling on another player's district was calling on its own and was refused with
+ * "That is yours", so the only PvP left was over locations. Three players now fill three of the
+ * four, which is what the maintainer asked for.
+ *
+ * ## Why the seeded rivals are not counted
+ *
+ * They live in three of the four residential districts, so counting them would put the first three
+ * players on top of a bot each and leave the quiet one for the fourth. A bot is somebody to fight,
+ * not a neighbour competing for somewhere to live, and the question this answers is where the
+ * *players* are.
+ *
+ * ## Why the starter wins a tie
+ *
+ * So the first crew in an empty world still lands where the onboarding was written for, and only
+ * the second player onwards spreads out. It also keeps every test that plants a second crew on a
+ * named neighbour working, which is a fleet of them.
+ */
+function quietestDistrict(repos: Repositories): string {
+  const residential = CITY_DISTRICTS.filter((district) => district.kind === 'residential');
+  if (residential.length === 0) return STARTER_DISTRICT_ID;
+
+  const crowding = new Map(residential.map((district) => [district.id, 0]));
+  for (const home of repos.bases.listSummaries()) {
+    if (home.isBot) continue;
+    const had = crowding.get(home.districtId);
+    if (had !== undefined) crowding.set(home.districtId, had + 1);
+  }
+
+  const rank = (id: string): number => (id === STARTER_DISTRICT_ID ? 0 : 1);
+  return [...crowding.entries()].sort(
+    (a, b) => a[1] - b[1] || rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]),
+  )[0]![0];
+}
+
+/**
+ * The batch this account is holding, drawing and holding a fresh one if it has none (§F6).
+ *
+ * The offer *is* the hold now. It used to be a pure function of the account id, recomputed on every
+ * read and reserving nothing, so four players could be looking at the same character and three of
+ * them were pressing a button that could not work: measured on a live server, three of five
+ * accounts registering together collided on their first pick.
+ *
+ * Three things follow from making it a reservation:
+ *
+ *  - **The draw skips what others are holding**, not only what is claimed, so two live batches
+ *    never overlap and the collision is gone rather than reported better.
+ *  - **The batch is stored**, so a refresh inside the window shows the same four people. A
+ *    deterministic hash used to do that job; it cannot any more, because the pool it draws from
+ *    changes as other people's holds come and go.
+ *  - **It lapses.** {@link OVERSEER_HOLD_MS} later the rows are swept and the next read draws
+ *    somebody new, which is what stops a closed tab holding four of thirty for ever.
+ *
+ * Seeded on a fresh id rather than on the account, so a lapsed batch is replaced by a *different*
+ * four. Hashing the account would have redrawn the same people every time, which is not a new
+ * offer, it is the old one with a new expiry.
+ */
+function offerFor(
+  repos: Repositories,
+  accountId: string,
+  now: Date,
+): { choices: readonly OverseerPreset[]; expiresAt: string | null } {
+  repos.overseers.sweepHolds(now);
+
+  const standing = repos.overseers.holdsFor(accountId, now);
+  if (standing.presetIds.length > 0) {
+    const held = standing.presetIds
+      .map((presetId) => findOverseerPreset(presetId))
+      .filter((preset): preset is OverseerPreset => preset !== undefined);
+    if (held.length > 0) return { choices: held, expiresAt: standing.expiresAt };
+  }
+
+  const claimed = repos.overseers.claimedPresetIds();
+  const heldByAnyone = repos.overseers.heldPresetIds(now);
+  const blocked = new Set([...claimed, ...heldByAnyone]);
+  const choices = overseerOffer(blocked, randomUUID());
+  if (choices.length === 0) return { choices, expiresAt: null };
+
+  const expiresAt = new Date(now.getTime() + OVERSEER_HOLD_MS);
+  repos.overseers.hold(
+    accountId,
+    choices.map((preset) => preset.presetId),
+    expiresAt,
   );
+  return { choices, expiresAt: expiresAt.toISOString() };
+}
+
+/** Whether this account is actually holding the character it is trying to take. */
+function holding(repos: Repositories, accountId: string, presetId: string, now: Date): boolean {
+  return repos.overseers.holdsFor(accountId, now).presetIds.includes(presetId);
 }
 
 export function registerOverseerRoutes(app: FastifyInstance): void {
@@ -112,9 +204,13 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
     '/overseer/choices',
     { preHandler: app.authenticate },
     (request): OverseerChoicesResponse => {
+      const now = new Date();
       const claimed = app.repos.overseers.claimedPresetIds();
+      const offer = app.db.transaction(() => offerFor(app.repos, request.currentUser.id, now))();
       return {
-        choices: [...overseerOffer(claimed, request.currentUser.id)],
+        choices: [...offer.choices],
+        expiresAt: offer.expiresAt,
+        serverNow: now.toISOString(),
         // Counted off the pool rather than as `total - claimed.size`: the claimed set is raw
         // `preset_id` values, and migration 0095 leaves a spent `enforcer:<uuid>` claim behind for
         // every duplicate a legacy save carried. Those are not characters, so subtracting them
@@ -149,11 +245,27 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
        * players on the last copy of the same person. The read is repeated inside the transaction
        * below, where it is the one that actually decides.
        */
-      if (!offered(app.repos, user.id, presetId)) {
-        throw new AppError('PRESET_TAKEN', 'Somebody else is already that person');
+      /*
+       * §F6: it has to be a character this account is *holding*, and the hold has to be live.
+       *
+       * A take outside the hold is one of two things and the message has to tell them apart. A
+       * character that was never offered is a hand-written request going round the pool. A
+       * character that *was* offered, on a batch that has since lapsed, is an ordinary player who
+       * left the tab open over lunch: they have done nothing wrong and what they need is to be
+       * told the offer moved on, not that somebody beat them to it.
+       */
+      const takenAt = new Date();
+      if (!holding(app.repos, user.id, presetId, takenAt)) {
+        const lapsed = app.repos.overseers.holdsFor(user.id, takenAt).presetIds.length === 0;
+        throw lapsed
+          ? new AppError(
+              'OFFER_EXPIRED',
+              'That offer has run out. Refresh for four new people to choose from.',
+            )
+          : new AppError('PRESET_TAKEN', 'Somebody else is already that person');
       }
 
-      const now = new Date().toISOString();
+      const now = takenAt.toISOString();
       const overseer = overseerFromPreset(preset, randomUUID());
       /*
        * Which district this character ends up on, decided inside the transaction below.
@@ -169,6 +281,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         ownerId: user.id,
         name: freeDistrictName(app, user.username),
         now,
+        districtId: quietestDistrict(app.repos),
       });
 
       app.db.transaction(() => {
@@ -198,6 +311,16 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
           createdAt: now,
         });
         app.repos.users.setOverseerId(user.id, overseer.id);
+        /*
+         * §F6: the other three go straight back in the pool.
+         *
+         * A batch is held so one account can decide between four people; the moment it has decided,
+         * the three it walked past are somebody else's to be offered. Leaving them held would have
+         * kept three of thirty characters out of the world for the rest of the ten minutes, for an
+         * account that is already playing and will never look at them again. Caught by
+         * `overseer-holds.test.ts` rather than by reading, which is why it counts the rows.
+         */
+        app.repos.overseers.releaseHolds(user.id);
         /*
          * Reuse the district if this account already has one.
          *

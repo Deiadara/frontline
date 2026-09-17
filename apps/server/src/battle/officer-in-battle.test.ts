@@ -27,6 +27,7 @@ import {
   type ApiError,
   type BattlesResponse,
   type BattleTarget,
+  type SideAnalysis,
   type SkirmishEngine,
   type SkirmishInput,
 } from '@frontline/shared';
@@ -599,6 +600,124 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     const home = stack.app.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
     // 30 trained, 20 sent, so 10 stayed at home and the survivors joined them.
     expect(home).toBe(10 + (20 - expectedDead));
+  });
+
+  /**
+   * ...and says so on the report, not only on the roster.
+   *
+   * `analyseBattle` runs inside the engine, and the engine has never heard of this crew's
+   * Infirmary: it counts every one of the winner's dead as dead. The medics are applied by the
+   * settler, which patched only the officer and the infamy onto that analysis. So the roster handed
+   * the survivors back and the report a player reads afterwards still listed them as casualties:
+   * two numbers for one fight, and the one on the screen was the wrong one.
+   *
+   * Driven through a stub that carries a **real** analysis, rather than through the tactical
+   * engine. The bug is in the seam between the engine's rows and the settler's recovery, so what
+   * the fixture needs is a fight whose casualty numbers are chosen rather than rolled: with the
+   * real engine the same ground cost two hundred razors nothing on some seeds and the whole test
+   * held at zero.
+   */
+  it('takes the recovered off the report as well, so it agrees with the roster', async () => {
+    const SENT = 20;
+    const FELL = 10;
+
+    /** The rows the engine would hand over: ten of the twenty dead, before any medic sees them. */
+    const side = (name: string, started: number, lost: number): SideAnalysis => ({
+      name,
+      committed: started,
+      lost,
+      survived: started - lost,
+      fled: 0,
+      perimeter: 0,
+      perimeterCaught: 0,
+      perimeterLost: 0,
+      cowed: 0,
+      infamy: 0,
+      officer: null,
+      units: [
+        {
+          unitId: 'razors',
+          name: 'Razors',
+          tier: 'rabble',
+          unique: false,
+          started,
+          lost,
+          fled: 0,
+          caught: 0,
+          survived: started - lost,
+          damage: 100,
+          damageShare: 1,
+          brokeAtRound: null,
+          state: 'steady',
+        },
+      ],
+    });
+
+    const engine: SkirmishEngine = {
+      resolve: (input) =>
+        skirmishOutcome({
+          winner: 'attacker',
+          winnerLosses: { razors: FELL },
+          killed: { razors: 5 },
+          analysis: {
+            battleId: input.battleId ?? input.seed,
+            locationName: input.locationName ?? 'the press',
+            winner: 'attacker',
+            rounds: 3,
+            decidedOnPower: false,
+            settledBy: 'standing' as const,
+            attacker: side('Your crew', SENT, FELL),
+            defender: side('The looters', 5, 5),
+            log: ['decided'],
+            findings: [],
+            trap: null,
+            legends: [],
+            headline: 'Taken.',
+            brokeThrough: true,
+            weather: 'normal',
+            ground: [],
+          },
+        }),
+    };
+
+    const stack = await makeStack(engine);
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateDistrict(
+      base.id,
+      [
+        ...base.buildings,
+        { id: 'inf-1', kind: 'infirmary' as const, level: 20, modifications: [], damage: 0 },
+      ],
+      base.buildQueue,
+    );
+
+    const battleId = await declare(stack);
+    await deploy(stack, battleId, { razors: SENT });
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    const [resolved] = settleBattles(stack.app.repos, engine, new Date());
+    if (!resolved) throw new Error('fixture: the fight did not resolve');
+
+    const recovery = 20 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
+    const expectedDead = recoverCasualties({ razors: FELL }, recovery).razors ?? 0;
+    // The anchor: with nothing recovered the report and the roster agree whatever the settler does,
+    // and reverting the fix would leave this green.
+    expect(expectedDead, 'fixture: the medics saved nobody').toBeLessThan(FELL);
+
+    const reported = resolved.analysis.attacker;
+    expect(reported.lost, 'the report counted the recovered as dead').toBe(expectedDead);
+    expect(reported.survived).toBe(SENT - expectedDead);
+    expect(reported.lost + reported.survived).toBe(reported.committed);
+    // The unit table has to move with the totals: it is the half a player reads to decide what to
+    // field next, and rows that do not add up to the side's own figures are worse than stale ones.
+    expect(reported.units.reduce((sum, unit) => sum + unit.lost, 0)).toBe(reported.lost);
+    expect(reported.units.reduce((sum, unit) => sum + unit.survived, 0)).toBe(reported.survived);
+
+    // And the roster it is supposed to agree with. 30 on the books, `deploy` sends SENT of them.
+    const home = stack.app.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
+    expect(home).toBe(30 - SENT + (SENT - expectedDead));
+
+    // The loser recovers nobody: a routed force leaves its wounded where they fell.
+    expect(resolved.analysis.defender.lost).toBe(5);
   });
 
   it('never hands back more than the ceiling, however deep the Infirmary', () => {

@@ -1,11 +1,4 @@
-import {
-  FEAT_MEASURE_SPECS,
-  FEATS,
-  type FeatEra,
-  type FeatProgress,
-  type FeatSpec,
-  type FeatState,
-} from '@frontline/shared';
+import { FEAT_MEASURE_SPECS, FEATS, type FeatProgress, type FeatSpec } from '@frontline/shared';
 
 /**
  * Turning the wire into the thing the screen draws (maintainer request, 2026-09-13).
@@ -36,6 +29,14 @@ export interface FeatBlock {
   chain: string | null;
   /** How many steps the chain has in the catalogue. Unaffected by the filters. */
   steps: number;
+  /**
+   * How many of those steps have been collected. Unaffected by the filters, which is the point:
+   * the card's header says `3/10` while drawing one rung, because the other nine are the ladder
+   * and the player is entitled to know the shape of it.
+   */
+  claimed: number;
+  /** How many rungs are finished and waiting for the button. The count the sidebar lights up on. */
+  ready: number;
   /** Stable across filter changes, so React keeps a card's DOM when the list narrows. */
   key: string;
   rungs: FeatRung[];
@@ -79,7 +80,19 @@ export function featBlocks(progress: readonly FeatProgress[]): FeatBlock[] {
       open.steps = open.rungs.length;
       continue;
     }
-    blocks.push({ chain: spec.chain, steps: 1, key: spec.chain ?? spec.id, rungs: [rung] });
+    blocks.push({
+      chain: spec.chain,
+      steps: 1,
+      claimed: 0,
+      ready: 0,
+      key: spec.chain ?? spec.id,
+      rungs: [rung],
+    });
+  }
+
+  for (const block of blocks) {
+    block.claimed = block.rungs.filter((rung) => rung.progress.state === 'claimed').length;
+    block.ready = block.rungs.filter((rung) => rung.progress.state === 'ready').length;
   }
 
   return blocks;
@@ -95,65 +108,49 @@ function untouched(spec: FeatSpec): FeatProgress {
   };
 }
 
-/** The era filter, plus the everything setting the screen opens on. */
-export type EraFilter = FeatEra | 'all';
-
 /**
- * The board's second filter: "a show completed or not completed too".
+ * Where a whole ladder stands, which is the only question the board asks now.
  *
- * **Completed means achieved, not collected.** A feat that is finished and waiting for the button
- * is completed by any reading a player has: they did the thing. Counting it as not-completed would
- * file the one rung with a CLAIM button on it under the list of work still to do, which is the
- * opposite of useful.
+ * The filters used to be two axes over *rungs*: which era, and how much of a chain to draw. The era
+ * is gone (maintainer, 2026-09-17), and so is the fold, because the board is no longer a wall of
+ * cards: it is a list of ladders on the left and one open ladder on the right, so a ladder is the
+ * thing a player is choosing between and a ladder is what the filters count.
+ *
+ *   * **claimed**: every rung of it done and collected. Finished work, kept rather than hidden.
+ *   * **unclaimed**: at least one rung finished and waiting for the button. The only setting that
+ *     is asking a player to do something, which is why the sidebar lights these in brass.
+ *   * **shut**: neither. Work in hand, or not started.
  */
-export type DoneFilter = 'all' | 'done' | 'todo';
+export type LadderState = 'claimed' | 'unclaimed' | 'shut';
 
-export interface FeatFilter {
-  era: EraFilter;
-  done: DoneFilter;
+export function ladderState(block: FeatBlock): LadderState {
+  if (block.ready > 0) return 'unclaimed';
+  return block.claimed === block.steps ? 'claimed' : 'shut';
 }
 
-export const ALL_FEATS: FeatFilter = { era: 'all', done: 'all' };
+/** The board's one filter. `all` is where it opens. */
+export type FeatFilter = 'all' | LadderState;
 
-/** Whether a state counts as finished. Both filters and the ledger read this one answer. */
-export function featIsDone(state: FeatState): boolean {
-  return state === 'ready' || state === 'claimed';
-}
+export const ALL_FEATS: FeatFilter = 'all';
 
-export function rungMatches(rung: FeatRung, filter: FeatFilter): boolean {
-  if (filter.era !== 'all' && rung.spec.era !== filter.era) return false;
-  if (filter.done === 'all') return true;
-  return featIsDone(rung.progress.state) === (filter.done === 'done');
+export function blockMatches(block: FeatBlock, filter: FeatFilter): boolean {
+  return filter === 'all' || ladderState(block) === filter;
 }
 
 /**
- * The ladders, narrowed to what the filters admit.
+ * The ladders a filter admits, whole.
  *
- * The rungs are filtered and the block is kept if any survive, rather than the block being kept or
- * dropped whole. Every chain in the catalogue spans at least two eras (all fifty-two of them: a
- * ladder's whole shape is that it starts early and finishes late), so filtering by block would
- * make the era filter do nothing at all.
- *
- * `step` and `steps` are the *unfiltered* numbers, which is what keeps the card honest: the mid
- * rungs of a four-step chain still say III and IV of four rather than renumbering themselves to I
- * and II and pretending the early half does not exist.
+ * Whole, where the old pass narrowed each block's rungs and kept the block if any survived. That
+ * was right when the page drew every card at once and a filter had to reach inside them; it is
+ * wrong now, because a ladder is opened one at a time and a player who picks one wants all of it.
  */
 export function filterBlocks(blocks: readonly FeatBlock[], filter: FeatFilter): FeatBlock[] {
-  const kept: FeatBlock[] = [];
-  for (const block of blocks) {
-    const rungs = block.rungs.filter((rung) => rungMatches(rung, filter));
-    if (rungs.length > 0) kept.push({ ...block, rungs });
-  }
-  return kept;
+  return blocks.filter((block) => blockMatches(block, filter));
 }
 
-/** How many rungs a filter would leave. The figure on each filter chip. */
+/** How many ladders a filter would leave. The figure on each filter chip. */
 export function countMatching(blocks: readonly FeatBlock[], filter: FeatFilter): number {
-  let total = 0;
-  for (const block of blocks) {
-    for (const rung of block.rungs) if (rungMatches(rung, filter)) total += 1;
-  }
-  return total;
+  return blocks.reduce((total, block) => total + (blockMatches(block, filter) ? 1 : 0), 0);
 }
 
 /**

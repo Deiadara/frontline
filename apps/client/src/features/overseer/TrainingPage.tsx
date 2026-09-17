@@ -201,11 +201,17 @@ export function TrainingPage() {
            * more would fit before it starts scrolling, and it gives the two blocks under it
            * something to sit against.
            */}
-          <Panel title="On the books" className="ink-frame min-h-0 flex-1">
+          {/* No heading on it either (maintainer, 2026-09-17). "On the books" named a rail that is
+              already a column of faces with names under them, and the word for that list is the
+              list. The sheet is the feats board's: inked frame, dark paper, wash and grain. */}
+          <Panel tone="paper" className="min-h-0 flex-1">
             {/* The one scrolling region on the screen. A crew of fifteen officers has to be
-                reachable without the sheet beside them moving a pixel. */}
+                reachable without the sheet beside them moving a pixel.
+
+                Padded on every side so the scrollbar is drawn inside the frame: brass on ink over
+                a drawn border reads as a tear down the edge of the sheet. */}
             <ul
-              className="min-h-0 flex-1 divide-y divide-surface-700 overflow-y-auto"
+              className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2"
               data-testid="training-subjects"
             >
               {data.subjects.map((one) => (
@@ -435,12 +441,14 @@ function SubjectRow({
       aria-pressed={selected}
       data-testid={`training-subject-${subject.id}`}
       className={cn(
-        // A lit left edge on the chosen one rather than a wash across the whole row: the rail is
-        // read down its edge, and a tint behind a portrait fights the portrait.
-        'relative flex w-full items-center gap-3 border-l-[3px] py-2.5 pl-2.5 pr-3 text-left transition-all duration-150',
+        // A box per person, the shape the feats index uses for the same job: the chosen one is
+        // ringed in brass and the rest sit in a quiet edge, so the rail separates row from row
+        // without a hairline between them. The tint stays low behind a portrait, which a solid
+        // fill would fight.
+        'relative flex w-full items-center gap-3 rounded-sm border px-2 py-2 text-left transition-colors duration-150',
         selected
-          ? 'border-brass-300 bg-brass-300/10'
-          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+          ? 'border-brass-300 bg-brass-500/15'
+          : 'border-surface-600/60 bg-surface-900/40 hover:border-iris-300/60 hover:bg-surface-800/70',
       )}
     >
       <span className="w-11 shrink-0">

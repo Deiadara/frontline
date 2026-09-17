@@ -2,8 +2,10 @@ import {
   FEATS,
   FEAT_MEASURE_SPECS,
   ITEM_CATALOG,
+  createCommander,
   featMeasureKey,
   findFeat,
+  makeAttributes,
   mergeFeatRewards,
   unitSlotsUsed,
   type ClaimFeatResponse,
@@ -420,6 +422,48 @@ describe('collecting one', () => {
     expect(
       app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')],
     ).toBeGreaterThanOrEqual(feat.reward.infamy ?? 0);
+  });
+
+  /**
+   * §D8: a feat is a faucet, and `infamy_gain` says it pays on "everything that earns any".
+   *
+   * Three things in the game pay infamy. A fight scales it by the channel, a job scales it by the
+   * channel, and a claimed feat paid the flat catalogue figure, so the Broadcast Tower and the two
+   * Logistics perks were worth nothing on the one reward a player collects deliberately. It read as
+   * a bug inside `payFeat` twice over: `awardPlayerXp`, a few lines away in the same function,
+   * folds `xpGainPercent` into a feat's XP at its own funnel, so the same reward already scaled one
+   * of its two currencies and not the other.
+   *
+   * `gates_1` pays 240, which is large enough that nine percent survives the round to a whole
+   * number: a small reward would round back onto the flat figure and prove nothing.
+   */
+  it('scales a feat’s infamy by the crew’s own infamy_gain, the way a fight’s is', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_infamy_perk');
+    const feat = FEATS.find((spec) => spec.id === 'gates_1')!;
+    const reward = feat.reward.infamy ?? 0;
+
+    const base = app.repos.bases.findByOwnerId(one.userId)!;
+    app.repos.bases.updateCommanders(base.id, [
+      {
+        ...createCommander('teller', 'The Teller', 'consigliere', makeAttributes(40)),
+        perks: ['legend_builder'],
+      },
+    ]);
+    give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
+
+    const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
+    expect((await claim(app, one.token, feat.id)).statusCode).toBe(200);
+    const paid = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy - before;
+
+    // +9% off `legend_builder`, the same arithmetic `earnedInfamy` does for a raid.
+    expect(paid).toBe(Math.round(reward * 1.09));
+    expect(paid, 'the catalogue figure was paid flat').toBeGreaterThan(reward);
+    // And the ladder counts what the crew was actually paid, not what the catalogue printed.
+    expect(app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')]).toBeCloseTo(
+      reward * 1.09,
+      6,
+    );
   });
 
   it('pays experience through the one writer of level', async () => {

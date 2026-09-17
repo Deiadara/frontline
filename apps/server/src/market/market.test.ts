@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  type UnitsResponse,
   BARTER_RATE,
   UNIT_MODIFICATIONS,
   marketDay,
@@ -20,6 +19,9 @@ import {
   researchEffects,
   storageCapacity,
   storageCapacityFor,
+  OFFICER_ROLES,
+  createCommander,
+  makeAttributes,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -511,6 +513,25 @@ describe('the board', () => {
   });
 });
 
+/**
+ * A crew that clears the officer and level gates every card now asks for.
+ *
+ * Every modification names a chair, a mark, a structure level and a crew level
+ * (`building/requirements.ts`), and an empty chair is a refusal. These tests are about the yard's
+ * own rules, the documents and the parts, so the crew gates are satisfied once here rather than
+ * fought with in every case. `scrapyard.test.ts` is where the gates themselves are exercised.
+ */
+function seatEveryChair(app: FastifyInstance, baseId: string): void {
+  app.repos.bases.updateCommanders(
+    baseId,
+    OFFICER_ROLES.map((role, index) =>
+      createCommander(`off-${index}`, `Officer ${index}`, role, makeAttributes(90)),
+    ),
+  );
+  const base = app.repos.bases.findById(baseId)!;
+  app.repos.bases.updateProgression(baseId, 30, base.progression);
+}
+
 describe("unit modification cards, over the yard's route", () => {
   /*
    * The Workshop's own route sold the refits until the maintainer's 2026-09-10 call folded it into
@@ -525,8 +546,13 @@ describe("unit modification cards, over the yard's route", () => {
     app.repos.bases.updateDistrict(
       base.id,
       [
-        ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
+        ...base.buildings.filter(
+          (building) => building.kind !== 'scrapyard' && building.kind !== 'gauntlet',
+        ),
         { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+        // A unit card's level gate reads the Gauntlet, and the roster it may be bolted to is the
+        // one the Gauntlet has opened: without one, every sheet answers "you cannot field them".
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
       ],
       [],
     );
@@ -549,6 +575,7 @@ describe("unit modification cards, over the yard's route", () => {
         bp_mod_filed_sights: 1,
       },
     );
+    seatEveryChair(app, base.id);
     return { app, token };
   }
 
@@ -558,177 +585,136 @@ describe("unit modification cards, over the yard's route", () => {
     return res.json<ScrapyardResponse>();
   };
 
-  const buildCard = (app: FastifyInstance, token: string, id: string) =>
+  const buildCard = (app: FastifyInstance, token: string, id: string, unitId = 'razors') =>
     app.inject({
       method: 'POST',
       url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { kind: 'upgrade', id },
+      // One press cuts the card and bolts it onto the named sheet (maintainer rule, 2026-09-16).
+      payload: { kind: 'upgrade', id, target: unitId },
     });
 
-  it('offers every card, with the locked ones saying why', async () => {
+  const statOf = async (app: FastifyInstance, token: string, unitId: string, stat: string) => {
+    const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
+    const units = res.json<{ units: { id: string; stats: Record<string, number> }[] }>().units;
+    return units.find((unit) => unit.id === unitId)?.stats[stat] ?? 0;
+  };
+
+  it('offers every card, with the locked ones saying why on every sheet they fit', async () => {
     const { app, token } = await ready();
     const view = await yard(app, token);
     const cards = view.entries.filter((entry) => entry.kind === 'upgrade');
     expect(cards).toHaveLength(UNIT_MODIFICATIONS.length);
     const gated = cards.find((card) => card.id === 'rag_wraps');
-    expect(gated?.blocker).toContain('Rag Wraps Blueprint');
     expect(gated?.rarity).toBe('basic');
+    // The answer lives per sheet now, because the gates are per sheet: the same card is refused on
+    // a unit the crew cannot field and open on one it can.
+    expect(gated?.targets.length).toBeGreaterThan(0);
+    // On a sheet the crew can field, the document is what is in the way. On one it cannot field
+    // yet, that is said first: a card cut for a unit that cannot take the field is spent on
+    // nothing, and it is the refusal a document would not fix.
+    const fieldable = gated?.targets.find((target) => target.id === 'razors');
+    expect(fieldable?.blocker, 'razors').toContain('Rag Wraps Blueprint');
+    expect(
+      gated?.targets.every((target) => target.blocker !== null),
+      'a gated card was open somewhere',
+    ).toBe(true);
   });
 
-  it('builds a card, spends for it, and takes the parts', async () => {
+  /**
+   * One press: the yard cuts it, charges for it, takes the parts, and bolts it on.
+   *
+   * There is no stock in between any more, so what proves it landed is the bracket on the sheet
+   * and the sheet itself: a card that was merely bought used to change nobody's numbers.
+   */
+  it('cuts a card, spends for it, takes the parts and bolts it onto the sheet', async () => {
     const { app, token } = await ready();
     const before = baseOf(app, 'smith');
+    const penetrationBefore = await statOf(app, token, 'razors', 'penetration');
 
     const res = await buildCard(app, token, 'filed_sights');
     expect(res.statusCode, res.body).toBe(200);
 
     const after = baseOf(app, 'smith');
-    expect(after.fittedUpgrades).toContain('filed_sights');
+    expect(after.unitLoadouts['razors']).toContain('filed_sights');
     expect(after.resources.scrap).toBeLessThan(before.resources.scrap);
     expect(after.inventory.weld_rod).toBe((before.inventory.weld_rod ?? 0) - 2);
-  });
-
-  /**
-   * The whole point of a card: it reaches the people who are already on the books.
-   *
-   * And the whole point of a bracket: it reaches the ones you bolted it to. Building the card puts
-   * it in the crew's stock and changes nobody's sheet; slotting it onto the Razors changes the
-   * Razors, and only them.
-   */
-  it('improves the roster a crew already has, once the card is in a bracket', async () => {
-    const { app, token } = await ready();
-    const penetrationOf = (res: { json: <T>() => T }, unitId: string) =>
-      res
-        .json<{ units: { id: string; stats: { penetration: number } }[] }>()
-        .units.find((unit) => unit.id === unitId)?.stats.penetration ?? 0;
-
-    const before = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const penetrationBefore = penetrationOf(before, 'razors');
-
-    await buildCard(app, token, 'filed_sights');
-
-    const bought = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    expect(penetrationOf(bought, 'razors')).toBe(penetrationBefore);
-
-    const slotted = await app.inject({
-      method: 'POST',
-      url: '/api/units/loadout',
-      headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'filed_sights' },
-    });
-    expect(slotted.statusCode).toBe(200);
-    expect(penetrationOf(slotted, 'razors')).toBeGreaterThan(penetrationBefore);
-    expect(penetrationOf(slotted, 'sparks')).toBe(penetrationOf(before, 'sparks'));
-
-    const after = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    expect(penetrationOf(after, 'razors')).toBeGreaterThan(penetrationBefore);
-  });
-
-  it('refuses a bracket the yard has not built for', async () => {
-    const { app, token } = await ready();
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/units/loadout',
-      headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'ablative_layers' },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(res.json<{ error: { message: string } }>().error.message).toMatch(/not built/i);
+    // ...and the roster the crew already has is better for it, on the same request.
+    expect(await statOf(app, token, 'razors', 'penetration')).toBeGreaterThan(penetrationBefore);
   });
 
   it('refuses a gated card without its blueprint, and takes it with one', async () => {
     const { app, token } = await ready();
-    await buildCard(app, token, 'taped_grips');
-
-    const without = await buildCard(app, token, 'rag_wraps');
-    expect(without.statusCode).toBe(409);
-    // §D12g: the document out of `blueprints/catalog.ts`, named, not the retired flat item.
-    expect(without.json<{ error: { message: string } }>().error.message).toContain(
-      'Rag Wraps Blueprint',
-    );
+    const refused = await buildCard(app, token, 'rag_wraps');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('Rag Wraps Blueprint');
 
     const base = baseOf(app, 'smith');
     app.repos.bases.updateHoldings(base.id, base.resources, {
       ...base.inventory,
       bp_mod_rag_wraps: 1,
     });
+    const taken = await buildCard(app, token, 'rag_wraps');
+    expect(taken.statusCode, taken.body).toBe(200);
+  });
 
-    const withOne = await buildCard(app, token, 'rag_wraps');
-    expect(withOne.statusCode, withOne.body).toBe(200);
+  it('refuses a sheet the card does not fit, and one the crew cannot field', async () => {
+    const { app, token } = await ready();
+    // A carrier's harness on a fighting sheet: never, whatever the crew has.
+    const wrongUnit = await buildCard(app, token, 'counterweight_harness', 'razors');
+    expect(wrongUnit.statusCode).toBe(409);
+    expect(wrongUnit.body).toContain('does not fit this sheet');
+
+    // A sheet the roster is not open to: the gates that decide it are the training gates, so a
+    // card cut for it would be a card spent on a unit that cannot take the field.
+    const cannotField = await buildCard(app, token, 'taped_grips', 'the_specter');
+    expect(cannotField.statusCode).toBe(409);
   });
 
   /**
-   * Who a card goes on is the card's business (`modificationFitsUnit`), and the route holds it.
+   * §D5c as it stands: one of a thing is one per *sheet*, not one per crew.
    *
-   * Two refusals with two sentences: a carrier's harness offered to the Razors, and any card at all
-   * offered to a legendary. Both are checked on a card the crew has built, so `not_built` is not
-   * what is answering, and the harness then goes on the Haulers as the control.
+   * The old rule was one copy in the whole yard, so bolting a plate to the Razors put it out of
+   * reach of the Breakers for ever. The maintainer's rule of 2026-09-16 is the opposite and it is
+   * the reason the bench is per unit: you may kit two sheets with the same card, and you pay the
+   * yard twice for the privilege.
    */
-  it('refuses a card the unit cannot take, and says which kind of refusal it is', async () => {
+  it('takes the same card for a second sheet, and charges for it again', async () => {
     const { app, token } = await ready();
-    const base = baseOf(app, 'smith');
-    app.repos.bases.updateHoldings(base.id, base.resources, {
-      ...base.inventory,
-      bp_mod_counterweight_harness: 1,
-    });
-    expect((await buildCard(app, token, 'counterweight_harness')).statusCode).toBe(200);
-    expect((await buildCard(app, token, 'taped_grips')).statusCode).toBe(200);
+    const first = await buildCard(app, token, 'taped_grips', 'razors');
+    expect(first.statusCode, first.body).toBe(200);
+    const afterFirst = baseOf(app, 'smith');
 
-    const fit = (unitId: string, upgradeId: string) =>
-      app.inject({
-        method: 'POST',
-        url: '/api/units/loadout',
-        headers: auth(token),
-        payload: { unitId, slot: 0, upgradeId },
-      });
+    const again = await buildCard(app, token, 'taped_grips', 'razors');
+    expect(again.statusCode, 'the same sheet twice').toBe(409);
+    expect(again.body).toContain('Already bolted on here');
 
-    const wrongUnit = await fit('razors', 'counterweight_harness');
-    expect(wrongUnit.statusCode).toBe(409);
-    expect(wrongUnit.json<{ error: { message: string } }>().error.message).toContain(
-      'not made for Razors',
+    const second = await buildCard(app, token, 'taped_grips', 'ghosts');
+    expect(second.statusCode, second.body).toBe(200);
+    const afterSecond = baseOf(app, 'smith');
+    expect(afterSecond.unitLoadouts['ghosts']).toContain('taped_grips');
+    expect(afterSecond.resources.scrap, 'the second one was free').toBeLessThan(
+      afterFirst.resources.scrap,
     );
-
-    const legendary = await fit('the_specter', 'taped_grips');
-    expect(legendary.statusCode).toBe(409);
-    expect(legendary.json<{ error: { message: string } }>().error.message).toContain(
-      'take no modifications',
-    );
-
-    const right = await fit('haulers', 'counterweight_harness');
-    expect(right.statusCode, right.body).toBe(200);
   });
 
-  /** What the picker greys out, and the word each bracket and stock line is drawn with. */
-  it('tells the roster which cards each unit can take, and the rarity of what is built', async () => {
+  /** And the only way one comes off, which destroys it. */
+  it('dismantles a bolted card and leaves nothing behind', async () => {
     const { app, token } = await ready();
-    await buildCard(app, token, 'filed_sights');
-    await app.inject({
+    expect((await buildCard(app, token, 'taped_grips', 'razors')).statusCode).toBe(200);
+
+    const burnt = await app.inject({
       method: 'POST',
-      url: '/api/units/loadout',
+      url: '/api/units/burn',
       headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'filed_sights' },
+      payload: { upgradeId: 'taped_grips' },
     });
-
-    const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const roster = res.json<UnitsResponse>();
-    const razors = roster.units.find((unit) => unit.id === 'razors')!;
-    expect(razors.eligible).toContain('taped_grips');
-    expect(razors.eligible).not.toContain('counterweight_harness');
-    expect(razors.slots[0]).toMatchObject({ upgradeId: 'filed_sights', rarity: 'basic' });
-    expect(razors.slots[1]).toMatchObject({ upgradeId: null, rarity: null });
-    expect(roster.units.find((unit) => unit.id === 'the_specter')?.eligible).toEqual([]);
-    expect(roster.units.find((unit) => unit.id === 'haulers')?.eligible).toContain(
-      'counterweight_harness',
-    );
-    expect(roster.built.find((card) => card.id === 'filed_sights')?.rarity).toBe('basic');
+    expect(burnt.statusCode, burnt.body).toBe(200);
+    const after = baseOf(app, 'smith');
+    expect(after.unitLoadouts['razors'] ?? []).not.toContain('taped_grips');
+    expect(after.fittedUpgrades, 'nothing goes back to a stock: there is none').toEqual([]);
   });
 
-  // §B11 moved the yard onto its own page: building a machine is `/garage/build` now, and it is
-  // covered by `garage/garage.test.ts` rather than here.
-});
-
-describe('the barrow is the same for the whole city', () => {
   it('serves two crews the same stock on the same day', async () => {
     const app = await makeApp();
     await signIn(app, 'one');
@@ -748,15 +734,16 @@ describe('the barrow is the same for the whole city', () => {
 });
 
 /**
- * §D5c: a modification is one object, it goes on one unit, and it does not come off (project rule).
+ * §D5c: one of a thing is one per **sheet**, and taking one off destroys it.
  *
- * Three rules, and each one closes a hole the old model left open. Before this a single Scrap
- * Plate could be bolted to every unit type in the game at once, and un-bolted for free, which made
- * the three brackets a loadout screen a player re-arranges before every fight rather than a
- * decision they live with.
+ * The old rule was one copy in the whole yard, with a separate screen to move it: build a plate,
+ * bolt it to the Razors, and the Breakers could never have one. The maintainer reversed that on
+ * 2026-09-16, and the reversal is the whole reason the bench is per unit. What is left of the old
+ * rule is the part that gives the choice weight: a card comes off in pieces, so the second sheet
+ * costs the yard's bill again rather than a click.
  */
 describe('one of a thing is one of a thing (§D5c)', () => {
-  /** A crew with a yard, money, and the parts to build a modification. */
+  /** A crew with a yard, a Gauntlet, the chairs filled, money, and the parts. */
   async function armed(): Promise<{ app: FastifyInstance; token: string }> {
     const app = await makeApp();
     const token = await signIn(app, 'plater');
@@ -764,8 +751,17 @@ describe('one of a thing is one of a thing (§D5c)', () => {
     app.repos.bases.updateDistrict(
       base.id,
       [
-        ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
+        ...base.buildings.filter(
+          (building) =>
+            building.kind !== 'scrapyard' &&
+            building.kind !== 'gauntlet' &&
+            building.kind !== 'generator',
+        ),
         { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        // The Sparks want a Generator, and this test is about two sheets rather than about which
+        // structures open which roster.
+        { id: 'gen', kind: 'generator', level: 6, modifications: [], damage: 0 },
       ],
       [],
     );
@@ -785,68 +781,71 @@ describe('one of a thing is one of a thing (§D5c)', () => {
         pressure_valve: 20,
       },
     );
+    seatEveryChair(app, base.id);
     return { app, token };
   }
 
-  async function withPlate(): Promise<{ app: FastifyInstance; token: string }> {
-    const { app, token } = await armed();
-    await app.inject({
-      method: 'POST',
-      url: '/api/scrapyard/build',
-      headers: auth(token),
-      payload: { kind: 'upgrade', id: 'taped_grips' },
-    });
-    return { app, token };
-  }
-
-  const fit = (app: FastifyInstance, token: string, unitId: string, slot = 0) =>
+  const bolt = (app: FastifyInstance, token: string, unitId: string) =>
     app.inject({
       method: 'POST',
-      url: '/api/units/loadout',
-      headers: auth(token),
-      payload: { unitId, slot, upgradeId: 'taped_grips' },
-    });
-
-  it('will not put the same one on a second unit', async () => {
-    const { app, token } = await withPlate();
-    const first = await fit(app, token, 'razors');
-    expect(first.statusCode, first.body).toBe(200);
-
-    const second = await fit(app, token, 'sparks');
-    expect(second.statusCode).toBe(409);
-    expect(second.body).toContain('already bolted');
-  });
-
-  it('will not drop one into a bracket that is taken', async () => {
-    const { app, token } = await withPlate();
-    await app.inject({
-      method: 'POST',
       url: '/api/scrapyard/build',
       headers: auth(token),
-      payload: { kind: 'upgrade', id: 'scrap_vest' },
+      payload: { kind: 'upgrade', id: 'taped_grips', target: unitId },
     });
-    expect((await fit(app, token, 'razors', 0)).statusCode).toBe(200);
 
-    const over = await app.inject({
-      method: 'POST',
-      url: '/api/units/loadout',
-      headers: auth(token),
-      payload: { unitId: 'razors', slot: 0, upgradeId: 'scrap_vest' },
-    });
-    expect(over.statusCode).toBe(409);
-    expect(over.body).toContain('Burn it first');
+  it('puts the same card on a second sheet, for a second bill', async () => {
+    const { app, token } = await armed();
+    const first = await bolt(app, token, 'razors');
+    expect(first.statusCode, first.body).toBe(200);
+    const afterFirst = baseOf(app, 'plater').resources.scrap;
+
+    const second = await bolt(app, token, 'sparks');
+    expect(second.statusCode, second.body).toBe(200);
+    const after = baseOf(app, 'plater');
+    expect(after.unitLoadouts['razors']).toContain('taped_grips');
+    expect(after.unitLoadouts['sparks']).toContain('taped_grips');
+    expect(after.resources.scrap, 'the second sheet was free').toBeLessThan(afterFirst);
   });
 
-  /**
-   * Burning is the only way off, and it destroys the thing.
-   *
-   * Asserted on the *stock* as well as on the bracket, because leaving it in `fittedUpgrades`
-   * would be the free un-fit this replaces wearing a different name: burn it off the Razors, bolt
-   * the same one to the Sparks, nothing spent.
-   */
-  it('burns one off the roster and out of the crew stock', async () => {
-    const { app, token } = await withPlate();
-    await fit(app, token, 'razors');
+  it('refuses the same card twice on one sheet', async () => {
+    const { app, token } = await armed();
+    expect((await bolt(app, token, 'razors')).statusCode).toBe(200);
+    const again = await bolt(app, token, 'razors');
+    expect(again.statusCode).toBe(409);
+    expect(again.body).toContain('Already bolted on here');
+  });
+
+  it('fills the brackets from the left and refuses a fourth card', async () => {
+    const { app, token } = await armed();
+    const cards = ['taped_grips', 'scrap_vest', 'filed_sights', 'rag_wraps'];
+    const base = baseOf(app, 'plater');
+    // Every document, so what is being read is the brackets rather than the drawings.
+    // Scrap Vest is one of the three open cards, so it wants no document.
+    app.repos.bases.updateHoldings(base.id, base.resources, {
+      ...base.inventory,
+      bp_mod_filed_sights: 1,
+      bp_mod_rag_wraps: 1,
+    });
+
+    const taken: number[] = [];
+    for (const id of cards) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/scrapyard/build',
+        headers: auth(token),
+        payload: { kind: 'upgrade', id, target: 'razors' },
+      });
+      taken.push(res.statusCode);
+    }
+    // Three brackets, so the fourth is refused for the brackets rather than for anything else.
+    expect(taken.slice(0, 3)).toEqual([200, 200, 200]);
+    expect(taken[3]).toBe(409);
+    expect(baseOf(app, 'plater').unitLoadouts['razors']).toHaveLength(3);
+  });
+
+  it('burns one off the sheet and leaves nothing to re-bolt', async () => {
+    const { app, token } = await armed();
+    expect((await bolt(app, token, 'razors')).statusCode).toBe(200);
 
     const burnt = await app.inject({
       method: 'POST',
@@ -855,18 +854,13 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       payload: { upgradeId: 'taped_grips' },
     });
     expect(burnt.statusCode, burnt.body).toBe(200);
-
-    const after = burnt.json<UnitsResponse>();
-    expect(after.built.map((entry) => entry.id)).not.toContain('taped_grips');
-    const razors = after.units.find((unit) => unit.id === 'razors');
-    expect(razors?.slots.every((slot) => slot.upgradeId !== 'taped_grips')).toBe(true);
-
-    // And it cannot simply be re-fitted: it has to be built again first.
-    expect((await fit(app, token, 'sparks')).statusCode).toBe(409);
+    const after = baseOf(app, 'plater');
+    expect(after.unitLoadouts['razors'] ?? []).not.toContain('taped_grips');
+    expect(after.fittedUpgrades).toEqual([]);
   });
 
   it('refuses a burn of something that is not bolted to anything', async () => {
-    const { app, token } = await withPlate();
+    const { app, token } = await armed();
     const res = await app.inject({
       method: 'POST',
       url: '/api/units/burn',
@@ -874,17 +868,6 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       payload: { upgradeId: 'taped_grips' },
     });
     expect(res.statusCode).toBe(409);
-  });
-
-  /** The payload tells the picker where each one is, so a dead control and a 409 agree. */
-  it('says on the roster which unit each built modification is bolted to', async () => {
-    const { app, token } = await withPlate();
-    await fit(app, token, 'razors');
-
-    const res = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    const plate = res.json<UnitsResponse>().built.find((entry) => entry.id === 'taped_grips');
-    expect(plate?.fittedTo).toBe('razors');
-    expect(plate?.fittedToName).toBeTruthy();
   });
 });
 

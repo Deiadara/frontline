@@ -45,6 +45,11 @@ import {
   vendorOpenAt,
   vendorSessionsFor,
   vendorStockFor,
+  isDearVendorLine,
+  VENDOR_MARKUP_MIN,
+  VENDOR_MARKUP_MAX,
+  VENDOR_DEAR_MARKUP_MIN,
+  VENDOR_DEAR_MARKUP_MAX,
 } from './vendor.js';
 
 /** A month of days, so every property below is checked against a spread rather than one date. */
@@ -159,17 +164,66 @@ describe('the Runner', () => {
     });
 
     /** He is not a charity and not a robbery: every price is above the item's worth, and sane. */
-    it('marks everything up, within a band', () => {
+    it('marks everything up, within the band its line belongs to', () => {
       for (const day of DAYS) {
         for (const line of vendorStockFor(day)) {
           const worth = ITEM_CATALOG[line.item as ItemId].capsValue;
-          expect(line.price, `${day} ${line.item}`).toBeGreaterThan(worth);
-          expect(line.price, `${day} ${line.item}`).toBeLessThan(worth * 2);
+          const dear = isDearVendorLine(line.item as ItemId);
+          const low = dear ? VENDOR_DEAR_MARKUP_MIN : VENDOR_MARKUP_MIN;
+          const high = dear ? VENDOR_DEAR_MARKUP_MAX : VENDOR_MARKUP_MAX;
+          expect(line.price, `${day} ${line.item}`).toBeGreaterThanOrEqual(Math.round(worth * low));
+          expect(line.price, `${day} ${line.item}`).toBeLessThanOrEqual(Math.round(worth * high));
         }
       }
     });
 
-    it('shows the exotic end far less often than the common one', () => {
+    /**
+     * §F3, maintainer 2026-09-17: there is always something on the barrow worth coming back for.
+     *
+     * The reserved line, and it is the *last* one, which is what the substitution used to be. A
+     * barrow of six basics is a barrow a crew skims once and stops opening.
+     */
+    it('always ends on a dear line: a component out of the steep end, or a page', () => {
+      for (const day of DAYS) {
+        const stock = vendorStockFor(day);
+        const last = stock[stock.length - 1]!;
+        expect(isDearVendorLine(last.item as ItemId), `${day} ${last.item}`).toBe(true);
+      }
+    });
+
+    /** And it is dearer than the ordinary run, which is the whole point of reserving it. */
+    it('prices the dear stock above the ordinary markup band', () => {
+      // The bands do not overlap, so the cheapest a dear line can be sold at is above the dearest
+      // an ordinary one can. Read off the constants rather than off a sampled barrow: a sample
+      // proves today and this proves the rule.
+      expect(VENDOR_DEAR_MARKUP_MIN).toBeGreaterThan(VENDOR_MARKUP_MAX);
+
+      let dear = 0;
+      for (const day of DAYS) {
+        for (const line of vendorStockFor(day)) {
+          const spec = ITEM_CATALOG[line.item as ItemId];
+          if (!isDearVendorLine(line.item as ItemId)) continue;
+          dear += 1;
+          expect(line.price, `${day} ${line.item}`).toBeGreaterThan(
+            Math.round(spec.capsValue * VENDOR_MARKUP_MAX),
+          );
+        }
+      }
+      // One a day at the very least, so the loop above is not vacuously green.
+      expect(dear).toBeGreaterThanOrEqual(DAYS.length);
+    });
+
+    /** Components, every day, which is what the barrow is made of. */
+    it('carries components on every barrow', () => {
+      for (const day of DAYS) {
+        const components = vendorStockFor(day).filter(
+          (line) => ITEM_CATALOG[line.item as ItemId].kind === 'component',
+        );
+        expect(components.length, day).toBeGreaterThan(0);
+      }
+    });
+
+    it('shows the masterpiece end far less often than the basic one', () => {
       const seen = new Map<ItemId, number>();
       for (const day of DAYS) {
         for (const line of vendorStockFor(day)) {
@@ -181,7 +235,7 @@ describe('the Runner', () => {
           (total, id) => total + (seen.get(id) ?? 0),
           0,
         ) / ITEM_IDS.filter((id) => ITEM_CATALOG[id].rarity === rarity).length;
-      expect(rate('common')).toBeGreaterThan(rate('exotic'));
+      expect(rate('basic')).toBeGreaterThan(rate('masterpiece'));
     });
   });
 });

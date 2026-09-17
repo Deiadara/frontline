@@ -209,7 +209,7 @@ describe('TopHud', () => {
     expect(width('oil')).toBeGreaterThan(width('planks'));
   });
 
-  it('shows the crew level and the infamy wallet (§I, §D7)', () => {
+  it('shows the district level and the infamy wallet (§I, §D7)', () => {
     renderHud();
 
     expect(screen.getByTestId('level-chip')).toBeInTheDocument();

@@ -8,19 +8,35 @@ import { cn } from '../../lib/cn';
  * `bg-soot-900` and the base `bg-surface-800/70` would both land and the stylesheet's order would
  * silently pick the winner. Same reason `Modal` takes a `size`.
  */
-export type PanelTone = 'brass' | 'tangerine';
+export type PanelTone = 'brass' | 'tangerine' | 'paper';
 
 const TONE: Record<PanelTone, { body: string; head: string; heading: string }> = {
   brass: {
-    body: 'bg-surface-800/70',
+    body: 'painted washed brushed rivets edge-lit bg-surface-800/70',
     head: 'bg-surface-700/70',
     heading: 'text-brass-300',
   },
   // The Black Market's, and nowhere else's. Darker than any other surface in the game on purpose.
   tangerine: {
-    body: 'bg-soot-900/85',
+    body: 'painted washed brushed rivets edge-lit bg-soot-900/85',
     head: 'bg-soot-800/90',
     heading: 'text-tangerine-300',
+  },
+  /**
+   * The drawn one (maintainer, 2026-09-17), which is what the feats board is made of.
+   *
+   * Not a colour swap: a different **material**. `brass` is painted tin with rivets in it and an
+   * edge of sodium light, and `paper` is a sheet somebody inked a frame onto. The maintainer asked
+   * for that hand on the archive, the market and the workshops, and a panel carrying the whole
+   * change is what keeps those screens from each inventing their own version of it.
+   *
+   * The head takes no fill of its own: paper does not have a darker strip at the top, it has a
+   * rule under the title, which the base markup already draws.
+   */
+  paper: {
+    body: 'ink-frame card-paper washed grain',
+    head: '',
+    heading: 'text-brass-300',
   },
 };
 
@@ -68,7 +84,7 @@ export function Panel({
         // just finishes the edge.
         // No hard border: the frayed outline *is* the edge. Running both gives every panel a
         // double rule, which reads as a mistake rather than as a cut sheet of tin.
-        'painted washed brushed rivets edge-lit relative flex flex-col rounded-sm',
+        'relative flex flex-col rounded-sm',
         'shadow-panel',
         TONE[tone].body,
         className,
@@ -78,7 +94,10 @@ export function Panel({
       {(title !== undefined || action !== undefined) && (
         <div
           className={cn(
-            'relative flex items-center justify-between gap-2 px-4',
+            'relative flex items-center justify-between gap-2',
+            // Paper keeps its title in from the frayed edge rather than out to the panel's own,
+            // because the drawn border is inside the box where a painted one is on it.
+            tone === 'paper' ? 'px-3' : 'px-4',
             dense ? 'py-1.5' : 'py-3',
             TONE[tone].head,
           )}
@@ -97,7 +116,13 @@ export function Panel({
           </h2>
           {action}
           {/* Hand-drawn, not a border: a heading underlined with a ruler reads as a spreadsheet. */}
-          <span aria-hidden className="ink-rule absolute inset-x-0 -bottom-[2px]" />
+          <span
+            aria-hidden
+            className={cn(
+              'ink-rule absolute -bottom-[2px]',
+              tone === 'paper' ? 'inset-x-3' : 'inset-x-0',
+            )}
+          />
         </div>
       )}
       {children}

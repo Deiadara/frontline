@@ -247,12 +247,12 @@ describe('§A1: the district is a place, not a list', () => {
     /*
      * §A1/§I3: locked, and the accessible name carries the **whole** route rather than the first
      * rung of it. A screen reader gets exactly what the hover note draws: the Nexus level, the two
-     * structures and the crew level, in the catalogue's order.
+     * structures and the district level, in the catalogue's order.
      */
     expect(plot('The Garage')).toHaveAccessibleName(/locked, needs/);
     expect(plot('The Garage')).toHaveAccessibleName(/The Nexus at 12/);
     expect(plot('The Garage')).toHaveAccessibleName(/The Scrapyard at 6/);
-    expect(plot('The Garage')).toHaveAccessibleName(/Crew level 14/);
+    expect(plot('The Garage')).toHaveAccessibleName(/District level 14/);
   });
 
   it('opens the plot dialog on click, and closes it again', async () => {
@@ -793,7 +793,7 @@ describe("a neighbour's district (§A4)", () => {
     fireEvent.mouseEnter(garage);
     await waitFor(() => expect(screen.getByText('Not yet. You need:')).toBeInTheDocument());
     expect(screen.getByText('The Nexus at 12')).toBeInTheDocument();
-    expect(screen.getByText('Crew level 14')).toBeInTheDocument();
+    expect(screen.getByText('District level 14')).toBeInTheDocument();
   });
 
   it('still opens the dialog on your own district, which is the control case', () => {
@@ -815,13 +815,13 @@ describe("a neighbour's district (§A4)", () => {
  *
  * `POST /bar/payroll` charges `payrollStepCost(steps, payrollStepDiscountPercent)`, and that
  * discount is a *crew* channel: two perks in the catalogue pay into it and they sum. The panel used
- * to build its ledger straight off the base, which has no crew on it, so it quoted the full 500 and
- * disabled its own button at 450 caps on a crew the server would have charged 435. A quoted price
- * that is too high is the harmful direction: it refuses a purchase rather than correcting itself at
- * the till.
+ * to build its ledger straight off the base, which has no crew on it, so it quoted the list price
+ * and disabled its own button on a crew the server would have charged less. A quoted price that is
+ * too high is the harmful direction: it refuses a purchase rather than correcting itself at the
+ * till.
  *
  * Both cases use a *non-zero* discount on purpose. The panel's first paint, before `/overseer/me`
- * answers, is the undiscounted 500, so a case asserting 500 would pass without the query ever
+ * answers, is the undiscounted 600, so a case asserting 600 would pass without the query ever
  * having been read.
  */
 describe('the payroll book quotes the crew price, not the list price', () => {
@@ -838,21 +838,21 @@ describe('the payroll book quotes the crew price, not the list price', () => {
   };
 
   it('takes the step discount off the quoted price and lets the purchase through', async () => {
-    // ledger_hand (5%) + bank_contact (8%): 500 -> 435, and the crew is holding 450.
-    stubApi({ detail: withCaps(450), effects: { payrollStepDiscountPercent: 13 } });
+    // ledger_hand (5%) + bank_contact (8%): 600 -> 522, and the crew is holding 550.
+    stubApi({ detail: withCaps(550), effects: { payrollStepDiscountPercent: 13 } });
 
     const panel = await openNexusPayroll();
-    await waitFor(() => expect(panel).toHaveTextContent('435 caps, once'));
-    expect(panel).not.toHaveTextContent('500 caps, once');
+    await waitFor(() => expect(panel).toHaveTextContent('522 caps, once'));
+    expect(panel).not.toHaveTextContent('600 caps, once');
     expect(within(panel).getByTestId('nexus-increase-payroll')).toBeEnabled();
   });
 
   it('still refuses a step the crew cannot afford at the discounted price', async () => {
-    // bank_contact alone: 500 -> 460, which 450 caps does not cover.
-    stubApi({ detail: withCaps(450), effects: { payrollStepDiscountPercent: 8 } });
+    // bank_contact alone: 600 -> 552, which 550 caps does not cover.
+    stubApi({ detail: withCaps(550), effects: { payrollStepDiscountPercent: 8 } });
 
     const panel = await openNexusPayroll();
-    await waitFor(() => expect(panel).toHaveTextContent('460 caps, once'));
+    await waitFor(() => expect(panel).toHaveTextContent('552 caps, once'));
     expect(within(panel).getByTestId('nexus-increase-payroll')).toBeDisabled();
   });
 });

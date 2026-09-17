@@ -17,15 +17,13 @@ import {
   type ChairMarks,
   type Commander,
   type LabTech,
-  type OfficerMark,
   type OfficerRole,
   type PartialResources,
   type ResearchHead,
   type ResearchItemSpec,
   type ResearchTrackStatus,
 } from '@frontline/shared';
-import { roleFit } from '../roles/requirements.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -98,16 +96,20 @@ const RESEARCH_TRACKS: readonly OfficerRole[] = [
   ...new Set(RESEARCH_ITEMS.map((spec) => spec.track)),
 ];
 
-/** The mark an officer holds for the chair they are actually in. */
-function markOf(officer: Commander | undefined, role: OfficerRole): OfficerMark | null {
-  return officer ? markFromPoints(roleFit(officer.attributes, role)) : null;
-}
-
-/** §C1c/§C3a: the Head of Research, and what their sheet takes off every research clock. */
-export function researchHead(base: Base): ResearchHead | null {
+/**
+ * §C1c/§C3a: the Head of Research, and what their sheet takes off every research clock.
+ *
+ * Every figure on this page is measured through {@link officerFitReader}, which reads the sheet an
+ * officer actually has rather than the one printed on their card. The Lab used to read
+ * `officer.attributes` at all five of these sites, so the Overseer's teaching perks, the peers'
+ * perks, the ground's `officer_group` and the Lab's own `officer_attribute` rungs raised a number
+ * that gated nothing: a crew could finish Field Promotions and watch every research gate refuse
+ * the officer it had just promoted.
+ */
+export function researchHead(base: Base, fit: OfficerFitReader): ResearchHead | null {
   const officer = seated(base, 'head_of_research');
   if (!officer) return null;
-  const points = roleFit(officer.attributes, 'head_of_research');
+  const points = fit.pointsFor(officer, 'head_of_research');
   return {
     name: officer.name,
     mark: markFromPoints(points),
@@ -116,36 +118,40 @@ export function researchHead(base: Base): ResearchHead | null {
 }
 
 /** §C1d: what the track's own officer takes off every price on their own track, as published. */
-function trackCostCutFor(base: Base, track: OfficerRole): number {
+function trackCostCutFor(base: Base, track: OfficerRole, fit: OfficerFitReader): number {
   const officer = seated(base, track);
-  return officer ? published(trackCostCutPercent(roleFit(officer.attributes, track))) : 0;
+  return officer ? published(trackCostCutPercent(fit.pointsFor(officer, track))) : 0;
 }
 
 /** The two chairs a rung is gated on (§C1b, §C1c). */
-export function chairMarksFor(base: Base, track: OfficerRole): ChairMarks {
+export function chairMarksFor(track: OfficerRole, fit: OfficerFitReader): ChairMarks {
   return {
-    trackMark: markOf(seated(base, track), track),
-    headMark: markOf(seated(base, 'head_of_research'), 'head_of_research'),
+    trackMark: fit.markFor(track),
+    headMark: fit.markFor('head_of_research'),
   };
 }
 
 /** The nineteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
-export function trackStatuses(base: Base): ResearchTrackStatus[] {
+export function trackStatuses(base: Base, fit: OfficerFitReader): ResearchTrackStatus[] {
   return RESEARCH_TRACKS.map((role) => {
     const officer = seated(base, role);
     return {
       role,
       officerName: officer?.name ?? null,
-      mark: markOf(officer, role),
-      costCutPercent: trackCostCutFor(base, role),
+      mark: fit.markFor(role),
+      costCutPercent: trackCostCutFor(base, role, fit),
       done: trackProgress(base.research.technologies, role),
     };
   });
 }
 
 /** What this crew would actually pay for a rung, with the track officer's cut applied. */
-export function priceOf(base: Base, spec: ResearchItemSpec): PartialResources {
-  return researchItemPrice(spec, trackCostCutFor(base, spec.track));
+export function priceOf(
+  base: Base,
+  spec: ResearchItemSpec,
+  fit: OfficerFitReader,
+): PartialResources {
+  return researchItemPrice(spec, trackCostCutFor(base, spec.track, fit));
 }
 
 /**
@@ -161,13 +167,13 @@ interface ResearchClock {
   headCutPercent: number;
 }
 
-function researchClockFor(repos: Repositories, base: Base): ResearchClock {
+function researchClockFor(repos: Repositories, base: Base, fit: OfficerFitReader): ResearchClock {
   const head = seated(base, 'head_of_research');
   return {
     buildingPercent: researchTimeReduction(base.buildings),
     crewSpeedPercent: standingEffectsFor(repos, base).researchSpeedPercent,
     headCutPercent: head
-      ? published(researchTimeCutPercent(roleFit(head.attributes, 'head_of_research')))
+      ? published(researchTimeCutPercent(fit.pointsFor(head, 'head_of_research')))
       : 0,
   };
 }
@@ -186,18 +192,23 @@ function minutesWith(clock: ResearchClock, spec: ResearchItemSpec): number {
 }
 
 /** The same, for a caller that has one rung in hand rather than the catalogue. */
-export function minutesFor(repos: Repositories, base: Base, spec: ResearchItemSpec): number {
-  return minutesWith(researchClockFor(repos, base), spec);
+export function minutesFor(
+  repos: Repositories,
+  base: Base,
+  spec: ResearchItemSpec,
+  fit: OfficerFitReader,
+): number {
+  return minutesWith(researchClockFor(repos, base, fit), spec);
 }
 
 /** Why a rung cannot be started, in the player's words, or `null`. */
-export function itemBlocker(base: Base, id: string): string | null {
+export function itemBlocker(base: Base, id: string, fit: OfficerFitReader): string | null {
   const spec = findResearchItem(id);
   if (!spec) return 'No such research';
   const refusal = researchItemRefusal(
     id,
     base.research.technologies,
-    chairMarksFor(base, spec.track),
+    chairMarksFor(spec.track, fit),
   );
   return refusal === null ? null : describeResearchItemRefusal(refusal, spec);
 }
@@ -210,18 +221,22 @@ export function itemBlocker(base: Base, id: string): string | null {
  * re-reading nineteen chairs inside the loop meant 190 territory-and-roster folds per read, which
  * is the whole cost of the route for a number that is the same on every row.
  */
-export function labResearchItems(repos: Repositories, base: Base): LabTech[] {
+export function labResearchItems(
+  repos: Repositories,
+  base: Base,
+  fit: OfficerFitReader,
+): LabTech[] {
   const known = new Set(base.research.technologies);
-  const clock = researchClockFor(repos, base);
-  const headMark = markOf(seated(base, 'head_of_research'), 'head_of_research');
+  const clock = researchClockFor(repos, base, fit);
+  const headMark = fit.markFor('head_of_research');
   const perTrack = new Map(
     RESEARCH_TRACKS.map((role) => {
       const officer = seated(base, role);
       return [
         role,
         {
-          costCut: officer ? published(trackCostCutPercent(roleFit(officer.attributes, role))) : 0,
-          chairs: { trackMark: markOf(officer, role), headMark },
+          costCut: officer ? published(trackCostCutPercent(fit.pointsFor(officer, role))) : 0,
+          chairs: { trackMark: fit.markFor(role), headMark },
         },
       ];
     }),

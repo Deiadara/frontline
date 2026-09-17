@@ -20,6 +20,7 @@ export type ErrorCode =
   | 'OVERSEER_ALREADY_CHOSEN'
   | 'UNKNOWN_PRESET'
   | 'PRESET_TAKEN'
+  | 'OFFER_EXPIRED'
   | 'NO_BASE'
   | 'INVALID_TARGET'
   | 'MISSIONS_AT_CAPACITY'
@@ -33,7 +34,18 @@ export type ErrorCode =
   /** §H7a: the crew is already sitting at as many tables as its level allows. */
   | 'TOO_MANY_AUCTIONS'
   | 'NO_PAYROLL'
+  /** §H7: the payroll ladder is bought out. There is no further step to sell. */
+  | 'PAYROLL_AT_MAX'
   | 'AREA_LOCKED'
+  /**
+   * The door on a city's rooms, shut (maintainer, 2026-09-17).
+   *
+   * A crew may use a city's bar and its market while they hold ground in it, so this is the refusal
+   * for a read that named a city they hold nothing in. `FORBIDDEN` would have done for the status
+   * and not for the screen: a player whose last location changed hands wants to be told what the
+   * door now costs, and a code of its own is what lets the client say it.
+   */
+  | 'CITY_SHUT'
   // research (GDD §C)
   | 'RESEARCH_BUSY'
   | 'RESEARCH_OPTION_LOCKED'
@@ -67,6 +79,17 @@ export type ErrorCode =
   | 'NO_UNIT_SLOTS'
   // declared battles and the §D7 sinks
   | 'BATTLE_REFUSED'
+  /**
+   * The database was busy and the write did not happen. Nothing was half-written: press again.
+   *
+   * Surfaced by a soak against a hosted server on 2026-09-17, where a second process writing to
+   * the same file (a backup, an admin script, a migration, a second instance) made an ordinary
+   * `POST /units/train` answer `500 INTERNAL`. SQLite allows one writer at a time, and a
+   * transaction that has already read cannot then wait for the write lock without risking a
+   * deadlock, so it is refused immediately whatever `busy_timeout` says. That is a transient
+   * refusal and it has a shape: the request is safe to repeat.
+   */
+  | 'DATABASE_BUSY'
   | 'NOT_ENOUGH_INFAMY'
   | 'INTERNAL';
 
@@ -86,13 +109,24 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   OVERSEER_ALREADY_CHOSEN: 409,
   UNKNOWN_PRESET: 400,
   PRESET_TAKEN: 409,
+  /*
+   * §F6: the ten minutes ran out while the tab was open.
+   *
+   * 410 rather than 409, and the difference is what the client does next. A 409 is "somebody beat
+   * you to that one, pick another of your four"; this is "the four are gone, ask for four more",
+   * which is a reload of the choices rather than a second press.
+   */
+  OFFER_EXPIRED: 410,
   NO_BASE: 409,
+  // Not 404: the city is there and the crew is not welcome in it, which is what 403 says.
+  CITY_SHUT: 403,
   TRAINING_REFUSED: 409,
   MARKET_REFUSED: 409,
   BLACK_MARKET_REFUSED: 409,
   MISSION_REFUSED: 409,
   ROLE_TAKEN: 409,
   NO_PAYROLL: 409,
+  PAYROLL_AT_MAX: 409,
   WORKSHOP_REFUSED: 409,
   BLUEPRINT_REFUSED: 409,
   REIMAGINING_REFUSED: 409,
@@ -127,6 +161,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   TRAINING_QUEUE_FULL: 409,
   NO_UNIT_SLOTS: 409,
   BATTLE_REFUSED: 409,
+  // 503, not 500: nothing is wrong with the request or with the server, the moment was wrong.
+  DATABASE_BUSY: 503,
   NOT_ENOUGH_INFAMY: 409,
   INTERNAL: 500,
 };

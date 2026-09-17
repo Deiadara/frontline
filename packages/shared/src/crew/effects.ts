@@ -777,8 +777,37 @@ export interface CrewMember {
  * the right chair, which is the sentence the whole rule exists to make true.
  */
 export function crewSheet(crew: readonly CrewMember[]): Attributes {
-  const best = Object.fromEntries(ATTRIBUTE_NAMES.map((name) => [name, 0])) as Attributes;
-  for (const member of crew) {
+  const sources = crewSheetSources(crew);
+  return Object.fromEntries(
+    ATTRIBUTE_NAMES.map((name) => [name, sources[name].rating]),
+  ) as Attributes;
+}
+
+/** Who is carrying one rating on the crew's sheet, and what it came out at. */
+export interface SheetSource {
+  rating: number;
+  /**
+   * Where in the crew the winner sits, or `null` when nobody rates above zero.
+   *
+   * An index rather than a name, because a `CrewMember` is attributes, perks and a chair: the
+   * people it was built from are the caller's, and only the caller can put a name to one.
+   */
+  at: number | null;
+}
+
+/**
+ * The same best-of as {@link crewSheet}, keeping who won each line.
+ *
+ * Split out rather than measured a second time (maintainer, 2026-09-17: the roster's chips should
+ * say where their percentages come from, "20% from X officer"). Naming the officer behind a
+ * contribution needs exactly the arithmetic below, and a second copy of it is a copy that disagrees
+ * with the sheet the game actually uses the first time somebody retunes a share.
+ */
+export function crewSheetSources(crew: readonly CrewMember[]): Record<AttributeName, SheetSource> {
+  const best = Object.fromEntries(
+    ATTRIBUTE_NAMES.map((name) => [name, { rating: 0, at: null }]),
+  ) as Record<AttributeName, SheetSource>;
+  for (const [index, member] of crew.entries()) {
     const uplift = peakUplift(member);
     for (const name of ATTRIBUTE_NAMES) {
       /*
@@ -808,7 +837,7 @@ export function crewSheet(crew: readonly CrewMember[]): Attributes {
        * top out around 40 and a fully drilled 100 is the end of a long project.
        */
       const rating = Math.round(Math.min(MAX_ATTRIBUTE, member.attributes[name] * share * uplift));
-      if (rating > best[name]) best[name] = rating;
+      if (rating > best[name].rating) best[name] = { rating, at: index };
     }
   }
   return best;
@@ -1036,32 +1065,103 @@ export function liftOfficer(
   >,
   fromGround: TerritoryEffects['officerGroupFlat'],
 ): Attributes {
-  const lifted = { ...own };
+  return liftedSheet(own, [
+    { from: 'the ground you hold', groupFlat: fromGround },
+    {
+      from: 'the rest of the crew',
+      groupFlat: fromPeers.officerGroupFlat,
+      attributeFlat: fromPeers.officerAttributeFlat,
+      attributeAtLeast: fromPeers.officerAttributeAtLeast,
+    },
+  ]).attributes;
+}
 
-  // The ground's group lift and the peers' are the same kind of thing and are added, not maxed:
-  // a Chapel and an Old Instructor are two different people helping, not one helping twice.
-  const groupFlat = mergeCounts(fromGround, fromPeers.officerGroupFlat);
-  for (const [group, flat] of Object.entries(groupFlat)) {
-    if (!flat) continue;
-    for (const name of ATTRIBUTES_BY_GROUP[group as AttributeGroup]) {
-      lifted[name] = clampAttribute(lifted[name] + flat);
+/**
+ * The most anybody else can add to one of an officer's attributes (maintainer request, 2026-09-16).
+ *
+ * Teaching perks, the Lab's people rungs and a held Chapel all pay into the same few attributes,
+ * and they stacked without a ceiling: measured against the shipped catalogues, a crew that had
+ * signed every teacher in the book and finished the Lab could put about **thirty** points onto one
+ * mental attribute, which is a third of the scale arriving from somewhere other than the person.
+ * At that size the sheet stops describing who you hired.
+ *
+ * Ten is a tenth of the scale: visible on the bar, worth building a crew around, and never the
+ * larger half of a figure. The cap is per attribute rather than per source, because what a player
+ * reads is one number and the question they ask about it is how much of it is theirs.
+ */
+export const MAX_OFFICER_LIFT = 10;
+
+/** One place an officer's sheet can be lifted from, and what it pays. */
+export interface LiftSource {
+  /** Where it came from, in the player's words: a name, "the Lab", "the ground you hold". */
+  from: string;
+  groupFlat?: Partial<Record<AttributeGroup, number>>;
+  attributeFlat?: Partial<Record<AttributeName, number>>;
+  attributeAtLeast?: Partial<Record<AttributeName, { threshold: number; flat: number }>>;
+}
+
+/** One line of the breakdown the officer card shows when a bar is hovered. */
+export interface AttributeLift {
+  attribute: AttributeName;
+  /** The {@link LiftSource.from} that paid it. */
+  from: string;
+  /** Points actually added, after the cap and after the 0..100 clamp. Always above zero. */
+  amount: number;
+}
+
+/**
+ * An officer's sheet as the crew actually fields it, and a receipt for every point of it.
+ *
+ * The receipt is the point. A player looking at `22` where they hired a `20` is owed the sentence
+ * "20 of that is theirs and 2 came from the Overseer", and that cannot be reconstructed from a
+ * merged fold: by the time three sources are summed into one channel, nobody can say whose it was.
+ * So the sources arrive as a list, each with its own label, and each one's **effective** delta is
+ * recorded after the cap and the clamp rather than its nominal one. A source that pays 5 into an
+ * attribute already at the ceiling contributes nothing and says nothing, which is the honest
+ * receipt: the alternative is a breakdown whose lines do not add up to the number above them.
+ *
+ * Order is therefore load bearing at the cap, and it is the order the caller passes: ground first,
+ * then the people, which puts the scarce room at the top of the list on whatever the crew holds.
+ */
+export function liftedSheet(
+  own: Attributes,
+  sources: readonly LiftSource[],
+): { attributes: Attributes; lift: AttributeLift[] } {
+  const attributes = { ...own };
+  const lift: AttributeLift[] = [];
+  // Per attribute, so the ceiling is on what the person gained rather than on any one teacher.
+  const spent: Partial<Record<AttributeName, number>> = {};
+
+  const add = (name: AttributeName, flat: number, from: string): void => {
+    if (flat <= 0) return;
+    const room = Math.min(flat, MAX_OFFICER_LIFT - (spent[name] ?? 0));
+    if (room <= 0) return;
+    const before = attributes[name];
+    attributes[name] = clampAttribute(before + room);
+    const gained = attributes[name] - before;
+    if (gained <= 0) return;
+    spent[name] = (spent[name] ?? 0) + gained;
+    lift.push({ attribute: name, from, amount: gained });
+  };
+
+  for (const source of sources) {
+    for (const [group, flat] of Object.entries(source.groupFlat ?? {})) {
+      if (!flat) continue;
+      for (const name of ATTRIBUTES_BY_GROUP[group as AttributeGroup]) add(name, flat, source.from);
+    }
+    for (const [name, flat] of Object.entries(source.attributeFlat ?? {})) {
+      if (flat) add(name as AttributeName, flat, source.from);
+    }
+    for (const [name, rule] of Object.entries(source.attributeAtLeast ?? {})) {
+      if (!rule) continue;
+      // Against the *unlifted* figure: what this perk pays for is somebody who was already good at
+      // it, and reading the running total would let a group bonus carry somebody over the bar.
+      if (own[name as AttributeName] < rule.threshold) continue;
+      add(name as AttributeName, rule.flat, source.from);
     }
   }
 
-  for (const [name, flat] of Object.entries(fromPeers.officerAttributeFlat)) {
-    if (!flat) continue;
-    lifted[name as AttributeName] = clampAttribute(lifted[name as AttributeName] + flat);
-  }
-
-  for (const [name, rule] of Object.entries(fromPeers.officerAttributeAtLeast)) {
-    if (!rule) continue;
-    // Against the *unlifted* figure: what this perk pays for is somebody who was already good at
-    // it, and reading the running total would let a group bonus carry somebody over the bar.
-    if (own[name as AttributeName] < rule.threshold) continue;
-    lifted[name as AttributeName] = clampAttribute(lifted[name as AttributeName] + rule.flat);
-  }
-
-  return lifted;
+  return { attributes, lift };
 }
 
 /**

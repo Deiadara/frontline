@@ -10,7 +10,9 @@ import {
   cow,
   allocate,
   MAX_MEND_SHARE,
+  MAX_COWED_SHARE,
   mendShare,
+  outnumberedBy,
   pursue,
   simulate,
   sidePower,
@@ -386,6 +388,35 @@ describe('a taunting stack takes the fire off the line behind it', () => {
     const only = allocate(shooter, [stackOf('ironsides', 6), stackOf('ironsides', 4)]);
     expect(only.reduce((sum, part) => sum + part.share, 0)).toBeCloseTo(1, 10);
   });
+
+  /**
+   * The maintainer's rule, 2026-09-16: a stack that broke is out of the fight.
+   *
+   * It already did not shoot, and `fighting` already left it out of every reading the engine takes
+   * of a side's strength. It was still a target, which was wrong twice over: the line spent its
+   * fire on people who had stopped fighting, and a routing stack stood between the enemy and the
+   * units still holding, soaking rounds it had no business soaking. A crew whose flank broke was
+   * better protected than one whose flank held.
+   */
+  it('does not fire at a stack that has already broken', () => {
+    const broken = { ...stackOf('stitchers', 6), brokeAt: 2 };
+    const holding = stackOf('sparks', 10);
+    const split = allocate(shooter, [broken, holding]);
+
+    expect(shareOf(split, 'stitchers'), 'a broken stack was still being shot at').toBe(0);
+    // ...and the fire is not simply lost: whoever is still fighting takes all of it.
+    expect(shareOf(split, 'sparks')).toBeCloseTo(1, 10);
+  });
+
+  /** Even a taunting wall stops pulling fire once it has broken: a routed shield is not a shield. */
+  it('lets the taunt go when the wall itself breaks', () => {
+    const wall = { ...stackOf('ironsides', 6), brokeAt: 3 };
+    const soft = stackOf('stitchers', 6);
+    const split = allocate(shooter, [wall, soft]);
+
+    expect(shareOf(split, 'ironsides')).toBe(0);
+    expect(shareOf(split, 'stitchers')).toBeCloseTo(1, 10);
+  });
 });
 
 /**
@@ -521,6 +552,27 @@ describe('medics undo part of a round before anybody counts it', () => {
     expect(mendShare(mendSide({ stitchers: 40 }))).toBe(0);
     expect(mendShare(mendSide({ wardens: 40 }))).toBe(0);
     expect(mendShare(mendSide({ wardens: 40, stitchers: 10 }))).toBeGreaterThan(0);
+  });
+
+  /**
+   * And the other half of the same rule: a broken *line* is nobody to treat.
+   *
+   * `allocate` stops firing at a routed stack, so nothing lands on it and there is nothing on it
+   * for the medics to undo. It stayed in the denominator anyway, which diluted the hospital exactly
+   * as the line was collapsing: twenty Wardens, twenty Razors and five Stitchers sat at 0.225 with
+   * the Razors routed, when five medics cover the twenty who are left in full.
+   */
+  it('stops counting a routed stack as somebody the medics are treating', () => {
+    const side = mendSide({ wardens: 20, razors: 20, stitchers: 5 });
+    const whole = mendShare(side);
+    expect(
+      whole,
+      'the fixture has to be under the cap or there is nothing to measure',
+    ).toBeLessThan(MAX_MEND_SHARE);
+
+    for (const stack of side.stacks) if (stack.unit.id === 'razors') stack.brokeAt = 2;
+
+    expect(mendShare(side)).toBeGreaterThan(whole);
   });
 
   /** A broken hospital is people running, not people working. */
@@ -671,23 +723,44 @@ describe('who is too cowed to fight (§D3)', () => {
   });
 
   it('takes free units first and cannot stall on them', () => {
-    const free = cowStack(3, 0, 0);
-    const paid = cowStack(2, 10, 0);
+    const free = cowStack(4, 0, 0);
+    const paid = cowStack(4, 10, 0);
     const side = sideOf([paid, free]);
-    // Nerve 20. A menace of 30 leaves 10, which takes all three zero-morale units and then one
-    // more at 10.
-    expect(cow(side, 30)).toBe(4);
-    expect(free.suppressed).toBe(3);
-    expect(paid.suppressed).toBe(1);
+    // Nerve 40. A menace of 60 leaves 20, which takes all four zero-morale units and then two
+    // more at 10. Eight units standing, so the ceiling is six and does not bind.
+    expect(cow(side, 60)).toBe(6);
+    expect(free.suppressed).toBe(4);
+    expect(paid.suppressed).toBe(2);
+  });
+
+  /**
+   * And the ceiling, which is the whole of what stops this being a win button (2026-09-17).
+   *
+   * Menace and nerve are both sums over units, so the comparison scales with the difference in size
+   * rather than the ratio: a force three times the size of what it is facing carries a budget that
+   * would silence the other side outright. Measured on the shipped sheets before this, 745 against
+   * 220 with a +30 intimidation bonus silenced 220 of 220, which is a fight decided from the
+   * opening rosters with nothing the loser could do about it.
+   */
+  it('never silences the whole line, however loud the other side is', () => {
+    const line = cowStack(20, 10, 0);
+    const side = sideOf([line]);
+    // A menace far past anything the sheets can produce, so only the ceiling can be what binds.
+    expect(cow(side, 1_000_000)).toBe(Math.floor(20 * MAX_COWED_SHARE));
+    expect(
+      Math.max(0, line.alive - line.suppressed),
+      'a quarter of the line has to be left shooting',
+    ).toBeGreaterThan(0);
   });
 
   /** The whole point: silenced units are alive, present, and useless. */
   it('leaves the silenced standing rather than killing them', () => {
-    const weak = cowStack(5, 10, 0);
-    cow(sideOf([weak]), 100);
-    expect(weak.suppressed).toBe(5);
-    expect(weak.alive, 'suppression is not a casualty').toBe(5);
-    expect(weak.pool, 'suppression does not wound').toBe(5 * weak.effective.vitality);
+    const weak = cowStack(8, 10, 0);
+    const silenced = cow(sideOf([weak]), 1000);
+    expect(silenced, 'the fixture has to silence somebody').toBeGreaterThan(0);
+    expect(weak.suppressed).toBe(silenced);
+    expect(weak.alive, 'suppression is not a casualty').toBe(8);
+    expect(weak.pool, 'suppression does not wound').toBe(8 * weak.effective.vitality);
   });
 
   /**
@@ -698,13 +771,16 @@ describe('who is too cowed to fight (§D3)', () => {
    * of bug that made `intimidation` worth fixing in the first place.
    */
   it('takes the silenced out of the firing line', () => {
-    const terrifying = findUnit('razors');
-    if (!terrifying) throw new Error('fixture: no razors');
-    const timid = cowStack(4, 0, 0);
+    const timid = cowStack(8, 0, 0);
     const side = sideOf([timid]);
-    cow(side, 1);
-    expect(timid.suppressed).toBe(4);
-    expect(Math.max(0, timid.alive - timid.suppressed), 'nobody left to fire').toBe(0);
+    const silenced = cow(side, 1);
+    // Free to silence, so the ceiling is the only thing deciding how many.
+    expect(silenced).toBe(Math.floor(8 * MAX_COWED_SHARE));
+    expect(timid.suppressed).toBe(silenced);
+    expect(
+      Math.max(0, timid.alive - timid.suppressed),
+      'what is left over is what still fires',
+    ).toBe(8 - silenced);
   });
 });
 
@@ -769,5 +845,44 @@ describe('counting the line honestly', () => {
     expect(reasons(army({ razors: 16 }))).toContain(lastStand);
     // Ten Razors and forty porters do not: the porters never form a line.
     expect(reasons(army({ razors: 10, scavengers: 40 }))).not.toContain(lastStand);
+  });
+});
+
+/**
+ * How outnumbered a line feels, which is not the same as how many bodies are opposite it.
+ *
+ * `moralePhase` read `standingUnits` on both halves of the ratio, and that counts the routed. Two
+ * errors in opposite directions out of one reading: a line was pressed by men who had already run,
+ * and was comforted by its own stacks that had run. Every other reading the engine takes of a
+ * side's strength already skipped them (2026-09-16), so this was the odd one out rather than a
+ * deliberate exception.
+ */
+describe('how outnumbered a side is', () => {
+  const sideOf = (army: Army): SideState =>
+    simulate({
+      seed: 'outnumbered',
+      battlefield: bareBattlefield(),
+      attacker: { name: 'A', army, defending: false },
+      defender: { name: 'D', army: { razors: 1 }, defending: true },
+    }).attacker;
+
+  it('stops counting the enemy stacks that have run', () => {
+    const us = sideOf({ razors: 10 });
+    const them = sideOf({ razors: 10, wardens: 10 });
+    expect(outnumberedBy(us, them)).toBe(2);
+
+    for (const stack of them.stacks) if (stack.unit.id === 'wardens') stack.brokeAt = 2;
+
+    expect(outnumberedBy(us, them)).toBe(1);
+  });
+
+  it('stops counting our own stacks that have run, which made a collapse feel safer', () => {
+    const us = sideOf({ razors: 10, wardens: 10 });
+    const them = sideOf({ razors: 20 });
+    expect(outnumberedBy(us, them)).toBe(1);
+
+    for (const stack of us.stacks) if (stack.unit.id === 'wardens') stack.brokeAt = 2;
+
+    expect(outnumberedBy(us, them)).toBe(2);
   });
 });

@@ -1,75 +1,56 @@
-import { FEAT_ERA_BLURBS, FEAT_ERA_LABELS, FEAT_ERAS } from '@frontline/shared';
-import { tabSkin } from '../../components/ui/Button';
 import { cn } from '../../lib/cn';
-import type { DoneFilter, EraFilter, FeatFilter } from './featsList';
+import { DrawnFace } from '../../components/ui/DrawnMarks';
+import type { FeatFilter } from './featsList';
 
 /**
- * The two filters the maintainer asked for: which part of the game, and whether it is done.
+ * The board's one filter row: which ladders to list (maintainer, 2026-09-17).
  *
- * ## Chips rather than the painted picker
+ * ## What went, and why
  *
- * The standings screen picks its sort from a `Dropdown` and that is right there: eight sorts, one
- * of which is wanted, and a menu costs one press to open. These are different. Four eras and three
- * states is seven controls in all, both filters are the only navigation two hundred feats
- * have, and a player narrowing a long list wants to *see* what the other settings are and what
- * each would leave, which is exactly what a menu hides. So both rows are chips wearing `tabSkin`,
- * the skin the battle board, the roster and the market already pick with.
+ * There were two rows here. The first was the **era**, Early / Mid / Late, and it is gone with the
+ * rest of that mechanic: an era was a rough weight class the catalogue used for pricing, a player
+ * could not aim at it, and on a board of ladders it split every chain across three chips because a
+ * ladder's whole shape is that it starts early and finishes late. The second was how much of a
+ * chain to draw, which the sidebar answers better by drawing one ladder at a time.
  *
- * Each chip carries the figure it would leave, counted against the *other* filter as it currently
- * stands. That is the number a player is actually choosing on: "Late" saying 50 when nothing else
- * is set and 3 when Completed is on is the screen answering "is there anything for me over there"
- * before the press rather than after it.
+ * What is left is the question a player actually arrives with: where do I stand on this thing.
+ * Four settings over whole ladders, and the one that matters is `Unclaimed`, which is the only
+ * state asking for a press.
+ *
+ * ## Drawn, rather than the painted picker
+ *
+ * The standings screen picks its sort from a `Dropdown`, and that is right there: eight sorts, one
+ * of which is wanted, and a menu costs one press to open. This is different. Four settings is four
+ * controls, they are the only navigation four hundred feats have besides the list itself, and a
+ * player narrowing a long list wants to *see* what the other settings are and what each would
+ * leave, which is exactly what a menu hides.
+ *
+ * They wear the same hand-inked box the Collect-all button does ({@link DrawnFace}), at the same
+ * height and type size (maintainer, 2026-09-17). They sit on a sheet of paper in a row with that
+ * button, and a struck-metal tab beside a drawn one reads as a control bar bolted onto a document.
+ * The gap between them is twice what a tab row uses, because four drawn boxes at a tab's spacing
+ * read as one long box with lines in it.
+ *
+ * Each chip carries the number of ladders it would leave, which is the figure a player is choosing
+ * on: `Unclaimed 3` answers "is there anything waiting for me" before the press rather than after.
  */
 
-const SHOW_LABELS: Readonly<Record<DoneFilter, string>> = {
-  all: 'Everything',
-  done: 'Completed',
-  todo: 'Not completed',
+const LABELS: Readonly<Record<FeatFilter, string>> = {
+  all: 'All',
+  claimed: 'Claimed',
+  unclaimed: 'Unclaimed',
+  shut: 'Shut',
 };
 
-/** Why each setting shows what it shows, on hover. `done` is the one that needs saying. */
-const SHOW_TIPS: Readonly<Record<DoneFilter, string>> = {
-  all: 'Every feat, finished or not',
-  done: 'Finished, whether or not you have collected it',
-  todo: 'Still to do, and the ones still shut',
+/** What each setting shows, on hover. Said in ladders, because that is what it counts. */
+const TIPS: Readonly<Record<FeatFilter, string>> = {
+  all: 'Every ladder on the board',
+  claimed: 'Ladders finished to the top and collected',
+  unclaimed: 'Ladders with a rung waiting to be collected',
+  shut: 'Ladders still in hand, with nothing to collect yet',
 };
 
-function Chip({
-  label,
-  count,
-  tip,
-  active,
-  onPress,
-  testId,
-}: {
-  label: string;
-  count: number;
-  tip: string;
-  active: boolean;
-  onPress: () => void;
-  testId: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onPress}
-      aria-pressed={active}
-      data-tip={tip}
-      data-testid={testId}
-      className={tabSkin({ active, className: 'gap-1.5 px-2.5 py-1.5' })}
-    >
-      {label}
-      <span
-        className={cn(
-          'rounded-sm px-1 py-px font-display text-[10px] font-bold tabular-nums',
-          active ? 'bg-brass-300/25 text-brass-100' : 'bg-surface-900/70 text-ink-400',
-        )}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
+export const FEAT_FILTERS: readonly FeatFilter[] = ['all', 'claimed', 'unclaimed', 'shut'];
 
 export function FeatFilters({
   filter,
@@ -78,64 +59,56 @@ export function FeatFilters({
 }: {
   filter: FeatFilter;
   onChange: (next: FeatFilter) => void;
-  /** How many rungs a setting would leave, counted against whatever the other filter is on. */
+  /** How many ladders a setting would leave. */
   countFor: (probe: FeatFilter) => number;
 }) {
-  const eras: readonly EraFilter[] = ['all', ...FEAT_ERAS];
-
   return (
-    // The same sheet the ledger beside it is drawn on (`ink-frame card-paper washed grain`), and
-    // not the painted metal the rest of the chrome uses: the two share a row, and a panel in a
-    // different material beside a framed one reads as a control bar bolted onto a document.
     <div
-      className="ink-frame card-paper washed grain flex flex-col justify-center gap-2.5 rounded-sm px-3 py-2.5 shadow-panel"
+      className="flex min-w-0 flex-wrap items-center justify-center gap-4"
+      role="group"
+      aria-label="Show"
       data-testid="feats-filters"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label="Era">
-        <span className="font-display text-[10px] font-bold uppercase tracking-[0.18em] text-ink-400">
-          Era
-        </span>
-        {eras.map((era) => (
-          <Chip
-            key={era}
-            label={era === 'all' ? 'All' : FEAT_ERA_LABELS[era]}
-            count={countFor({ ...filter, era })}
-            tip={era === 'all' ? 'Every part of the game' : FEAT_ERA_BLURBS[era]}
-            active={filter.era === era}
-            onPress={() => onChange({ ...filter, era })}
-            testId={`feats-era-${era}`}
-          />
-        ))}
-      </div>
-
-      <div className="flex min-w-0 flex-wrap items-center gap-2" role="group" aria-label="Show">
-        <span className="font-display text-[10px] font-bold uppercase tracking-[0.18em] text-ink-400">
-          Show
-        </span>
-        {(['all', 'done', 'todo'] as const).map((done) => (
-          <Chip
-            key={done}
-            label={SHOW_LABELS[done]}
-            count={countFor({ ...filter, done })}
-            tip={SHOW_TIPS[done]}
-            active={filter.done === done}
-            onPress={() => onChange({ ...filter, done })}
-            testId={`feats-show-${done}`}
-          />
-        ))}
-      </div>
-
-      <span aria-hidden className="ink-rule block w-full" />
-      {/* What the current pair of settings actually means, spelled out. The hover tips say the
-          same thing one control at a time; this is the sentence for the state the board is in,
-          and it is the copy the era blurbs in `@frontline/shared` were written for. */}
-      <p
-        className="font-body text-[12.5px] leading-snug text-ink-300"
-        data-testid="feats-filter-note"
-      >
-        {filter.era === 'all' ? 'Every part of the game.' : FEAT_ERA_BLURBS[filter.era]}{' '}
-        {SHOW_TIPS[filter.done]}.
-      </p>
+      {FEAT_FILTERS.map((setting) => {
+        const active = filter === setting;
+        return (
+          <button
+            key={setting}
+            type="button"
+            onClick={() => onChange(setting)}
+            aria-pressed={active}
+            data-tip={TIPS[setting]}
+            data-testid={`feats-show-${setting}`}
+            className={cn(
+              'group/filter relative inline-flex shrink-0 items-center justify-center gap-1.5',
+              // The same box as the Collect-all button beside it, to the pixel: one type size, one
+              // padding, so a row of five controls has one height rather than two.
+              'px-3.5 py-[8.7px] font-stamp text-[15px] leading-none tracking-[0.08em]',
+              'transition-all duration-150 ease-out hover:-translate-y-px active:translate-y-px',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brass-300',
+              active ? 'text-brass-100' : 'text-ink-300 hover:text-brass-100',
+            )}
+          >
+            <DrawnFace
+              face={cn(
+                'transition-all duration-150',
+                active
+                  ? 'fill-brass-500/30 group-hover/filter:fill-brass-500/40'
+                  : 'fill-surface-900/50 group-hover/filter:fill-brass-500/15',
+              )}
+            />
+            <span className="relative">{LABELS[setting]}</span>
+            <span
+              className={cn(
+                'relative rounded-sm px-1 py-px font-display text-[10px] font-bold tabular-nums',
+                active ? 'bg-brass-300/25 text-brass-100' : 'bg-surface-950/60 text-ink-400',
+              )}
+            >
+              {countFor(setting)}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

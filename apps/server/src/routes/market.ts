@@ -34,6 +34,7 @@ import {
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
+import { cityAsked, homeCityOf } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
 import { tellPagesFound } from '../social/pages.js';
 
@@ -54,7 +55,24 @@ function refuse(reason: MarketRefusal, figures?: RefusalFigures): never {
 }
 
 export function registerMarketRoutes(app: FastifyInstance): void {
-  const board = (base: Base, now: Date): MarketResponse => projectMarket(app.repos, base, now);
+  const board = (base: Base, now: Date, cityId?: string): MarketResponse =>
+    projectMarket(app.repos, base, now, cityId ?? homeCityOf(base));
+
+  /**
+   * The city a read asked for, or the refusal (maintainer, 2026-09-17).
+   *
+   * A market belongs to a city and a crew may trade in any city they hold ground in. A name they
+   * hold nothing in is refused rather than quietly answered with their own barrow: the lots on it
+   * are different lots, and showing the wrong ones to somebody who bookmarked a city they have
+   * since been thrown out of would have them bidding on crates they cannot win.
+   */
+  const cityOrRefuse = (base: Base, asked: string | undefined): string => {
+    const cityId = cityAsked(app.repos, base, asked);
+    if (cityId === null) {
+      throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
+    }
+    return cityId;
+  };
 
   app.get('/market', { preHandler: app.authenticate }, (request): MarketResponse => {
     const now = new Date();
@@ -64,7 +82,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     // minutes after he packed up is the one who closes it if the world clock has not got there
     // first, and they must see what they won on this very read rather than on the next one.
     settleVendorAuctions(app.repos, now);
-    return board(app.repos.bases.findByOwnerId(base.ownerId) ?? base, now);
+    const reader = app.repos.bases.findByOwnerId(base.ownerId) ?? base;
+    const cityId = cityOrRefuse(reader, (request.query as { city?: string } | undefined)?.city);
+    return board(reader, now, cityId);
   });
 
   /** Bid on a lot, while he is in. The close hands it over when he packs up. */

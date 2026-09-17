@@ -761,6 +761,16 @@ export function overseerRemaining(claimed: Iterable<string>): number {
  * two characters instead of four. Ordering the result by the pool's own order rather than by the
  * walk keeps the screen's four in a stable, readable order.
  */
+/**
+ * How long a batch of characters is held for the account it was offered to (§F6).
+ *
+ * Ten minutes, the maintainer's number. Long enough to read four biographies and think about it,
+ * short enough that a closed tab does not take four of thirty out of the world until somebody
+ * notices. The sweep is on the read, so a server that was down over the window comes back with the
+ * holds already lapsed rather than owing a scheduler a tick.
+ */
+export const OVERSEER_HOLD_MS = 10 * 60 * 1000;
+
 export function overseerOffer(
   claimed: Iterable<string>,
   accountId: string,

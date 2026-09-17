@@ -24,6 +24,7 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
 import { tallyDeployed } from '../feats/tally.js';
+import { defendingBaseOf } from './ground.js';
 import { sideForce } from './side.js';
 import { sendColumn } from './movement.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -298,6 +299,16 @@ export function sideOf(
   if (repos.sieges.side(battle.id, 'defender').some((row) => row.baseId === baseId)) {
     return 'defender';
   }
-  if (battle.defender.kind === 'crew' && battle.defender.baseId === baseId) return 'defender';
-  return null;
+  /*
+   * And the crew the call was *on*, which is not always the party on the plate.
+   *
+   * This read `battle.defender` alone, which for residential ground is `unoccupied`: a home
+   * district holds no locations, so nobody "holds" it in the control table however plainly
+   * somebody lives there. Meanwhile the settler assembles the defence from `defendingBaseOf`, the
+   * red mark counts the same way, and the report names the same crew. So the one crew whose whole
+   * roster was about to fight, and be written back over, was told `You are not in this one.` and
+   * refused by this module's own deploy route. Asking the same question the settler asks is the
+   * whole fix.
+   */
+  return defendingBaseOf(repos, battle)?.id === baseId ? 'defender' : null;
 }

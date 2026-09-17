@@ -1,12 +1,18 @@
 import {
   BLACK_MARKET_REFUSAL_TEXT,
   GAME_TIMEZONE,
-  TakeBlackMarketRequestSchema,
+  PlaceBlackMarketBidRequestSchema,
   type BlackMarketMutationResponse,
+  type Base,
   type BlackMarketResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { projectBlackMarket, takeFromBlackMarket } from '../blackmarket/shelf.js';
+import {
+  placeBlackMarketBid,
+  projectBlackMarket,
+  settleBlackMarketLots,
+} from '../blackmarket/shelf.js';
+import { cityAsked } from '../city/stakes.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
 
@@ -19,8 +25,12 @@ import { ownBase } from './own-base.js';
  * two settlement models behind one prefix.
  *
  * Both handlers answer with the whole shelf for the same reason the trading board does: between one
- * player's read and their click, somebody else in the city may have emptied the slot they were
- * aiming at. A delta would leave the screen showing a thing that is no longer there.
+ * player's read and their click, somebody else in the city may have bid over them or the day may
+ * have turned. A delta would leave the screen showing a lot that has already been settled.
+ *
+ * Both close the lots that are due first, the way `/market` does. There is no scheduler: a player
+ * opening the shelf five minutes after midnight is the one who settles last night's five, and they
+ * must see what they won on that very read rather than on the next one.
  *
  * The **house clock** decides which day they are shopping on, and that is deliberate rather than a
  * shrug at internationalisation. `time/zone.ts` states the rule: a player may move the display to
@@ -34,35 +44,68 @@ import { ownBase } from './own-base.js';
  */
 
 export function registerBlackMarketRoutes(app: FastifyInstance): void {
+  /**
+   * The city a request asked for, or the refusal. The barrow's own gate, word for word.
+   *
+   * A crew may stand in the back room of any city they hold ground in, and a city they hold nothing
+   * in is refused rather than quietly answered with their own room: the lots in it are different
+   * lots, and answering the wrong room to somebody thrown out of a city since they bookmarked it
+   * would have them bidding on crates they cannot win.
+   */
+  const cityOrRefuse = (base: Base, asked: string | undefined): string => {
+    const cityId = cityAsked(app.repos, base, asked);
+    if (cityId === null) {
+      throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
+    }
+    return cityId;
+  };
+
   app.get('/black-market', { preHandler: app.authenticate }, (request): BlackMarketResponse => {
-    return projectBlackMarket(
-      app.repos,
-      ownBase(app, request.currentUser.id),
-      new Date(),
-      GAME_TIMEZONE,
-    );
+    const now = new Date();
+    settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
+    const base = ownBase(app, request.currentUser.id);
+    const cityId = cityOrRefuse(base, (request.query as { city?: string } | undefined)?.city);
+    return projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId);
   });
 
+  /** Say a number on one of the five lots. The close hands the crate over at midnight. */
   app.post(
-    '/black-market/take',
+    '/black-market/bid',
     { preHandler: app.authenticate },
     (request): BlackMarketMutationResponse => {
-      const { slotIndex, goodId } = parseBody(TakeBlackMarketRequestSchema, request.body);
+      const { slotIndex, goodId, amount, city } = parseBody(
+        PlaceBlackMarketBidRequestSchema,
+        request.body,
+      );
       const now = new Date();
+      // The close first, the way `/market/bid` does it: a bid landing just after midnight belongs
+      // to today's shelf, and last night's lot has to be settled before anything is written.
+      settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
 
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
-        const result = takeFromBlackMarket(app.repos, base, slotIndex, goodId, now, GAME_TIMEZONE);
+        const result = placeBlackMarketBid(app.repos, {
+          base,
+          userId: request.currentUser.id,
+          slotIndex,
+          goodId,
+          amount,
+          now,
+          zone: GAME_TIMEZONE,
+          // Checked here rather than trusted: a bid names the room it is placed in, and a crew that
+          // has been thrown out of a city since the screen loaded must not be able to keep bidding.
+          cityId: cityOrRefuse(base, city),
+        });
         if (result.kind === 'refused') {
           throw new AppError('BLACK_MARKET_REFUSED', BLACK_MARKET_REFUSAL_TEXT[result.reason]);
         }
         app.repos.history.record({
           actorId: request.currentUser.id,
-          baseId: result.base.id,
-          kind: 'blackmarket.taken',
-          payload: { goodId: result.goodId, slotIndex },
+          baseId: base.id,
+          kind: 'blackmarket.bid',
+          payload: { goodId, slotIndex, amount },
         });
-        return { blackMarket: projectBlackMarket(app.repos, result.base, now, GAME_TIMEZONE) };
+        return { blackMarket: projectBlackMarket(app.repos, base, now, GAME_TIMEZONE) };
       })();
     },
   );

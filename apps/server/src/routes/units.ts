@@ -4,15 +4,10 @@ import {
   burnRefusal,
   BurnUpgradeRequestSchema,
   CancelTrainingRequestSchema,
-  FitSlotRequestSchema,
   TrainUnitsRequestSchema,
   findUnit,
-  slotRefusal,
-  withSlot,
-  type SlotRefusal,
   type Base,
   type TrainUnitsResponse,
-  type UnitSpec,
   type UnitsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -43,46 +38,10 @@ const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the cost' },
 };
 
-const SLOT_ERRORS: Record<SlotRefusal, { code: ErrorCode; message: string }> = {
-  bad_slot: { code: 'NOT_FOUND', message: 'There is no bracket there' },
-  unknown_upgrade: { code: 'NOT_FOUND', message: 'No such modification' },
-  // Worded per unit below (`doesNotFit`): a legendary hears a different sentence from a Razor
-  // offered a carrier's harness, because the two are different facts about the game.
-  does_not_fit: { code: 'WORKSHOP_REFUSED', message: 'That does not go on this unit' },
-  not_built: { code: 'WORKSHOP_REFUSED', message: 'The Scrapyard has not built that yet' },
-  already_slotted: {
-    code: 'WORKSHOP_REFUSED',
-    message: 'You only have the one, and it is already bolted to something',
-  },
-  slot_taken: {
-    code: 'WORKSHOP_REFUSED',
-    message: 'Something is in that bracket. Burn it first',
-  },
-  // Brackets fill from the left (maintainer request, 2026-09-15). The screen never sends this, so
-  // a player only reads it if something other than the screen wrote the request.
-  skipped_slot: {
-    code: 'WORKSHOP_REFUSED',
-    message: 'The brackets fill from the left. Use the first empty one',
-  },
-};
-
 const BURN_ERRORS: Record<BurnRefusal, { code: ErrorCode; message: string }> = {
   unknown_upgrade: { code: 'NOT_FOUND', message: 'No such modification' },
   not_fitted: { code: 'WORKSHOP_REFUSED', message: 'That is not bolted to anything' },
 };
-
-/**
- * Why a card will not go on this unit, in the player's words (`modificationFitsUnit`).
- *
- * Two sentences for one refusal. A legendary takes nothing at all, and saying so is more useful
- * than implying there is some other card that would fit; everything else is a card written for a
- * different kind of unit, which is what the `fits` list on the card means.
- */
-function doesNotFit(unit: UnitSpec): string {
-  return unit.tier === 'legendary'
-    ? `${unit.name} take no modifications. A legend is what it is`
-    : `That was not made for ${unit.name}. It goes on the units it lists`;
-}
 
 const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }> = {
   unknown_order: { code: 'NOT_FOUND', message: 'Nothing on the bench by that name' },
@@ -143,46 +102,15 @@ export function registerUnitRoutes(app: FastifyInstance): void {
   });
 
   /**
-   * §A5: put one of the crew's built cards in one of a unit's three brackets.
+   * §D5c: dismantle a fitted modification.
    *
-   * Free and instant, both on purpose. The Scrapyard already charged for the card; charging again
-   * to fit it would make the choice something a player avoids making rather than something they
-   * play with, and a timer on a decision this small is a wait with nothing on the other side of it.
+   * The only way one ever comes off, and it destroys the thing. Putting the same card on a
+   * different unit means paying the yard for another, which is what makes bolting one on a
+   * decision rather than a loadout screen.
    *
-   * Returns the whole roster because every sheet on the page is folded at read time: change a
-   * bracket and the stats under it change with it.
-   */
-  app.post('/units/loadout', { preHandler: app.authenticate }, (request): UnitsResponse => {
-    const { unitId, slot, upgradeId } = parseBody(FitSlotRequestSchema, request.body);
-    const now = new Date();
-
-    return app.db.transaction(() => {
-      const base = settled(request.currentUser.id, now);
-      const unit = findUnit(unitId);
-      if (!unit) throw new AppError('NOT_FOUND', 'No such unit');
-
-      const refusal = slotRefusal(base.unitLoadouts, unitId, slot, upgradeId, base.fittedUpgrades);
-      if (refusal !== null) {
-        const { code, message } = SLOT_ERRORS[refusal];
-        throw new AppError(code, refusal === 'does_not_fit' ? doesNotFit(unit) : message);
-      }
-
-      const loadouts = withSlot(base.unitLoadouts, unitId, slot, upgradeId);
-      app.repos.bases.updateUnitLoadouts(base.id, loadouts);
-      return projectUnits(app.repos, { ...base, unitLoadouts: loadouts }, now);
-    })();
-  });
-
-  /**
-   * §D5c: burn a fitted modification (maintainer request).
-   *
-   * The only way one ever comes off, and it destroys the thing: gone from the bracket *and* from
-   * what the crew has built, so putting the same kind of plate on a different unit means building
-   * another one. That is what makes fitting it a decision rather than a loadout screen.
-   *
-   * Both writes in one transaction, because they are one fact. A crash between them would leave a
-   * crew holding a plate that is bolted to nothing, or a bracket pointing at something they no
-   * longer own.
+   * Fitting is not here any more (maintainer rule, 2026-09-16). The yard cuts a card *for* a named
+   * unit and bolts it on in the same press (`district/scrapyard.ts`), so `POST /units/loadout` and
+   * the crew's stock of unfitted cards are both gone: there is nothing left to move around.
    */
   app.post('/units/burn', { preHandler: app.authenticate }, (request): UnitsResponse => {
     const { upgradeId } = parseBody(BurnUpgradeRequestSchema, request.body);
@@ -198,12 +126,7 @@ export function registerUnitRoutes(app: FastifyInstance): void {
 
       const burnt = burnUpgrade(base.unitLoadouts, base.fittedUpgrades, upgradeId);
       app.repos.bases.updateUnitLoadouts(base.id, burnt.loadouts);
-      app.repos.bases.updateUpgrades(base.id, [...burnt.built]);
-      return projectUnits(
-        app.repos,
-        { ...base, unitLoadouts: burnt.loadouts, fittedUpgrades: [...burnt.built] },
-        now,
-      );
+      return projectUnits(app.repos, { ...base, unitLoadouts: burnt.loadouts }, now);
     })();
   });
 }

@@ -23,11 +23,16 @@ import {
 
 test.use({ viewport: { width: 1280, height: 720 } });
 
-/** The fixture's one four-rung ladder: collected, ready, part way along, and shut. */
+/** The fixture's ladder carrying every state: collected, ready, part way along, and shut. */
 const CLAIMED = 'runs_1';
 const READY = 'runs_2';
 const OPEN = 'runs_3';
 const LOCKED = 'runs_4';
+/** A rung well up the same ladder, which the pane draws along with the rest of it. */
+const DEEP = 'runs_8';
+/** How long that ladder is, and how many rows the index holds. Off the catalogue, not typed. */
+const RUNS_STEPS = FEATS.filter((feat) => feat.chain === 'runs').length;
+const LADDERS = new Set(FEATS.map((feat) => feat.chain ?? feat.id)).size;
 
 const boxOf = async (locator: Locator) => {
   const box = await locator.boundingBox();
@@ -35,53 +40,116 @@ const boxOf = async (locator: Locator) => {
   return box!;
 };
 
-test('the board opens on every feat, grouped into ladders', async ({ page }) => {
+test('the board opens on the index and one whole ladder', async ({ page }) => {
   await installApi(page, featsMe);
   await page.goto('/game/feats');
   await expect(page.getByTestId('feats-board')).toBeVisible();
   await settleFonts(page);
 
-  await expect(page.getByTestId('feats-shown')).toHaveText(
-    `${FEATS.length} of ${FEATS.length} feats`,
-  );
+  // The index down the left, one row per ladder, and the first of them open on the right.
+  const rows = page.getByTestId('feats-sidebar').getByRole('button');
+  await expect(rows.first()).toBeVisible();
+  expect(await rows.count()).toBe(LADDERS);
+  await expect(page.getByTestId('feat-block-runs')).toBeVisible();
+  await expect(page.getByTestId('feat-block-done-runs')).toContainText(`/${RUNS_STEPS}`);
+
   await expect(page.getByTestId('feats-ledger-claimed')).toHaveText(String(featsBoard.claimed));
   await expect(page.getByTestId('feats-count-ready')).toHaveText(String(featsBoard.ready));
-  // The waiting count reads in exactly two places now: the ledger row above, and the face of the
-  // button that acts on it. The red `N to collect` plate that used to sit beside the button was a
-  // third printing of the same number and went with the visibility pass.
+  // The standing, the filters and the button that pays are one box now, not three panels.
+  const summary = page.getByTestId('feats-summary');
+  for (const id of ['feats-ledger', 'feats-filters', 'feats-claim-all']) {
+    await expect(summary.getByTestId(id)).toBeVisible();
+  }
   await expect(page.getByTestId('feats-claim-all')).toContainText(
     `Collect all ${featsBoard.ready}`,
   );
 
+  // No heading over the quotation, and not a word about eras anywhere on the sheet.
+  await expect(page.getByRole('heading', { name: 'Feats', exact: true })).toHaveCount(0);
+  const sheet = (await page.getByTestId('page-sheet').innerText()).toLowerCase();
+  for (const era of ['early', 'mid game', 'late game']) expect(sheet).not.toContain(era);
+
   await expectNothingOverflowsTheScreen(page);
-  /*
-   * Scoped to the ledger, not swept over the whole page.
-   *
-   * The gate walks up from each drawing to the scope looking for a clipping edge, so an unscoped
-   * sweep of a sheet holding two hundred feats reports whichever rung mark happens to
-   * straddle the fold: measured, and it is the claimed mark on the fourth card at 1280x720. That
-   * is the scroller doing its job. The board is swept properly in the filtered test below, where
-   * `growPastTheFold` has grown the window until there is no fold to straddle.
-   */
-  await expectNoImagesClipped(page, '[data-testid="feats-ledger"]');
+  await expectNoImagesClipped(page, '[data-testid="feats-summary"]');
   await page.screenshot({ path: 'e2e-out/feats-board.png' });
 });
 
-test('one card carries all four states, and the shut rung has no numbers on it', async ({
-  page,
-}) => {
+/**
+ * The row of controls at the top is one hand and one height (maintainer, 2026-09-17).
+ *
+ * The filters were struck-metal tabs beside a hand-inked button, which is a control bar bolted onto
+ * a document. They are drawn now, and drawn things are easy to get subtly wrong: a different type
+ * size or a different padding leaves a row of five controls sitting at two heights, which reads as
+ * damage rather than as a distinction. Measured rather than eyeballed, because a two-pixel
+ * difference is exactly the kind that survives a screenshot.
+ */
+test('the filters and the collect button are one row at one height', async ({ page }) => {
+  await installApi(page, featsMe);
+  await page.goto('/game/feats');
+  await expect(page.getByTestId('feats-summary')).toBeVisible();
+  await settleFonts(page);
+
+  const heights: number[] = [];
+  for (const id of [
+    'feats-show-all',
+    'feats-show-claimed',
+    'feats-show-unclaimed',
+    'feats-show-shut',
+    'feats-claim-all',
+  ]) {
+    heights.push((await boxOf(page.getByTestId(id))).height);
+  }
+  expect(Math.max(...heights) - Math.min(...heights), heights.join(', ')).toBeLessThanOrEqual(1);
+  /*
+   * And they are the taller ones (maintainer, 2026-09-17: a fifth more height, same type size).
+   *
+   * Pinned as a floor with the type size beside it, because the obvious way to make a control
+   * taller is to make its label bigger, and that is the one thing that was ruled out: the row has
+   * to grow in its padding.
+   */
+  expect(Math.min(...heights), 'the controls have lost their height').toBeGreaterThanOrEqual(31);
+  const type = await page
+    .getByTestId('feats-show-all')
+    .evaluate((el) => getComputedStyle(el).fontSize);
+  expect(type, 'the label grew instead of the box').toBe('15px');
+
+  // Every one of them is drawn rather than struck: the filter row and the button share one path.
+  for (const id of ['feats-show-all', 'feats-claim-all']) {
+    expect(await page.getByTestId(id).locator('svg path').count()).toBeGreaterThan(2);
+  }
+
+  // The gap between the filters is the doubled one, not a tab row's.
+  const first = await boxOf(page.getByTestId('feats-show-all'));
+  const second = await boxOf(page.getByTestId('feats-show-claimed'));
+  expect(second.x - (first.x + first.width)).toBeGreaterThanOrEqual(12);
+
+  /*
+   * And the box stays the height it was trimmed to (maintainer, 2026-09-17: ten per cent off).
+   *
+   * It is the one thing standing between the quotation and the board, so every pixel of it is a
+   * pixel the open ladder does not get. Pinned as a ceiling rather than an equality: the row is
+   * allowed to get shorter, and a font that loads late or a fifth control added to it is exactly
+   * the change that would quietly put the tenth back.
+   */
+  const summary = await boxOf(page.getByTestId('feats-summary'));
+  expect(summary.height, 'the summary box has grown back').toBeLessThanOrEqual(127);
+});
+
+test('a ladder opens whole, with every tier on it and the shut ones bare', async ({ page }) => {
   await installApi(page, featsMe);
   await page.goto('/game/feats');
   const ladder = page.getByTestId('feat-block-runs');
   await expect(ladder).toBeVisible();
   await settleFonts(page);
 
+  // All four states on the one card, and the ladder runs the whole way to tier X.
   await expect(page.getByTestId(`feat-${CLAIMED}`)).toHaveAttribute('data-state', 'claimed');
   await expect(page.getByTestId(`feat-${READY}`)).toHaveAttribute('data-state', 'ready');
   await expect(page.getByTestId(`feat-${OPEN}`)).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId(`feat-${LOCKED}`)).toHaveAttribute('data-state', 'locked');
+  await expect(page.getByTestId(`feat-${DEEP}`)).toHaveAttribute('data-state', 'locked');
 
-  // The upright runs between the marks, so the four read as one ladder.
+  // The upright runs between the marks, so the ten read as one ladder.
   await expect(page.getByTestId('feat-spine-runs')).toBeVisible();
   // The one thing the server withheld stays withheld: no bar, no figure, and not a digit anywhere
   // on the row.
@@ -95,19 +163,48 @@ test('one card carries all four states, and the shut rung has no numbers on it',
     `${standing?.value} / ${standing?.target} missions`,
   );
 
-  // Nothing in the card runs out of the card: a rung with a six-token reward is the widest row on
-  // this screen and the one most likely to push a name or a button through the frame.
+  /*
+   * Nothing in the card runs out of the card.
+   *
+   * A rung with a six-token reward is the widest row on this screen and the one most likely to
+   * push a name or a button through the frame. Scrolled into the pane first, because the rungs
+   * scroll inside the card now: a rung below the fold is a scroller doing its job, and measuring
+   * one there would fail on a ladder of ten at any viewport.
+   */
+  await page.getByTestId(`feat-claim-${READY}`).scrollIntoViewIfNeeded();
   const frame = await boxOf(ladder);
   const claim = await boxOf(page.getByTestId(`feat-claim-${READY}`));
   expect(claim.x + claim.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
   expect(claim.y + claim.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
 
-  // Scrolled so the shut rung at the foot of the ladder is in the frame: a screenshot of a card
-  // taller than the sheet otherwise files the three rungs above it and none of the one this test
-  // is about.
-  await page.getByTestId(`feat-${LOCKED}`).scrollIntoViewIfNeeded();
-  await settleFonts(page);
   await page.screenshot({ path: 'e2e-out/feats-ladder.png' });
+});
+
+test('pressing a row in the index opens that ladder', async ({ page }) => {
+  await installApi(page, featsMe);
+  await page.goto('/game/feats');
+  await expect(page.getByTestId('feat-block-runs')).toBeVisible();
+  await settleFonts(page);
+
+  await page.getByTestId('feats-tab-kills').click();
+  await expect(page.getByTestId('feat-block-kills')).toBeVisible();
+  await expect(page.getByTestId('feat-block-runs')).toHaveCount(0);
+  await expect(page.getByTestId('feats-tab-kills')).toHaveAttribute('aria-current', 'true');
+
+  // The index scrolls on its own, inside its frame, rather than taking the sheet with it.
+  const scrolled = await page.evaluate(() => {
+    const list = document.querySelector('[data-testid="feats-sidebar"] ul');
+    if (!list) return null;
+    list.scrollTop = list.scrollHeight;
+    return { top: list.scrollTop, room: list.scrollHeight - list.clientHeight };
+  });
+  expect(scrolled?.room, 'the index does not scroll: is it drawing every ladder?').toBeGreaterThan(
+    0,
+  );
+  expect(scrolled?.top).toBeGreaterThan(0);
+
+  await settleFonts(page);
+  await page.screenshot({ path: 'e2e-out/feats-ladder-open.png' });
 });
 
 test('CLAIM is on the finished rung alone, and collecting says what was paid', async ({ page }) => {
@@ -132,85 +229,77 @@ test('CLAIM is on the finished rung alone, and collecting says what was paid', a
   // And the red mark on the bar has come down by one, because `/me` was refetched.
   await expect(page.getByTestId('nav-feats-badge')).toHaveText(String(featsBoard.ready - 1));
 
-  // Back to the top before the picture: the press scrolled the button into view, so the receipt
-  // the test just asserted on is above the fold and would not be in the frame.
-  await page.getByTestId('feats-receipt').scrollIntoViewIfNeeded();
   await settleFonts(page);
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/feats-claimed.png' });
 });
 
-test('the two filters narrow the board, together', async ({ page }) => {
+test('the filter narrows the index, and opens something that survived it', async ({ page }) => {
   await installApi(page, featsMe);
   await page.goto('/game/feats');
   await expect(page.getByTestId('feats-board')).toBeVisible();
   await settleFonts(page);
 
-  await page.getByTestId('feats-era-early').click();
-  await page.getByTestId('feats-show-done').click();
-  await expect(page.getByTestId('feats-era-early')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('feats-show-done')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('feats-show-unclaimed').click();
+  await expect(page.getByTestId('feats-show-unclaimed')).toHaveAttribute('aria-pressed', 'true');
+  // Every row left is a ladder with something to collect, and `seats` (finished and collected) is
+  // not one of them.
+  await expect(page.getByTestId('feats-tab-seats')).toHaveCount(0);
+  await expect(page.getByTestId('feats-tab-runs')).toBeVisible();
 
-  // Early and finished: the two early rungs of that ladder stay, the mid and late ones go.
-  await expect(page.getByTestId(`feat-${CLAIMED}`)).toBeVisible();
-  await expect(page.getByTestId(`feat-${READY}`)).toBeVisible();
-  await expect(page.getByTestId(`feat-${OPEN}`)).toHaveCount(0);
-  await expect(page.getByTestId(`feat-${LOCKED}`)).toHaveCount(0);
-  await expect(page.getByTestId('feats-shown')).not.toHaveText(
-    `${FEATS.length} of ${FEATS.length} feats`,
-  );
+  await page.getByTestId('feats-show-claimed').click();
+  // The open ladder was filtered away, so the board opened one that was not.
+  await expect(page.getByTestId('feat-block-runs')).toHaveCount(0);
+  await expect(page.getByTestId('feat-block-seats')).toBeVisible();
 
   // The pointer off the chip it last pressed, or the hover card for that chip is drawn over the
-  // note under it and the filed picture shows a tooltip rather than the screen.
+  // panel under it and the filed picture shows a tooltip rather than the screen.
   await page.mouse.move(0, 0);
   await settleFonts(page);
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/feats-filtered.png' });
 
-  /*
-   * The whole narrowed board, swept for a cut line.
-   *
-   * The sweep grows the window until nothing is over its own fold, which is why it runs here and
-   * not on the unfiltered page: two hundred feats is a scroller several times taller than
-   * the harness is willing to grow to, and the guard would refuse rather than measure. Nine rungs
-   * is the same markup at a height the sweep can see all of at once.
-   */
   await growPastTheFold(page);
   await expectNothingClippedVertically(page, '[data-testid="feats-board"]');
   await expectNoImagesClipped(page, '[data-testid="feats-board"]');
 });
 
-test('a board with nothing on it says so', async ({ page }) => {
-  await installApi(page, featsMe);
-  await page.goto('/game/feats');
-  await expect(page.getByTestId('feats-board')).toBeVisible();
-
-  await page.getByTestId('feats-era-late').click();
-  await page.getByTestId('feats-show-done').click();
-  await expect(page.getByTestId('feats-empty')).toBeVisible();
-  await expect(page.getByTestId('feats-board')).toHaveCount(0);
-});
-
-test('the sheet scrolls the whole way down, and the last card is whole', async ({ page }) => {
+test('the board holds at 1920x1080 as well as at 1280x720', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await installApi(page, featsMe);
   await page.goto('/game/feats');
   await expect(page.getByTestId('feats-board')).toBeVisible();
   await settleFonts(page);
 
-  const board = page.getByTestId('feats-board');
-  const blocks = await board.locator('> article').count();
-  const last = board.locator('> article').nth(blocks - 1);
-  await last.scrollIntoViewIfNeeded();
-  await expect(last).toBeVisible();
-
-  // Whole, rather than merely present: the foot of the last card has to be inside the sheet's own
-  // scrolling unit, or the bottom bar is drawn over it.
-  const card = await boxOf(last);
+  // The index keeps its measure and the open ladder takes the rest of the sheet.
+  const board = await boxOf(page.getByTestId('feats-board'));
+  const index = await boxOf(page.getByTestId('feats-sidebar'));
+  const ladder = await boxOf(page.getByTestId('feat-block-runs'));
+  expect(index.width).toBeLessThan(board.width * 0.4);
+  expect(ladder.width).toBeGreaterThan(board.width * 0.5);
+  // Both of them reach the foot of the sheet rather than stopping at their content.
   const sheet = await boxOf(page.getByTestId('page-sheet'));
-  expect(card.y + card.height).toBeLessThanOrEqual(sheet.y + sheet.height + 1);
+  expect(index.y + index.height).toBeLessThanOrEqual(sheet.y + sheet.height + 1);
+  expect(ladder.y + ladder.height).toBeLessThanOrEqual(sheet.y + sheet.height + 1);
+  expect(ladder.height).toBeGreaterThan(board.height * 0.8);
 
   await expectNothingOverflowsTheScreen(page);
-  await page.screenshot({ path: 'e2e-out/feats-bottom.png' });
+  await expectNoImagesClipped(page, '[data-testid="feats-summary"]');
+  await page.screenshot({ path: 'e2e-out/feats-board-1920x1080.png' });
+});
+
+/**
+ * The quiet day: no feats waiting, so no mark at all.
+ *
+ * `lateGame` carries no `unread` block, which is the response a build without the field sends and
+ * the state the badge has to draw nothing for. An empty dot in the corner of the door would say
+ * "no news" in the same shape "three waiting" is said in.
+ */
+test('a crew with nothing waiting gets no red mark', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/feats');
+  await expect(page.getByTestId('nav-feats')).toBeVisible();
+  await expect(page.getByTestId('nav-feats-badge')).toHaveCount(0);
 });
 
 /**
@@ -239,38 +328,6 @@ test('the corner carries the feats door and the fight mark, side by side', async
 
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/feats-corner-1920x1080.png' });
-});
-
-test('the board holds at 1920x1080 as well as at 1280x720', async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await installApi(page, featsMe);
-  await page.goto('/game/feats');
-  await expect(page.getByTestId('feats-board')).toBeVisible();
-  await settleFonts(page);
-
-  // Two columns of cards past 1280, so seventy-two of them are half as far to scroll.
-  const board = await boxOf(page.getByTestId('feats-board'));
-  const first = await boxOf(page.getByTestId('feats-board').locator('> article').first());
-  expect(first.width).toBeLessThan(board.width * 0.6);
-
-  await expectNothingOverflowsTheScreen(page);
-  // Scoped for the reason the first test's is. See the note there.
-  await expectNoImagesClipped(page, '[data-testid="feats-ledger"]');
-  await page.screenshot({ path: 'e2e-out/feats-board-1920x1080.png' });
-});
-
-/**
- * The quiet day: no feats waiting, so no mark at all.
- *
- * `lateGame` carries no `unread` block, which is the response a build without the field sends and
- * the state the badge has to draw nothing for. An empty dot in the corner of the door would say
- * "no news" in the same shape "three waiting" is said in.
- */
-test('a crew with nothing waiting gets no red mark', async ({ page }) => {
-  await installApi(page, lateGame);
-  await page.goto('/game/feats');
-  await expect(page.getByTestId('nav-feats')).toBeVisible();
-  await expect(page.getByTestId('nav-feats-badge')).toHaveCount(0);
 });
 
 /**

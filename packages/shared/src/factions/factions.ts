@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { OfficerMarkSchema } from '../crew/marks.js';
+import { isPaintableDistrictName } from '../city/districts.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { BadgeSchema } from './badge.js';
 
@@ -46,7 +47,27 @@ export const FACTION_NAME_MAX = 28;
 export const FACTION_NAME_MIN = 3;
 export const FACTION_BLURB_MAX = 240;
 
-export const FactionNameSchema = z.string().trim().min(FACTION_NAME_MIN).max(FACTION_NAME_MAX);
+/*
+ * The same characters rule a district name is held to, and for the same reason.
+ *
+ * `sameFactionName` below collapses case and whitespace, which is what stops "The Ninth Street
+ * Crew" and "the ninth  street crew" being two tables. A **zero-width** character walks straight
+ * through that: it is not whitespace, so the key sees a different name, and it paints nothing, so a
+ * reader sees the same one. A second faction could take a name that is indistinguishable from an
+ * existing one on every screen in the game.
+ *
+ * `city/districts.ts` closed exactly this hole on crew names and wrote the reason down; the badge
+ * beside this field is deliberately *not* policed ("choosing the same crest out of ninety thousand
+ * is a coincidence players are allowed to have"), but a name is the thing a player reads a table by.
+ * The helper is named for districts because that is where it was needed first: what it tests is
+ * whether a string is one a screen can draw, which is not a fact about districts.
+ */
+export const FactionNameSchema = z
+  .string()
+  .trim()
+  .min(FACTION_NAME_MIN)
+  .max(FACTION_NAME_MAX)
+  .refine(isPaintableDistrictName, 'That name uses characters that do not show on a plaque');
 export const FactionBlurbSchema = z.string().trim().max(FACTION_BLURB_MAX);
 
 /**
@@ -262,7 +283,7 @@ export type FactionRefusal = z.infer<typeof FactionRefusalSchema>;
 
 /** One sentence a player can act on, for every way this can be turned down. */
 export const FACTION_REFUSAL_TEXT: Record<FactionRefusal, string> = {
-  not_established: `Founding a faction takes crew level ${FOUND_FACTION_PLAYER_LEVEL} and the Nexus at ${FOUND_FACTION_NEXUS_LEVEL}.`,
+  not_established: `Founding a faction takes district level ${FOUND_FACTION_PLAYER_LEVEL} and the Nexus at ${FOUND_FACTION_NEXUS_LEVEL}.`,
   already_in_a_faction: 'You are already in a faction. Leave it first.',
   faction_full: `A faction holds ${MAX_FACTION_MEMBERS} people. This one is full.`,
   name_taken: 'Another faction already goes by that name.',

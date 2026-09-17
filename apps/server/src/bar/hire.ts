@@ -126,7 +126,8 @@ export function assessAgainst(
  * bidding fair and still pays for hiring a Union Rep.
  */
 export function wageAskedOf(recruit: BarCharacter, discountPercent = 0): number {
-  return askingWage(recruit.attributes, discountPercent);
+  // §H7: the tags are half of what somebody is worth, and the half nobody can train.
+  return askingWage(recruit.attributes, discountPercent, recruit.perks);
 }
 
 /**

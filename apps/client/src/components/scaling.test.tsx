@@ -44,7 +44,7 @@ import { render as rtlRender, type RenderResult } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { CrewLevelChip, InfamyChip } from './Meters';
+import { DistrictLevelChip, InfamyChip } from './Meters';
 import { CostLine, ResourceChip } from './Resources';
 import { NumberField } from './ui/NumberField';
 import { Panel } from './ui/Panel';
@@ -59,10 +59,10 @@ vi.mock('../assets/delivered', () => ({ deliveredUrl: () => null }));
 /**
  * The providers a chip may reach for, so a case is one line rather than four.
  *
- * Several of these readouts are also controls: the level chip links to the crew, the infamy chip
- * opens the ladder. Rendering them bare throws before an assertion can run, and wrapping only the
- * ones that need it means the next case added here fails for a reason that has nothing to do with
- * layout.
+ * Several of these readouts are also controls: the level chip opens the XP curve, the infamy chip
+ * opens the notoriety ladder. Rendering them bare throws before an assertion can run, and wrapping
+ * only the ones that need it means the next case added here fails for a reason that has nothing to
+ * do with layout.
  */
 function render(ui: ReactElement): RenderResult {
   return rtlRender(
@@ -253,9 +253,9 @@ const CASES: readonly { name: string; render: () => RenderResult }[] = [
     render: () => render(<InfamyChip infamy={0} notoriety={0} />),
   },
   {
-    name: 'the crew level chip three digits in',
+    name: 'the district level chip three digits in',
     render: () =>
-      render(<CrewLevelChip level={120} xpIntoLevel={9_999_999} xpToNextLevel={9_999_999} />),
+      render(<DistrictLevelChip level={120} xpIntoLevel={9_999_999} xpToNextLevel={9_999_999} />),
   },
   {
     name: 'a panel whose title is the longest district name the game allows',

@@ -27,12 +27,22 @@ export function startingBase({
   ownerId,
   name,
   now,
+  districtId = STARTER_DISTRICT_ID,
 }: {
   id?: string;
   ownerId: string;
   name: string;
   /** ISO, so the clocks the crew starts with all agree with each other. */
   now: string;
+  /**
+   * Which residential district this crew lives in (maintainer, 2026-09-17).
+   *
+   * Every human account used to be created in {@link STARTER_DISTRICT_ID}, so the whole player base
+   * shared one home and a crew calling on "somebody else's district" was calling on its own. The
+   * caller picks now, from the four residential districts, and the default is the old behaviour so
+   * a test or a seeder that does not care does not have to choose.
+   */
+  districtId?: string;
 }): Base {
   return {
     id,
@@ -41,7 +51,7 @@ export function startingBase({
     // first second. This is a placeholder the player is expected to replace, not a decision
     // made for them: `POST /base/district-name` is on the district page.
     name,
-    districtId: STARTER_DISTRICT_ID,
+    districtId,
     level: 1,
     isBot: false,
     resources: STARTING_RESOURCES,

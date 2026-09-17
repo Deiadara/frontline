@@ -232,3 +232,106 @@ describe('CharacterSelectScreen', () => {
     }
   });
 });
+
+/**
+ * §F6: the four on screen are held, and the hold runs out (maintainer, 2026-09-17).
+ *
+ * The server reserves a drawn batch for ten minutes and refuses a pick made after that with a 410
+ * telling the player to refresh. A screen that never says so is a screen where Confirm works right
+ * up until it does not, with nothing on it having changed. So the window is on the page and the
+ * page redraws itself when the window shuts.
+ *
+ * Both cases run on real timers against a deliberately short window rather than on a faked clock:
+ * the countdown is an interval, the redraw is a refetch, and a fake clock that advances one of
+ * those without the other proves nothing about the pair.
+ */
+describe('while the offer is held', () => {
+  /** A choices response whose hold has `ms` left on it, as the server would have sent it. */
+  function heldFor(ms: number, choices: readonly OverseerPreset[] = OFFERED) {
+    const serverNow = new Date();
+    return {
+      choices,
+      remaining: REMAINING,
+      total: OVERSEER_POOL_SIZE,
+      serverNow: serverNow.toISOString(),
+      expiresAt: new Date(serverNow.getTime() + ms).toISOString(),
+    };
+  }
+
+  function answerWith(...batches: ReturnType<typeof heldFor>[]) {
+    let call = 0;
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).endsWith('/overseer/choices')) {
+        const body = batches[Math.min(call, batches.length - 1)]!;
+        call += 1;
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+      }
+      throw new Error(`unstubbed request: ${String(path)}`);
+    });
+  }
+
+  it('counts down the window the server gave it', async () => {
+    answerWith(heldFor(10 * 60 * 1000));
+    renderScreen();
+
+    const held = await screen.findByTestId('overseer-hold');
+    // 9:59 rather than 10:00 once a tick has passed, and either is the same statement.
+    expect(held.textContent).toMatch(/Held for you \/\/ (10:00|9:59)/);
+  });
+
+  it('draws a fresh batch when the window shuts, without a reload', async () => {
+    const LATER: readonly OverseerPreset[] = [
+      OVERSEER_PRESETS[1]!,
+      OVERSEER_PRESETS[5]!,
+      OVERSEER_PRESETS[11]!,
+      OVERSEER_PRESETS[19]!,
+    ];
+    answerWith(heldFor(1200), heldFor(10 * 60 * 1000, LATER));
+    renderScreen();
+
+    await waitFor(() => expect(screen.getByText(OFFERED[0]!.name)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(LATER[0]!.name)).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    expect(screen.queryByText(OFFERED[0]!.name)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * §F6: nobody free to offer, which is a wait and not a dead end (soak finding, 2026-09-17).
+ *
+ * An offer holds its four for ten minutes whether or not the tab that drew them is still open, so
+ * a burst of signups can leave the next person with an empty pool: thirty characters, four a head.
+ * Measured against a hosted server, two of five registrations landed on it behind an earlier
+ * burst. This is the one screen a player cannot get past, and in that state it has no card to press
+ * and no button to try, so what it says and whether it asks again are the whole of the remedy.
+ */
+describe('when everybody free is already spoken for', () => {
+  it('says what is being waited for rather than leaving an empty grid', async () => {
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).endsWith('/overseer/choices')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              choices: [],
+              remaining: 6,
+              total: OVERSEER_POOL_SIZE,
+              serverNow: new Date().toISOString(),
+              expiresAt: null,
+            }),
+        } as Response);
+      }
+      throw new Error(`unstubbed request: ${String(path)}`);
+    });
+
+    renderScreen();
+
+    const line = await screen.findByTestId('overseer-pool');
+    await waitFor(() => expect(line).not.toHaveTextContent('Reading the files.'));
+    expect(line.textContent).toContain("somebody else's booking");
+    // The number still has to be true: six are unclaimed, they are simply all booked.
+    expect(line.textContent).toContain('6');
+  });
+});

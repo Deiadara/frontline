@@ -8,6 +8,7 @@
     "gen-art": "tsx gen-art.ts",
     "order-art": "tsx order-art.ts",
     "catalog-doc": "tsx catalog-doc.ts",
+    "balance-sheet": "tsx balance-sheet.ts",
     "encode-art": "tsx encode-art.ts",
     "contact-sheet": "tsx contact-sheet.ts",
     "typecheck": "tsc --noEmit",

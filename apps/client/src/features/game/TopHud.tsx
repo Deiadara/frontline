@@ -13,7 +13,7 @@ import {
 import { useMemo } from 'react';
 import { NavLink } from 'react-router-dom';
 import { DistrictPlaque } from '../../components/DistrictPlaque';
-import { CrewLevelChip, InfamyChip } from '../../components/Meters';
+import { DistrictLevelChip, InfamyChip } from '../../components/Meters';
 import { RESOURCE_ORDER, ResourceChip } from '../../components/Resources';
 import { OverseerPortrait } from '../overseer/OverseerPortrait';
 import { Icon, type IconName } from '../../components/ui/Icon';
@@ -346,7 +346,7 @@ export function TopHud({
           />
         </div>
 
-        <CrewLevelChip
+        <DistrictLevelChip
           level={base.level}
           xpIntoLevel={base.progression.xpIntoLevel}
           xpToNextLevel={playerXpToNextLevel(base.level)}

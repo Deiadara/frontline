@@ -24,6 +24,7 @@ import {
   RAID_DISRUPTION_PERCENT,
   DISRUPTED_CHANNELS,
   RESOURCE_KEYS,
+  featMeasureKey,
   declarationWindow,
   skirmishOutcome,
   type BattleTarget,
@@ -35,6 +36,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
+import { elsewhere } from '../testing/districts.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleDistrict } from '../district/settle.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -104,9 +106,10 @@ async function makeWorld(): Promise<World> {
   const raider = await register(app, 'raider');
   const planted = await register(app, 'victim');
 
-  // Every new crew is planted on the same opening ground, so the victim is moved next door: a
-  // break-in needs two crews in two districts, and a crew cannot raid itself.
-  const HOME = 'ashen-terraces';
+  // A break-in needs two crews in two districts, and a crew cannot raid itself. New accounts are
+  // spread across the residential districts now, so the victim's new home is derived from the
+  // raider's rather than named: see `testing/districts.ts`.
+  const HOME = elsewhere(raider.districtId);
   db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, planted.baseId);
   const victim: Crew = { ...planted, districtId: HOME };
   expect(raider.districtId).not.toBe(victim.districtId);
@@ -297,6 +300,23 @@ describe('one raid on the whole district', () => {
     // here (nothing they hold pays one), so the two sides can be checked directly.
     expect(victimAfter.caps, 'the raid took caps').toBe(victimBefore.caps);
     expect(raiderAfter.caps, 'the raider was paid in caps').toBe(raiderBefore.caps);
+
+    /*
+     * §I: and the lifetime ladders counted it.
+     *
+     * `tallyResourcesEarned` names "missions, fights, the market, and production" in its own doc
+     * and the fight was the one that never called it. A raid is the largest single payment in the
+     * game, so the five `resources_earned` feats were measuring a crew's jobs and its shopping
+     * while calling the total everything it had ever earned: a war crew that took what it owned
+     * off other people sat at nothing on all five.
+     */
+    const earned = world.app.repos.feats.tallies(world.raider.baseId);
+    for (const key of looted) {
+      expect(
+        earned[featMeasureKey('resources_earned', key)] ?? 0,
+        `the raid's ${key} was never counted as earned`,
+      ).toBeCloseTo(raiderAfter[key] - raiderBefore[key], 6);
+    }
   });
 
   it('leaves three of their structures limping, not one and not all of them', async () => {

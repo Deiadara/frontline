@@ -42,6 +42,16 @@ export interface InfoWindowProps {
    */
   plate?: 'light' | 'dark' | 'none';
   /**
+   * How big the alcove is.
+   *
+   * `lg` is the 96px one this window was built around: a resource master or a unit portrait, drawn
+   * at eight times its size in the bar, which is most of why these windows exist. `sm` is for a
+   * *mark* rather than a picture (maintainer, 2026-09-17: the note chips' info icon should be
+   * smaller). A 96px circled "i" is not a bigger look at anything; it is one glyph taking a quarter
+   * of the sheet and pushing the sentence the reader came for below the fold.
+   */
+  iconSize?: 'lg' | 'sm';
+  /**
    * The unit, and it is optional.
    *
    * A window with a figure and a bar and nothing under them is the common case now: what a player
@@ -92,6 +102,7 @@ export function InfoWindow({
   figure,
   tone = 'brass',
   plate = 'light',
+  iconSize = 'lg',
   children,
 }: InfoWindowProps) {
   return (
@@ -131,12 +142,16 @@ export function InfoWindow({
         {icon !== undefined && (
           <span
             className={cn(
-              'flex h-24 shrink-0 items-center justify-center rounded-sm shadow-lifted',
+              'flex shrink-0 items-center justify-center rounded-sm',
+              iconSize === 'sm' ? 'h-9' : 'h-24 shadow-lifted',
               plate === 'none'
                 ? // The picture *is* the plate. `w-auto` so a 3:4 portrait comes out 72x96 rather
                   // than sitting in a 96-wide square with a mat down both sides.
                   'w-auto overflow-hidden'
-                : cn('w-24 p-2', plate === 'dark' ? 'icon-plate' : 'icon-tile'),
+                : cn(
+                    iconSize === 'sm' ? 'w-9 p-1' : 'w-24 p-2',
+                    plate === 'dark' ? 'icon-plate' : 'icon-tile',
+                  ),
             )}
           >
             {icon}

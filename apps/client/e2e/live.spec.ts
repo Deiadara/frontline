@@ -4,11 +4,10 @@ import {
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   buildingCost,
-  spendResources,
   findDistrict,
   type District,
 } from '@frontline/shared';
-import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
+import { expect, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
 
 /**
  * REAL end-to-end: no `/api` interception. This drives the actual UI against the real
@@ -48,9 +47,6 @@ const STARTING_DISTRICT = [
 ];
 const QUARTERS = buildingCost('quarters', 1, STARTING_DISTRICT);
 
-/** Stockpile after the Quarters are paid for. */
-const AFTER_BUILD = spendResources(STARTING_RESOURCES, QUARTERS);
-
 /** External noise we never treat as an app bug. */
 function isBenign(text: string): boolean {
   return /favicon/i.test(text) || /ResizeObserver loop/i.test(text);
@@ -58,6 +54,20 @@ function isBenign(text: string): boolean {
 
 /** The origins this flow is allowed to touch: everything else is a third-party dependency. */
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1']);
+
+/**
+ * What a stockpile chip on the standing bar is counting right now, as a number.
+ *
+ * Read off the chip's accessible name ("Oil: 111 of 576") rather than off its text, because the
+ * text is `compactFigure`: a crew past a million banks "1.2M" there, and digits scraped out of that
+ * are the number 12.
+ */
+async function chipValue(hud: Locator, resource: string): Promise<number> {
+  const reading = await hud.getByTestId(`resource-hover-${resource}`).getAttribute('aria-label');
+  const held = /:\s*([\d,]+)/.exec(reading ?? '')?.[1];
+  if (held === undefined) throw new Error(`the ${resource} chip reads "${reading}"`);
+  return Number(held.replace(/,/g, ''));
+}
 
 /**
  * Screenshot the current screen at every supported viewport, then restore the default.
@@ -138,7 +148,22 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
     hud.getByRole('link', { name: new RegExp(`^${overseerName}, Overseer`) }),
   ).toBeVisible();
   await expect(page.getByTestId('city-room')).toBeVisible();
-  await expect(hud).toContainText(String(STARTING_RESOURCES.caps));
+  /*
+   * The HUD is showing this crew's own stockpile, read as a bound rather than as a figure.
+   *
+   * It was `toContainText('600')` and carried the same fault as the oil assertion in STEP 4: the
+   * Nexus produces caps against a real clock, so the exact starting figure is only on screen until
+   * the first tick lands, and the substring would have matched the 600 inside any other number in
+   * the bar anyway. Production only ever adds, so the starting caps are an exact floor. The ceiling
+   * is loose on purpose: it is there so the assertion can still fail on a bar showing somebody
+   * else's ledger, not to pin a rate.
+   */
+  const caps = await chipValue(hud, 'caps');
+  expect(
+    caps,
+    `the bar is showing ${caps} caps for a crew that starts on ${STARTING_RESOURCES.caps}`,
+  ).toBeGreaterThanOrEqual(STARTING_RESOURCES.caps);
+  expect(caps).toBeLessThan(STARTING_RESOURCES.caps * 2);
   await shootEveryViewport(page, 'city');
 
   // --- STEP 4: the hideout, and building in it against the real server (GDD §A1, §D3) ---
@@ -158,6 +183,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    */
   const quarters = page.getByRole('button', { name: /^The Quarters,/ });
   await expect(quarters).toHaveAttribute('aria-label', /vacant plot/);
+  const oilBeforeOrder = await chipValue(hud, 'oil');
   await quarters.click();
   const plotDialog = page.getByRole('dialog');
   await plotDialog.getByRole('button', { name: 'Queue build' }).click();
@@ -171,10 +197,23 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // Shut again before touching the district: it is a modal, and the picture is behind it.
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('district-reports')).toHaveCount(0);
-  // §D3: the oil left the HUD's ledger *at order time*, not a second counter of the district's
-  // own. Matched as a whole chip value, so it cannot pass on some other resource that happens to
-  // contain the digits.
-  await expect(hud.getByText(String(AFTER_BUILD.oil), { exact: true })).toBeVisible();
+  /*
+   * §D3: the oil left the HUD's ledger *at order time*, not a second counter of the district's own.
+   *
+   * Read as a movement rather than as a number, because the Generator is standing and producing
+   * against a real clock the whole time this step runs: an exact post-build figure passed for
+   * months and then failed on a chip reading 111, one tick of oil after the 110 it was pinned to.
+   * Production can only push the chip *up*, so a chip that went down is the debit and nothing else,
+   * and a drop no deeper than the bill is the debit being the right size.
+   */
+  const oilAfterOrder = await chipValue(hud, 'oil');
+  expect(oilAfterOrder, `oil went ${oilBeforeOrder} to ${oilAfterOrder}`).toBeLessThan(
+    oilBeforeOrder,
+  );
+  // Guarded rather than defaulted: a retuned bill that dropped its oil line would otherwise turn
+  // the check below into `<= 0`, which nothing can fail.
+  expect(QUARTERS.oil, 'the Quarters no longer cost oil').toBeGreaterThan(0);
+  expect(oilBeforeOrder - oilAfterOrder).toBeLessThanOrEqual(QUARTERS.oil ?? 0);
   await shootEveryViewport(page, 'district-queued');
 
   /*

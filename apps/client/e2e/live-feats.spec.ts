@@ -88,6 +88,8 @@ test.describe('the real server, over the new screens', () => {
     // A crew that has done nothing has nothing to collect, and every ladder's second rung is shut.
     await expect(page.getByTestId('feat-claim-runs_1')).toHaveCount(0);
     await expect(page.getByText('Shut. Take the step above it first.').first()).toBeVisible();
+    // ...and the index lists every ladder in the catalogue, whatever the crew has done.
+    await expect(page.getByTestId('feats-tab-runs')).toBeVisible();
   });
 
   test('counts a real job and lets the crew collect the feat it finished', async ({ page }) => {
@@ -112,6 +114,9 @@ test.describe('the real server, over the new screens', () => {
     await form.getByRole('button', { name: 'Send it' }).click();
 
     await page.goto('/game/feats');
+    // The board opens on the first ladder in the catalogue, so the letters one has to be opened
+    // from the index down the left before its rung is on screen (maintainer, 2026-09-17).
+    await page.getByTestId('feats-tab-letters').click();
     const claim = page.getByTestId('feat-claim-letters_1');
     await expect(claim).toBeVisible();
 

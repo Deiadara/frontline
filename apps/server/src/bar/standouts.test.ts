@@ -7,8 +7,10 @@ import {
   RECRUIT_MIN_FACTION_INFAMY_GATE,
   RECRUIT_MIN_INFAMY_GATE,
   RECRUIT_MIN_NOTORIETY_GATE,
+  RECRUIT_LEGEND_NOTORIETY,
   RECRUIT_MAX_MIN_NOTORIETY,
   assessJoin,
+  perksWorth,
   type CrewStanding,
   type JoinRequirement,
 } from '@frontline/shared';
@@ -22,6 +24,7 @@ import {
   STANDOUT_MIN_PERKS,
   barRoster,
   barSeatsFor,
+  doorCeilingFor,
   gradeOf,
   isStandoutSeat,
 } from './roster.js';
@@ -107,13 +110,16 @@ describe('the room spreads across skill levels', () => {
   });
 
   /**
-   * What a recruit asks for is what they are worth.
+   * What a recruit asks for is what they are worth, sheet **and** tags.
    *
    * The sheet and the door used to come from independent rolls, so a green sheet could sit behind
    * the hardest rank in the game: a card nobody would ever take, which reads as a bug in the roll
-   * rather than as a locked door.
+   * rather than as a locked door. Tying the door to the grade fixed that and left the other half
+   * out: a grade is a statement about attributes, and attributes are the half of a person a crew
+   * can train up themselves. The tags a recruit carries are permanent, so they lift the ceiling
+   * too (maintainer, 2026-09-16). See `doorCeilingFor`.
    */
-  it('never lets a recruit ask for more rank than their grade allows', () => {
+  it('never lets a recruit ask for more rank than their grade and their tags allow', () => {
     for (const cityLevel of [0, 12, 30]) {
       for (const day of DAYS) {
         barRoster(day, BAR_ROSTER_SIZE, cityLevel).forEach((recruit, seat) => {
@@ -122,7 +128,7 @@ describe('the room spreads across skill levels', () => {
           expect(
             recruit.requirement.minNotoriety,
             `${day} seat ${seat} (${grade.id})`,
-          ).toBeLessThanOrEqual(grade.maxNotoriety);
+          ).toBeLessThanOrEqual(doorCeilingFor(grade, recruit.perks));
         });
       }
     }
@@ -131,6 +137,27 @@ describe('the room spreads across skill levels', () => {
       RECRUIT_MAX_MIN_NOTORIETY,
     );
     expect(RECRUIT_GRADES.some((grade) => grade.maxNotoriety === 0)).toBe(true);
+  });
+
+  /**
+   * And the tag half of that ceiling really moves, rather than being a term that is always zero.
+   *
+   * The bound above passes for an implementation that ignores the tags outright, because a wider
+   * ceiling admits every door the narrower one did. This is the positive control: somewhere in a
+   * hundred nights, a recruit stands behind a door their attributes alone would not have opened.
+   */
+  it('lets a middling sheet carrying a great tag ask for more than its grade would', () => {
+    const lifted: string[] = [];
+    for (const day of DAYS) {
+      barRoster(day, BAR_ROSTER_SIZE, 12).forEach((recruit, seat) => {
+        if (isStandoutSeat(seat)) return;
+        const grade = gradeOf(seedFrom(`${day}:${seat}:0:grade`));
+        if (recruit.requirement.minNotoriety > grade.maxNotoriety) {
+          lifted.push(`${day} seat ${seat} (${grade.id}, ${perksWorth(recruit.perks).toFixed(1)})`);
+        }
+      });
+    }
+    expect(lifted.length, 'no tag ever bought a rung of the door').toBeGreaterThan(0);
   });
 
   /** A cheap person is cheap, which is the whole reason a spread of people is worth having. */
@@ -256,10 +283,16 @@ describe('the standout seats', () => {
         expect(want.minInfamy).toBeLessThanOrEqual(RECRUIT_MAX_MIN_INFAMY);
         expect(want.minFactionInfamy).toBeGreaterThanOrEqual(RECRUIT_MIN_FACTION_INFAMY_GATE);
         expect(want.minFactionInfamy).toBeLessThanOrEqual(RECRUIT_MAX_MIN_FACTION_INFAMY);
-        // The rank door too, and above the softest rung: a standout anybody could sign on their
-        // first night is not a standout.
+        /*
+         * The rank door too, and above the softest rung: a standout anybody could sign on their
+         * first night is not a standout.
+         *
+         * The ceiling is `RECRUIT_LEGEND_NOTORIETY` rather than the ordinary room's, and that is
+         * the point of these two chairs: past `Marked` nothing in the game asked for a rank, so the
+         * strongest sheets the Bar draws are what the top of the ladder now buys.
+         */
         expect(want.minNotoriety).toBeGreaterThan(RECRUIT_MIN_NOTORIETY_GATE);
-        expect(want.minNotoriety).toBeLessThanOrEqual(RECRUIT_MAX_MIN_NOTORIETY);
+        expect(want.minNotoriety).toBeLessThanOrEqual(RECRUIT_LEGEND_NOTORIETY);
       });
     }
   });
@@ -273,7 +306,7 @@ describe('the standout seats', () => {
 
     // Everything the player can get on their own, and still refused: the badge is the last door.
     const alone: CrewStanding = {
-      notoriety: RECRUIT_MAX_MIN_NOTORIETY,
+      notoriety: RECRUIT_LEGEND_NOTORIETY,
       level: 60,
       infamy: RECRUIT_MAX_MIN_INFAMY,
       factionInfamy: 0,

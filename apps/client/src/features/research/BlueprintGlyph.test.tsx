@@ -310,18 +310,18 @@ describe('rarity is the ink', () => {
     const colossus = requireBlueprint('bp_the_colossus');
     const { container } = render(<BlueprintGlyph blueprint={colossus} />);
     const cover = container.querySelector('svg');
-    expect(cover?.getAttribute('data-rarity')).toBe('exotic');
+    expect(cover?.getAttribute('data-rarity')).toBe('masterpiece');
     expect(cover?.getAttribute('class')).toContain('text-brass-300');
 
     // The Armour Schedule is one tier under the document it belongs to, and is drawn as such.
     const page = colossus.pages[6];
     if (page === undefined) throw new Error('the Colossus lost a page');
-    expect(pageRarity(colossus, page)).toBe('rare');
+    expect(pageRarity(colossus, page)).toBe('advanced');
     const sheet = render(<PageGlyph page={page} blueprint={colossus} />).container.querySelector(
       'svg',
     );
-    expect(sheet?.getAttribute('data-rarity')).toBe('rare');
-    expect(sheet?.getAttribute('class')).toContain('text-iris-100');
+    expect(sheet?.getAttribute('data-rarity')).toBe('advanced');
+    expect(sheet?.getAttribute('class')).toContain('text-oxblood-300');
   });
 
   it('gives the four tiers four different inks', () => {

@@ -1,5 +1,7 @@
 import {
   STARTING_RESOURCES,
+  describeAddonEffect,
+  modificationsFor,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -145,8 +147,11 @@ describe('§I3a: a structure sends you where the work is', () => {
 
     const dialog = within(await screen.findByRole('dialog'));
     fireEvent.click(dialog.getByTestId('structure-build-addons-generator'));
-    // The bench, not just the yard: the yard reads `?bench` and its bench ids are `BuildingKind`.
-    expect(await screen.findByText('the scrapyard?bench=generator')).toBeInTheDocument();
+    // The bench, not just the yard. The yard reads `?view` and `?bench` together as of
+    // 2026-09-16, and the bench ids are `BuildingKind`, so there is no second name to keep in step.
+    expect(
+      await screen.findByText('the scrapyard?view=modifications&bench=generator'),
+    ).toBeInTheDocument();
   });
 
   /** §B8's door, unchanged by the rebuild: the Lab still opens the archive. */
@@ -160,5 +165,94 @@ describe('§I3a: a structure sends you where the work is', () => {
     const dialog = within(await screen.findByRole('dialog'));
     fireEvent.click(dialog.getByTestId('lab-open-research'));
     expect(await screen.findByText('the archive')).toBeInTheDocument();
+  });
+});
+
+/**
+ * §E, the yard rework (2026-09-16): a bracket is a door, not a picker.
+ *
+ * The yard used to build a card onto a shelf and this window bolted it in off a menu. It does not:
+ * a card is cut for a named structure and bolted in by one press at the bench, so
+ * `POST /base/modifications/fit` and the picker that called it are gone. What is left here is the
+ * half the bench cannot do: say what is in a bracket, and dismantle it.
+ */
+describe('§E: a bracket is a door to the yard', () => {
+  const NEXUS_CARD = modificationsFor('nexus')[0]!;
+  /** The Nexus tall enough for all three brackets, with one card already bolted in. */
+  const fitted: Base = {
+    ...base,
+    level: 20,
+    buildings: base.buildings.map((building) =>
+      building.kind === 'nexus'
+        ? { ...building, level: 20, modifications: [NEXUS_CARD.id] }
+        : building,
+    ),
+  };
+
+  function stubFitted(): void {
+    const reply = (body: unknown) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/overseer/me')) return reply(crewStanding());
+      if (path.endsWith('/me')) return reply({ ...me, base: fitted });
+      if (path.includes('/base/modifications/clear')) return reply({ base: fitted });
+      if (path.includes('/base/')) return reply({ base: fitted });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  }
+
+  async function openNexus() {
+    stubFitted();
+    renderDistrict();
+    await waitFor(() => expect(plot('The Nexus')).toBeInTheDocument());
+    fireEvent.click(plot('The Nexus'));
+    return within(await screen.findByRole('dialog'));
+  }
+
+  it('sends an empty bracket to this structure’s own bench, with no picker in between', async () => {
+    const dialog = await openNexus();
+    fireEvent.click(dialog.getByTestId('slot-door-nexus-1'));
+
+    expect(
+      await screen.findByText('the scrapyard?view=modifications&bench=nexus'),
+    ).toBeInTheDocument();
+    // The menu that used to stand between the press and the card is gone, not merely skipped.
+    expect(screen.queryByTestId('slot-options-nexus')).toBeNull();
+  });
+
+  it('says what is in a filled bracket on the hover, in the catalogue’s own words', async () => {
+    const dialog = await openNexus();
+    const tip = dialog.getByTestId('slot-nexus-0').getAttribute('data-tip') ?? '';
+    expect(tip).toContain(NEXUS_CARD.name);
+    expect(tip).toContain(describeAddonEffect(NEXUS_CARD));
+  });
+
+  it('still dismantles a filled bracket, through the confirm, off the clear route', async () => {
+    const dialog = await openNexus();
+    fireEvent.click(dialog.getByTestId('slot-clear-nexus-0'));
+    expect(await screen.findByTestId('slot-strip-nexus')).toBeInTheDocument();
+    // Asking is the point: nothing has been written at this stage.
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes('modifications/clear')),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByTestId('slot-strip-nexus-yes'));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => String(call[0]).includes('modifications/clear')),
+      ).toBe(true),
+    );
+  });
+
+  /** Two lines the maintainer asked to be taken out (2026-09-16), one of them per structure. */
+  it('does not say the slots are open or that the part is spent', async () => {
+    const dialog = await openNexus();
+    expect(dialog.queryByText(/slots are open/i)).toBeNull();
+    expect(dialog.queryByText(/nothing comes back and nothing is refunded/i)).toBeNull();
   });
 });

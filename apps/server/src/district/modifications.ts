@@ -1,51 +1,28 @@
 import {
-  addonsOf,
   clearSlotRefusal,
-  fitSlotRefusal,
-  withModificationFitted,
   withSlotEmptied,
   type Base,
   type BuildingKind,
   type ClearSlotRefusal,
-  type SlotRefusalReason,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
- * Fitting and clearing a structure's modification brackets (GDD §E).
+ * Emptying a structure's modification brackets (GDD §E).
  *
- * The Scrapyard builds an add-on onto the crew's shelf and this puts one into a bracket. Whether it
- * *can* be built is the yard's own question and is answered in `scrapyard.ts`, so nothing here
+ * Filling one is the Scrapyard's own job as of 2026-09-16: the bench cuts a card for a named
+ * structure and bolts it straight in, so the fit half of this module is gone and nothing here
  * re-derives a gate.
  */
 
 /**
- * §E: putting one of the crew's built add-ons into a structure's first free slot.
+ * §E: taking one out again, which destroys it.
  *
- * Both halves of §E are one transaction each and neither charges anything: the Scrapyard already
- * took the scrap, and a refit fee on a decision this small is a wait with nothing on the other
- * side of it. The same argument `POST /units/loadout` makes about unit brackets.
+ * The only half left. A card is cut for a named structure and bolted in by the same press now
+ * (`district/scrapyard.ts`), so there is no shelf for this to put one back on: what comes out is
+ * gone, and putting the same card back means paying for it again. That is the whole weight behind
+ * choosing which three of a structure's cards to wear.
  */
-export function fitIntoSlot(
-  repos: Repositories,
-  base: Base,
-  kind: BuildingKind,
-  modificationId: string,
-): { kind: 'refused'; reason: SlotRefusalReason } | { kind: 'fitted'; base: Base } {
-  const reason = fitSlotRefusal({
-    kind,
-    modificationId,
-    buildings: base.buildings,
-    addons: addonsOf(base),
-  });
-  if (reason !== null) return { kind: 'refused', reason };
-
-  const buildings = withModificationFitted(base.buildings, kind, modificationId);
-  repos.bases.updateDistrict(base.id, buildings, base.buildQueue);
-  return { kind: 'fitted', base: { ...base, buildings } };
-}
-
-/** §E: taking one out again. It goes back on the shelf, which is what `addons.built` already says. */
 export function clearSlot(
   repos: Repositories,
   base: Base,

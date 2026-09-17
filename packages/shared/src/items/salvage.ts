@@ -1,5 +1,5 @@
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from './catalog.js';
-import type { ItemRarity } from './rarity.js';
+import { ITEM_RARITIES, type ItemRarity } from './rarity.js';
 import type { ItemCost } from './inventory.js';
 
 /**
@@ -7,7 +7,7 @@ import type { ItemCost } from './inventory.js';
  *
  * Resources are the *wage* of a mission; items are the *find*. The difference matters: a payout a
  * player can predict is a chore, and one they cannot is a reason to keep sending people out. So
- * this is a roll, it is weighted hard against the exotic end, and a short scrap run essentially
+ * this is a roll, it is weighted hard against the masterpiece end, and a short scrap run essentially
  * never produces anything: the odds scale with how long the crew was out and how badly the work
  * could have gone.
  *
@@ -23,10 +23,10 @@ export const SALVAGE_MAX_ROLLS = 3;
 
 /** How likely each rarity is to be what a roll lands on. Sums to one. */
 const RARITY_WEIGHT: Readonly<Record<ItemRarity, number>> = {
-  common: 0.58,
-  uncommon: 0.28,
-  rare: 0.12,
-  exotic: 0.02,
+  basic: 0.58,
+  intricate: 0.28,
+  advanced: 0.12,
+  masterpiece: 0.02,
 };
 
 /**
@@ -69,8 +69,8 @@ export function rollSalvage(
 function pickByRarity(random: () => number): ItemId {
   const target = random();
   let cumulative = 0;
-  let chosenRarity: ItemRarity = 'common';
-  for (const rarity of ['common', 'uncommon', 'rare', 'exotic'] as const) {
+  let chosenRarity: ItemRarity = 'basic';
+  for (const rarity of ITEM_RARITIES) {
     cumulative += RARITY_WEIGHT[rarity];
     if (target <= cumulative) {
       chosenRarity = rarity;

@@ -6,6 +6,7 @@ import {
   mergeFleets,
   notorietyTier,
   notorietyToField,
+  lootCapacityOf,
   ridingUnitSlots,
   travelMinutes,
   type Army,
@@ -112,6 +113,8 @@ interface DeployDialogProps {
   army: Army;
   /** §C3: the crew's brackets. The armour line takes speed off a sheet, so the road reads them. */
   loadouts: UnitLoadouts;
+  /** §A4: what the crew's holdings and perks add to the bag, so the loot figure is the real one. */
+  bagPercent: number;
   /** §C3: where the column starts, so the window can quote the road. Null puts no clock on it. */
   homeDistrictId: string | null;
   /** §D7: the crew's rank, which is what decides who will take a contract. */
@@ -127,6 +130,7 @@ export function DeployDialog({
   view,
   army,
   loadouts,
+  bagPercent,
   homeDistrictId,
   notoriety,
   mode,
@@ -213,6 +217,17 @@ export function DeployDialog({
   /** Nothing loaded is the walk, and the walk has no ceiling. See the note at the top. */
   const capped = seats > 0;
   const overloaded = capped && aboard > seats;
+
+  /*
+   * §A4: what this column could carry off, in loot slots.
+   *
+   * A raid's haul is capped by exactly this (`plunder`, off `lootCapacityOf`), and the one screen
+   * where the force is chosen never said so: the city's own raid picker prints it and the mission
+   * board prints it, and the deploy window, which is where a declared raid is actually loaded, did
+   * not. Read off the fitted sheet with the crew's bag channel on it, the same figure the settler
+   * spends, so the number here and the number that decides the haul cannot drift apart.
+   */
+  const lootSlots = Math.round(lootCapacityOf(sending, bagPercent, loadouts));
 
   return (
     <Modal
@@ -418,6 +433,13 @@ export function DeployDialog({
               ? `${aboard} of ${seats} unit slots loaded`
               : aboard > 0 && `${aboard} unit slots, all of them on foot`}
           </span>
+          {/* What they could carry home, live against the steppers above. Only on the line: a ring
+              stands outside the fight and never touches the stockpile. */}
+          {mode === 'line' && lootSlots > 0 && (
+            <span data-testid="deploy-loot" data-tip="What this column could carry off a raid">
+              {lootSlots} loot slots
+            </span>
+          )}
           {/* The column, as it stands. Empty until somebody is picked: a pace quoted over nobody is
               a number with no force behind it. */}
           <span className="min-w-0" data-testid="deploy-column">
@@ -490,7 +512,6 @@ function UnitName({
       card={
         <UnitCard
           unit={option}
-          built={roster.built}
           garrisoned={roster.garrisoned[option.id] ?? 0}
           abroad={roster.abroad[option.id] ?? 0}
         />

@@ -387,7 +387,7 @@ export function buildingsUnlockedAt(nexusLevel: number): BuildingKind[] {
  */
 export function describeBuildingRequirement(clause: BuildingRequirement): string {
   return clause.kind === 'player_level'
-    ? `Crew level ${clause.level}`
+    ? `District level ${clause.level}`
     : `${BUILDING_CATALOG[clause.building].name} at ${clause.level}`;
 }
 

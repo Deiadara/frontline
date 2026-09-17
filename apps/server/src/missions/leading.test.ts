@@ -83,9 +83,25 @@ async function makeStack(username = 'leader'): Promise<Stack> {
   });
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
   const chosen = await chooseOverseer(app, token);
-  const overseer = chosen.json<{ overseer: Overseer }>().overseer;
+  /*
+   * The same character every run.
+   *
+   * A battle job is fought with the crew's own book since 2026-09-16 (perks, held ground,
+   * cohesion), and `chooseOverseer` draws from the pool, so an unpinned world fought each run with
+   * a different set of signature perks. The fights below are pinned on a seed and were not pinned
+   * on a *person*, which is the same A/B-with-two-worlds trap `battle/gate-intel.test.ts` names:
+   * the assertion that a won fight still costs somebody sat a hair from zero and tipped over it
+   * about one run in eight.
+   */
+  pinOverseer(app, token);
 
   const repos = createRepositories(db);
+  // Read back *after* the pin, not off the choose response: the sheet every assertion below
+  // compares against has to be the one the server is actually holding.
+  const chosenId = chosen.json<{ overseer: Overseer }>().overseer.id;
+  const overseer = repos.overseers.findById(chosenId);
+  if (!overseer) throw new Error('no character to lead with');
+
   const minted = repos.bases.findByOwnerId(user.id);
   if (!minted) throw new Error('no base');
   repos.bases.updateArmy(minted.id, { razors: 80, wardens: 20, haulers: 20 }, minted.trainingQueue);
@@ -493,13 +509,21 @@ describe('a battle job is a fight', () => {
 
   it('pays a crew that held the field, and only the dead stay out there', async () => {
     const stack = await makeStack('victors');
-    const force: Army = { razors: 60, wardens: 20 };
-    const mission = planted(stack, skirmish, force, 3);
+    const force: Army = { razors: 36, wardens: 12 };
+    /*
+     * The siege tier, and a force sized so holding the field still costs somebody.
+     *
+     * This was sixty razors and twenty wardens against `convoy-ambush`, which the pinned crew now
+     * wins without a scratch: `total(home.lost)` was zero and the assertion below had nothing to
+     * measure. The rule under test is what a *won* fight does to the roster, so the fixture has to
+     * be a fight rather than a walkover.
+     */
+    const mission = planted(stack, siege, force, 3);
 
     const settled = resolveDueMissions(
       stack.repos,
       stack.repos.bases.findById(stack.base.id)!,
-      after(skirmish),
+      after(siege),
     );
     const home = settled.resolved[0];
     if (!home) throw new Error('nothing settled');

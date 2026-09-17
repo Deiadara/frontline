@@ -107,14 +107,14 @@ test('the yard has a Traps bench, and it is one tab among the rest', async ({ pa
     await expect(page.getByTestId(`addon-${spec.id}`)).toHaveCount(0);
   }
   /*
-   * The bench says where to go, not how many are missing (maintainer request, 2026-09-15).
+   * ...and the bench says nothing, because the crew holds one (maintainer report, 2026-09-16).
    *
-   * The loop above is what pins the withheld rows, one assertion per trap, so the count is still
-   * measured; this line only checks the bench admits there is more to find.
+   * "Go out there and find some more blueprints." is the empty state of a bench now rather than a
+   * running count of what is withheld: five traps are still behind their documents here, which
+   * the loop above pins one assertion at a time, and a player with a trap on the bench is not a
+   * player with nothing to do. The bare bench is driven in `ScrapyardBrackets.test.tsx`.
    */
-  await expect(page.getByTestId('scrapyard-hidden-traps')).toContainText(
-    'find some more blueprints',
-  );
+  await expect(page.getByTestId('scrapyard-hidden-traps')).toHaveCount(0);
 
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/scrapyard-traps.png' });
@@ -260,3 +260,100 @@ test('the trap picker offers the whole catalogue and greys what is not in the ba
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/battles-trap-picker.png' });
 });
+
+/**
+ * A bench holding every trap, for the geometry below.
+ *
+ * The shared fixture holds one trap's document, which draws a single card: a bench that cannot
+ * overflow measures nothing about a scroller. This one holds all six, which is the state a crew
+ * that has worked the mission board is actually in.
+ */
+async function serveEveryTrap(page: Page): Promise<void> {
+  await serveTraps(page);
+  const full = {
+    ...scrapyard,
+    entries: scrapyard.entries.map((entry) =>
+      entry.kind === 'trap' ? { ...entry, documentHeld: true, blocker: null } : entry,
+    ),
+  };
+  await page.route('**/api/scrapyard**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(full),
+    }),
+  );
+}
+
+/**
+ * The Traps bench scrolls inside its own board (maintainer report, 2026-09-16).
+ *
+ * The brass thumb started above the dark board and ran up into the page chrome: the scroller was
+ * the whole bench, the "only when defending" line included, with the board a child of it. The
+ * other benches put the scroll on the board, so the track is painted steel from top to bottom.
+ * Measured rather than screenshotted, because the defect is a box: the element that scrolls has to
+ * sit inside the element that is painted, and the bench has to actually overflow while it is
+ * measured or the gate proves nothing.
+ */
+for (const size of [
+  { width: 1280, height: 720 },
+  { width: 1600, height: 900 },
+]) {
+  const tag = `${size.width}x${size.height}`;
+
+  test.describe(`at ${tag}`, () => {
+    test.use({ viewport: size });
+
+    test('the Traps bench keeps its scrollbar inside the board', async ({ page }) => {
+      await serveEveryTrap(page);
+      await page.goto('/game/scrapyard?bench=traps');
+      await expect(page.getByTestId('scrapyard-traps')).toBeVisible();
+      await settleFonts(page);
+
+      // The fixture is fat: every trap is drawn, or the bench below has nothing to scroll.
+      await expect(page.locator('li[data-testid^="addon-trap"]')).toHaveCount(TRAP_CATALOG.length);
+
+      const shape = await page.evaluate(() => {
+        const tray = document.querySelector('[data-testid="scrapyard-traps"]')!;
+        // `.ink-frame`, not `.steel-plate`: the benches were reskinned from yard steel to the feats
+        // board's paper (maintainer, 2026-09-17), and `BENCH_BOARD` is what both names came from.
+        const board = tray.closest('.ink-frame');
+        let scroller: HTMLElement | null = tray.parentElement;
+        while (scroller !== null && !/auto|scroll/.test(getComputedStyle(scroller).overflowY)) {
+          scroller = scroller.parentElement;
+        }
+        const rect = (el: Element | null) => (el === null ? null : el.getBoundingClientRect());
+        return {
+          board: rect(board),
+          scroller: rect(scroller),
+          overflowPx: scroller === null ? 0 : scroller.scrollHeight - scroller.clientHeight,
+          scrollerClass: scroller?.className ?? null,
+        };
+      });
+
+      expect(shape.board, 'the trap tray sits on a board').not.toBeNull();
+      expect(shape.scroller, 'something above the tray scrolls').not.toBeNull();
+      const board = shape.board!;
+      const scroller = shape.scroller!;
+      expect(
+        shape.overflowPx,
+        'the bench has to overflow, or this measures nothing',
+      ).toBeGreaterThan(0);
+      expect(
+        Math.round(scroller.top - board.top),
+        `the scroller starts above the board: ${shape.scrollerClass}`,
+      ).toBeGreaterThanOrEqual(-1);
+      expect(
+        Math.round(board.bottom - scroller.bottom),
+        `the scroller runs past the bottom of the board: ${shape.scrollerClass}`,
+      ).toBeGreaterThanOrEqual(-1);
+      expect(
+        Math.round(board.right - scroller.right),
+        `the scrollbar sits outside the right edge of the board: ${shape.scrollerClass}`,
+      ).toBeGreaterThanOrEqual(-1);
+
+      await expectNothingOverflowsTheScreen(page);
+      await page.screenshot({ path: `e2e-out/scrapyard-traps-scroll-${tag}.png` });
+    });
+  });
+}

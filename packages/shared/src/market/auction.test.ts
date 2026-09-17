@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { hourInZone, instantAtHourInZone } from '../time/zone.js';
-import { lotSeed, nextLotBid, rankLotBids, vendorVisitAt, visitClosesAt } from './auction.js';
+import { MAX_OPEN_AUCTIONS } from '../bar/auction.js';
+import {
+  MAX_OPEN_LOTS,
+  canOpenLot,
+  lotSeed,
+  nextLotBid,
+  rankLotBids,
+  vendorVisitAt,
+  visitClosesAt,
+} from './auction.js';
 import { vendorSessionsFor } from './vendor.js';
 
 /**
@@ -155,5 +164,44 @@ describe('what the next bid has to be', () => {
 
   it('steps by at least one cap, so a cheap lot is not stuck', () => {
     expect(nextLotBid(1, 1)).toBe(2);
+  });
+});
+
+/**
+ * Two lots at once, on either shelf (maintainer request, 2026-09-17).
+ *
+ * The Bar has had this rule since §H7a and neither market did: a crew could lead all six lines on
+ * the barrow and all five crates behind it, which is not a choice, it is a budget check.
+ *
+ * The case worth writing down is the third one: raising your own bid on a lot you are already in is
+ * not opening a new lot. A limit written as a count refuses that, and tells a player they are at
+ * every table they can hold while they are looking at their own number on this one.
+ */
+describe('how many lots a crew may hold at once', () => {
+  it('opens the first two and refuses the third', () => {
+    expect(canOpenLot([], 'a')).toBe(true);
+    expect(canOpenLot(['a'], 'b')).toBe(true);
+    expect(canOpenLot(['a', 'b'], 'c')).toBe(false);
+  });
+
+  it('lets a crew raise on a lot they are already in, at the limit', () => {
+    expect(canOpenLot(['a', 'b'], 'a')).toBe(true);
+    expect(canOpenLot(['a', 'b'], 'b')).toBe(true);
+  });
+
+  /** Two bids on one lot is one lot: the count is of lots, not of rows in the table. */
+  it('counts a lot once however many times it was bid on', () => {
+    expect(canOpenLot(['a', 'a', 'a'], 'b')).toBe(true);
+    expect(canOpenLot(['a', 'a', 'b'], 'c')).toBe(false);
+  });
+
+  /** The fence names a lot by its slot, the barrow by a line id. One rule, either kind of name. */
+  it('holds for a lot named by a number as well as by a string', () => {
+    expect(canOpenLot([0, 3], 4)).toBe(false);
+    expect(canOpenLot([0, 3], 3)).toBe(true);
+  });
+
+  it('is the Bar’s number, so the two rooms read the same', () => {
+    expect(MAX_OPEN_LOTS).toBe(MAX_OPEN_AUCTIONS);
   });
 });

@@ -11,9 +11,10 @@ import {
   UNIT_MODIFICATIONS,
   UNIT_MODIFICATION_RARITY_BLURBS,
   UNIT_STAT_LABELS,
-  addonsOf,
   findBuilding,
   findModification,
+  UNIT_CATALOG,
+  UNIT_UPGRADE_SLOTS,
   findUnitModification,
   modificationSlots,
   MAX_SCRAPYARD_DISCOUNT,
@@ -23,24 +24,35 @@ import {
   SCRAPYARD_LEVEL_FOR_RARITY,
   nextScrapyardUnlock,
   scrapyardUnlockLadder,
-  shelvedModifications,
   type Base,
   type BuildingKind,
   type ItemId,
   type ModificationRarity,
   type Resources,
   type ScrapyardEntry,
+  type UnitOption,
+  type UnitSpec,
   type ScrapyardResponse,
 } from '@frontline/shared';
 import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
-import { Button } from '../../components/ui/Button';
+import { Confirm } from '../../components/ui/Confirm';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
+import { DrawnButton } from '../../components/ui/DrawnButton';
+import { DrawnFace } from '../../components/ui/DrawnMarks';
+import { UnitCard } from '../units/UnitCard';
 import { cn } from '../../lib/cn';
-import { useBuildAddon, useMe, useScrapyard } from '../../lib/queries';
+import {
+  useBuildAddon,
+  useBurnUpgrade,
+  useClearModification,
+  useMe,
+  useScrapyard,
+  useUnits,
+} from '../../lib/queries';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { PartsBench } from './PartsBench';
@@ -170,10 +182,27 @@ function markOf(entry: ScrapyardEntry): YardMark {
  * "ready" in the count nor kept by the filter. A modification or a trap the crew owns can be cut
  * again, and is.
  */
-const buildable = (entry: ScrapyardEntry): boolean =>
-  entry.blocker === null && !(entry.kind === 'upgrade' && entry.owned > 0);
+/**
+ * Whether the yard would cut this one **for the target the player is looking at**.
+ *
+ * A row's answer depends on where it is going as of 2026-09-16: the same Priority Bus is buildable
+ * for the Nexus you raised and refused by the one you have not. A trap is the one row that belongs
+ * to no target and keeps its own plain blocker.
+ */
+const targetOf = (entry: ScrapyardEntry, target: string | null): TargetRow | null =>
+  target === null ? null : (entry.targets.find((one) => one.id === target) ?? null);
 
-const readyIn = (entries: readonly ScrapyardEntry[]): number => entries.filter(buildable).length;
+const buildable = (entry: ScrapyardEntry, target: string | null): boolean => {
+  if (entry.kind === 'trap') return entry.blocker === null;
+  const row = targetOf(entry, target);
+  return row !== null && !row.fitted && row.blocker === null;
+};
+
+const readyIn = (entries: readonly ScrapyardEntry[], target: string | null): number =>
+  entries.filter((entry) => buildable(entry, target)).length;
+
+/** One row of `ScrapyardEntry.targets`: a structure or a unit this card could go on. */
+type TargetRow = ScrapyardEntry['targets'][number];
 
 /**
  * Only what the crew holds the drawings for is on the board (maintainer request, 2026-09-11).
@@ -188,9 +217,25 @@ const held = (entries: readonly ScrapyardEntry[]): ScrapyardEntry[] =>
 const withheld = (entries: readonly ScrapyardEntry[]): number =>
   entries.filter((entry) => !entry.documentHeld).length;
 
-/** The line under a bench saying what its blueprints are keeping off it. */
-function Withheld({ count, bench }: { count: number; bench: string }) {
-  if (count === 0) return null;
+/**
+ * The empty state of a bench whose rows are all behind documents the crew has not assembled.
+ *
+ * It used to show whenever anything was withheld, which on a full bench put "go and find some
+ * more" under thirty cards a player already holds (maintainer report, 2026-09-16). A player with
+ * cards on the bench has something to do here; the line is for the player who opened a bench and
+ * found it bare, so it is drawn only when the crew holds none of this bench and there is something
+ * out there to go and find.
+ */
+function Withheld({
+  heldCount,
+  withheldCount,
+  bench,
+}: {
+  heldCount: number;
+  withheldCount: number;
+  bench: string;
+}) {
+  if (heldCount > 0 || withheldCount === 0) return null;
   return (
     <p
       className="flex items-center gap-1.5 font-body text-[12px] leading-snug text-ink-300"
@@ -209,6 +254,22 @@ export function ScrapyardPage() {
   const me = useMe();
   const build = useBuildAddon();
   /*
+   * The other half of one press: taking one out, which destroys it.
+   *
+   * Two routes because the two benches write different columns, and both of them existed already:
+   * this screen is now where they are called from, rather than the district window and the Units
+   * page. Both are asked for twice (`asking` below holds the card until the player says yes),
+   * because nothing comes back.
+   */
+  const clear = useClearModification(me.data?.base?.id);
+  const burn = useBurnUpgrade();
+  const [asking, setAsking] = useState<{
+    entry: ScrapyardEntry;
+    target: string;
+    /** Bolting it in and taking it out are both asked for, and they ask different questions. */
+    act: 'bolt' | 'dismantle';
+  } | null>(null);
+  /*
    * Which bench is open lives in the URL, so a door somewhere else can open it.
    *
    * A structure's dialog links here with `?bench=<kind>` and the old Workshop's deep links carried
@@ -224,6 +285,13 @@ export function ScrapyardPage() {
       : 'modifications';
   const structure: BuildingKind = isBuildingKind(bench) ? bench : 'nexus';
   /*
+   * Which unit the refits bench is open on, the same way `?bench=` names the structure.
+   *
+   * The unit bench is the structure bench with units down the left as of 2026-09-16, so it needs
+   * the same deep link: a bracket on the Units page points here at the unit whose bracket it is.
+   */
+  const unit = params.get('unit');
+  /*
    * Both writers keep the other's parameter, which the first version did not.
    *
    * `setParams` replaces the whole query string, so writing `{ view }` dropped `?bench=<kind>`:
@@ -235,11 +303,29 @@ export function ScrapyardPage() {
       {
         ...(id === 'modifications' ? {} : { view: id }),
         ...(isBuildingKind(bench) ? { bench } : {}),
+        ...(unit === null ? {} : { unit }),
       },
       { replace: true },
     );
   const setStructure = (kind: BuildingKind) =>
-    setParams({ bench: kind, ...(view === 'modifications' ? {} : { view }) }, { replace: true });
+    setParams(
+      {
+        bench: kind,
+        ...(view === 'modifications' ? {} : { view }),
+        ...(unit === null ? {} : { unit }),
+      },
+      { replace: true },
+    );
+  const setUnit = (unitId: string) =>
+    setParams(
+      {
+        unit: unitId,
+        ...(view === 'refits' ? {} : { view }),
+        ...(isBuildingKind(bench) ? { bench } : {}),
+        ...(view === 'refits' ? { view: 'refits' } : {}),
+      },
+      { replace: true },
+    );
   const [readyOnly, setReadyOnly] = useState(false);
 
   const data = query.data;
@@ -270,12 +356,57 @@ export function ScrapyardPage() {
     held(data.entries.filter((entry) => entry.kind === kind));
   const keptBack = (kind: ScrapyardEntry['kind']) =>
     withheld(data.entries.filter((entry) => entry.kind === kind));
-  const shown = (entries: readonly ScrapyardEntry[]) =>
-    readyOnly ? entries.filter(buildable) : entries;
-  const ready = readyIn(held(data.entries));
+
+  /*
+   * Every unit the refits bench can be opened on, and the one it is open on now.
+   *
+   * Taken off the cards rather than off the roster: a unit nothing in the catalogue fits has an
+   * empty bench, and a rail door onto an empty bench is a door onto nothing. The server decides
+   * *whether* a card may go on (`cannot_train` is one of its refusals), so the rail shows the unit
+   * either way and the card says why.
+   */
+  const unitRail = UNIT_CATALOG.filter((one) =>
+    entriesOf('upgrade').some((entry) => entry.targets.some((target) => target.id === one.id)),
+  );
+  const openUnit = unitRail.some((one) => one.id === unit) ? unit : (unitRail[0]?.id ?? null);
+
+  /** What the bench in front of the player is bolting to. Null on the two benches that bolt to nothing. */
+  const target = view === 'modifications' ? structure : view === 'refits' ? openUnit : null;
+  const shown = (entries: readonly ScrapyardEntry[], on: string | null = target) =>
+    readyOnly ? entries.filter((entry) => buildable(entry, on)) : entries;
+  const ready = readyIn(held(data.entries), target);
   const base = me.data?.base ?? null;
 
-  const onBuild = (entry: ScrapyardEntry) => build.mutate({ kind: entry.kind, id: entry.id });
+  /*
+   * One press: the yard cuts it and bolts it to whatever the bench is open on.
+   *
+   * `target` rides on the request because building and fitting are one act now (maintainer rule,
+   * 2026-09-16). A trap sends none: it goes into the bag and belongs to no structure.
+   */
+  const onBuild = (entry: ScrapyardEntry) =>
+    build.mutate({
+      kind: entry.kind,
+      id: entry.id,
+      ...(entry.kind === 'trap' || target === null ? {} : { target }),
+    });
+
+  /** What the confirm calls the thing it is going onto: "the Nexus", "the Razors". */
+  const targetName = (one: { entry: ScrapyardEntry; target: string }): string =>
+    one.entry.targets.find((row) => row.id === one.target)?.name ?? 'it';
+
+  /** Which bracket of `structure` is wearing this card, for the clear route. */
+  const slotOf = (entry: ScrapyardEntry): number =>
+    (base ? findBuilding(base.buildings, structure)?.modifications : [])?.indexOf(entry.id) ?? -1;
+
+  const dismantle = (entry: ScrapyardEntry): void => {
+    if (entry.kind === 'upgrade') {
+      burn.mutate({ upgradeId: entry.id });
+    } else {
+      const slot = slotOf(entry);
+      if (slot >= 0) clear.mutate({ building: structure, slot });
+    }
+    setAsking(null);
+  };
 
   return (
     <PageShell quote="A version of recycling that actually works." wide fills>
@@ -319,6 +450,9 @@ export function ScrapyardPage() {
                           ? 'trap'
                           : 'modification',
                     ),
+                    // Each bench counts against its own target: the structure the rail is on for
+                    // modifications, the unit for refits, and nothing at all for traps.
+                    entry.id === 'refits' ? openUnit : entry.id === 'traps' ? null : structure,
                   );
             return (
               <button
@@ -330,18 +464,28 @@ export function ScrapyardPage() {
                 data-testid={`scrapyard-view-${entry.id}`}
                 data-sound="click"
                 className={cn(
-                  'door-tile flex items-center gap-1.5 rounded-md border px-3 py-2 transition-all duration-150',
+                  'group/tab relative flex items-center gap-1.5 px-3 py-2 transition-all duration-150',
                   'font-display text-[12px] font-bold uppercase tracking-[0.16em]',
-                  view === entry.id
-                    ? 'door-tile-active -translate-y-0.5 border-brass-300 text-brass-100'
-                    : 'border-surface-500/70 text-ink-300 hover:-translate-y-0.5 hover:border-iris-300/80 hover:text-iris-100',
+                  'hover:-translate-y-px active:translate-y-px',
+                  view === entry.id ? 'text-brass-100' : 'text-ink-300 hover:text-brass-100',
                 )}
               >
-                <span aria-hidden className="relative z-[2] [&_svg]:h-4 [&_svg]:w-4">
+                {/* The board's own box (maintainer, 2026-09-17). The yard is a bench with paper on
+                    it now, and a pressed door-tile over a drawn sheet was the last piece of another
+                    room left in this one. */}
+                <DrawnFace
+                  face={cn(
+                    'transition-all duration-150',
+                    view === entry.id
+                      ? 'fill-brass-500/30 group-hover/tab:fill-brass-500/40'
+                      : 'fill-surface-900/50 group-hover/tab:fill-brass-500/15',
+                  )}
+                />
+                <span aria-hidden className="relative [&_svg]:h-4 [&_svg]:w-4">
                   <Icon name={entry.icon} />
                 </span>
-                <span className="relative z-[2]">{entry.label}</span>
-                <span className="relative z-[2] tabular-nums opacity-80">{count}</span>
+                <span className="relative">{entry.label}</span>
+                <span className="relative tabular-nums opacity-80">{count}</span>
               </button>
             );
           })}
@@ -399,21 +543,28 @@ export function ScrapyardPage() {
             readyOnly={readyOnly}
             stock={data.resources}
             pending={build.isPending}
-            onBuild={onBuild}
+            onBuild={(entry) => setAsking({ entry, target: structure, act: 'bolt' })}
+            onDismantle={(entry) => setAsking({ entry, target: structure, act: 'dismantle' })}
           />
         )}
         {view === 'refits' && (
           <UnitBench
-            entries={shown(entriesOf('upgrade'))}
+            entries={shown(entriesOf('upgrade'), openUnit)}
+            heldCount={entriesOf('upgrade').length}
             keptBack={keptBack('upgrade')}
+            rail={unitRail}
+            unitId={openUnit}
+            onUnit={setUnit}
             stock={data.resources}
             pending={build.isPending}
-            onBuild={onBuild}
+            onBuild={(entry) => setAsking({ entry, target: openUnit ?? '', act: 'bolt' })}
+            onDismantle={(entry) => setAsking({ entry, target: openUnit ?? '', act: 'dismantle' })}
           />
         )}
         {view === 'traps' && (
           <TrapsBench
             entries={shown(entriesOf('trap'))}
+            heldCount={entriesOf('trap').length}
             keptBack={keptBack('trap')}
             stock={data.resources}
             pending={build.isPending}
@@ -422,6 +573,38 @@ export function ScrapyardPage() {
         )}
         {view === 'components' && <PartsBench held={base?.inventory ?? {}} />}
       </div>
+
+      {/*
+       * Asked before it happens, because it cannot be undone.
+       *
+       * Dismantling destroys the card (maintainer ruling, 2026-09-16): nothing comes back and
+       * putting the same one on again means paying the yard again. That is exactly the shape the
+       * kit's `Confirm` exists for, and it is the same dialog the district window uses, so the
+       * sentence a player reads is the same wherever they press it.
+       */}
+      {asking !== null &&
+        (asking.act === 'dismantle' ? (
+          <Confirm
+            title={`Dismantle ${asking.entry.name}?`}
+            body="It comes off in pieces. Nothing is refunded, and putting one back means the yard cuts a new one at full price."
+            confirm="Dismantle it"
+            testId="scrapyard-dismantle"
+            onConfirm={() => dismantle(asking.entry)}
+            onCancel={() => setAsking(null)}
+          />
+        ) : (
+          <Confirm
+            title={`Bolt in ${asking.entry.name}?`}
+            body={`The yard cuts it and bolts it straight into ${targetName(asking)}. The bill is spent on the press, and taking it out again destroys it.`}
+            confirm="Bolt it in"
+            testId="scrapyard-bolt"
+            onConfirm={() => {
+              onBuild(asking.entry);
+              setAsking(null);
+            }}
+            onCancel={() => setAsking(null)}
+          />
+        ))}
     </PageShell>
   );
 }
@@ -521,6 +704,7 @@ function ModificationsBench({
   stock,
   pending,
   onBuild,
+  onDismantle,
 }: {
   entries: readonly ScrapyardEntry[];
   /** The rows whose retrofit document the crew has not assembled: counted, never drawn. */
@@ -532,10 +716,21 @@ function ModificationsBench({
   stock: Resources;
   pending: boolean;
   onBuild: (entry: ScrapyardEntry) => void;
+  onDismantle: (entry: ScrapyardEntry) => void;
 }) {
-  const forKind = (kind: BuildingKind) => entries.filter((entry) => entry.building === kind);
+  /*
+   * Which cards this bench shows, and it is no longer "the ones that belong to this structure".
+   *
+   * A card is fittable in a set of structures (`ModificationSpec.fits`), and the maintainer's rule
+   * of 2026-09-16 is that a blueprint you have unlocked is available on every bench it fits. So the
+   * bench asks the card where it may go rather than where it was authored: a plumbing run cut for
+   * the Quarters is on the Quarters bench and on the Nexus bench, and the same press bolts it to
+   * whichever one is open.
+   */
+  const forKind = (kind: BuildingKind) =>
+    entries.filter((entry) => entry.targets.some((target) => target.id === kind));
   const chosen = forKind(structure);
-  const shown = readyOnly ? chosen.filter(buildable) : chosen;
+  const shown = readyOnly ? chosen.filter((entry) => buildable(entry, structure)) : chosen;
   const hidden = keptBack.filter((entry) => entry.building === structure).length;
 
   return (
@@ -544,7 +739,7 @@ function ModificationsBench({
        * A dense head, because this panel shares a frame that does not scroll: eleven doors have to
        * stand in whatever the scene leaves, and a full head is most of a door.
        */}
-      <Panel title="Structures" dense className="min-h-0 border border-surface-500/70">
+      <Panel tone="paper" title="Structures" dense className="min-h-0">
         {/*
          * The eleven doors share the whole column (maintainer request, 2026-09-15).
          *
@@ -559,7 +754,11 @@ function ModificationsBench({
          * A plain `1fr` would have crushed the doors into each other instead.
          */}
         <ul
-          className="grid min-h-0 flex-1 auto-rows-[minmax(min-content,1fr)] divide-y divide-surface-700 overflow-y-auto"
+          // Gaps and boxes rather than a divided list, which is what the rows became: a rule between
+          // two bordered boxes is a third line doing nothing.
+          // Boxes rather than a divided list, and no gap between them: see `StructureDoor` for the
+          // eleven-doors-and-no-scrollbar constraint this rail is sized by.
+          className="grid min-h-0 flex-1 auto-rows-[minmax(min-content,1fr)] overflow-y-auto px-1 py-0.5"
           data-testid="scrapyard-menu"
         >
           {BUILDING_KINDS.map((kind) => (
@@ -567,7 +766,7 @@ function ModificationsBench({
               <StructureDoor
                 kind={kind}
                 base={base}
-                ready={readyIn(forKind(kind))}
+                ready={readyIn(forKind(kind), kind)}
                 total={forKind(kind).length}
                 selected={kind === structure}
                 onSelect={() => onStructure(kind)}
@@ -582,7 +781,9 @@ function ModificationsBench({
         data-testid={`scrapyard-bench-${structure}`}
       >
         <BracketRack kind={structure} base={base} />
-        <Withheld count={hidden} bench={structure} />
+        {/* `chosen`, not `shown`: the Ready-to-build filter hides rows the crew does hold, and a
+            bench emptied by a filter is not a bench with nothing on it. */}
+        <Withheld heldCount={chosen.length} withheldCount={hidden} bench={structure} />
         {shown.length === 0 ? (
           <p className="p-4 text-center font-body text-[13px] leading-relaxed text-ink-300">
             Nothing on this bench the yard could cut today. The drawings come off the mission board
@@ -597,10 +798,14 @@ function ModificationsBench({
               <EntryCard
                 key={entry.id}
                 entry={entry}
+                target={targetOf(entry, structure)}
                 stock={stock}
                 pending={pending}
                 onBuild={() => onBuild(entry)}
-                ownedLabel={entry.owned > 0 ? `Cut ×${entry.owned}` : null}
+                onDismantle={() => onDismantle(entry)}
+                // How many other structures are already wearing one, which is the fact a player
+                // deciding where to put the next one wants. Silent when this is the only one.
+                ownedLabel={entry.owned > 1 ? `On ${entry.owned} structures` : null}
               />
             )}
           />
@@ -637,12 +842,20 @@ function StructureDoor({
       data-testid={`scrapyard-bench-${BUILDING_CATALOG[kind].name.toLowerCase().replace(/[^a-z]+/g, '-')}`}
       data-sound="click"
       className={cn(
-        // Tight on purpose. Eleven doors have to stand in the height the scene leaves the rail, so
-        // the padding and the plate are the smallest that still read as a door rather than a row.
-        'flex h-full w-full items-center gap-2 border-l-[3px] py-0.5 pl-2 pr-2.5 text-left transition-all duration-150',
+        /*
+         * Tight on purpose, and tighter than the board's own row.
+         *
+         * Eleven doors have to stand in the height the scene leaves the rail with no scrollbar
+         * (`scrapyard.spec.ts` measures it at 1280x800, which is the tightest viewport where that
+         * is expected to hold). The board's box came over with the colours (maintainer,
+         * 2026-09-17) and its spacing did not: gaps between eleven rows and a line of 14px type
+         * were 89px more than the rail has, so the box is the board's and the density is the
+         * rail's own.
+         */
+        'flex h-full w-full items-center gap-2 rounded-sm border px-2 text-left transition-colors',
         selected
-          ? 'border-brass-300 bg-brass-300/10'
-          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+          ? 'border-brass-300 bg-brass-500/30 text-brass-100'
+          : 'border-surface-600/60 bg-surface-900/40 text-ink-200 hover:bg-surface-800/60',
       )}
     >
       <span
@@ -655,7 +868,7 @@ function StructureDoor({
         <Icon name={BENCH_ICON[kind]} className="h-[1.125rem] w-[1.125rem]" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block break-words font-stamp text-[13px] leading-[1.1] text-ink-100">
+        <span className="block break-words font-stamp text-[13px] leading-[1.1]">
           {BUILDING_CATALOG[kind].shortName}
         </span>
         <span
@@ -683,23 +896,21 @@ function StructureDoor({
 }
 
 /**
- * §I3b: the structure's brackets and its shelf, at the head of its bench.
+ * §I3b: the structure's brackets, at the head of its bench.
  *
- * This was the Workshop's Modifications view, twelve panels wide. It reads the whole picture off
- * `/me`, which every screen behind `/game` has already resolved, so it costs a cache read and no
- * new route. A bracket with something in it, an open empty one and one the level has not opened
- * yet are three different chips, and what is waiting on the shelf sits under them with the door
- * to the district where it gets bolted in.
+ * It read the whole picture off `/me`, which every screen behind `/game` has already resolved, so
+ * it costs a cache read and no new route. A bracket with something in it, an open empty one and one
+ * the level has not opened yet are three different chips.
+ *
+ * The shelf and the door to the district are gone (maintainer rule, 2026-09-16). There is nothing
+ * "cut for it and waiting" any more, because the press that cuts a card bolts it in, and the
+ * district is no longer where that happens: this bench is. What is left is the state of the three
+ * brackets, which is the thing a player is deciding against.
  */
 function BracketRack({ kind, base }: { kind: BuildingKind; base: Base | null }) {
   const spec = BUILDING_CATALOG[kind];
   const standing = base ? findBuilding(base.buildings, kind) : undefined;
   const slots = modificationSlots(standing);
-  const waiting = base
-    ? shelvedModifications(addonsOf(base), base.buildings).filter(
-        (id) => findModification(id)?.building === kind,
-      )
-    : [];
 
   return (
     <header className="flex flex-col gap-3 border-b border-surface-600/70 pb-3">
@@ -764,46 +975,6 @@ function BracketRack({ kind, base }: { kind: BuildingKind; base: Base | null }) 
             })}
           </ul>
         </div>
-
-        <div className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
-          <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-            On the shelf
-          </span>
-          {waiting.length === 0 ? (
-            <p className="font-body text-[12px] leading-snug text-ink-300">
-              Nothing cut for it and waiting.
-            </p>
-          ) : (
-            <ul className="flex flex-wrap gap-1.5" data-testid={`scrapyard-shelf-${kind}`}>
-              {waiting.map((id, index) => {
-                const mod = findModification(id);
-                return (
-                  <li
-                    key={`${id}-${index}`}
-                    className="flex items-center gap-1.5 rounded-sm border border-brass-500/50 bg-brass-500/10 px-2 py-1 font-display text-[11px] text-brass-100"
-                  >
-                    {mod && (
-                      <YardGlyph
-                        mark={{ kind: 'effect', effect: mod.effect }}
-                        className="h-3.5 w-3.5"
-                      />
-                    )}
-                    <span className="break-words">{mod?.name ?? id}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        {/* The other end of the same job: the yard cuts it, the structure's own window bolts it in. */}
-        <Link
-          to="/game/base"
-          data-testid={`scrapyard-fit-${kind}`}
-          className="self-end rounded-sm border border-surface-600 px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em] text-ink-200 transition-colors hover:border-brass-500/70 hover:text-brass-100"
-        >
-          Fit in the district
-        </Link>
       </div>
     </header>
   );
@@ -846,32 +1017,99 @@ const UNIT_COLUMNS: TrayColumns = {
  */
 function UnitBench({
   entries,
+  heldCount,
   keptBack,
+  rail,
+  unitId,
+  onUnit,
   stock,
   pending,
   onBuild,
+  onDismantle,
 }: {
   entries: readonly ScrapyardEntry[];
+  /** Held rows on this bench before the Ready-to-build filter, which is what "bare" means here. */
+  heldCount: number;
   keptBack: number;
+  /** Every unit a card in the catalogue fits, which is the rail down the left. */
+  rail: readonly UnitSpec[];
+  /** The one the bench is open on, or null when the catalogue fits nothing at all. */
+  unitId: string | null;
+  onUnit: (unitId: string) => void;
   stock: Resources;
   pending: boolean;
   onBuild: (entry: ScrapyardEntry) => void;
+  onDismantle: (entry: ScrapyardEntry) => void;
 }) {
+  /*
+   * The same shape as the structures bench (maintainer request, 2026-09-16).
+   *
+   * "Make the unit modifications exactly the same as the building modifications, just showing units
+   * on the left." So: a rail of doors, a bench per door, and the same card with the same press. The
+   * two screens were different mechanics wearing one page before this, and a player who had learned
+   * the structure bench had to learn the other one from scratch.
+   */
+  const forUnit = (one: string) =>
+    entries.filter((entry) => entry.targets.some((target) => target.id === one));
+  const chosen = unitId === null ? [] : forUnit(unitId);
+
+  /*
+   * The roster, for the card a door shows on hover.
+   *
+   * Read here rather than in the door: nineteen doors asking for the same response is nineteen
+   * subscriptions to one query, and the counts a card prints (garrisoned, abroad) are one answer
+   * about the crew rather than one per unit. `useUnits` is already polling wherever it is mounted,
+   * so this costs a read the page did not make and nothing else.
+   */
+  const roster = useUnits();
+  const sheetFor = (id: string) => {
+    const option = roster.data?.units.find((one) => one.id === id);
+    if (option === undefined) return null;
+    return {
+      option,
+      garrisoned: roster.data?.garrisoned[id] ?? 0,
+      abroad: roster.data?.abroad[id] ?? 0,
+    };
+  };
+
   return (
-    <div
-      className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto"
-      data-testid="scrapyard-refits"
-    >
-      <Withheld count={keptBack} bench="refits" />
-      {entries.length === 0 ? (
-        <p className="py-6 text-center font-body text-[13px] leading-relaxed text-ink-300">
-          Nothing on this bench the yard could cut today. The drawings come off the mission board
-          and out of the Lab.
-        </p>
-      ) : (
-        <div className={cn(BENCH_BOARD, 'p-4')}>
+    <div className="grid h-full min-h-0 items-stretch gap-4 lg:grid-cols-[15.5rem_minmax(0,1fr)]">
+      <Panel tone="paper" title="Units" dense className="min-h-0">
+        <ul
+          // Gaps and boxes rather than a divided list, which is what the rows became: a rule between
+          // two bordered boxes is a third line doing nothing.
+          className="grid min-h-0 flex-1 auto-rows-[minmax(min-content,1fr)] gap-1 overflow-y-auto px-1.5 py-1.5"
+          data-testid="scrapyard-unit-menu"
+        >
+          {rail.map((unit) => (
+            <li key={unit.id} className="flex min-h-0">
+              <UnitDoor
+                unit={unit}
+                sheet={sheetFor(unit.id)}
+                ready={readyIn(forUnit(unit.id), unit.id)}
+                total={forUnit(unit.id).length}
+                fitted={forUnit(unit.id).filter((entry) => targetOf(entry, unit.id)?.fitted).length}
+                selected={unit.id === unitId}
+                onSelect={() => onUnit(unit.id)}
+              />
+            </li>
+          ))}
+        </ul>
+      </Panel>
+
+      <section
+        className={cn(BENCH_BOARD, 'flex min-h-0 flex-col gap-3 overflow-y-auto p-4')}
+        data-testid="scrapyard-refits"
+      >
+        <Withheld heldCount={heldCount} withheldCount={keptBack} bench="refits" />
+        {chosen.length === 0 ? (
+          <p className="py-6 text-center font-body text-[13px] leading-relaxed text-ink-300">
+            Nothing on this bench the yard could cut today. The drawings come off the mission board
+            and out of the Lab.
+          </p>
+        ) : (
           <RarityTray
-            entries={entries}
+            entries={chosen}
             columns={UNIT_COLUMNS}
             blurbs={UNIT_MODIFICATION_RARITY_BLURBS}
             testId="scrapyard-unit-modifications"
@@ -879,16 +1117,116 @@ function UnitBench({
               <EntryCard
                 key={entry.id}
                 entry={entry}
+                target={targetOf(entry, unitId)}
                 stock={stock}
                 pending={pending}
                 onBuild={() => onBuild(entry)}
-                ownedLabel={entry.owned > 0 ? 'Built' : null}
+                onDismantle={() => onDismantle(entry)}
+                ownedLabel={entry.owned > 1 ? `On ${entry.owned} sheets` : null}
               />
             )}
           />
-        </div>
-      )}
+        )}
+      </section>
     </div>
+  );
+}
+
+/**
+ * One door on the unit rail: the sheet, what it is wearing, and what the yard could cut for it.
+ *
+ * The structure rail's own door (`StructureDoor`) with a unit in it. Kept as its own component
+ * rather than made generic, because the two read different things off different catalogues and a
+ * shared one would take four props to say which.
+ */
+function UnitDoor({
+  unit,
+  sheet,
+  ready,
+  total,
+  fitted,
+  selected,
+  onSelect,
+}: {
+  unit: UnitSpec;
+  /**
+   * The same unit off `GET /units`, which is the half a card needs and a catalogue row has not: the
+   * crew's own numbers after everything territory, research and the officers are doing to them.
+   * Null while that read is in flight, and then the door is a door with no card behind it.
+   */
+  sheet: { option: UnitOption; garrisoned: number; abroad: number } | null;
+  ready: number;
+  total: number;
+  /** Brackets on this sheet already wearing something, out of the three it has. */
+  fitted: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const row = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-stamp text-[14px] leading-tight">{unit.name}</span>
+        <span className="block truncate font-body text-[11px] text-ink-300">
+          {fitted} of {UNIT_UPGRADE_SLOTS} brackets worn
+        </span>
+      </span>
+      <span
+        className={cn(
+          'shrink-0 font-display text-[10px] tabular-nums tracking-[0.12em]',
+          ready > 0 ? 'text-verdigris-300' : 'text-ink-300',
+        )}
+      >
+        {ready}/{total}
+      </span>
+    </>
+  );
+
+  const skin = cn(
+    'flex w-full min-w-0 items-center gap-2 rounded-sm border px-2 py-1.5 text-left transition-colors',
+    selected
+      ? 'border-brass-300 bg-brass-500/30 text-brass-100'
+      : 'border-surface-600/60 bg-surface-900/40 text-ink-200 hover:bg-surface-800/60',
+  );
+
+  /*
+   * The sheet on a hover, and the door still a door (maintainer, 2026-09-17).
+   *
+   * "Make it so their unit card appears with portrait etc, but it does not stop you from clicking,
+   * so it appears below or above depending." `HoverCard` is all three of those already: the card is
+   * portalled and takes no pointer events unless asked, `side` is a preference it flips when the
+   * card does not fit where it was asked for, and `onActivate` keeps the trigger a real control.
+   * What it must **not** be is a button inside a button, which is invalid and unreachable by
+   * keyboard, so the row's skin moves onto the trigger rather than wrapping one.
+   *
+   * With no sheet to show it stays the plain door it was: a hover that opens an empty frame is
+   * worse than a hover that does nothing.
+   */
+  if (sheet === null) {
+    return (
+      <button
+        type="button"
+        data-testid={`scrapyard-unit-${unit.id}`}
+        aria-pressed={selected}
+        onClick={onSelect}
+        className={skin}
+      >
+        {row}
+      </button>
+    );
+  }
+
+  return (
+    <HoverCard
+      size="card"
+      label={unit.name}
+      className={skin}
+      onActivate={onSelect}
+      pressed={selected}
+      data-testid={`scrapyard-unit-${unit.id}`}
+      card={<UnitCard unit={sheet.option} garrisoned={sheet.garrisoned} abroad={sheet.abroad} />}
+    >
+      {row}
+    </HoverCard>
   );
 }
 
@@ -1002,32 +1340,54 @@ function RarityTray({
 
 function TrapsBench({
   entries,
+  heldCount,
   keptBack,
   stock,
   pending,
   onBuild,
 }: {
   entries: readonly ScrapyardEntry[];
+  /** Held rows on this bench before the Ready-to-build filter, which is what "bare" means here. */
+  heldCount: number;
   keptBack: number;
   stock: Resources;
   pending: boolean;
   onBuild: (entry: ScrapyardEntry) => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
-      {/* One rule, which is the one a player gets wrong: a trap is not something you take with you
-          on a raid (maintainer request, 2026-09-15). */}
-      <p className="shrink-0 font-body text-[13px] leading-relaxed text-ink-300">
-        Traps can only be used when defending a location.
-      </p>
-      <Withheld count={keptBack} bench="traps" />
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/*
+       * The one rule a player gets wrong, back as a chip (maintainer, 2026-09-17).
+       *
+       * It was a paragraph pinned above the cards and came off with the rest of the pinned prose.
+       * The *rule* still has to be somewhere: `api.battle.ts` only offers traps to a crew that is
+       * defending, so without a word on this bench a player buys one, goes to set it on a raid,
+       * and finds an empty list with nothing anywhere to say why.
+       */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <Withheld heldCount={heldCount} withheldCount={keptBack} bench="traps" />
+        <InfoNote label="How traps work">
+          A trap is set on ground you are holding and spent on the fight it catches. You cannot take
+          one with you: a raiding force carries units and boosts, and the bench is for the night
+          somebody comes to you.
+        </InfoNote>
+      </div>
       {entries.length === 0 ? (
         <p className="py-6 text-center font-body text-[13px] leading-relaxed text-ink-300">
           Nothing on this bench the yard could cut today. The drawings come off the mission board
           and the rungs out of the Lab.
         </p>
       ) : (
-        <div className={cn(BENCH_BOARD, 'p-4')}>
+        /*
+         * The board is the scroller, the way the structures bench does it (maintainer report,
+         * 2026-09-16).
+         *
+         * With the scroll on the bench instead, the track ran the full height of the workspace:
+         * the brass thumb started level with the line above, over the page's own ground, and the
+         * board it belonged to began 33px below it. The withheld line above it stays put, which is
+         * the right behaviour for a count of what is being kept back.
+         */
+        <div className={cn(BENCH_BOARD, 'min-h-0 overflow-y-auto p-4')}>
           <ul
             className={cn(BENCH_TRAY, 'md:grid-cols-2 xl:grid-cols-3')}
             data-testid="scrapyard-traps"
@@ -1036,9 +1396,12 @@ function TrapsBench({
               <EntryCard
                 key={entry.id}
                 entry={entry}
+                // A trap belongs to no structure and no unit: it goes into the bag.
+                target={null}
                 stock={stock}
                 pending={pending}
                 onBuild={() => onBuild(entry)}
+                onDismantle={() => undefined}
                 ownedLabel={null}
               />
             ))}
@@ -1154,24 +1517,37 @@ const CARD_ROWS =
  */
 function EntryCard({
   entry,
+  target,
   stock,
   pending,
   onBuild,
+  onDismantle,
   ownedLabel,
 }: {
   entry: ScrapyardEntry;
+  /**
+   * The structure or unit this bench is open on, and what this card can do for it.
+   *
+   * Null on the traps bench, which belongs to nothing. Everywhere else the card is a decision
+   * about one target: the button reads Bolt It In for a card that can go on, Dismantle for one
+   * that is already on, and a reason for one that cannot.
+   */
+  target: TargetRow | null;
   stock: Resources;
   pending: boolean;
   onBuild: () => void;
+  onDismantle: () => void;
   /** What owning one reads as on this bench: "Built", "Cut ×2". Traps count on the mark instead. */
   ownedLabel: string | null;
 }) {
+  const fitted = target?.fitted ?? false;
   const owned = entry.owned > 0;
-  const live = buildable(entry);
-  const tone = owned ? 'bile' : live ? 'brass' : 'ink';
+  const live = target === null ? entry.blocker === null : !fitted && target.blocker === null;
+  const blocker = target === null ? entry.blocker : (target.blocker ?? null);
+  const tone = fitted || owned ? 'bile' : live ? 'brass' : 'ink';
   const upgrade = entry.kind === 'upgrade' ? findUnitModification(entry.id) : undefined;
   const rarity = rarityOf(entry);
-  const levelShut = entry.blocker?.startsWith('Needs the Scrapyard at level') ?? false;
+  const levelShut = blocker?.startsWith('Needs the Scrapyard at level') ?? false;
   /*
    * How many are held rides on the mark rather than in a line of its own (maintainer request,
    * 2026-09-15). It is one number about the thing the glyph is already showing, and a sentence
@@ -1186,7 +1562,7 @@ function EntryCard({
         'relative grid h-full min-w-0 gap-1.5 rounded-sm border p-3 transition-colors',
         CARD_ROWS,
         SLOT_WELL,
-        owned
+        fitted || owned
           ? 'border-bile-300/50'
           : live
             ? 'border-brass-300/40'
@@ -1248,9 +1624,26 @@ function EntryCard({
         {upgrade && <PartsRow parts={upgrade.parts} />}
       </div>
 
-      <span className="min-w-0 break-words font-body text-[11px] leading-snug text-ink-300">
-        {entry.blueprint !== null ? `Blueprint: ${entry.blueprint}` : ''}
-      </span>
+      {/*
+        What a crew has to be, not only what it has to hold (maintainer rule, 2026-09-16).
+        
+        A card asks four things at once now and the yard refuses on the first one that fails, so a
+        player reading only the refusal would learn them one press at a time. The whole list is on
+        the card, quiet, under the bill: the document it wants and the three gates from
+        `building/requirements.ts`, worded by the server so the bench and the district window
+        cannot say it differently.
+      */}
+      <ul
+        className="min-w-0 space-y-0.5 font-body text-[11px] leading-snug text-ink-300"
+        data-testid={`addon-requires-${entry.id}`}
+      >
+        {entry.blueprint !== null && <li className="break-words">Blueprint: {entry.blueprint}</li>}
+        {entry.requirement.map((line) => (
+          <li key={line} className="break-words">
+            {line}
+          </li>
+        ))}
+      </ul>
 
       {/*
        * The control's row is reserved whatever is standing in it: Build, Built, or a blocker.
@@ -1270,22 +1663,44 @@ function EntryCard({
               {ownedLabel}
             </span>
           )}
-          {live ? (
-            <Button
+          {fitted ? (
+            /*
+             * Dismantle, and it destroys the card (maintainer ruling, 2026-09-16): nothing comes
+             * back and putting the same one on again means paying the yard again. The confirm is
+             * the caller's, for that reason.
+             */
+            <DrawnButton
+              size="sm"
+              disabled={pending}
+              data-testid={`addon-dismantle-${entry.id}`}
+              onClick={onDismantle}
+              // The one destructive door on the bench keeps its oxblood, drawn rather than struck.
+              className="!text-oxblood-300 hover:!text-oxblood-100"
+            >
+              Dismantle
+            </DrawnButton>
+          ) : live ? (
+            <DrawnButton
               size="sm"
               disabled={pending}
               data-testid={`addon-build-${entry.id}`}
               onClick={onBuild}
             >
-              {pending ? 'Cutting…' : entry.kind === 'trap' ? 'Put one together' : 'Build'}
-            </Button>
+              {pending
+                ? 'Cutting…'
+                : entry.kind === 'trap'
+                  ? 'Put one together'
+                  : entry.kind === 'upgrade'
+                    ? 'Bolt It On'
+                    : 'Bolt It In'}
+            </DrawnButton>
           ) : (
-            entry.blocker !== null && (
+            blocker !== null && (
               <span
                 className="break-words font-display text-[11px] uppercase tracking-[0.14em] text-oxblood-300"
                 data-testid={`addon-blocker-${entry.id}`}
               >
-                {entry.blocker}
+                {blocker}
               </span>
             )
           )}

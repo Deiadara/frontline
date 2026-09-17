@@ -43,6 +43,33 @@ const PHASE_LABEL: Record<MissionPhase, string> = {
   returned: 'At the gate',
 };
 
+/**
+ * What a row on the rail is painted in, and why there are four of them.
+ *
+ * The rail is the feats index in another room: a list you run your eye down, where the colour says
+ * what the row is *for* before you read a word of it. Brass is the one asking to be dealt with (a
+ * crew at the gate), verdigris is work that came off, oxblood is what it cost, and a crew still on
+ * the road is the quiet surface the other three are read against.
+ *
+ * Every row is a box with its own edge rather than a band between two hairlines. That is the
+ * "clearer separations" the maintainer asked for: a drawn frame round a group and a bordered box
+ * per entry separate at a glance, where a 1px divider only separates once you are already reading.
+ */
+const RAIL_TONE = {
+  travelling: 'border-surface-600/60 bg-surface-900/40',
+  home: 'border-brass-300/60 bg-brass-500/15',
+  won: 'border-verdigris-300/40 bg-verdigris-500/10',
+  lost: 'border-oxblood-500/40 bg-oxblood-500/10',
+} as const;
+
+/**
+ * The lift under the pointer, one value for all four tones.
+ *
+ * Bone at five per cent rather than a tint per tone: it is the paper catching the light, so it
+ * reads the same over brass, verdigris and oxblood without four more classes to keep in step.
+ */
+const RAIL_HOVER = 'transition-colors hover:bg-ink-100/5';
+
 function Tag({ label, className }: { label: string; className?: string }) {
   return (
     <span
@@ -86,7 +113,12 @@ function InFlightRow({
   const recallLeft = recallWindowMs(mission, now);
 
   return (
-    <li className="flex min-w-0 flex-col">
+    <li
+      className={cn(
+        'flex min-w-0 flex-col rounded-sm border',
+        RAIL_TONE[done ? 'home' : 'travelling'],
+      )}
+    >
       {/*
        * The row is a door to the Actions tab (maintainer, 2026-09-12), where the live column positions
        * are drawn: this panel says a crew is two hours out and that screen says where on the road.
@@ -101,7 +133,11 @@ function InFlightRow({
         to="/game/actions"
         aria-label={`${name}: where this crew is on the road`}
         data-testid={`mission-track-${mission.id}`}
-        className="flex min-w-0 flex-col gap-2 px-4 py-3 transition-colors hover:bg-surface-800/40 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300"
+        className={cn(
+          'flex min-w-0 flex-col gap-2 rounded-sm px-2.5 py-2',
+          'focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300',
+          RAIL_HOVER,
+        )}
       >
         <div className="flex min-w-0 items-baseline justify-between gap-3">
           <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-100">
@@ -143,7 +179,7 @@ function InFlightRow({
           walk home the distance covered, arriving with nothing. Gone once the window shuts, and
           the padding goes with it so a shut window leaves no empty band under the row. */}
       {recallLeft > 0 && (
-        <div className="px-4 pb-3">
+        <div className="px-2.5 pb-2">
           <CancelMark
             windowMs={recallLeft}
             label={`Call the ${name} crew back`}
@@ -185,7 +221,12 @@ function ReturnedRow({
    */
   if (!mission.reported) {
     return (
-      <li className="flex min-w-0 flex-col gap-1.5 px-4 py-3">
+      <li
+        className={cn(
+          'flex min-w-0 flex-col gap-1.5 rounded-sm border px-2.5 py-2',
+          RAIL_TONE.lost,
+        )}
+      >
         <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
           {name}
         </span>
@@ -208,14 +249,20 @@ function ReturnedRow({
    * unreadable, which is the same as not being there.
    */
   return (
-    <li className="flex min-w-0 flex-col">
+    <li
+      className={cn('flex min-w-0 flex-col rounded-sm border', RAIL_TONE[failed ? 'lost' : 'won'])}
+    >
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-label={`${name}: what happened`}
         data-testid={`mission-open-${mission.id}`}
-        className="flex min-w-0 flex-col gap-1.5 px-4 py-3 text-left transition-colors hover:bg-surface-800/40 focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300"
+        className={cn(
+          'flex min-w-0 flex-col gap-1.5 rounded-sm px-2.5 py-2 text-left',
+          'focus-visible:outline focus-visible:-outline-offset-2 focus-visible:outline-brass-300',
+          RAIL_HOVER,
+        )}
       >
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="min-w-0 truncate font-display text-xs font-semibold uppercase tracking-[0.14em] text-ink-200">
@@ -389,6 +436,10 @@ export function MissionsPage() {
           <div className="order-2 flex min-w-0 flex-col gap-4 xl:order-1 xl:min-h-0">
             <Panel
               title="In flight"
+              // The sheet the feats board is drawn on: a hand-inked frame round dark paper, with
+              // the title's own drawn rule under it. That rule is the boundary between this group
+              // and the one below, which is the separation the maintainer asked to see at a glance.
+              tone="paper"
               className="flex flex-col xl:max-h-[50%] xl:shrink-0"
               action={
                 <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
@@ -405,7 +456,9 @@ export function MissionsPage() {
                 <ul
                   aria-label="Crews in flight"
                   data-testid="crews-in-flight"
-                  className="flex flex-col divide-y divide-surface-700 xl:mb-2 xl:min-h-0 xl:overflow-y-auto"
+                  // Padded on every side, so the scrollbar is drawn inside the frame rather than
+                  // over its edge: a drawn border with a bar running down it reads as a tear.
+                  className="flex flex-col gap-1.5 p-2 xl:min-h-0 xl:overflow-y-auto"
                 >
                   {landing.map((mission) => (
                     <InFlightRow
@@ -421,22 +474,30 @@ export function MissionsPage() {
                 </ul>
               )}
               {recall.error && (
-                <p role="alert" className="px-4 pb-3 font-body text-[13px] text-oxblood-300">
+                <p role="alert" className="px-3 pb-2 font-body text-[13px] text-oxblood-300">
                   {recall.error.message}
                 </p>
               )}
             </Panel>
 
-            <Panel title="Recently returned" className="flex flex-col xl:min-h-0 xl:flex-1">
+            <Panel
+              title="Recently returned"
+              tone="paper"
+              className="flex flex-col xl:min-h-0 xl:flex-1"
+              // The bottom of this panel is the bottom of the left column, which `board-fill.spec`
+              // measures the board against. Named, because the class it used to be found by
+              // (`painted`) belongs to the brass tone this no longer wears.
+              data-testid="crews-returned-panel"
+            >
               {returned.length === 0 ? (
                 <EmptyRow text="No crew has come back yet" />
               ) : (
                 <ul
                   aria-label="Crews returned"
-                  // The scroller stops at the panel's ruled line rather than at its outer edge
+                  // The scroller stops inside the drawn frame rather than at the panel's outer edge
                   // (maintainer, 2026-09-10): a row half-scrolled off the bottom was cut at the frame's
                   // outside, so its last line showed under the line that is meant to be the edge.
-                  className="flex flex-col divide-y divide-surface-700 xl:mb-2 xl:min-h-0 xl:overflow-y-auto"
+                  className="flex flex-col gap-1.5 p-2 xl:min-h-0 xl:overflow-y-auto"
                 >
                   {returned.map((mission) => (
                     <ReturnedRow
@@ -454,6 +515,7 @@ export function MissionsPage() {
           <div className="order-1 flex min-w-0 flex-col xl:order-2 xl:min-h-0 xl:overflow-y-auto">
             <Panel
               title="Mission Board"
+              className="xl:min-h-0 xl:flex-1"
               action={
                 atCapacity ? (
                   <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-warning">

@@ -189,16 +189,20 @@ async function expectWholeDrillRows(page: Page, fitsWholeSheet: boolean): Promis
 /**
  * The tab strip has finished changing colour.
  *
- * `transition-colors` is 150ms, and a screenshot taken the frame after a click catches the strip
+ * The transition is 150ms, and a screenshot taken the frame after a click catches the strip
  * mid-fade: the tab that was chosen a moment ago is still the gold one and the tab that is chosen
  * now is still wearing its hover. Every assertion passed and the image the maintainer looked at said the
  * wrong tab was open. Polled on the colour rather than slept on, so it is also the check that the
  * lit mark is lit at all.
+ *
+ * Polled on the **lettering** rather than the border since the archive's tabs were drawn
+ * (maintainer, 2026-09-17): the box is an inline SVG now and the element has no border to read. The
+ * text is the part that was always the signal anyway, and it is the part a player sees change.
  */
-const LIT_TAB_BORDER = 'rgba(240, 173, 76, 0.8)';
+const LIT_TAB_INK = 'rgb(255, 228, 174)';
 
 async function litTabSettled(page: Page, testId: string): Promise<void> {
-  await expect(page.getByTestId(testId)).toHaveCSS('border-color', LIT_TAB_BORDER);
+  await expect(page.getByTestId(testId)).toHaveCSS('color', LIT_TAB_INK);
 }
 
 for (const size of VIEWPORTS) {
@@ -401,10 +405,11 @@ for (const size of VIEWPORTS) {
           hud.getByRole('button', { name: new RegExp(`^${chip}:`, 'i') }),
         ).toBeInViewport({ ratio: 1 });
       }
-      // The crew's level took the morale meter's place in the bar (§I). Named differently because
-      // it is not a `Thing: number` readout: it is a level, and it reads as one. "Crew" rather than
-      // "faction": a faction is now a team of players (§J) and this is the player's own progression.
-      await expect(hud.getByRole('button', { name: /^Crew level/i })).toBeInViewport({
+      // The district's level took the morale meter's place in the bar (§I). Named differently
+      // because it is not a `Thing: number` readout: it is a level, and it reads as one. "District"
+      // rather than "crew" (maintainer, 2026-09-17): the thing that levels is the ground a player
+      // builds on, and calling it a crew put the name of the people on the progress of the place.
+      await expect(hud.getByRole('button', { name: /^District level/i })).toBeInViewport({
         ratio: 1,
       });
       await page.screenshot({ path: `screenshots/visual/hud-late-game-${tag}.png` });
@@ -922,6 +927,17 @@ for (const size of VIEWPORTS) {
       const note = page.getByRole('tooltip').filter({ hasText: 'How the Bar works' });
       await expect(note).toBeVisible();
       await expect(note, 'the standing note opened off the screen').toBeInViewport({ ratio: 1 });
+      /*
+       * And what it says, and does not say (maintainer, 2026-09-17).
+       *
+       * Two removals, both because they were a second copy of something already on the card.
+       * "How it works" was the eyebrow over a title reading "How the Bar works", which is the same
+       * sentence twice in two faces; "Nothing is negotiated" restated the line above it, which has
+       * already said the highest bid is what they cost.
+       */
+      await expect(note).not.toContainText('How it works');
+      await expect(note).not.toContainText('Nothing is negotiated');
+      await expect(note).toContainText('at midnight the highest signs them');
     });
     /*
      * §C/§D/§G2/§I1: the research page, at all three of its tabs.
@@ -1841,7 +1857,11 @@ for (const size of VIEWPORTS) {
       // A fitted bracket, an empty one and one the level has not opened, all on one screen.
       const first = BUILDING_KINDS[0];
       await expect(page.getByTestId(`scrapyard-slot-${first}-1`)).toContainText('Empty');
-      await expect(page.getByTestId(`scrapyard-shelf-${first}`)).toBeVisible();
+      // No shelf: the yard cuts a card *for* a structure and bolts it in on the same press as of
+      // 2026-09-16, so there is no "cut for it and waiting" state and no column for one.
+      await expect(page.getByTestId(`scrapyard-shelf-${first}`)).toHaveCount(0);
+      // What replaces it is the press itself, on the bench under the brackets.
+      expect(await page.locator('[data-testid^="addon-build-"]').count()).toBeGreaterThan(0);
       const last = BUILDING_KINDS[BUILDING_KINDS.length - 1]!;
       await page
         .getByTestId(
@@ -1863,10 +1883,11 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('scrapyard-refits')).toBeVisible();
       await settleFonts(page);
 
-      // A built card, a reachable one and one the yard is too low for all render differently, and
-      // all three are on this fixture, which is the point of the fixture: Taped Grips is one of
-      // the three open BASIC cards, the Hardshell Exoframe a MASTERPIECE the level 6 yard cannot cut.
-      await expect(page.getByTestId('addon-taped_grips')).toContainText('Built');
+      // The unit bench is the structure bench with units down the left (maintainer request,
+      // 2026-09-16), so what this pins is the rail, the cards for whichever sheet it opens on, and
+      // the press. A card the yard is too low for still says so.
+      await expect(page.getByTestId('scrapyard-unit-menu')).toBeVisible();
+      await expect(page.getByTestId('addon-taped_grips')).toBeVisible();
       await expect(page.getByTestId('addon-hardshell_exoframe')).toContainText(
         'Needs the Scrapyard at level',
       );
@@ -1887,6 +1908,11 @@ for (const size of VIEWPORTS) {
       );
       await settleFonts(page);
 
+      // The standing rule came off the bench (maintainer, 2026-09-17). It was a paragraph pinned
+      // above the cards, which is the shape this screen has been taking off every other tab.
+      // Asserted against the whole screen rather than the card tray: the line was a paragraph
+      // *above* the tray, so a tray-scoped check would have passed before the removal too.
+      await expect(page.locator('body')).not.toContainText('only be used when defending');
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/scrapyard-traps-${tag}.png` });

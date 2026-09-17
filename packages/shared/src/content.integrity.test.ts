@@ -3,6 +3,8 @@ import { ATTRIBUTE_LABELS, ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from './attributes.j
 import { BUILDING_CATALOG, findModification, findVehicle } from './building/index.js';
 import { ATTRIBUTE_EFFECTS, CHANNEL_LABELS, EFFECT_CHANNELS } from './crew/effects.js';
 import { ROLE_IMPORTANCE } from './crew/importance.js';
+import { PERK_IDS, findPerk } from './crew/perks.js';
+import { RESEARCH_ITEMS } from './research/tracks.js';
 import { TRAINING_DRILLS } from './crew/training.js';
 import { CITY_DISTRICTS, CITY_LOCATIONS, ENV_LABEL_IDS, LOCATION_CATALOG } from './city/index.js';
 import { NOTORIETY_TO_FIELD } from './economy/infamy.js';
@@ -239,6 +241,65 @@ describe('every id points at something that exists', () => {
         expect(MAX_ATTRIBUTE).toBeGreaterThan(0);
         expect(ATTRIBUTE_LABELS[name]).toBeTruthy();
       }
+    });
+  });
+
+  /**
+   * §B7: what other people add to an officer is narrow and small (maintainer rule, 2026-09-16).
+   *
+   * "Not too big, and usually a certain attribute or a group of attributes rather than everything."
+   * The ceiling on the *total* is `MAX_OFFICER_LIFT` and lives in the arithmetic; what lives here is
+   * the shape of each source, which is the half a content edit can break without any arithmetic
+   * noticing: a card that paid into two groups, or a rung authored at +20, would be inside the cap
+   * and still be the thing the rule forbids.
+   *
+   * Every one of the three tables is walked, because the rule is about what a player experiences
+   * and they experience the sum of a perk, a rung and a held place without being told which was
+   * which.
+   */
+  describe('what the room adds to an officer', () => {
+    /** A group is eight or nine attributes at once, so it is held to the smaller figure. */
+    const MAX_GROUP_FLAT = 5;
+    /** One attribute is a narrower promise, so it may be worth more. The threshold perks sit here. */
+    const MAX_ATTRIBUTE_FLAT = 8;
+
+    const sources: { what: string; bonus: unknown }[] = [
+      ...PERK_IDS.map((id) => ({ what: `perk ${id}`, bonus: findPerk(id)?.bonus })),
+      ...RESEARCH_ITEMS.map((item) => ({
+        what: `${item.id} rung ${item.step}`,
+        bonus: item.payout.bonus,
+      })),
+      ...Object.entries(LOCATION_CATALOG).flatMap(([kind, spec]) =>
+        (spec.bonuses ?? []).map((bonus) => ({ what: `location ${kind}`, bonus })),
+      ),
+    ];
+
+    it('never lifts more than one group or one attribute from one source', () => {
+      for (const { what, bonus } of sources) {
+        const one = bonus as { kind?: string; group?: string; attribute?: string; flat?: number };
+        if (one?.kind === 'officer_group') {
+          expect(one.group, `${what} names no group`).toBeTruthy();
+          expect(one.flat ?? 0, `${what} teaches a whole group too hard`).toBeLessThanOrEqual(
+            MAX_GROUP_FLAT,
+          );
+        }
+        if (one?.kind === 'officer_attribute' || one?.kind === 'officer_threshold') {
+          expect(one.attribute, `${what} names no attribute`).toBeTruthy();
+          expect(one.flat ?? 0, `${what} teaches one attribute too hard`).toBeLessThanOrEqual(
+            MAX_ATTRIBUTE_FLAT,
+          );
+        }
+      }
+    });
+
+    it('has no source that reaches every group at once', () => {
+      // The rule's other half: a bonus kind that paid into all four groups would be "everything",
+      // whatever its magnitude. There is no such kind today and this is what keeps it that way.
+      const reach = sources.filter((source) => {
+        const one = source.bonus as { kind?: string; groups?: unknown[] };
+        return one?.kind === 'officer_group' && Array.isArray(one.groups);
+      });
+      expect(reach, reach.map((one) => one.what).join(', ')).toHaveLength(0);
     });
   });
 });

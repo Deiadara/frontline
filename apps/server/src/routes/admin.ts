@@ -1,4 +1,8 @@
 import {
+  ATTRIBUTE_NAMES,
+  OFFICER_ROLES,
+  createCommander,
+  type Attributes,
   AdminFogRequestSchema,
   AdminGrantRequestSchema,
   BLUEPRINTS,
@@ -466,6 +470,32 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateResources(next.id, resources);
       }
 
+      if (body.officers !== undefined) {
+        /*
+         * §C2: a crew with people in chairs, without waiting for a night at the Bar.
+         *
+         * Hiring is an auction that settles at midnight, so a fresh world has nobody in any chair
+         * and every system that reads the crew's sheet is unreachable: no scouting, no officer in a
+         * fight, no role fit, no attribute channel. Seating them here is the same shape as the
+         * building and research knobs above, and for the same reason.
+         *
+         * One per role, in the catalogue's order, at a flat rating. Flat because a bench that
+         * rolled a sheet would make every measurement taken against it a measurement of the draw.
+         */
+        const seated = OFFICER_ROLES.slice(0, body.officers.count).map((role, index) =>
+          createCommander(
+            `bench-${role}`,
+            `Bench ${index + 1}`,
+            role,
+            Object.fromEntries(
+              ATTRIBUTE_NAMES.map((name) => [name, body.officers!.rating]),
+            ) as Attributes,
+          ),
+        );
+        next = { ...next, commanders: seated };
+        app.repos.bases.updateCommanders(next.id, seated);
+      }
+
       if (body.playerLevel !== undefined) {
         // The XP bank is reset with the level rather than carried: banked progress belongs to the
         // level it was earned under, and keeping it would leave a crew sitting above its own
@@ -473,6 +503,14 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         const progression = startingProgression();
         next = { ...next, level: body.playerLevel, progression };
         app.repos.bases.updateProgression(next.id, body.playerLevel, progression);
+      }
+
+      if (body.notoriety !== undefined) {
+        // §D7: a rank is bought and kept, so the bench sets it directly. Before the infamy knob, so
+        // setting both in one call leaves the wallet at the figure that was asked for.
+        const economy = { ...next.economy, notoriety: body.notoriety };
+        next = { ...next, economy };
+        app.repos.bases.updateEconomy(next.id, economy);
       }
 
       if (body.infamy !== undefined) {

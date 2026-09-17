@@ -27,13 +27,11 @@ export const BuildBoostResponseSchema = z.object({
 });
 export type BuildBoostResponse = z.infer<typeof BuildBoostResponseSchema>;
 
-// --- §E: filling and emptying a structure's three slots ---------------------------------------
-
-export const FitModificationRequestSchema = z.object({
-  building: BuildingKindSchema,
-  modificationId: z.string().min(1),
-});
-export type FitModificationRequest = z.infer<typeof FitModificationRequestSchema>;
+// --- §E: emptying a structure's three slots ---------------------------------------------------
+//
+// Filling one has no request of its own any more: the Scrapyard's build names the structure and
+// bolts it in on the same press (`BuildAddonRequestSchema.target`), so the fit route and its
+// request went with the shelf on 2026-09-16.
 
 export const ClearModificationRequestSchema = z.object({
   building: BuildingKindSchema,
@@ -93,6 +91,32 @@ export const ScrapyardEntrySchema = z.object({
   documentHeld: z.boolean(),
   /** Why the button is dead, already worded, or null when it is live. */
   blocker: z.string().nullable(),
+  /**
+   * Every structure or unit this card may be bolted to, and whether it can be right now.
+   *
+   * Keyed by structure kind for a modification and by unit id for a unit card. The bench is a
+   * per-target screen as of 2026-09-16 (one press cuts the card and bolts it in), so a row's
+   * answer depends on which target is open: the same Priority Bus is buildable for the Nexus you
+   * raised and refused by the one you have not.
+   *
+   * Sent per target rather than as one blocker plus the facts to derive the rest, because deriving
+   * it is re-implementing the gate on the client, and this repo has been bitten by a dead button
+   * and a 409 disagreeing about the reason. Bounded by what the card fits, which is one to three
+   * structures for most of them.
+   */
+  targets: z.array(
+    z.object({
+      id: z.string(),
+      /** What the player calls it: "The Nexus", "Razors". */
+      name: z.string(),
+      /** Already bolted to this one. The button reads Dismantle. */
+      fitted: z.boolean(),
+      /** Why it cannot go on this one, already worded, or null when it can. */
+      blocker: z.string().nullable(),
+    }),
+  ),
+  /** The four gates this card asks for, as lines (`building/requirements.ts`). */
+  requirement: z.array(z.string()),
 });
 export type ScrapyardEntry = z.infer<typeof ScrapyardEntrySchema>;
 
@@ -109,6 +133,15 @@ export type ScrapyardResponse = z.infer<typeof ScrapyardResponseSchema>;
 export const BuildAddonRequestSchema = z.object({
   kind: AddonKindSchema,
   id: z.string().min(1),
+  /**
+   * What it is being bolted to: a structure kind for a modification, a unit id for a unit card.
+   *
+   * Required for both of those and absent for a trap, which belongs to no structure and goes into
+   * the bag. Building and fitting are one press as of 2026-09-16, so a request that named no
+   * target would be asking the yard to cut a card with nowhere to put it, which is the state this
+   * change exists to remove.
+   */
+  target: z.string().min(1).optional(),
 });
 export type BuildAddonRequest = z.infer<typeof BuildAddonRequestSchema>;
 

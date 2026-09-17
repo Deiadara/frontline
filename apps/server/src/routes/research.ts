@@ -15,6 +15,7 @@ import {
   type ResearchCancelRefusal,
   type ResearchRefusal,
 } from '../research/start.js';
+import { officerFitReader } from '../crew/standing.js';
 import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
@@ -82,14 +83,17 @@ const CANCEL_ERRORS: Record<ResearchCancelRefusal, { code: ErrorCode; message: s
  */
 function researchScreen(app: FastifyInstance, base: Base, now: Date): ResearchResponse {
   const { active } = base.research;
+  // Read once for the page: the same lifted sheets answer the head's cut, the nineteen track marks
+  // and all 190 rungs, and building the room three times would triple the cost of the route.
+  const fit = officerFitReader(app.repos, base, now);
   return {
     serverNow: now.toISOString(),
     active,
     completesAt: active ? researchCompletesAt(active).toISOString() : null,
     caps: base.resources.caps,
-    technologies: labResearchItems(app.repos, base),
-    tracks: trackStatuses(base),
-    head: researchHead(base),
+    technologies: labResearchItems(app.repos, base, fit),
+    tracks: trackStatuses(base, fit),
+    head: researchHead(base, fit),
   };
 }
 

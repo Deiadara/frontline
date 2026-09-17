@@ -14,7 +14,9 @@ import { describe, expect, it } from 'vitest';
 import { CITY_DISTRICTS } from '../city/index.js';
 import { MISC_AREA_ID, missionOffers } from '../missions.areas.js';
 import { BLUEPRINT_CATEGORIES } from './catalog.js';
-import { pagePrizeFor, pagePrizeOdds } from './prize.js';
+import { pagesOnShelf } from '../market/blackmarket.js';
+import { BLUEPRINTS } from './catalog.js';
+import { pagePrizeFor, pagePrizeOdds, pageWonFrom } from './prize.js';
 
 /** Enough days to settle a one-in-twenty-one rate, few enough to stay quick. */
 const DAYS = 150;
@@ -85,5 +87,77 @@ describe('pages as mission pay (§F1)', () => {
       ),
     );
     expect(days.size, 'every day gave the same answer').toBeGreaterThan(1);
+  });
+});
+
+/**
+ * Rarity decides how often a page turns up, on both channels (maintainer, 2026-09-17).
+ *
+ * It decided nothing before: every one of the 255 pages was equally likely, so the scale the
+ * Scrapyard gates and prices on meant nothing to the two draws that actually hand a page over. In
+ * the unit category it ran backwards, six Basic pages against nine Masterpiece ones.
+ *
+ * Sampled rather than reasoned about, and over the whole catalogue rather than a fixture: the
+ * question is whether the shipped content comes out in the right order, and the counts per rarity
+ * are part of the answer.
+ */
+describe('how often each rarity of page turns up', () => {
+  const RARITIES = ['basic', 'intricate', 'advanced', 'masterpiece'] as const;
+
+  /**
+   * Rate per page of that rarity, so the differing counts per band do not decide the answer.
+   *
+   * `from` scopes the denominator to the pool the draw actually samples. Getting that wrong is the
+   * first way this test went: counting every category's pages while `pageWonFrom` only ever draws
+   * unit pages made the per-page rates meaningless and reported the ordering backwards.
+   */
+  function perPageRate(
+    draw: (seed: number) => string | null,
+    runs: number,
+    from: readonly (typeof BLUEPRINTS)[number][] = BLUEPRINTS,
+  ) {
+    const rarityOf = new Map<string, string>();
+    const pages = new Map<string, number>();
+    for (const blueprint of from) {
+      for (const page of blueprint.pages) {
+        const rarity = ('rarity' in page ? page.rarity : undefined) ?? blueprint.rarity;
+        rarityOf.set(page.id, rarity);
+        pages.set(rarity, (pages.get(rarity) ?? 0) + 1);
+      }
+    }
+    const hits = new Map<string, number>();
+    for (let i = 0; i < runs; i += 1) {
+      const id = draw(i);
+      if (id === null) continue;
+      const rarity = rarityOf.get(id);
+      if (rarity) hits.set(rarity, (hits.get(rarity) ?? 0) + 1);
+    }
+    return RARITIES.map((rarity) => (hits.get(rarity) ?? 0) / (pages.get(rarity) ?? 1));
+  }
+
+  it('hands out a common page more often than a rare one, on a mission', () => {
+    const units = BLUEPRINTS.filter((blueprint) => blueprint.category === 'unit');
+    const rates = perPageRate((i) => pageWonFrom('unit', `prize-rate-${i}`), 30_000, units);
+    // Strictly descending across the scale, which is the whole claim.
+    for (let i = 1; i < rates.length; i += 1) {
+      expect(rates[i]!, `${RARITIES[i]} should be rarer than ${RARITIES[i - 1]}`).toBeLessThan(
+        rates[i - 1]!,
+      );
+    }
+    // ...and gently: the brief was "not too much, since you need more of them".
+    expect(rates[0]! / rates[3]!).toBeGreaterThan(1.5);
+    expect(rates[0]! / rates[3]!).toBeLessThan(3);
+  });
+
+  it('stocks a common page more often than a rare one, at the fence', () => {
+    const rates = perPageRate((i) => {
+      const [first] = pagesOnShelf(`2026-01-${String((i % 28) + 1).padStart(2, '0')}-${i}`);
+      return first === undefined ? null : first.replace(/^page_/, '');
+    }, 12_000);
+    for (let i = 1; i < rates.length; i += 1) {
+      expect(rates[i]!, `${RARITIES[i]} should be rarer than ${RARITIES[i - 1]}`).toBeLessThan(
+        rates[i - 1]!,
+      );
+    }
   });
 });

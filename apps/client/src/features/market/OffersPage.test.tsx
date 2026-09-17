@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CITY_ID,
   RESOURCE_KEYS,
   STORAGE_SHARES,
   supplyBoard,
@@ -34,6 +35,8 @@ const resources = Object.fromEntries(
 const market: MarketResponse = {
   reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
   serverNow: NOW,
+  cityId: DEFAULT_CITY_ID,
+  cities: [DEFAULT_CITY_ID],
   caps: resources.caps,
   resources,
   inventory: {},
@@ -238,10 +241,10 @@ describe('a refused withdraw', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('That listing has gone');
-    // `You offer` and `They offer` are the two panel headings; the alert has to be inside the
+    // `Your Offers` and `District Offers` are the two panel headings; the alert has to be inside the
     // first and not the second.
-    const mine = screen.getByRole('heading', { name: 'You offer' }).closest('div');
-    const theirs = screen.getByRole('heading', { name: 'They offer' }).closest('div');
+    const mine = screen.getByRole('heading', { name: 'Your Offers' }).closest('div');
+    const theirs = screen.getByRole('heading', { name: 'District Offers' }).closest('div');
     expect(mine?.parentElement?.contains(alert)).toBe(true);
     expect(theirs?.parentElement?.contains(alert)).toBe(false);
   });

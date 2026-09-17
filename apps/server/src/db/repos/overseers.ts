@@ -39,9 +39,37 @@ export interface OverseersRepo {
    * character back in the pool by construction rather than by remembering to.
    */
   claimedPresetIds(): Set<string>;
+  /**
+   * §F6: the characters currently being held for somebody who is deciding.
+   *
+   * Separate from {@link claimedPresetIds} because the two answer different questions and only one
+   * of them is permanent. A claim is an account carrying a character for ever; a hold is a batch on
+   * the table in front of somebody for ten minutes. Both block a draw, and only the claim blocks a
+   * take.
+   */
+  heldPresetIds(now: Date): Set<string>;
+  /** The batch this account is holding, and when it lapses. Empty when there is none. */
+  holdsFor(userId: string, now: Date): { presetIds: string[]; expiresAt: string | null };
+  /** Puts a fresh batch in front of one account, replacing whatever it was holding. */
+  hold(userId: string, presetIds: readonly string[], expiresAt: Date): void;
+  /** Lets go of everything this account was holding: it has chosen, or it is being wiped. */
+  releaseHolds(userId: string): void;
+  /** Drops every lapsed hold. Called on the read, so the sweep needs no scheduler. */
+  sweepHolds(now: Date): number;
   findById(id: string): Overseer | undefined;
   /** GDD §F2: the Overseer develops an attribute, which is the only thing that moves this sheet. */
   updateAttributes(id: string, attributes: Attributes): void;
+}
+
+/**
+ * Compiled on first use rather than when the repo is built.
+ *
+ * `overseer_holds` arrives in 0100 and this repo is constructed against older schemas by
+ * `stockpile-integrity.test.ts`, which seeds rows before the migration it measures runs.
+ */
+function lazy<T>(compile: () => T): () => T {
+  let compiled: T | null = null;
+  return () => (compiled ??= compile());
 }
 
 /**
@@ -82,6 +110,28 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
   const byIdStmt = db.prepare('SELECT * FROM overseers WHERE id = ?');
   const updateAttributesStmt = db.prepare('UPDATE overseers SET attributes_json = ? WHERE id = ?');
   const claimedStmt = db.prepare('SELECT DISTINCT preset_id FROM overseers');
+  /*
+   * Lazy, the way `blackmarket.ts`'s statements are and for the same reason: `overseer_holds`
+   * arrives in 0100, and `stockpile-integrity.test.ts` builds a repo against a part-migrated
+   * database on purpose, where a statement naming this table cannot be compiled.
+   */
+  const heldStmt = lazy(() =>
+    db.prepare('SELECT preset_id FROM overseer_holds WHERE expires_at > ?'),
+  );
+  const holdsForStmt = lazy(() =>
+    db.prepare(
+      'SELECT preset_id, expires_at FROM overseer_holds WHERE user_id = ? AND expires_at > ?',
+    ),
+  );
+  const holdStmt = lazy(() =>
+    db.prepare(
+      `INSERT INTO overseer_holds (preset_id, user_id, expires_at) VALUES (?, ?, ?)
+         ON CONFLICT (preset_id) DO UPDATE SET user_id = excluded.user_id,
+                                               expires_at = excluded.expires_at`,
+    ),
+  );
+  const releaseStmt = lazy(() => db.prepare('DELETE FROM overseer_holds WHERE user_id = ?'));
+  const sweepStmt = lazy(() => db.prepare('DELETE FROM overseer_holds WHERE expires_at <= ?'));
 
   return {
     insert({ overseer, userId, presetId, createdAt }) {
@@ -103,6 +153,32 @@ export function createOverseersRepo(db: AppDatabase): OverseersRepo {
     },
     claimedPresetIds() {
       return new Set((claimedStmt.all() as { preset_id: string }[]).map((row) => row.preset_id));
+    },
+    heldPresetIds(now) {
+      const rows = heldStmt().all(now.toISOString()) as { preset_id: string }[];
+      return new Set(rows.map((row) => row.preset_id));
+    },
+    holdsFor(userId, now) {
+      const rows = holdsForStmt().all(userId, now.toISOString()) as {
+        preset_id: string;
+        expires_at: string;
+      }[];
+      return {
+        presetIds: rows.map((row) => row.preset_id),
+        // One batch shares one expiry, so the first row's is the batch's.
+        expiresAt: rows[0]?.expires_at ?? null,
+      };
+    },
+    hold(userId, presetIds, expiresAt) {
+      releaseStmt().run(userId);
+      const at = expiresAt.toISOString();
+      for (const presetId of presetIds) holdStmt().run(presetId, userId, at);
+    },
+    releaseHolds(userId) {
+      releaseStmt().run(userId);
+    },
+    sweepHolds(now) {
+      return sweepStmt().run(now.toISOString()).changes;
     },
     findById(id) {
       const row = byIdStmt.get(id) as OverseerRow | undefined;

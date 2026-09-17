@@ -58,8 +58,19 @@ async function register(app: FastifyInstance, username: string) {
   return { token, baseId };
 }
 
-/** What the raider can make of the garrison standing in the way, with a Gate of `level` behind it. */
-async function countedThroughGate(level: number): Promise<number | null> {
+/**
+ * What the raider can make of the garrison in the way: a Gate of `level`, and what the squad wears.
+ *
+ * `fittings` is the second half, added when the intel system was found reading the **printed**
+ * sheet. `deploymentBlurPercent`'s third term is the force's own stealth, and `battle/intel.ts`
+ * took it straight off the catalogue, so a squad in Ghost Protocol hid a deployment exactly as well
+ * as a squad in nothing. The engine has folded fitted cards into stealth since the loadout rework,
+ * so the line fought one number and the count read another.
+ */
+async function countedThroughGate(
+  level: number,
+  fittings: readonly string[] = [],
+): Promise<{ size: number | null; quality: string }> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
@@ -82,6 +93,8 @@ async function countedThroughGate(level: number): Promise<number | null> {
       : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [], damage: 0 }];
   app.repos.bases.updateBuildings(defender.baseId, buildings);
   app.repos.bases.updateArmy(defender.baseId, { razors: 57 }, base.trainingQueue);
+  if (fittings.length > 0)
+    app.repos.bases.updateUnitLoadouts(defender.baseId, { razors: [...fittings] });
 
   const declared = await app.inject({
     method: 'POST',
@@ -121,17 +134,52 @@ async function countedThroughGate(level: number): Promise<number | null> {
   });
   const view = board.json<BattlesResponse>().coming[0];
   if (!view) throw new Error('fixture: the attacker cannot see the fight');
-  return view.enemySize;
+  return { size: view.enemySize, quality: view.enemyIntel };
 }
 
 describe('a Gate standing behind the fight', () => {
   it('blurs the count on the deployment screen', async () => {
     const open = await countedThroughGate(0);
-    expect(open, 'the raider could not count an undefended door').toBeGreaterThan(0);
+    expect(open.size, 'the raider could not count an undefended door').toBeGreaterThan(0);
 
     const walled = await countedThroughGate(20);
     // Either the count is gone entirely or it is rounded away from the truth. Both are the blur
     // doing its job; what must not happen is the raider reading the exact figure regardless.
-    expect(walled, 'a maxed Gate did nothing for the count it was built to hide').not.toBe(open);
+    expect(walled.size, 'a maxed Gate did nothing for the count it was built to hide').not.toBe(
+      open.size,
+    );
+  });
+});
+
+/**
+ * The other half of the same reading, and the half that was wired to nothing.
+ *
+ * Asserted through the route rather than on `deploymentBlurPercent`, because the defect was not in
+ * the arithmetic: `battle/intel.ts` takes a `stealthOf` reader and `battle/view.ts` is the only
+ * thing that fills it. A unit test on the shared half stays green with the server wiring deleted,
+ * which is the shape of hole this file exists to close for the Gate.
+ *
+ * Ghost Protocol is +22 stealth, which at `STEALTH_TO_RESISTANCE` is eleven points of blur on a
+ * squad that starts at 30: enough to move the count off the exact figure by itself, with no Gate
+ * standing behind it at all.
+ */
+describe('what the squad is wearing', () => {
+  it('hides a deployment by the cards actually bolted to it', async () => {
+    const bare = await countedThroughGate(0);
+    const hidden = await countedThroughGate(0, ['ghost_protocol']);
+
+    /*
+     * On the quality line rather than the number.
+     *
+     * `blurredCount` rounds to a grain, and 57 at fifteen points of blur and at twenty-six both
+     * land on 56: a real widening that the count cannot show. `intelQualityLine` reads the blur
+     * itself, so it is the field that moves, and it is also the half a player actually acts on.
+     */
+    expect(bare.quality, 'the raider could not read an unfitted squad at all').toMatch(
+      /good count/,
+    );
+    expect(hidden.quality, 'a squad in Ghost Protocol read as clearly as one in nothing').toMatch(
+      /rough count/,
+    );
   });
 });

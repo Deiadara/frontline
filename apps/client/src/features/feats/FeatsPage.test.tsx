@@ -36,8 +36,20 @@ const CLAIMED = 'runs_1';
 const READY = 'runs_2';
 const OPEN = 'runs_3';
 const LOCKED = 'runs_4';
-/** A second rung the fixture also has waiting, so two claims can be in flight at once. */
-const OTHER_READY = 'level_2';
+/**
+ * The other ladder in these tests, and the reason it is a ladder rather than a rung.
+ *
+ * The board opens one chain at a time now, so two CLAIM buttons can only be pressed together when
+ * they are rungs of the **same** ladder. `pages` is the fixture's pair: two rungs waiting, one
+ * card. See `FEATS_READY` in the fixtures.
+ */
+const PAIR = 'pages';
+const READY_A = 'pages_1';
+const READY_B = 'pages_2';
+/** How long that ladder is. It is one of the eight the catalogue runs up to tier X. */
+const RUNS_STEPS = FEATS.filter((feat) => feat.chain === 'runs').length;
+/** How many ladders the index holds: every chain, plus one row for each feat that stands alone. */
+const LADDERS = new Set(FEATS.map((feat) => feat.chain ?? feat.id)).size;
 
 /** The board the server answers with once these rungs have been collected. */
 const collectedBoard = (...ids: readonly string[]): FeatsResponse => {
@@ -92,6 +104,15 @@ async function openBoard(
   return screen.findByTestId('feats-board');
 }
 
+/**
+ * Open a ladder from the index down the left.
+ *
+ * The board is a list of ladders and one open ladder (maintainer, 2026-09-17), so a test that wants
+ * a particular chain's rungs on screen has to press its row first. The board opens on the first
+ * ladder in the catalogue, which is `runs`.
+ */
+const openLadder = (key: string) => fireEvent.click(screen.getByTestId(`feats-tab-${key}`));
+
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
@@ -101,20 +122,60 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('the board', () => {
-  it('draws every feat in the catalogue, grouped into its ladders', async () => {
+  /**
+   * The index down the left, and the ladder it opens on the right (maintainer, 2026-09-17).
+   *
+   * The board used to draw every ladder at once and fold most of their rungs away to fit. Four
+   * hundred feats made that unworkable: what is here now is a list a player can run their eye down
+   * and the whole of whichever one they pressed.
+   */
+  it('lists every ladder, and opens the first one whole', async () => {
     await openBoard();
-    expect(screen.getByTestId('feats-shown')).toHaveTextContent(
-      `${FEATS.length} of ${FEATS.length} feats`,
-    );
-    for (const id of [CLAIMED, READY, OPEN, LOCKED]) {
-      expect(screen.getByTestId(`feat-${id}`)).toBeInTheDocument();
-    }
-    // One card for the four of them, with the upright drawn down it.
+    const sidebar = screen.getByTestId('feats-sidebar');
+    expect(within(sidebar).getAllByRole('button')).toHaveLength(LADDERS);
+
+    // The whole of the first ladder, every rung of it, collected and shut ones included.
     const ladder = screen.getByTestId('feat-block-runs');
-    // By rung id rather than by role: a rung's reward is a list of its own inside it, so counting
-    // list items here counts the tokens too and the assertion passes at any grouping.
-    expect(ladder.querySelectorAll('[data-testid^="feat-runs_"]')).toHaveLength(4);
+    expect(ladder.querySelectorAll('[data-testid^="feat-runs_"]')).toHaveLength(RUNS_STEPS);
+    for (const id of [CLAIMED, READY, OPEN, LOCKED]) {
+      expect(screen.getByTestId(`feat-${id}`), id).toBeInTheDocument();
+    }
     expect(screen.getByTestId('feat-spine-runs')).toBeInTheDocument();
+    // ...and only that one. The other sixty-nine are rows in the index, not cards on the sheet.
+    expect(screen.queryByTestId('feat-block-clean')).toBeNull();
+  });
+
+  it('opens whichever ladder is pressed, and closes the one that was open', async () => {
+    await openBoard();
+    openLadder('clean');
+    await waitFor(() => expect(screen.getByTestId('feat-block-clean')).toBeInTheDocument());
+    expect(screen.queryByTestId('feat-block-runs')).toBeNull();
+    expect(screen.getByTestId('feats-tab-clean')).toHaveAttribute('aria-current', 'true');
+  });
+
+  /**
+   * The rows that are asking for a press say so, and the ones that are not do not.
+   *
+   * The index is seventy rows of the same shape, so the only thing that can make one of them
+   * findable is how it is drawn. A ladder with a rung waiting is the one row on this page that is
+   * asking a player to do something, and it carries the count.
+   */
+  it('marks the ladders with something waiting, and counts it', async () => {
+    await openBoard();
+    expect(screen.getByTestId('feats-tab-runs')).toHaveAttribute('data-state', 'unclaimed');
+    expect(screen.getByTestId('feats-tab-ready-runs')).toHaveTextContent('1');
+    expect(screen.getByTestId('feats-tab-ready-pages')).toHaveTextContent('2');
+
+    // A ladder with nothing waiting carries no count at all, rather than a zero.
+    expect(screen.getByTestId('feats-tab-seats')).toHaveAttribute('data-state', 'claimed');
+    expect(screen.queryByTestId('feats-tab-ready-seats')).toBeNull();
+  });
+
+  /** How far up each ladder the crew is, counted off the catalogue rather than off the screen. */
+  it('says how long every ladder is, in the index and on the card', async () => {
+    await openBoard();
+    expect(screen.getByTestId('feats-tab-done-runs')).toHaveTextContent(`1/${RUNS_STEPS}`);
+    expect(screen.getByTestId('feat-block-done-runs')).toHaveTextContent(`1/${RUNS_STEPS}`);
   });
 
   it('prints where a crew stands on an open rung, with the measure’s own word', async () => {
@@ -124,6 +185,16 @@ describe('the board', () => {
       `${standing?.value} / ${standing?.target} missions`,
     );
     expect(screen.getByTestId(`feat-bar-${OPEN}`)).toBeInTheDocument();
+  });
+
+  /** No era anywhere on the page: it went with the mechanic (maintainer, 2026-09-17). */
+  it('says nothing about early, mid or late', async () => {
+    await openBoard();
+    const sheet = screen.getByTestId('feats-summary').closest('div')?.parentElement;
+    expect(sheet?.textContent ?? '').not.toMatch(/\b(Early|Mid|Late)\b/);
+    for (const era of ['early', 'mid', 'late']) {
+      expect(screen.queryByTestId(`feats-era-${era}`), era).toBeNull();
+    }
   });
 });
 
@@ -145,6 +216,27 @@ describe('a shut rung', () => {
     await openBoard();
     expect(screen.getByTestId(`feat-${LOCKED}`)).toHaveTextContent('Shut');
   });
+
+  /**
+   * Once per ladder, on the door a player could actually open next.
+   *
+   * The chains run to ten, so a card opened part way up carried six rungs saying the same sentence
+   * down its own length. Only the lowest shut one explains itself; the rest are a padlock and a
+   * name, which is the whole of what there is to know about a door behind a door.
+   */
+  it('explains the shut rung once, and only on the next door', async () => {
+    await openBoard();
+    const shut = screen
+      .getAllByTestId(/^feat-runs_/)
+      .filter((row) => row.getAttribute('data-state') === 'locked');
+    expect(shut.length, 'the fixture ladder has no run of shut rungs').toBeGreaterThan(2);
+
+    const explained = shut.filter((row) => (row.textContent ?? '').includes('Shut'));
+    expect(explained).toHaveLength(1);
+    expect(explained[0]).toBe(screen.getByTestId(`feat-${LOCKED}`));
+    // The ones above it are still drawn, name and padlock, so the ladder's length is visible.
+    for (const row of shut) expect(row.textContent ?? '').not.toBe('');
+  });
 });
 
 describe('the CLAIM button', () => {
@@ -154,9 +246,15 @@ describe('the CLAIM button', () => {
     for (const id of [CLAIMED, OPEN, LOCKED]) {
       expect(screen.queryByTestId(`feat-claim-${id}`)).toBeNull();
     }
-    // Once, on every ready feat on the board, and nowhere else.
-    const ready = BOARD.progress.filter((one) => one.state === 'ready');
-    expect(screen.getAllByRole('button', { name: /Claim this feat/ })).toHaveLength(ready.length);
+    // Once, on every ready rung of the ladder that is open, and nowhere else. Counted against the
+    // open ladder rather than the catalogue: the other waiting rungs are on cards nobody opened.
+    const openReady = BOARD.progress.filter(
+      (one) => one.state === 'ready' && findFeat(one.id)?.chain === 'runs',
+    );
+    expect(openReady.length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /Claim this feat/ })).toHaveLength(
+      openReady.length,
+    );
   });
 
   /**
@@ -269,11 +367,11 @@ describe('the CLAIM button', () => {
           statusText: '',
           json: () =>
             Promise.resolve({
-              featId: READY,
-              paid: findFeat(READY)?.reward,
+              featId: READY_A,
+              paid: findFeat(READY_A)?.reward,
               // The board as it stood when this one was collected: the second rung is still
               // waiting on it, because the second press had not reached the server yet.
-              feats: collectedBoard(READY),
+              feats: collectedBoard(READY_A),
             }),
         } as Response);
     });
@@ -285,19 +383,20 @@ describe('the CLAIM button', () => {
         return claims === 1
           ? firstPress
           : reply({
-              featId: OTHER_READY,
-              paid: findFeat(OTHER_READY)?.reward,
-              feats: collectedBoard(READY, OTHER_READY),
+              featId: READY_B,
+              paid: findFeat(READY_B)?.reward,
+              feats: collectedBoard(READY_A, READY_B),
             });
       }
       // Every read hung, so nothing comes along behind the answers to correct them.
       return new Promise<Response>(() => {});
     });
 
-    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
-    fireEvent.click(screen.getByTestId(`feat-claim-${OTHER_READY}`));
+    openLadder(PAIR);
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY_A}`));
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY_B}`));
     await waitFor(() =>
-      expect(screen.getByTestId(`feat-collected-${OTHER_READY}`)).toBeInTheDocument(),
+      expect(screen.getByTestId(`feat-collected-${READY_B}`)).toBeInTheDocument(),
     );
     expect(claims).toBe(2);
 
@@ -308,9 +407,9 @@ describe('the CLAIM button', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
-    expect(screen.getByTestId(`feat-collected-${READY}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`feat-collected-${OTHER_READY}`)).toBeInTheDocument();
-    expect(screen.queryByTestId(`feat-claim-${OTHER_READY}`)).toBeNull();
+    expect(screen.getByTestId(`feat-collected-${READY_A}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`feat-collected-${READY_B}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`feat-claim-${READY_B}`)).toBeNull();
     // The ledger counts the same two rungs the board draws, rather than the count off whichever
     // answer landed last.
     expect(screen.getByTestId('feats-ledger-claimed')).toHaveTextContent(String(BOARD.claimed + 2));
@@ -327,19 +426,20 @@ describe('the CLAIM button', () => {
    */
   it('keeps the first rung pending when a second claim is pressed before it answers', async () => {
     await openBoard();
+    openLadder(PAIR);
     fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
 
-    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY_A}`));
     await waitFor(() =>
-      expect(screen.getByTestId(`feat-claim-${READY}`)).toHaveTextContent('TAKING'),
+      expect(screen.getByTestId(`feat-claim-${READY_A}`)).toHaveTextContent('TAKING'),
     );
-    fireEvent.click(screen.getByTestId(`feat-claim-${OTHER_READY}`));
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY_B}`));
     await waitFor(() =>
-      expect(screen.getByTestId(`feat-claim-${OTHER_READY}`)).toHaveTextContent('TAKING'),
+      expect(screen.getByTestId(`feat-claim-${READY_B}`)).toHaveTextContent('TAKING'),
     );
 
-    expect(screen.getByTestId(`feat-claim-${READY}`)).toHaveTextContent('TAKING');
-    expect(screen.getByTestId(`feat-claim-${READY}`)).toBeDisabled();
+    expect(screen.getByTestId(`feat-claim-${READY_A}`)).toHaveTextContent('TAKING');
+    expect(screen.getByTestId(`feat-claim-${READY_A}`)).toBeDisabled();
   });
 
   /**
@@ -423,63 +523,69 @@ describe('the CLAIM button', () => {
 });
 
 describe('the filters', () => {
-  it('narrows to one era, and keeps the rung’s place in its ladder', async () => {
+  /**
+   * One axis, over whole ladders (maintainer, 2026-09-17).
+   *
+   * The era chips are gone with the mechanic, and so is the how-much-of-a-chain setting the sidebar
+   * replaced. What is left answers the question a player arrives with: is anything waiting, what
+   * have I finished, and what is still in hand.
+   */
+  it('narrows the index to the ladders with something waiting', async () => {
     await openBoard();
-    fireEvent.click(screen.getByTestId('feats-era-mid'));
+    fireEvent.click(screen.getByTestId('feats-show-unclaimed'));
 
-    await waitFor(() => expect(screen.queryByTestId(`feat-${OPEN}`)).toBeInTheDocument());
-    // `runs_3` is the mid rung of that ladder. Its early and late neighbours are gone.
-    expect(screen.queryByTestId(`feat-${READY}`)).toBeNull();
-    expect(screen.queryByTestId(`feat-${LOCKED}`)).toBeNull();
-    expect(screen.getByTestId('feats-era-mid')).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(screen.queryByTestId('feats-tab-seats')).toBeNull());
+    expect(screen.getByTestId('feats-tab-runs')).toBeInTheDocument();
+    expect(screen.getByTestId('feats-tab-pages')).toBeInTheDocument();
+    expect(screen.getByTestId('feats-show-unclaimed')).toHaveAttribute('aria-pressed', 'true');
+    for (const row of within(screen.getByTestId('feats-sidebar')).getAllByRole('button')) {
+      expect(row).toHaveAttribute('data-state', 'unclaimed');
+    }
   });
 
-  it('narrows to what is done, and to what is not', async () => {
+  it('narrows to the ladders finished to the top, and back again', async () => {
     await openBoard();
-    fireEvent.click(screen.getByTestId('feats-show-done'));
-    await waitFor(() => expect(screen.queryByTestId(`feat-${OPEN}`)).toBeNull());
-    expect(screen.getByTestId(`feat-${CLAIMED}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`feat-${READY}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('feats-show-claimed'));
+    await waitFor(() => expect(screen.queryByTestId('feats-tab-runs')).toBeNull());
+    // `seats` is the fixture's one ladder collected to the top.
+    expect(screen.getByTestId('feats-tab-seats')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('feats-show-todo'));
-    await waitFor(() => expect(screen.queryByTestId(`feat-${CLAIMED}`)).toBeNull());
-    expect(screen.getByTestId(`feat-${OPEN}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`feat-${LOCKED}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('feats-show-all'));
+    await waitFor(() => expect(screen.getByTestId('feats-tab-runs')).toBeInTheDocument());
   });
 
-  it('combines the two, and neither of them quietly wins', async () => {
+  it('narrows to the ladders still in hand', async () => {
     await openBoard();
-    fireEvent.click(screen.getByTestId('feats-era-early'));
-    fireEvent.click(screen.getByTestId('feats-show-done'));
-
-    await waitFor(() => expect(screen.getByTestId(`feat-${READY}`)).toBeInTheDocument());
-    // `runs_1` and `runs_2` are early and finished; `runs_3` is mid, `runs_4` is late and shut.
-    expect(screen.getByTestId(`feat-${CLAIMED}`)).toBeInTheDocument();
-    expect(screen.queryByTestId(`feat-${OPEN}`)).toBeNull();
-    expect(screen.queryByTestId(`feat-${LOCKED}`)).toBeNull();
-    // `level_2` is early and finished, `level_3` is mid and finished by nothing: the era half is
-    // doing work here as well as the state half.
-    expect(screen.getByTestId('feat-level_2')).toBeInTheDocument();
-    expect(screen.queryByTestId('feat-level_3')).toBeNull();
+    fireEvent.click(screen.getByTestId('feats-show-shut'));
+    await waitFor(() => expect(screen.queryByTestId('feats-tab-runs')).toBeNull());
+    for (const row of within(screen.getByTestId('feats-sidebar')).getAllByRole('button')) {
+      expect(row).toHaveAttribute('data-state', 'shut');
+    }
   });
 
-  it('says so rather than drawing an empty board when nothing answers', async () => {
+  /**
+   * Pressing a chip that filters the open ladder away opens one that is left.
+   *
+   * The failure this catches is a sidebar beside an empty pane: the board kept the key it had, the
+   * filtered list no longer held it, and the right-hand half of the screen simply went blank.
+   */
+  it('opens a ladder the filter kept when the open one is filtered away', async () => {
     await openBoard();
-    fireEvent.click(screen.getByTestId('feats-era-late'));
-    fireEvent.click(screen.getByTestId('feats-show-done'));
+    expect(screen.getByTestId('feat-block-runs')).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByTestId('feats-empty')).toBeInTheDocument());
-    expect(screen.queryByTestId('feats-board')).toBeNull();
+    fireEvent.click(screen.getByTestId('feats-show-claimed'));
+    await waitFor(() => expect(screen.queryByTestId('feat-block-runs')).toBeNull());
+    expect(screen.getByTestId('feat-block-seats')).toBeInTheDocument();
   });
 
-  it('counts what each setting would leave, against the other one as it stands', async () => {
+  it('counts the ladders each setting would leave', async () => {
     await openBoard();
-    expect(screen.getByTestId('feats-era-all')).toHaveTextContent(String(FEATS.length));
+    const countOn = (setting: string) =>
+      Number(screen.getByTestId(`feats-show-${setting}`).textContent?.match(/\d+/)?.[0] ?? -1);
 
-    const everything = screen.getByTestId('feats-era-early').textContent ?? '';
-    fireEvent.click(screen.getByTestId('feats-show-done'));
-    await waitFor(() =>
-      expect(screen.getByTestId('feats-era-early').textContent).not.toBe(everything),
-    );
+    expect(countOn('all')).toBe(LADDERS);
+    // The three states are a partition of the whole list, which is what makes the chips add up.
+    expect(countOn('claimed') + countOn('unclaimed') + countOn('shut')).toBe(LADDERS);
+    expect(countOn('unclaimed')).toBeGreaterThan(0);
   });
 });

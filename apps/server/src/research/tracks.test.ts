@@ -22,7 +22,7 @@ import {
   OVERSEER_PRESETS,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
-import { standingEffectsFor } from '../crew/standing.js';
+import { officerFitReader, standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
 import { roleFit, weightedAttributesOf } from '../roles/requirements.js';
 import { settleResearch } from './settle.js';
 import { startResearch } from './start.js';
@@ -46,6 +46,17 @@ import {
  */
 
 const NOW = new Date('2026-09-03T09:00:00.000Z');
+
+/**
+ * The lifted-fit reader every projection on this page now takes.
+ *
+ * On an empty set of repos there is no Overseer, no held ground and no finished Lab rung, so the
+ * lift is zero and every figure below is the one the officer's own sheet buys. Deliberate: these
+ * tests are about the score, and the lift has a test of its own beside them.
+ */
+function fitFor(base: Base, repos = fakeRepos().repos): OfficerFitReader {
+  return officerFitReader(repos, base, NOW);
+}
 const MINUTE_MS = 60_000;
 
 const [firstPreset] = OVERSEER_PRESETS;
@@ -204,13 +215,15 @@ describe('§C3a: the Head of Research shortens every clock', () => {
      * the ceiling scores 38.46, which buys (28.46/90) x 45 = 14.23%. The second clock is therefore
      * 85.77/95 = 0.9028 of the first, and every other reduction cancels out of the ratio.
      */
-    const slow = minutesFor(repos, dim, LAST_MEDIC);
-    const quick = minutesFor(repos, sharp, LAST_MEDIC);
+    const slow = minutesFor(repos, dim, LAST_MEDIC, fitFor(dim, repos));
+    const quick = minutesFor(repos, sharp, LAST_MEDIC, fitFor(sharp, repos));
     expect(quick).toBeLessThan(slow);
     expect(quick / slow).toBeCloseTo(0.9028, 2);
 
     // A crew with nothing at all pays the catalogue clock, which anchors the scale.
-    expect(minutesFor(repos, makeBase([]), LAST_MEDIC)).toBe(LAST_MEDIC.minutes);
+    expect(minutesFor(repos, makeBase([]), LAST_MEDIC, fitFor(makeBase([]), repos))).toBe(
+      LAST_MEDIC.minutes,
+    );
     expect(LAST_MEDIC.minutes).toBe(270);
   });
 
@@ -235,7 +248,7 @@ describe('§C3a: the Head of Research shortens every clock', () => {
     // ...and the row runs on the rung's own clock rather than on one flat number for the whole
     // Lab: the first rung of a track and the tenth are hours apart, which is what settles it.
     expect(FIRST_MEDIC.minutes).toBe(45);
-    expect(minutesFor(repos, makeBase([]), LAST_MEDIC)).toBe(270);
+    expect(minutesFor(repos, makeBase([]), LAST_MEDIC, fitFor(makeBase([]), repos))).toBe(270);
   });
 
   it('moves when a single attribute the chair reads is trained by one point', () => {
@@ -255,9 +268,12 @@ describe('§C3a: the Head of Research shortens every clock', () => {
   });
 
   it('reports the cut on the wire, and nothing to work the score back from beyond a tenth', () => {
-    const head = researchHead(makeBase([officerAt('h', 'head_of_research', 55)]));
+    const head = researchHead(
+      makeBase([officerAt('h', 'head_of_research', 55)]),
+      fitFor(makeBase([officerAt('h', 'head_of_research', 55)])),
+    );
     expect(head).toEqual({ name: 'Officer h', mark: markFromPoints(55), timeCutPercent: 22.5 });
-    expect(researchHead(makeBase([]))).toBeNull();
+    expect(researchHead(makeBase([]), fitFor(makeBase([])))).toBeNull();
   });
 });
 
@@ -277,17 +293,32 @@ describe('§C1d: the track officer shortens the bill, and only the bill', () => 
 
   it('does not let the Head of Research discount anything', () => {
     const medic = officerAt('m', 'chief_medic', 40);
-    const poor = priceOf(makeBase([medic, DIM_HEAD]), FIRST_MEDIC);
-    const good = priceOf(makeBase([medic, SHARP_HEAD]), FIRST_MEDIC);
+    const poor = priceOf(
+      makeBase([medic, DIM_HEAD]),
+      FIRST_MEDIC,
+      fitFor(makeBase([medic, DIM_HEAD])),
+    );
+    const good = priceOf(
+      makeBase([medic, SHARP_HEAD]),
+      FIRST_MEDIC,
+      fitFor(makeBase([medic, SHARP_HEAD])),
+    );
     expect(good).toEqual(poor);
     // The positive control: the medic's own chair does move this price.
     expect(
-      priceOf(makeBase([officerAt('m', 'chief_medic', 93), DIM_HEAD]), FIRST_MEDIC).caps,
+      priceOf(
+        makeBase([officerAt('m', 'chief_medic', 93), DIM_HEAD]),
+        FIRST_MEDIC,
+        fitFor(makeBase([officerAt('m', 'chief_medic', 93), DIM_HEAD])),
+      ).caps,
     ).toBeLessThan(poor.caps ?? 0);
   });
 
   it('puts the cut on the wire per track, and zero on a chair nobody is in', () => {
-    const statuses = trackStatuses(makeBase([officerAt('m', 'chief_medic', 100)]));
+    const statuses = trackStatuses(
+      makeBase([officerAt('m', 'chief_medic', 100)]),
+      fitFor(makeBase([officerAt('m', 'chief_medic', 100)])),
+    );
     const medic = statuses.find((entry) => entry.role === 'chief_medic');
     const spy = statuses.find((entry) => entry.role === 'head_spy');
     expect(statuses).toHaveLength(19);
@@ -338,13 +369,14 @@ describe('§B8: the price and the clock read the published cut, not the score', 
     // The pair is only worth anything if the two scores differ and the two printed cuts do not.
     expect(farPoints).toBeGreaterThan(nearPoints);
     const printed = (officer: Commander) =>
-      trackStatuses(makeBase([officer])).find((entry) => entry.role === 'chief_medic')
-        ?.costCutPercent;
+      trackStatuses(makeBase([officer]), fitFor(makeBase([officer]))).find(
+        (entry) => entry.role === 'chief_medic',
+      )?.costCutPercent;
     expect(printed(near)).toBe(0.4);
     expect(printed(far)).toBe(0.4);
 
     const priced = (officer: Commander) =>
-      labResearchItems(repos, makeBase([officer]))
+      labResearchItems(repos, makeBase([officer]), fitFor(makeBase([officer]), repos))
         .filter((item) => item.track === 'chief_medic')
         .map((item) => item.cost);
     expect(priced(far)).toEqual(priced(near));
@@ -371,8 +403,8 @@ describe('§B8: the price and the clock read the published cut, not the score', 
     const flatPoints = roleFit(flat.attributes, 'head_of_research');
     const nudgedPoints = roleFit(nudged.attributes, 'head_of_research');
     expect(nudgedPoints).toBeGreaterThan(flatPoints);
-    expect(researchHead(makeBase([flat]))?.timeCutPercent).toBe(0.5);
-    expect(researchHead(makeBase([nudged]))?.timeCutPercent).toBe(0.5);
+    expect(researchHead(makeBase([flat]), fitFor(makeBase([flat])))?.timeCutPercent).toBe(0.5);
+    expect(researchHead(makeBase([nudged]), fitFor(makeBase([nudged])))?.timeCutPercent).toBe(0.5);
 
     // The other two reductions in the clock are the Lab and the crew's own research speed. Neither
     // may move between the two bases, or a difference in the clock would not be about the cut.
@@ -381,7 +413,9 @@ describe('§B8: the price and the clock read the published cut, not the score', 
     );
 
     const clocked = (officer: Commander) =>
-      labResearchItems(repos, makeBase([officer])).map((item) => item.minutes);
+      labResearchItems(repos, makeBase([officer]), fitFor(makeBase([officer]), repos)).map(
+        (item) => item.minutes,
+      );
     expect(clocked(nudged)).toEqual(clocked(flat));
 
     // The control: off the raw scores the two clocks part company on at least one rung.
@@ -400,13 +434,13 @@ describe('§C1b/§C1c: the gates, at the seam the route uses', () => {
   it('refuses a rung with no Head of Research, and says so', () => {
     const base = makeBase([officerAt('m', 'chief_medic', 93)]);
     expect(start(base, FIRST_MEDIC.id).result).toEqual({ kind: 'refused', reason: 'locked' });
-    expect(itemBlocker(base, FIRST_MEDIC.id)).toBe('Needs a Head of Research');
+    expect(itemBlocker(base, FIRST_MEDIC.id, fitFor(base))).toBe('Needs a Head of Research');
   });
 
   it('refuses a rung whose own chair is empty', () => {
     const base = makeBase([officerAt('h', 'head_of_research', 93)]);
     expect(start(base, FIRST_MEDIC.id).result).toEqual({ kind: 'refused', reason: 'locked' });
-    expect(itemBlocker(base, FIRST_MEDIC.id)).toBe('Needs a Chief Medic');
+    expect(itemBlocker(base, FIRST_MEDIC.id, fitFor(base))).toBe('Needs a Chief Medic');
   });
 
   it('refuses an officer under the rung mark, and lets them through at it', () => {
@@ -422,21 +456,25 @@ describe('§C1b/§C1c: the gates, at the seam the route uses', () => {
       [officerAt('m', 'chief_medic', 12), officerAt('h', 'head_of_research', 93)],
       research,
     );
-    expect(itemBlocker(short, fourth.id)).toBe('Your Chief Medic must be E- or better');
+    expect(itemBlocker(short, fourth.id, fitFor(short))).toBe(
+      'Your Chief Medic must be E- or better',
+    );
 
     // 29 points is an E, which clears the E- the rung asks of the medic.
     const enough = makeBase(
       [officerAt('m', 'chief_medic', 29), officerAt('h', 'head_of_research', 93)],
       research,
     );
-    expect(itemBlocker(enough, fourth.id)).toBeNull();
+    expect(itemBlocker(enough, fourth.id, fitFor(enough))).toBeNull();
 
     // ...and the Head's own threshold is separately real.
     const shortHead = makeBase(
       [officerAt('m', 'chief_medic', 93), officerAt('h', 'head_of_research', 12)],
       research,
     );
-    expect(itemBlocker(shortHead, fourth.id)).toBe('Your Head of Research must be E or better');
+    expect(itemBlocker(shortHead, fourth.id, fitFor(shortHead))).toBe(
+      'Your Head of Research must be E or better',
+    );
   });
 
   it('refuses what is already done, and admin mode does not waive that', () => {
@@ -512,7 +550,7 @@ describe('the catalogue on the wire', () => {
       officerAt('m', 'chief_medic', 93),
       officerAt('h', 'head_of_research', 93),
     ]);
-    const shipped = labResearchItems(repos, base);
+    const shipped = labResearchItems(repos, base, fitFor(base, repos));
     expect(shipped).toHaveLength(RESEARCH_ITEMS.length);
 
     const first = shipped.find((item) => item.id === FIRST_MEDIC.id);
@@ -543,13 +581,13 @@ describe('the catalogue on the wire', () => {
       officerAt('s', 'scout', 93),
       officerAt('h', 'head_of_research', 55),
     ]);
-    const shipped = labResearchItems(repos, base);
+    const shipped = labResearchItems(repos, base, fitFor(base, repos));
     for (const item of shipped) {
       const spec = RESEARCH_ITEMS.find((entry) => entry.id === item.id);
       if (!spec) throw new Error(`no spec for ${item.id}`);
-      expect(item.cost, item.id).toEqual(priceOf(base, spec));
-      expect(item.minutes, item.id).toBe(minutesFor(repos, base, spec));
-      expect(item.blocker, item.id).toBe(itemBlocker(base, spec.id));
+      expect(item.cost, item.id).toEqual(priceOf(base, spec, fitFor(base)));
+      expect(item.minutes, item.id).toBe(minutesFor(repos, base, spec, fitFor(base, repos)));
+      expect(item.blocker, item.id).toBe(itemBlocker(base, spec.id, fitFor(base)));
     }
     // The control: the three chairs above mean the answers are not all the same anyway.
     expect(new Set(shipped.map((item) => item.blocker)).size).toBeGreaterThan(2);
@@ -594,12 +632,12 @@ describe('the research payload publishes nothing finer than its grain (§B8)', (
     const base = makeBase(seated);
 
     const offGrain: string[] = [];
-    for (const status of trackStatuses(base)) {
+    for (const status of trackStatuses(base, fitFor(base))) {
       if (!onGrain(status.costCutPercent)) {
         offGrain.push(`${status.role}.costCutPercent=${status.costCutPercent}`);
       }
     }
-    const head = researchHead(base);
+    const head = researchHead(base, fitFor(base));
     expect(
       head,
       'the fixture seated no Head of Research, so half the payload is unchecked',

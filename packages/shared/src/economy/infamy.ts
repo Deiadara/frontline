@@ -125,6 +125,23 @@ export function infamyForRaidWon({ fromTheState, seatOfPower }: RaidInfamyInput)
   );
 }
 
+/**
+ * What an award of `amount` is actually worth to a crew carrying `gainPercent` (§D8).
+ *
+ * The `infamy_gain` channel, whose own line is "a percentage more infamy off **everything** that
+ * earns any" and whose chip on a screen reads "+X% infamy earned". Three things in the game pay
+ * infamy and two of them scaled it, each with its own copy of this expression written inline; the
+ * third, a claimed feat, paid the flat catalogue figure. So the Broadcast Tower and the two
+ * Logistics perks were worth nothing on the one reward a player collects deliberately.
+ *
+ * One function rather than a third copy, for the reason `awardPlayerXp` gives about `xpGainPercent`
+ * on the other side of the same screen: a multiplier every caller has to remember is a multiplier
+ * one caller will forget, and this is the caller that did.
+ */
+export function earnedInfamy(amount: number, gainPercent: number): number {
+  return Math.max(0, amount) * (1 + Math.max(0, gainPercent) / 100);
+}
+
 /** Adding to the total. Uncapped, and never negative: nothing but spending takes a name back. */
 export function gainInfamy(infamy: number, amount: number): number {
   return Math.max(0, Math.round(infamy + Math.max(0, amount)));

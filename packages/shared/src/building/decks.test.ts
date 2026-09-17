@@ -52,11 +52,45 @@ const cardOf = (kind: Building['kind'], family: ModificationFamily) =>
   modificationsFittingIn(kind).find((mod) => mod.family === family);
 
 describe('where a card will go', () => {
-  it('keeps a card at home unless it says otherwise', () => {
-    for (const mod of MODIFICATIONS.filter((one) => one.fits === undefined)) {
+  /**
+   * A bolt-on stays where it was banged together; a drawing travels (maintainer rule, 2026-09-16).
+   *
+   * This used to read "keeps a card at home unless it says otherwise", which was true while every
+   * unlisted card meant its own structure. The grade decides it now: BASIC is local, and from
+   * INTRICATE up a card reaches the structures its *trade* belongs to, because a crew that has
+   * assembled a document owns the design rather than one copy of it. Every card still fits the
+   * structure it is sold under, which is the half that cannot move.
+   */
+  it('keeps a basic bolt-on at home, and lets a drawing travel', () => {
+    const unlisted = MODIFICATIONS.filter((one) => one.fits === undefined);
+    for (const mod of unlisted.filter((one) => one.rarity === 'basic')) {
       expect(fitsIn(mod), mod.id).toEqual([mod.building]);
       expect(modificationFits(mod, mod.building), mod.id).toBe(true);
     }
+    for (const mod of unlisted.filter((one) => one.rarity !== 'basic')) {
+      expect(fitsIn(mod).length, mod.id).toBeGreaterThan(1);
+      expect(fitsIn(mod), mod.id).toContain(mod.building);
+    }
+    // A guard on the guard: both halves have to be populated or this says nothing.
+    expect(unlisted.filter((one) => one.rarity === 'basic').length).toBeGreaterThan(5);
+    expect(unlisted.filter((one) => one.rarity !== 'basic').length).toBeGreaterThan(5);
+  });
+
+  /**
+   * The spread the maintainer asked for: "some in just 1, some in 2 or 3, some in all".
+   *
+   * Measured over the whole catalogue rather than per card, because it is a claim about the shape
+   * of the deck: a catalogue where everything travels everywhere is the same as one where nothing
+   * does, and either would pass every other assertion in this file.
+   */
+  it('spreads the catalogue across one structure, a few, and all of them', () => {
+    const reach = MODIFICATIONS.map((mod) => fitsIn(mod).length);
+    expect(reach.filter((n) => n === 1).length, 'nothing is local').toBeGreaterThan(5);
+    expect(reach.filter((n) => n >= 2 && n <= 4).length, 'nothing is regional').toBeGreaterThan(20);
+    expect(
+      reach.filter((n) => n === BUILDING_KINDS.length).length,
+      'nothing goes everywhere',
+    ).toBeGreaterThan(5);
   });
 
   it('lets a cross-building card into every structure it names, and no others', () => {

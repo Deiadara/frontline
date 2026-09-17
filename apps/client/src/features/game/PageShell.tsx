@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
 import { HoverCard } from '../../components/ui/HoverCard';
+import { DrawnInfo } from '../../components/ui/DrawnMarks';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
@@ -123,6 +124,15 @@ export function PageShell({
   fills = false,
   children,
 }: PageShellProps) {
+  /**
+   * Whether the action goes on the quotation's line rather than in a header of its own.
+   *
+   * Only when there is a quotation and no name: a screen with a title has a line already and the
+   * action belongs at the end of it, and an action with neither keeps the header, because it has to
+   * be drawn somewhere.
+   */
+  const onQuoteLine = action !== undefined && title === undefined && quote !== undefined;
+
   return (
     <div className="relative h-full w-full">
       <SceneBackdrop />
@@ -147,7 +157,7 @@ export function PageShell({
               quotation belongs in the scrolling body (read once, on arrival) and a header holding
               only a rule is forty pixels of the sheet spent on a line. A screen with a count or a
               filter keeps the row for it, with no heading in it. */}
-          {(title !== undefined || action !== undefined) && (
+          {(title !== undefined || (action !== undefined && !onQuoteLine)) && (
             <header className="relative flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-5 py-3.5">
               {icon !== undefined && title !== undefined && (
                 <span className="flex h-9 w-9 items-center justify-center rounded-sm border border-brass-500/40 bg-brass-300/10 text-brass-300">
@@ -185,8 +195,23 @@ export function PageShell({
                   once on arrival, and a pinned one would keep a line of poetry on screen for the
                   whole time a player is working three screens down a roster. */}
               {quote !== undefined && (
-                <span className={cn(fills && 'shrink-0')}>
+                /*
+                 * The action rides the quotation's line when there is no name to pin it beside
+                 * (maintainer, 2026-09-17).
+                 *
+                 * The market's city picker went into `action`, which opened the header, and a
+                 * header on a screen whose whole heading is one line of poetry is a second row
+                 * pushing the quotation and everything under it down the sheet. There is nothing
+                 * else on that line, so the control goes on it.
+                 */
+                <span
+                  className={cn(
+                    fills && 'shrink-0',
+                    onQuoteLine && 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2',
+                  )}
+                >
                   <Quote>{quote}</Quote>
+                  {onQuoteLine && action}
                 </span>
               )}
               {children}
@@ -256,13 +281,34 @@ export function InfoNote({
       // whole width and read as the banner it replaced.
       className="self-start"
       card={
+        /*
+         * No eyebrow (maintainer, 2026-09-17: "remove the how it works text and keep only the How
+         * the bar works one").
+         *
+         * It was "How it works" over "How the Bar works", which is the same sentence twice, once
+         * in stamped capitals and once in the pen. An eyebrow earns its line when it says what
+         * *kind* of thing the title names; over a title that is already a question about how
+         * something works it only pushes the answer down.
+         */
         <InfoWindow
-          eyebrow="How it works"
           title={label}
           tone={tone === 'warn' ? 'oxblood' : 'iris'}
-          icon={<Icon name="info" className="h-full w-full text-brass-300" />}
+          plate="none"
+          iconSize="sm"
+          icon={
+            // Sized here rather than left to the alcove: the mark is an `h-full w-full` drawing,
+            // and `plate="none"` gives it a box with no definite width to be full of.
+            <span
+              className={cn('block h-9 w-9', tone === 'warn' ? 'text-brass-100' : 'text-iris-100')}
+            >
+              <DrawnInfo />
+            </span>
+          }
         >
-          <div className="font-body text-[14px] leading-relaxed text-ink-100">{children}</div>
+          {/* The note in the same pen as the title above it, rather than in the body face: these
+              windows sit on the paper screens now, and `font-stamp` is what that paper is written
+              in. Ink rather than the near-white `ink-100`, for the same reason. */}
+          <div className="font-stamp text-[15px] leading-[1.55] text-ink-200">{children}</div>
         </InfoWindow>
       }
     >
@@ -279,7 +325,15 @@ export function InfoNote({
             : 'border-iris-500/45 bg-iris-500/10 text-iris-100',
         )}
       >
-        <Icon name="info" aria-hidden className={size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+        {/* Smaller than the struck glyph it replaces, because a drawn ring carries its own weight:
+            at 14px the pen was heavier than the capitals beside it and the chip read as an icon
+            with a caption. */}
+        <span
+          aria-hidden
+          className={cn('block shrink-0', size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3')}
+        >
+          <DrawnInfo />
+        </span>
         {label}
       </span>
     </HoverCard>

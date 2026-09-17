@@ -31,17 +31,17 @@ export function registerScrapyardRoutes(app: FastifyInstance): void {
 
   app.get('/scrapyard', { preHandler: app.authenticate }, (request): ScrapyardResponse => {
     const base = settled(request.currentUser.id);
-    return projectScrapyard(base, standingOf(base));
+    return projectScrapyard(app.repos, base, standingOf(base));
   });
 
   app.post('/scrapyard/build', { preHandler: app.authenticate }, (request): BuildAddonResponse => {
-    const { kind, id } = parseBody(BuildAddonRequestSchema, request.body);
+    const { kind, id, target } = parseBody(BuildAddonRequestSchema, request.body);
     return app.db.transaction(() => {
       const base = settled(request.currentUser.id);
       const standing = standingOf(base);
-      const result = buildAddon(app.repos, base, kind, id, standing);
+      const result = buildAddon(app.repos, base, kind, id, standing, target);
       if (result.kind === 'refused') throw new AppError('SCRAPYARD_REFUSED', result.reason);
-      return { scrapyard: projectScrapyard(result.base, standing), base: result.base };
+      return { scrapyard: projectScrapyard(app.repos, result.base, standing), base: result.base };
     })();
   });
 }

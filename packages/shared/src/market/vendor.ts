@@ -1,3 +1,4 @@
+import { CITIES, DEFAULT_CITY_ID } from '../city/cities.js';
 import { z } from 'zod';
 import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
@@ -165,9 +166,30 @@ export const VendorLineSchema = z.object({
 });
 export type VendorLine = z.infer<typeof VendorLineSchema>;
 
-/** How much the Runner marks up, at worst and at best. He is not a charity and not a robbery. */
-const MARKUP_MIN = 1.15;
-const MARKUP_MAX = 1.6;
+/**
+ * How much the Runner marks up the ordinary stock, at worst and at best.
+ *
+ * He is not a charity and not a robbery. Exported because the band is a design number the balance
+ * tests measure a barrow against, and a test that restates it is a test of its own copy.
+ */
+export const VENDOR_MARKUP_MIN = 1.15;
+export const VENDOR_MARKUP_MAX = 1.6;
+
+/**
+ * §F3: the dear end of the barrow, and what he charges for standing there (maintainer, 2026-09-17).
+ *
+ * The barrow was twelve components at one markup band, so every line on it was the same *kind* of
+ * purchase and the only question was which material a crew happened to be short of. Six lines with
+ * nothing to save up for is a shop, not a barrow.
+ *
+ * Two things fix it together. The last line is **reserved** for the dear stock (see
+ * {@link VENDOR_DEAR_GOODS}, or a page at {@link VENDOR_PAGE_ODDS}), so there is always one thing
+ * on it worth walking down for; and anything dear is priced out of its own, steeper band wherever
+ * it lands, not only in the reserved slot. A Rotor Hub in the middle of the barrow is the same
+ * Rotor Hub.
+ */
+export const VENDOR_DEAR_MARKUP_MIN = 1.75;
+export const VENDOR_DEAR_MARKUP_MAX = 2.4;
 
 /**
  * §F3: how often the Runner has a page on the barrow, and what he charges over the odds for it.
@@ -196,65 +218,147 @@ export const VENDOR_GOODS: readonly ItemId[] = ITEM_IDS.filter(
 );
 
 /**
- * What the Runner is carrying today.
+ * The rarities that count as dear, and the goods that carry them.
  *
- * Weighted away from the exotic end: a barrow with a Rotor Hub on it every day is a barrow nobody
- * has to plan around.
+ * Advanced and masterpiece. Those are the four-figure parts a build is actually held up by, and
+ * they are what the reserved line is drawn from when he has no page to put there.
  */
-export function vendorStockFor(day: string): VendorLine[] {
-  const rng = rngFrom(`${day}:vendor-stock`);
+export const VENDOR_DEAR_RARITIES = ['advanced', 'masterpiece'] as const;
+
+export const VENDOR_DEAR_GOODS: readonly ItemId[] = VENDOR_GOODS.filter((id) =>
+  (VENDOR_DEAR_RARITIES as readonly string[]).includes(ITEM_CATALOG[id].rarity),
+);
+
+/**
+ * Whether a line is priced out of the steep band.
+ *
+ * Read off the *item*, not off which slot it landed in, so a Rotor Hub that came up in the ordinary
+ * five costs what a Rotor Hub costs. A page is always dear: it is one particular sheet of paper and
+ * the only other counter that sells it wants infamy.
+ */
+export function isDearVendorLine(item: ItemId): boolean {
+  const spec = ITEM_CATALOG[item];
+  return spec.kind === 'page' || (VENDOR_DEAR_RARITIES as readonly string[]).includes(spec.rarity);
+}
+
+/**
+ * What the Runner is carrying today: five drawn lines and one reserved one.
+ *
+ * The five are weighted away from the masterpiece end, because a barrow with a Rotor Hub on it
+ * every day is a barrow nobody has to plan around. The sixth is {@link dearLineFor}: a dear
+ * component, or a page at {@link VENDOR_PAGE_ODDS}, so there is always one thing on the barrow
+ * worth saving for and it is priced out of the steep band.
+ *
+ * `cityId` is what a barrow belongs to (maintainer, 2026-09-17): a market is a city's, so the city
+ * is in the seed and in every line id, and two cities carry different stock on the same day. It
+ * defaults to the open city, whose id folds to an empty prefix, so every fixture, test and
+ * screenshot pinned on the old draw still names the same six lines at the same ids.
+ *
+ * ## Why the city's standing is not in here
+ *
+ * The Bar's room is weighted by who holds the city (`cityCalibre`), and the obvious next step was to
+ * tilt this rarity draw the same way. It is the wrong step, and the reason is the auction: a line is
+ * a **lot** that bids stand against all day, so the six items and their ids have to be the same six
+ * at the close as they were when the first bid was placed. A draw that read the live map would
+ * redraw the barrow the moment anybody anywhere took a location, and every bid on a line that
+ * vanished would be a bid on nothing. A barrow is a pure function of the day and the city, and that
+ * is what makes it safe to bid on.
+ */
+export function vendorStockFor(day: string, cityId: string = DEFAULT_CITY_ID): VendorLine[] {
+  const room = cityId === DEFAULT_CITY_ID ? '' : `${cityId}:`;
+  const rng = rngFrom(`${room}${day}:vendor-stock`);
   const weighted: ItemId[] = VENDOR_GOODS.flatMap((id) => {
     const spec = ITEM_CATALOG[id];
     const weight =
-      spec.rarity === 'common'
+      spec.rarity === 'basic'
         ? 5
-        : spec.rarity === 'uncommon'
+        : spec.rarity === 'intricate'
           ? 3
-          : spec.rarity === 'rare'
+          : spec.rarity === 'advanced'
             ? 2
             : 1;
     return Array.from({ length: weight }, () => id);
   });
 
+  // One short of the barrow: the last line is the reserved one, below.
   const chosen: ItemId[] = [];
   let guard = 0;
-  while (chosen.length < VENDOR_STOCK_SIZE && guard++ < 200) {
+  while (chosen.length < VENDOR_STOCK_SIZE - 1 && guard++ < 200) {
     const id = pick(rng, weighted);
     if (chosen.includes(id)) continue;
     chosen.push(id);
   }
 
-  /*
-   * §F3: and once in a while, a page.
-   *
-   * Off the goods list on purpose. `ITEM_IDS` is what every shop draws from and pages are not on
-   * it, so the Runner carries one only because this says so, at odds low enough that a player
-   * cannot plan a barrow around it. Caps rather than infamy: the Black Market is where infamy buys
-   * the page you are short of and this is the lucky find, so the two never compete for the same
-   * currency.
-   */
-  if (rng() < VENDOR_PAGE_ODDS) {
-    const pages = BLUEPRINTS.flatMap((blueprint) => blueprint.pages.map((page) => page.id));
-    const page = pick(rng, pages) as ItemId;
-    // Substituted for the last line rather than appended. The barrow is `VENDOR_STOCK_SIZE` wide,
-    // and a seventh line on exactly the days a page is on it would tell a player what they had
-    // before they read a word of it.
-    if (!chosen.includes(page) && chosen.length > 0) chosen[chosen.length - 1] = page;
-  }
+  chosen.push(dearLineFor(rng, chosen));
 
   return chosen.map((id, index) => {
     const spec = ITEM_CATALOG[id];
-    const markup = MARKUP_MIN + rng() * (MARKUP_MAX - MARKUP_MIN);
+    const dear = isDearVendorLine(id);
+    const low = dear ? VENDOR_DEAR_MARKUP_MIN : VENDOR_MARKUP_MIN;
+    const high = dear ? VENDOR_DEAR_MARKUP_MAX : VENDOR_MARKUP_MAX;
+    const markup = low + rng() * (high - low);
     // One of a page, a handful of anything else: a page is one particular sheet of paper and
     // there is only ever one of it on the barrow.
     const stock = spec.kind === 'page' ? 1 : 1 + Math.floor(rng() * 4);
     return {
-      id: `${day}-${index}-${id}`,
+      // The city is in the id for the reason the Bar's recruit ids carry it: two cities on one day
+      // would otherwise mint the same six ids, and a bid filed against one would name a different
+      // crate in the other.
+      id: `${room}${day}-${index}-${id}`,
       item: id,
       stock,
       price: Math.max(1, Math.round(spec.capsValue * markup)),
     };
   });
+}
+
+/**
+ * One line off any city's barrow, found by its id alone.
+ *
+ * A line id carries its city, so the city is recoverable from the id and nothing that looks up a
+ * lot has to be told which barrow to look in. That matters most on the close: a bid is settled from
+ * a stored row that names a day, a session and a line, and threading a city through the bid table,
+ * the settle and the world tick to re-derive a barrow the id already identifies would be three
+ * migrations to say something the string says.
+ *
+ * Walks the cities in map order, which is three barrows of six. The ids are unique across them
+ * (`vendor.test.ts` holds that), so the first match is the only match.
+ */
+export function findVendorLine(day: string, lineId: string): VendorLine | undefined {
+  for (const city of CITIES) {
+    const line = vendorStockFor(day, city.id).find((candidate) => candidate.id === lineId);
+    if (line !== undefined) return line;
+  }
+  return undefined;
+}
+
+/**
+ * §F3: the one line he always has something good on, and once in a while it is paper.
+ *
+ * Off the goods list on purpose where it is a page. `ITEM_IDS` is what every shop draws from and
+ * pages are not on it, so the Runner carries one only because this says so, at odds low enough that
+ * a player cannot plan a barrow around it. Caps rather than infamy: the Black Market is where infamy
+ * buys the page you are short of and this is the lucky find, so the two never compete for the same
+ * currency.
+ *
+ * The rest of the time it is a dear component, which is the half of this the barrow was missing: a
+ * shelf of basics is a shelf a crew skims, and a Targeting Core at the end of it is a reason to
+ * come back with money.
+ *
+ * `taken` is what the ordinary five already hold, so the reserved line is never a second copy of
+ * one of them. If the five somehow swallowed every dear good, it falls back to anything left rather
+ * than looping: a barrow one line short would be worse than a barrow with a cheap line on the end.
+ */
+function dearLineFor(rng: () => number, taken: readonly ItemId[]): ItemId {
+  if (rng() < VENDOR_PAGE_ODDS) {
+    const pages = BLUEPRINTS.flatMap((blueprint) => blueprint.pages.map((page) => page.id));
+    const page = pick(rng, pages) as ItemId;
+    if (!taken.includes(page)) return page;
+  }
+  const dear = VENDOR_DEAR_GOODS.filter((id) => !taken.includes(id));
+  if (dear.length > 0) return pick(rng, dear);
+  const rest = VENDOR_GOODS.filter((id) => !taken.includes(id));
+  return rest.length > 0 ? pick(rng, rest) : pick(rng, VENDOR_GOODS);
 }
 
 /**

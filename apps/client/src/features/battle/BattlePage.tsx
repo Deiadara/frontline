@@ -37,6 +37,7 @@ import {
   useLeadBattle,
   useTakeVehicles,
   useDeployToBattle,
+  useCrewStanding,
   useMe,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
@@ -150,6 +151,13 @@ export function BattlePage() {
   /** §C3: the workshop's brackets, which move a unit's speed and therefore the column's clock. */
   const loadouts = me.data?.base?.unitLoadouts ?? {};
   const notoriety = me.data?.base?.economy.notoriety ?? 0;
+  /*
+   * §A4: the crew's bag channel, so the deploy window's loot figure is the one the settler spends.
+   *
+   * Cached and shared with every other screen that reads it; this page subscribes to nothing else
+   * of the crew's standing, and a raid's haul is capped by exactly this number.
+   */
+  const standing = useCrewStanding();
 
   // The fight the detail is showing. Falls back to the first one so the page never opens on an
   // empty right-hand column with a full list beside it.
@@ -350,6 +358,7 @@ export function BattlePage() {
           view={deployingView}
           army={army}
           loadouts={loadouts}
+          bagPercent={standing.data?.effects['lootCapacityPercent'] ?? 0}
           homeDistrictId={me.data?.base?.districtId ?? null}
           notoriety={notoriety}
           mode={deploying.mode}

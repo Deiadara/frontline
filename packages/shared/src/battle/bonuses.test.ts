@@ -195,6 +195,12 @@ describe('the ground and the crew', () => {
     const context = { pursuit: 50, lastRound: 4, away: true };
     expect(fleeChance(quick, context)).toBeGreaterThan(fleeChance(slow, context));
     // And the pursuit it is measured against is the fastest thing still standing opposite.
-    expect(pursuitSpeed({ stacks: [{ alive: 3, effective: { speed: 65 } }] } as never)).toBe(65);
+    // `brokeAt` is on the fixture because the reading now depends on it: see the pursuit test in
+    // `rout.test.ts`. A partial stack without it read as broken and answered 0.
+    expect(
+      pursuitSpeed({
+        stacks: [{ alive: 3, brokeAt: null, effective: { speed: 65 } }],
+      } as never),
+    ).toBe(65);
   });
 });

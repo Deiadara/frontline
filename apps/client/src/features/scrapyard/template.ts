@@ -23,14 +23,18 @@
  */
 
 /**
- * One sheet of yard steel per bench, cards recessed into it.
+ * One sheet per bench, cards recessed into it.
+ *
+ * Paper with a drawn frame rather than the yard steel it was (maintainer, 2026-09-17): the
+ * modifications benches were asked to read like the feats board, and the board is a sheet somebody
+ * inked a frame onto. The recess below still works on it, because a recess is a shadow and a shadow
+ * lands on paper as readily as on tin.
  *
  * No padding of its own: `cn` here is plain `clsx` with no Tailwind merge behind it, so a board
  * that carried `p-4` could not be given `p-0` by a caller without the two classes racing in the
  * stylesheet. The bin puts its padding on the header and the tray instead.
  */
-export const BENCH_BOARD =
-  'steel-plate rivets edge-lit rounded-sm border border-surface-500/70 shadow-panel';
+export const BENCH_BOARD = 'ink-frame card-paper washed grain rounded-sm shadow-panel';
 
 /** The grid of slots on a board. Every card in it comes out the same height. */
 export const BENCH_TRAY = 'grid items-stretch gap-3 [grid-auto-rows:1fr]';

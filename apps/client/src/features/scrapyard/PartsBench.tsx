@@ -1,6 +1,6 @@
 import { ITEM_CATALOG, ITEM_IDS, type ItemCost } from '@frontline/shared';
 import { ItemGlyph } from '../inventory/ItemGlyph';
-import { RARITY_INK } from '../../lib/rarity';
+import { RarityTag } from '../../lib/rarity';
 import { cn } from '../../lib/cn';
 import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
 
@@ -75,14 +75,10 @@ export function PartsBench({ held }: { held: ItemCost }) {
                   <span className="truncate font-stamp text-[13px] leading-tight text-ink-100">
                     {spec.name}
                   </span>
-                  <span
-                    className={cn(
-                      'font-display text-[9px] font-bold uppercase tracking-[0.16em]',
-                      RARITY_INK[spec.rarity],
-                    )}
-                  >
-                    {spec.rarity}
-                  </span>
+                  {/* `self-start` so the tag sits to the width of its word: in a column the
+                      default stretch would draw its border the full width of the row and read as a
+                      bar rather than a stamp. */}
+                  <RarityTag rarity={spec.rarity} className="mt-0.5 self-start" />
                 </span>
                 <span
                   className="shrink-0 font-stamp text-[16px] leading-none tabular-nums text-ink-100"

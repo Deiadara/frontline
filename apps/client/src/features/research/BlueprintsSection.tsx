@@ -15,7 +15,7 @@ import { Icon } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
 import { useMarket, useUnlockBlueprint } from '../../lib/queries';
-import { RARITY_INK, RARITY_TONE } from '../../lib/rarity';
+import { RARITY_TAG, RarityTag } from '../../lib/rarity';
 import { BlueprintGlyph, PageGlyph } from './BlueprintGlyph';
 
 /**
@@ -315,15 +315,11 @@ function DocumentRow({
                 <Icon name="lock" label="Locked" className="h-4 w-4 shrink-0 text-ink-300" />
               )}
             </div>
-            <p
-              className={cn(
-                'font-display text-[11px] font-bold uppercase tracking-[0.16em]',
-                RARITY_INK[blueprint.rarity],
-              )}
-              data-testid={`rarity-${blueprint.id}`}
-            >
-              {ITEM_RARITY_LABELS[blueprint.rarity]}
-            </p>
+            <RarityTag
+              rarity={blueprint.rarity}
+              testId={`rarity-${blueprint.id}`}
+              className="self-start"
+            />
           </div>
         </div>
         <p className="break-words font-body text-[12px] leading-snug text-ink-200">
@@ -389,7 +385,7 @@ function PageStrip({ holding }: { holding: BlueprintHolding }) {
               // 84px: eight of these and their seven gaps have to fit the 734px the cabinet's
               // frame leaves the strip at 1280 (measured), which 88px tiles overran by twelve.
               'relative flex w-[5.25rem] flex-col items-center gap-1 rounded-[2px] border p-1',
-              RARITY_TONE[rarity],
+              RARITY_TAG[rarity],
               filled ? 'bg-surface-800/70' : 'border-surface-700 bg-surface-950/50 opacity-45',
             )}
           >

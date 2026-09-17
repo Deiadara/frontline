@@ -115,15 +115,15 @@ test("a structure's door narrows the bench to it, and the tabs swap the bench", 
   // The row behind a document the crew has not assembled is not drawn, and the bench says so.
   await expect(page.getByTestId(`addon-${LOCKED.id}`)).toHaveCount(0);
   /*
-   * The line says where to go, not how many are missing (maintainer request, 2026-09-15).
+   * ...and the bench says nothing about it, because the crew holds six of this structure's own
+   * cards (maintainer report, 2026-09-16).
    *
-   * It counted the withheld rows, and the count was the half a player can do nothing about. The
-   * row still has to be *absent* and the bench still has to say something, which is what the two
-   * assertions around this one pin; the sentence itself is now one string for every count.
+   * "Go out there and find some more blueprints." was drawn whenever anything was withheld, which
+   * put it under a bench a player is already working. It is the empty state of a bench now: the
+   * withheld row is still absent, which is what the assertion above pins, and the line waits for
+   * a bench with nothing on it at all. The test below drives that bench.
    */
-  await expect(page.getByTestId(`scrapyard-hidden-${LOCKED.building}`)).toContainText(
-    'find some more blueprints',
-  );
+  await expect(page.getByTestId(`scrapyard-hidden-${LOCKED.building}`)).toHaveCount(0);
 
   await page.getByTestId('scrapyard-view-refits').click();
   await expect(page.getByTestId('scrapyard-refits')).toBeVisible();
@@ -147,6 +147,50 @@ test("a structure's door narrows the bench to it, and the tabs swap the bench", 
   // The Nexus is the default, not the memory: a yard opened with no bench named still starts there.
   await page.goto('/game/scrapyard');
   await expect(page.getByTestId(NEXUS)).toBeVisible();
+});
+
+/**
+ * The bench with nothing on it is the one that says where to go and find some.
+ *
+ * The shared fixture holds at least six cards for every structure, so the empty state has to be
+ * served rather than found: every one of this structure's rows goes behind its document, and the
+ * structure next door, which keeps its cards and its two withheld rows, is the control. Without
+ * it the assertion would pass on a page that never draws the line at all.
+ */
+test('a bench the crew holds nothing for says where to go and find some', async ({ page }) => {
+  await installApi(page, lateGame);
+  const bare = {
+    ...scrapyard,
+    /*
+     * Every row this bench *shows*, not every row authored for this structure.
+     *
+     * A card reaches the structures its trade belongs to as of 2026-09-16, so a bench draws cards
+     * that were written for somewhere else and a fixture that only hid the local ones left the
+     * bench full. The bench asks `targets`, so that is what has to be emptied.
+     */
+    entries: scrapyard.entries.map((entry) =>
+      entry.kind === 'modification' && entry.targets.some((target) => target.id === LOCKED.building)
+        ? { ...entry, documentHeld: false, blocker: 'Needs the drawings' }
+        : entry,
+    ),
+  };
+  await page.route('**/api/scrapyard**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bare) }),
+  );
+
+  await page.goto(`/game/scrapyard?bench=${LOCKED.building}`);
+  await expect(page.getByTestId(`scrapyard-hidden-${LOCKED.building}`)).toContainText(
+    'find some more blueprints',
+  );
+  await expect(page.locator('li[data-testid^="addon-"]')).toHaveCount(0);
+
+  // The Lab holds six of its own and is keeping two back: cards on the bench, no line under it.
+  await page.getByTestId(doorOf('lab')).click();
+  await expect(page.getByTestId('scrapyard-lab')).toBeVisible();
+  expect(await page.locator('li[data-testid^="addon-"]').count()).toBeGreaterThan(0);
+  await expect(page.getByTestId('scrapyard-hidden-lab')).toHaveCount(0);
+
+  await expectNothingOverflowsTheScreen(page);
 });
 
 /**
@@ -242,4 +286,119 @@ test('the unit bench groups its cards by rarity, every card the same height', as
   expect(order).toEqual(MODIFICATION_RARITIES.map((rarity) => `scrapyard-rarity-${rarity}`));
 
   await expectNothingOverflowsTheScreen(page);
+});
+
+/**
+ * The sheet on a hover, over a door that is still a door (maintainer, 2026-09-17).
+ *
+ * "Make it so their unit card appears with portrait etc, but it does not stop you from clicking."
+ * Three things have to hold at once and none of them is visible to a unit test: the card opens, it
+ * takes no pointer events of its own, and the press underneath it still chooses that unit's bench.
+ * The last is the one that broke first: the row became a `HoverCard` trigger and stopped announcing
+ * which door was open, because `aria-pressed` was left behind on the button it replaced.
+ */
+/**
+ * Every door's card is the same box (maintainer, 2026-09-17).
+ *
+ * "Make the unit cards all be equally as big in size so that it all comfortably fits." They were
+ * not: the portal was `w-max` under a 42rem ceiling, so the card took its width from whichever unit
+ * the pointer was on. Measured across the rail it ran 547px for a Razor to 672px for a Cyber Dog,
+ * and the two widest were being *clipped* by that ceiling rather than fitted by it, which wrapped
+ * their marks band.
+ *
+ * Walked across the whole rail rather than sampled at two doors, because the widths were content's
+ * and the content is per unit: a pair that happened to agree would pass a two-door test while the
+ * nineteen between them disagreed.
+ */
+test('draws every unit door card at one size, with nothing spilling out of it', async ({
+  page,
+}) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/scrapyard?view=refits');
+  await expect(page.getByTestId('scrapyard-unit-menu')).toBeVisible();
+  await settleFonts(page);
+
+  const doors = await page
+    .getByTestId('scrapyard-unit-menu')
+    .evaluate((rail) =>
+      [...rail.querySelectorAll('[data-testid^="scrapyard-unit-"]')].map((door) =>
+        door.getAttribute('data-testid')!,
+      ),
+    );
+  expect(doors.length, 'the rail should carry the whole roster').toBeGreaterThan(10);
+
+  const sizes = new Map<string, string>();
+  for (const id of doors) {
+    await page.getByTestId(id).hover();
+    const card = page.getByRole('tooltip');
+    await expect(card).toBeVisible();
+    const box = (await card.boundingBox())!;
+    sizes.set(id, `${Math.round(box.width)}x${Math.round(box.height)}`);
+    /*
+     * And "comfortably", which a width on its own does not prove: a card clamped to one size can
+     * still be one whose chips are hanging over the edge. Measured against the card's own box
+     * rather than the screen, because the screen is what `expectNothingOverflowsTheScreen` covers
+     * and a portal can be inside the window while its contents are outside the frame.
+     */
+    const spill = await card.evaluate((root) => {
+      const frame = root.getBoundingClientRect();
+      let worst = 0;
+      for (const element of root.querySelectorAll('*')) {
+        const box = element.getBoundingClientRect();
+        if (box.width === 0 && box.height === 0) continue;
+        worst = Math.max(
+          worst,
+          box.right - frame.right,
+          frame.left - box.left,
+          box.bottom - frame.bottom,
+        );
+      }
+      return Math.round(worst);
+    });
+    expect(spill, `${id} has content ${spill}px outside its own card`).toBeLessThanOrEqual(0);
+    await page.mouse.move(2, 2);
+  }
+
+  const distinct = new Set(sizes.values());
+  expect(
+    distinct.size,
+    `the rail draws ${distinct.size} different cards: ${JSON.stringify([...sizes])}`,
+  ).toBe(1);
+});
+
+test('hovering a unit shows its card, and the door underneath still opens', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/scrapyard?view=refits');
+  await expect(page.getByTestId('scrapyard-unit-menu')).toBeVisible();
+  await settleFonts(page);
+
+  const door = page.getByTestId('scrapyard-unit-anodics');
+  await door.hover();
+  const card = page.getByRole('tooltip');
+  await expect(card).toBeVisible();
+  // The card a roster shows, portrait and all, rather than a line of prose.
+  await expect(card.getByTestId('unit-anodics')).toBeVisible();
+  await expect(card.locator('img, canvas, svg').first()).toBeVisible();
+
+  /*
+   * It does not eat the pointer, which is what "does not stop you from clicking" means in the DOM.
+   * Measured by asking the document what is under the middle of the card rather than by trusting a
+   * class: `pointer-events-none` is one `cn` away from being lost.
+   */
+  const box = (await card.boundingBox())!;
+  const through = await page.evaluate(
+    ([x, y]) => {
+      const el = document.elementFromPoint(x as number, y as number);
+      return el?.closest('[role="tooltip"]') === null;
+    },
+    [box.x + box.width / 2, box.y + box.height / 2],
+  );
+  expect(through, 'the card is swallowing clicks meant for the page').toBe(true);
+
+  await door.click();
+  await expect(door).toHaveAttribute('aria-pressed', 'true');
+  // ...and no other door is, which is the half `aria-pressed` on one row cannot prove on its own.
+  await expect(page.getByTestId('scrapyard-unit-razors')).toHaveAttribute('aria-pressed', 'false');
+  await settleFonts(page);
+  await page.screenshot({ path: 'screenshots/scrapyard-unit-hover.png' });
 });

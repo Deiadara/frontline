@@ -181,12 +181,13 @@ export function visibleDistricts(
 /**
  * The crew a residential district page is about, from the viewer's side of the fog.
  *
- * **Your own front door is always you.** Every human account is created in `STARTER_DISTRICT_ID`
- * (`routes/overseer.ts`), the `bases` table carries no unique index on `district_id` and no writer
- * for the column, and the map has four residential districts, so a district holds as many crews as
- * have registered. Answering "the resident" with the first row of a `SELECT ... FROM bases` served
- * the earliest-registered player's whole structure list, damage and all, to every other player on
- * the one screen nobody has to scout.
+ * **Your own front door is always you.** New accounts are spread across the four residential
+ * districts now (`quietestDistrict` in `routes/overseer.ts`), but spreading is not exclusivity: the
+ * `bases` table carries no unique index on `district_id`, four districts hold any number of players,
+ * and the seeded rivals live in three of them. So a district still holds as many crews as have
+ * landed on it. Answering "the resident" with the first row of a `SELECT ... FROM bases` served the
+ * earliest-registered player's whole structure list, damage and all, to every other player on the
+ * one screen nobody has to scout.
  *
  * For somebody else's ground it is still the first row, but a stably ordered one
  * (`db/repos/bases.ts` orders the summary scan), so at least the map and the battle board name the

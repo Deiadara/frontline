@@ -30,8 +30,14 @@ const ZERO: DistrictEffects = Object.freeze(
  * 100%: a build that costs nothing and finishes instantly. Capped rather than made multiplicative
  * so a player reading "+20% off build time" on a card sees exactly 20 percentage points arrive,
  * right up until the cap tells them plainly that it did not.
+ *
+ * Seventy since 2026-09-16, and the ten points are the other half of lifting the top two grades.
+ * Three MASTERPIECE cards of one reduction family come to 72 now, so at sixty a finished deck was
+ * throwing away most of its third card: the grade got harder to reach and dearer to cut in the
+ * same pass, and a ceiling that ate the difference would have made the climb worth less than
+ * before rather than more. Still a ceiling, and still one a deep deck can feel.
  */
-export const MAX_EFFECT_REDUCTION = 60;
+export const MAX_EFFECT_REDUCTION = 70;
 
 /** Effects that are subtractions, and so need the {@link MAX_EFFECT_REDUCTION} ceiling. */
 const REDUCTIONS: readonly ModificationEffect[] = [
@@ -48,7 +54,7 @@ const REDUCTIONS: readonly ModificationEffect[] = [
  * A retired id is the ordinary state of a live save, so it is skipped rather than thrown on: this
  * sits on every read path in the game.
  */
-function fittedIn(building: Building): ModificationSpec[] {
+export function fittedIn(building: Building): ModificationSpec[] {
   return building.modifications.flatMap((id) => {
     const spec = findModification(id);
     return spec ? [spec] : [];

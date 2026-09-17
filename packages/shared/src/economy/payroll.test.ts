@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   DISMISSAL_WEEKS,
   PAYROLL_BASE,
+  MAX_PAYROLL_STEP_DISCOUNT,
   PAYROLL_STEP,
-  PAYROLL_STEP_BASE_COST,
+  PAYROLL_STEPS_MAX,
+  PAYROLL_STEP_COST_RISE,
   PayrollStateSchema,
   committedPayroll,
   dismissalFee,
@@ -26,22 +28,81 @@ describe('the payroll book (§H7)', () => {
   });
 
   /**
-   * The board's own example: at a book of 200, buying the step that takes it to 230 costs 500
-   * caps. That is about seventeen weeks of the step, and it is meant to be: the step is permanent.
+   * The maintainer's own arithmetic, written out rather than computed from the constants.
+   *
+   * A test that derives what it expects from `PAYROLL_STEP_FIRST_COST + n * PAYROLL_STEP_COST_RISE`
+   * agrees with any pair of values for those two, including a wrong pair. These four are the rungs
+   * as specified: step k costs (9 + k) times 60, so the multiplier runs 10, 11, 12, 13.
    */
-  it('prices the first step the way the board priced it', () => {
-    expect(payrollStepCost(0)).toBe(PAYROLL_STEP_BASE_COST);
-    expect(payrollStepCost(0)).toBeGreaterThan(PAYROLL_STEP * 10);
+  it('prices the first rungs the way the board priced them', () => {
+    expect(payrollStepCost(0)).toBe(600);
+    expect(payrollStepCost(1)).toBe(660);
+    expect(payrollStepCost(2)).toBe(720);
+    expect(payrollStepCost(3)).toBe(780);
   });
 
-  it('charges more for every further step, without ever refusing one', () => {
-    let previous = 0;
-    for (const steps of [0, 1, 2, 5, 10, 25, 50]) {
-      const cost = payrollStepCost(steps);
-      expect(cost, `${steps} steps`).toBeGreaterThan(previous);
-      expect(Number.isFinite(cost), `${steps} steps`).toBe(true);
-      previous = cost;
+  it('charges the same amount more for every further rung', () => {
+    for (const bought of [0, 1, 7, 20, PAYROLL_STEPS_MAX - 2]) {
+      const here = payrollStepCost(bought);
+      const next = payrollStepCost(bought + 1);
+      expect(here, `${bought} bought`).not.toBeNull();
+      expect(next, `${bought + 1} bought`).not.toBeNull();
+      expect(next! - here!, `${bought} to ${bought + 1}`).toBe(PAYROLL_STEP_COST_RISE);
     }
+  });
+
+  /** The last rung: multiplier 60, which is 3,600 caps, and it is the fifty-first. */
+  it('ends the ladder on a rung of 3,600 caps', () => {
+    expect(PAYROLL_STEPS_MAX).toBe(51);
+    expect(payrollStepCost(PAYROLL_STEPS_MAX - 1)).toBe(3600);
+  });
+
+  /**
+   * Past the last rung there is no price, at any discount.
+   *
+   * The discount case is the one that would rot quietly: a perk stack multiplies whatever the
+   * function returns, so an implementation that priced step 52 and clamped it somewhere else would
+   * still look right at zero percent.
+   */
+  it('has nothing left to sell past the last rung', () => {
+    expect(payrollStepCost(PAYROLL_STEPS_MAX)).toBeNull();
+    expect(payrollStepCost(PAYROLL_STEPS_MAX + 40)).toBeNull();
+    expect(payrollStepCost(PAYROLL_STEPS_MAX, MAX_PAYROLL_STEP_DISCOUNT)).toBeNull();
+  });
+
+  /**
+   * What a finished ladder cost and what it bought.
+   *
+   * Both totals in one place, because the pair is what the ceiling was chosen for: 51 rungs of 30
+   * caps a week, bought for 107,100 caps. A change to either constant that keeps the other looking
+   * plausible moves one of these two numbers.
+   */
+  it('costs 107,100 caps to buy out, for 1,530 caps a week of room', () => {
+    let spent = 0;
+    for (let bought = 0; bought < PAYROLL_STEPS_MAX; bought++) {
+      const cost = payrollStepCost(bought);
+      expect(cost, `${bought} bought`).not.toBeNull();
+      spent += cost!;
+    }
+    expect(spent).toBe(107_100);
+    expect(payrollStepCost(PAYROLL_STEPS_MAX)).toBeNull();
+    expect(PAYROLL_STEPS_MAX * PAYROLL_STEP).toBe(1530);
+    expect(payrollCapacity(0, PAYROLL_STEPS_MAX)).toBe(PAYROLL_BASE + 1530);
+  });
+
+  /** The perk channel still comes off the top, and never all the way off. */
+  it('takes the step discount off a rung and never below a cap', () => {
+    expect(payrollStepCost(0, 10)).toBe(540);
+    expect(payrollStepCost(0, MAX_PAYROLL_STEP_DISCOUNT)).toBe(240);
+    // Asking for more than the channel allows is capped, not honoured.
+    expect(payrollStepCost(0, 100)).toBe(payrollStepCost(0, MAX_PAYROLL_STEP_DISCOUNT));
+  });
+
+  /** A ledger says so too, rather than leaving the screen to work it out from the step count. */
+  it('quotes no price on a bought-out book', () => {
+    const maxed = { ...startingPayroll(), purchasedSteps: PAYROLL_STEPS_MAX };
+    expect(payrollLedger(maxed, 0).nextStepCost).toBeNull();
+    expect(payrollLedger(startingPayroll(), 0).nextStepCost).toBe(600);
   });
 
   it('reports what is spoken for and what is left', () => {

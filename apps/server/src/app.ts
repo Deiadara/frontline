@@ -106,6 +106,13 @@ export async function buildApp({
   });
 
   app.setErrorHandler((error, request, reply) => {
+    /** better-sqlite3 reports a held write lock as `SQLITE_BUSY` on a `SqliteError`. */
+    const isBusy = (thrown: unknown): boolean =>
+      thrown instanceof Error &&
+      'code' in thrown &&
+      typeof thrown.code === 'string' &&
+      thrown.code.startsWith('SQLITE_BUSY');
+
     if (error instanceof AppError) {
       return reply.status(error.statusCode).send({
         error: { code: error.code, message: error.message },
@@ -123,6 +130,21 @@ export async function buildApp({
       return reply
         .status(statusCode)
         .send({ error: { code: 'VALIDATION_ERROR', message: 'Invalid request body' } });
+    }
+    /*
+     * A lock, not a fault.
+     *
+     * SQLite takes one writer at a time. When something else holds the write lock, a transaction
+     * that has already read is refused straight away rather than waiting, because waiting for an
+     * upgrade is how two connections deadlock. Nothing is half-written when that happens, so the
+     * honest answer is "busy, press again" rather than "something broke", which is what a 500
+     * tells a player and what an uptime check counts.
+     */
+    if (isBusy(error)) {
+      request.log.warn({ err: error }, 'write refused: the database was busy');
+      return reply.status(503).send({
+        error: { code: 'DATABASE_BUSY', message: 'The world is busy. Try that again.' },
+      });
     }
     request.log.error(error);
     return reply

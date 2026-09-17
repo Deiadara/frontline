@@ -52,8 +52,13 @@ const slot = (page: Page, index: number) => page.getByTestId(`reimagine-slot-${i
  */
 const LIT = 'rgb(240, 173, 76)';
 
-/** The border a chosen tab settles on, for the same reason: the strip fades over 150ms. */
-const LIT_TAB_BORDER = 'rgba(240, 173, 76, 0.8)';
+/**
+ * The lettering a chosen tab settles on, for the same reason: the strip fades over 150ms.
+ *
+ * The border it used to be went with the drawn tabs (maintainer, 2026-09-17): the box is an inline
+ * SVG now and the element itself has none. `brass-100`, which is what an open tab is written in.
+ */
+const LIT_TAB_INK = 'rgb(255, 228, 174)';
 
 /** Fills the machine: two off the stack and one of the single sheets. */
 async function fill(page: Page): Promise<void> {
@@ -136,10 +141,9 @@ test('walks a crew with the chair but not the rung to the rung own track', async
   // The strip has finished fading. `transition-colors` is 150ms, so the shot taken the frame after
   // the press showed Reimagining still wearing the gold it had a moment ago while Programmes was
   // the tab actually open: every assertion passed and the image said the wrong thing.
-  await expect(page.getByTestId('research-tab-programmes')).toHaveCSS(
-    'border-color',
-    LIT_TAB_BORDER,
-  );
+  // Read off the lettering rather than a border: the archive's tabs are drawn now, so the box is
+  // an SVG inside the element and there is no border on it to poll. See `visual.spec.ts`.
+  await expect(page.getByTestId('research-tab-programmes')).toHaveCSS('color', LIT_TAB_INK);
   await settleFonts(page);
   await expectNothingOverflowsTheScreen(page);
   await page.screenshot({ path: 'e2e-out/reimagining-track.png', fullPage: true });

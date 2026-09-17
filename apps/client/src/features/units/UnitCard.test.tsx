@@ -11,6 +11,7 @@ import {
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { UnitCard } from './UnitCard';
@@ -87,7 +88,8 @@ function draw(node: ReactNode) {
     <QueryClientProvider
       client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
     >
-      {node}
+      {/* A card's brackets are doors to the Scrapyard (2026-09-16), so the tree needs a router. */}
+      <MemoryRouter>{node}</MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -105,7 +107,7 @@ describe('the marks band', () => {
       2,
     );
 
-    draw(<UnitCard unit={option} built={[]} garrisoned={0} abroad={0} />);
+    draw(<UnitCard unit={option} garrisoned={0} abroad={0} />);
     const band = screen.getByTestId(`marks-${option.id}`);
     expect(within(band).getAllByRole('listitem')).toHaveLength(total);
     expect(band.textContent).not.toMatch(/\+\d/);
@@ -127,13 +129,13 @@ describe('the marks band', () => {
     expect(negative, 'the Colossus must carry a rule it cannot do').toBeDefined();
     expect(positive, 'the Ironsides must carry a rule they can').toBeDefined();
 
-    const { unmount } = draw(<UnitCard unit={walker} built={[]} garrisoned={0} abroad={0} />);
+    const { unmount } = draw(<UnitCard unit={walker} garrisoned={0} abroad={0} />);
     const red = screen.getByText((negative as { label: string }).label);
     expect(red.className).toContain('oxblood');
     expect(red.className).not.toContain('brass');
     unmount();
 
-    draw(<UnitCard unit={shield} built={[]} garrisoned={0} abroad={0} />);
+    draw(<UnitCard unit={shield} garrisoned={0} abroad={0} />);
     const brass = screen.getByText((positive as { label: string }).label);
     expect(brass.className).toContain('brass');
     expect(brass.className).not.toContain('oxblood');
@@ -163,6 +165,7 @@ describe('a locked unit on the roster', () => {
     spare: 10,
     discountPercent: 0,
     suppliesPercent: 0,
+    speedPercent: 0,
     pending: false,
     onTrain: () => {},
   };
@@ -180,9 +183,7 @@ describe('a locked unit on the roster', () => {
       'The Infirmary at level 12',
       "hold the Mad Scientist's Notes",
     ];
-    draw(
-      <UnitCard unit={shut(clauses)} built={[]} garrisoned={0} abroad={0} training={training} />,
-    );
+    draw(<UnitCard unit={shut(clauses)} garrisoned={0} abroad={0} training={training} />);
 
     const box = screen.getByTestId(`action-${(colossus as UnitSpec).id}`);
     expect(box.textContent).toContain(clauses[0]);
@@ -197,7 +198,7 @@ describe('a locked unit on the roster', () => {
     draw(
       <UnitCard
         unit={shut(['The Lab at level 4', 'The Nexus at level 6'])}
-        built={[]}
+
         garrisoned={0}
         abroad={0}
         training={training}
@@ -233,7 +234,7 @@ describe('the count over the picture', () => {
     draw(
       <UnitCard
         unit={{ ...optionFor(shield), owned: ROSTER - abroad - garrisoned }}
-        built={[]}
+
         garrisoned={garrisoned}
         abroad={abroad}
       />,

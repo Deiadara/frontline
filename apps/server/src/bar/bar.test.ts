@@ -2,17 +2,20 @@ import {
   DISMISSAL_WEEKS,
   MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
+  PAYROLL_STEPS_MAX,
   districtUnitSlotCapacity,
   noTerritoryEffects,
   ATTRIBUTE_NAMES,
   CommanderSchema,
   MAX_RECRUITMENT_ATTRIBUTE,
-  RECRUIT_MAX_MIN_NOTORIETY,
+  RECRUIT_LEGEND_NOTORIETY,
   askingWage,
+  makeAttributes,
   blackMarketDay,
   assessJoin,
   createCommander,
   maxOpenAuctionsFor,
+  payrollStepCost,
   playerLevelGrants,
   playerXpToNextLevel,
   reservationWage,
@@ -328,7 +331,9 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
       for (const recruit of barRoster(day)) {
         expect(recruit.name.length).toBeGreaterThan(2);
         expect(recruit.requirement.minNotoriety).toBeGreaterThanOrEqual(0);
-        expect(recruit.requirement.minNotoriety).toBeLessThanOrEqual(RECRUIT_MAX_MIN_NOTORIETY);
+        // The standout seats ask up to `Feared`; every ordinary seat stops at the room's own
+        // ceiling. Both are ranks a crew can reach, which is the rule that matters here.
+        expect(recruit.requirement.minNotoriety).toBeLessThanOrEqual(RECRUIT_LEGEND_NOTORIETY);
         for (const name of ATTRIBUTE_NAMES) {
           expect(recruit.attributes[name]).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
         }
@@ -437,17 +442,39 @@ describe('§H3: the roster as one particular crew sees it', () => {
     expect(quiet.economy.notoriety).toBeLessThan(gated.requirement.minNotoriety);
   });
 
-  it('prices a recruit off their sheet and off nothing about the crew', () => {
+  it('prices a recruit off their sheet and their tags, and off nothing about the crew', () => {
     const [recruit] = barRoster('2026-08-13');
     if (!recruit) throw new Error('empty roster');
-    expect(wageAskedOf(recruit)).toBe(askingWage(recruit.attributes));
+    expect(wageAskedOf(recruit)).toBe(askingWage(recruit.attributes, 0, recruit.perks));
+  });
+
+  /**
+   * §H7: and the tags are a real part of that price, not decoration.
+   *
+   * Attributes are the half of a person that can be trained; a perk is the half that cannot, and
+   * the room used to hand it over free. Asserted as a *difference* rather than a figure, because
+   * what matters is that carrying something broad costs more than carrying something narrow, and
+   * both of those are catalogue numbers that may be retuned.
+   */
+  it('charges more for a tag that pays everywhere than for one that pays on one unit', () => {
+    const sheet = makeAttributes(58);
+    const broad = askingWage(sheet, 0, ['battlefield_surgeon']);
+    const narrow = askingWage(sheet, 0, ['arc_warden']);
+    const bare = askingWage(sheet, 0, []);
+
+    expect(bare, 'a tag has to cost something').toBeLessThan(narrow);
+    expect(narrow, 'breadth has to beat magnitude').toBeLessThan(broad);
+    // ...and enough that a better sheet does not simply out-price a better tag.
+    expect(broad).toBeGreaterThan(askingWage(makeAttributes(62), 0, ['arc_warden']));
   });
 
   /** §H7a: the floor is what the table opens at, and it is a fact about the person. */
   it('opens a table at the reservation price off that same sheet', () => {
     const [recruit] = barRoster('2026-08-13');
     if (!recruit) throw new Error('empty roster');
-    expect(reserveFor(recruit)).toBe(reservationWage(askingWage(recruit.attributes)));
+    expect(reserveFor(recruit)).toBe(
+      reservationWage(askingWage(recruit.attributes, 0, recruit.perks)),
+    );
     expect(reserveFor(recruit)).toBeLessThan(wageAskedOf(recruit));
   });
 });
@@ -1469,8 +1496,12 @@ describe('what a table opens at (§H7)', () => {
     const discount = crewEffectsFor(repos, base).wageDiscountPercent;
     expect(discount, 'the Union Rep is still worth something on the channel').toBeGreaterThan(0);
     // …and it is worth nothing at the Bar, on the card or at the floor.
-    expect(projectRecruit(base, recruit).askingWage).toBe(askingWage(recruit.attributes));
-    expect(reserveFor(recruit)).toBe(reservationWage(askingWage(recruit.attributes)));
+    expect(projectRecruit(base, recruit).askingWage).toBe(
+      askingWage(recruit.attributes, 0, recruit.perks),
+    );
+    expect(reserveFor(recruit)).toBe(
+      reservationWage(askingWage(recruit.attributes, 0, recruit.perks)),
+    );
   });
 
   it('charges the book the price the winner talked down, and tells everybody the price', async () => {
@@ -1585,5 +1616,79 @@ describe('what a table opens at (§H7)', () => {
     const with_ = crewEffectsFor(rep.repos, rep.base).wageDiscountPercent;
 
     expect(with_).toBeGreaterThan(without);
+  });
+});
+
+/**
+ * §H7: the payroll ladder has a last rung, and the route is what enforces it.
+ *
+ * The screens read `nextStepCost` and can be made to hide a button, but a client is not a rule.
+ * This is the rule: a crew standing on the last rung with the caps to spare is refused, and the
+ * refusal has its own code so the Bar can tell it apart from being short.
+ */
+describe('widening the book (§H7)', () => {
+  const raise = (app: FastifyInstance, player: Player, fromSteps?: number) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/bar/payroll',
+      headers: { authorization: `Bearer ${player.token}` },
+      payload: fromSteps === undefined ? {} : { fromSteps },
+    });
+
+  /** A crew with caps to burn and `steps` rungs already bought. */
+  function setBook(app: FastifyInstance, player: Player, steps: number): void {
+    const base = app.repos.bases.findById(player.baseId);
+    if (!base) throw new Error('no base');
+    app.repos.bases.updateResources(base.id, { ...base.resources, caps: 500_000 });
+    app.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      payroll: { ...base.economy.payroll, purchasedSteps: steps },
+    });
+  }
+
+  it('sells the first rung at the price the ladder quotes', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'book_opener');
+    setBook(app, player, 0);
+
+    const bought = await raise(app, player, 0);
+    expect(bought.statusCode, bought.body.slice(0, 300)).toBe(200);
+    const body = bought.json<{ spent: number; payroll: { purchasedSteps: number } }>();
+    expect(body.spent).toBe(payrollStepCost(0));
+    expect(body.payroll.purchasedSteps).toBe(1);
+  });
+
+  it('sells the last rung and then has nothing left to sell', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'book_finisher');
+    setBook(app, player, PAYROLL_STEPS_MAX - 1);
+
+    const last = await raise(app, player, PAYROLL_STEPS_MAX - 1);
+    expect(last.statusCode, last.body.slice(0, 300)).toBe(200);
+    expect(last.json<{ spent: number }>().spent).toBe(payrollStepCost(PAYROLL_STEPS_MAX - 1));
+    expect(
+      last.json<{ payroll: { nextStepCost: number | null } }>().payroll.nextStepCost,
+    ).toBeNull();
+
+    const past = await raise(app, player, PAYROLL_STEPS_MAX);
+    expect(past.statusCode).toBe(409);
+    expect(errorOf(past.body).code).toBe('PAYROLL_AT_MAX');
+    expect(errorOf(past.body).message).toContain('as wide as it goes');
+  });
+
+  /**
+   * Caps are not the reason, and the refusal has to say so.
+   *
+   * A maxed book on a crew that could pay ten times over is the case that would come back as
+   * `INSUFFICIENT_CAPS` if the ceiling were bolted on after the affordability check.
+   */
+  it('refuses a bought-out book before it looks at the stockpile', async () => {
+    const { app } = await makeApp();
+    const player = await makePlayer(app, 'book_maxed');
+    setBook(app, player, PAYROLL_STEPS_MAX + 5);
+
+    const refused = await raise(app, player);
+    expect(refused.statusCode).toBe(409);
+    expect(errorOf(refused.body).code).toBe('PAYROLL_AT_MAX');
   });
 });

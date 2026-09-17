@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import type { OfficerMark } from '../crew/marks.js';
+import type { OfficerRole } from '../roles.js';
+import { modificationRequirement, requirementRefusal } from './requirements.js';
 import { scrapyardLevelForModification } from './scrapyard.js';
 import type { PartialResources } from '../resources.js';
 import {
@@ -66,7 +69,7 @@ export function noAddons(): Addons {
  * been two numbers a player has to learn to predict a price, and they would have described the
  * same set of things anyway.
  */
-export const ADVANCED_MODIFICATION_MAGNITUDE = 12;
+export const ADVANCED_MODIFICATION_MAGNITUDE = 14;
 
 /** Scrap per point of magnitude, for a building modification. */
 export const ADDON_SCRAP_PER_MAGNITUDE = 250;
@@ -313,6 +316,25 @@ export const ADDON_REFUSALS = [
   'needs_blueprint',
   'already_built',
   'cannot_afford',
+  /*
+   * The four gates a card asks for as of 2026-09-16 (`building/requirements.ts`), plus the three
+   * facts about the bracket it is going into.
+   *
+   * They are refusals to *build* now rather than refusals to *fit*, because building and fitting
+   * are one press: the yard cuts a card for a named structure and bolts it in, so there is no
+   * state in which a crew owns a card it cannot put anywhere. See `boltInRefusal`.
+   */
+  'building_too_low',
+  'crew_too_low',
+  /** §D7: the street has not heard enough about this crew for the good drawings. */
+  'crew_unknown',
+  'no_officer',
+  'officer_too_green',
+  'no_structure',
+  'wrong_structure',
+  'slot_locked',
+  'slot_taken',
+  'already_fitted',
 ] as const;
 export type AddonRefusal = (typeof ADDON_REFUSALS)[number];
 
@@ -368,6 +390,77 @@ export function modificationBuildRefusal(input: {
   const { spec, yardLevel, blueprintUnlocked, affordable } = input;
   if (yardLevel < scrapyardLevelForModification(spec)) return 'yard_too_low';
   if (!blueprintUnlocked(spec)) return 'needs_blueprint';
+  return affordable(spec) ? null : 'cannot_afford';
+}
+
+/**
+ * Everything between a player pressing Bolt It In and the card being in the bracket (§E, rewritten
+ * 2026-09-16).
+ *
+ * One gate, because it is now one press. The yard used to cut a card onto a shelf and the district
+ * used to take it off the shelf into a slot, which meant two screens, two refusal tables, and a
+ * state in between where a crew owned a thing that did nothing. The maintainer's rule is that you
+ * stand in front of a structure's bench, press once, and the card is in it.
+ *
+ * The order is the order a player can act on, cheapest fix first: what the yard can cut at all,
+ * then the drawings, then the four gates in `building/requirements.ts`, then the bracket itself,
+ * then the bill. Money last on purpose: "you cannot afford it" is the one refusal that goes away on
+ * its own, and hearing it first would hide the four that do not.
+ */
+export function boltInRefusal(input: {
+  spec: ModificationSpec;
+  kind: BuildingKind;
+  yardLevel: number;
+  blueprintUnlocked: ModificationBlueprintGate;
+  buildings: readonly Building[];
+  crewLevel: number;
+  /** §D7: the rank the crew has bought, which the top two bands ask for. */
+  notoriety?: number;
+  /** The mark of the officer in whichever chair the card names, or null for an empty chair. */
+  markFor: (role: OfficerRole) => OfficerMark | null;
+  affordable: (spec: ModificationSpec) => boolean;
+}): AddonRefusal | null {
+  const {
+    spec,
+    kind,
+    yardLevel,
+    blueprintUnlocked,
+    buildings,
+    crewLevel,
+    notoriety,
+    markFor,
+    affordable,
+  } = input;
+  /*
+   * What the structure is, before what the crew has.
+   *
+   * A card that will never go into this structure is the one refusal nothing a player does can
+   * change, so it is said first: sending them after the drawings for a card they still could not
+   * bolt in when they got back is worse than saying no.
+   */
+  if (!modificationFits(spec, kind)) return 'wrong_structure';
+  const standing = findBuilding(buildings, kind);
+  if (!standing) return 'no_structure';
+
+  if (yardLevel < scrapyardLevelForModification(spec)) return 'yard_too_low';
+  if (!blueprintUnlocked(spec)) return 'needs_blueprint';
+
+  const requirement = modificationRequirement(spec);
+  const missing = requirementRefusal({
+    requirement,
+    buildingLevel: standing.level,
+    crewLevel,
+    notoriety: notoriety ?? 0,
+    // A BASIC card names no chair, and `requirementRefusal` answers null for one anyway.
+    officerMark: requirement.officer ? markFor(requirement.officer.role) : null,
+  });
+  if (missing !== null) return missing;
+
+  if (standing.modifications.includes(spec.id)) return 'already_fitted';
+  const slots = modificationSlots(standing);
+  if (!slots.some((slot) => slot.open && slot.modificationId === null)) {
+    return slots.some((slot) => slot.modificationId === null) ? 'slot_locked' : 'slot_taken';
+  }
   return affordable(spec) ? null : 'cannot_afford';
 }
 

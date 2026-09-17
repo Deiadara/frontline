@@ -175,7 +175,10 @@ and the `bar_hires` signing log.
   `DISMISSAL_WEEKS` of it in caps on the spot. `404 NOT_FOUND` for a stranger, `409
 INSUFFICIENT_CAPS` when the crew cannot cover it.
 - `POST /api/bar/payroll`: `{fromSteps?}`. Buys one step of standing payroll at a server-quoted
-  price. `fromSteps` names the step count the screen showed; a stale one is `409 STALE_STATE`.
+  price. `fromSteps` names the step count the screen showed; a stale one is `409 STALE_STATE`. The
+  ladder has `PAYROLL_STEPS_MAX` rungs: a crew standing on the last one is `409 PAYROLL_AT_MAX`,
+  checked before the stockpile so a crew with the caps is told the real reason, and the ledger's
+  `nextStepCost` is `null` from there on.
 
 **Every** route here settles last night's tables before it reads anything (see below), not only the
 read. All five touch state the close moves: the chair it filled, the wage it committed, the tables a

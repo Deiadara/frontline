@@ -32,19 +32,12 @@ import {
   ITEM_CATALOG,
   BUILD_BOOST_HOURS,
   BUILD_BOOST_PERCENT,
-  addonsOf,
   buildBoostOilCost,
   buildBoostRemainingMs,
-  describeSlotRefusal,
   findModification,
-  fitSlotRefusal,
   MODIFICATION_FAMILY_LABELS,
-  MODIFICATION_RARITIES,
-  MODIFICATION_RARITY_LABELS,
-  modificationFits,
   modificationSlots,
   nexusLevelForUpgrade,
-  shelvedModifications,
   type Base,
   type BuildClocks,
   type BuildQuotes,
@@ -54,7 +47,7 @@ import {
   type ModificationSlot,
   type ModificationSpec,
 } from '@frontline/shared';
-import { Fragment, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ApiRequestError } from '../../lib/api';
 import { CostLine } from '../../components/Resources';
 import { useCancelBuild, useCrewStanding, useIncreasePayroll } from '../../lib/queries';
@@ -63,11 +56,9 @@ import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Confirm } from '../../components/ui/Confirm';
 import { Modal } from '../../components/ui/Modal';
-import { ClaimButton } from '../feats/ClaimButton';
 import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { ItemWindow } from '../market/MarketPage';
-import { RARITY_TEXT, RarityTag } from '../scrapyard/rarity';
 import { structureBonus } from './bonus';
 import { formatDuration, formatRemaining } from './format';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
@@ -111,8 +102,7 @@ interface StructureDialogProps {
   /** §B4: light the Generator's burn. */
   onBoost: () => void;
   boostPending: boolean;
-  /** §E: fill and empty one of the three slots. */
-  onFitSlot: (modificationId: string) => void;
+  /** §E: empty one of the three brackets. Filling one is a press at the yard now. */
   onClearSlot: (slot: number) => void;
   /** §B8/§B9: the two structures whose dialog is a door to a page. */
   onGo: (path: string) => void;
@@ -131,7 +121,6 @@ export function StructureDialog({
   onClose,
   onBoost,
   boostPending,
-  onFitSlot,
   onClearSlot,
   onGo,
 }: StructureDialogProps) {
@@ -379,23 +368,26 @@ export function StructureDialog({
           </dl>
         </Section>
 
-        {/* §E: three slots, filled and emptied here rather than on another screen. */}
+        {/* §E: three brackets, each one a door to the bench that cuts what goes in it. */}
         <Section title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`}>
-          <SlotRack kind={kind} base={base} onFit={onFitSlot} onClear={onClearSlot} />
-          <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
-            {nextSlotAt === null
-              ? `All ${MAX_MODIFICATION_SLOTS} slots are open. The Scrapyard builds what goes in them.`
-              : `The next slot opens at level ${nextSlotAt}. The Scrapyard builds what goes in them.`}
-          </p>
+          <SlotRack kind={kind} base={base} onGo={onGo} onClear={onClearSlot} />
+          {/* Only the line that is still news. "All three are open" was a sentence about nothing
+              to do, printed exactly when a player has nothing left to wait for (maintainer
+              request, 2026-09-16). */}
+          {nextSlotAt !== null && (
+            <p className="mt-2 font-body text-[12px] leading-relaxed text-ink-300">
+              The next slot opens at level {nextSlotAt}. The Scrapyard builds what goes in them.
+            </p>
+          )}
           {/*
            * §I3a: the way to make more, from the place you found out you were short.
            *
-           * The shelf empties here and is filled at the yard, and until now the only thing on this
-           * screen that said so was a sentence. A player one add-on short had to know the Scrapyard
-           * existed and leave the district to find out.
+           * The brackets above are doors to the same bench, and this is the one for a player who
+           * has none free: it is the only control in the section that is still worth pressing when
+           * all three are full.
            *
            * It opens the yard on *this* structure's bench rather than on the whole board, which
-           * the yard reads off `?bench` (`ScrapyardPage`). The bench ids are `BuildingKind`, so
+           * the yard reads off `?view` and `?bench` together. The bench ids are `BuildingKind`, so
            * there is no second name to keep in step.
            */}
           <Button
@@ -403,7 +395,7 @@ export function StructureDialog({
             variant="ghost"
             className="mt-2.5"
             data-testid={`structure-build-addons-${kind}`}
-            onClick={() => onGo(`/game/scrapyard?bench=${kind}`)}
+            onClick={() => onGo(`/game/scrapyard?view=modifications&bench=${kind}`)}
           >
             Build more in the Scrapyard
           </Button>
@@ -538,113 +530,65 @@ function cnRow(fitted: boolean): string {
  *
  * Always three rows, whatever the structure's level, because "three clear slots" is the board's
  * wording and a slot that is not drawn is a slot a player does not know they are working towards.
- * A locked one says which level opens it; an empty open one lists what is on the shelf and, when
- * the shelf is empty, says why in the yard's own words; a filled one has a control that empties it.
+ * A locked one says which level opens it; an empty open one is a door to this structure's bench at
+ * the yard; a filled one says what is in it and has a control that dismantles it.
+ *
+ * There is no shelf to read any more (2026-09-16). A card is cut for a named structure and bolted
+ * in by the same press at the bench, so nothing is ever built and waiting to be placed, and the
+ * picker that used to stand between the two is gone with the route it called.
  */
 function SlotRack({
   kind,
   base,
-  onFit,
+  onGo,
   onClear,
 }: {
   kind: BuildingKind;
   base: Base;
-  onFit: (modificationId: string) => void;
+  onGo: (path: string) => void;
   onClear: (slot: number) => void;
 }) {
   const standing = findBuilding(base.buildings, kind);
   const slots = modificationSlots(standing);
   /*
-   * Everything on the shelf that **fits** this structure, not only what calls it home.
-   *
-   * Cross-building fittings (2026-09-14) go into a set of structures rather than one, so filtering
-   * on `building === kind` hid a plumbing run from the Quarters it was built for and left the
-   * bracket reading "Nothing built for this" while the part sat on the shelf.
-   */
-  const shelf = shelvedModifications(addonsOf(base), base.buildings).filter((id) => {
-    const spec = findModification(id);
-    return spec !== undefined && modificationFits(spec, kind);
-  });
-  // The route's own gate, asked here, so a dead control and a 409 give the same reason.
-  const refusal =
-    shelf[0] === undefined
-      ? null
-      : fitSlotRefusal({
-          kind,
-          modificationId: shelf[0],
-          buildings: base.buildings,
-          addons: addonsOf(base),
-        });
-
-  const [picking, setPicking] = useState<number | null>(null);
-  /** Which card the player has pressed and not yet confirmed. Cleared when the picker closes. */
-  const [confirming, setConfirming] = useState<string | null>(null);
-  /*
    * Which bracket is being stripped, and has not been confirmed yet.
    *
-   * Fitting asked before it spent the part and stripping did not, which had the confirmation on
-   * the wrong side of the pair: fitting a card moves it from the shelf into a wall, and stripping
-   * one *destroys* it (`clearSlot` puts nothing back on the shelf and refunds nothing). The
-   * cheaper, reversible half was guarded and the permanent half went on a single click.
+   * Stripping one *destroys* it: `clearSlot` puts nothing back and refunds nothing, and the yard
+   * has to cut another from parts. That is the one permanent decision left on this window.
    */
   const [stripping, setStripping] = useState<number | null>(null);
   const strippingSpec =
     stripping === null ? undefined : findModification(standing?.modifications[stripping] ?? '');
-  const confirmed = confirming === null ? null : findModification(confirming);
-  /** What is already bolted into this structure, which is what a synergy is measured against. */
+  /** What is already bolted into this structure, which is what a set is measured against. */
   const fittedHere = (standing?.modifications ?? []).flatMap((id) => {
     const spec = findModification(id);
     return spec ? [spec] : [];
   });
-  /*
-   * The shelf grouped by grade, in the order the yard sells it (maintainer request, 2026-09-15).
-   *
-   * The Scrapyard's bench draws its cards under BASIC, INTRICATE, ADVANCED, MASTERPIECE, each in
-   * its colour, and a player who has just walked here from it should find the same shelf sorted
-   * the same way. What is *on* the shelf is unchanged: the filter above is still the only gate.
-   */
-  const shelfByRarity = MODIFICATION_RARITIES.map((rarity) => ({
-    rarity,
-    cards: shelf.flatMap((id) => {
-      const spec = findModification(id);
-      return spec && spec.rarity === rarity ? [spec] : [];
-    }),
-  })).filter((group) => group.cards.length > 0);
 
   return (
     <>
       <ul className="flex flex-col gap-1.5" data-testid={`slots-${kind}`}>
         {slots.map((slot) => (
-          <SlotRow
-            key={slot.index}
-            slot={slot}
-            kind={kind}
-            shelf={shelf}
-            refusal={refusal}
-            onClear={setStripping}
-            onPick={setPicking}
-          />
+          <SlotRow key={slot.index} slot={slot} kind={kind} onClear={setStripping} onGo={onGo} />
         ))}
       </ul>
 
       <SetReadout fitted={fittedHere} open={slots.filter((slot) => slot.open).length} />
 
       {/*
-       * The other half of the permanent decision, asked the way the kit asks every other one.
+       * The one permanent decision left on this window, asked the way the kit asks every other one.
        *
-       * Fitting a card asked before it spent the part while stripping one destroyed it on a single
-       * click, which put the confirmation on the reversible half of the pair and left the permanent
-       * half unguarded: `clearSlot` puts nothing back on the shelf and refunds nothing. Through
-       * `Confirm` rather than a dialog of its own, which is that component's stated rule and the
-       * reason it lives in the kit: two screens with different ideas of "are you sure" is the bug
-       * it was written to stop.
+       * `clearSlot` destroys the card: nothing is refunded and the yard has to cut another from
+       * parts. Through `Confirm` rather than a dialog of its own, which is that component's stated
+       * rule and the reason it lives in the kit: two screens with different ideas of "are you
+       * sure" is the bug it was written to stop.
        */}
       {stripping !== null && strippingSpec && (
         <Confirm
           title="Strip it out?"
           body={[
             `${strippingSpec.name} comes out of ${BUILDING_CATALOG[kind].name} and is scrap.`,
-            'It does not go back on the shelf, nothing is refunded, and the Scrapyard has to build another one from parts.',
+            'Nothing is refunded, and the Scrapyard has to cut another one from parts.',
             // Said only when it is true: stripping a card out of a full bracket of one family also
             // gives up the set bonus, which is the expensive half and the half nobody thinks of at
             // the moment they press a red word.
@@ -663,160 +607,6 @@ function SlotRack({
             setStripping(null);
           }}
         />
-      )}
-
-      {/*
-       * §E: what could go in this bracket (maintainer request).
-       *
-       * Everything on the shelf for this structure, which is everything the crew has researched
-       * and built and not yet bolted somewhere. A list rather than the one-item offer this
-       * replaced: a bracket is a choice, and a control that silently picks for you is not one.
-       */}
-      {picking !== null && (
-        <Modal
-          onClose={() => {
-            setPicking(null);
-            setConfirming(null);
-          }}
-          labelledBy={`slot-picker-${kind}`}
-        >
-          <div className="flex flex-col gap-3 p-4">
-            <div>
-              <h2
-                id={`slot-picker-${kind}`}
-                className="font-display text-[15px] font-bold uppercase tracking-[0.16em] text-brass-300"
-              >
-                {BUILDING_CATALOG[kind].name} · bracket {picking + 1}
-              </h2>
-              <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-                Everything the Scrapyard has built that fits this structure and is not yet bolted
-                anywhere. A card is worth more beside its own kind.
-              </p>
-            </div>
-
-            <ul
-              className="flex max-h-[22rem] flex-col gap-2 overflow-y-auto"
-              data-testid={`slot-options-${kind}`}
-            >
-              {shelfByRarity.map((group) => (
-                <Fragment key={group.rarity}>
-                  <li
-                    className={cn(
-                      'font-display text-[10px] font-bold uppercase tracking-[0.18em] [&:not(:first-child)]:mt-2',
-                      RARITY_TEXT[group.rarity],
-                    )}
-                    data-testid={`slot-options-${kind}-${group.rarity}`}
-                  >
-                    {MODIFICATION_RARITY_LABELS[group.rarity]}
-                  </li>
-                  {group.cards.map((spec) => {
-                    const id = spec.id;
-                    const wanted =
-                      spec.synergy === undefined
-                        ? null
-                        : fittedHere.some((other) => other.family === spec.synergy?.with);
-                    return (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          data-testid={`slot-option-${id}`}
-                          onClick={() => setConfirming(id)}
-                          data-sound="click"
-                          className={cn(
-                            'ink-box flex w-full flex-col gap-1 px-3.5 py-2.5 text-left',
-                            'transition-transform duration-150 hover:-translate-y-px',
-                            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brass-300',
-                          )}
-                        >
-                          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <span className="font-stamp text-[14px] leading-none text-ink-100">
-                              {spec.name}
-                            </span>
-                            <RarityTag rarity={spec.rarity} />
-                            {spec.family && (
-                              <span className="rounded-sm border border-iris-300/50 bg-iris-500/15 px-1.5 py-px font-display text-[9px] font-bold uppercase tracking-[0.14em] text-iris-100">
-                                {MODIFICATION_FAMILY_LABELS[spec.family]}
-                              </span>
-                            )}
-                            <span className="font-display text-[12px] tabular-nums text-brass-300">
-                              {describeAddonEffect(spec)}
-                            </span>
-                          </span>
-                          <span className="font-body text-[12px] leading-snug text-ink-300">
-                            {spec.description}
-                          </span>
-                          {/*
-                        The combo, said before the choice rather than after it.
-
-                        A synergy a player only discovers by fitting a card is not a decision, it
-                        is a surprise. This says what the card wants and whether this structure
-                        already has it, which is the whole question the deck asks.
-                      */}
-                          {spec.synergy && (
-                            <span
-                              className={cn(
-                                'font-display text-[11px] font-bold uppercase tracking-[0.12em]',
-                                wanted ? 'text-verdigris-100' : 'text-ink-400',
-                              )}
-                              data-testid={`slot-option-synergy-${id}`}
-                            >
-                              {wanted ? '+' : ''}
-                              {spec.synergy.bonus} beside{' '}
-                              {MODIFICATION_FAMILY_LABELS[spec.synergy.with]}
-                              {wanted ? ' · already here' : ' · not here yet'}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </ul>
-
-            {/*
-             * The confirm, because bolting one in is a one-way door.
-             *
-             * A fitted modification can be emptied out of its bracket but the part is *gone*: it
-             * does not go back on the shelf and nothing is refunded. That is a decision worth one
-             * more press (maintainer request, 2026-09-14), and the copy says plainly what will not
-             * be given back rather than asking "are you sure" about nothing in particular.
-             */}
-            {confirmed && (
-              <div
-                className="ink-frame card-paper flex flex-col gap-2.5 rounded-sm p-3"
-                style={{ backgroundColor: 'rgb(23 19 32)' }}
-                data-testid={`slot-confirm-${kind}`}
-              >
-                <p className="font-body text-[13px] leading-snug text-ink-200">
-                  Bolt <span className="font-stamp text-ink-100">{confirmed.name}</span> into{' '}
-                  {BUILDING_CATALOG[kind].name}? You can empty the bracket later, but the part is
-                  spent: nothing comes back and nothing is refunded.
-                </p>
-                <div className="flex flex-wrap items-center gap-2">
-                  <ClaimButton
-                    label="Bolt it in"
-                    ariaLabel={`Bolt ${confirmed.name} into ${BUILDING_CATALOG[kind].name}`}
-                    data-testid={`slot-confirm-yes-${kind}`}
-                    onClick={() => {
-                      onFit(confirmed.id);
-                      setConfirming(null);
-                      setPicking(null);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setConfirming(null)}
-                    data-testid={`slot-confirm-no-${kind}`}
-                    className="font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400 transition-colors hover:text-ink-200"
-                  >
-                    Not yet
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Modal>
       )}
     </>
   );
@@ -920,32 +710,43 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
 function SlotRow({
   slot,
   kind,
-  shelf,
-  refusal,
   onClear,
-  onPick,
+  onGo,
 }: {
   slot: ModificationSlot;
   kind: BuildingKind;
-  shelf: readonly string[];
-  refusal: ReturnType<typeof fitSlotRefusal>;
   onClear: (slot: number) => void;
-  /** §E: open the picker for this bracket. Fitting itself happens in there, off a list. */
-  onPick: (slot: number) => void;
+  /** §I3a: an empty bracket is the way to the bench that fills it. */
+  onGo: (path: string) => void;
 }) {
   const fitted = slot.modificationId === null ? undefined : findModification(slot.modificationId);
 
   if (fitted) {
     return (
-      <li className={cnRow(true)} data-testid={`slot-${kind}-${slot.index}`}>
+      <li
+        className={cnRow(true)}
+        data-testid={`slot-${kind}-${slot.index}`}
+        /*
+         * What the card in the bracket does, on the hover (maintainer request, 2026-09-16).
+         *
+         * The row has room for a name and a control and nothing else, and a name on its own does
+         * not say why the bracket was worth filling. Read off the catalogue rather than off the
+         * district payload, which carries the id and no effect at all, so this sentence and the
+         * one the bench prints on the same card are the same sentence.
+         */
+        data-tip={`${fitted.name} · ${describeAddonEffect(fitted)}`}
+      >
         <span className="truncate">{fitted.name}</span>
         {/*
-         * "Strip out", not "Empty" (2026-09-14).
+         * A verb, not a state (2026-09-14), and the yard's own verb (2026-09-16).
          *
          * The control sat at the end of a row whose other half is the fitted card's name, so it
          * read as the slot's *state* rather than as something to press: "Automated Protocols,
          * Empty" says the opposite of what is true. Every other row in the rack does say its state
          * there ("Level 20" on a locked one), which is exactly why a verb is needed on this one.
+         *
+         * The word is the bench's, because it is the same act in both places and a player who
+         * learns Dismantle on the card should not have to learn Strip out on the bracket.
          */}
         <button
           type="button"
@@ -953,7 +754,7 @@ function SlotRow({
           data-testid={`slot-clear-${kind}-${slot.index}`}
           onClick={() => onClear(slot.index)}
         >
-          Strip out
+          Dismantle
         </button>
       </li>
     );
@@ -969,40 +770,20 @@ function SlotRow({
   }
 
   /*
-   * §E: the whole shelf, not the first thing on it (maintainer request).
+   * The whole empty bracket is the control, and what it does now is open the bench (2026-09-16).
    *
-   * This offered `shelf[0]` and a single Fit button, so a crew holding four things they could bolt
-   * to the Nexus could only ever see one of them and had no way to choose. An empty bracket is a
-   * *decision*, and a decision needs the options in front of it.
+   * It used to open a picker over the shelf. There is no shelf: the yard cuts a card for a named
+   * structure and bolts it in on the same press, so the only thing this row can usefully do is
+   * take the player to the bench for *this* structure. Which is also what it looked like it did.
    */
-  const open = shelf.length > 0 && refusal === null;
-
-  /*
-   * The whole empty bracket is the control, not the words at the end of it.
-   *
-   * `Fit one (4)` was a text link about a quarter of an inch wide at the right-hand edge of a row
-   * whose other ninety percent said `Empty` and did nothing when pressed (maintainer request,
-   * 2026-09-14). An empty slot is the most pressable thing on this dialog and it behaved like a
-   * label. The row is a button now and the count rides along inside it.
-   */
-  if (!open) {
-    return (
-      <li className={cnRow(false)} data-testid={`slot-${kind}-${slot.index}`}>
-        <span className="truncate">Empty</span>
-        <span className="shrink-0 normal-case tracking-normal text-ink-300">
-          {refusal === null ? 'Nothing built for this' : describeSlotRefusal(refusal, kind)}
-        </span>
-      </li>
-    );
-  }
-
   return (
     <li data-testid={`slot-${kind}-${slot.index}`}>
       <button
         type="button"
-        onClick={() => onPick(slot.index)}
-        data-testid={`slot-fit-${kind}-${slot.index}`}
+        onClick={() => onGo(`/game/scrapyard?view=modifications&bench=${kind}`)}
+        data-testid={`slot-door-${kind}-${slot.index}`}
         data-sound="click"
+        data-tip={`Bracket ${slot.index + 1} · empty · cut one for ${BUILDING_CATALOG[kind].name} at the yard`}
         className={cn(
           cnRow(false),
           'w-full cursor-pointer text-left transition-colors',
@@ -1012,10 +793,7 @@ function SlotRow({
       >
         <span className="truncate">Empty</span>
         <span className="flex shrink-0 items-center gap-1.5 text-verdigris-100">
-          Fit one
-          <span className="rounded-sm bg-verdigris-500/25 px-1.5 py-px tabular-nums">
-            {shelf.length}
-          </span>
+          Cut one at the yard
         </span>
       </button>
     </li>

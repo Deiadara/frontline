@@ -10,8 +10,9 @@ import { z } from 'zod';
  * it any other way: `units/` already imports `building/`, so the building catalogue importing the
  * unit one would close a cycle at module load.
  *
- * Not the item ladder. `items/rarity.ts` grades loot and blueprint pages on common to exotic; this
- * grades a piece of engineering, and the two never appear on the same card.
+ * It is now the item ladder too (maintainer request, 2026-09-16): `items/rarity.ts` aliases these
+ * four for components, blueprint pages, documents and consumables, so the game has one four-band
+ * vocabulary and a player who learns purple on a bench reads purple on a page.
  *
  * Ordered worst to best, and that order is the ordering: `indexOf` is the comparison, so a new
  * band goes in at its place in the line rather than into a separate table of ranks that could

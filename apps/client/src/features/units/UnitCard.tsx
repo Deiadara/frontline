@@ -8,8 +8,10 @@ import {
   UNIT_TIER_LABELS,
   findUnit,
   maxTrainable,
-  type BuiltUpgrade,
+  trainingCost,
+  trainingSeconds,
   type StatKey,
+  type TrainingBreakdown,
   type UnitOption,
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
@@ -25,6 +27,7 @@ import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
 import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
+import { UnitBonuses } from './UnitBonuses';
 import { UnitPortrait } from './UnitPortrait';
 import { UpgradeSlots } from './UpgradeSlots';
 
@@ -37,7 +40,6 @@ const CLAUSES_ON_THE_CARD = 2;
 export interface UnitCardProps {
   unit: UnitOption;
   /** The crew's whole stock, so a bracket's menu opens without going and asking for it. */
-  built: BuiltUpgrade[];
   garrisoned: number;
   /** §A4: at a fight or walking to one. Away like a garrison, and counted in the same beds. */
   abroad: number;
@@ -57,6 +59,14 @@ export interface UnitCardProps {
    * the HUD's: one diff of one payload rather than one per card.
    */
   deltas?: readonly DeltaMark[];
+  /**
+   * The crew-wide training lines, for the Bonuses chip in the marks band.
+   *
+   * Optional, and its absence is what the hover cards use: the Scrapyard's unit rail and the deploy
+   * dialog both show this card to answer "who is this", where a page about training discounts is a
+   * different question in the wrong window. The roster passes it.
+   */
+  bonuses?: TrainingBreakdown;
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
@@ -76,6 +86,14 @@ export interface UnitCardTraining {
    * price is the bug that makes a player think they were overcharged.
    */
   suppliesPercent: number;
+  /**
+   * §B6: what comes off the clock, crew-wide plus this unit's own ground.
+   *
+   * Here for the reason the two above are: the box has to print the figure the route will use.
+   * Without it the card quoted `unit.trainSeconds` straight off the catalogue, so a crew with a
+   * level-12 Gauntlet and a drillmaster read 45 seconds beside the button and got 28.
+   */
+  speedPercent: number;
   pending: boolean;
   onTrain: (count: number) => void;
 }
@@ -108,7 +126,7 @@ export interface UnitCardTraining {
  * on the name and on each chip, which is where a player looks for detail once they have already
  * decided which unit they are reading.
  */
-export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: UnitCardProps) {
+export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }: UnitCardProps) {
   return (
     <section
       data-testid={`unit-${unit.id}`}
@@ -242,11 +260,33 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
               </span>
             </HoverCard>
           </span>
+          {/*
+           * What this district is doing to the price of one, left of the loot figure (maintainer,
+           * 2026-09-17).
+           *
+           * `shrink-0` beside a name that is `flex-1 min-w-0 truncate`: the chip is a fixed word
+           * and the name is the thing with room to give, which is the same deal the loot figure
+           * beside it already has. Brass rather than a rule's colours because it is not a fact
+           * about the unit in a fight, which is what the chips under the sheet all are.
+           */}
+          {bonuses !== undefined && (
+            <HoverCard
+              size="window"
+              label={`What ${unit.name} are given`}
+              className="shrink-0"
+              data-testid={`bonuses-${unit.id}`}
+              card={<UnitBonuses unit={unit} crew={bonuses} />}
+            >
+              <span className="flex items-center rounded-sm border border-brass-500/60 bg-brass-500/15 px-2 py-1 font-display text-[10px] font-bold uppercase tracking-[0.1em] leading-none text-brass-100">
+                Bonuses
+              </span>
+            </HoverCard>
+          )}
           {/* The name is on the hover rather than printed: at this size a word beside the figure
               costs more room than the figure itself, and `Loot` is one word nobody needs twice. */}
           <span
             className="flex shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2 py-1"
-            data-tip="Loot"
+            data-tip="Loot slots: what one of them carries home"
           >
             <Icon name="loot" className="h-4 w-4 text-ink-300" />
             <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
@@ -349,7 +389,7 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
             is a decision the player makes and everything above is a number they read. `mt-1` on
             top of the column's gap: 12px, and the price box keeps the same 12px under them. */}
         <div className="mt-1">
-          <UpgradeSlots unit={unit} built={built} />
+          <UpgradeSlots unit={unit} />
         </div>
 
         {/* Row 4, and a *fixed* height, which is the last thing standing between this grid and the
@@ -415,14 +455,32 @@ export function UnitCard({ unit, built, garrisoned, abroad, training, deltas }: 
  * roster behind it to train from, and a hook cannot sit behind that condition.
  */
 function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTraining }) {
-  const { resources, spare, discountPercent, suppliesPercent, pending, onTrain } = training;
+  const { resources, spare, discountPercent, suppliesPercent, speedPercent, pending, onTrain } =
+    training;
   const [count, setCount] = useState(1);
   const spec = findUnit(unit.id);
   const most = spec ? maxTrainable(spec, resources, spare, discountPercent, suppliesPercent) : 0;
+  /*
+   * The price and the clock for *this order*, discounted, which is what the route will charge and
+   * time it with (maintainer, 2026-09-17 consistency pass).
+   *
+   * Both were read straight off the catalogue: `unit.cost` and `unit.trainSeconds`. So a crew that
+   * had built a Gauntlet, a Greenhouse, three Lab rungs and hired a chemist saw none of it on the
+   * one box where they decide to press Train. Measured on this crew: Razors printed 40 caps and 10
+   * supplies at 45 seconds, and the order took 30 caps, 4 supplies and 28 seconds.
+   *
+   * For the batch rather than for one, because the count is in this box and the figure beside a
+   * Train button should be what pressing it costs. `trainingCost` and `trainingSeconds` are the
+   * route's own functions, so the two cannot round differently.
+   */
+  const price = spec ? trainingCost(spec, count, discountPercent, suppliesPercent) : unit.cost;
+  const seconds = spec
+    ? trainingSeconds(spec, count, speedPercent)
+    : unit.trainSeconds * Math.max(1, count);
 
   return (
     <div className="flex w-full flex-col items-center justify-center gap-1.5 rounded-sm border border-brass-500/35 bg-surface-950/45 px-3 py-1.5">
-      <CostLine cost={unit.cost} stock={resources} />
+      <CostLine cost={price} stock={resources} />
       <div className="flex items-center gap-2">
         <NumberField
           label={`How many ${unit.name}`}
@@ -451,7 +509,7 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
           {pending ? 'Working…' : 'Train'}
         </Button>
         <span className="font-display text-[11px] tabular-nums text-ink-300">
-          {formatDuration(unit.trainSeconds)}
+          {formatDuration(seconds)}
         </span>
       </div>
     </div>

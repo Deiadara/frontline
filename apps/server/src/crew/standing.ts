@@ -3,6 +3,7 @@ import {
   combineEffects,
   crewEffects,
   noCrewEffects,
+  notorietyEffects,
   territoryEffectsFor,
   type CrewMember,
   type Base,
@@ -12,19 +13,27 @@ import {
   gateDefensePercent,
   gateIntelResistancePercent,
   raidLootBonus,
-  liftOfficer,
+  liftedSheet,
   peerLift,
   officerIsInjured,
   FACTION_CARD_SPECS,
   cardBonusPercent,
   disrupted,
   disruptionPercentAt,
+  type AttributeLift,
+  type Attributes,
   type Commander,
+  type LiftSource,
+  markFromPoints,
   type NumericEffectChannel,
+  type OfficerMark,
+  type OfficerRole,
+  type TerritoryEffects,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { cardsAtTable } from '../factions/cards.js';
 import { benchedMember, overseerMember, seatedMember } from '../roles/duties.js';
+import { roleFit } from '../roles/requirements.js';
 
 /**
  * Everything a crew currently has going for it: the ground it holds plus the people it has.
@@ -101,6 +110,15 @@ export function standingEffectsFor(
    * a modification and a hold bonus are one figure on the report rather than two to reconcile.
    */
   total.lootCapacityPercent += raidLootBonus(base.buildings);
+  /*
+   * §D7: what the crew's rank is worth, folded where everything else is.
+   *
+   * Notoriety was a gate and ran out of things to gate at rank 5, so the eight ranks above it
+   * changed no number in the game (`economy/renown.ts` says what each one pays now). Folded here
+   * rather than spent at a consumer for the reason the Gate and the raid cards are: a bonus read
+   * in one place is a bonus the other two dozen consumers do not see.
+   */
+  Object.assign(total, combineEffects(notorietyEffects(base.economy.notoriety), total));
   return disrupted(total, disruptionPercentAt(base.economy.disruption, now));
 }
 
@@ -115,7 +133,142 @@ export function crewEffectsFor(
   // Production, storage and costs are read through *this* fold rather than the territory one, so
   // the Lab has to land here too or half its tech tree would do nothing at all.
   const total = mergeCrewEffects(people, researchEffects(base.research.technologies));
-  return disrupted(total, disruptionPercentAt(base.economy.disruption, now));
+  // §D7: a rank is a fact about the crew, not about the ground, so it belongs in this fold too.
+  const withRank = combineEffects(notorietyEffects(base.economy.notoriety), total);
+  return disrupted(withRank, disruptionPercentAt(base.economy.disruption, now));
+}
+
+/**
+ * One officer's sheet as the crew fields it, with a receipt naming every point that is not theirs.
+ *
+ * Split out of `crewSheetsFor` because two callers need it and they need different halves: the
+ * effects fold wants the attributes, and the crew screen wants the receipt, so that a player
+ * looking at a 22 where they hired a 20 can be told which of their people put the 2 there.
+ *
+ * The sources are passed as a labelled list rather than merged, which is the whole reason a
+ * breakdown is possible: a merged fold knows the total and not whose it was. Ground first, then
+ * the Overseer, then the officers, then the Lab: at the cap (`MAX_OFFICER_LIFT`) that order
+ * decides who gets the last point, and putting the ground and the Overseer first means the scarce
+ * room goes to the things a player chose deliberately rather than to whoever happened to be hired.
+ */
+/**
+ * The room, read once: everything an officer can be lifted by that is not the officer.
+ *
+ * Built here rather than inside `liftedOfficerSheet` because it is the same for every officer on
+ * the books and it costs three reads (the city's control rows, the owner and their character):
+ * building it per officer would make opening the crew screen nineteen times the work.
+ */
+export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new Date()): LiftRoom {
+  const owner = repos.users.findById(base.ownerId);
+  const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
+  return {
+    fit: base.commanders.filter(
+      (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
+    ),
+    byGroup: territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls()).officerGroupFlat,
+    fromTheLab: researchEffects(base.research.technologies),
+    fromTheOverseer: overseer?.perks ?? [],
+    overseerName: overseer?.name ?? 'your Overseer',
+  };
+}
+
+/** Everything that lifts an officer, other than the officer. See {@link officerLiftRoom}. */
+export interface LiftRoom {
+  /** Everybody on the books and out of bed. Each officer is filtered out of their own lift. */
+  fit: readonly Commander[];
+  byGroup: TerritoryEffects['officerGroupFlat'];
+  fromTheLab: CrewEffects;
+  fromTheOverseer: readonly string[];
+  overseerName: string;
+}
+
+export function liftedOfficerSheet(
+  officer: Commander,
+  room: LiftRoom,
+): { attributes: Attributes; lift: AttributeLift[] } {
+  const sources: LiftSource[] = [{ from: 'the ground you hold', groupFlat: room.byGroup }];
+
+  const overseer = peerLift(room.fromTheOverseer);
+  sources.push({
+    from: room.overseerName,
+    groupFlat: overseer.officerGroupFlat,
+    attributeFlat: overseer.officerAttributeFlat,
+    attributeAtLeast: overseer.officerAttributeAtLeast,
+  });
+
+  // Per teacher rather than per crew, so the receipt names the person. It costs one `peerLift` per
+  // peer instead of one for the room, which is a handful of table lookups over a list that is
+  // capped at nineteen.
+  for (const peer of room.fit) {
+    if (peer.id === officer.id) continue;
+    const taught = peerLift(peer.perks);
+    sources.push({
+      from: peer.name,
+      groupFlat: taught.officerGroupFlat,
+      attributeFlat: taught.officerAttributeFlat,
+      attributeAtLeast: taught.officerAttributeAtLeast,
+    });
+  }
+
+  sources.push({
+    from: 'the Lab',
+    groupFlat: room.fromTheLab.officerGroupFlat,
+    attributeFlat: room.fromTheLab.officerAttributeFlat,
+    attributeAtLeast: room.fromTheLab.officerAttributeAtLeast,
+  });
+
+  return liftedSheet(officer.attributes, sources);
+}
+
+/**
+ * How good an officer is in a chair, measured on the sheet they actually have (§B8, §C1b).
+ *
+ * One reader, because the game had two answers to one question. `roleFit` takes an `Attributes`
+ * and every caller but one handed it `officer.attributes`, the **printed** sheet: the number on
+ * the card before the Overseer, the teaching perks, the ground and the Lab have lifted it. The
+ * Scrapyard was the exception and read the lifted sheet, so the same officer was a C+ at the bench
+ * and a C on the crew screen, the Lab gated a rung on the lower of the two, and the officer whose
+ * mark the yard had just accepted could not start the research their chair is named after.
+ *
+ * The lift is not a rounding error. `MAX_OFFICER_LIFT` is ten points, `roleFit` is a weighted mean
+ * over five attributes and a mark band is 4.29 points wide, so a fully taught officer moves more
+ * than two whole marks. That is the whole of what the Overseer's teaching perks and the Chapel
+ * were bought for, and until now none of it reached a gate.
+ *
+ * Built once per request off {@link officerLiftRoom}, which costs three reads, and then answers
+ * every chair from memory: `labResearchItems` asks nineteen times for one page.
+ */
+export interface OfficerFitReader {
+  /** The mark held by whoever is sitting in `role`, or null when the chair is empty. */
+  markFor: (role: OfficerRole) => OfficerMark | null;
+  /** The fit points `officer` would be marked on in `role`, off their lifted sheet. */
+  pointsFor: (officer: Commander, role: OfficerRole) => number;
+}
+
+export function officerFitReader(
+  repos: Repositories,
+  base: Base,
+  now: Date = new Date(),
+): OfficerFitReader {
+  const room = officerLiftRoom(repos, base, now);
+  // One lifted sheet per officer, not per question: `liftedOfficerSheet` folds every peer's perks
+  // and the answer does not change between two chairs.
+  const sheets = new Map<string, Attributes>();
+  const sheetFor = (officer: Commander): Attributes => {
+    const held = sheets.get(officer.id);
+    if (held !== undefined) return held;
+    const { attributes } = liftedOfficerSheet(officer, room);
+    sheets.set(officer.id, attributes);
+    return attributes;
+  };
+
+  return {
+    pointsFor: (officer, role) => roleFit(sheetFor(officer), role),
+    markFor: (role) => {
+      const officer = base.commanders.find((one) => one.role === role);
+      return officer ? markFromPoints(roleFit(sheetFor(officer), role)) : null;
+    },
+  };
 }
 
 /**
@@ -130,6 +283,26 @@ export function crewSheetsFor(
   base: Base,
   now: Date = new Date(),
 ): CrewMember[] {
+  return crewRoomFor(repos, base, now).sheets;
+}
+
+/** Every sheet in the room, and the name of the person each one belongs to, in the same order. */
+export interface CrewRoom {
+  sheets: CrewMember[];
+  /** `sheets[i]` belongs to `names[i]`. The Overseer is named, like everybody else in the room. */
+  names: string[];
+}
+
+/**
+ * The room, with the names kept.
+ *
+ * `crewSheetsFor` is this without them, and it is the older of the two. A `CrewMember` is
+ * attributes, perks and a chair with nobody's name on it, which is right for the arithmetic and
+ * useless for the roster's new question: which officer is the twenty percent coming from
+ * (maintainer, 2026-09-17). Built here rather than by a second walk beside it, so the name and the
+ * sheet cannot end up belonging to two different people.
+ */
+export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Date()): CrewRoom {
   /*
    * §A4/§B7: what everybody else puts on this officer's sheet, before best-of.
    *
@@ -162,12 +335,7 @@ export function crewSheetsFor(
    * lift, rather than into the sheets afterwards, for the same reason the ground is: the boost is
    * worth more to the crew whose specialist it raises.
    */
-  const byGroup = territoryEffectsFor(
-    base.id,
-    CITY_LOCATIONS,
-    repos.city.controls(),
-  ).officerGroupFlat;
-  const fromTheLab = researchEffects(base.research.technologies);
+  const room = officerLiftRoom(repos, base, now);
 
   // The role travels with the sheet now (§C2). `crewSheet` pays a person their full rating only in
   // the attributes their seat actually uses, so dropping the role here would silently discount
@@ -185,9 +353,7 @@ export function crewSheetsFor(
    * clock in the past reads as fit on every path that asks, so a recovery costs no query and no
    * scheduler.
    */
-  const fit = base.commanders.filter(
-    (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
-  );
+  const fit = room.fit;
   const owner = repos.users.findById(base.ownerId);
   const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
   /*
@@ -202,22 +368,22 @@ export function crewSheetsFor(
    * Never-lift-yourself is untouched by this. The Overseer is not an officer, so they are not in
    * `fit` and nothing here lifts their own sheet: they teach the room and take nothing back.
    */
-  const fromTheOverseer = overseer?.perks ?? [];
   const officers: CrewMember[] = fit.map((officer) => {
-    const peers = fit.filter((other) => other.id !== officer.id);
-    const lift = mergeCrewEffects(
-      peerLift([...peers.flatMap((other) => other.perks), ...fromTheOverseer]),
-      fromTheLab,
-    );
-    const attributes = liftOfficer(officer.attributes, lift, byGroup);
+    const { attributes } = liftedOfficerSheet(officer, room);
     // §C2: somebody on the bench is on the books and in no chair, which is a different thing from
     // the Overseer being in no chair. `benchedMember` pays the off-duty share of everything.
     return officer.role === null
       ? benchedMember(attributes, officer.perks)
       : seatedMember(attributes, officer.role, officer.perks);
   });
+  const names = fit.map((officer) => officer.name);
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
-  return overseer ? [overseerMember(overseer.attributes, overseer.perks), ...officers] : officers;
+  return overseer
+    ? {
+        sheets: [overseerMember(overseer.attributes, overseer.perks), ...officers],
+        names: [overseer.name, ...names],
+      }
+    : { sheets: officers, names };
 }
 
 /**

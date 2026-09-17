@@ -1,6 +1,7 @@
-import type { SkirmishEngine } from '@frontline/shared';
+import { GAME_TIMEZONE, type SkirmishEngine } from '@frontline/shared';
 import { settleBarAuctions } from '../bar/auction.js';
 import { settleVendorAuctions } from '../market/auction.js';
+import { settleBlackMarketLots } from '../blackmarket/shelf.js';
 import { settleBattles } from '../battle/resolve.js';
 import { settleMovements } from '../battle/movement.js';
 import { settleFortifications } from '../city/actions.js';
@@ -63,6 +64,15 @@ export function settleWorld(
   settleScouting(repos, now);
   const tables = settleBarAuctions(repos, now);
   const lots = settleVendorAuctions(repos, now);
+  /*
+   * The fence's five, which settle at midnight.
+   *
+   * On the clock as well as on the shelf's own read, for the reason the barrow is: without it, a
+   * crew that won a crate overnight is not charged and not given it until somebody in the city
+   * next opens the back room, which on a quiet server can be hours. Nothing is broadcast: the
+   * shelf polls, and the crate lands in an inventory whose own screens poll too.
+   */
+  settleBlackMarketLots(repos, now, GAME_TIMEZONE);
   /*
    * Tell every open tab what the clock just moved, **after** every settle above has committed.
    *

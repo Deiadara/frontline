@@ -20,7 +20,14 @@ import { adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
 import { cityContextFor } from '../city/view.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { defenderOf, districtStandingFor, residentOf, targetName } from './ground.js';
+import {
+  crewCalledOut,
+  defenderOf,
+  defendingBaseOf,
+  districtStandingFor,
+  residentOf,
+  targetName,
+} from './ground.js';
 import { npcMuster } from './npc.js';
 import { notifyBase } from '../social/notify.js';
 
@@ -279,25 +286,6 @@ export function callPriceFor(
 }
 
 /**
- * The crew a call on this ground is actually a call on, if it is a crew at all.
- *
- * A location names its holder. A gate or a raid names a district rather than a party, and a
- * lived-in district has a crew behind it whether or not the control table calls them the holder:
- * residential ground has no locations to hold, so its holder reads `unoccupied` while somebody
- * very much lives there. Read the same way at declaration (the price), at resolution (who is
- * defending) and on the board (the red mark), so the three cannot name different people.
- */
-function crewCalledOut(
-  repos: Repositories,
-  target: BattleTarget,
-  defender: LocationHolder,
-): Base | undefined {
-  if (defender.kind === 'crew') return repos.bases.findById(defender.baseId);
-  if (target.kind !== 'location') return residentOf(repos, target.districtId);
-  return undefined;
-}
-
-/**
  * How many fights still to come somebody has called on this crew's ground.
  *
  * The number behind the red mark on the bottom bar (`UnreadCounts.fightsOnYou`). Counted the way
@@ -311,9 +299,4 @@ export function fightsCalledOn(repos: Repositories, base: Base): number {
       (battle) =>
         battle.attackerBaseId !== base.id && defendingBaseOf(repos, battle)?.id === base.id,
     ).length;
-}
-
-/** The crew standing behind the defending side of a declared fight, if one is. */
-export function defendingBaseOf(repos: Repositories, battle: ScheduledBattle): Base | undefined {
-  return crewCalledOut(repos, battle.target, battle.defender);
 }

@@ -36,7 +36,6 @@ import {
   useBuyBuildBoost,
   useCancelBuild,
   useClearModification,
-  useFitModification,
   useCrewStanding,
   useMe,
   useUnits,
@@ -75,9 +74,9 @@ export function BasePanel() {
   const levelUp =
     build.data?.levelUp ??
     (build.error instanceof ApiRequestError ? build.error.levelUp : undefined);
-  // §B4 and §E: the three writes the plot dialog makes, all answering with the whole base.
+  // §B4 and §E: the two writes the plot dialog makes, both answering with the whole base. Filling
+  // a bracket is not one of them any more: the yard cuts a card straight into it (2026-09-16).
   const boost = useBuyBuildBoost(baseId);
-  const fit = useFitModification(baseId);
   const clear = useClearModification(baseId);
   const navigate = useNavigate();
   const [selectedPlot, setSelectedPlot] = useState<BuildingKind | null>(null);
@@ -113,7 +112,6 @@ export function BasePanel() {
   const selectPlot = (kind: BuildingKind) => {
     build.reset();
     boost.reset();
-    fit.reset();
     clear.reset();
     setSelectedPlot(kind);
   };
@@ -275,7 +273,7 @@ export function BasePanel() {
           serverNow={baseQuery.data?.serverNow}
           receivedAt={baseQuery.dataUpdatedAt}
           pending={build.isPending}
-          error={build.error ?? boost.error ?? fit.error ?? clear.error}
+          error={build.error ?? boost.error ?? clear.error}
           onBuild={() =>
             build.mutate(
               { kind: selectedPlot },
@@ -291,7 +289,6 @@ export function BasePanel() {
           onClose={() => setSelectedPlot(null)}
           onBoost={() => boost.mutate({})}
           boostPending={boost.isPending}
-          onFitSlot={(modificationId) => fit.mutate({ building: selectedPlot, modificationId })}
           onClearSlot={(slot) => clear.mutate({ building: selectedPlot, slot })}
           onGo={(path) => {
             setSelectedPlot(null);

@@ -10,7 +10,6 @@ import {
   marketDay,
   gameHourInZone,
   type ItemId,
-  type ItemRarity,
   type MarketResponse,
   type ResourceKey,
   type SupplyLine,
@@ -20,7 +19,6 @@ import {
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
 import { ResourceIcon } from '../../components/Resources';
-import { Button } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
 import { ResourcePicker } from './ResourcePicker';
@@ -28,13 +26,16 @@ import { GoodChip, TradeArrow } from './TradeParts';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Panel } from '../../components/ui/Panel';
+import { DrawnButton } from '../../components/ui/DrawnButton';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
 import { useBarter, useBuySupply, useMarket } from '../../lib/queries';
+import { RARITY_TAG } from '../../lib/rarity';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { MarketTabs } from './BlackMarketPage';
+import { CityPicker } from '../city/CityPicker';
 import { useDayResetClock, usePlayerZone } from '../settings/usePlayerZone';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { VendorAuctionWindow, lotSpec } from './VendorAuctionWindow';
@@ -57,7 +58,15 @@ import { VendorAuctionWindow, lotSpec } from './VendorAuctionWindow';
  * board of other people's offers wants room to read, and this screen wants to fit in one frame.
  */
 export function MarketPage() {
-  const query = useMarket();
+  /*
+   * Which city's market this is (maintainer, 2026-09-17).
+   *
+   * `null` is the crew's own, which is what the server answers a bare read with. State on the screen
+   * rather than in the URL, for the reason the Bar's is: it is where a player is standing, and a
+   * bookmarked city they have since been thrown out of would be a refusal on arrival.
+   */
+  const [city, setCity] = useState<string | null>(null);
+  const query = useMarket(city ?? undefined);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const zone = usePlayerZone();
   const resetsAt = useDayResetClock(now);
@@ -79,7 +88,14 @@ export function MarketPage() {
   const lot = data.vendor.stock.find((offer) => offer.line.id === lotOpen);
 
   return (
-    <PageShell quote="Nobody owns the market. Some people just think they do." wide fills>
+    <PageShell
+      quote="Nobody owns the market. Some people just think they do."
+      wide
+      fills
+      // The city door on the heading's own line, top right, which is where the maintainer asked for
+      // it: "in the market on the top right in the same height as the quote on top".
+      action={<CityPicker cityId={data.cityId} cities={data.cities} onChoose={setCity} />}
+    >
       <MarketTabs active="market" />
 
       {/* The three counters in one frame. The Runner takes the room a screen has spare, the
@@ -90,8 +106,13 @@ export function MarketPage() {
           The Runner's row has a floor of one row of lots. Without it a grid hands the supply run
           its whole height first and the barrow gets the strip that is left, which on a 720px
           screen is a strip. With it the run is what gives, and it scrolls inside its own panel
-          on the screens that are too short for all three. */}
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] grid-rows-[minmax(12.75rem,1fr)_minmax(0,auto)] gap-3">
+          on the screens that are too short for all three.
+
+          The run's row is 10rem rather than `auto` (maintainer, 2026-09-17: half again the size
+          it was). Measured at 106.5px on its content, which is a strip under a barrow six hundred
+          pixels tall: a counter a player buys from every day should not be the smallest thing on
+          the street. The Runner gives up the difference and still keeps its floor. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] grid-rows-[minmax(12.75rem,1fr)_minmax(0,10rem)] gap-3">
         <VendorPanel market={data} now={now} zone={zone} onBid={setLotOpen} />
         <BrokerPanel market={data} />
         <SupplyPanel market={data} resetsAt={resetsAt} />
@@ -136,20 +157,6 @@ function RunnerHours({ market, now, zone }: { market: MarketResponse; now: Date;
   );
 }
 
-/**
- * Rarity, in the frame rather than in a word beside it.
- *
- * A shop is scanned, not read: what a player wants off a shelf is which of these is the unusual
- * one, and a coloured edge answers that before a label can be focused on. The word is still on the
- * hover window, where somebody who has already picked a thing up can read it.
- */
-const RARITY_TONE: Record<ItemRarity, string> = {
-  common: 'border-surface-600 text-ink-200',
-  uncommon: 'border-verdigris-300/60 text-verdigris-100',
-  rare: 'border-iris-300/60 text-iris-100',
-  exotic: 'border-brass-300/70 text-brass-300 shadow-brass',
-};
-
 /** Where the reader stands on a lot's open bids. */
 function lotStanding(auction: VendorAuction): 'leading' | 'outbid' | 'out' {
   if (auction.leading?.yours === true) return 'leading';
@@ -193,7 +200,18 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
     <li
       className={cn(
         'card-paper washed edge-lit relative flex min-h-0 min-w-0 flex-col items-center justify-between gap-1 rounded-md border p-2',
-        RARITY_TONE[spec.rarity],
+        /*
+         * Rarity, in the frame rather than in a word beside it.
+         *
+         * A shop is scanned, not read: what a player wants off a shelf is which of these is the
+         * unusual one, and a coloured edge answers that before a label can be focused on. The
+         * colours are the one table in `lib/rarity.tsx` now; the barrow used to keep its own copy
+         * of them and had drifted a band off it.
+         */
+        RARITY_TAG[spec.rarity],
+        // The glow stays on the top band. It is right on one lot in six and wrong on a column of
+        // page rows, which is why it is here rather than in the shared table.
+        spec.rarity === 'masterpiece' && 'shadow-brass',
         gone && 'opacity-50',
       )}
       data-testid={`vendor-line-${offer.line.id}`}
@@ -249,9 +267,9 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
 
       {/* The one door, and its word is the reader's standing: Bid where nobody has, Raise where
           somebody is in front of them, and their own table where they are. */}
-      <Button
+      <DrawnButton
         size="sm"
-        className="w-full !py-1"
+        className="w-full"
         disabled={gone}
         onClick={onBid}
         data-testid={`bid-${offer.line.id}`}
@@ -263,7 +281,7 @@ function LotCard({ offer, onBid }: { offer: VendorOffer; onBid: () => void }) {
             : standing === 'outbid'
               ? 'Raise'
               : 'Bid'}
-      </Button>
+      </DrawnButton>
     </li>
   );
 }
@@ -332,6 +350,7 @@ function VendorPanel({
   const { vendor } = market;
   return (
     <Panel
+      tone="paper"
       title="The Runner"
       className="flex min-h-0 flex-col"
       // The hours and the last visit on the Runner's own head, right-aligned, at the head's
@@ -415,6 +434,7 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
 
   return (
     <Panel
+      tone="paper"
       title="The Broker"
       className="row-span-2 flex min-h-0 flex-col"
       action={
@@ -461,22 +481,18 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
             ).map(([label, share]) => {
               const value = Math.floor(held * share);
               return (
-                <button
+                <DrawnButton
                   key={label}
-                  type="button"
+                  // A chip that fills in a number has not spent anything: `confirm` is the sound of
+                  // a press that banks or buys, and `DrawnButton` defaults to it for the doors.
+                  data-sound="click"
                   disabled={value < BARTER_MINIMUM}
                   onClick={() => setAmount(value)}
                   data-tip={`${value.toLocaleString()} ${RESOURCE_LABELS[give].toLowerCase()}`}
-                  className={cn(
-                    'door-tile flex h-[38px] min-w-[2.75rem] items-center justify-center rounded-md border px-2',
-                    'font-display text-[16px] font-bold leading-none tracking-[0.04em] transition-all duration-150',
-                    value < BARTER_MINIMUM
-                      ? 'cursor-not-allowed border-surface-600/60 text-ink-500'
-                      : 'border-brass-500/60 text-brass-300 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100',
-                  )}
+                  className="h-[38px] min-w-[2.75rem] !text-[16px] !tracking-[0.04em]"
                 >
-                  <span className="relative z-[2]">{label}</span>
-                </button>
+                  {label}
+                </DrawnButton>
               );
             })}
           </div>
@@ -526,13 +542,13 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
         </Ledger>
 
         <div className="flex shrink-0 flex-col items-center gap-1.5">
-          <Button
+          <DrawnButton
             className="w-full"
             disabled={blocked !== null || barter.isPending}
             onClick={() => barter.mutate({ give, want, amount })}
           >
             {barter.isPending ? 'Counting it out…' : 'Trade'}
-          </Button>
+          </DrawnButton>
           {blocked !== null && (
             <span className="font-display text-[12px] text-warning">{blocked}</span>
           )}
@@ -651,6 +667,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
 
   return (
     <Panel
+      tone="paper"
       title="The supply run"
       dense
       className="flex min-h-0 flex-col"
@@ -680,40 +697,50 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
       {/* One line, three parts: what to buy, how much, and what it costs with the button on it.
           The parts are centred as a row, so the run reads as one sentence rather than a form, and
           every figure sits in a slot sized for six digits so the row is the same row whatever is
-          typed; on a sheet narrower than 1440 the row wraps and each part stays whole. */}
-      <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-x-2.5 gap-y-2 overflow-y-auto px-3 py-2">
+          typed; on a sheet narrower than 1440 the row wraps and each part stays whole.
+
+          Everything in here is a size up from what it was (maintainer, 2026-09-17). The panel's
+          row went to 160px and the run kept the furniture it had at 106.5px, so measured at
+          1440x900 its contents were 50px inside a 120px body: seventy pixels of nothing, and a
+          counter that read as a caption under the barrow rather than as the third counter on the
+          street. The tiles are the picker's full size, the field and the quote are a few points
+          up, and the two doors are `md` like the Broker's, which measures 114px in the same
+          120px and leaves six for the wrap. */}
+      <div className="flex min-h-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-2 overflow-y-auto px-3 py-2">
         <ResourcePicker
           label="What to buy with caps"
           value={key}
           onChange={setKey}
           held={market.resources}
           keys={supply.lines.map((entry) => entry.key)}
-          size="sm"
           caption={(each) => (
             <>
-              <ResourceIcon kind="caps" className="h-3 w-3" />
+              <ResourceIcon kind="caps" className="h-3.5 w-3.5" />
               {supplyPrice(each, 1).toLocaleString()}
             </>
           )}
           data-testid="supply-resource"
         />
         <div className="flex items-center gap-2">
+          {/* The field has no size of its own, so the two figures that make its height (the input's
+              padding and its type) are lifted here rather than a `size` prop being invented for
+              one caller. */}
           <NumberField
             label="how many units to buy"
             value={units}
             onChange={setWanted}
             min={0}
             max={Math.max(1, most)}
-            className="w-[7.5rem]"
+            className="w-[8.5rem] [&_input]:py-[7px] [&_input]:text-[16px]"
             data-testid="supply-units"
           />
           {/* Only when there is something to take. "All 0" on a full warehouse is a control
               that advertises its own uselessness. */}
           {most > 0 && (
             <span data-tip={`All ${most.toLocaleString()}`}>
-              <Button size="sm" variant="ghost" onClick={() => setWanted(most)}>
+              <DrawnButton data-sound="click" onClick={() => setWanted(most)}>
                 All
-              </Button>
+              </DrawnButton>
             </span>
           )}
         </div>
@@ -721,21 +748,17 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           {/* The price as one line: what goes out, what comes in. The chips the Broker's deal
               wears would make this part alone as wide as the picker. */}
           <span
-            className="edge-lit flex items-center gap-1 rounded-md border border-brass-500/40 bg-surface-950/50 px-2 py-1.5 font-display text-[13px] font-bold tabular-nums"
+            className="edge-lit flex items-center gap-1.5 rounded-md border border-brass-500/40 bg-surface-950/50 px-2.5 py-2 font-display text-[16px] font-bold tabular-nums"
             data-testid="supply-quote"
           >
             {/* Each figure in a slot seven characters wide (six digits and their comma), so the
                 row is the same row at 1 and at 100,000: the digits fill more of their slot. */}
-            <ResourceIcon kind="caps" className="h-5 w-5" />
+            <ResourceIcon kind="caps" className="h-6 w-6" />
             <span className="inline-block min-w-[7ch] text-center text-oxblood-300">
               {price.toLocaleString()}
             </span>
-            <Icon
-              name="chevron-down"
-              aria-hidden
-              className="h-3.5 w-3.5 -rotate-90 text-brass-300"
-            />
-            <ResourceIcon kind={key} className="h-5 w-5" />
+            <Icon name="chevron-down" aria-hidden className="h-4 w-4 -rotate-90 text-brass-300" />
+            <ResourceIcon kind={key} className="h-6 w-6" />
             <span className="inline-block min-w-[7ch] text-center text-verdigris-100">
               {units.toLocaleString()}
             </span>
@@ -743,14 +766,13 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
           {/* The reason the run is refused is the button's own word, with the sentence on its
               hover: a line under the row is a line the frame does not have on a short screen. */}
           <span data-tip={blocked ?? undefined}>
-            <Button
-              size="sm"
+            <DrawnButton
               disabled={blocked !== null || buy.isPending}
               onClick={() => buy.mutate({ key, units })}
               data-testid="supply-buy"
             >
               {buy.isPending ? 'Loading up…' : blocked === null ? 'Buy it' : shortStall(blocked)}
-            </Button>
+            </DrawnButton>
           </span>
         </div>
         {buy.error !== null && (

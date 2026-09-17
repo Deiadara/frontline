@@ -18,8 +18,9 @@
  * decides who gets away is asked of {@link fleeChance} directly instead.
  */
 import { describe, expect, it } from 'vitest';
+import { bareBattlefield } from './battlefield.js';
 import { simulate } from './engine.js';
-import { fleeChance } from './rout.js';
+import { fleeChance, pursuitSpeed } from './rout.js';
 import { TacticalSkirmishEngine, type SkirmishInput, type SkirmishOutcome } from './skirmish.js';
 import type { Army } from '../units/index.js';
 
@@ -161,5 +162,38 @@ describe('the winner’s ring, on the way out', () => {
     expect(outcome.brokeThrough, 'nobody was stopped, so nothing turned them back').toBe(true);
     expect(outcome.perimeterCaught).toEqual({});
     expect(outcome.perimeterLosses).toEqual({});
+  });
+});
+
+/**
+ * Who is actually doing the chasing (2026-09-17).
+ *
+ * A side can win with one of its own stacks routed, and the men who ran are not running anybody
+ * down. `pursuitSpeed` read every stack that was still alive, so a winner's fastest unit set the
+ * chase speed from halfway to its own rear, and the losers were measured against a pursuit that
+ * was not there. It is the same 2026-09-16 rule the rest of the engine applies: a stack that fled
+ * is out of the fight.
+ */
+describe('what a withdrawal is measured against', () => {
+  const sideOf = (army: Army) =>
+    simulate({
+      seed: 'pursuit-speed',
+      battlefield: bareBattlefield(),
+      attacker: { name: 'A', army, defending: false },
+      defender: { name: 'D', army: { razors: 1 }, defending: true },
+    }).attacker;
+
+  it('is the fastest thing still in the fight, not the fastest thing on the field', () => {
+    const side = sideOf({ razors: 10, road_reavers: 5 });
+    const whole = pursuitSpeed(side);
+    const reavers = side.stacks.find((stack) => stack.unit.id === 'road_reavers')!;
+    const footSpeed = side.stacks.find((stack) => stack.unit.id === 'razors')!.effective.speed;
+    // The premise: the bikes are what the chase is worth, or routing them proves nothing.
+    expect(whole).toBe(reavers.effective.speed);
+    expect(whole).toBeGreaterThan(footSpeed);
+
+    reavers.brokeAt = 2;
+
+    expect(pursuitSpeed(side)).toBe(footSpeed);
   });
 });

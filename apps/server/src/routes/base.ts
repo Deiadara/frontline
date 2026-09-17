@@ -19,9 +19,7 @@ import {
   BUILD_BOOST_PERCENT,
   BuyBuildBoostRequestSchema,
   ClearModificationRequestSchema,
-  FitModificationRequestSchema,
   buildBoostOilCost,
-  describeSlotRefusal,
   nexusLevelForUpgrade,
   nexusShortfall,
   projectedBuildings,
@@ -41,7 +39,7 @@ import {
   type BuildRefusal,
 } from '../district/build.js';
 import { buyBuildBoost } from '../district/boost.js';
-import { clearSlot, fitIntoSlot } from '../district/modifications.js';
+import { clearSlot } from '../district/modifications.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { takeLevelUp } from '../progression/award.js';
@@ -172,26 +170,14 @@ export function registerBaseRoutes(app: FastifyInstance): void {
     return { base: result.base, paid: result.paid };
   });
 
-  /** §E: put one of the crew's built add-ons into a structure's first free slot. */
-  app.post(
-    '/base/modifications/fit',
-    { preHandler: app.authenticate },
-    (request): ModificationSlotResponse => {
-      const { building, modificationId } = parseBody(FitModificationRequestSchema, request.body);
-      return app.db.transaction(() => {
-        const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
-        if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
-        const settled = settleBase(app.repos, owned, new Date());
-        const result = fitIntoSlot(app.repos, settled.base, building, modificationId);
-        if (result.kind === 'refused') {
-          throw new AppError('SLOT_REFUSED', describeSlotRefusal(result.reason, building));
-        }
-        return { base: result.base };
-      })();
-    },
-  );
-
-  /** §E: and take it out again. It goes back on the shelf rather than being destroyed. */
+  /**
+   * §E: dismantle what is in a bracket.
+   *
+   * The only half of the old pair left. Fitting is not a step any more (maintainer rule,
+   * 2026-09-16): the Scrapyard cuts a card for a named structure and bolts it in, so there is no
+   * shelf to take one off and `POST /base/modifications/fit` has gone with it. What comes out here
+   * is destroyed rather than shelved, which is what makes the choice of bracket a choice.
+   */
   app.post(
     '/base/modifications/clear',
     { preHandler: app.authenticate },

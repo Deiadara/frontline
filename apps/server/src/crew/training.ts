@@ -1,4 +1,5 @@
 import {
+  ATTRIBUTE_LABELS,
   BENCH_LABEL,
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
@@ -18,6 +19,7 @@ import {
   type TrainingSubject,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { notifyBase } from '../social/notify.js';
 
 /**
  * Paying out the drilling (§F2).
@@ -70,6 +72,40 @@ export function settleTrainingFor(repos: Repositories, base: Base, now: string):
   if (developed && developed !== overseer) {
     repos.overseers.updateAttributes(developed.id, developed.attributes);
   }
+
+  /*
+   * §F2: and the player is told, which they were not.
+   *
+   * `training_done` has been in the catalogue since notifications were written, with a label, a
+   * blurb, an icon and a switch of its own on the settings screen, and **nothing has ever sent
+   * one**: a player could turn "Training" off and on and change nothing either way. The same bug
+   * `unit_trained` had, fixed the same way and in the same place, at the settler that already knows
+   * the work landed (`district/settle.ts` says so in as many words).
+   *
+   * One per settle rather than one per session. Drilling is lazy like every other clock here, so a
+   * crew that has been away all night settles a day's sessions in one read, and a receipt each
+   * would be a burst of identical lines about an hour that finished eleven hours ago.
+   */
+  const who = gains[0];
+  const first = who
+    ? who.subjectId === OVERSEER_SUBJECT
+      ? (developed?.name ?? 'Your Overseer')
+      : (commanders.find((officer) => officer.id === who.subjectId)?.name ?? 'Somebody')
+    : 'Somebody';
+  notifyBase(repos, base.id, {
+    kind: 'training_done',
+    title:
+      gains.length === 1
+        ? `${first} finished an hour on ${ATTRIBUTE_LABELS[who!.attribute]}`
+        : `${gains.length} hours on the floor are done`,
+    body:
+      gains.length === 1
+        ? 'The sheet has moved.'
+        : `Starting with ${first} on ${ATTRIBUTE_LABELS[who!.attribute]}.`,
+    link: '/game/training',
+    now: new Date(now),
+  });
+
   return { base: { ...base, training: state, commanders }, overseer: developed };
 }
 

@@ -54,7 +54,6 @@ import {
   type BuyBuildBoostRequest,
   type BuildAddonRequest,
   type ClearModificationRequest,
-  type FitModificationRequest,
   RenameDistrictResponseSchema,
   CityResponseSchema,
   CreateOverseerResponseSchema,
@@ -81,7 +80,6 @@ import {
   type CancelTrainingRequest,
   IncreasePayrollResponseSchema,
   ReleaseOfficerResponseSchema,
-  type FitSlotRequest,
   type IncreasePayrollRequest,
   type UpgradeNotorietyRequest,
   type ReleaseOfficerRequest,
@@ -104,7 +102,7 @@ import {
   type BarterRequest,
   type PostOfferRequest,
   type OfferActionRequest,
-  type TakeBlackMarketRequest,
+  type PlaceBlackMarketBidRequest,
   type UpdateProfileRequest,
   type ChangePasswordRequest,
   type AdminFogRequest,
@@ -229,10 +227,13 @@ export const renameDistrict = (body: RenameDistrictRequest) =>
 export const buyBuildBoost = (body: BuyBuildBoostRequest) =>
   apiFetch('/base/boost', BuildBoostResponseSchema, jsonBody(body));
 
-/** §E: fill one of a structure's three slots, and empty one again. */
-export const fitModification = (body: FitModificationRequest) =>
-  apiFetch('/base/modifications/fit', ModificationSlotResponseSchema, jsonBody(body));
-
+/**
+ * §E: empty one of a structure's three brackets.
+ *
+ * Filling one is not a route any more (2026-09-16): the yard cuts a card for a named structure and
+ * bolts it in on the same press, so `POST /base/modifications/fit` is gone and this is the only
+ * half left.
+ */
 export const clearModification = (body: ClearModificationRequest) =>
   apiFetch('/base/modifications/clear', ModificationSlotResponseSchema, jsonBody(body));
 
@@ -299,15 +300,22 @@ export const trainUnits = (body: TrainUnitsRequest) =>
 export const cancelTraining = (body: CancelTrainingRequest) =>
   apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody(body));
 
-export const fitSlot = (body: FitSlotRequest) =>
-  apiFetch('/units/loadout', UnitsResponseSchema, jsonBody(body));
-
 export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
 
 export const launchMission = (body: LaunchMissionInput) =>
   apiFetch('/missions', LaunchMissionResponseSchema, jsonBody(body));
 
-export const getBar = () => apiFetch('/bar', BarResponseSchema);
+/**
+ * The Bar, in whichever city was asked for.
+ *
+ * `city` is left off for the crew's own, which is what the server answers a bare read with: a query
+ * string naming the city a player has never left would be noise on every request the screen makes.
+ */
+export const getBar = (city?: string) =>
+  apiFetch(
+    city === undefined ? '/bar' : `/bar?city=${encodeURIComponent(city)}`,
+    BarResponseSchema,
+  );
 
 /**
  * §H7: an open bid on one of tonight's tables.
@@ -337,7 +345,17 @@ export const startTraining = (body: StartTrainingRequest) =>
 
 export const getCrewStanding = () => apiFetch('/overseer/me', CrewStandingResponseSchema);
 
-export const getMarket = () => apiFetch('/market', MarketResponseSchema);
+/**
+ * The market, in whichever city was asked for.
+ *
+ * `city` is left off for the crew's own, which is what the server answers a bare read with: see
+ * `getBar`, which carries the same rule for the same reason.
+ */
+export const getMarket = (city?: string) =>
+  apiFetch(
+    city === undefined ? '/market' : `/market?city=${encodeURIComponent(city)}`,
+    MarketResponseSchema,
+  );
 
 /**
  * A bid on one of the Runner's lots. Every line on the barrow is an auction now: the highest
@@ -371,11 +389,20 @@ export const withdrawOffer = (body: OfferActionRequest) =>
 export const acceptOffer = (body: OfferActionRequest) =>
   apiFetch('/market/accept', MarketMutationResponseSchema, jsonBody(body));
 
-/** The back room. Its own endpoint, because it spends infamy rather than the stockpile. */
-export const getBlackMarket = () => apiFetch('/black-market', BlackMarketResponseSchema);
+/**
+ * The back room. Its own endpoint, because it spends infamy rather than the stockpile.
+ *
+ * `city` the way `getMarket` and `getBar` take it: a crew may stand in the back room of any city it
+ * holds ground in, and the server refuses a city it holds none in.
+ */
+export const getBlackMarket = (city?: string) =>
+  apiFetch(
+    city === undefined ? '/black-market' : `/black-market?city=${encodeURIComponent(city)}`,
+    BlackMarketResponseSchema,
+  );
 
-export const takeFromBlackMarket = (body: TakeBlackMarketRequest) =>
-  apiFetch('/black-market/take', BlackMarketMutationResponseSchema, jsonBody(body));
+export const placeBlackMarketBid = (body: PlaceBlackMarketBidRequest) =>
+  apiFetch('/black-market/bid', BlackMarketMutationResponseSchema, jsonBody(body));
 
 export const getSettings = () => apiFetch('/settings', SettingsResponseSchema);
 

@@ -13,6 +13,7 @@ import {
   LOCATION_CATALOG,
   findLocation,
   findTrap,
+  earnedInfamy,
   gainInfamy,
   homeBattlefield,
   infamyForKills,
@@ -81,10 +82,15 @@ import type { Repositories } from '../db/repos/index.js';
 import { sideForce, splitSurvivors } from './side.js';
 import { notifyBase } from '../social/notify.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
-import { defendingBaseOf } from './declare.js';
+
 import { forceSize, mergeArmies, removeForce } from './forces.js';
-import { tallyBattleResolved, tallyCaptured, tallyInfamyEarned } from '../feats/tally.js';
-import { controlsIn, residentOf, targetName } from './ground.js';
+import {
+  tallyBattleResolved,
+  tallyCaptured,
+  tallyInfamyEarned,
+  tallyResourcesEarned,
+} from '../feats/tally.js';
+import { controlsIn, defendingBaseOf, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { gateFor, holdsDistrictWhole, resetGateOnDistrictLost } from '../city/gates.js';
 
@@ -341,7 +347,7 @@ function bankOutcome(
       : 0);
   return {
     ...economy,
-    infamy: gainInfamy(economy.infamy, earned * (1 + Math.max(0, infamyGainPercent) / 100)),
+    infamy: gainInfamy(economy.infamy, earnedInfamy(earned, infamyGainPercent)),
   };
 }
 
@@ -750,6 +756,29 @@ function withInjury(commanders: readonly Commander[], officerId: string, now: Da
   );
 }
 
+/**
+ * One side's rows with its recovered dead moved back into the living.
+ *
+ * Row by row rather than on the totals alone: the report's unit table is what a player reads to
+ * decide which of their units is worth fielding again, and a table whose rows do not add up to the
+ * side's own figures is worse than one that is merely stale. `lost` never goes below zero and
+ * never gives back more than that row lost, so a recovery list that names a unit the row does not
+ * have cannot invent a survivor.
+ */
+function withRecovered(side: SideAnalysis, recovered: Army): SideAnalysis {
+  if (forceSize(recovered) === 0) return side;
+  const units = side.units.map((unit) => {
+    const back = Math.min(unit.lost, Math.max(0, recovered[unit.unitId] ?? 0));
+    return back === 0 ? unit : { ...unit, lost: unit.lost - back, survived: unit.survived + back };
+  });
+  return {
+    ...side,
+    units,
+    lost: units.reduce((sum, unit) => sum + unit.lost, 0),
+    survived: units.reduce((sum, unit) => sum + unit.survived, 0),
+  };
+}
+
 function resolveOne(
   repos: Repositories,
   engine: SkirmishEngine,
@@ -979,12 +1008,28 @@ function resolveOne(
     const reported = outcome.officers[side];
     return reported === null ? into : { ...into, officer: { ...reported, injured: injured[side] } };
   };
+  /*
+   * §B10: the medics, on the report as well as on the roster.
+   *
+   * Only the winner's side, because only the winner recovers anybody, and only here because the
+   * engine that built these rows does not know what this crew's Infirmary is worth. See
+   * `Settlement.recovered`.
+   */
+  const mended = (side: BattleSide, into: SideAnalysis): SideAnalysis =>
+    attackerWon === (side === 'attacker') ? withRecovered(into, settlement.recovered) : into;
+
   const analysis: BattleAnalysis = {
     ...base,
     winner: attackerWon ? 'attacker' : 'defender',
     trap: trap.note,
-    attacker: { ...withOfficer('attacker', base.attacker), infamy: settlement.attackerInfamy },
-    defender: { ...withOfficer('defender', base.defender), infamy: settlement.defenderInfamy },
+    attacker: {
+      ...mended('attacker', withOfficer('attacker', base.attacker)),
+      infamy: settlement.attackerInfamy,
+    },
+    defender: {
+      ...mended('defender', withOfficer('defender', base.defender)),
+      infamy: settlement.defenderInfamy,
+    },
   };
 
   repos.sieges.markResolved(battle.id, now.toISOString(), analysis);
@@ -1086,6 +1131,15 @@ interface Settlement {
    */
   attackerKills: number;
   defenderKills: number;
+  /**
+   * The winner's dead that the medics handed back, by unit id.
+   *
+   * Out of here for the same reason the kill counts are: this is the only place that knows what
+   * the crew's medicine and its Infirmary were worth, and the report is assembled by the caller.
+   * Empty for the loser's side, which recovers nobody: a routed force leaves its wounded where
+   * they fell.
+   */
+  recovered: Army;
 }
 
 /**
@@ -1126,6 +1180,16 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       : (defenderGround?.casualtyRecoveryPercent ?? 0)) +
     (winnerBase ? infirmaryRecoveryPercent(winnerBase.buildings) : 0);
   const winnerDead = recoverCasualties(outcome.winnerLosses, winnerRecovery);
+  /*
+   * ...and who they were, which the report needs as much as the roster does.
+   *
+   * `analyseBattle` runs inside the engine and the engine has never heard of this crew's Infirmary,
+   * so the side it builds counts every one of the winner's dead as dead. The recovery happens here,
+   * one line up, and the settler patched only the officer and the infamy onto that analysis. So the
+   * roster handed the survivors back and the report a player reads afterwards still listed them as
+   * casualties: two numbers for one fight, and the one on the screen was the wrong one.
+   */
+  const recovered = removeForce(outcome.winnerLosses, winnerDead);
   const attackerDead = attackerWon ? winnerDead : outcome.killed;
   const defenderDead = attackerWon ? outcome.killed : winnerDead;
 
@@ -1474,6 +1538,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
        */
       const banked = repos.bases.findById(defenderBase.id) ?? defenderBase;
       repos.bases.updateResources(defenderBase.id, addResources(banked.resources, theirRefund));
+      // The attacker's own refund rides in `haul` and is tallied with it, so counting this one
+      // keeps "holding a Bone Market is worth the same at either end of the fight" true of the
+      // lifetime ladders as well as of the stockpile.
+      tallyResourcesEarned(repos, defenderBase.id, theirRefund);
     }
     /*
      * The kills, never the raid premium. `infamyForRaidWon` prices what taking ground off the
@@ -1592,6 +1660,19 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     // the settle would put the plundered amount back and add the haul on top.
     const banked = repos.bases.findById(attackerNext.id) ?? attacker;
     repos.bases.updateResources(attackerNext.id, addResources(banked.resources, haul));
+    /*
+     * §I: a fight is a faucet, and it was the one faucet that counted for nothing.
+     *
+     * `tallyResourcesEarned` names "missions, fights, the market, and production" in its own doc
+     * and three of the four called it. A raid is the largest single payment in the game, so the
+     * five `resources_earned` ladders were measuring a crew's *jobs and shopping* and calling the
+     * total what it had ever earned: a war crew that took everything it owned off other people sat
+     * at nothing on all five.
+     *
+     * Here rather than beside the in-memory merge above, because this is the line that banks it,
+     * and a tally beside an assignment would count a haul on paths that never write one.
+     */
+    tallyResourcesEarned(repos, attackerNext.id, haul);
   }
 
   /*
@@ -1627,6 +1708,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     haul,
     attackerKills: forceSize(defenderFallen),
     defenderKills: forceSize(attackerFallen),
+    recovered,
   };
 }
 
@@ -1777,6 +1859,7 @@ function fallbackAnalysis(
     winner: outcome.winner,
     rounds: outcome.rounds,
     decidedOnPower: false,
+    settledBy: 'standing' as const,
     // A stub engine's fights have no ring in them, so nobody was turned back by one.
     brokeThrough: outcome.brokeThrough,
     attacker,

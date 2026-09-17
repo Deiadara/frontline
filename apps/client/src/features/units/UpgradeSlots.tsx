@@ -1,26 +1,26 @@
 import {
-  MODIFICATION_RARITIES,
   MODIFICATION_RARITY_LABELS,
-  UNIT_STAT_LABELS,
-  type BuiltUpgrade,
-  firstFreeIndex,
+  describeAddonEffect,
+  findUnitModification,
   type FittedSlot,
-  type StatKey,
   type UnitOption,
 } from '@frontline/shared';
-import { Fragment, useState } from 'react';
-import { Modal } from '../../components/ui/Modal';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Confirm } from '../../components/ui/Confirm';
 import { cn } from '../../lib/cn';
-import { useBurnUpgrade, useFitSlot } from '../../lib/queries';
-import { RARITY_BRACKET, RARITY_TEXT, RarityTag } from '../scrapyard/rarity';
+import { useBurnUpgrade } from '../../lib/queries';
+import { RARITY_BRACKET, RARITY_TEXT } from '../scrapyard/rarity';
 import { YardGlyph } from '../scrapyard/YardGlyph';
 
 /**
- * Three brackets on every unit, and the menu that fills one (GDD §A5, Scrapyard extension).
+ * Three brackets on every unit, each one a door to the Scrapyard (GDD §A5, yard rework 2026-09-16).
  *
- * The Scrapyard *builds* a modification; this is where it gets bolted to somebody. Three is the
- * whole design: a crew that has built all thirty still has to say what the Razors are for, and the
- * same Hardshell Exoframe cannot be on two units at once (§D5c).
+ * The yard used to build a card onto a shelf and this screen bolted it to somebody. It does not:
+ * a card is cut for a named unit and bolted on in the same press, so `POST /units/loadout` and the
+ * picker that called it are gone. An empty bracket is the way *to* that press, carrying the unit
+ * with it, and what is left here is the half the bench cannot do: say what is bolted on, and burn
+ * it off again.
  *
  * Drawn as brackets rather than as a list of names, so an empty one reads as room rather than as
  * an absence: the card should invite the player to fill it before they know what any of it does.
@@ -28,33 +28,23 @@ import { YardGlyph } from '../scrapyard/YardGlyph';
  * ## What a bracket says about the card in it
  *
  * The grade, in the grade's colour (`scrapyard/rarity.tsx`), and the grade's mark. The card's name
- * and its deltas are on the hover: at the width a bracket has, a name is a cut name. The refit
- * lines that used to colour a bracket (armour, weapons, cybernetics, discipline) went with the
- * refits on 2026-09-15; the rarity is the one axis the thirty cards share.
+ * and what it does are on the hover, read off the catalogue rather than off the payload so the
+ * sentence here and the sentence on the bench cannot drift apart. At the width a bracket has, a
+ * name is a cut name.
  *
  * ## Who takes nothing
  *
  * A legendary unit takes no modifications at all. That is the maintainer's rule and it lives in
  * `modificationFitsUnit`, which is also what fills `UnitOption.eligible`: a legendary arrives with
  * an empty list, and the card draws one quiet line in place of the brackets rather than three
- * dashed invitations to a menu the server would refuse. Carriers draw brackets like everyone
- * else, now that the catalogue has cards written for them (Hook and Line, Rescue Rig).
+ * dashed invitations to a bench that would refuse it. Carriers draw brackets like everyone else,
+ * now that the catalogue has cards written for them (Hook and Line, Rescue Rig).
  */
-
-/** `+6 vitality · -2 speed`, in the sheet's own words. */
-function describeEffect(effect: Record<string, number>): string {
-  return Object.entries(effect)
-    .map(([key, delta]) => {
-      const label = UNIT_STAT_LABELS[key as StatKey] ?? key;
-      return `${delta > 0 ? '+' : ''}${delta} ${label.toLowerCase()}`;
-    })
-    .join(' · ');
-}
-
-export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUpgrade[] }) {
-  const [open, setOpen] = useState<number | null>(null);
-  const fit = useFitSlot();
+export function UpgradeSlots({ unit }: { unit: UnitOption }) {
+  const navigate = useNavigate();
   const burn = useBurnUpgrade();
+  /** Which bracket is being burned out, and has not been confirmed. Destroying one is one-way. */
+  const [burning, setBurning] = useState<number | null>(null);
 
   /*
    * A legendary takes nothing, and is told so rather than offered three brackets.
@@ -73,22 +63,8 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
     );
   }
 
-  /**
-   * The picker's rows, grouped by grade in the order the yard sells them, so the menu here reads
-   * the way the bench does. A grade the crew has built nothing of is not drawn.
-   */
-  const groups = MODIFICATION_RARITIES.map((rarity) => ({
-    rarity,
-    cards: built.filter((upgrade) => upgrade.rarity === rarity),
-  })).filter((group) => group.cards.length > 0);
-
-  /*
-   * Where a press would land, worked out once for the whole menu: the first empty bracket, or
-   * nothing when all three are full. Null is a state the menu has to say out loud, because the
-   * picker opens from a full bracket as well (that is how a card gets burned), and a card on the
-   * shelf then has nowhere to go.
-   */
-  const target = firstFreeIndex(unit.slots.map((slot) => slot.upgradeId));
+  const burningId = burning === null ? null : (unit.slots[burning]?.upgradeId ?? null);
+  const burningCard = burningId === null ? undefined : findUnitModification(burningId);
 
   return (
     <>
@@ -98,191 +74,45 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
             <SlotBracket
               slot={slot}
               index={index}
-              disabled={!unit.unlocked || fit.isPending}
-              onOpen={() => setOpen(index)}
+              unitName={unit.name}
+              disabled={!unit.unlocked || burn.isPending}
+              onOpen={() =>
+                slot.upgradeId === null
+                  ? // The bench is a per-unit screen now, so the door carries the unit with it: a
+                    // player who pressed a bracket on the Razors should not have to find them again
+                    // in a list of thirty.
+                    void navigate(`/game/scrapyard?view=refits&unit=${unit.id}`)
+                  : setBurning(index)
+              }
             />
           </li>
         ))}
       </ul>
 
-      {open !== null && (
-        <Modal onClose={() => setOpen(null)} labelledBy={`slot-picker-${unit.id}`}>
-          <div className="flex flex-col gap-3 p-4">
-            <div>
-              <h2
-                id={`slot-picker-${unit.id}`}
-                className="font-display text-[15px] font-bold uppercase tracking-[0.16em] text-brass-300"
-              >
-                {unit.name} · bracket {open + 1}
-              </h2>
-              <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-                You have one of each, and bolting it on is permanent: every one of these already
-                trained gets it, and so does every one after. It does not come off. It can be
-                burned, and then built again for somebody else.
-              </p>
-            </div>
+      {/*
+       * §D5c: the only way one ever comes off, and it destroys the thing.
+       *
+       * This was "Empty it", which handed the modification back and made the whole decision free:
+       * a crew could walk one plate around the roster to suit whatever they were about to field.
+       * Burning it costs the plate, so choosing where it goes is worth thinking about. Through
+       * `Confirm` rather than a dialog of its own, which is that component's stated rule and the
+       * same door the structure brackets ask through.
+       */}
+      {burning !== null && burningId !== null && (
+        <Confirm
+          title="Dismantle it?"
+          body={`${burningCard?.name ?? 'That card'} comes off your ${unit.name} and is scrap. Nothing is refunded, and the Scrapyard has to cut another one from parts.`}
+          confirm="Dismantle it"
+          testId={`slot-burn-${unit.id}`}
+          onCancel={() => setBurning(null)}
+          onConfirm={() =>
+            burn.mutate({ upgradeId: burningId }, { onSuccess: () => setBurning(null) })
+          }
+        />
+      )}
 
-            {built.length === 0 ? (
-              <p className="rounded-sm border border-surface-600/70 bg-surface-950/40 px-3 py-4 text-center font-body text-[13px] text-ink-300">
-                The Scrapyard has not built anything yet.
-              </p>
-            ) : (
-              <ul
-                className="flex max-h-[22rem] flex-col gap-1.5 overflow-y-auto"
-                data-testid={`slot-options-${unit.id}`}
-              >
-                {groups.map((group) => (
-                  <Fragment key={group.rarity}>
-                    <li
-                      className={cn(
-                        'font-display text-[10px] font-bold uppercase tracking-[0.18em] [&:not(:first-child)]:mt-2',
-                        RARITY_TEXT[group.rarity],
-                      )}
-                      data-testid={`slot-options-${unit.id}-${group.rarity}`}
-                    >
-                      {MODIFICATION_RARITY_LABELS[group.rarity]}
-                    </li>
-                    {group.cards.map((upgrade) => {
-                      const here = unit.slots[open]?.upgradeId === upgrade.id;
-                      /*
-                       * §D5c: fitted anywhere at all, this unit's other brackets included.
-                       *
-                       * One of a thing is one of a thing. The picker used to disable only the brackets
-                       * on the unit in front of you, so a plate already bolted to the Breakers looked
-                       * available here and the server refused the press. It then left the card in the
-                       * bracket the picker was opened from live, highlighted as "here" and still a
-                       * button: pressing it sent the same card at the first empty bracket, which the
-                       * server refused as `already_slotted`. Fitted anywhere means anywhere.
-                       */
-                      const fitted = upgrade.fittedTo !== null;
-                      /*
-                       * A card written for somebody else: shown rather than hidden, for the same
-                       * reason as a card bolted on elsewhere. The crew owns it and the menu should say
-                       * so; what it says beside it is why this unit cannot have it. The server refuses
-                       * the press (`does_not_fit`), and this is the screen agreeing before the press.
-                       */
-                      const unfit = !unit.eligible.includes(upgrade.id);
-                      /*
-                       * Nowhere to put it. Every bracket is full and this card is on the shelf, so the
-                       * press had nothing to send and used to do nothing at all: a live button that
-                       * swallows the click. Burning one is the only way to make room, and the note
-                       * says so.
-                       */
-                      const noRoom = target === null && !fitted;
-                      const dead = unfit || fitted || noRoom;
-                      return (
-                        <li key={upgrade.id}>
-                          <button
-                            type="button"
-                            // A dead row is shown rather than hidden, with the reason on it. A menu
-                            // that silently drops an entry the player knows they own reads as a bug,
-                            // and "it is bolted to your Breakers" is a thing they can act on.
-                            disabled={dead || fit.isPending}
-                            data-testid={`slot-option-${upgrade.id}`}
-                            aria-disabled={dead}
-                            onClick={() => {
-                              /*
-                               * Into the first empty bracket, whichever one was pressed (maintainer
-                               * request, 2026-09-15). Three empty brackets are one decision, and a
-                               * card that landed in the third because that was the `+` under the
-                               * cursor left two gaps to the left of it. `open` still says which
-                               * bracket the picker was opened from, for the "already here" state; it
-                               * is not where the card goes. The server refuses anything else
-                               * (`skipped_slot`), so this is the screen agreeing with the rule rather
-                               * than the rule living in the screen.
-                               */
-                              if (target === null) return;
-                              fit.mutate(
-                                { unitId: unit.id, slot: target, upgradeId: upgrade.id },
-                                { onSuccess: () => setOpen(null) },
-                              );
-                            }}
-                            className={cn(
-                              'flex w-full items-start gap-3 rounded-sm border px-3 py-2 text-left transition-colors',
-                              here
-                                ? 'border-brass-300/70 bg-brass-300/10'
-                                : 'border-surface-600/70 bg-surface-950/40 hover:border-brass-300/60',
-                              dead && 'opacity-45',
-                            )}
-                          >
-                            <YardGlyph
-                              mark={{ kind: 'rarity', rarity: upgrade.rarity }}
-                              className={cn('mt-0.5 h-4 w-4 shrink-0', RARITY_TEXT[upgrade.rarity])}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-                                <span className="min-w-0 break-words font-display text-[13px] font-bold text-ink-100">
-                                  {upgrade.name}
-                                </span>
-                                <RarityTag rarity={upgrade.rarity} />
-                              </span>
-                              <span className="mt-0.5 block font-display text-[12px] tabular-nums text-brass-300">
-                                {describeEffect(upgrade.effect)}
-                              </span>
-                              <span
-                                className="mt-0.5 block font-body text-[12px] leading-snug text-ink-300"
-                                data-testid={`slot-option-note-${upgrade.id}`}
-                              >
-                                {unfit
-                                  ? `Not made for ${unit.name}. It goes on somebody else.`
-                                  : here
-                                    ? 'In this bracket. Burn it to take it out.'
-                                    : fitted
-                                      ? `Bolted to your ${upgrade.fittedToName}. Burn it to free it up.`
-                                      : noRoom
-                                        ? `Every bracket on your ${unit.name} is full. Burn one to make room.`
-                                        : upgrade.description}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </Fragment>
-                ))}
-              </ul>
-            )}
-
-            {fit.isError && (
-              <p className="font-body text-[12px] text-oxblood-300">{fit.error.message}</p>
-            )}
-            {burn.isError && (
-              <p className="font-body text-[12px] text-oxblood-300">{burn.error.message}</p>
-            )}
-
-            <div className="flex justify-between gap-2">
-              {/*
-               * §D5c: the only way one ever comes off, and it destroys the thing.
-               *
-               * This was "Empty it", which handed the modification back and made the whole
-               * decision free: a crew could walk one plate around the roster to suit whatever
-               * they were about to field. Burning it costs the plate, so choosing where it goes
-               * is worth thinking about and changing your mind is worth something.
-               */}
-              <button
-                type="button"
-                disabled={unit.slots[open]?.upgradeId === null || burn.isPending}
-                data-sound="confirm"
-                onClick={() => {
-                  const fitted = unit.slots[open]?.upgradeId;
-                  if (!fitted) return;
-                  burn.mutate({ upgradeId: fitted }, { onSuccess: () => setOpen(null) });
-                }}
-                data-testid={`burn-${unit.id}`}
-                className="brushed relative rounded-sm border border-surface-600/70 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-ink-300 transition-colors hover:border-oxblood-300/70 hover:text-oxblood-300 disabled:opacity-40"
-              >
-                {burn.isPending ? 'Burning…' : 'Burn it'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setOpen(null)}
-                className="brushed relative rounded-sm border border-brass-300/60 px-3 py-1.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300 transition-colors hover:bg-brass-300/10"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </Modal>
+      {burn.isError && (
+        <p className="mt-1 font-body text-[12px] text-oxblood-300">{burn.error.message}</p>
       )}
     </>
   );
@@ -292,14 +122,17 @@ export function UpgradeSlots({ unit, built }: { unit: UnitOption; built: BuiltUp
 function SlotBracket({
   slot,
   index,
+  unitName,
   disabled,
   onOpen,
 }: {
   slot: FittedSlot;
   index: number;
+  unitName: string;
   disabled: boolean;
   onOpen: () => void;
 }) {
+  const card = slot.upgradeId === null ? undefined : findUnitModification(slot.upgradeId);
   const filled = slot.upgradeId !== null && slot.rarity !== null;
   return (
     <button
@@ -307,13 +140,20 @@ function SlotBracket({
       disabled={disabled}
       onClick={onOpen}
       data-testid={`slot-${index}`}
-      // The name and what it does live on the hover, not in the bracket: at the width a bracket
-      // has it can hold the grade's mark and the grade's word and nothing else, and a truncated
-      // `Composite Cara…` is the cut label the maintainer's bar forbids outright.
+      data-sound="click"
+      /*
+       * The name and what it does live on the hover, not in the bracket: at the width a bracket
+       * has it can hold the grade's mark and the grade's word and nothing else, and a truncated
+       * `Composite Cara…` is the cut label the maintainer's bar forbids outright.
+       *
+       * Read off the catalogue (`findUnitModification`, `describeAddonEffect`) rather than off the
+       * roster payload, so this sentence and the one the bench prints on the same card are the
+       * same sentence.
+       */
       data-tip={
-        filled
-          ? `${slot.name} · ${MODIFICATION_RARITY_LABELS[slot.rarity!]} · ${describeEffect(slot.effect)}`
-          : `Bracket ${index + 1} · empty`
+        filled && card
+          ? `${card.name} · ${MODIFICATION_RARITY_LABELS[card.rarity]} · ${describeAddonEffect(card)} · press to burn it off`
+          : `Bracket ${index + 1} · empty · cut one for the ${unitName} in the Scrapyard`
       }
       className={cn(
         'flex h-6 w-full items-center justify-center gap-1 rounded-sm border transition-colors',
@@ -325,7 +165,10 @@ function SlotBracket({
     >
       {filled ? (
         <>
-          <YardGlyph mark={{ kind: 'rarity', rarity: slot.rarity! }} className="h-3.5 w-3.5" />
+          <YardGlyph
+            mark={{ kind: 'rarity', rarity: slot.rarity! }}
+            className={cn('h-3.5 w-3.5', RARITY_TEXT[slot.rarity!])}
+          />
           <span
             className="whitespace-nowrap font-display text-[9px] font-bold uppercase leading-none tracking-[0.08em]"
             data-testid={`slot-rarity-${index}`}

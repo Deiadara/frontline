@@ -6,6 +6,7 @@ import {
   canClaimFeat,
   mergeFeatRewards,
   findFeat,
+  earnedInfamy,
   gainInfamy,
   unitSlotsUsed,
   type Army,
@@ -22,6 +23,7 @@ import { projectFeats, progressFor } from '../feats/project.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { settleBase } from '../district/settle.js';
 import { mergeArmies } from '../battle/forces.js';
+import { crewEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyInfamyEarned, tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -243,10 +245,24 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
     repos.bases.updateArmy(base.id, mergeArmies(base.army, reward.units), base.trainingQueue);
   }
 
-  if (reward.infamy) {
+  /*
+   * What the crew is actually paid in infamy, scaled by `infamy_gain` the way a fight's and a
+   * job's are.
+   *
+   * The channel says "everything that earns any" and its chip reads "+X% infamy earned", and this
+   * was the one faucet paying the flat catalogue figure. It read as a bug inside this function
+   * twice over: `awardPlayerXp` a few lines up folds `xpGainPercent` into a feat's XP at its own
+   * funnel, so the same reward already scaled one of its two currencies and not the other.
+   *
+   * Read once, so the stockpile and the lifetime ladder below cannot be paid different numbers.
+   */
+  const infamy = reward.infamy
+    ? earnedInfamy(reward.infamy, crewEffectsFor(repos, base).infamyGainPercent)
+    : 0;
+  if (infamy > 0) {
     repos.bases.updateEconomy(base.id, {
       ...base.economy,
-      infamy: gainInfamy(base.economy.infamy, reward.infamy),
+      infamy: gainInfamy(base.economy.infamy, infamy),
     });
   }
 
@@ -272,7 +288,8 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
   }
 
   if (reward.resources) tallyResourcesEarned(repos, base.id, reward.resources);
-  if (reward.infamy) tallyInfamyEarned(repos, base.id, reward.infamy);
+  // What the crew was paid, not what the catalogue printed: the ladders measure infamy earned.
+  if (infamy > 0) tallyInfamyEarned(repos, base.id, infamy);
   if (reward.items) {
     /*
      * A feat is the seventh door a blueprint page comes through, and it was the one that counted

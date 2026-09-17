@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import type { OverseerChoicesResponse } from '@frontline/shared';
+import type { UseQueryResult } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiRequestError } from '../lib/api';
 import { useCreateOverseer, useOverseerChoices } from '../lib/queries';
@@ -46,6 +48,44 @@ function measureRows(frame: HTMLElement, grid: HTMLElement, hint: HTMLElement | 
   return { height, hiddenCards: bottoms.filter((bottom) => bottom > height + 0.5).length };
 }
 
+/**
+ * How long the four on screen stay held, measured on the server's clock (§F6, 2026-09-17).
+ *
+ * `expiresAt` alone would be read against the reader's own clock, and a machine a few minutes out
+ * would show a countdown starting at seven minutes or at twelve. The response carries `serverNow`
+ * for exactly this: the gap between the two is the real window, and it is anchored to the moment
+ * the cache took the response rather than to whatever this browser thinks the time is.
+ *
+ * Null when nothing is held, which happens only when the pool is too small to hold anything back.
+ */
+function useHoldCountdown(offer: UseQueryResult<OverseerChoicesResponse>): number | null {
+  const { dataUpdatedAt, data } = offer;
+  const deadline =
+    data?.expiresAt == null
+      ? null
+      : Date.parse(data.expiresAt) - Date.parse(data.serverNow) + dataUpdatedAt;
+  const [msLeft, setMsLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (deadline === null) {
+      setMsLeft(null);
+      return undefined;
+    }
+    const tick = () => setMsLeft(Math.max(0, deadline - Date.now()));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [deadline]);
+
+  return msLeft;
+}
+
+/** `9:58`, the shape a countdown is read in. */
+function asClock(ms: number): string {
+  const seconds = Math.ceil(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 export function CharacterSelectScreen() {
   const navigate = useNavigate();
   const createOverseer = useCreateOverseer();
@@ -85,6 +125,23 @@ export function CharacterSelectScreen() {
     return () => observer.disconnect();
   }, [rows.hiddenCards, choices.length]);
 
+  /*
+   * §F6: the ten minutes are up, so draw four more without making the player find the reload key.
+   *
+   * The server has already let the hold go by the time this fires, and pressing Confirm on a lapsed
+   * batch is a 410. Refetching here is what turns "the page needs refreshing" into the page having
+   * refreshed itself. It cannot loop: a successful draw moves the deadline forward, and a failed
+   * one leaves `lapsed` exactly as it was, so the effect's dependencies do not change.
+   */
+  const msLeft = useHoldCountdown(offer);
+  const lapsed = msLeft === 0;
+  const { refetch } = offer;
+  useEffect(() => {
+    if (!lapsed) return;
+    setSelectedId(null);
+    void refetch();
+  }, [lapsed, refetch]);
+
   const selected = choices.find((p) => p.presetId === selectedId) ?? null;
 
   const confirm = () => {
@@ -114,9 +171,21 @@ export function CharacterSelectScreen() {
       <div className="grain pointer-events-none absolute inset-0" />
 
       <header className="relative shrink-0 border-b border-surface-600/70 px-8 py-3">
-        <p className="font-display text-[11px] tracking-[0.5em] text-brass-300">
-          // OVERSEER SELECTION //
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <p className="font-display text-[11px] tracking-[0.5em] text-brass-300">
+            // OVERSEER SELECTION //
+          </p>
+          {msLeft !== null && (
+            <p
+              data-testid="overseer-hold"
+              className={`shrink-0 font-display text-[11px] uppercase tracking-[0.2em] ${
+                lapsed ? 'text-oxblood-300' : 'text-ink-300'
+              }`}
+            >
+              {lapsed ? 'Offer lapsed // drawing four more' : `Held for you // ${asClock(msLeft)}`}
+            </p>
+          )}
+        </div>
         <h1 className="mt-1 font-display text-2xl font-bold tracking-[0.2em] text-ink-100">
           CHOOSE YOUR OVERSEER
         </h1>
@@ -130,7 +199,9 @@ export function CharacterSelectScreen() {
             ? 'The files would not open.'
             : offer.data === undefined
               ? 'Reading the files.'
-              : `${choices.length} of the ${offer.data.total} operators are free to take your call, and ${offer.data.remaining} are still unspoken for. Each rewrites how the war is fought, and whoever you take is off the board for everybody.`}
+              : choices.length === 0
+                ? `Every operator still unspoken for is sitting in somebody else's booking. There are ${offer.data.remaining} of them left and the bookings run out on their own, so this screen is waiting for the first one to.`
+                : `${choices.length} of the ${offer.data.total} operators are free to take your call, and ${offer.data.remaining} are still unspoken for. Each rewrites how the war is fought, and whoever you take is off the board for everybody.`}
         </p>
       </header>
 

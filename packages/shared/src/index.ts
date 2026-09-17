@@ -19,6 +19,7 @@ export * from './api.feats.js';
 export * from './economy/infamy.js';
 export * from './economy/notoriety.js';
 export * from './economy/payroll.js';
+export * from './economy/renown.js';
 export * from './economy/state.js';
 export * from './progression/index.js';
 export * from './delegation/index.js';

@@ -26,6 +26,7 @@ import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
 import { useBar, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
+import { CityPicker } from '../city/CityPicker';
 import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
 import { useServerClock } from '../missions/useServerClock';
 import { AuctionWindow } from './AuctionWindow';
@@ -116,7 +117,17 @@ const STOOL = { x: 0.502, y: 0.638 } as const;
 const BAR_ASPECT = plateAspect('bar');
 
 export function BarPage() {
-  const barQuery = useBar();
+  /*
+   * Which city's room this is (maintainer, 2026-09-17).
+   *
+   * `null` means the crew's own, which is what the server answers a bare read with, so a player who
+   * never leaves home never sends a city on any request. The chosen city is state on this screen
+   * rather than in the URL because it is where a player is standing rather than where they are: the
+   * Bar has no deep links into it, and a bookmarked room a crew has since been thrown out of would
+   * be a refusal on arrival.
+   */
+  const [city, setCity] = useState<string | null>(null);
+  const barQuery = useBar(city ?? undefined);
   /** Which screen is over the room: the stool, the book, the crew, the results, or none of them. */
   const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | 'results' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
@@ -247,6 +258,28 @@ export function BarPage() {
         </div>
       )}
 
+      {/*
+       * The door to another city's room, top right over the art (maintainer request, 2026-09-17).
+       *
+       * Its own layer rather than a corner of the readouts strip below: that strip is pinned to the
+       * foot with `mt-auto` and this belongs at the top, where a player looks for "where am I".
+       */}
+      {data !== undefined && (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-20 flex justify-end px-4"
+          style={{ top: 'calc(var(--hud-h, 0px) + 16px)' }}
+        >
+          <span className="pointer-events-auto">
+            <CityPicker
+              size="md"
+              cityId={data.cityId}
+              cities={data.cities}
+              onChoose={(next) => setCity(next)}
+            />
+          </span>
+        </div>
+      )}
+
       {/* The standing readouts, on the glass over the room. */}
       {/* The same inset the room takes, or they sit under the nav: this layer is over the whole
           viewport, and the chrome floats on top of it. */}
@@ -278,8 +311,7 @@ export function BarPage() {
             <InfoNote tone="warn" label="How the Bar works">
               Every crew in the city is bidding on these same people, and the bids are open until
               half an hour before midnight. After that everybody gets one sealed final value, and at
-              midnight the highest signs them at exactly what they bid. Nothing is negotiated: what
-              you put down is what they cost you every week.
+              midnight the highest signs them at exactly what they bid.
             </InfoNote>
           </OnArt>
 
@@ -1249,7 +1281,9 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
  *
  * A step is a fixed size at a price the server quotes and that climbs with every step already
  * bought, so the price is shown rather than derived here: `payrollStepCost` owns it, and a second
- * copy of that curve on the client is a copy that can disagree.
+ * copy of that ladder on the client is a copy that can disagree. That includes where it stops:
+ * a bought-out book quotes no price at all, and `RaisePayroll` drops its own button rather than
+ * offering a purchase `POST /bar/payroll` refuses with `PAYROLL_AT_MAX`.
  */
 function PayrollPanel({ ledger, caps }: { ledger: PayrollLedger | null; caps: number }) {
   const raise = useIncreasePayroll();

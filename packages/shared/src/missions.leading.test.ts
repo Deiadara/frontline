@@ -40,6 +40,24 @@ describe('leanings and their profiles', () => {
     }
   });
 
+  /**
+   * Every leaning is something some job on the board actually asks for.
+   *
+   * `wire` and `medic` shipped with full profiles, labels and reasons and **no job in the game**
+   * asking for either, so the Signals officer and the Chief Medic could never be the right person
+   * to lead a run: two eighths of the leader-fit system was content nothing could reach. The
+   * same rule the feats catalogue holds itself to, one screen over: a mechanic with nothing behind
+   * it is invisible to the player and silent to every gate.
+   *
+   * Measured through `leaningsFor` rather than off the authored field, because most jobs carry no
+   * `leanings` at all and are read off their kind and their distance.
+   */
+  it('has a job somewhere that asks for each leaning', () => {
+    const asked = new Set(MISSION_TEMPLATES.flatMap((template) => leaningsFor(template)));
+    const orphans = MISSION_LEANINGS.filter((leaning) => !asked.has(leaning));
+    expect(orphans, 'leanings no job on the board ever asks for').toEqual([]);
+  });
+
   it('composes two leanings by keeping the higher importance where they overlap', () => {
     // `composure` is essential to quiet work and merely useful in a fight.
     const profile = composeProfile(['fight', 'stealth']);

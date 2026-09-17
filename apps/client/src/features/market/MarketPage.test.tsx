@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CITY_ID,
   RESOURCE_KEYS,
   RESOURCE_LABELS,
   STORAGE_SHARES,
@@ -34,6 +35,8 @@ const resources = Object.fromEntries(
 const market: MarketResponse = {
   reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
   serverNow: NOW,
+  cityId: DEFAULT_CITY_ID,
+  cities: [DEFAULT_CITY_ID],
   caps: resources.caps,
   resources,
   inventory: {},

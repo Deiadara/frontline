@@ -265,8 +265,13 @@ export function narrate(simulation: Simulation, findings: readonly BattleFinding
       : `The push on ${battlefield.locationName} breaks. ${defender.name} still holds it.`,
   );
 
-  if (simulation.decidedOnPower) {
+  if (simulation.settledBy === 'cap') {
     log.push('Neither side broke. It was called on who was left standing.');
+  } else if (simulation.settledBy === 'collapse') {
+    // Both lines went down in the same round, so there was nobody left standing to call it on and
+    // the ground went to whoever had more of a force left on the field. Said out loud, because a
+    // mutual wipeout reported as an ordinary win is a result a player cannot account for.
+    log.push('Both lines went down together. The ground went to whoever had more left on it.');
   }
 
   for (const finding of findings) {

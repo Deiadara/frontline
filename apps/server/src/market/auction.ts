@@ -7,12 +7,14 @@ import {
   rankLotBids,
   spendResources,
   vendorSessionsFor,
-  vendorStockFor,
+  canOpenLot,
+  findVendorLine,
   vendorVisitAt,
   visitClosesAt,
   type Base,
   type ItemCost,
   type ItemId,
+  type LotAuction,
   type LotOutcome,
   type VendorAuction,
   type VendorAuctionResult,
@@ -78,9 +80,22 @@ function chargeFor(repos: Repositories, base: Base, amount: number, now: Date): 
   return discountedCaps(amount, standingEffectsFor(repos, base, now).marketDiscountPercent);
 }
 
+/**
+ * A bid, as the projection needs to read one.
+ *
+ * Structural rather than the barrow's row type, because the fence's shelf is an auction too and its
+ * rows come out of a different table. Everything below works off these three fields and nothing
+ * else, which is what lets one projection serve both counters.
+ */
+export interface OpenBid {
+  userId: string;
+  amount: number;
+  at: string;
+}
+
 /** The highest bid on a lot, or `undefined` on one nobody has opened. */
-function leaderOf(bids: readonly VendorBid[]): VendorBid | undefined {
-  return bids.reduce<VendorBid | undefined>(
+function leaderOf<T extends OpenBid>(bids: readonly T[]): T | undefined {
+  return bids.reduce<T | undefined>(
     (best, bid) => (best === undefined || bid.amount > best.amount ? bid : best),
     undefined,
   );
@@ -100,6 +115,8 @@ export const VENDOR_BID_REFUSALS = [
   'outbid_yourself',
   'too_low',
   'cannot_afford',
+  /** §H7a on the barrow: `MAX_OPEN_LOTS` lots at once, counted over the visit. */
+  'too_many_lots',
 ] as const;
 export type VendorBidRefusal = (typeof VENDOR_BID_REFUSALS)[number];
 
@@ -146,7 +163,7 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
 
   const visit = vendorVisitAt(now);
   if (visit === null) return bare('vendor_closed');
-  const line = vendorStockFor(visit.day).find((candidate) => candidate.id === lineId);
+  const line = findVendorLine(visit.day, lineId);
   if (!line) return bare('unknown_line');
 
   const bids = repos.vendorAuctions.bidsFor(visit.day, visit.session, lineId);
@@ -162,6 +179,18 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
 
   if (leftOnTheLine(repos, visit.day, line) === 0) return refuse('sold_out');
   if (leader?.userId === userId) return refuse('outbid_yourself');
+  /*
+   * §H7a's rule, on the barrow (maintainer, 2026-09-17).
+   *
+   * Two lots at once, counted over this visit. Checked against the ids rather than a count so that
+   * raising on a lot this crew is already in is never refused: see `canOpenLot`. Before the price
+   * checks, because "you are at every table you can hold" is true whatever they typed, and a crew
+   * told to bid higher on a lot they cannot open at all has been sent to do something pointless.
+   */
+  const open = repos.vendorAuctions
+    .bidsBy(userId, visit.day, visit.session)
+    .map((bid) => bid.lineId);
+  if (!canOpenLot(open, lineId)) return refuse('too_many_lots');
   if (amount < minimum) return refuse('too_low');
   if (base.resources.caps < chargeFor(repos, base, amount, now)) return refuse('cannot_afford');
 
@@ -189,7 +218,7 @@ export interface VendorAuctionView {
 }
 
 function bidView(
-  bid: VendorBid,
+  bid: OpenBid,
   reader: string,
   usernames: ReadonlyMap<string, string>,
 ): VendorBidView {
@@ -209,7 +238,7 @@ function bidView(
  */
 export function bidderNames(
   repos: Repositories,
-  bids: readonly VendorBid[],
+  bids: readonly { userId: string }[],
 ): ReadonlyMap<string, string> {
   const names = new Map<string, string>();
   for (const bid of bids) {
@@ -219,7 +248,45 @@ export function bidderNames(
   return names;
 }
 
-/** One lot on the wire. Every bid on it is public, which is the whole point of the barrow. */
+/**
+ * One lot on the wire: who is in front, what the next number is, and the table.
+ *
+ * Every bid on it is public, which is the whole point of an open auction. Written against
+ * {@link OpenBid} and a reserve rather than against a barrow line, because the fence's shelf runs
+ * the same auction in infamy and a second copy of this would be a second chance for the two screens
+ * to disagree about what "leading" means. See `blackmarket/shelf.ts`.
+ */
+export function projectLotAuction({
+  reader,
+  bids,
+  reserve,
+  closesAt,
+  usernames,
+}: {
+  /** The account reading. Its own bid is the only one marked. */
+  reader: string;
+  bids: readonly OpenBid[];
+  /** Where the lot opens, with nobody's standing on it. */
+  reserve: number;
+  closesAt: Date;
+  usernames: ReadonlyMap<string, string>;
+}): LotAuction {
+  const leader = leaderOf(bids);
+  const mine = bids.find((bid) => bid.userId === reader);
+  const newestFirst = [...bids].sort((a, b) => b.at.localeCompare(a.at));
+
+  return {
+    closesAt: closesAt.toISOString(),
+    reserve,
+    leading: leader ? bidView(leader, reader, usernames) : null,
+    nextBid: nextLotBid(reserve, leader?.amount ?? null),
+    bids: newestFirst.slice(0, MAX_LOT_BIDS_SHOWN).map((bid) => bidView(bid, reader, usernames)),
+    bidders: bids.length,
+    yourBid: mine?.amount ?? null,
+  };
+}
+
+/** One line on the barrow, as this reader sees it. */
 export function projectVendorAuction({
   reader,
   visit,
@@ -227,20 +294,16 @@ export function projectVendorAuction({
   bids,
   usernames,
 }: VendorAuctionView): VendorAuction {
-  const leader = leaderOf(bids);
-  const mine = bids.find((bid) => bid.userId === reader);
-  const newestFirst = [...bids].sort((a, b) => b.at.localeCompare(a.at));
-
   return {
     lineId: line.id,
     session: visit.session,
-    closesAt: visit.closesAt.toISOString(),
-    reserve: line.price,
-    leading: leader ? bidView(leader, reader, usernames) : null,
-    nextBid: nextLotBid(line.price, leader?.amount ?? null),
-    bids: newestFirst.slice(0, MAX_LOT_BIDS_SHOWN).map((bid) => bidView(bid, reader, usernames)),
-    bidders: bids.length,
-    yourBid: mine?.amount ?? null,
+    ...projectLotAuction({
+      reader,
+      bids,
+      reserve: line.price,
+      closesAt: visit.closesAt,
+      usernames,
+    }),
   };
 }
 
@@ -276,7 +339,7 @@ function closeLot(
   now: Date,
 ): void {
   const { day, session, lineId } = lot;
-  const line = vendorStockFor(day).find((candidate) => candidate.id === lineId);
+  const line = findVendorLine(day, lineId);
   const bids = repos.vendorAuctions.bidsFor(day, session, lineId);
   // A line id that names nothing on that day's barrow cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
@@ -473,7 +536,7 @@ export function latestLotResultsFor(
 
 function outcomeFor(repos: Repositories, result: VendorLotResult, reader: string): LotOutcome {
   if (result.winnerUserId === reader) return 'won';
-  const line = vendorStockFor(result.day).find((candidate) => candidate.id === result.lineId);
+  const line = findVendorLine(result.day, result.lineId);
   if (line) {
     const bids = repos.vendorAuctions.bidsFor(result.day, result.session, result.lineId);
     const ranked = rankLotBids(

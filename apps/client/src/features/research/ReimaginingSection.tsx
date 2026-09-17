@@ -23,7 +23,7 @@ import { buttonSkin } from '../../components/ui/Button';
 import { Icon } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
-import { RARITY_INK } from '../../lib/rarity';
+import { RARITY_TEXT } from '../../lib/rarity';
 import { useMarket, useReimagine } from '../../lib/queries';
 import { PageGlyph } from './BlueprintGlyph';
 
@@ -723,7 +723,7 @@ function PageFace({ pageId, where }: { pageId: string; where: 'tray' | 'socket' 
           className={cn(
             'font-display uppercase leading-none tracking-[0.14em]',
             'text-[0.82em]',
-            RARITY_INK[rarity],
+            RARITY_TEXT[rarity],
           )}
         >
           {ITEM_RARITY_LABELS[rarity]}

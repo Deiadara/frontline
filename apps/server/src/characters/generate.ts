@@ -3,9 +3,11 @@ import {
   MAX_RECRUITMENT_ATTRIBUTE,
   OFFICER_ROLES,
   ROLLABLE_PERK_IDS,
+  perkDrawWeight,
   type AttributeName,
   type Attributes,
   type OfficerRole,
+  type PerkDraw,
 } from '@frontline/shared';
 import { attributeWeightsOf } from '../roles/requirements.js';
 import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from './rng.js';
@@ -177,7 +179,7 @@ function pickStrengths(rng: Rng, affinity: OfficerRole, extra = 0): AttributeNam
  *
  * Every field is off by default, so `rollRecruit(seed)` is the roll it has always been and every
  * distribution the leak analysis measured is untouched. What a standout gets is stated here rather
- * than as three loose parameters, because the three only ever move together.
+ * than as loose parameters, because they only ever move together.
  */
 export interface RollShape {
   /** Perks the roll is guaranteed, on top of whatever it drew. */
@@ -194,6 +196,13 @@ export interface RollShape {
   extraStrengths: number;
   /** Whether this roll skips the ordinary one to three weaknesses. */
   noWeaknesses: boolean;
+  /**
+   * How the tags themselves are drawn: scarce broad ones, or likely ones.
+   *
+   * The half of a person that cannot be trained, and therefore the half that should decide how rare
+   * they are. See `perkDrawWeight` in `@frontline/shared`.
+   */
+  perkDraw: PerkDraw;
 }
 
 /** The roll everybody outside the Bar's standout seats gets. */
@@ -201,6 +210,7 @@ export const ORDINARY_ROLL: RollShape = {
   minPerks: 0,
   extraStrengths: 0,
   noWeaknesses: false,
+  perkDraw: 'plain',
 };
 
 function rollAttributes(
@@ -251,19 +261,20 @@ function rollPerkCount(rng: Rng): number {
  * `minPerks` is the floor the Bar's standout seats stand on (maintainer request, 2026-09-11). The count
  * is still rolled first and the floor applied after, so the same seed draws the same stream: a
  * standout is the ordinary roll with a floor under it rather than a different person.
+ *
+ * **Which** tags are drawn is weighted by what they are worth rather than picked off a flat list
+ * (maintainer, 2026-09-16). See `perkDrawWeight`: a tag that pays everywhere is scarce on an
+ * ordinary seat and likely on a standout one, and neither shape can make a tag unreachable.
  */
-function rollPerks(rng: Rng, minPerks = 0): string[] {
-  const wanted = Math.max(minPerks, rollPerkCount(rng));
-  const picked: string[] = [];
-  for (
-    let attempt = 0;
-    picked.length < wanted && attempt < ROLLABLE_PERK_IDS.length * 2;
-    attempt += 1
-  ) {
-    const id = ROLLABLE_PERK_IDS[randomInt(rng, 0, ROLLABLE_PERK_IDS.length - 1)];
-    if (id !== undefined && !picked.includes(id)) picked.push(id);
-  }
-  return picked;
+function rollPerks(rng: Rng, shape: RollShape): string[] {
+  const wanted = Math.max(shape.minPerks, rollPerkCount(rng));
+  if (wanted <= 0) return [];
+  // `weightedSample` is distinct by construction, which is what the old retry loop was for.
+  return weightedSample(
+    rng,
+    ROLLABLE_PERK_IDS.map((id) => [id, perkDrawWeight(id, shape.perkDraw)] as const),
+    wanted,
+  );
 }
 
 /** Roll one recruitable character, keeping the affinity. Same seed, same character. */
@@ -277,7 +288,7 @@ export function rollRecruit(
   if (!affinity) throw new Error('no officer roles to draw an affinity from');
 
   const rolled = rollAttributes(rng, affinity, calibre, shape);
-  const perks = rollPerks(rng, shape.minPerks);
+  const perks = rollPerks(rng, shape);
 
   // Still clamped to the recruitment ceiling. A perk cannot breach it the way a trait could,
   // because a perk does not touch this person's own sheet at all, but the clamp is the guarantee

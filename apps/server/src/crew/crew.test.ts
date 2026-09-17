@@ -32,6 +32,7 @@ import {
   startingTraining,
   type Base,
   type TrainingResponse,
+  MAX_OFFICER_LIFT,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -40,7 +41,13 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { queueBuild } from '../district/build.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from './standing.js';
+import {
+  crewEffectsFor,
+  crewSheetsFor,
+  liftedOfficerSheet,
+  officerLiftRoom,
+  standingEffectsFor,
+} from './standing.js';
 import { seatedRoles } from './roster.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
@@ -833,6 +840,74 @@ describe("the Overseer's teaching perk", () => {
     for (const name of ATTRIBUTES_BY_GROUP.social) {
       expect(pupil.attributes[name], name).toBe(28);
     }
+  });
+
+  /**
+   * The card has to be able to say whose the points are (maintainer request, 2026-09-16).
+   *
+   * "20 with a line at 20 and +2 from the Overseer on hover" is only possible if the sources arrive
+   * named. A merged fold knows the total and not the author, so the receipt is built alongside the
+   * arithmetic rather than reconstructed from it, and this is the test that it names the right
+   * people: the Overseer by their own name, a teaching officer by theirs.
+   */
+  it('names who lifted whom, so the card can print the receipt', () => {
+    const repos = openStack();
+    const base = yardWithOverseer(repos, [
+      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), ['house_host']),
+      createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
+    ]);
+    const overseer = repos.overseers.findById('o')!;
+
+    const pupil = base.commanders.find((one) => one.id === 'pupil')!;
+    const { attributes, lift } = liftedOfficerSheet(pupil, officerLiftRoom(repos, base));
+
+    const leadership = lift.filter((one) => one.attribute === 'leadership');
+    expect(attributes.leadership).toBe(28);
+    expect(leadership.map((one) => `${one.from} ${one.amount}`).sort()).toEqual(
+      [`${overseer.name} 5`, 'Teach 3'].sort(),
+    );
+    // The pupil's own perks never appear: a perk that lifted the card it is printed on is a
+    // different number, not a bonus.
+    expect(lift.every((one) => one.from !== 'Pupil')).toBe(true);
+    // ...and a receipt that does not add up to the figure above it is worse than none.
+    expect(pupil.attributes.leadership + leadership.reduce((sum, one) => sum + one.amount, 0)).toBe(
+      attributes.leadership,
+    );
+  });
+
+  /**
+   * §B7: nobody else may be the larger half of a figure (maintainer request, 2026-09-16).
+   *
+   * Measured against the shipped catalogues before the cap went in: teaching perks, the Lab's
+   * people rungs and a held Chapel all pay into the same few attributes, and a crew that had signed
+   * every teacher in the book could put about thirty points onto one mental attribute. A tenth of
+   * the scale is the ceiling now, and the receipt is trimmed to what actually landed rather than to
+   * what was offered.
+   */
+  it('caps what the room can add, and reports only what landed', () => {
+    const repos = openStack();
+    // Six teachers of the same group, which no ordinary crew assembles and every late one could.
+    const teachers = ['house_host', 'the_connector', 'sig_drillmaster'];
+    const crowd = [
+      createCommander('a', 'A', 'head_spy', makeAttributes(20), [teachers[0]!]),
+      createCommander('b', 'B', 'trader', makeAttributes(20), [teachers[1]!]),
+      createCommander('c', 'C', 'raid_boss', makeAttributes(20), [teachers[0]!]),
+      createCommander('d', 'D', 'scout', makeAttributes(20), [teachers[1]!]),
+      createCommander('pupil', 'Pupil', 'professor', makeAttributes(20), []),
+    ];
+    const base = yardWithOverseer(repos, crowd);
+
+    const pupil = crowd.find((one) => one.id === 'pupil')!;
+    const { attributes, lift } = liftedOfficerSheet(pupil, officerLiftRoom(repos, base));
+
+    const gained = attributes.leadership - pupil.attributes.leadership;
+    expect(gained, 'four teachers and a Drillmaster ran past the ceiling').toBe(MAX_OFFICER_LIFT);
+    expect(
+      lift
+        .filter((one) => one.attribute === 'leadership')
+        .reduce((sum, one) => sum + one.amount, 0),
+      'the receipt promised more than the bar shows',
+    ).toBe(gained);
   });
 });
 

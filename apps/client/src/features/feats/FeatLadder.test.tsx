@@ -21,6 +21,8 @@ const block = (value: number): FeatBlock => {
   return {
     chain: spec.chain,
     steps: 1,
+    claimed: 0,
+    ready: 0,
     key: spec.id,
     rungs: [
       {
@@ -57,5 +59,26 @@ describe('the figure under a rung', () => {
     expect(screen.getByTestId(`feat-count-${spec.id}`)).toHaveTextContent(
       `${spec.target.toLocaleString()} / ${spec.target.toLocaleString()}`,
     );
+  });
+});
+
+/**
+ * The header's fraction, on a card drawing one rung of a ten-rung ladder.
+ *
+ * This is the shape the board is in at rest now: `current` folds the collected rungs away and the
+ * shut ones above the next door, so most cards draw one or two rows out of ten. Counted over the
+ * rows on screen, as it was, the header on this card would read `0/1`.
+ */
+describe('the header of a folded ladder', () => {
+  it('counts the whole ladder, not the rungs that survived the filter', () => {
+    const spec = CAPS;
+    render(
+      <FeatLadder
+        block={{ ...block(spec.target / 2), steps: 10, claimed: 3 }}
+        claiming={new Set()}
+        onClaim={() => {}}
+      />,
+    );
+    expect(screen.getByTestId(`feat-block-done-${spec.id}`)).toHaveTextContent('3/10');
   });
 });

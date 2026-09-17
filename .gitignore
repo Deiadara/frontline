@@ -21,3 +21,8 @@ apps/client/e2e-out/
 .DS_Store
 # Throwaway colour-study renders. Delete the folder when the ground is chosen.
 ground-renders/
+
+# The balance console (`pnpm balance:sheet`). 1.3MB of catalogue inlined into one page so it opens
+# straight off disk; regenerated from the catalogues whenever it is wanted, so nothing is lost by
+# leaving it out of the tree.
+docs/balance-sheet.html

@@ -33,6 +33,7 @@ import {
 } from './engine.js';
 import {
   INTEL_BLACKOUT_PERCENT,
+  STEALTH_TO_RESISTANCE,
   deploymentBlurPercent,
   forceStealth,
   intelQualityLine,
@@ -68,6 +69,7 @@ import {
 } from './scheduled.js';
 import { TRAP_CATALOG, findTrap, springTrap, trapsAvailable } from './traps.js';
 import type { Army } from '../units/training.js';
+import { findUnit } from '../units/catalog.js';
 
 const NOON = new Date('2026-08-16T12:00:00.000Z');
 const at = (iso: string): Date => new Date(iso);
@@ -715,6 +717,49 @@ describe('what the other side can see of a deployment (§F2)', () => {
     expect(
       deploymentBlurPercent({ resistancePercent: 10, yieldPercent: 400, force: { razors: 5 } }),
     ).toBe(0);
+  });
+
+  /**
+   * The third term is the sheet they are *fielding*, not the one the catalogue prints.
+   *
+   * This module read `findUnit(id).stats.stealth` and nothing else, so a Ghost carrying two stealth
+   * cards hid a deployment exactly as well as a Ghost carrying none, and the crew's
+   * `unitStealthPercent` (perks, held ground, the Signals track) bought nothing on the one screen
+   * the module's own note sells it on. The engine has read the fitted sheet since the loadout
+   * rework, so the two halves of the game disagreed about the same unit.
+   *
+   * `stealthOf` is the seam, and `battle/view.ts` fills it with `upgradedStats` then the channel,
+   * in the order `battle/effects.ts` folds them for the line.
+   */
+  it('hides a force by the stealth it actually fields, not the stealth it was printed with', () => {
+    const force = { razors: 10 };
+    const printed = deploymentBlurPercent({ resistancePercent: 0, yieldPercent: 0, force });
+    const kitted = deploymentBlurPercent({
+      resistancePercent: 0,
+      yieldPercent: 0,
+      force,
+      stealthOf: (unitId) => (findUnit(unitId)?.stats.stealth ?? 0) + 20,
+    });
+
+    expect(printed).toBeGreaterThan(0);
+    // Twenty points of stealth on every unit, at STEALTH_TO_RESISTANCE, is ten points of blur.
+    expect(kitted - printed).toBeCloseTo(20 * STEALTH_TO_RESISTANCE, 6);
+    expect(forceStealth(force, (unitId) => (findUnit(unitId)?.stats.stealth ?? 0) + 20)).toBe(
+      forceStealth(force) + 20,
+    );
+  });
+
+  /** A downside card cuts the other way: a noisier unit is easier to count. */
+  it('counts a force made louder by its fittings as easier to read', () => {
+    const force = { ghosts: 6 };
+    expect(
+      deploymentBlurPercent({
+        resistancePercent: 0,
+        yieldPercent: 0,
+        force,
+        stealthOf: (unitId) => Math.max(0, (findUnit(unitId)?.stats.stealth ?? 0) - 15),
+      }),
+    ).toBeLessThan(deploymentBlurPercent({ resistancePercent: 0, yieldPercent: 0, force }));
   });
 });
 

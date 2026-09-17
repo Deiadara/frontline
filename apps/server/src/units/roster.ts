@@ -22,13 +22,15 @@ import {
   fittedFor,
   findUnitModification,
   modificationsForUnit,
-  homeTrainingBonus,
+  homeTrainingSource,
+  theLocation,
   slotsFor,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
   type UnitSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { trainingBreakdownFor } from './breakdown.js';
 import { trainingRatesFor, unlockContextFor } from './training.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
@@ -95,14 +97,16 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const context = unlockContextFor(repos, base);
   // The crew's own fold, for the marks its ground and its people have granted (`unit_mark`).
   const effects = standingEffectsFor(repos, base, now);
-  const rates = trainingRatesFor(repos, base);
+  // The instant the roster is being drawn at, so a disrupted crew's price and its breakdown
+  // agree about whether the raid is still biting.
+  const rates = trainingRatesFor(repos, base, now);
   const garrisoned = garrisonedUnits(repos, base);
   const abroad = unitsAbroad(repos, base);
   const slots = districtUnitSlots(repos, base, garrisoned);
 
   const units: UnitOption[] = UNIT_CATALOG.map((unit) => {
     // §A4: what the ground that trains this one takes off it, on top of the crew-wide figures.
-    const home = homeTrainingBonus(unit, rates.locationLevels);
+    const home = homeTrainingSource(unit, rates.locationLevels);
     return {
       id: unit.id,
       name: unit.name,
@@ -134,8 +138,35 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,
       unitSlots: unit.unitSlots,
-      homeCostReduction: home.costPercent,
-      homeSpeedBonus: home.speedPercent,
+      homeCostReduction: home?.costPercent ?? 0,
+      homeSpeedBonus: home?.speedPercent ?? 0,
+      /*
+       * The same two figures as a named line each, for this unit's own Bonuses page.
+       *
+       * Spread rather than assigned, because `exactOptionalPropertyTypes` and because absent is
+       * the ordinary case: a crew holding none of a unit's home ground, or holding it at level one,
+       * has nothing to print and should not get an empty pair of lists to render.
+       */
+      ...(home === null
+        ? {}
+        : {
+            homeBonus: {
+              cost: [
+                {
+                  source: theLocation(home.kind),
+                  note: `Level ${home.level}, its own ground`,
+                  percent: home.costPercent,
+                },
+              ],
+              speed: [
+                {
+                  source: theLocation(home.kind),
+                  note: `Level ${home.level}, its own ground`,
+                  percent: home.speedPercent,
+                },
+              ],
+            },
+          }),
       unlocked: isUnitUnlocked(unit, context),
       missing: missingRequirements(unit, context).map(describeRequirement),
       owned: base.army[unit.id] ?? 0,
@@ -187,5 +218,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         };
       }),
     trainingSpeedBonus: rates.speedPercent,
+    // The same three figures again, as the lines that make them up, for the chips' hover pages.
+    trainingBreakdown: trainingBreakdownFor(repos, base, now),
   };
 }

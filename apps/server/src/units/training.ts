@@ -139,8 +139,23 @@ export function heldLocationLevels(
  * *which unit* is being priced: see `ratesForUnit`. Everything else here is true of every unit on
  * the roster at once.
  */
-export function trainingRatesFor(repos: Repositories, base: Base): TrainingRates {
-  const effects = standingEffectsFor(repos, base);
+export function trainingRatesFor(
+  repos: Repositories,
+  base: Base,
+  /**
+   * The instant to price at. Defaults to now, which is every caller but a test.
+   *
+   * Threaded rather than left to the wall clock (2026-09-17). `standingEffectsFor` takes one
+   * because §A4's raid disruption expires, and this dropped it: `projectUnits(repos, base, now)`
+   * was handed an instant, priced the roster off `new Date()` instead, and so could disagree with
+   * every other figure on the same response about whether a raid was still biting. In production
+   * the two are the same millisecond and nothing shows; in a test with a fixed clock it is the
+   * difference between a rate of 11 and a rate of 8.25, and the disagreement only appears once
+   * real time has walked past the fixture's disruption window.
+   */
+  now: Date = new Date(),
+): TrainingRates {
+  const effects = standingEffectsFor(repos, base, now);
   return {
     costPercent: effects.trainingCostPercent,
     // §B5: the Greenhouse, and the modifications that grow with it.
@@ -425,7 +440,7 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
   }
 
   // §A4: the unit's own rates, so a worked Doghouse actually shows up on the Cyberhounds' bill.
-  const rates = ratesForUnit(trainingRatesFor(repos, base), unit);
+  const rates = ratesForUnit(trainingRatesFor(repos, base, now), unit);
   // §A1: soldiers come out of the district's unit slots, alongside the officers and the placed
   // assignees. `districtUnitSlots` has already counted everything standing, garrisons and the
   // training bench included, so what this order needs is only what it adds on top.

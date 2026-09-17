@@ -33,6 +33,7 @@ import {
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { rosterFaces } from '../crew/faces.js';
 import { barSeatsFor, barDay, barRoster, findBarRecruit } from '../bar/roster.js';
+import { calibreOf, cityAsked, citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
@@ -201,6 +202,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
 
   app.get('/bar', { preHandler: app.authenticate }, (request): BarResponse => {
     const now = new Date();
+    const asked = (request.query as { city?: string } | undefined)?.city;
     // Last night's tables settle inside this, so the officer a crew won overnight is on the books
     // by the time this read draws them.
     const base = settledBase(app, request.currentUser.id, now);
@@ -213,13 +215,33 @@ export function registerBarRoutes(app: FastifyInstance): void {
      * (migration 0083), so it is announced exactly once whichever door banked it.
      */
     const levelUp = takeLevelUp(app.repos, base.id);
+    /*
+     * Which city's room this is (maintainer, 2026-09-17).
+     *
+     * A bar belongs to a city and a crew may drink in any city they hold ground in, so a read that
+     * names one is checked against the map before it is answered. A name they hold nothing in is
+     * refused rather than quietly answered with their own room: a player who bookmarked a city they
+     * have since been thrown out of should be told, not shown the wrong bar and left to wonder why
+     * the faces changed.
+     */
+    const cityId = cityAsked(app.repos, base, asked);
+    if (cityId === null) {
+      throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
+    }
     const window = auctionWindow(now);
     const day = window.day;
     // §F2: Charisma and Diplomacy widen the room. Word gets around about who is hiring.
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    // §H2: the room scales with the city. Averaged across every base standing in it, so it is the
-    // whole city's standing that raises the calibre rather than the reader's own.
-    const roster = barRoster(day, seats, app.repos.bases.averageLevel());
+    /*
+     * §H2: the room scales with the city, weighted by who has a stake in it.
+     *
+     * It was the flat average level of every base in the world, which stopped being the right
+     * number the day a crew could drink in a city they do not live in: somebody holding half of
+     * Ashfall had exactly as much say over its room as somebody who has never been. `calibreOf`
+     * weights a resident at one and a visitor at the share of ten locations they hold, and counts
+     * the notoriety ladder alongside the district level. See `city/access.ts`.
+     */
+    const roster = barRoster(day, seats, calibreOf(app.repos, cityId), cityId);
     // One face each, free of every crew's in the city: the face the contract will keep.
     const faces = rosterFaces(
       app.repos,
@@ -270,6 +292,8 @@ export function registerBarRoutes(app: FastifyInstance): void {
       // carried every close in the city would be a leaderboard nobody asked for.
       results: latestResultsFor(app.repos, request.currentUser.id, day),
       levelUp,
+      cityId,
+      cities: citiesFor(app.repos, base),
     };
   });
 
@@ -316,9 +340,9 @@ export function registerBarRoutes(app: FastifyInstance): void {
   /**
    * §H7: buy one more step of standing payroll.
    *
-   * The Nexus screen's `Increase Payroll`. A fixed step at a price that climbs with every step
-   * already bought, and no ceiling: `payrollStepCost` owns both halves of that and this route only
-   * moves the caps.
+   * The Nexus screen's `Increase Payroll`. A fixed step at a price that climbs by a flat amount
+   * with every step already bought, up to `PAYROLL_STEPS_MAX` rungs and then no further:
+   * `payrollStepCost` owns all of that and this route only moves the caps.
    */
   app.post('/bar/payroll', { preHandler: app.authenticate }, (request): IncreasePayrollResponse => {
     const { fromSteps } = parseBody(IncreasePayrollRequestSchema, request.body ?? {});
@@ -338,6 +362,12 @@ export function registerBarRoutes(app: FastifyInstance): void {
       base.economy.payroll.purchasedSteps,
       crewEffectsFor(app.repos, base).payrollStepDiscountPercent,
     );
+    // Before the stockpile, so a crew that could pay ten times over is told the real reason rather
+    // than being handed an affordability refusal it cannot act on. Not waived by admin mode: there
+    // is no step to sell, so there is no price for admin to waive.
+    if (cost === null) {
+      throw new AppError('PAYROLL_AT_MAX', 'The book is as wide as it goes. There is no step left');
+    }
     if (cost > base.resources.caps && !app.config.admin) {
       throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover that');
     }

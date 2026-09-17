@@ -62,6 +62,7 @@ import { resolveDueMissions } from './resolve.js';
 import { tickWorld } from '../live/clock.js';
 import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { infirmaryRecoveryPercent } from '@frontline/shared';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
@@ -523,6 +524,16 @@ describe('mission payout (§E1, §E5)', () => {
    * the tier are the row's own. What comes back is what the job killed, which is what it pays for.
    */
   function replayed(stack: Stack, template: MissionTemplate, seed: number, force: Army, at: Date) {
+    /*
+     * The same books the settler hands the engine, not a subset of them.
+     *
+     * `simulate` reads the *presence* of `territory`, `loadouts` and the rest rather than their
+     * values, so a replay that leaves one out is a different fight from the one it is replaying,
+     * and the two agreed here only by luck. They stopped agreeing the moment the engine was
+     * retuned, which is the fixture telling the truth about itself: a replay has to be handed
+     * exactly what `resolveDueMissions` hands over.
+     */
+    const crew = standingEffectsFor(stack.repos, stack.base, at);
     const fought = fightMissionBattle({
       seed,
       jobName: template.name,
@@ -530,7 +541,11 @@ describe('mission payout (§E1, §E5)', () => {
       vehicles: {},
       tier: battleTierFor(template) as BattleTier,
       level: stack.base.level,
-      anyRide: standingEffectsFor(stack.repos, stack.base, at).anyRide,
+      anyRide: crew.anyRide,
+      loadouts: stack.base.unitLoadouts,
+      territory: crew,
+      recoveryPercent:
+        crew.casualtyRecoveryPercent + infirmaryRecoveryPercent(stack.base.buildings),
     });
     const slots = infamyForKills(fought.killed);
     expect(slots, 'the fixture has to kill somebody for this to measure anything').toBeGreaterThan(

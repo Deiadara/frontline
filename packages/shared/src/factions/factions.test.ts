@@ -9,6 +9,7 @@ import {
   canKick,
   canSetRank,
   factionHasRoom,
+  FactionNameSchema,
   leavingDisbands,
   sameFactionName,
   type FactionRank,
@@ -133,5 +134,34 @@ describe('the table itself', () => {
   it('reads two names as one when they paint the same pixels', () => {
     expect(sameFactionName('The  Ninth   Circle', 'the ninth circle')).toBe(true);
     expect(sameFactionName('Ninth Circle', 'Ninth Circles')).toBe(false);
+  });
+
+  /**
+   * ...and refuses the name that walks through that rule.
+   *
+   * `sameFactionName` collapses case and whitespace, which is what stops two tables sharing a name.
+   * A zero-width character is neither: the key sees a different string and a reader sees the same
+   * name, so a second faction could take one indistinguishable from an existing table on every
+   * screen in the game. `city/districts.ts` closed this on crew names and wrote the reason down;
+   * the same rule belongs here, and the uniqueness check is what makes it load-bearing rather than
+   * cosmetic.
+   */
+  it('refuses a name made of characters that do not paint', () => {
+    const real = 'The Ninth Circle';
+    for (const [what, hidden] of [
+      ['a zero-width space', 'The Ninth\u200BCircle'],
+      ['a zero-width joiner', 'The Ninth\u200DCircle'],
+      ['a right-to-left override', 'The Ninth\u202ECircle'],
+    ] as const) {
+      // The hole: the uniqueness rule does not see these as the same name...
+      expect(sameFactionName(real, hidden), what).toBe(false);
+      // ...so the schema has to be what refuses them.
+      expect(FactionNameSchema.safeParse(hidden).success, what).toBe(false);
+    }
+
+    // And an ordinary name is untouched, including one with the punctuation a table might want.
+    for (const fine of ['The Ninth Circle', "Ratter's Own", 'Ninth & Vine', 'Οι Εννιά']) {
+      expect(FactionNameSchema.safeParse(fine).success, fine).toBe(true);
+    }
   });
 });

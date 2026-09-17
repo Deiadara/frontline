@@ -2239,8 +2239,9 @@ authored on a template.
 
 ## AN. Every page and every document its own thing (2026-09-09, by agent, reviewed)
 
-- [x] AN1. **Rarity** authored per document off what it unlocks (nine common, fifteen uncommon,
-      ten rare, seven exotic) and per page (its document's tier, or one step off where the page
+- [x] AN1. **Rarity** authored per document off what it unlocks (nine basic, fifteen intricate,
+      ten advanced, seven masterpiece: the words moved onto the one ladder on 2026-09-16, the
+      grading did not) and per page (its document's tier, or one step off where the page
       is the hard one; two steps throws at load), exposed on the item catalogue and printed as
       the colour and the word on the Blueprints screen, the inventory and the market.
 - [x] AN2. **A description per page and per document**, 160 lines in the game's voice, on the

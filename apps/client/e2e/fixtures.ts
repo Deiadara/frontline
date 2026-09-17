@@ -9,6 +9,7 @@ import type {
 } from '@frontline/shared';
 import {
   DECLARE_INFAMY_COST,
+  DEFAULT_CITY_ID,
   TRAVEL_BAND_MINUTES,
   FEATS,
   capturedGateIntelResistancePercent,
@@ -49,6 +50,12 @@ import {
   supplyAllowance,
   supplyBoard,
   BUILDING_CATALOG,
+  describeModificationRequirement,
+  fitsIn,
+  modificationFitsUnit,
+  modificationRequirement,
+  unitModificationRequirement,
+  OFFICER_ROLE_LABELS,
   BATTLE_BOOSTS,
   BLACK_MARKET_GOODS,
   boostCoverage,
@@ -189,11 +196,13 @@ import {
   type Resources,
   type User,
   type AdminSnapshot,
+  type BlackMarketLot,
   type BlackMarketResponse,
   type SettingsResponse,
   DEFAULT_SOUND_VOLUME,
   GAME_TIMEZONE,
   PLAYER_ICONS,
+  blackLotId,
   blackMarketBoard,
   blackMarketEffect,
   blackMarketPrice,
@@ -928,7 +937,36 @@ export const unitsResponse: UnitsResponse = {
   ],
   resources: base.resources,
   trainingCostReduction: 10,
-  trainingSpeedBonus: 0,
+  trainingSpeedBonus: 33,
+  trainingSuppliesReduction: 22,
+  /*
+   * Where those three come from, which is what the chips' hover pages print.
+   *
+   * Deliberately one of each kind of payer on the two lists that have a choice about it: a named
+   * officer, a block of ground, a finished programme, a structure, a fitted card and, on the
+   * speed list, a raid taking its cut back off the crew's half. A fixture with one line on each
+   * would screenshot a page that cannot show a wrapped name, a long note or a negative figure.
+   */
+  trainingBreakdown: {
+    cost: [
+      { source: 'Wenqing Adebayo-Lindqvist', note: 'Chemistry 74', percent: 7 },
+      { source: 'Unit Costing', note: 'The Lab', percent: 8 },
+      { source: 'The Foundry Arcade', note: 'Level 4', percent: 5 },
+      { source: 'Raided', note: '25% off everything your crew holds', percent: -10 },
+    ],
+    supplies: [
+      { source: 'The Greenhouse', note: 'Level 7', percent: 14 },
+      { source: 'Sealed Growrooms', note: 'The Greenhouse', percent: 14 },
+      { source: 'Past what a district can take', note: 'Modifications stop at 70%', percent: -6 },
+    ],
+    speed: [
+      { source: 'Ola Nkemdirim', note: 'Cybernetics 61', percent: 6 },
+      { source: 'Hard School', note: 'Instructor', percent: 9 },
+      { source: 'The Gauntlet', note: 'Level 12', percent: 24 },
+      { source: 'Night Course', note: 'The Gauntlet', percent: 16 },
+      { source: 'Raided', note: '25% off everything your crew holds', percent: -22 },
+    ],
+  },
   // A stock with something in it, and a bracket that is filled. An empty stock screenshots three
   // dashed brackets and a menu with nothing in it, which is the one state the row is *not* for.
   built: BUILT_UPGRADES.map((spec, index) => ({
@@ -989,6 +1027,23 @@ export const unitsResponse: UnitsResponse = {
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,
       unitSlots: unit.unitSlots,
+      /*
+       * §A4: the Cyberhounds' own Doghouse, and nobody else's.
+       *
+       * One unit rather than all of them, because that asymmetry *is* the mechanic and a fixture
+       * that gave every row a home would screenshot a Bonuses page that cannot show the difference
+       * between a unit with private ground and a unit without.
+       */
+      ...(unit.id === 'cyber_dogs'
+        ? {
+            homeCostReduction: 10,
+            homeSpeedBonus: 15,
+            homeBonus: {
+              cost: [{ source: 'The Doghouse', note: 'Level 6, its own ground', percent: 10 }],
+              speed: [{ source: 'The Doghouse', note: 'Level 6, its own ground', percent: 15 }],
+            },
+          }
+        : {}),
       unlocked,
       // §D12a: `unitUnlockClauses`, not `unit.requires`, so a locked row lists the blueprint
       // document alongside the levels. The server's roster projection reads the same function.
@@ -1181,6 +1236,15 @@ const BAR_AUCTIONS: BarAuction[] = [
 export const bar: BarResponse = {
   day: '2026-08-12',
   serverNow: NOW,
+  /*
+   * The room this is, and the rooms the reader may walk into (maintainer, 2026-09-17).
+   *
+   * One entry, because a crew with no ground outside their own city has one bar: that is the
+   * resting state the screen has to draw, and a picker with a single city in it still has to say
+   * which city that is.
+   */
+  cityId: DEFAULT_CITY_ID,
+  cities: [DEFAULT_CITY_ID],
   recruits: [
     barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
     barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, perks: [] }),
@@ -1934,6 +1998,10 @@ function crewOfficer(
     portraitId: officerPortraitId(officerId),
     role,
     attributes: makeAttributes(15, { leadership: 32, composure: 27, empathy: 24, signals: 8 }),
+    // §B7: taught by the room. The fixture lifts one attribute so the screenshots carry the split
+    // bar and its hover, which is the half of this card that only exists when somebody is lifting.
+    lifted: makeAttributes(15, { leadership: 35, composure: 27, empathy: 24, signals: 8 }),
+    lift: [{ attribute: 'leadership', from: 'Sergeant Ilse Vantner', amount: 3 }],
     perks: [...perks],
     weeklyWage,
     injuredUntil,
@@ -2133,6 +2201,10 @@ function lotOn(
 }
 
 export const market: MarketResponse = {
+  // The city whose barrow this is, and the cities the reader may trade in: one each, because a crew
+  // with no ground abroad has one market. See `CityPicker`.
+  cityId: DEFAULT_CITY_ID,
+  cities: [DEFAULT_CITY_ID],
   // §G4: this is the late-game crew, so the Lab will do the trade. The locked state is covered by
   // the unit tests, which can toggle it; a screenshot fixture wants the state with a button in it.
   reimagining: { hasHeadOfResearch: true, hasReimaginingResearch: true },
@@ -2352,6 +2424,10 @@ export const garage: GarageResponse = {
  * showing five things the catalogue does not stock: the shape of defect the mocked-e2e trap is
  * made of. One slot has already turned over today, because a shelf where nothing has moved is a
  * screenshot of the uninteresting half of the feature.
+ *
+ * Every slot carries a lot now (2026-09-17): the shelf takes bids in infamy and settles at
+ * midnight. Two of the five have somebody on them, one of which is this crew, so the shot has an
+ * untouched lot, a lot the reader is leading and a lot they have been outbid on.
  */
 const BLACK_MARKET_DAY = '2026-08-12';
 const blackMarketSlots = blackMarketBoard(BLACK_MARKET_DAY, [0, 0, 1, 0, 0]);
@@ -2364,21 +2440,65 @@ const blackMarketSlots = blackMarketBoard(BLACK_MARKET_DAY, [0, 0, 1, 0, 0]);
  */
 const BLACK_MARKET_CITY_LEVEL = 12;
 
+/** When every lot on the fixture's shelf settles: the Athens midnight it turns over at. */
+const BLACK_MARKET_CLOSES = '2026-08-12T21:00:00.000Z';
+
+/** One slot's lot, with whoever the fixture wants standing on it. */
+function blackLotFor(
+  slot: { index: number; goodId: string },
+  reserve: number,
+  bids: { username: string; amount: number; yours: boolean }[],
+): BlackMarketLot {
+  const leading = bids.reduce<(typeof bids)[number] | null>(
+    (best, bid) => (best === null || bid.amount > best.amount ? bid : best),
+    null,
+  );
+  const mine = bids.find((bid) => bid.yours);
+  return {
+    lotId: blackLotId(BLACK_MARKET_DAY, slot.index),
+    slotIndex: slot.index,
+    closesAt: BLACK_MARKET_CLOSES,
+    reserve,
+    leading:
+      leading === null
+        ? null
+        : { username: leading.username, amount: leading.amount, at: NOW, yours: leading.yours },
+    nextBid: nextLotBid(reserve, leading?.amount ?? null),
+    bids: bids.map((bid) => ({ ...bid, at: NOW })),
+    bidders: bids.length,
+    yourBid: mine?.amount ?? null,
+  };
+}
+
 export const blackMarket: BlackMarketResponse = {
   day: BLACK_MARKET_DAY,
   offers: blackMarketSlots.map((slot, index) => {
     const spec = findBlackMarketGood(slot.goodId);
+    const price = spec ? blackMarketPrice(spec, BLACK_MARKET_CITY_LEVEL) : 0;
+    const bids =
+      index === 0
+        ? [{ username: 'Rustline', amount: nextLotBid(price, null), yours: false }]
+        : index === 1
+          ? [{ username: 'You', amount: nextLotBid(price, null), yours: true }]
+          : [];
     return {
       slot,
       affordable: index < 3,
-      price: spec ? blackMarketPrice(spec, BLACK_MARKET_CITY_LEVEL) : 0,
+      price,
+      minNotoriety: spec?.minNotoriety ?? 0,
       effect: spec ? blackMarketEffect(spec, BLACK_MARKET_CITY_LEVEL) : '',
+      lot: blackLotFor(slot, Math.max(1, price), bids),
     };
   }),
   infamy: 460,
   takenToday: 0,
   takesPerDay: 1,
   cityLevel: BLACK_MARKET_CITY_LEVEL,
+  // One room, matching the Bar's fixture above: a crew with no ground outside their own city has
+  // one back room, and that is the resting state every screenshot should show. The spec that
+  // exercises the door serves its own two-city response.
+  cityId: DEFAULT_CITY_ID,
+  cities: [DEFAULT_CITY_ID],
   stash: { adrenaline_syringes: 2, combat_stims: 1 },
   // Athens midnight, which for this instant is 21:00 UTC the same evening.
   refreshesAt: '2026-08-12T21:00:00.000Z',
@@ -2472,6 +2592,7 @@ const boardAnalysis: BattleAnalysis = {
   winner: 'attacker',
   rounds: 5,
   decidedOnPower: false,
+  settledBy: 'standing' as const,
   // The ring held, so the card draws that rather than the breakthrough line.
   brokeThrough: false,
   attacker: {
@@ -3423,7 +3544,34 @@ const scrapyardEntry = (
     // The locked third is exactly the rows the page no longer draws: they are still on the wire
     // so the bench can count them, and `scrapyard.spec.ts` reads that count.
     documentHeld: !locked,
-    blocker: shut ?? (locked ? `Needs the ${document?.name}` : null),
+    blocker: null,
+    /*
+     * Where it could go, and whether it could go there (2026-09-16).
+     *
+     * The bench is a per-target screen now, so a fixture that answered one blocker for the whole
+     * row would draw every card the same on every structure. A modification names the structures it
+     * fits and a unit card the units; the first target on each row is left open so the bench has a
+     * live Bolt It In to photograph, and the rest carry the row's own refusal.
+     */
+    targets: (modification
+      ? fitsIn(spec).map((kind) => ({ id: kind, name: BUILDING_CATALOG[kind].name }))
+      : UNIT_CATALOG.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => ({
+          id: unit.id,
+          name: unit.name,
+        }))
+    ).map((target, at) => ({
+      ...target,
+      fitted: at === 0 && shut === null && !locked && index % 4 === 0,
+      blocker: shut ?? (locked ? `Needs the ${document?.name}` : null),
+    })),
+    requirement: ((): string[] => {
+      const need = modification ? modificationRequirement(spec) : unitModificationRequirement(spec);
+      return describeModificationRequirement(need, {
+        buildingName: BUILDING_CATALOG[modification ? spec.building : 'gauntlet'].name,
+        // A BASIC card names no chair, so there is no label to look up for one.
+        roleLabel: need.officer === null ? '' : OFFICER_ROLE_LABELS[need.officer.role],
+      });
+    })(),
   };
 };
 
@@ -3453,6 +3601,9 @@ const trapEntries: ScrapyardEntry[] = TRAP_CATALOG.map((spec, index) => ({
   requiresLevel: scrapyardLevelForTrap(spec),
   documentHeld: index === 0,
   blocker: index === 0 ? null : `Needs the ${blueprintForTrap(spec.id)?.name}`,
+  // A trap belongs to no structure and asks for none of the four gates: it goes into the bag.
+  targets: [],
+  requirement: [],
 }));
 
 export const scrapyard: ScrapyardResponse = {
@@ -3519,8 +3670,28 @@ export const hudExtremes: MeResponse = {
  * with the button on it, a rung part way along and a rung still shut, which is every state the
  * page draws in one card.
  */
-const FEATS_CLAIMED = new Set(['runs_1', 'fights_1', 'clean_1', 'level_1', 'scouting_1']);
-const FEATS_READY = new Set(['runs_2', 'level_2', 'pages_1', 'area_neon_docks']);
+/*
+ * `seats_1` and `seats_2` are both in, and that is deliberate: they are the whole of the shortest
+ * ladder in the catalogue, so this fixture carries one chain that is **finished and collected**.
+ * Without one, the board's `Claimed` filter has nothing to show and every test and screenshot of
+ * it would pass against an empty list.
+ */
+const FEATS_CLAIMED = new Set([
+  'runs_1',
+  'fights_1',
+  'clean_1',
+  'level_1',
+  'scouting_1',
+  'seats_1',
+  'seats_2',
+]);
+/*
+ * `pages_1` and `pages_2` are both waiting, which gives the fixture one ladder carrying **two**
+ * live CLAIM buttons. The page runs one mutation for every button on the board, and the bugs that
+ * cost the most there are the two-presses-in-flight ones: without two on a single open ladder there
+ * is no way to press a second before the first answers.
+ */
+const FEATS_READY = new Set(['runs_2', 'level_2', 'pages_1', 'pages_2', 'area_neon_docks']);
 
 /** A fifth of the way, two fifths, and so on: stable per id, so a screenshot is reproducible. */
 function featShare(id: string): number {

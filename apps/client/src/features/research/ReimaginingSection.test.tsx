@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CITY_ID,
   BLUEPRINTS,
   REIMAGINING_RESEARCH_ID,
   RESOURCE_KEYS,
@@ -41,6 +42,8 @@ function marketWith(
   return {
     reimagining,
     serverNow: NOW,
+    cityId: DEFAULT_CITY_ID,
+    cities: [DEFAULT_CITY_ID],
     caps: resources.caps,
     resources,
     inventory,

@@ -23,6 +23,7 @@ import {
 } from './units/index.js';
 import { BuildingKindSchema, BuildingSchema } from './building/index.js';
 import {
+  DEFAULT_CITY_ID,
   DistrictSchema,
   EnvLabelIdSchema,
   EnvLabelSchema,
@@ -229,6 +230,17 @@ export const OverseerChoicesResponseSchema = z.object({
   choices: z.array(OverseerPresetSchema),
   remaining: z.number().int().nonnegative(),
   total: z.number().int().positive(),
+  /**
+   * §F6: when this batch stops being held for this account.
+   *
+   * The offer used to reserve nothing, so four characters could be on four screens at once and
+   * three of those players pressed a button that could not work. They are held now, and a hold has
+   * to lapse or a closed tab takes four of thirty out of the world for ever. Null only when the
+   * pool is too small to hold anything back.
+   */
+  expiresAt: IsoDateTimeSchema.nullable().default(null),
+  /** The server's own clock, so a countdown does not drift with the reader's. */
+  serverNow: IsoDateTimeSchema.default(() => new Date().toISOString()),
 });
 export type OverseerChoicesResponse = z.infer<typeof OverseerChoicesResponseSchema>;
 
@@ -477,6 +489,30 @@ export const FittedSlotSchema = z.object({
 });
 export type FittedSlot = z.infer<typeof FittedSlotSchema>;
 
+/**
+ * One line of a "where does this come from" page: who, and how many points they are worth.
+ *
+ * Points rather than a multiplier, because that is what the channels are: the fold adds them and
+ * the price is charged against the sum, so a page that listed factors would be describing a
+ * different mechanic from the one the game runs.
+ */
+export const BonusLineSchema = z.object({
+  /** The thing paying: an officer, a structure, a programme, a block of ground. */
+  source: z.string().min(1),
+  /** Why it pays, when the name alone does not say. "Chemistry", "level 12", "Masterpiece". */
+  note: z.string().optional(),
+  percent: z.number(),
+});
+export type BonusLine = z.infer<typeof BonusLineSchema>;
+
+/** The three training figures on the roster's head, each as the lines that add up to it. */
+export const TrainingBreakdownSchema = z.object({
+  cost: z.array(BonusLineSchema),
+  supplies: z.array(BonusLineSchema),
+  speed: z.array(BonusLineSchema),
+});
+export type TrainingBreakdown = z.infer<typeof TrainingBreakdownSchema>;
+
 export const UnitOptionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -529,6 +565,19 @@ export const UnitOptionSchema = z.object({
    */
   homeCostReduction: z.number().optional(),
   homeSpeedBonus: z.number().optional(),
+  /**
+   * The two figures above as named lines, for this unit's own Bonuses page.
+   *
+   * Just this unit's private half: the crew-wide lines are on the response once, in
+   * `trainingBreakdown`, and repeating them on forty rows would be forty copies of one answer. The
+   * page a player opens concatenates the two.
+   *
+   * Absent, rather than an empty pair, when this crew holds none of the ground this unit calls
+   * home or holds it only at level one, which is every unit on a new crew.
+   */
+  homeBonus: z
+    .object({ cost: z.array(BonusLineSchema), speed: z.array(BonusLineSchema) })
+    .optional(),
   unlocked: z.boolean(),
   /** The clauses this crew has not met, in the player's words. Empty when unlocked. */
   missing: z.array(z.string()),
@@ -610,6 +659,23 @@ export const UnitsResponseSchema = z.object({
    */
   trainingSuppliesReduction: z.number().optional(),
   /**
+   * Where each of those three figures came from, line by line (maintainer, 2026-09-17).
+   *
+   * "When you hover over these make a page come up that breaks down where they are from, e.g. 20%
+   * from X officer, 10% from Gauntlet." The chips print one number each, and a number a player
+   * cannot account for is a number they cannot plan against: the difference between a Gauntlet
+   * level and a chemist in the right chair is the whole of what they would do about it.
+   *
+   * Computed on the server rather than reassembled here, because the fold that produces the totals
+   * reads the control table, the faction's cards and the crew's lifted sheets, none of which the
+   * client has. `units/breakdown.ts` holds it, and a test there pins each list's sum to the total
+   * it explains, which is what stops a new contributor landing in one and not the other.
+   *
+   * Optional out of the parser for the same reason `trainingSuppliesReduction` is: every roster
+   * fixture in the tree would otherwise have to write three empty lists to say what absent says.
+   */
+  trainingBreakdown: TrainingBreakdownSchema.optional(),
+  /**
    * Every card the Scrapyard has built, whether or not it is in a bracket somewhere.
    *
    * The stock, in other words. Sent with the roster rather than fetched from `/scrapyard` when a
@@ -619,24 +685,6 @@ export const UnitsResponseSchema = z.object({
   built: z.array(BuiltUpgradeSchema),
 });
 export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
-
-/** Put something in a bracket. Emptying one is a burn (`/units/burn`), never a null here. */
-export const FitSlotRequestSchema = z.object({
-  unitId: z.string().min(1),
-  slot: z
-    .number()
-    .int()
-    .min(0)
-    .max(UNIT_UPGRADE_SLOTS - 1),
-  /**
-   * §D5c: not nullable any more.
-   *
-   * `null` used to empty a bracket and hand the modification back, which made fitting free and
-   * reversible. The only way one comes off now is `POST /units/burn`, which destroys it.
-   */
-  upgradeId: z.string().min(1),
-});
-export type FitSlotRequest = z.infer<typeof FitSlotRequestSchema>;
 
 /** §D5c: burn a fitted modification off the roster. It is destroyed, not returned. */
 export const BurnUpgradeRequestSchema = z.object({ upgradeId: z.string().min(1) });
@@ -1054,6 +1102,16 @@ export const BarResponseSchema = z.object({
   results: z.array(BarAuctionResultSchema).default([]),
   /** Set when this read's settlement crossed a level (§I1). */
   levelUp: LevelUpSchema.optional(),
+  /**
+   * Which city's room this is, and which rooms the crew may walk into (maintainer, 2026-09-17).
+   *
+   * A bar belongs to a city, and a crew holding ground in a city may drink in it: see
+   * `city/access.ts` for the rule and why holding one location is the whole of the price. `cities`
+   * is the picker's contents, the crew's own first, and it is sent rather than worked out on the
+   * client because the client cannot see who holds what.
+   */
+  cityId: z.string().min(1).default(DEFAULT_CITY_ID),
+  cities: z.array(z.string().min(1)).default([]),
 });
 export type BarResponse = z.infer<typeof BarResponseSchema>;
 
@@ -1207,6 +1265,30 @@ export const CrewOfficerSchema = z.object({
    * alternative is nineteen round trips to open nineteen cards.
    */
   attributes: AttributesSchema,
+  /**
+   * The same sheet as the crew actually fields it, teaching perks and held ground folded in.
+   *
+   * Both halves are on the wire because the card shows both: the bar runs to `lifted` and is cut
+   * by a line at `attributes`, so a player can see at a glance how much of a figure is the person
+   * they hired. Sent rather than derived, because the lift depends on who else is on the books,
+   * what the crew holds and what the Lab has finished, and a client that could compute it would
+   * need all three.
+   */
+  lifted: AttributesSchema,
+  /**
+   * Where every point of the difference came from, one line per source per attribute.
+   *
+   * Named, because "+2" with no author is the same mystery as no breakdown at all: the hover on a
+   * bar reads "20 base, +2 from Sergeant Vantner". Empty for a crew of one with nothing held,
+   * which is most of the early game.
+   */
+  lift: z.array(
+    z.object({
+      attribute: AttributeNameSchema,
+      from: z.string(),
+      amount: z.number().int().positive(),
+    }),
+  ),
   /** §B7: the nought-to-three bonuses they bring, which is what the card leads with. */
   perks: PerksSchema,
   /**
@@ -1354,6 +1436,15 @@ export type VendorOffer = z.infer<typeof VendorOfferSchema>;
 
 export const MarketResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
+  /**
+   * Which city's market this is, and which markets the crew may walk into (maintainer, 2026-09-17).
+   *
+   * The same pair the Bar's response carries, for the same rule: a market belongs to a city and a
+   * crew holding ground in one may trade there. See `city/access.ts`. Sent rather than worked out on
+   * the client, which cannot see who holds what.
+   */
+  cityId: z.string().min(1).default(DEFAULT_CITY_ID),
+  cities: z.array(z.string().min(1)).default([]),
   caps: z.number().nonnegative(),
   resources: ResourcesSchema,
   inventory: InventorySchema,

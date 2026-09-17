@@ -12,7 +12,6 @@
  */
 import {
   MAX_BUILD_QUEUE,
-  MODIFICATIONS,
   levelCapForNexus,
   BUILDING_CATALOG,
   BUILDING_KINDS,
@@ -929,7 +928,9 @@ test('the structure says whether its bracket is a set, and what that pays', asyn
   await page.getByTestId('slot-clear-nexus-0').click();
   const strip = page.getByTestId('slot-strip-nexus');
   await expect(strip).toBeVisible();
-  await expect(strip).toContainText('nothing is refunded');
+  // The sentence starts here now: the line that used to precede it was about a shelf the yard no
+  // longer keeps (2026-09-16).
+  await expect(strip).toContainText('Nothing is refunded');
   // The expensive half, which is the one nobody thinks of at the moment they press a red word.
   await expect(strip).toContainText('breaks the Power set');
   await settleFonts(page);
@@ -956,49 +957,36 @@ test('the structure says whether its bracket is a set, and what that pays', asyn
   await expect(page.getByTestId('slot-strip-nexus')).not.toContainText('breaks the');
 });
 
-test('an empty bracket opens the picker and asks before it spends the part', async ({ page }) => {
-  const built = MODIFICATIONS.filter((m) => m.fits?.includes('nexus') || m.building === 'nexus')
-    .slice(0, 5)
-    .map((m) => m.id);
-  await installApi(page, {
-    ...lateGame,
-    base: { ...districtWithAddons, addons: { researched: [], built } },
-  });
+/**
+ * §E: an empty bracket is a door to the bench (2026-09-16).
+ *
+ * It used to open a picker over the crew's shelf and ask before it spent a card. There is no
+ * shelf: the yard cuts a card for a named structure and bolts it in on the same press, so the only
+ * thing this row can do is take the player to that structure's bench. Driven through the browser
+ * rather than asserted about a prop, because the control is the whole row and the thing worth
+ * proving is that pressing it *arrives* somewhere.
+ */
+test('an empty bracket opens this structure’s own bench at the yard', async ({ page }) => {
+  // A Nexus tall enough for all three brackets, with none of them filled.
+  const nexus: Base = {
+    ...districtWithAddons,
+    buildings: districtWithAddons.buildings.map((building) =>
+      building.kind === 'nexus' ? { ...building, level: 20, modifications: [] } : building,
+    ),
+  };
+  await installApi(page, { ...lateGame, base: nexus });
   await page.goto('/game/base');
   await page.getByTestId('plot-nexus').click();
 
-  // The row itself, not a link inside it.
-  const bracket = page.locator('[data-testid^="slot-fit-nexus-"]').first();
+  // The row itself, not a word at the end of it.
+  const bracket = page.locator('[data-testid^="slot-door-nexus-"]').first();
   await expect(bracket).toBeVisible();
   const box = (await bracket.boundingBox())!;
   expect(box.width, 'the bracket is the control, not a word at the end of it').toBeGreaterThan(120);
   await bracket.click();
 
-  const options = page.locator('[data-testid^="slot-option-"]');
-  await expect(options.first()).toBeVisible();
-  const offered = await options.count();
-  expect(offered).toBeGreaterThan(1);
-
-  /*
-   * A cross-building card is on offer.
-   *
-   * `fitSlotRefusal` used to demand `spec.building === kind`, so a card that fits the Nexus but is
-   * homed elsewhere would have been listed by the picker and refused by the route. The gate the UI
-   * asks and the gate the write enforces are the same gate now, and this is the line that says so.
-   */
-  const crossing = MODIFICATIONS.find((m) => m.fits?.includes('nexus') && m.building !== 'nexus');
-  if (crossing && built.includes(crossing.id)) {
-    await expect(page.getByTestId(`slot-option-${crossing.id}`)).toBeVisible();
-  }
-
-  // Pressing a card asks rather than spends.
-  await options.first().click();
-  const confirm = page.getByTestId('slot-confirm-nexus');
-  await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText('nothing comes back');
-
-  // Backing out leaves the shelf alone and the picker open.
-  await page.getByTestId('slot-confirm-no-nexus').click();
-  await expect(confirm).toHaveCount(0);
-  await expect(options).toHaveCount(offered);
+  // The yard, on the Nexus bench, with both parameters the page reads.
+  await expect(page).toHaveURL(/\/game\/scrapyard\?view=modifications&bench=nexus/);
+  // The menu that used to stand between the press and the card is gone, not merely skipped.
+  await expect(page.locator('[data-testid^="slot-option-"]')).toHaveCount(0);
 });

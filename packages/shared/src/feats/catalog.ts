@@ -36,6 +36,22 @@ import type { FeatMeasure } from './measures.js';
  *
  * The earliest step of most chains is an **instructor**: it asks for one of something, so that a
  * player who has never sent a scout is told that scouting exists by being paid to try it once.
+ *
+ * ## One ladder per group runs to tier X
+ *
+ * Most chains are two, three or four rungs, which is the right length for a thing with three
+ * interesting sizes. The trouble with a board made only of those is that a crew six months in has
+ * the top of every one of them and the screen has nothing left to say. So each of the eight groups
+ * above carries one ladder of **ten**: `runs`, `kills`, `taken`, `addons`, `trained`, `caps`,
+ * `infamy` and `faction`. Whatever you spend your evenings doing, there is a rung above the one you
+ * are on.
+ *
+ * The deep rungs are deliberately far off, in the same spirit as the top of the notoriety ladder
+ * (`economy/notoriety.ts`: "there to be seen from a distance"). Tier X of the work is fourteen
+ * thousand jobs and nobody is finishing it this year. It is on the board so that the number exists
+ * and a player can decide what they think of it. What keeps them from being a wall of shut doors is
+ * the screen, not the catalogue: the board draws the rung you are on and the next one, and the
+ * rungs you have collected go behind `Claimed` (`features/feats/featsList.ts`).
  */
 
 // --- the reward helpers, priced once ---
@@ -206,6 +222,125 @@ const wages = (era: FeatEra, size: FeatSize): FeatReward => ({
   ...lesson(era, size === 'large' ? 'medium' : 'small'),
 });
 
+/**
+ * What a rung above the authored ones pays: one ladder, thirteen steps (maintainer, 2026-09-16).
+ *
+ * A chain that climbs past four rungs runs out of reward table. `late`/`large` is the top of the
+ * bands and there is nothing above it, so the natural thing (reach for the same helpers again) pays
+ * 402,790 at one rung and 183,200 at the next: every gate in this file passes, because both are
+ * inside their band, and the ladder asks for four times the work for half the money.
+ *
+ * So the deep rungs come off a single ordered ladder instead, priced as a **multiple** of the
+ * biggest bundle the late band holds (`purse('late', 'large')`, 422,000 caps-equivalent). Step 0 is
+ * a few per cent of it and step 12 is three and a third, which is what
+ * `FEAT_REWARD_BANDS.late.large` was widened to hold. A chain joins the ladder at whatever step
+ * first pays more than its last authored rung and climbs from there, which is the rule
+ * `catalog.test.ts` holds as "never pays a rung less than the rung below it".
+ *
+ * The flavour picks the currency and not the size: every flavour at a given step is worth about the
+ * same to the band check, so a ladder about killing can pay in a name and one about the yard can pay
+ * in coin without either being the better rung to take.
+ */
+/**
+ * The biggest squad a single reward may hand over, as a multiple of the base bundle below.
+ *
+ * Bounded by the beds the game has rather than by taste: at 1.5 the squad is 1,512 unit slots,
+ * which is just under the 1,560 that `recruits('late', 'large')` has always paid and a little under
+ * half of what a crew holding the whole city could house. Anything past that is a reward the
+ * district has to be emptied to accept.
+ */
+const BODIES_CAP_TIMES = 1.5;
+
+const RISE_MULTIPLES = [
+  0.03, 0.09, 0.19, 0.28, 0.45, 0.86, 1.1, 1.35, 1.6, 1.95, 2.35, 2.8, 3.35,
+] as const;
+
+/** The size each step declares, so the band check and the ladder cannot drift apart. */
+const RISE_SIZES: readonly FeatSize[] = [
+  'small',
+  'medium',
+  'medium',
+  'medium',
+  'large',
+  'large',
+  'large',
+  'large',
+  'large',
+  'large',
+  'large',
+  'large',
+  'large',
+];
+
+export type DeepFlavour = 'coin' | 'blood' | 'bodies' | 'schooling';
+
+/** The coin bundle at a given multiple, named so the `bodies` top-up cannot drift away from it. */
+const coinAt = (times: number): FeatReward => ({
+  resources: {
+    caps: Math.round(120_000 * times),
+    scrap: Math.round(50_000 * times),
+    oil: Math.round(25_000 * times),
+    planks: Math.round(25_000 * times),
+    highQualityMetal: Math.round(6_000 * times),
+  },
+});
+
+/** What step `step` of the ladder pays, in the currency the chain is about. */
+const rise = (step: number, flavour: DeepFlavour): FeatReward => {
+  const index = Math.min(Math.max(step, 0), RISE_MULTIPLES.length - 1);
+  const times = RISE_MULTIPLES[index] ?? 1;
+  switch (flavour) {
+    case 'coin':
+      /*
+       * Rounded in `coinAt`, and the rounding is not cosmetic (bug pass, 2026-09-17).
+       *
+       * `50_000 * 0.28` is 14000.000000000002 in binary floating point, and nothing downstream
+       * fixes it: `addResources` adds the reward straight onto the stockpile, so collecting
+       * `hauls_4` left a crew holding a scrap pile with a tail of noughts and a 2 on the end of it,
+       * for ever. Resources are the one reward channel whose schema allows a fraction, because
+       * production settles in fractional carry, so the type system was never going to catch this
+       * and `catalog.test.ts` now does.
+       */
+      return coinAt(times);
+    case 'blood':
+      return { infamy: Math.round(42_200 * times) };
+    case 'bodies': {
+      /*
+       * A squad, bounded by the beds that exist, with the rest paid in coin (bug pass, 2026-09-17).
+       *
+       * Scaled straight through, tier X handed over 844 units worth **3,377 unit slots** against an
+       * absolute ceiling of 3,186: a maxed Quarters plus every one of the city's sixty locations at
+       * level ten, held by one crew, with no army in them. The claim route refuses a unit payout
+       * the district cannot house (§A1) and leaves the feat ready, so the top rung of two ladders
+       * was uncollectable for ever, and Collect-all reported it as still waiting every time it was
+       * pressed. A reward nobody can take is the parts problem again in another channel: see the
+       * note on `kit`, and `catalog.test.ts` for the bound this is held to.
+       *
+       * The squad stops at {@link BODIES_CAP_TIMES} and the value the rung still owes is made up in
+       * caps, which is the same move `kit` makes when a tier wants more value than there are parts
+       * worth handing over.
+       */
+      const squad = Math.min(times, BODIES_CAP_TIMES);
+      const owed = times - squad;
+      return {
+        units: {
+          juggernauts: Math.max(1, Math.round(105 * squad)),
+          ironsides: Math.max(1, Math.round(84 * squad)),
+          snipers: Math.max(1, Math.round(63 * squad)),
+        },
+        ...(owed > 0 ? coinAt(owed) : {}),
+      };
+    }
+    case 'schooling':
+      return { xp: Math.round(300_000 * times) };
+  }
+};
+
+/** The size that goes with a step, for the author and for the band check. */
+export function riseSize(step: number): FeatSize {
+  return RISE_SIZES[Math.min(Math.max(step, 0), RISE_SIZES.length - 1)] ?? 'large';
+}
+
 // --- the builders ---
 
 interface Step {
@@ -302,6 +437,61 @@ const WORK: FeatSpec[] = [
       target: 400,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'runs_5',
+      name: 'The Standing Order',
+      blurb: 'Seven hundred and fifty jobs. The board keeps cards it only ever writes for you.',
+      era: 'late',
+      size: 'large',
+      target: 750,
+      reward: rise(7, 'schooling'),
+    },
+    {
+      id: 'runs_6',
+      name: 'Two Shifts a Day',
+      blurb: 'Fourteen hundred. The trucks are never all in the yard at the same time.',
+      era: 'late',
+      size: 'large',
+      target: 1_400,
+      reward: rise(8, 'schooling'),
+    },
+    {
+      id: 'runs_7',
+      name: 'No Quiet Season',
+      blurb: 'Two and a half thousand jobs, and not one week off inside any of them.',
+      era: 'late',
+      size: 'large',
+      target: 2_500,
+      reward: rise(9, 'schooling'),
+    },
+    {
+      id: 'runs_8',
+      name: 'Past Counting',
+      blurb:
+        'Four and a half thousand. The ledger keeper started a second book and then stopped bothering.',
+      era: 'late',
+      size: 'large',
+      target: 4_500,
+      reward: rise(10, 'schooling'),
+    },
+    {
+      id: 'runs_9',
+      name: 'Older Than the Board',
+      blurb: 'Eight thousand runs. The board is younger than your route sheets.',
+      era: 'late',
+      size: 'large',
+      target: 8_000,
+      reward: rise(11, 'schooling'),
+    },
+    {
+      id: 'runs_10',
+      name: 'The Work Itself',
+      blurb: 'Fourteen thousand. What this city calls work, it learned off watching you.',
+      era: 'late',
+      size: 'large',
+      target: 14_000,
+      reward: rise(12, 'schooling'),
+    },
   ]),
   ...chain('clean', 'missions_won', [
     {
@@ -340,6 +530,42 @@ const WORK: FeatSpec[] = [
       target: 800,
       reward: lesson('late', 'large'),
     },
+    {
+      id: 'clean_5',
+      name: 'A Thousand Clean and More',
+      blurb: 'Eighteen hundred jobs that came off. The failures fit on one page.',
+      era: 'late',
+      size: 'large',
+      target: 1_800,
+      reward: rise(6, 'schooling'),
+    },
+    {
+      id: 'clean_6',
+      name: 'The Quiet Record',
+      blurb: 'Three and a half thousand clean. Nobody has asked you for references in years.',
+      era: 'late',
+      size: 'large',
+      target: 3_500,
+      reward: rise(7, 'schooling'),
+    },
+    {
+      id: 'clean_7',
+      name: 'No Bad Weeks',
+      blurb: 'Six and a half thousand. Whatever went wrong, it went wrong somewhere else.',
+      era: 'late',
+      size: 'large',
+      target: 6_500,
+      reward: rise(8, 'schooling'),
+    },
+    {
+      id: 'clean_8',
+      name: 'The Firm Does Not Miss',
+      blurb: 'Twelve thousand clean runs. Other crews quote your odds at their own briefings.',
+      era: 'late',
+      size: 'large',
+      target: 12_000,
+      reward: rise(9, 'schooling'),
+    },
   ]),
   ...chain(
     'raids',
@@ -371,6 +597,42 @@ const WORK: FeatSpec[] = [
         size: 'medium',
         target: 150,
         reward: street('late', 'medium'),
+      },
+      {
+        id: 'raids_4',
+        name: 'Four Hundred Loud Ones',
+        blurb: 'Jobs where somebody was standing on it, and then was not.',
+        era: 'late',
+        size: 'medium',
+        target: 400,
+        reward: rise(2, 'blood'),
+      },
+      {
+        id: 'raids_5',
+        name: 'The Shooting Trade',
+        blurb: 'Nine hundred raids. Quiet work is something other crews do.',
+        era: 'late',
+        size: 'medium',
+        target: 900,
+        reward: rise(3, 'blood'),
+      },
+      {
+        id: 'raids_6',
+        name: 'Eighteen Hundred Doors',
+        blurb: 'And not one of them opened politely.',
+        era: 'late',
+        size: 'large',
+        target: 1_800,
+        reward: rise(4, 'blood'),
+      },
+      {
+        id: 'raids_7',
+        name: 'War as a Day Job',
+        blurb: 'Three and a half thousand raids. The noise is the business.',
+        era: 'late',
+        size: 'large',
+        target: 3_500,
+        reward: rise(5, 'blood'),
       },
     ],
     'battle',
@@ -405,6 +667,42 @@ const WORK: FeatSpec[] = [
         size: 'medium',
         target: 300,
         reward: purse('late', 'medium'),
+      },
+      {
+        id: 'hauls_4',
+        name: 'Seven Hundred Quiet Ones',
+        blurb: 'Nobody shot at any of them. That is the whole of the skill.',
+        era: 'late',
+        size: 'medium',
+        target: 700,
+        reward: rise(3, 'coin'),
+      },
+      {
+        id: 'hauls_5',
+        name: 'The Freight Line',
+        blurb: 'Fifteen hundred hauls. There is a route map on the wall now.',
+        era: 'late',
+        size: 'large',
+        target: 1_500,
+        reward: rise(4, 'coin'),
+      },
+      {
+        id: 'hauls_6',
+        name: 'Everything Moves Through You',
+        blurb: 'Three thousand quiet jobs. Half the city’s goods have ridden in your trucks.',
+        era: 'late',
+        size: 'large',
+        target: 3_000,
+        reward: rise(5, 'coin'),
+      },
+      {
+        id: 'hauls_7',
+        name: 'The Long Convoy',
+        blurb: 'Six thousand hauls, and the trucks still go out in the morning.',
+        era: 'late',
+        size: 'large',
+        target: 6_000,
+        reward: rise(6, 'coin'),
       },
     ],
     'standard',
@@ -448,6 +746,33 @@ const WORK: FeatSpec[] = [
         size: 'medium',
         target: 250,
         reward: purse('late', 'medium'),
+      },
+      {
+        id: 'oddjobs_5',
+        name: 'Whatever Nobody Else Wants',
+        blurb: 'Six hundred odd jobs off the bottom of the board.',
+        era: 'late',
+        size: 'medium',
+        target: 600,
+        reward: rise(3, 'coin'),
+      },
+      {
+        id: 'oddjobs_6',
+        name: 'The Board’s Best Customer',
+        blurb: 'Fourteen hundred. They keep the strange ones for you now.',
+        era: 'late',
+        size: 'large',
+        target: 1_400,
+        reward: rise(4, 'coin'),
+      },
+      {
+        id: 'oddjobs_7',
+        name: 'Nothing Is Beneath the Crew',
+        blurb: 'Three thousand miscellaneous jobs, and not one of them refused.',
+        era: 'late',
+        size: 'large',
+        target: 3_000,
+        reward: rise(5, 'coin'),
       },
     ],
     MISC_AREA_ID,
@@ -496,6 +821,32 @@ const DISTRICT_WORK: FeatSpec[] = CITY_DISTRICTS.filter(
         target: 50,
         reward: purse(deeper, 'medium'),
       },
+      /*
+       * Two more rungs per district (maintainer, 2026-09-16), off the same row.
+       *
+       * Two hundred jobs out of one district is a crew that works there; six hundred is a crew the
+       * district belongs to. Both are `late` whatever the district's own difficulty is, because the
+       * work is the same everywhere by then and only the count separates them, and both take their
+       * pay off the ladder (`rise`) so a hard district and an easy one cannot drift apart.
+       */
+      {
+        id: `${key}_3`,
+        name: `Two Hundred in ${district.name}`,
+        blurb: `Two hundred jobs out of ${district.name}. The locals stopped asking who you are.`,
+        era: 'late',
+        size: riseSize(4),
+        target: 200,
+        reward: rise(4, 'coin'),
+      },
+      {
+        id: `${key}_4`,
+        name: `Six Hundred in ${district.name}`,
+        blurb: `Six hundred out of ${district.name}. The place runs on your schedule.`,
+        era: 'late',
+        size: riseSize(5),
+        target: 600,
+        reward: rise(5, 'coin'),
+      },
     ],
     district.id,
   );
@@ -541,6 +892,42 @@ const FIGHTING: FeatSpec[] = [
       target: 200,
       reward: spoils('late', 'large'),
     },
+    {
+      id: 'fights_5',
+      name: 'Five Hundred Fights',
+      blurb: 'Stood in. Won or lost is a different ledger entirely.',
+      era: 'late',
+      size: 'large',
+      target: 500,
+      reward: rise(4, 'blood'),
+    },
+    {
+      id: 'fights_6',
+      name: 'Always Somewhere',
+      blurb: 'Twelve hundred declared fights. There is rarely a week with none in it.',
+      era: 'late',
+      size: 'large',
+      target: 1_200,
+      reward: rise(5, 'blood'),
+    },
+    {
+      id: 'fights_7',
+      name: 'The Permanent War',
+      blurb: 'Two thousand eight hundred. It stopped having a beginning.',
+      era: 'late',
+      size: 'large',
+      target: 2_800,
+      reward: rise(6, 'blood'),
+    },
+    {
+      id: 'fights_8',
+      name: 'Six Thousand Called',
+      blurb: 'Fights you stood in. The city has fewer people than that.',
+      era: 'late',
+      size: 'large',
+      target: 6_000,
+      reward: rise(7, 'blood'),
+    },
   ]),
   ...chain('wins', 'battles_won', [
     {
@@ -579,6 +966,42 @@ const FIGHTING: FeatSpec[] = [
       target: 200,
       reward: spoils('late', 'large'),
     },
+    {
+      id: 'wins_5',
+      name: 'Four Hundred and Fifty Held',
+      blurb: 'Won, and the ground was still yours in the morning.',
+      era: 'late',
+      size: 'large',
+      target: 450,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'wins_6',
+      name: 'A Thousand Wins',
+      blurb: 'The losses are a footnote somebody else keeps.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(5, 'coin'),
+    },
+    {
+      id: 'wins_7',
+      name: 'They Send Somebody Else',
+      blurb: 'Two thousand two hundred wins. Crews take the long way round your blocks.',
+      era: 'late',
+      size: 'large',
+      target: 2_200,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'wins_8',
+      name: 'Nobody Left to Beat',
+      blurb: 'Four and a half thousand fights won. The board runs out of names before you do.',
+      era: 'late',
+      size: 'large',
+      target: 4_500,
+      reward: rise(7, 'coin'),
+    },
   ]),
   ...chain('attack', 'battles_attacked_won', [
     {
@@ -607,6 +1030,42 @@ const FIGHTING: FeatSpec[] = [
       size: 'large',
       target: 100,
       reward: spoils('late', 'large'),
+    },
+    {
+      id: 'attack_4',
+      name: 'Two Hundred and Fifty Called',
+      blurb: 'Fights you started, and finished.',
+      era: 'late',
+      size: 'large',
+      target: 250,
+      reward: rise(4, 'blood'),
+    },
+    {
+      id: 'attack_5',
+      name: 'Always the One Knocking',
+      blurb: 'Six hundred won on somebody else’s ground.',
+      era: 'late',
+      size: 'large',
+      target: 600,
+      reward: rise(5, 'blood'),
+    },
+    {
+      id: 'attack_6',
+      name: 'The Weather Comes to Them',
+      blurb: 'Fourteen hundred fights called and won.',
+      era: 'late',
+      size: 'large',
+      target: 1_400,
+      reward: rise(6, 'blood'),
+    },
+    {
+      id: 'attack_7',
+      name: 'Three Thousand Uninvited',
+      blurb: 'Won on ground that belonged to somebody else when the day started.',
+      era: 'late',
+      size: 'large',
+      target: 3_000,
+      reward: rise(7, 'blood'),
     },
   ]),
   ...chain('defend', 'battles_defended_won', [
@@ -637,6 +1096,33 @@ const FIGHTING: FeatSpec[] = [
       target: 60,
       reward: purse('late', 'large'),
     },
+    {
+      id: 'defend_4',
+      name: 'A Hundred and Fifty Held',
+      blurb: 'Fights called on you that went nowhere at all.',
+      era: 'late',
+      size: 'large',
+      target: 150,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'defend_5',
+      name: 'The Wall',
+      blurb: 'Three hundred and eighty holds. The Gate has paid for itself many times over.',
+      era: 'late',
+      size: 'large',
+      target: 380,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'defend_6',
+      name: 'Nobody Knocks Twice',
+      blurb: 'Nine hundred holds. The city learned this one the slow way.',
+      era: 'late',
+      size: 'large',
+      target: 900,
+      reward: rise(8, 'coin'),
+    },
   ]),
   ...chain('deployed', 'bodies_deployed', [
     {
@@ -665,6 +1151,42 @@ const FIGHTING: FeatSpec[] = [
       size: 'medium',
       target: 5_000,
       reward: recruits('late', 'medium'),
+    },
+    {
+      id: 'deployed_4',
+      name: 'Fifteen Thousand Sent',
+      blurb: 'Committed to declared fights. Most of it came back.',
+      era: 'late',
+      size: 'medium',
+      target: 15_000,
+      reward: rise(3, 'bodies'),
+    },
+    {
+      id: 'deployed_5',
+      name: 'The Levy',
+      blurb: 'Forty five thousand units put on the ground, one muster at a time.',
+      era: 'late',
+      size: 'large',
+      target: 45_000,
+      reward: rise(4, 'bodies'),
+    },
+    {
+      id: 'deployed_6',
+      name: 'More Than the District Holds',
+      blurb: 'A hundred and thirty thousand committed. The beds never saw most of them.',
+      era: 'late',
+      size: 'large',
+      target: 130_000,
+      reward: rise(5, 'bodies'),
+    },
+    {
+      id: 'deployed_7',
+      name: 'Everything You Ever Had',
+      blurb: 'Three hundred and eighty thousand units sent out over a lifetime.',
+      era: 'late',
+      size: 'large',
+      target: 380_000,
+      reward: rise(6, 'bodies'),
     },
   ]),
   ...chain('muster', 'supply_deployed', [
@@ -695,6 +1217,33 @@ const FIGHTING: FeatSpec[] = [
       target: 2_500,
       reward: recruits('late', 'large'),
     },
+    {
+      id: 'muster_4',
+      name: 'Eight Thousand Slots',
+      blurb: 'Unit slots committed. Somebody had to find beds for all of it first.',
+      era: 'late',
+      size: 'large',
+      target: 8_000,
+      reward: rise(6, 'bodies'),
+    },
+    {
+      id: 'muster_5',
+      name: 'The Standing Muster',
+      blurb: 'Twenty five thousand unit slots put on the ground.',
+      era: 'late',
+      size: 'large',
+      target: 25_000,
+      reward: rise(7, 'bodies'),
+    },
+    {
+      id: 'muster_6',
+      name: 'Weight, Not Numbers',
+      blurb: 'Eighty thousand unit slots committed. Heavy things, mostly.',
+      era: 'late',
+      size: 'large',
+      target: 80_000,
+      reward: rise(8, 'bodies'),
+    },
   ]),
   ...chain('kills', 'kills', [
     {
@@ -723,6 +1272,70 @@ const FIGHTING: FeatSpec[] = [
       size: 'large',
       target: 5_000,
       reward: street('late', 'large'),
+    },
+    {
+      id: 'kills_4',
+      name: 'Ten Thousand Down',
+      blurb: 'Twice the figure nobody wanted to say out loud the first time.',
+      era: 'late',
+      size: 'large',
+      target: 10_000,
+      reward: rise(6, 'blood'),
+    },
+    {
+      id: 'kills_5',
+      name: 'The Infirmary Stopped Asking',
+      blurb: 'Twenty thousand killed in fights you stood in. Nobody takes a statement any more.',
+      era: 'late',
+      size: 'large',
+      target: 20_000,
+      reward: rise(7, 'blood'),
+    },
+    {
+      id: 'kills_6',
+      name: 'Somebody Is Writing This Down',
+      blurb: 'Thirty five thousand. There are people whose whole trade is the record of it.',
+      era: 'late',
+      size: 'large',
+      target: 35_000,
+      reward: rise(8, 'blood'),
+    },
+    {
+      id: 'kills_7',
+      name: 'Sixty Thousand',
+      blurb: 'Killed. There is no line of prose left that improves on the figure.',
+      era: 'late',
+      size: 'large',
+      target: 60_000,
+      reward: rise(9, 'blood'),
+    },
+    {
+      id: 'kills_8',
+      name: 'Six Figures',
+      blurb: 'A hundred thousand dead in your fights. The city keeps the number and not the names.',
+      era: 'late',
+      size: 'large',
+      target: 100_000,
+      reward: rise(10, 'blood'),
+    },
+    {
+      id: 'kills_9',
+      name: 'The Long List',
+      blurb: 'A hundred and seventy thousand. It is read out on a day set aside for reading it.',
+      era: 'late',
+      size: 'large',
+      target: 170_000,
+      reward: rise(11, 'blood'),
+    },
+    {
+      id: 'kills_10',
+      name: 'What the War Cost',
+      blurb:
+        'Two hundred and eighty thousand killed. The war is whatever it is you have been doing.',
+      era: 'late',
+      size: 'large',
+      target: 280_000,
+      reward: rise(12, 'blood'),
     },
   ]),
 ];
@@ -758,6 +1371,24 @@ const CITY: FeatSpec[] = [
       target: 15,
       reward: wages('late', 'large'),
     },
+    {
+      id: 'holdings_4',
+      name: 'Thirty Addresses',
+      blurb: 'Held at once. The rent collector needs a second book.',
+      era: 'late',
+      size: 'large',
+      target: 30,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'holdings_5',
+      name: 'Half the City on Paper',
+      blurb: 'Forty five holdings at the same time, all of them yours to lose.',
+      era: 'late',
+      size: 'large',
+      target: 45,
+      reward: rise(8, 'coin'),
+    },
   ]),
   ...chain('taken', 'locations_captured', [
     {
@@ -786,6 +1417,69 @@ const CITY: FeatSpec[] = [
       size: 'large',
       target: 40,
       reward: spoils('late', 'large'),
+    },
+    {
+      id: 'taken_4',
+      name: 'Ninety Doors',
+      blurb: 'Ninety places taken off whoever happened to be standing in them.',
+      era: 'late',
+      size: 'large',
+      target: 90,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'taken_5',
+      name: 'Two Hundred Addresses',
+      blurb: 'The map is redrawn oftener than anybody can print it.',
+      era: 'late',
+      size: 'large',
+      target: 200,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'taken_6',
+      name: 'The Landlord',
+      blurb: 'Four hundred and fifty captures. Everyone in this quarter is renting from somebody.',
+      era: 'late',
+      size: 'large',
+      target: 450,
+      reward: rise(8, 'coin'),
+    },
+    {
+      id: 'taken_7',
+      name: 'A Thousand Changes of Hands',
+      blurb: 'A thousand. Half the city has been yours at some point this month.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(9, 'coin'),
+    },
+    {
+      id: 'taken_8',
+      name: 'Nothing Stays Theirs',
+      blurb: 'Two thousand two hundred captures, and not one of them permanent for the other side.',
+      era: 'late',
+      size: 'large',
+      target: 2_200,
+      reward: rise(10, 'coin'),
+    },
+    {
+      id: 'taken_9',
+      name: 'The City Moves Under You',
+      blurb: 'Four thousand eight hundred taken. The map is a thing you do, not a thing you read.',
+      era: 'late',
+      size: 'large',
+      target: 4_800,
+      reward: rise(11, 'coin'),
+    },
+    {
+      id: 'taken_10',
+      name: 'Ten Thousand Times Theirs',
+      blurb: 'Ten thousand captures. There is no ground here you have not stood on as its owner.',
+      era: 'late',
+      size: 'large',
+      target: 10_000,
+      reward: rise(12, 'coin'),
     },
   ]),
   ...chain('whole', 'districts_held_whole', [
@@ -816,6 +1510,15 @@ const CITY: FeatSpec[] = [
       target: 6,
       reward: wages('late', 'large'),
     },
+    {
+      id: 'whole_4',
+      name: 'Eight Districts Whole',
+      blurb: 'Held entire, corner to corner, at the same time.',
+      era: 'late',
+      size: 'large',
+      target: 8,
+      reward: rise(7, 'coin'),
+    },
   ]),
   ...chain('gates', 'gates_captured', [
     {
@@ -844,6 +1547,33 @@ const CITY: FeatSpec[] = [
       size: 'large',
       target: 15,
       reward: spoils('late', 'large'),
+    },
+    {
+      id: 'gates_4',
+      name: 'Forty Gates',
+      blurb: 'Taken off whoever was collecting at them.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'gates_5',
+      name: 'The Tollkeeper',
+      blurb: 'A hundred gates captured. Nobody moves in this city for free.',
+      era: 'late',
+      size: 'large',
+      target: 100,
+      reward: rise(5, 'coin'),
+    },
+    {
+      id: 'gates_6',
+      name: 'Every Road In',
+      blurb: 'Two hundred and fifty gates taken. The map has your hand on its throat.',
+      era: 'late',
+      size: 'large',
+      target: 250,
+      reward: rise(6, 'coin'),
     },
   ]),
   ...chain('scouted', 'districts_scouted', [
@@ -913,6 +1643,42 @@ const CITY: FeatSpec[] = [
       target: 500,
       reward: lesson('late', 'medium'),
     },
+    {
+      id: 'scouting_5',
+      name: 'Twelve Hundred Walks',
+      blurb: 'Scouts out and back. Somebody has drawn all of it.',
+      era: 'late',
+      size: 'medium',
+      target: 1_200,
+      reward: rise(2, 'schooling'),
+    },
+    {
+      id: 'scouting_6',
+      name: 'The Standing Map',
+      blurb: 'Two thousand eight hundred runs. Nothing in this city surprises you.',
+      era: 'late',
+      size: 'medium',
+      target: 2_800,
+      reward: rise(3, 'schooling'),
+    },
+    {
+      id: 'scouting_7',
+      name: 'Eyes Everywhere',
+      blurb: 'Six and a half thousand scouting runs, and they keep going out.',
+      era: 'late',
+      size: 'large',
+      target: 6_500,
+      reward: rise(4, 'schooling'),
+    },
+    {
+      id: 'scouting_8',
+      name: 'You Knew Before They Did',
+      blurb: 'Fifteen thousand runs. The news reaches you on its way to being news.',
+      era: 'late',
+      size: 'large',
+      target: 15_000,
+      reward: rise(5, 'schooling'),
+    },
   ]),
 ];
 
@@ -941,6 +1707,24 @@ const DISTRICT: FeatSpec[] = [
         target: 12,
         reward: wages('mid', 'medium'),
       },
+      {
+        id: 'quarters_3',
+        name: 'Bunks to the Roof',
+        blurb: 'Quarters at seventeen. The beds go up rather than out now.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'quarters_4',
+        name: 'Quarters, Finished',
+        blurb: 'Twenty. There is no more room in this district to give anybody.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
+      },
     ],
     'quarters',
   ),
@@ -965,6 +1749,24 @@ const DISTRICT: FeatSpec[] = [
         size: 'medium',
         target: 12,
         reward: wages('mid', 'medium'),
+      },
+      {
+        id: 'gauntlet_3',
+        name: 'The Gauntlet Grinds',
+        blurb: 'Seventeen levels of it. Nobody comes out of there the shape they went in.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'gauntlet_4',
+        name: 'The Gauntlet, Finished',
+        blurb: 'Twenty. There is nothing left in that building to be taught.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
       },
     ],
     'gauntlet',
@@ -991,6 +1793,24 @@ const DISTRICT: FeatSpec[] = [
         target: 12,
         reward: wages('mid', 'medium'),
       },
+      {
+        id: 'scrapyard_3',
+        name: 'The Yard Runs Deep',
+        blurb: 'Seventeen levels of bench, press and cutting torch.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'scrapyard_4',
+        name: 'The Yard, Finished',
+        blurb: 'Twenty. Every card the game has ever printed can be cut here.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
+      },
     ],
     'scrapyard',
   ),
@@ -1016,6 +1836,24 @@ const DISTRICT: FeatSpec[] = [
         target: 12,
         reward: wages('mid', 'medium'),
       },
+      {
+        id: 'greenhouse_3',
+        name: 'Glass to the Sky',
+        blurb: 'Seventeen levels of it, and the lamps never go off.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'greenhouse_4',
+        name: 'The Greenhouse, Finished',
+        blurb: 'Twenty. Nothing in this district goes hungry again.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
+      },
     ],
     'greenhouse',
   ),
@@ -1040,6 +1878,24 @@ const DISTRICT: FeatSpec[] = [
         size: 'medium',
         target: 12,
         reward: wages('mid', 'medium'),
+      },
+      {
+        id: 'generator_3',
+        name: 'Seventeen Levels of Power',
+        blurb: 'The lights in this district do not flicker any more.',
+        era: 'late',
+        size: 'medium',
+        target: 17,
+        reward: rise(1, 'coin'),
+      },
+      {
+        id: 'generator_4',
+        name: 'The Generator, Finished',
+        blurb: 'Twenty. Whatever you plug into it, it runs.',
+        era: 'late',
+        size: 'medium',
+        target: 20,
+        reward: rise(2, 'coin'),
       },
     ],
     'generator',
@@ -1115,6 +1971,33 @@ const DISTRICT: FeatSpec[] = [
       target: 120,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'raised_4',
+      name: 'Two Hundred and Twenty Levels',
+      blurb: 'Raised, one crew and one long afternoon at a time.',
+      era: 'late',
+      size: 'medium',
+      target: 220,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'raised_5',
+      name: 'Built and Rebuilt',
+      blurb: 'Four hundred levels raised. Some of them twice, after somebody knocked them down.',
+      era: 'late',
+      size: 'large',
+      target: 400,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'raised_6',
+      name: 'The Builder',
+      blurb: 'Seven hundred building levels raised over a lifetime of it.',
+      era: 'late',
+      size: 'large',
+      target: 700,
+      reward: rise(5, 'coin'),
+    },
   ]),
   ...chain('estate', 'buildings_total', [
     {
@@ -1143,6 +2026,24 @@ const DISTRICT: FeatSpec[] = [
       size: 'large',
       target: 140,
       reward: wages('late', 'large'),
+    },
+    {
+      id: 'estate_4',
+      name: 'A Hundred and Ninety Standing',
+      blurb: 'Levels of building, all of it upright at the same time.',
+      era: 'late',
+      size: 'large',
+      target: 190,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'estate_5',
+      name: 'Nothing Left to Raise',
+      blurb: 'Two hundred and twenty levels standing. Every roof is at its ceiling.',
+      era: 'late',
+      size: 'large',
+      target: 220,
+      reward: rise(8, 'coin'),
     },
   ]),
   ...chain(
@@ -1175,6 +2076,15 @@ const DISTRICT: FeatSpec[] = [
         size: 'large',
         target: 18,
         reward: wages('late', 'large'),
+      },
+      {
+        id: 'gate_4',
+        name: 'The Gate, Finished',
+        blurb: 'Twenty levels of wall, door, and everything waiting behind it.',
+        era: 'late',
+        size: 'large',
+        target: 20,
+        reward: rise(7, 'coin'),
       },
     ],
     'gate',
@@ -1210,6 +2120,15 @@ const DISTRICT: FeatSpec[] = [
         target: 16,
         reward: wages('late', 'large'),
       },
+      {
+        id: 'lab_4',
+        name: 'The Lab, Finished',
+        blurb: 'Twenty. There is no programme the bench cannot take on.',
+        era: 'late',
+        size: 'large',
+        target: 20,
+        reward: rise(7, 'schooling'),
+      },
     ],
     'lab',
   ),
@@ -1244,6 +2163,15 @@ const DISTRICT: FeatSpec[] = [
         target: 16,
         reward: wages('late', 'large'),
       },
+      {
+        id: 'garage_4',
+        name: 'The Garage, Finished',
+        blurb: 'Twenty levels. Everything the game can build has a bay in there.',
+        era: 'late',
+        size: 'large',
+        target: 20,
+        reward: rise(7, 'coin'),
+      },
     ],
     'garage',
   ),
@@ -1274,6 +2202,42 @@ const DISTRICT: FeatSpec[] = [
       size: 'small',
       target: 40,
       reward: kit('late', 'small'),
+    },
+    {
+      id: 'traps_4',
+      name: 'Ninety Nasty Surprises',
+      blurb: 'Laid around the perimeter and mostly forgotten about.',
+      era: 'late',
+      size: 'small',
+      target: 90,
+      reward: rise(0, 'coin'),
+    },
+    {
+      id: 'traps_5',
+      name: 'The Ground Bites',
+      blurb: 'Two hundred traps laid. Walking here is a decision.',
+      era: 'late',
+      size: 'medium',
+      target: 200,
+      reward: rise(1, 'coin'),
+    },
+    {
+      id: 'traps_6',
+      name: 'Nobody Walks In',
+      blurb: 'Four hundred and fifty traps. The perimeter does the first half of every fight.',
+      era: 'late',
+      size: 'medium',
+      target: 450,
+      reward: rise(2, 'coin'),
+    },
+    {
+      id: 'traps_7',
+      name: 'A Thousand Ways In, All Bad',
+      blurb: 'A thousand traps laid over a lifetime of being visited.',
+      era: 'late',
+      size: 'medium',
+      target: 1_000,
+      reward: rise(3, 'coin'),
     },
   ]),
   /*
@@ -1316,6 +2280,24 @@ const DISTRICT: FeatSpec[] = [
       size: 'medium',
       target: 20,
       reward: kit('late', 'medium'),
+    },
+    {
+      id: 'fittings_4',
+      name: 'Twenty Seven Fitted',
+      blurb: 'Cards in brackets across the whole district.',
+      era: 'late',
+      size: 'medium',
+      target: 27,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'fittings_5',
+      name: 'Every Bracket Full',
+      blurb: 'Thirty three fittings, which is all of them. There is nowhere left to bolt anything.',
+      era: 'late',
+      size: 'large',
+      target: 33,
+      reward: rise(4, 'coin'),
     },
   ]),
   ...chain('sets', 'modification_sets', [
@@ -1385,6 +2367,24 @@ const DISTRICT: FeatSpec[] = [
       target: 20,
       reward: kit('late', 'medium'),
     },
+    {
+      id: 'kitted_4',
+      name: 'Thirty Cards in Brackets',
+      blurb: 'Units carrying something that was never issued to them.',
+      era: 'late',
+      size: 'medium',
+      target: 30,
+      reward: rise(3, 'bodies'),
+    },
+    {
+      id: 'kitted_5',
+      name: 'Nothing Off the Shelf',
+      blurb: 'Forty cards fitted. Every unit that matters has been improved by hand.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: rise(4, 'bodies'),
+    },
   ]),
   solo(
     {
@@ -1425,6 +2425,70 @@ const DISTRICT: FeatSpec[] = [
       size: 'medium',
       target: 80,
       reward: kit('late', 'medium'),
+    },
+    {
+      id: 'addons_4',
+      name: 'The Yard Never Cools',
+      blurb: 'A hundred and eighty fittings. The Scrapyard has not been empty in months.',
+      era: 'late',
+      size: 'large',
+      target: 180,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'addons_5',
+      name: 'Four Hundred Off the Bench',
+      blurb: 'Cut, welded and bolted on, one at a time, by people who no longer read the plans.',
+      era: 'late',
+      size: 'large',
+      target: 400,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'addons_6',
+      name: 'A Trade of Its Own',
+      blurb: 'Nine hundred fittings. The yard is a business the crew happens to own.',
+      era: 'late',
+      size: 'large',
+      target: 900,
+      reward: rise(8, 'coin'),
+    },
+    {
+      id: 'addons_7',
+      name: 'Two Thousand Bolted On',
+      blurb: 'Nothing in the district is any longer the shape it was delivered in.',
+      era: 'late',
+      size: 'large',
+      target: 2_000,
+      reward: rise(9, 'coin'),
+    },
+    {
+      id: 'addons_8',
+      name: 'The Second Yard',
+      blurb: 'Four thousand four hundred fittings, and one bench was never going to be enough.',
+      era: 'late',
+      size: 'large',
+      target: 4_400,
+      reward: rise(10, 'coin'),
+    },
+    {
+      id: 'addons_9',
+      name: 'Everything Twice Over',
+      blurb:
+        'Nine and a half thousand. Whatever you own, you have rebuilt it and then rebuilt that.',
+      era: 'late',
+      size: 'large',
+      target: 9_500,
+      reward: rise(11, 'coin'),
+    },
+    {
+      id: 'addons_10',
+      name: 'Twenty Thousand Welds',
+      blurb: 'There is nothing left in the district the yard has not had its hands inside.',
+      era: 'late',
+      size: 'large',
+      target: 20_000,
+      reward: rise(12, 'coin'),
     },
   ]),
 ];
@@ -1473,6 +2537,24 @@ const CREW: FeatSpec[] = [
       target: 600,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'roster_4',
+      name: 'A Thousand Under Arms',
+      blurb: 'Held at once, fed and housed, before anybody is sent anywhere.',
+      era: 'late',
+      size: 'medium',
+      target: 1_000,
+      reward: rise(3, 'bodies'),
+    },
+    {
+      id: 'roster_5',
+      name: 'The Standing Host',
+      blurb: 'Sixteen hundred units on the books at the same time.',
+      era: 'late',
+      size: 'large',
+      target: 1_600,
+      reward: rise(4, 'bodies'),
+    },
   ]),
   ...chain('beds', 'army_unit_slots', [
     {
@@ -1501,6 +2583,24 @@ const CREW: FeatSpec[] = [
       size: 'medium',
       target: 1_000,
       reward: purse('late', 'medium'),
+    },
+    {
+      id: 'beds_4',
+      name: 'Fifteen Hundred Slots',
+      blurb: 'Filled at once. The quartermaster has stopped sleeping.',
+      era: 'late',
+      size: 'medium',
+      target: 1_500,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'beds_5',
+      name: 'Every Bed in the District',
+      blurb: 'Two thousand two hundred unit slots, all of them occupied.',
+      era: 'late',
+      size: 'large',
+      target: 2_200,
+      reward: rise(4, 'coin'),
     },
   ]),
   ...chain('trained', 'units_trained', [
@@ -1540,6 +2640,63 @@ const CREW: FeatSpec[] = [
       target: 10000,
       reward: recruits('late', 'large'),
     },
+    {
+      id: 'trained_5',
+      name: 'Two Generations',
+      blurb:
+        'Twenty two thousand through the drill yard. The instructors were trained here as well.',
+      era: 'late',
+      size: 'large',
+      target: 22_000,
+      reward: rise(7, 'bodies'),
+    },
+    {
+      id: 'trained_6',
+      name: 'Bigger Than the District',
+      blurb:
+        'Forty eight thousand units. More people have passed the gate than live on the street outside it.',
+      era: 'late',
+      size: 'large',
+      target: 48_000,
+      reward: rise(8, 'bodies'),
+    },
+    {
+      id: 'trained_7',
+      name: 'A Hundred Thousand Through',
+      blurb: 'Trained, kitted and sent out. The yard runs whether anybody is watching it or not.',
+      era: 'late',
+      size: 'large',
+      target: 105_000,
+      reward: rise(9, 'bodies'),
+    },
+    {
+      id: 'trained_8',
+      name: 'Nobody Learned It Anywhere Else',
+      blurb:
+        'Two hundred and thirty thousand. The city’s whole trade in soldiers runs through one gate.',
+      era: 'late',
+      size: 'large',
+      target: 230_000,
+      reward: rise(10, 'bodies'),
+    },
+    {
+      id: 'trained_9',
+      name: 'Half a Million Taught',
+      blurb: 'The drill is older than most of the crews using it against you.',
+      era: 'late',
+      size: 'large',
+      target: 500_000,
+      reward: rise(11, 'bodies'),
+    },
+    {
+      id: 'trained_10',
+      name: 'The Institution',
+      blurb: 'A million and more through the yard. It will outlive everybody who ever ran it.',
+      era: 'late',
+      size: 'large',
+      target: 1_100_000,
+      reward: rise(12, 'bodies'),
+    },
   ]),
   ...chain('kinds', 'unit_kinds_held', [
     {
@@ -1568,6 +2725,24 @@ const CREW: FeatSpec[] = [
       size: 'medium',
       target: 15,
       reward: purse('late', 'medium'),
+    },
+    {
+      id: 'kinds_4',
+      name: 'Twenty Kinds',
+      blurb: 'On the roster at once. Somebody has to remember what they all do.',
+      era: 'late',
+      size: 'medium',
+      target: 20,
+      reward: rise(3, 'bodies'),
+    },
+    {
+      id: 'kinds_5',
+      name: 'One of Nearly Everything',
+      blurb: 'Twenty six kinds of unit held at the same time.',
+      era: 'late',
+      size: 'large',
+      target: 26,
+      reward: rise(4, 'bodies'),
     },
   ]),
   ...chain('officers', 'officers_held', [
@@ -1598,6 +2773,24 @@ const CREW: FeatSpec[] = [
       target: 8,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'officers_4',
+      name: 'Twelve at the Table',
+      blurb: 'Officers on the books, each with an opinion and a wage.',
+      era: 'late',
+      size: 'medium',
+      target: 12,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'officers_5',
+      name: 'A Full Table',
+      blurb: 'Sixteen officers. The payroll is a line of work on its own.',
+      era: 'late',
+      size: 'large',
+      target: 16,
+      reward: rise(4, 'coin'),
+    },
   ]),
   ...chain('hired', 'officers_hired', [
     {
@@ -1627,6 +2820,42 @@ const CREW: FeatSpec[] = [
       target: 30,
       reward: lesson('late', 'small'),
     },
+    {
+      id: 'hired_4',
+      name: 'Eighty Signed',
+      blurb: 'Hired over a lifetime. Most of them moved on.',
+      era: 'late',
+      size: 'small',
+      target: 80,
+      reward: rise(0, 'coin'),
+    },
+    {
+      id: 'hired_5',
+      name: 'The Revolving Door',
+      blurb: 'Two hundred officers hired. The Bar keeps a stool for you.',
+      era: 'late',
+      size: 'medium',
+      target: 200,
+      reward: rise(1, 'coin'),
+    },
+    {
+      id: 'hired_6',
+      name: 'Five Hundred Signed On',
+      blurb: 'Five hundred signed. It is hard to find a crew you have not staffed.',
+      era: 'late',
+      size: 'medium',
+      target: 500,
+      reward: rise(2, 'coin'),
+    },
+    {
+      id: 'hired_7',
+      name: 'The Employer',
+      blurb: 'Twelve hundred officers hired. Half the city has your name on a contract.',
+      era: 'late',
+      size: 'medium',
+      target: 1_200,
+      reward: rise(3, 'coin'),
+    },
   ]),
   ...chain('mark', 'officer_best_mark', [
     {
@@ -1655,6 +2884,15 @@ const CREW: FeatSpec[] = [
       size: 'large',
       target: markIndex('S'),
       reward: lesson('late', 'large'),
+    },
+    {
+      id: 'mark_4',
+      name: 'The Last Mark',
+      blurb: 'An officer at the top of the ladder. There is nothing above it to reach for.',
+      era: 'late',
+      size: 'large',
+      target: 20,
+      reward: rise(6, 'schooling'),
     },
   ]),
   ...chain(
@@ -1688,6 +2926,24 @@ const CREW: FeatSpec[] = [
         target: 10,
         reward: lesson('late', 'large'),
       },
+      {
+        id: 'overseer_4',
+        name: 'Sixteen Over Fifty',
+        blurb: 'Skills on your own sheet past halfway. Most people pick two and stop.',
+        era: 'late',
+        size: 'large',
+        target: 16,
+        reward: rise(6, 'schooling'),
+      },
+      {
+        id: 'overseer_5',
+        name: 'Good at Nearly Everything',
+        blurb: 'Twenty four skills over fifty. The gaps are getting hard to find.',
+        era: 'late',
+        size: 'large',
+        target: 24,
+        reward: rise(7, 'schooling'),
+      },
     ],
     '50',
   ),
@@ -1719,6 +2975,15 @@ const CREW: FeatSpec[] = [
       target: 95,
       reward: lesson('late', 'medium'),
     },
+    {
+      id: 'peak_4',
+      name: 'Perfect at One Thing',
+      blurb: 'A skill at the ceiling. There is no number above it.',
+      era: 'late',
+      size: 'medium',
+      target: 100,
+      reward: rise(2, 'schooling'),
+    },
   ]),
   ...chain('fleet', 'fleet_size', [
     {
@@ -1748,6 +3013,24 @@ const CREW: FeatSpec[] = [
       target: 12,
       reward: purse('late', 'large'),
     },
+    {
+      id: 'fleet_4',
+      name: 'Two Dozen Machines',
+      blurb: 'In the bays at once, fuelled and waiting.',
+      era: 'late',
+      size: 'large',
+      target: 24,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'fleet_5',
+      name: 'The Motor Pool',
+      blurb: 'Forty five machines. The garage has a traffic problem.',
+      era: 'late',
+      size: 'large',
+      target: 45,
+      reward: rise(7, 'coin'),
+    },
   ]),
   ...chain('vehicles', 'vehicles_built', [
     {
@@ -1776,6 +3059,33 @@ const CREW: FeatSpec[] = [
       size: 'large',
       target: 20,
       reward: kit('late', 'large'),
+    },
+    {
+      id: 'vehicles_4',
+      name: 'Fifty Off the Line',
+      blurb: 'Machines built out of nothing but plans and parts.',
+      era: 'late',
+      size: 'large',
+      target: 50,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'vehicles_5',
+      name: 'The Works',
+      blurb: 'A hundred and twenty machines built. The garage is a factory now.',
+      era: 'late',
+      size: 'large',
+      target: 120,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'vehicles_6',
+      name: 'Three Hundred Built',
+      blurb: 'Most of them are somebody else’s problem by now.',
+      era: 'late',
+      size: 'large',
+      target: 300,
+      reward: rise(8, 'coin'),
     },
   ]),
 ];
@@ -1866,6 +3176,69 @@ const TRADE: FeatSpec[] = [
         target: 3_000_000,
         reward: purse('late', 'large'),
       },
+      {
+        id: 'caps_4',
+        name: 'Eight Million',
+        blurb: 'Earned, and mostly spent again. The pile was never the point.',
+        era: 'late',
+        size: 'large',
+        target: 8_000_000,
+        reward: rise(6, 'coin'),
+      },
+      {
+        id: 'caps_5',
+        name: 'Twenty One Million',
+        blurb: 'Through the till over a lifetime. The till has been replaced twice.',
+        era: 'late',
+        size: 'large',
+        target: 21_000_000,
+        reward: rise(7, 'coin'),
+      },
+      {
+        id: 'caps_6',
+        name: 'The House Bank',
+        blurb: 'Fifty five million earned. Other crews keep their float with you now.',
+        era: 'late',
+        size: 'large',
+        target: 55_000_000,
+        reward: rise(8, 'coin'),
+      },
+      {
+        id: 'caps_7',
+        name: 'Past the Counting House',
+        blurb: 'A hundred and forty five million. Nobody audits you, because nobody could.',
+        era: 'late',
+        size: 'large',
+        target: 145_000_000,
+        reward: rise(9, 'coin'),
+      },
+      {
+        id: 'caps_8',
+        name: 'The Rate Is Whatever You Say',
+        blurb: 'Three hundred and eighty million earned. The market moves when you buy bread.',
+        era: 'late',
+        size: 'large',
+        target: 380_000_000,
+        reward: rise(10, 'coin'),
+      },
+      {
+        id: 'caps_9',
+        name: 'A Thousand Million',
+        blurb: 'The figure stops meaning anything and you have it anyway.',
+        era: 'late',
+        size: 'large',
+        target: 1_000_000_000,
+        reward: rise(11, 'coin'),
+      },
+      {
+        id: 'caps_10',
+        name: 'Money Is a Thing You Do',
+        blurb: 'Two and a half billion earned. Currency is a habit of yours the city picked up.',
+        era: 'late',
+        size: 'large',
+        target: 2_600_000_000,
+        reward: rise(12, 'coin'),
+      },
     ],
     'caps',
   ),
@@ -1899,6 +3272,42 @@ const TRADE: FeatSpec[] = [
         size: 'medium',
         target: 50_000,
         reward: kit('late', 'medium'),
+      },
+      {
+        id: 'metal_4',
+        name: 'Two Hundred Thousand of the Good Stuff',
+        blurb: 'High quality metal earned over a lifetime of asking for it.',
+        era: 'late',
+        size: 'medium',
+        target: 200_000,
+        reward: rise(3, 'coin'),
+      },
+      {
+        id: 'metal_5',
+        name: 'The Smelter Never Cools',
+        blurb: 'Eight hundred thousand. Other crews buy theirs; you make yours.',
+        era: 'late',
+        size: 'large',
+        target: 800_000,
+        reward: rise(4, 'coin'),
+      },
+      {
+        id: 'metal_6',
+        name: 'Three Million Ingots',
+        blurb: 'The hard currency of anything worth building, through your hands.',
+        era: 'late',
+        size: 'large',
+        target: 3_000_000,
+        reward: rise(5, 'coin'),
+      },
+      {
+        id: 'metal_7',
+        name: 'Where the Metal Comes From',
+        blurb: 'Ten million earned. The city’s good steel has your fingerprints on it.',
+        era: 'late',
+        size: 'large',
+        target: 10_000_000,
+        reward: rise(6, 'coin'),
       },
     ],
     'highQualityMetal',
@@ -1987,6 +3396,42 @@ const TRADE: FeatSpec[] = [
       target: 250,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'trade_5',
+      name: 'Six Hundred Deals',
+      blurb: 'Listings of yours taken off the board by somebody else.',
+      era: 'late',
+      size: 'medium',
+      target: 600,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'trade_6',
+      name: 'Your Prices Are the Prices',
+      blurb: 'Fourteen hundred sales. Your prices are the prices.',
+      era: 'late',
+      size: 'large',
+      target: 1_400,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'trade_7',
+      name: 'Three Thousand Handshakes',
+      blurb: 'Sales closed. Nobody checks your goods any more.',
+      era: 'late',
+      size: 'large',
+      target: 3_000,
+      reward: rise(5, 'coin'),
+    },
+    {
+      id: 'trade_8',
+      name: 'The Market Is You',
+      blurb: 'Six and a half thousand deals. The board is mostly your paper.',
+      era: 'late',
+      size: 'large',
+      target: 6_500,
+      reward: rise(6, 'coin'),
+    },
   ]),
   ...chain('buys', 'market_buys', [
     {
@@ -2016,12 +3461,48 @@ const TRADE: FeatSpec[] = [
       target: 150,
       reward: purse('late', 'medium'),
     },
+    {
+      id: 'buys_4',
+      name: 'Four Hundred Bought',
+      blurb: 'Listings, supply runs, barter with the Broker and lots won.',
+      era: 'late',
+      size: 'medium',
+      target: 400,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'buys_5',
+      name: 'A Thousand Times Paid',
+      blurb: 'Bought rather than built, and faster for it.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'buys_6',
+      name: 'First Call at the Broker',
+      blurb: 'Two and a half thousand purchases. The Broker takes your call first.',
+      era: 'late',
+      size: 'large',
+      target: 2_500,
+      reward: rise(5, 'coin'),
+    },
+    {
+      id: 'buys_7',
+      name: 'Everything Has a Price',
+      blurb: 'Six thousand deals taken. You have never once made your own rope.',
+      era: 'late',
+      size: 'large',
+      target: 6_000,
+      reward: rise(6, 'coin'),
+    },
   ]),
   ...chain('contraband', 'contraband_taken', [
     {
       id: 'contraband_1',
       name: 'The Back Room',
-      blurb: 'Take something off the shelf behind the market. It costs a name, not caps.',
+      blurb: 'Win a lot in the back room behind the market. It costs a name, not caps.',
       era: 'early',
       size: 'small',
       target: 1,
@@ -2030,7 +3511,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'contraband_2',
       name: 'A Regular Back There',
-      blurb: 'Fifteen takes. They keep things aside for you.',
+      blurb: 'Fifteen crates won. They know your bid before you write it.',
       era: 'mid',
       size: 'medium',
       target: 15,
@@ -2045,7 +3526,7 @@ const TRADE: FeatSpec[] = [
     {
       id: 'contraband_3',
       name: 'Nothing Is Not For Sale',
-      blurb: 'Fifty takes out of the back room.',
+      blurb: 'Fifty lots out of the back room, every one of them outbid somebody.',
       era: 'late',
       size: 'medium',
       target: 50,
@@ -2054,11 +3535,38 @@ const TRADE: FeatSpec[] = [
     {
       id: 'contraband_4',
       name: 'A Standing Arrangement',
-      blurb: 'Two hundred off the back room. They restock for you specifically.',
+      blurb: 'Two hundred won back there. They restock for you specifically.',
       era: 'late',
       size: 'large',
       target: 200,
       reward: spoils('late', 'large'),
+    },
+    {
+      id: 'contraband_5',
+      name: 'Four Hundred and Fifty Off the Shelf',
+      blurb: 'Back-room lots won at midnight and used by morning.',
+      era: 'late',
+      size: 'large',
+      target: 450,
+      reward: rise(4, 'blood'),
+    },
+    {
+      id: 'contraband_6',
+      name: 'The Back Room Regular',
+      blurb: 'A thousand crates won. They stopped asking what it is for.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(5, 'blood'),
+    },
+    {
+      id: 'contraband_7',
+      name: 'Nothing Is Off Limits',
+      blurb: 'Two thousand two hundred crates won in the back room over a lifetime.',
+      era: 'late',
+      size: 'large',
+      target: 2_200,
+      reward: rise(6, 'blood'),
     },
   ]),
 ];
@@ -2094,6 +3602,71 @@ const NAME: FeatSpec[] = [
       target: 25_000,
       reward: purse('late', 'large'),
     },
+    {
+      id: 'infamy_4',
+      name: 'Told as a Warning',
+      blurb: 'Sixty thousand earned. People end arguments with your name.',
+      era: 'late',
+      size: 'large',
+      target: 60_000,
+      reward: rise(6, 'blood'),
+    },
+    {
+      id: 'infamy_5',
+      name: 'No Introduction',
+      blurb: 'A hundred and forty five thousand. Nobody asks which crew.',
+      era: 'late',
+      size: 'large',
+      target: 145_000,
+      reward: rise(7, 'blood'),
+    },
+    {
+      id: 'infamy_6',
+      name: 'The Price of a Rank',
+      blurb:
+        'Three hundred and twenty thousand, which is about what the seventh rung of the ladder costs.',
+      era: 'late',
+      size: 'large',
+      target: 320_000,
+      reward: rise(8, 'blood'),
+    },
+    {
+      id: 'infamy_7',
+      name: 'Three Quarters of a Million',
+      blurb: 'The street stopped grading you against other crews a long way back.',
+      era: 'late',
+      size: 'large',
+      target: 750_000,
+      reward: rise(9, 'blood'),
+    },
+    {
+      id: 'infamy_8',
+      name: 'A Story Told Wrong',
+      blurb:
+        'One million seven hundred thousand. The versions people tell are worse than the truth, and you let them be.',
+      era: 'late',
+      size: 'large',
+      target: 1_700_000,
+      reward: rise(10, 'blood'),
+    },
+    {
+      id: 'infamy_9',
+      name: 'Four Million Reasons',
+      blurb: 'Earned one dead body and one taken street at a time.',
+      era: 'late',
+      size: 'large',
+      target: 4_000_000,
+      reward: rise(11, 'blood'),
+    },
+    {
+      id: 'infamy_10',
+      name: 'The Name Itself',
+      blurb: 'Nine million infamy earned. The city has run out of ways of saying it.',
+      era: 'late',
+      size: 'large',
+      target: 9_000_000,
+      reward: rise(12, 'blood'),
+    },
   ]),
   ...chain('notoriety', 'notoriety', [
     {
@@ -2123,6 +3696,15 @@ const NAME: FeatSpec[] = [
       target: 7,
       reward: purse('late', 'large'),
     },
+    {
+      id: 'notoriety_4',
+      name: 'Ten Rungs Up',
+      blurb: 'Buy the tenth rank on the ladder. The old words for you are wearing out.',
+      era: 'late',
+      size: 'large',
+      target: 10,
+      reward: rise(6, 'blood'),
+    },
   ]),
   ...chain('research', 'research_done', [
     {
@@ -2151,6 +3733,33 @@ const NAME: FeatSpec[] = [
       size: 'medium',
       target: 60,
       reward: kit('late', 'medium'),
+    },
+    {
+      id: 'research_4',
+      name: 'A Hundred and Ten Programmes',
+      blurb: 'Finished at the bench. The Lab has a filing problem.',
+      era: 'late',
+      size: 'medium',
+      target: 110,
+      reward: rise(3, 'schooling'),
+    },
+    {
+      id: 'research_5',
+      name: 'Most of What There Is to Know',
+      blurb: 'A hundred and fifty programmes done and written up.',
+      era: 'late',
+      size: 'large',
+      target: 150,
+      reward: rise(4, 'schooling'),
+    },
+    {
+      id: 'research_6',
+      name: 'The Whole Book',
+      blurb: 'Every programme the Lab has ever been able to run.',
+      era: 'late',
+      size: 'large',
+      target: 190,
+      reward: rise(5, 'schooling'),
     },
   ]),
   ...chain('pages', 'pages_found', [
@@ -2183,6 +3792,42 @@ const NAME: FeatSpec[] = [
       target: 80,
       reward: kit('late', 'medium'),
     },
+    {
+      id: 'pages_4',
+      name: 'Two Hundred Pages',
+      blurb: 'Found in hauls, bought off fences, taken off the dead.',
+      era: 'late',
+      size: 'medium',
+      target: 200,
+      reward: rise(3, 'coin'),
+    },
+    {
+      id: 'pages_5',
+      name: 'The Library',
+      blurb: 'Four hundred and fifty pages. Somebody should bind these.',
+      era: 'late',
+      size: 'large',
+      target: 450,
+      reward: rise(4, 'coin'),
+    },
+    {
+      id: 'pages_6',
+      name: 'A Thousand Leaves',
+      blurb: 'Pages found. Most blueprints came to you in pieces.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: rise(5, 'coin'),
+    },
+    {
+      id: 'pages_7',
+      name: 'Paper Is a Habit',
+      blurb: 'Two thousand two hundred pages recovered over a lifetime.',
+      era: 'late',
+      size: 'large',
+      target: 2_200,
+      reward: rise(6, 'coin'),
+    },
   ]),
   ...chain('blueprints', 'blueprints_unlocked', [
     {
@@ -2211,6 +3856,33 @@ const NAME: FeatSpec[] = [
       size: 'large',
       target: 12,
       reward: kit('late', 'large'),
+    },
+    {
+      id: 'blueprints_4',
+      name: 'Twenty Five Blueprints',
+      blurb: 'Unlocked and buildable, whether or not you ever build them.',
+      era: 'late',
+      size: 'large',
+      target: 25,
+      reward: rise(6, 'coin'),
+    },
+    {
+      id: 'blueprints_5',
+      name: 'Most of the Book',
+      blurb: 'Forty five blueprints unlocked. The gaps are the expensive ones.',
+      era: 'late',
+      size: 'large',
+      target: 45,
+      reward: rise(7, 'coin'),
+    },
+    {
+      id: 'blueprints_6',
+      name: 'Every Plan There Is',
+      blurb: 'All sixty eight. Nothing in this city is a mystery to your bench.',
+      era: 'late',
+      size: 'large',
+      target: 68,
+      reward: rise(8, 'coin'),
     },
   ]),
   ...chain('level', 'level', [
@@ -2258,6 +3930,24 @@ const NAME: FeatSpec[] = [
       size: 'large',
       target: 50,
       reward: lesson('late', 'large'),
+    },
+    {
+      id: 'level_6',
+      name: 'Level Seventy',
+      blurb: 'Whatever the city was when you arrived, it is not that now.',
+      era: 'late',
+      size: 'large',
+      target: 70,
+      reward: rise(6, 'schooling'),
+    },
+    {
+      id: 'level_7',
+      name: 'Level One Hundred',
+      blurb: 'There is nobody above you on any list that matters.',
+      era: 'late',
+      size: 'large',
+      target: 100,
+      reward: rise(7, 'schooling'),
     },
   ]),
 ];
@@ -2313,6 +4003,71 @@ const PEOPLE: FeatSpec[] = [
       target: 50000,
       reward: street('late', 'large'),
     },
+    {
+      id: 'faction_4',
+      name: 'The Badge Travels',
+      blurb: 'A hundred and thirty thousand under one badge. Wearing it gets you served first.',
+      era: 'late',
+      size: 'large',
+      target: 130_000,
+      reward: rise(6, 'bodies'),
+    },
+    {
+      id: 'faction_5',
+      name: 'A Table Nobody Sits At Twice',
+      blurb: 'Three hundred and forty thousand won between you.',
+      era: 'late',
+      size: 'large',
+      target: 340_000,
+      reward: rise(7, 'bodies'),
+    },
+    {
+      id: 'faction_6',
+      name: 'Everybody Has Lost Somebody',
+      blurb:
+        'Nine hundred thousand under the badge. Every crew in the city has lost someone to yours.',
+      era: 'late',
+      size: 'large',
+      target: 900_000,
+      reward: rise(8, 'bodies'),
+    },
+    {
+      id: 'faction_7',
+      name: 'A Condition of the City',
+      blurb: 'Two million four hundred thousand. You are not a faction, you are weather.',
+      era: 'late',
+      size: 'large',
+      target: 2_400_000,
+      reward: rise(9, 'bodies'),
+    },
+    {
+      id: 'faction_8',
+      name: 'What the Colours Mean',
+      blurb: 'Six million won together. Nobody has to be told what they are looking at.',
+      era: 'late',
+      size: 'large',
+      target: 6_000_000,
+      reward: rise(10, 'bodies'),
+    },
+    {
+      id: 'faction_9',
+      name: 'The Other Government',
+      blurb: 'Sixteen million under one badge. The Combine negotiates rather than declares.',
+      era: 'late',
+      size: 'large',
+      target: 16_000_000,
+      reward: rise(11, 'bodies'),
+    },
+    {
+      id: 'faction_10',
+      name: 'One Badge, One City',
+      blurb:
+        'Forty million. There is the city, and there is you, and lately those are one sentence.',
+      era: 'late',
+      size: 'large',
+      target: 40_000_000,
+      reward: rise(12, 'bodies'),
+    },
   ]),
   ...chain('letters', 'messages_sent', [
     {
@@ -2341,6 +4096,42 @@ const PEOPLE: FeatSpec[] = [
       size: 'small',
       target: 150,
       reward: lesson('late', 'small'),
+    },
+    {
+      id: 'letters_4',
+      name: 'Four Hundred Letters',
+      blurb: 'Written and sent. Somebody reads all of these.',
+      era: 'late',
+      size: 'small',
+      target: 400,
+      reward: rise(0, 'coin'),
+    },
+    {
+      id: 'letters_5',
+      name: 'The Correspondent',
+      blurb: 'Nine hundred letters out. Half the city owes you a reply.',
+      era: 'late',
+      size: 'medium',
+      target: 900,
+      reward: rise(1, 'coin'),
+    },
+    {
+      id: 'letters_6',
+      name: 'Two Thousand Sent',
+      blurb: 'Letters. There is a version of this city that runs on your post.',
+      era: 'late',
+      size: 'medium',
+      target: 2_000,
+      reward: rise(2, 'coin'),
+    },
+    {
+      id: 'letters_7',
+      name: 'Nothing Goes Unsaid',
+      blurb: 'Four and a half thousand letters sent over a lifetime of having opinions.',
+      era: 'late',
+      size: 'medium',
+      target: 4_500,
+      reward: rise(3, 'coin'),
     },
   ]),
   solo(

@@ -297,10 +297,14 @@ export interface SideState {
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
-export const standingUnits = (side: SideState): number =>
-  side.stacks.reduce((total, stack) => total + stack.alive, 0);
-
-/** Units still willing to fight: a broken stack is on the field but not in the battle. */
+/**
+ * Units still willing to fight: a broken stack is on the field but not in the battle.
+ *
+ * There used to be a `standingUnits` beside this that counted the routed too. Its last two callers
+ * were the outnumbered ratio in `moralePhase`, and both of them were the 2026-09-17 bug: nothing
+ * in the engine wants that reading, so the function went with the fix rather than sitting here
+ * inviting the next one.
+ */
 export const fighting = (side: SideState): number =>
   side.stacks.reduce((total, stack) => total + (stack.brokeAt === null ? stack.alive : 0), 0);
 
@@ -396,6 +400,16 @@ export function menace(side: SideState): number {
  * Returns how many units were silenced, which is what the report needs to explain the round to a
  * player who is wondering why half their line did nothing.
  */
+/**
+ * The most of a line §D3 can silence, however loud the other side is.
+ *
+ * Three quarters, and the number is chosen against the doc above rather than picked round: its
+ * worked example silences two units of three, so anything under 0.67 would have made the design's
+ * own illustration impossible. At 0.75 that example still lands and a quarter of every line always
+ * shoots back, which is what "the steadiest troops hold" has to mean to be worth writing down.
+ */
+export const MAX_COWED_SHARE = 0.75;
+
 export function cow(side: SideState, against: number): number {
   let budget = against - nerve(side);
   if (budget <= 0) return 0;
@@ -406,12 +420,36 @@ export function cow(side: SideState, against: number): number {
     .filter((stack) => stack.alive > 0)
     .sort((a, b) => a.effective.morale - b.effective.morale);
 
+  /*
+   * §D3's ceiling: however loud the other side is, some of this one shoots back (2026-09-17).
+   *
+   * Both quantities are sums over units, so the comparison scales with the *difference* in size
+   * rather than the ratio, and past about three to one the budget stops being a budget. Measured
+   * on the shipped sheets, a force of 745 against 220 with a +30 intimidation bonus silenced 220 of
+   * 220: the whole defending army, for the whole fight, settled from the opening rosters before a
+   * shot, with nothing the defender could do about it after the fact.
+   *
+   * That is the shape every other ceiling in this engine exists to prevent. `MAX_MEND_SHARE` says
+   * a hospital may not cancel a round; `MAX_HELD_DEFENSE` says no amount of building makes a
+   * district untakeable; `MAX_CONCENTRATION` says a numbers edge may not compound into
+   * annihilation. This was the one lever with no such line, and the doc above already promises the
+   * behaviour a ceiling gives: "the steadiest troops hold".
+   *
+   * Counted over the units standing rather than per stack, so which stacks a force is written in
+   * cannot change how much of it can be silenced.
+   */
+  const ceiling = Math.floor(
+    order.reduce((total, stack) => total + stack.alive, 0) * MAX_COWED_SHARE,
+  );
+
   let silenced = 0;
   for (const stack of order) {
+    const room = ceiling - silenced;
+    if (room <= 0) break;
     const each = Math.max(0, stack.effective.morale);
     // How many of this stack's units the remaining budget covers.
     const affordable = each === 0 ? stack.alive : Math.floor(budget / each);
-    const take = Math.min(stack.alive, affordable);
+    const take = Math.min(stack.alive, affordable, room);
     if (take <= 0) break;
     stack.suppressed = take;
     silenced += take;
@@ -639,7 +677,24 @@ export function allocate(
   attacker: Stack,
   enemies: readonly Stack[],
 ): { target: Stack; share: number }[] {
-  const live = enemies.filter((enemy) => enemy.alive > 0 && enemy.pool > 0);
+  /*
+   * A stack that has broken is out of the fight, on both sides of the exchange.
+   *
+   * The maintainer's rule, 2026-09-16: "if a stack died or fled they no longer count for the
+   * fight, only the perimeter if they fled and nothing if they died". It already did not *shoot*
+   * (`fireRound` skips it), and `fighting` already excluded it from every reading the engine takes
+   * of a side's strength. It was still a **target**, and that is the half that was wrong twice
+   * over: the line kept spending its fire on people who had stopped fighting, and a routing stack
+   * stood between the enemy and the units still holding, soaking rounds it had no business
+   * soaking. A crew whose flank broke was therefore better protected than one whose flank held.
+   *
+   * What happens to the broken is decided elsewhere and is unchanged: `pursue` runs them down as
+   * they disengage, and `routSurvivors` rolls flee-or-die on whoever is left when the fight ends.
+   * Only the exchange of fire stops.
+   */
+  const live = enemies.filter(
+    (enemy) => enemy.alive > 0 && enemy.pool > 0 && enemy.brokeAt === null,
+  );
   if (live.length === 0) return [];
 
   /*
@@ -709,17 +764,21 @@ export const MAX_MEND_SHARE = 0.45;
  * Linear in cover up to the full ratio and flat after it. Broken medics do not work, and the
  * denominator is the line they are treating rather than the whole force, so a hospital does not get
  * credit for covering itself.
+ *
+ * **A broken stack is not in the denominator either**, and that half was missing (2026-09-17). The
+ * 2026-09-16 rule is that a stack which died or fled no longer counts for the fight, and `allocate`
+ * already stops firing at one: a routed stack takes no damage, so there is nothing on it for the
+ * medics to undo. Counting it anyway diluted the hospital exactly as the line collapsed, which is
+ * backwards. Measured on a side of 20 Wardens, 20 Razors and 5 Stitchers: routing the Razors left
+ * the mend share pinned at 0.225 when the five medics now cover the twenty who are left in full.
  */
 export function mendShare(side: SideState): number {
   let medics = 0;
   let line = 0;
   for (const stack of side.stacks) {
-    if (stack.alive <= 0) continue;
-    if (stack.unit.mends === true) {
-      if (stack.brokeAt === null) medics += stack.alive;
-    } else {
-      line += stack.alive;
-    }
+    if (stack.alive <= 0 || stack.brokeAt !== null) continue;
+    if (stack.unit.mends === true) medics += stack.alive;
+    else line += stack.alive;
   }
   if (medics <= 0 || line <= 0) return 0;
   return MAX_MEND_SHARE * Math.min(1, medics / (line * MEND_FULL_COVER));
@@ -827,6 +886,24 @@ function applyDamage(side: SideState, incoming: Map<Stack, number>): Map<Stack, 
  * spreads over rounds instead of taking a whole side apart in a single pass. That one detail is
  * the difference between a fight that turns and a fight that detonates.
  */
+/**
+ * How badly `side` is outnumbered by `enemy`, as a ratio of the men still in the fight.
+ *
+ * Counted off who is still fighting rather than off who is still on the field (2026-09-17). This
+ * was `standingUnits` on both halves, which counts the routed: a line felt outnumbered by men who
+ * had already run, and felt *less* outnumbered because its own routed stacks were still in the
+ * count. It is the same 2026-09-16 rule `allocate` applies, and every other reading the engine
+ * takes of a side's strength (`fighting`, `sidePower`, `rangedShare`, `intimidation`) already
+ * skipped them. This was the one that did not.
+ *
+ * Its own function rather than two lines in `moralePhase`, because "how outnumbered am I" is a
+ * question worth being able to ask, and a private expression inside a loop is a rule nothing can
+ * put a number on.
+ */
+export function outnumberedBy(side: SideState, enemy: SideState): number {
+  return fighting(enemy) / Math.max(1, fighting(side));
+}
+
 function moralePhase(
   side: SideState,
   enemy: SideState,
@@ -836,11 +913,10 @@ function moralePhase(
   round: number,
   cascadeFrom: number,
 ): Stack[] {
-  const ownUnits = Math.max(1, standingUnits(side));
   const shockBase: Omit<MoraleShock, 'casualtyFraction'> = {
     enemyCasualtyFraction: enemyLost,
     enemyIntimidation: intimidation(enemy),
-    outnumberedRatio: standingUnits(enemy) / ownUnits,
+    outnumberedRatio: outnumberedBy(side, enemy),
     // `steady_nerve` cuts exactly this term and nothing else: the line still breaks from its own
     // losses, from being outnumbered and from what is opposite it, and never from the panic beside
     // it. See `SideState.steadyNerve`.
@@ -904,8 +980,16 @@ export interface Simulation {
   defender: SideState;
   rounds: RoundRecord[];
   winner: 'attacker' | 'defender';
-  /** True when nobody broke and the round cap decided it. */
+  /** True when nobody broke and the round cap decided it. Kept as the narrower `settledBy`. */
   decidedOnPower: boolean;
+  /**
+   * How the fight ended: somebody was left standing, the round cap ran out, or both sides fell.
+   *
+   * The third was invisible before (2026-09-17). `decidedOnPower` is false for it, correctly, since
+   * the line it drives says "neither side broke", and both sides had; so a fight where everyone
+   * went down and the winner was picked on residual power was reported as an ordinary win.
+   */
+  settledBy: 'standing' | 'cap' | 'collapse';
   /** What the attacker's opening strike was worth, as a share of a round. 0 when there was none. */
   openingStrike: number;
   /** The day's luck each side drew, −5.0 … +5.0. */
@@ -1012,7 +1096,7 @@ export function simulate(input: SimulateInput): Simulation {
   // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
   // setting it. This is also the only location `stealth` matters once a fight has started.
-  const ambush = ambushShare(attacker, defender, battlefield.frontage);
+  const ambush = ambushShare(attacker, defender);
   // Carried into the first round's morale rather than discarded. The opening volley was applied to
   // health and then dropped on the floor: units fell and nothing was shaken by it, so an ambush
   // was worth strictly less than the damage it dealt.
@@ -1136,7 +1220,20 @@ export function simulate(input: SimulateInput): Simulation {
   // Three endings, and the third is the one the first draft got wrong. One side still fighting
   // takes the ground. *Neither* side still fighting is a mutual collapse, and it has to be settled
   // on who is left standing: handing it to the defender by default made a mirror unwinnable.
-  const decidedOnPower = attackerStanding === 0 || defenderStanding === 0 ? false : true;
+  /*
+   * How the fight was settled, when it was not settled by somebody still standing.
+   *
+   * `cap` is the round limit running out with both lines intact. `collapse` is both sides going
+   * down together, which is also decided on residual power and used to be reported as nothing at
+   * all: a mutual wipeout read as a clean win, with no line explaining how the winner was picked.
+   */
+  const settledBy: 'standing' | 'cap' | 'collapse' =
+    attackerStanding > 0 && defenderStanding > 0
+      ? 'cap'
+      : attackerStanding === 0 && defenderStanding === 0
+        ? 'collapse'
+        : 'standing';
+  const decidedOnPower = settledBy === 'cap';
   const winner =
     attackerStanding > 0 && defenderStanding === 0
       ? 'attacker'
@@ -1152,6 +1249,7 @@ export function simulate(input: SimulateInput): Simulation {
     rounds,
     winner,
     decidedOnPower,
+    settledBy,
     battlefield,
     openingStrike: ambush,
     luck: { attacker: attacker.luck, defender: defender.luck },
@@ -1170,7 +1268,7 @@ export function simulate(input: SimulateInput): Simulation {
  * Returns 0 when nothing on the side carries the sheet, so the common case costs nothing and adds
  * no draw to the stream.
  */
-export function ambushShare(side: SideState, enemy: SideState, frontage: number): number {
+export function ambushShare(side: SideState, enemy: SideState): number {
   let hidden = 0;
   let stealth = 0;
   for (const stack of side.stacks) {
@@ -1181,11 +1279,23 @@ export function ambushShare(side: SideState, enemy: SideState, frontage: number)
   }
   if (hidden <= 0) return 0;
 
-  const engaged = Math.max(1, engagedUnits(side, frontage));
-  const share = Math.min(1, hidden / engaged);
+  /*
+   * How big a share of the force can hide is **not** a term here (2026-09-17 consistency pass).
+   *
+   * It used to be, as `min(1, hidden / engagedUnits(side, frontage))`, and it was counted twice:
+   * the volley is fired through `fireRound`'s `only` filter, which already restricts it to the
+   * stacks carrying the sheet, so six Ghosts in a force of thirty were scaled to a fifth and then
+   * fired a fifth of a round. Measured at the shipped numbers: `AMBUSH_ROUND_SHARE` is 0.6 and the
+   * mechanic delivered 0.09, so a maxed stealth bonus moved the outcome of none of 150 seeded
+   * fights and the whole opening strike was worth two points of damage out of six hundred.
+   *
+   * `FIRST_STRIKE_SHARE`, the sibling mechanic on the same `fireRound(..., only)` call, passes its
+   * constant bare for exactly this reason, and its own doc says an ambush is meant to be worth
+   * *more* than it. This is that, now.
+   */
   const spotted = watchfulness(enemy);
   const edge = clamp(stealth / hidden - spotted, 0, 100) / 100;
-  return AMBUSH_ROUND_SHARE * share * edge;
+  return AMBUSH_ROUND_SHARE * edge;
 }
 
 /** How hard a side is to sneak up on: its own stealth is what it knows to look for. */

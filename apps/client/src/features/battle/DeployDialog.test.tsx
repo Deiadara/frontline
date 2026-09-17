@@ -11,6 +11,7 @@ import {
   type UnitsResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeployDialog, type DeployMode } from './DeployDialog';
@@ -156,19 +157,24 @@ function open(
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DeployDialog
-        view={{ ...view, ...over }}
-        army={army}
-        loadouts={loadouts}
-        homeDistrictId="neon-docks"
-        // Above every gate in the catalogue, so nothing in this fixture is locked out by rank.
-        notoriety={100_000}
-        mode={mode}
-        pending={false}
-        error={null}
-        onClose={() => undefined}
-        onConfirm={confirmed}
-      />
+      {/* The roster card's brackets are doors to the Scrapyard (2026-09-16), so this tree needs a
+          router under it as soon as a unit name opens that card. */}
+      <MemoryRouter>
+        <DeployDialog
+          view={{ ...view, ...over }}
+          army={army}
+          loadouts={loadouts}
+          bagPercent={0}
+          homeDistrictId="neon-docks"
+          // Above every gate in the catalogue, so nothing in this fixture is locked out by rank.
+          notoriety={100_000}
+          mode={mode}
+          pending={false}
+          error={null}
+          onClose={() => undefined}
+          onConfirm={confirmed}
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

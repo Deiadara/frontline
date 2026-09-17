@@ -65,6 +65,39 @@ export function vendorVisitAt(now: Date, zone: string = GAME_TIMEZONE): VendorVi
   return { day, session, closesAt: visitClosesAt(day, session, zone) };
 }
 
+/**
+ * How many lots one crew may have money on at once, on either shelf (maintainer, 2026-09-17).
+ *
+ * The Bar has had this rule since §H7a (`MAX_OPEN_AUCTIONS`) and neither market did: a crew could
+ * lead all six lines on the barrow and all five crates behind it, which is not a choice, it is a
+ * budget check. Two is the Bar's number and the reason is the Bar's: an auction is a decision about
+ * which thing you want, and a limit is what makes it one.
+ *
+ * Counted as **lots you have a live bid on**, not lots you are leading. Being outbid keeps the seat
+ * until the lot closes, exactly as it does at the Bar: a rule that freed your seat the moment
+ * somebody topped you would make the last minute of a visit the only minute that mattered.
+ *
+ * Flat, where the Bar's third table is bought with a level-40 milestone whose copy names the Bar
+ * specifically. Nothing on the shelves buys a third yet.
+ */
+export const MAX_OPEN_LOTS = 2;
+
+/**
+ * Whether this crew may open another lot, given the lots they are already in.
+ *
+ * Takes the ids rather than a count so the caller cannot get the one case wrong that matters:
+ * raising your own bid on a lot you are already in is not a new lot, and a count would refuse it at
+ * the limit and tell a player they are at every table while looking at their own bid.
+ *
+ * Generic in the id because the two shelves name a lot differently: the barrow by a line id that
+ * carries its day and city, the fence by the slot it stands in on the night. Both are identities
+ * within the window the limit counts over, which is all this needs of them.
+ */
+export function canOpenLot<Id>(open: readonly Id[], lot: Id): boolean {
+  if (open.includes(lot)) return true;
+  return new Set(open).size < MAX_OPEN_LOTS;
+}
+
 /** What seeds the tie-break coin: the lot, so the answer is the same however often it is read. */
 export function lotSeed(day: string, session: number, lineId: string): string {
   return `${day}:${session}:${lineId}`;
@@ -100,13 +133,22 @@ export function rankLotBids(
 export const VendorBidViewSchema = BarBidViewSchema;
 export type VendorBidView = z.infer<typeof VendorBidViewSchema>;
 
-/** One line's auction on this visit, as this reader sees it. */
-export const VendorAuctionSchema = z.object({
-  lineId: z.string().min(1),
-  /** Which of today's sessions this lot belongs to. */
-  session: z.number().int().nonnegative(),
+/**
+ * A lot, as one reader sees it, wherever it is standing.
+ *
+ * Everything on this schema is true of any counter that takes open bids and settles at a known
+ * instant: where it opens, who is in front, what the next legal number is, the table, and the
+ * reader's own position on it. The Runner's barrow was the only such counter when this was written
+ * and the fields were on his schema; the fence's shelf is one too (see `blackmarket.ts`), so the
+ * shape is here and each counter extends it with the one thing that names its own lot.
+ *
+ * Extending rather than copying is what keeps the bidding screens honest: the window, the clock and
+ * the table in `features/market` are written against this and nothing else, so a counter cannot
+ * quietly grow a second idea of what "the leading bid" means.
+ */
+export const LotAuctionSchema = z.object({
   closesAt: IsoDateTimeSchema,
-  /** The line's price: where the lot opens and what nobody bids under. */
+  /** Where the lot opens and what nobody bids under. */
   reserve: z.number().int().positive(),
   /** The highest bid, or null on an untouched lot. */
   leading: VendorBidViewSchema.nullable(),
@@ -118,6 +160,14 @@ export const VendorAuctionSchema = z.object({
   bidders: z.number().int().nonnegative(),
   /** The reader's own bid, or null. */
   yourBid: z.number().int().positive().nullable(),
+});
+export type LotAuction = z.infer<typeof LotAuctionSchema>;
+
+/** One line's auction on this visit, as this reader sees it. */
+export const VendorAuctionSchema = LotAuctionSchema.extend({
+  lineId: z.string().min(1),
+  /** Which of today's sessions this lot belongs to. */
+  session: z.number().int().nonnegative(),
 });
 export type VendorAuction = z.infer<typeof VendorAuctionSchema>;
 

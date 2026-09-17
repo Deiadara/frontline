@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ModificationRequirement } from './requirements.js';
 import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
 import type { ModificationRarity } from '../modification-rarity.js';
 
@@ -132,6 +133,14 @@ export interface ModificationSpec {
    * the pump.
    */
   synergy?: { with: ModificationFamily; bonus: number };
+  /**
+   * What a crew has to be before this one goes in (`building/requirements.ts`).
+   *
+   * Absent is the band the card's own `rarity` names, which is how ninety cards carry four gates
+   * each without ninety hand-written tables. Present overrides one gate or all of them, for a card
+   * whose content wants something the band does not say.
+   */
+  requires?: Partial<ModificationRequirement>;
 }
 
 /**
@@ -165,25 +174,77 @@ export const SET_BONUSES: Readonly<
  * strength, the yard's bill in `addons.ts` and the retrofit gate in `blueprints/`, both read the
  * raw magnitude.
  *
- * ADVANCED starts at 12 because `ADVANCED_MODIFICATION_MAGNITUDE` in `addons.ts` does: that is the
- * line past which a card wants the structure's retrofit document and costs high-quality metal, and
- * a card wearing the word ADVANCED must be one the yard treats as advanced. `addons.ts` imports
- * this module, so the number is repeated here and `decks.test.ts` pins the two together.
+ * ADVANCED starts where `ADVANCED_MODIFICATION_MAGNITUDE` in `addons.ts` starts: that is the line
+ * past which a card wants the structure's retrofit document and costs high-quality metal, and a
+ * card wearing the word ADVANCED must be one the yard treats as advanced. `addons.ts` imports this
+ * module, so the number is repeated here and `decks.test.ts` pins the two together.
  *
- * The other cuts follow the gaps in the distribution: nothing is authored at 11 or at 17.
+ * The top two bands were lifted on 2026-09-16, when the four gates in `building/requirements.ts`
+ * made them properly hard to reach: ADVANCED from 12 to 16 and MASTERPIECE from 18 to 22, every
+ * card moved by a flat +2 and +6 so the order inside each band is exactly what it was. The price
+ * follows on its own, at `ADDON_SCRAP_PER_MAGNITUDE` a point, which is the reason nothing else had
+ * to be retuned: a masterpiece that is worth a third more costs a third more.
  */
 export const MODIFICATION_RARITY_BANDS: Readonly<
   Record<ModificationRarity, { min: number; max: number }>
 > = {
   basic: { min: 1, max: 8 },
   intricate: { min: 9, max: 10 },
-  advanced: { min: 12, max: 16 },
-  masterpiece: { min: 18, max: 22 },
+  advanced: { min: 14, max: 18 },
+  masterpiece: { min: 24, max: 28 },
 };
 
-/** Every structure a card will go into: its own, unless it says otherwise. */
+/**
+ * How far a piece of engineering travels, by what it does (maintainer request, 2026-09-16).
+ *
+ * "If you do unlock some through blueprints they are available for all the buildings they can fit
+ * into: some in just one, some in two or three, some in all." A bolt-on made for one structure is
+ * a bolt-on for that structure; a *designed* card is a design, and a crew that has assembled the
+ * drawings owns the design rather than one copy of it.
+ *
+ * So the reach is the trade, not the address. A card that takes time off a build belongs anywhere
+ * work is scheduled; a plate belongs anywhere a wall does, which is everywhere; a production card
+ * belongs to the three structures that produce, and nowhere else, which is also what the load guard
+ * in `production.ts` insists on.
+ *
+ * `production_percent` is the one line that must stay inside `PRODUCING_BUILDINGS`: a card paying
+ * production into a structure that produces nothing is a card sold for nothing, which is the bug
+ * the Garage's two dead cards were.
+ */
+const FITS_BY_EFFECT: Readonly<Record<ModificationEffect, readonly BuildingKind[]>> = {
+  production_percent: ['greenhouse', 'generator', 'scrapyard'],
+  build_cost_reduction: ['nexus', 'scrapyard', 'garage'],
+  build_time_reduction: ['nexus', 'scrapyard', 'generator', 'garage'],
+  storage_percent: ['apothecary', 'scrapyard', 'greenhouse'],
+  // A plate is a plate. The one card family that goes anywhere a wall does.
+  defense_percent: BUILDING_KINDS,
+  faction_xp_percent: ['nexus', 'quarters', 'infirmary', 'greenhouse'],
+  research_time_reduction: ['lab', 'nexus', 'apothecary'],
+  housing_percent: ['quarters', 'infirmary', 'apothecary'],
+  payroll_percent: ['nexus', 'quarters'],
+  raid_loot_percent: ['garage', 'scrapyard', 'gauntlet', 'gate'],
+  training_time_reduction: ['gauntlet', 'quarters', 'infirmary'],
+  training_supplies_reduction: ['greenhouse', 'gauntlet', 'apothecary'],
+};
+
+/**
+ * Every structure a card will go into.
+ *
+ * Three answers in order: what the card says, then the trade it belongs to, then its own structure.
+ *
+ * The middle one is the change of 2026-09-16 and it is deliberately gated on the grade. A BASIC
+ * card is something a crew bangs together for the structure in front of it and it stays there; from
+ * INTRICATE up a card is a drawing, and a drawing that has been assembled is worth what it is worth
+ * everywhere it makes sense. That is the whole reason to chase a document rather than a card.
+ *
+ * The card's own structure is always in the set, whatever the table says, so a card can never be
+ * homeless.
+ */
 export function fitsIn(spec: ModificationSpec): readonly BuildingKind[] {
-  return spec.fits ?? [spec.building];
+  if (spec.fits) return spec.fits;
+  if (spec.rarity === 'basic') return [spec.building];
+  const byTrade = FITS_BY_EFFECT[spec.effect];
+  return byTrade.includes(spec.building) ? byTrade : [spec.building, ...byTrade];
 }
 
 /** Whether this card may be fitted to `kind`. */
@@ -208,7 +269,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Encrypted Core',
     description: 'Encrypts all allegiance data. Anyone casing this district works blind.',
     effect: 'defense_percent',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'armour',
   },
@@ -237,7 +298,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Every job has a written rate and nobody argues about it. The book stretches further for it.',
     effect: 'payroll_percent',
-    magnitude: 20,
+    magnitude: 26,
     rarity: 'masterpiece',
     family: 'comfort',
   },
@@ -266,7 +327,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'One register for every store in the district, so nothing is counted twice or lost behind a door.',
     effect: 'storage_percent',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'plumbing',
   },
@@ -277,7 +338,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Hot Bunking',
     description: 'Two shifts, one bed, and nobody in it at the same time.',
     effect: 'housing_percent',
-    magnitude: 18,
+    magnitude: 24,
     rarity: 'masterpiece',
     family: 'comfort',
   },
@@ -297,7 +358,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Clean air on the bunk deck. People sign for less when they can breathe where they sleep.',
     effect: 'payroll_percent',
-    magnitude: 15,
+    magnitude: 17,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -307,7 +368,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'The crew assembles its own housing off a pattern, and the pattern is a storey taller each time.',
     effect: 'housing_percent',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -334,7 +395,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Undercroft Billets',
     description: 'The cellars dug out, drained and bunked. Cold, dry, and out of the wind.',
     effect: 'housing_percent',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -346,7 +407,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Protein alternative. Efficient, low resource cost, and nobody asks twice what is in it.',
     effect: 'production_percent',
-    magnitude: 22,
+    magnitude: 28,
     rarity: 'masterpiece',
     family: 'automation',
   },
@@ -355,7 +416,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Spectrum Lamps',
     description: 'Tuned to what each tray actually wants instead of to what was in the crate.',
     effect: 'production_percent',
-    magnitude: 16,
+    magnitude: 18,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -365,7 +426,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Heat stays in and the trays run year round, so a ration goes further than it did.',
     effect: 'training_supplies_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'plumbing',
   },
@@ -385,7 +446,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'A cold locker of everything that grows here. Nobody has to be paid in advance against a bad crop.',
     effect: 'payroll_percent',
-    magnitude: 18,
+    magnitude: 24,
     rarity: 'masterpiece',
     family: 'comfort',
   },
@@ -403,7 +464,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Hydroponic Racks',
     description: 'Trays stacked four high on a pump loop. The floor grows what an acre used to.',
     effect: 'production_percent',
-    magnitude: 13,
+    magnitude: 15,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -415,7 +476,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Exhaust off the first stage spins the second. Twice the noise, and every crane in the district turns faster.',
     effect: 'build_time_reduction',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'power',
   },
@@ -433,7 +494,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Fuel Polishing',
     description: 'Water and sludge out before the burn. The same oil goes appreciably further.',
     effect: 'build_cost_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -480,7 +541,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Fuel Cracking Column',
     description: 'Heavy ends into something an engine will actually take.',
     effect: 'production_percent',
-    magnitude: 16,
+    magnitude: 18,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -489,7 +550,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Standby Bank',
     description: 'Charged cells that hold the lights and the turrets up when the main set is hit.',
     effect: 'defense_percent',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'armour',
   },
@@ -501,7 +562,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Improves the quality of crafted weapons and devices, and wastes far less getting there.',
     effect: 'production_percent',
-    magnitude: 18,
+    magnitude: 24,
     rarity: 'masterpiece',
     family: 'automation',
   },
@@ -511,7 +572,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Automated units that collect scrap after raids, while everyone else is still leaving.',
     effect: 'raid_loot_percent',
-    magnitude: 20,
+    magnitude: 26,
     rarity: 'masterpiece',
     family: 'optics',
   },
@@ -521,7 +582,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Ferrous off the belt before a hand touches it. The sorting floor triples its throughput.',
     effect: 'production_percent',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -560,7 +621,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Mixed metal in, one grade out. The yard stops selling good stock at scrap prices.',
     effect: 'production_percent',
-    magnitude: 15,
+    magnitude: 17,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -572,7 +633,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'The stack goes up to the roof and back into the rock. Nothing is on the floor any more.',
     effect: 'storage_percent',
-    magnitude: 20,
+    magnitude: 26,
     rarity: 'masterpiece',
     family: 'plumbing',
   },
@@ -581,7 +642,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Climate Cells',
     description: 'Sealed, cooled and logged. Things keep here that used to spoil in a fortnight.',
     effect: 'storage_percent',
-    magnitude: 15,
+    magnitude: 17,
     rarity: 'advanced',
     family: 'plumbing',
   },
@@ -601,7 +662,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Every crew goes out carrying what it needs, so nobody is owed danger money for going without.',
     effect: 'payroll_percent',
-    magnitude: 15,
+    magnitude: 17,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -631,7 +692,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Apprentices grinding and weighing under somebody who has seen a wrong dose. Nothing is spoiled twice.',
     effect: 'training_supplies_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'plumbing',
   },
@@ -642,7 +703,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Interlocking Bulwarks',
     description: 'Ferrocrete teeth staggered so nothing has a straight run at the opening.',
     effect: 'defense_percent',
-    magnitude: 20,
+    magnitude: 26,
     rarity: 'masterpiece',
     family: 'armour',
   },
@@ -651,7 +712,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Automated Turret Nests',
     description: 'Salvaged servos and a firing solution that does not need anyone awake.',
     effect: 'defense_percent',
-    magnitude: 16,
+    magnitude: 18,
     rarity: 'advanced',
     family: 'armour',
   },
@@ -698,7 +759,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Kill Funnel',
     description: 'The approach narrowed to one lane that nothing wide can turn around in.',
     effect: 'defense_percent',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'armour',
   },
@@ -710,7 +771,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Research ideas faster using predictive algorithms, and stop running the dead ends at all.',
     effect: 'research_time_reduction',
-    magnitude: 18,
+    magnitude: 24,
     rarity: 'masterpiece',
     family: 'optics',
   },
@@ -720,7 +781,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Researchers design directly in their mind. A revision that took a fortnight takes an hour.',
     effect: 'research_time_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'optics',
   },
@@ -730,7 +791,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Run multiple experiments simultaneously instead of queuing behind the slowest one.',
     effect: 'research_time_reduction',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'optics',
   },
@@ -768,7 +829,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Substitutes tested before they are ordered, so the district buys the cheap one that holds.',
     effect: 'build_cost_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -779,7 +840,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Live-Fire Range',
     description: 'Real rounds, real noise. Nobody who has drilled here panics at the door.',
     effect: 'defense_percent',
-    magnitude: 18,
+    magnitude: 24,
     rarity: 'masterpiece',
     family: 'armour',
   },
@@ -788,7 +849,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Instructor Cadre',
     description: 'People whose whole job is making other people better at theirs. Less is ruined.',
     effect: 'training_supplies_reduction',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'plumbing',
   },
@@ -798,7 +859,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'A crew that is fit costs less to keep. Half of what an officer charges is for the risk.',
     effect: 'payroll_percent',
-    magnitude: 15,
+    magnitude: 17,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -817,7 +878,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Combine training rigs, repurposed. A recruit walks the course before they walk it.',
     effect: 'training_time_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -836,7 +897,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Night Course',
     description: 'The same run made in the dark until dark stops being a reason to slow down.',
     effect: 'training_time_reduction',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -848,7 +909,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Sterile instruments, every time. An officer who expects to survive the year asks for less of it up front.',
     effect: 'payroll_percent',
-    magnitude: 22,
+    magnitude: 28,
     rarity: 'masterpiece',
     family: 'comfort',
   },
@@ -858,7 +919,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Prints the drugs the Combine will not sell down here. What that saves goes straight on the book.',
     effect: 'payroll_percent',
-    magnitude: 16,
+    magnitude: 18,
     rarity: 'advanced',
     family: 'comfort',
   },
@@ -906,7 +967,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Limbs fitted and tuned here, so somebody is back on the course in days rather than months.',
     effect: 'training_time_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'automation',
   },
@@ -927,7 +988,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'High enough for a mast, wide enough for blades. The thing nobody will discuss gets finished here, and it comes back loaded.',
     effect: 'raid_loot_percent',
-    magnitude: 20,
+    magnitude: 26,
     rarity: 'masterpiece',
     family: 'automation',
   },
@@ -936,7 +997,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     name: 'Haulage Rigs',
     description: 'Flatbeds and a crane. A raid stops being limited by what people can carry.',
     effect: 'raid_loot_percent',
-    magnitude: 22,
+    magnitude: 28,
     rarity: 'masterpiece',
     family: 'optics',
   },
@@ -946,7 +1007,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Parts made here instead of waited for. Every build in the district stops queuing behind a part.',
     effect: 'build_time_reduction',
-    magnitude: 12,
+    magnitude: 14,
     rarity: 'advanced',
     family: 'power',
   },
@@ -978,7 +1039,7 @@ const SPECS: readonly Omit<ModificationSpec, 'id'>[] = [
     description:
       'Tankage on wheels. What the district cannot hold standing still, it holds parked.',
     effect: 'storage_percent',
-    magnitude: 14,
+    magnitude: 16,
     rarity: 'advanced',
     family: 'plumbing',
   },

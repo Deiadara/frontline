@@ -17,7 +17,8 @@
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @frontline/client test:e2e",
     "art:order": "pnpm --filter @frontline/scripts order-art",
-    "catalog:doc": "pnpm --filter @frontline/scripts catalog-doc"
+    "catalog:doc": "pnpm --filter @frontline/scripts catalog-doc",
+    "balance:sheet": "pnpm --filter @frontline/scripts balance-sheet"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

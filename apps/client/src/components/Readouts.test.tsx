@@ -1,8 +1,15 @@
-import { storageCapacity } from '@frontline/shared';
+import { MAX_NOTORIETY, describeNotorietyGrant, storageCapacity } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import { CrewLevelChip, InfamyChip } from './Meters';
+import {
+  DistrictLevelChip,
+  InfamyChip,
+  LEVEL_LADDER_ROUTE,
+  NOTORIETY_LADDER_ROUTE,
+} from './Meters';
 import { fillFraction, ResourceChip, STORAGE_WARN_AT } from './Resources';
 
 /**
@@ -114,8 +121,28 @@ describe('what a resource chip says when you look at it', () => {
 });
 
 describe('what the standing chips say when you look at them', () => {
-  it('spells the crew level out as a bar with both figures on it', () => {
-    render(<CrewLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+  /**
+   * Both chips are controls now, so both need a router. Mounting one bare throws inside
+   * `useNavigate` before an assertion can run, which reports as a broken chip rather than as a
+   * missing provider.
+   */
+  const mount = (ui: ReactElement) =>
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}
+      >
+        <MemoryRouter initialEntries={['/game']}>
+          <Routes>
+            <Route path="/game" element={ui} />
+            <Route path={`/game/${LEVEL_LADDER_ROUTE}`} element={<p>the level ladder</p>} />
+            <Route path={`/game/${NOTORIETY_LADDER_ROUTE}`} element={<p>the notoriety ladder</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  it('spells the district level out as a bar with both figures on it', () => {
+    mount(<DistrictLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
     fireEvent.focus(screen.getByTestId('level-hover'));
     const card = screen.getByRole('tooltip');
     expect(within(card).getByText('Level 7')).toBeInTheDocument();
@@ -125,12 +152,69 @@ describe('what the standing chips say when you look at them', () => {
     expect(card.textContent).toContain('2,800');
   });
 
-  /** The figure and the bar. No sentence about what a level is worth or what pays for one. */
+  /**
+   * The XP is the district's, not the crew's (maintainer, 2026-09-17).
+   *
+   * Pinned on the accessible name rather than on anything drawn, because at most widths the chip
+   * is a glyph and a number with no word on it at all: the label is the only place a player who
+   * cannot see it is ever told what the reading is of.
+   */
+  it('calls the level a district level, and never a crew one', () => {
+    mount(<DistrictLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    const trigger = screen.getByTestId('level-hover');
+    expect(trigger).toHaveAccessibleName('District level 7');
+
+    fireEvent.focus(trigger);
+    const card = screen.getByRole('tooltip');
+    expect(within(card).getByText('Your district')).toBeInTheDocument();
+    expect(card.textContent).not.toMatch(/crew/i);
+  });
+
+  /**
+   * The figure and the bar. No sentence about what a level is worth or what pays for one: the
+   * prose came out of every readout in the standing bar, and the footnote that is left is a door
+   * sign rather than an explanation of the mechanic.
+   */
   it('narrates nothing under the XP bar', () => {
-    render(<CrewLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    mount(<DistrictLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
     fireEvent.focus(screen.getByTestId('level-hover'));
     const card = screen.getByRole('tooltip');
     expect(card.textContent).not.toMatch(/what pays it|recruit slot|every level/i);
+  });
+
+  /**
+   * The graphic is drawn rather than a rounded rectangle (maintainer, 2026-09-17).
+   *
+   * Asserted on the track being an SVG whose width moves with the reading, which is the part that
+   * would silently come back if somebody swapped the drawing for a `<span>` with a background
+   * colour on it. A class-name assertion would pass on a flat bar that happened to keep the name.
+   */
+  it('draws the XP meter with a pen, and fills it in proportion', () => {
+    mount(<DistrictLevelChip level={7} xpIntoLevel={700} xpToNextLevel={2800} />);
+    fireEvent.focus(screen.getByTestId('level-hover'));
+    const meter = within(screen.getByRole('tooltip')).getByTestId('level-card-meter');
+
+    expect(meter.querySelector('feTurbulence')).not.toBeNull();
+    expect(meter.querySelector('feDisplacementMap')).not.toBeNull();
+    // A quarter of the way in, on a 116-unit track drawn inside a 120-unit box.
+    expect(meter.querySelector('rect')?.getAttribute('width')).toBe('29');
+  });
+
+  /** A chip that leads somewhere has to actually lead there when it is pressed. */
+  it('opens the level ladder when the chip is clicked', () => {
+    mount(<DistrictLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    expect(screen.queryByText('the level ladder')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('level-hover'));
+    expect(screen.getByText('the level ladder')).toBeInTheDocument();
+  });
+
+  it('opens the notoriety ladder when the infamy chip is clicked', () => {
+    mount(<InfamyChip infamy={40_000} notoriety={4} />);
+    expect(screen.queryByText('the notoriety ladder')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('infamy-hover'));
+    expect(screen.getByText('the notoriety ladder')).toBeInTheDocument();
   });
 
   /**
@@ -139,20 +223,51 @@ describe('what the standing chips say when you look at them', () => {
    * price that had them.
    */
   it('groups the exact infamy figure the compact chip is hiding', () => {
-    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <InfamyChip infamy={40_000} notoriety={4} />
-      </QueryClientProvider>,
-    );
+    mount(<InfamyChip infamy={40_000} notoriety={4} />);
     fireEvent.focus(screen.getByTestId('infamy-hover'));
     const card = screen.getByRole('tooltip');
     expect(within(card).getByText('40,000')).toBeInTheDocument();
     expect(card.textContent).not.toContain('40000');
   });
 
+  /**
+   * A rank has to say what it buys, on the one screen where a rank is bought.
+   *
+   * §D7 gave every rung of the ladder a grant (`economy/renown.ts`), and the ladder used to gate
+   * nothing above `Marked`: a player at rank 8 was being asked for a fortune in infamy in exchange
+   * for a different word on a chip. The grants are folded into the crew's standing by the server
+   * and are otherwise entirely invisible, so this card is where they are stated.
+   */
+  it('says what the next rank pays, and not just what it costs', () => {
+    const at = 7;
+    mount(<InfamyChip infamy={1_000_000} notoriety={at} />);
+    fireEvent.focus(screen.getByTestId('infamy-hover'));
+    const grant = within(screen.getByRole('tooltip')).getByTestId('notoriety-grant');
+    const promised = describeNotorietyGrant(at + 1);
+    expect(promised.length, 'the rung under test pays nothing').toBeGreaterThan(0);
+    for (const line of promised) expect(within(grant).getByText(line)).toBeInTheDocument();
+  });
+
+  /** The top of the ladder has no rung above it, so it promises nothing rather than an empty box. */
+  it('promises nothing at the top of the ladder', () => {
+    mount(<InfamyChip infamy={1_000_000} notoriety={MAX_NOTORIETY} />);
+    fireEvent.focus(screen.getByTestId('infamy-hover'));
+    expect(screen.queryByTestId('notoriety-grant')).toBeNull();
+  });
+
+  /** Both cards are the drawn material now, not the lit console frame the resources still use. */
+  it('draws both standing cards on paper', () => {
+    mount(<DistrictLevelChip level={7} xpIntoLevel={1240} xpToNextLevel={2800} />);
+    fireEvent.focus(screen.getByTestId('level-hover'));
+    expect(screen.getByTestId('level-card').className).toContain('card-paper');
+
+    mount(<InfamyChip infamy={40_000} notoriety={4} />);
+    fireEvent.focus(screen.getByTestId('infamy-hover'));
+    expect(screen.getByTestId('infamy-card').className).toContain('card-paper');
+  });
+
   it('closes again when the pointer leaves', () => {
-    render(<CrewLevelChip level={3} xpIntoLevel={10} xpToNextLevel={600} />);
+    mount(<DistrictLevelChip level={3} xpIntoLevel={10} xpToNextLevel={600} />);
     const trigger = screen.getByTestId('level-chip');
     fireEvent.mouseEnter(trigger);
     expect(screen.getByRole('tooltip')).toBeInTheDocument();

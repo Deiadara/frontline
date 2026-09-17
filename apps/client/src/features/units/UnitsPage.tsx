@@ -8,6 +8,7 @@ import {
   trainingBatchProgress,
   trainingCancelWindowMs,
   trainingCancellable,
+  type BonusLine,
   type TrainingOrder,
   type UnitTier,
   trainingCost,
@@ -30,6 +31,7 @@ import {
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
+import { BonusBreakdown } from './BonusBreakdown';
 import { UnitCard } from './UnitCard';
 import { PageShell } from '../game/PageShell';
 import { VehicleCatalogue } from '../garage/VehicleCatalogue';
@@ -193,12 +195,37 @@ export function UnitsPage() {
             {data.unitSlotsUsed} / {data.unitSlotsCap}
           </span>
         </HoverCard>
-        {data.trainingCostReduction > 0 && <Tag label={`-${data.trainingCostReduction}% cost`} />}
+        {data.trainingCostReduction > 0 && (
+          <Tag
+            label={`-${data.trainingCostReduction}% cost`}
+            testId="training-bonus-cost"
+            title="Training cost"
+            meaning="Every material"
+            lines={data.trainingBreakdown?.cost}
+            total={data.trainingCostReduction}
+          />
+        )}
         {(data.trainingSuppliesReduction ?? 0) > 0 && (
-          <Tag label={`-${Math.round(data.trainingSuppliesReduction ?? 0)}% supplies`} />
+          <Tag
+            label={`-${Math.round(data.trainingSuppliesReduction ?? 0)}% supplies`}
+            testId="training-bonus-supplies"
+            title="Supplies"
+            // Not "§B5", which is where the rule is written down and not something a player has
+            // read. What the line has to say is why there are two discounts on one price.
+            meaning="Supplies only"
+            lines={data.trainingBreakdown?.supplies}
+            total={data.trainingSuppliesReduction ?? 0}
+          />
         )}
         {data.trainingSpeedBonus > 0 && (
-          <Tag label={`-${data.trainingSpeedBonus}% training time`} />
+          <Tag
+            label={`-${data.trainingSpeedBonus}% training time`}
+            testId="training-bonus-speed"
+            title="Training time"
+            meaning="Every unit"
+            lines={data.trainingBreakdown?.speed}
+            total={data.trainingSpeedBonus}
+          />
         )}
       </div>
 
@@ -307,10 +334,13 @@ export function UnitsPage() {
               <UnitCard
                 key={unit.id}
                 unit={unit}
-                built={data.built}
                 garrisoned={data.garrisoned[unit.id] ?? 0}
                 abroad={data.abroad[unit.id] ?? 0}
                 deltas={mustered[unit.id] ?? []}
+                // The crew-wide half of the Bonuses chip. The unit's own half rides on the row.
+                {...(data.trainingBreakdown === undefined
+                  ? {}
+                  : { bonuses: data.trainingBreakdown })}
                 training={{
                   resources: data.resources,
                   spare: Math.max(0, data.unitSlotsCap - data.unitSlotsUsed),
@@ -319,6 +349,8 @@ export function UnitsPage() {
                   // would have **Max** offering a batch at a price the server does not charge.
                   discountPercent: data.trainingCostReduction + (unit.homeCostReduction ?? 0),
                   suppliesPercent: data.trainingSuppliesReduction ?? 0,
+                  // §B6, the same sum on the clock: crew-wide plus this unit's own ground.
+                  speedPercent: data.trainingSpeedBonus + (unit.homeSpeedBonus ?? 0),
                   pending: train.isPending,
                   onTrain: (count) =>
                     train.mutate(
@@ -412,10 +444,43 @@ function BenchRow({
   );
 }
 
-function Tag({ label }: { label: string }) {
-  return (
+/**
+ * One of the three figures on the roster's head, and the page behind it.
+ *
+ * A bare chip while the roster has not sent a breakdown, which is the older fixtures and any
+ * response from a server that predates it: a hover that opens an empty sheet is worse than one that
+ * does nothing, and the chip on its own is what this screen shipped with.
+ */
+function Tag({
+  label,
+  title,
+  meaning,
+  lines,
+  total,
+  testId,
+}: {
+  label: string;
+  title: string;
+  meaning: string;
+  lines: readonly BonusLine[] | undefined;
+  total: number;
+  /** Written out rather than derived from the title: a copy edit should not move a test's handle. */
+  testId: string;
+}) {
+  const chip = (
     <span className="border border-surface-600 px-2 py-0.5 font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
       {label}
     </span>
+  );
+  if (lines === undefined) return chip;
+  return (
+    <HoverCard
+      size="window"
+      label={label}
+      data-testid={testId}
+      card={<BonusBreakdown title={title} meaning={meaning} lines={lines} total={total} />}
+    >
+      {chip}
+    </HoverCard>
   );
 }

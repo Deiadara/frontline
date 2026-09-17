@@ -1,6 +1,7 @@
 import { useId, type CSSProperties, type ReactNode } from 'react';
 import type { FeatState } from '@frontline/shared';
 import { cn } from '../../lib/cn';
+import { DrawnDisc } from '../../components/ui/DrawnMarks';
 
 /**
  * The drawn furniture of the feats screen.
@@ -61,7 +62,7 @@ function petals(count: number, inner: number, outer: number): string {
   return `${path} Z`;
 }
 
-const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'] as const;
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'] as const;
 
 /** The step number as a numeral, or the step itself when a chain outgrows the table. */
 export function roman(step: number): string {
@@ -85,7 +86,6 @@ export function RungMark({
   state: FeatState;
   className?: string;
 }) {
-  const id = useId();
   const locked = state === 'locked';
 
   return (
@@ -97,25 +97,7 @@ export function RungMark({
       )}
       data-testid={`feat-rung-mark-${state}`}
     >
-      <svg viewBox="0 0 36 36" className="absolute inset-0 h-full w-full" aria-hidden>
-        <defs>
-          <filter id={`disc-${id}`} x="-25%" y="-25%" width="150%" height="150%">
-            <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" seed="23" />
-            <feDisplacementMap
-              in="SourceGraphic"
-              scale="1.7"
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-          </filter>
-        </defs>
-        <g filter={`url(#disc-${id})`} {...INK}>
-          {/* Gone round one and a bit times, overshooting where it started, which is what a pen
-              does when somebody rings something on a page. */}
-          <path d="M18 2.4 A15.6 15.6 0 1 1 17.4 2.4" strokeWidth="1.7" opacity="0.9" />
-          <path d="M18 5.4 A12.6 12.6 0 0 1 30.4 20" strokeWidth="1" opacity="0.4" />
-        </g>
-      </svg>
+      <DrawnDisc />
       {locked ? (
         <svg viewBox="0 0 24 24" className="relative h-4 w-4" aria-hidden>
           <path d="M6.4 10.6h11.2v9H6.4z" strokeWidth="1.7" {...INK} />
@@ -150,11 +132,18 @@ export const SPINE: CSSProperties = {
  * two hundred progress bars needs one object on it that is unmistakably a picture. This is
  * it: two rings that do not close, a ring of ticks between them, and two ribbon tails under it.
  */
-export function FeatSeal({ children }: { children: ReactNode }) {
+export function FeatSeal({ children, className }: { children: ReactNode; className?: string }) {
   const id = useId();
 
   return (
-    <span className="relative flex h-[7.5rem] w-[7.5rem] shrink-0 items-center justify-center">
+    // The size is the caller's, because the seal is the tallest thing in the summary box and
+    // therefore the one thing that decides how much of the sheet that box takes.
+    <span
+      className={cn(
+        'relative flex shrink-0 items-center justify-center',
+        className ?? 'h-[7.5rem] w-[7.5rem]',
+      )}
+    >
       <svg viewBox="0 0 100 108" className="absolute inset-0 h-full w-full" aria-hidden>
         <defs>
           <filter id={`seal-${id}`} x="-20%" y="-20%" width="140%" height="140%">

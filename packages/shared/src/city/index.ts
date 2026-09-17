@@ -4,6 +4,7 @@ export * from './weather.js';
 export * from './locations.js';
 export * from './districts.js';
 export * from './atlas.js';
+export * from './access.js';
 export * from './geography.js';
 export * from './fortification.js';
 export * from './control.js';

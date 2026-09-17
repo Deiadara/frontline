@@ -14,7 +14,7 @@ import {
 } from '@frontline/shared';
 import { useState, type ReactNode } from 'react';
 import { ResourceIcon } from '../../components/Resources';
-import { Button } from '../../components/ui/Button';
+import { DrawnButton } from '../../components/ui/DrawnButton';
 import { NumberField } from '../../components/ui/NumberField';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
@@ -33,6 +33,7 @@ const ASK_FOR_ANY: Inventory = Object.fromEntries(
   ITEM_IDS.filter((id) => ITEM_CATALOG[id].kind === 'component').map((id) => [id, 99]),
 );
 import { useAcceptOffer, useMarket, usePostOffer, useWithdrawOffer } from '../../lib/queries';
+import { CityPicker } from '../city/CityPicker';
 import { formatRemaining } from '../base/format';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
@@ -47,13 +48,23 @@ import { BundleChips, TradeArrow } from './TradeParts';
  * a listing as a row of small chips with two buttons at the end, so the one question a board exists
  * to answer, what for what, was the smallest thing on it.
  *
- * A page of its own, in two halves that face each other across the screen: **They offer** on the
- * left, **You offer** on the right, one card per listing in a single column each. The piles are
- * drawn at `lg`, which is the size at which a glance answers the question. Nothing else on the
+ * A page of its own, in two halves that face each other across the screen: **District Offers** on
+ * the left, **Your Offers** on the right, one card per listing in a single column each. The piles
+ * are drawn at `lg`, which is the size at which a glance answers the question. Nothing else on the
  * screen competes with them.
+ *
+ * Both halves are paper (maintainer, 2026-09-17), the same sheet the feats board and the market
+ * counters are drawn on, and every control is a `DrawnButton`. The board used to be two struck tin
+ * panels with brass plates on them and a violet edge under each material tile, which read as a
+ * different building from the shop it is a tab of.
  */
 export function OffersPage() {
-  const query = useMarket();
+  /*
+   * Which city's board this is, the same state the market carries and for the same reason: the
+   * offers on it are the offers of the crews in that city (maintainer, 2026-09-17).
+   */
+  const [city, setCity] = useState<string | null>(null);
+  const query = useMarket(city ?? undefined);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const accept = useAcceptOffer();
   const withdraw = useWithdrawOffer();
@@ -81,11 +92,19 @@ export function OffersPage() {
   const pending = accept.isPending || withdraw.isPending;
 
   return (
-    <PageShell wide quote="Put a price on it. Someone out there is desperate enough.">
+    <PageShell
+      wide
+      quote="Put a price on it. Someone out there is desperate enough."
+      action={
+        data === undefined ? undefined : (
+          <CityPicker cityId={data.cityId} cities={data.cities} onChoose={setCity} />
+        )
+      }
+    >
       <MarketTabs
         active="offers"
         action={
-          <InfoNote label="How Faction Offers Work">
+          <InfoNote label="How District Offers Work">
             What you offer leaves your store when you post it and comes home if you withdraw it or
             it stands {OFFER_LIFETIME_HOURS} hours untaken. {MAX_OPEN_OFFERS} standing at once,
             counters included; a counter is a listing only the crew it answers can see.
@@ -94,7 +113,11 @@ export function OffersPage() {
       />
 
       <div className="grid items-start gap-5 xl:grid-cols-2">
-        <Panel title="They offer" action={<Standing count={data.offers.length} />}>
+        <Panel
+          tone="paper"
+          title="District Offers"
+          action={<Standing count={data.offers.length} />}
+        >
           {data.offers.length === 0 ? (
             <Nothing>
               Nobody is offering anything right now, and counters aimed at your crew land here too.
@@ -103,21 +126,20 @@ export function OffersPage() {
             <ul className="flex flex-col gap-3 p-4" data-testid="market-board">
               {data.offers.map((offer) => (
                 <OfferCard key={offer.id} offer={offer} mine={false} now={now}>
-                  <Button
+                  <DrawnButton
                     size="sm"
-                    variant="ghost"
                     disabled={pending}
                     onClick={() => setCounter({ id: offer.id, sellerName: offer.sellerName })}
                   >
                     Counter
-                  </Button>
-                  <Button
+                  </DrawnButton>
+                  <DrawnButton
                     size="sm"
                     disabled={pending}
                     onClick={() => accept.mutate({ offerId: offer.id })}
                   >
                     Accept
-                  </Button>
+                  </DrawnButton>
                 </OfferCard>
               ))}
             </ul>
@@ -132,7 +154,7 @@ export function OffersPage() {
           )}
         </Panel>
 
-        <Panel title="You offer" action={<Standing count={data.mine.length} />}>
+        <Panel tone="paper" title="Your Offers" action={<Standing count={data.mine.length} />}>
           {/*
            * What is standing first, the form for a new one under it.
            *
@@ -152,14 +174,13 @@ export function OffersPage() {
               <ul className="flex flex-col gap-3" data-testid="my-offers">
                 {data.mine.map((offer) => (
                   <OfferCard key={offer.id} offer={offer} mine now={now}>
-                    <Button
+                    <DrawnButton
                       size="sm"
-                      variant="ghost"
                       disabled={pending}
                       onClick={() => withdraw.mutate({ offerId: offer.id })}
                     >
                       Withdraw
-                    </Button>
+                    </DrawnButton>
                   </OfferCard>
                 ))}
               </ul>
@@ -419,7 +440,7 @@ function OfferComposer({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button
+        <DrawnButton
           size="sm"
           disabled={post.isPending || empty}
           onClick={() =>
@@ -432,11 +453,11 @@ function OfferComposer({
           }
         >
           {counter === null ? 'Post it' : 'Send the counter'}
-        </Button>
+        </DrawnButton>
         {counter !== null && (
-          <Button size="sm" variant="ghost" onClick={onDone}>
+          <DrawnButton size="sm" onClick={onDone}>
             Never mind
-          </Button>
+          </DrawnButton>
         )}
       </div>
       {post.error !== null && (
@@ -499,7 +520,7 @@ function BundleBuilder({
                 'door-tile flex h-11 w-11 items-center justify-center rounded-lg border transition-all duration-150',
                 inPile
                   ? 'door-tile-active -translate-y-0.5 border-brass-300'
-                  : 'border-surface-500/70 hover:-translate-y-0.5 hover:border-iris-300/80',
+                  : 'border-surface-500/70 hover:-translate-y-0.5 hover:border-brass-300/80',
               )}
             >
               <ResourceIcon

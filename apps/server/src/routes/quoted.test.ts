@@ -5,6 +5,7 @@ import {
   missionOdds,
   buildingCost,
   cancelRefund,
+  blackMarketClosesAt,
   findBlackMarketGood,
   type BlackMarketResponse,
   type MeResponse,
@@ -18,6 +19,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { settleBlackMarketLots } from '../blackmarket/shelf.js';
 
 /**
  * Quoted, then charged: the one invariant every shop in this game shares.
@@ -501,13 +503,20 @@ describe('the back room', () => {
     expect(offer, 'the shelf must be offering something affordable').toBeDefined();
 
     const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
-    const taken = await app.inject({
+    // The shelf takes bids and settles at midnight, so the quote is the lot's opening number and
+    // the charge lands at the close. Nobody else is at this table, so the two are the same figure.
+    const said = await app.inject({
       method: 'POST',
-      url: '/api/black-market/take',
+      url: '/api/black-market/bid',
       headers: auth(one.token),
-      payload: { slotIndex: offer!.slot.index, goodId: offer!.slot.goodId },
+      payload: {
+        slotIndex: offer!.slot.index,
+        goodId: offer!.slot.goodId,
+        amount: offer!.lot!.nextBid,
+      },
     });
-    expect(taken.statusCode, taken.body).toBe(200);
+    expect(said.statusCode, said.body).toBe(200);
+    settleBlackMarketLots(app.repos, blackMarketClosesAt(shelf.day), 'Europe/Athens');
 
     const after = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
     expect(before - after).toBe(offer!.price);
@@ -536,10 +545,15 @@ describe('the back room', () => {
     const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
     await app.inject({
       method: 'POST',
-      url: '/api/black-market/take',
+      url: '/api/black-market/bid',
       headers: auth(one.token),
-      payload: { slotIndex: offer!.slot.index, goodId: offer!.slot.goodId },
+      payload: {
+        slotIndex: offer!.slot.index,
+        goodId: offer!.slot.goodId,
+        amount: offer!.lot!.nextBid,
+      },
     });
+    settleBlackMarketLots(app.repos, blackMarketClosesAt(shelf.day), 'Europe/Athens');
     const charged = before - app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
 
     const receipt = app.repos.blackMarket.historyFor(one.baseId, 10)[0];

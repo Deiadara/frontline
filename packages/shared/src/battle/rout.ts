@@ -44,10 +44,20 @@ export const AWAY_PENALTY = 0.08;
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
-/** The fastest thing the other side has on the field: what a withdrawal has to outrun. */
+/**
+ * The fastest thing the other side still has *in the fight*: what a withdrawal has to outrun.
+ *
+ * Broken stacks are skipped (2026-09-17). A side can win a fight with one of its own stacks routed,
+ * and men who ran are not chasing anybody: counting them let a winner's fastest unit set the
+ * pursuit speed from halfway to its own rear. Measured on 10 Razors and 5 Road Reavers: routing the
+ * Reavers left the chase at 65, their speed, rather than dropping to what the Razors can do.
+ */
 export function pursuitSpeed(enemy: SideState): number {
   return enemy.stacks.reduce(
-    (fastest, stack) => (stack.alive > 0 ? Math.max(fastest, stack.effective.speed) : fastest),
+    (fastest, stack) =>
+      stack.alive > 0 && stack.brokeAt === null
+        ? Math.max(fastest, stack.effective.speed)
+        : fastest,
     0,
   );
 }

@@ -19,10 +19,10 @@ import {
 } from '@frontline/shared';
 import { NavLink, useLocation, useSearchParams } from 'react-router-dom';
 import { CancelMark } from '../../components/ui/CancelMark';
-import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
+import { DrawnDisc, DrawnFace } from '../../components/ui/DrawnMarks';
 import { useCancelResearch, useMe, useResearch, useStartTech } from '../../lib/queries';
 import { announceWaived } from '../../lib/deltas';
 import { PageShell } from '../game/PageShell';
@@ -114,11 +114,19 @@ function TrackRow({
       onClick={onSelect}
       aria-pressed={selected}
       data-testid={`research-track-${status.role}`}
+      /*
+       * The same three tones the feats index uses (maintainer, 2026-09-17): verdigris for a trade
+       * worked to the last rung, brass for the one open, and plain surface for the rest. A trade
+       * with nobody in the chair keeps its oxblood line underneath, which is the one thing on the
+       * row that is a refusal rather than a state.
+       */
       className={cn(
-        'flex w-full items-center gap-2.5 border-l-[3px] py-2 pl-2 pr-2.5 text-left transition-all duration-150',
+        'flex w-full items-center gap-2.5 rounded-sm border px-2 py-1.5 text-left transition-colors',
         selected
-          ? 'border-brass-300 bg-brass-300/10'
-          : 'border-transparent hover:border-iris-300/60 hover:bg-surface-800/70',
+          ? 'border-brass-300 bg-brass-500/30 text-brass-100'
+          : status.done >= RESEARCH_TRACK_STEPS
+            ? 'border-verdigris-300/40 bg-verdigris-500/10 text-verdigris-100/90 hover:bg-verdigris-500/15'
+            : 'border-surface-600/60 bg-surface-900/40 text-ink-200 hover:bg-surface-800/60',
       )}
     >
       <span
@@ -130,20 +138,35 @@ function TrackRow({
       >
         <TrackSigil role={status.role} className="h-6 w-6" ringed={false} />
       </span>
+      {/*
+       * The board's own type, to the pixel (maintainer, 2026-09-17).
+       *
+       * `font-stamp` at 14 with a truncation rather than 13 with `break-words`: the two lists sit
+       * one door apart and read as one book, and the wrap was what put a double-barrelled name with
+       * a nickname in it onto two lines and made one row of nineteen taller than the rest.
+       */}
       <span className="min-w-0 flex-1">
-        <span className="block break-words font-stamp text-[13px] leading-[1.15] text-ink-100">
+        <span className="block truncate font-stamp text-[14px] leading-tight">
           {OFFICER_ROLE_LABELS[status.role]}
         </span>
+        {/*
+         * The role truncates, the person does not.
+         *
+         * A role is one of nineteen strings this build ships and the rail is sized for the longest
+         * of them, so cutting it is impossible. A name is whatever somebody was called: truncating
+         * it cut `Wenqing "Compass" Adebayo-Lindqvist` by two pixels, which the sheet's own
+         * no-cut-text gate refuses and is right to. It wraps, and the row is a little taller.
+         */}
         <span
           className={cn(
             'block break-words font-body text-[11px] leading-snug',
-            status.mark === null ? 'text-oxblood-300' : 'text-ink-300',
+            status.mark === null ? 'text-oxblood-300' : 'opacity-70',
           )}
         >
           {status.mark === null ? 'Chair empty' : `${status.officerName ?? ''} · ${status.mark}`}
         </span>
       </span>
-      <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-200">
+      <span className="shrink-0 font-display text-[10px] font-bold tabular-nums opacity-70">
         {status.done}/{RESEARCH_TRACK_STEPS}
       </span>
     </button>
@@ -254,26 +277,30 @@ function RungCard({
       className={cn(
         'relative flex min-w-0 gap-3 rounded-sm border p-3 transition-colors',
         item.known
-          ? 'border-bile-300/50 bg-bile-300/10'
+          ? 'border-verdigris-300/40 bg-verdigris-500/10'
           : running
-            ? 'border-brass-300/70 bg-brass-300/10'
+            ? 'border-brass-300/70 bg-brass-500/15'
             : item.blocker === null
-              ? 'border-surface-600 bg-surface-800/60'
-              : 'border-surface-700 bg-surface-900/50 opacity-80',
+              ? 'border-surface-600/60 bg-surface-900/40'
+              : 'border-surface-700/60 bg-surface-950/40 opacity-80',
       )}
     >
+      {/* The hand-inked disc the feats board rings its rungs with, rather than a CSS circle: the
+          two screens are the same book, and a stroked border beside a drawn one reads as a
+          different hand. */}
       <span
         aria-hidden
         className={cn(
-          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border font-display text-[13px] font-bold tabular-nums',
+          'relative flex h-9 w-9 shrink-0 items-center justify-center font-display text-[13px] font-bold tabular-nums',
           item.known
-            ? 'border-bile-300/60 text-bile-300'
+            ? 'text-verdigris-300'
             : item.blocker === null
-              ? 'border-brass-300/70 text-brass-300'
-              : 'border-surface-600 text-ink-400',
+              ? 'text-brass-300'
+              : 'text-surface-500',
         )}
       >
-        {item.step}
+        <DrawnDisc />
+        <span className="relative">{item.step}</span>
       </span>
 
       {/*
@@ -316,7 +343,7 @@ function RungCard({
             {item.effect}
           </p>
           {item.known ? (
-            <span className="shrink-0 font-display text-[11px] font-bold uppercase tracking-[0.16em] text-bile-300">
+            <span className="rubber-stamp shrink-0 font-stamp text-[11px] uppercase tracking-[0.14em]">
               Done
             </span>
           ) : running ? (
@@ -330,13 +357,22 @@ function RungCard({
               data-sound="confirm"
               onClick={onStart}
               className={cn(
-                'brushed relative shrink-0 rounded-sm border px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                'group/start relative shrink-0 px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                'transition-all duration-150 ease-out',
                 item.blocker === null
-                  ? 'border-brass-300/70 text-brass-300 hover:bg-brass-300/10'
-                  : 'cursor-not-allowed border-surface-700 text-ink-400',
+                  ? 'text-brass-300 hover:-translate-y-px hover:text-brass-100 active:translate-y-px'
+                  : 'cursor-not-allowed text-ink-400',
               )}
             >
-              {item.blocker ?? 'Put them on it'}
+              <DrawnFace
+                face={cn(
+                  'transition-all duration-150',
+                  item.blocker === null
+                    ? 'fill-brass-500/25 group-hover/start:fill-brass-500/40'
+                    : 'fill-surface-950/50',
+                )}
+              />
+              <span className="relative">{item.blocker ?? 'Put them on it'}</span>
             </button>
           )}
         </div>
@@ -378,21 +414,36 @@ function TracksSection({
   if (!status) return <EmptyRow text="The archive has no tracks on file." />;
 
   return (
-    <div className="grid min-h-0 items-start gap-4 lg:grid-cols-[19rem_minmax(0,1fr)]">
+    <div className="grid h-full min-h-0 grid-rows-[14rem_minmax(0,1fr)] gap-4 lg:grid-cols-[19rem_minmax(0,1fr)] lg:grid-rows-1">
       {/*
-       * One scroller for both columns, which is the workspace's own.
+       * A scroller in each column rather than one around both (maintainer, 2026-09-17).
        *
-       * A sticky rail with a scroller of its own was tried and reverted: pinned to the top of the
-       * workspace it sat 31px above the sheet's visible edge, so its heading was clipped away and
-       * the top row was cut in half. Two nested scrollers to save a page scroll is not worth a
-       * heading that disappears.
+       * The first version shared the workspace's, and a sticky rail with its own was tried and
+       * reverted before that: pinned to the top of a scrolling workspace it sat 31px above the
+       * sheet's visible edge, so its heading was clipped away. Neither problem applies now, because
+       * the workspace holds still and both columns are plain flex children of a grid that fills it:
+       * each frame keeps its head where it was put and scrolls its own list underneath, which is
+       * the shape the feats board uses.
        *
        * 19rem for the rail rather than 15 (maintainer request, 2026-09-10): a double-barrelled name
        * with a nickname in it wrapped onto two lines at 15, and the sheet beside it had more
        * width than ten rungs know what to do with. The sheet gives up what the rail takes.
        */}
-      <Panel title="Trades" className="min-h-0 border border-surface-500/70">
-        <ul className="min-h-0 divide-y divide-surface-700" data-testid="research-tracks">
+      <nav
+        aria-label="Officers"
+        className="ink-frame card-paper washed grain flex min-h-0 flex-col rounded-sm shadow-panel"
+      >
+        <h3 className="relative shrink-0 px-3 pb-2 pt-2.5 font-stamp text-[15px] leading-none text-brass-300">
+          Officers
+          <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
+        </h3>
+        {/* `px-1.5`, not the board's `px-2`: the rail is a fixed 19rem and the longest name on it
+            is a double-barrelled one with a nickname in it, which wrapped onto a second line at the
+            wider padding. The board's index has the whole column to give. */}
+        <ul
+          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1.5 py-2"
+          data-testid="research-tracks"
+        >
           {statuses.map((entry) => (
             <li key={entry.role}>
               <TrackRow
@@ -403,14 +454,14 @@ function TracksSection({
             </li>
           ))}
         </ul>
-      </Panel>
+      </nav>
 
       <section
         data-testid={`tech-track-${status.role}`}
-        className="card-paper washed rivets edge-lit flex min-w-0 flex-col gap-3 rounded-sm border border-surface-500/70 p-4 shadow-panel"
+        className="ink-frame card-paper washed grain flex min-h-0 min-w-0 flex-col gap-3 rounded-sm p-4 shadow-panel"
       >
         <TrackHeader status={status} head={data.head} />
-        <ul className="flex flex-col gap-2">
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
           {data.technologies
             .filter((item) => item.track === status.role)
             .map((item) => (
@@ -496,15 +547,26 @@ function SectionTab({
       end
       data-testid={`research-tab-${label.toLowerCase()}`}
       className={cn(
-        'flex items-center gap-2 rounded-sm border px-4 py-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] transition-colors',
-        active
-          ? 'border-brass-300/80 bg-brass-300/15 text-brass-100'
-          : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-iris-300/60 hover:text-iris-100',
+        'group/tab relative flex items-center gap-2 px-4 py-2 font-display text-[12px] font-bold uppercase tracking-[0.16em] transition-all duration-150',
+        'hover:-translate-y-px active:translate-y-px',
+        active ? 'text-brass-100' : 'text-ink-300 hover:text-brass-100',
       )}
     >
-      {active && <CompassMark className="h-3.5 w-3.5 shrink-0 text-brass-300" />}
-      {label}
-      {count !== null && <span className="tabular-nums opacity-80">{count}</span>}
+      {/* Drawn rather than struck (maintainer, 2026-09-17), the same box the feats board's controls
+          wear: the archive is paper, and a pressed-metal tab on a sheet of paper reads as a control
+          bar bolted onto a document. */}
+
+      <DrawnFace
+        face={cn(
+          'transition-all duration-150',
+          active
+            ? 'fill-brass-500/30 group-hover/tab:fill-brass-500/40'
+            : 'fill-surface-900/50 group-hover/tab:fill-brass-500/15',
+        )}
+      />
+      {active && <CompassMark className="relative h-3.5 w-3.5 shrink-0 text-brass-300" />}
+      <span className="relative">{label}</span>
+      {count !== null && <span className="relative tabular-nums opacity-80">{count}</span>}
     </NavLink>
   );
 }
@@ -558,7 +620,7 @@ export function ResearchPage() {
         {/* The bench in flight, over whichever tab is open: a programme running is a fact about
             the whole archive, not about the page a player happens to be on. */}
         {data?.active && (
-          <div className="card-paper washed rivets edge-lit shrink-0 rounded-sm border border-brass-500/40 shadow-panel">
+          <div className="ink-frame card-paper washed grain shrink-0 rounded-sm shadow-panel">
             <ActiveProject active={data.active} at={now} />
           </div>
         )}
@@ -572,7 +634,22 @@ export function ResearchPage() {
           </p>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto" data-testid="research-workspace">
+        {/*
+         * One scroller for the other two tabs, none for this one.
+         *
+         * Programmes is two columns that each want their own bar (maintainer, 2026-09-17), and a
+         * pane cannot scroll inside a parent that is already scrolling: the inner one never gets a
+         * height to overflow. So the workspace holds still here and the rail and the sheet each
+         * take their own. Blueprints and Reimagining are single columns of cards and still scroll
+         * as one, which is what they were built for.
+         */}
+        <div
+          className={cn(
+            'min-h-0 flex-1',
+            section === 'programmes' ? 'overflow-hidden' : 'overflow-y-auto',
+          )}
+          data-testid="research-workspace"
+        >
           {section === 'blueprints' ? (
             <BlueprintsSection />
           ) : section === 'reimagining' ? (

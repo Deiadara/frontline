@@ -15,7 +15,7 @@ import {
   type Commander,
   type FeatSnapshot,
 } from '@frontline/shared';
-import { roleFit } from '../roles/requirements.js';
+import { officerFitReader, type OfficerFitReader } from '../crew/standing.js';
 import { districtsHeldWhole } from '../city/gates.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -125,7 +125,14 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
    * any role they could sit in: the feat asks what this crew *has*, and somebody who would be a B
    * in a chair is a B whether or not they are sitting in one today.
    */
-  const marks = base.commanders.map((officer) => markIndex(markFromPoints(bestFit(officer))));
+  /*
+   * Off the lifted sheet, which is the sheet `crew/roster.ts` prints and the Scrapyard gates on.
+   * Measured on `officer.attributes` this counted the mark the crew had before the Overseer, the
+   * teaching perks, the ground and the Lab, so the one ladder that asks "how good are your people"
+   * was the one place none of that showed up.
+   */
+  const fit = officerFitReader(repos, base);
+  const marks = base.commanders.map((officer) => markIndex(markFromPoints(bestFit(officer, fit))));
   put('officer_best_mark', marks.length > 0 ? Math.max(...marks) : 0);
 
   // --- the city ---
@@ -201,7 +208,7 @@ export function overseerSnapshot(
  * asks what this crew has, and somebody who would be a B in a chair is a B whether or not they
  * are sitting in one today.
  */
-function bestFit(officer: Commander): number {
-  if (officer.role !== null) return roleFit(officer.attributes, officer.role);
-  return OFFICER_ROLES.reduce((best, role) => Math.max(best, roleFit(officer.attributes, role)), 0);
+function bestFit(officer: Commander, fit: OfficerFitReader): number {
+  if (officer.role !== null) return fit.pointsFor(officer, officer.role);
+  return OFFICER_ROLES.reduce((best, role) => Math.max(best, fit.pointsFor(officer, role)), 0);
 }

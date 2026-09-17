@@ -162,10 +162,14 @@ describe('0014: dropping the Commons from saved districts', () => {
   });
 
   /**
-   * §B9/§E: the shelf is filled from what is already bolted on, so nobody loses an add-on they
-   * paid for on the day fitting became reversible.
+   * §B9/§E: 0056 filled the shelf from what was already bolted on, and 0097 empties it again.
+   *
+   * The two are not in conflict: 0056 was written when fitting became reversible and a card had to
+   * have somewhere to go when it came out of a bracket. There is no shelf at all as of 2026-09-16
+   * (building and fitting are one press), so the end state of the chain is an empty `built` list
+   * and the *fitted* cards untouched, which is what a crew actually paid for.
    */
-  it('§B9: seeds the add-on shelf from the modifications already fitted', () => {
+  it('§B9: leaves the shelf empty and every fitted card where it was', () => {
     const db = legacyBase([
       { kind: 'nexus', level: 20, modifications: ['nexus_encrypted_core'] },
       { kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'] },
@@ -174,8 +178,15 @@ describe('0014: dropping the Commons from saved districts', () => {
 
     const row = db.prepare('SELECT addons_json FROM bases').get() as { addons_json: string };
     const addons = JSON.parse(row.addons_json) as { researched: string[]; built: string[] };
-    expect(addons.built.sort()).toEqual(['lab_quantum_modeling', 'nexus_encrypted_core']);
+    expect(addons.built, 'the shelf is gone, so nothing may be sitting on it').toEqual([]);
+    // The Lab projects are a different fact and are not a shelf: they stay.
     expect(addons.researched.sort()).toEqual(['lab_quantum_modeling', 'nexus_encrypted_core']);
+    // ...and what was bolted on is still bolted on.
+    expect(
+      buildingsAfter(db)
+        .flatMap((building) => building.modifications ?? [])
+        .sort(),
+    ).toEqual(['lab_quantum_modeling', 'nexus_encrypted_core']);
   });
 
   /** ...and a district that never fitted one gets an empty shelf rather than a null column. */
@@ -437,7 +448,7 @@ describe('the migration chain', () => {
 });
 
 /**
- * 0081 to 0096 against a database that has something in every table.
+ * Every migration from 0081 on, against a database that has something in every table.
  *
  * The chain tests above prove a *cold* database reaches one schema, and each per-migration case
  * proves one migration against the rows it is about. Neither is the state a live save is in, and
@@ -446,11 +457,11 @@ describe('the migration chain', () => {
  * one of those passes on an empty store whether or not it got the interesting part right.
  *
  * So the store is filled first: one row in every table the schema has at 0081, seeded through the
- * live foreign keys rather than around them, and then the sixteen files are applied in order. The
+ * live foreign keys rather than around them, and then {@link THROUGH} is applied in order. The
  * completeness assertion is what keeps this honest as tables are added: a new table with nothing in
  * it fails here by name rather than quietly narrowing what the chain was measured against.
  */
-describe('0081 to 0096 on a database with rows in every table', () => {
+describe('every migration from 0081 on, on a database with rows in every table', () => {
   const FIRST = '0081_mission_priced_minutes.sql';
   const THROUGH = [
     '0081_mission_priced_minutes.sql',
@@ -469,6 +480,10 @@ describe('0081 to 0096 on a database with rows in every table', () => {
     '0094_unit_modifications.sql',
     '0095_overseer_pool.sql',
     '0096_overseer_faces.sql',
+    '0097_one_press_modifications.sql',
+    '0098_black_market_lots.sql',
+    '0099_black_market_cities.sql',
+    '0100_overseer_holds.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -707,7 +722,7 @@ describe('0081 to 0096 on a database with rows in every table', () => {
     return { db, tables };
   }
 
-  it('applies the sixteen files in order, once, and stops', () => {
+  it('applies every file in order, once, and stops', () => {
     const { db } = seeded();
     expect(runMigrations(db)).toEqual(THROUGH);
     expect(runMigrations(db), 'a second run must apply nothing').toEqual([]);
@@ -722,7 +737,7 @@ describe('0081 to 0096 on a database with rows in every table', () => {
       const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
       // `battle_deployments` and `troop_movements` are the ones this is really about: 0087 drops
       // the table they point at, and an implicit DELETE would empty them without a word.
-      expect(n, `${table} lost its row somewhere in 0081..0096`).toBe(1);
+      expect(n, `${table} lost its row somewhere from 0081 on`).toBe(1);
     }
     // ...and the three that go are gone, rather than sitting there empty.
     for (const table of RETIRED) {

@@ -6,6 +6,7 @@ export * from './effects.js';
 export * from './cost.js';
 export * from './boost.js';
 export * from './addons.js';
+export * from './requirements.js';
 export * from './production.js';
 export * from './standing.js';
 export * from './queue.js';

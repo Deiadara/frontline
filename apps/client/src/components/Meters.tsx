@@ -1,20 +1,213 @@
 import {
   compactFigure,
+  describeNotorietyGrant,
+  nextNotorietyTier,
   notorietyTier,
   notorietyUpgradeCost,
-  nextNotorietyTier,
   type EconomyState,
 } from '@frontline/shared';
+import { useId, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUpgradeNotoriety } from '../lib/queries';
+import { cn } from '../lib/cn';
 import type { DeltaMark } from '../lib/deltas';
 import { DeltaFloat } from './ui/Delta';
+import { DrawnButton } from './ui/DrawnButton';
+import { DrawnDisc } from './ui/DrawnMarks';
 import { HoverCard } from './ui/HoverCard';
-import { InfoWindow, WindowSection } from './ui/InfoWindow';
 import { Icon } from './ui/Icon';
-import { Button } from './ui/Button';
 
 /**
- * §I: the allegiance's own level, and how far into the next one the crew is.
+ * The two ladders the standing chips open, as declared under `/game` in `App.tsx`.
+ *
+ * Exported as the relative path the router wants rather than as the absolute one, because a child
+ * route in react-router may not begin with a slash. The chips prefix `/game/` to navigate; the
+ * route table spends them as they are, so there is one statement of where these screens live.
+ */
+export const LEVEL_LADDER_ROUTE = 'standing/level';
+export const NOTORIETY_LADDER_ROUTE = 'standing/infamy';
+
+/**
+ * A meter with a pen round it rather than a rounded rectangle (maintainer, 2026-09-17).
+ *
+ * The hover cards were a framed console window with a flat bar in it, and the maintainer's note was
+ * that the graphic sat *inside* its box instead of being drawn. So the track is a hand-inked
+ * quadrilateral with the same `feTurbulence` and `feDisplacementMap` pair the feats board's marks
+ * use, the earned part is a wash inside it, and the pen overshoots the bottom-left corner the way
+ * `DrawnFace` does.
+ *
+ * `preserveAspectRatio="none"` lets one drawing serve a 12rem card bar and a full-width ladder row,
+ * and `vectorEffect="non-scaling-stroke"` is what stops the stretch making the two short sides
+ * three times heavier than the long ones. Both are `DrawnFace`'s reasoning and both apply here for
+ * the same reason.
+ *
+ * The filter id carries a `useId` suffix: a ladder draws fourteen of these, and a hard-coded id
+ * would have all of them pointing at whichever copy the browser saw first.
+ */
+export function DrawnMeter({
+  percent,
+  className,
+  'data-testid': testId,
+}: {
+  /** How much of the track is earned, 0 to 100. Clamped, so a raid past a ceiling cannot overrun. */
+  percent: number;
+  className?: string;
+  'data-testid'?: string;
+}) {
+  const id = useId();
+  const filled = Math.max(0, Math.min(100, percent));
+
+  return (
+    <span className={cn('relative block h-3 w-full', className)} data-testid={testId}>
+      <svg
+        viewBox="0 0 120 12"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
+        aria-hidden
+      >
+        <defs>
+          <filter id={`meter-${id}`} x="-6%" y="-40%" width="112%" height="180%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="17" />
+            <feDisplacementMap
+              in="SourceGraphic"
+              scale="1.1"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+        <g filter={`url(#meter-${id})`}>
+          {/* The earned part, as a wash rather than a solid: the sheet under it is paper, and a
+              flat block would read as a sticker laid on top of it. */}
+          <rect
+            x="2"
+            y="2.5"
+            width={(116 * filled) / 100}
+            height="7.6"
+            fill="currentColor"
+            opacity="0.72"
+          />
+          <g
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+          >
+            <path
+              d="M2 2.4 L118 1.9 L118.4 10.2 L1.6 10.7 Z"
+              strokeWidth="1.5"
+              opacity="0.9"
+              vectorEffect="non-scaling-stroke"
+            />
+            {/* The overshoot: the pen carries on past the corner it closed at. */}
+            <path
+              d="M1.6 10.7 L5.2 9.2 L27 9.9"
+              strokeWidth="1.1"
+              opacity="0.45"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        </g>
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * The ink each chip's ring and glyph are drawn in.
+ *
+ * A prop rather than a `className` from the caller, for `Panel`'s reason: `cn` is `clsx`, so it
+ * concatenates without resolving Tailwind conflicts and two colours would both land with the
+ * stylesheet's order picking the winner.
+ */
+const CARD_TONE = {
+  hextech: 'text-hextech-100',
+  oxblood: 'text-oxblood-300',
+} as const;
+
+type CardTone = keyof typeof CARD_TONE;
+
+/**
+ * What a standing chip says when you look at it: a sheet of paper, not a console window.
+ *
+ * `InfoWindow` is the right object for a resource, which is a thing with a picture of itself. A
+ * level and a rank are neither, and the maintainer asked for these two in the hand the feats board
+ * is drawn in. So the frame is the board's own material (`ink-frame card-paper washed grain`), the
+ * icon is the same glyph as before but ringed by hand (`DrawnDisc`) instead of standing on a lit
+ * tile, and the rule under the header is `.ink-rule` rather than a lit gradient.
+ *
+ * The icon stays exactly what it was: the maintainer's note was that the two glyphs are right and
+ * everything round them is not.
+ */
+function DrawnCard({
+  eyebrow,
+  title,
+  icon,
+  tone,
+  figure,
+  footnote,
+  children,
+  'data-testid': testId,
+}: {
+  eyebrow: string;
+  title: string;
+  /** The chip's own glyph, unchanged. */
+  icon: ReactNode;
+  tone: CardTone;
+  figure: ReactNode;
+  /** The one line telling a player the chip is also a door. */
+  footnote: string;
+  children?: ReactNode;
+  'data-testid'?: string;
+}) {
+  return (
+    <div
+      className="ink-frame card-paper washed grain relative w-[23rem] max-w-full rounded-sm px-3.5 pb-3.5 pt-3 shadow-panel"
+      data-testid={testId}
+    >
+      <div className="flex items-start gap-3.5">
+        <span
+          className={cn(
+            'relative flex h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center',
+            CARD_TONE[tone],
+          )}
+        >
+          <DrawnDisc />
+          <span className="relative block h-9 w-9 [&_svg]:h-full [&_svg]:w-full">{icon}</span>
+        </span>
+        <span className="min-w-0 flex-1 pt-0.5">
+          <span className="block font-display text-[10px] font-bold uppercase tracking-[0.2em] text-ink-400">
+            {eyebrow}
+          </span>
+          {/* The hand face for the name, the stamped one for the category above it: a window's
+              title is a thing and its eyebrow is a kind, and setting both in the pen loses the
+              difference that makes the pair readable at a glance. */}
+          <span className="mt-0.5 block font-stamp text-[19px] leading-[1.15] text-ink-100">
+            {title}
+          </span>
+          <span className="mt-1.5 block">{figure}</span>
+        </span>
+      </div>
+
+      <span aria-hidden className="ink-rule mb-2.5 mt-2 block" />
+
+      {children}
+
+      {/* The chip is a door now, and a door nobody knows about is a door nobody opens. Set small
+          and quiet, because it is an instruction rather than a reading. */}
+      <p className="mt-2.5 font-body text-[11px] italic leading-snug text-ink-400">{footnote}</p>
+    </div>
+  );
+}
+
+/**
+ * §I: the district's own level, and how far into the next one it is.
+ *
+ * The XP is the **district's**, not the crew's (maintainer, 2026-09-17). The chip called it a crew
+ * level, which is the one reading of it that is wrong: a crew is the people, and this number is
+ * what the place they work out of has grown into. Everything the level gates is a building, a
+ * screen or a limit on the district, so the label follows the mechanic.
  *
  * This took district morale's place in the standing bar, and the swap is the point. Morale was a
  * meter that drifted on its own towards a number the player could not aim at, so a glance at it
@@ -25,8 +218,9 @@ import { Button } from './ui/Button';
  *
  * The card is Hero Zero's arrangement and it is the right one: the level as the headline, the bar
  * under it, and the exact figures, `1,240 / 2,100`, spelled out rather than left as a proportion.
+ * Pressing it opens the whole ladder, which is the only place the thresholds are written out.
  */
-export function CrewLevelChip({
+export function DistrictLevelChip({
   level,
   xpIntoLevel,
   xpToNextLevel,
@@ -36,7 +230,7 @@ export function CrewLevelChip({
   xpIntoLevel: number;
   xpToNextLevel: number;
   /**
-   * What the crew just learned, from `useDeltaMarks` over {@link xpBehind}.
+   * What the district just learned, from `useDeltaMarks` over {@link xpBehind}.
    *
    * Opt-in the way the infamy chip's is: the standing bar and the base screen both draw this chip
    * and only one of them should announce the award. No trickle and no floor either, because
@@ -44,24 +238,23 @@ export function CrewLevelChip({
    */
   deltas?: readonly DeltaMark[];
 }) {
+  const navigate = useNavigate();
   const pct =
     xpToNextLevel > 0 ? Math.max(0, Math.min(100, (xpIntoLevel / xpToNextLevel) * 100)) : 0;
 
   return (
     <HoverCard
       data-testid="level-hover"
-      label={`Crew level ${level}`}
+      label={`District level ${level}`}
       size="window"
+      onActivate={() => void navigate(`/game/${LEVEL_LADDER_ROUTE}`)}
       card={
-        <InfoWindow
-          eyebrow="Your crew"
+        <DrawnCard
+          eyebrow="Your district"
           title={`Level ${level}`}
           tone="hextech"
-          icon={
-            <span className="block h-full w-full text-hextech-100 [&_svg]:h-full [&_svg]:w-full">
-              <Icon name="level" />
-            </span>
-          }
+          data-testid="level-card"
+          icon={<Icon name="level" />}
           figure={
             <span className="flex items-baseline gap-2">
               <span className="font-display text-2xl font-bold tabular-nums text-hextech-100">
@@ -72,11 +265,18 @@ export function CrewLevelChip({
               </span>
             </span>
           }
+          footnote="Click for the ladder, and what each rung opens."
         >
-          <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
-            <span className="block h-full rounded-sm bg-hextech-100" style={{ width: `${pct}%` }} />
-          </span>
-        </InfoWindow>
+          {/*
+           * The meter and nothing else, which is the standing bar's own rule.
+           *
+           * The prose came out of every readout in this bar on purpose: what a player opens one of
+           * these for is the number, and a paragraph about what a level is worth was being read
+           * over the top of the figure they came for. What changed is that there is now somewhere
+           * for that paragraph to live, which is the screen the footnote points at.
+           */}
+          <DrawnMeter percent={pct} className="text-hextech-100" data-testid="level-card-meter" />
+        </DrawnCard>
       }
     >
       <div
@@ -136,8 +336,9 @@ export function CrewLevelChip({
  * which is what turns a running total into a goal. At the top of the ladder there is no next rung
  * and the bar is simply full.
  *
- * The card is interactive, so the button inside it is a real button. The chip itself does nothing
- * on click: a purchase this expensive should not be one stray click away.
+ * The card is interactive, so the button inside it is a real button. Pressing the **chip** opens
+ * the ladder rather than buying anything: a purchase this expensive should not be one stray click
+ * away, and the card is portalled out of the trigger, so a press on Upgrade Tier never reaches it.
  */
 export function InfamyChip({
   infamy,
@@ -153,12 +354,16 @@ export function InfamyChip({
    */
   deltas?: readonly DeltaMark[];
 }) {
+  const navigate = useNavigate();
   const tier = notorietyTier(notoriety);
   const next = nextNotorietyTier(notoriety);
   const cost = notorietyUpgradeCost(notoriety);
   const upgrade = useUpgradeNotoriety();
   const affordable = cost !== null && infamy >= cost;
   const pct = cost === null ? 100 : Math.max(0, Math.min(100, (infamy / cost) * 100));
+  // What the next rung actually pays (§D7). Without it the card is a price and a button, and a
+  // player is being asked for three hundred thousand infamy for a different word on a chip.
+  const buys = describeNotorietyGrant(notoriety + 1);
 
   return (
     <HoverCard
@@ -166,17 +371,14 @@ export function InfamyChip({
       label={`Infamy: ${Math.round(infamy).toLocaleString()} points, and they call you ${tier}`}
       size="window"
       interactive
+      onActivate={() => void navigate(`/game/${NOTORIETY_LADDER_ROUTE}`)}
       card={
-        <InfoWindow
+        <DrawnCard
           eyebrow="They call you"
           title={tier}
           tone="oxblood"
-          plate="dark"
-          icon={
-            <span className="block h-full w-full text-oxblood-300 [&_svg]:h-full [&_svg]:w-full">
-              <Icon name="infamy" />
-            </span>
-          }
+          data-testid="infamy-card"
+          icon={<Icon name="infamy" />}
           figure={
             <span className="flex items-baseline gap-2">
               {/* Grouped, like the price under it. The chip beside this one is allowed to say
@@ -188,53 +390,77 @@ export function InfamyChip({
               <span className="font-display text-base text-ink-300">infamy</span>
             </span>
           }
+          footnote="Click for the whole ladder, every price and what each rank pays."
         >
           {/* The rank blurb is gone with the rest of the standing-bar prose: what is left is the
               ladder itself, which is a price and a button rather than an explanation. */}
-          <WindowSection label={next === null ? 'The top of it' : 'Next up'}>
-            {next === null || cost === null ? (
-              <p className="font-body text-[13px] leading-snug text-ink-300">
-                No rank above this one.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2" data-testid="notoriety-next">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="font-display text-base font-bold tracking-[0.08em] text-brass-300">
-                    {next}
-                  </span>
-                  <span className="font-display text-[13px] tabular-nums text-ink-200">
-                    {cost.toLocaleString()} infamy
-                  </span>
-                </div>
-                <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950/80">
-                  <span
-                    className="block h-full rounded-sm bg-oxblood-300"
-                    style={{ width: `${pct}%` }}
-                  />
+          <h4 className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-brass-300">
+            {next === null ? 'The top of it' : 'Next up'}
+          </h4>
+          {next === null || cost === null ? (
+            <p className="mt-1 font-body text-[13px] leading-snug text-ink-300">
+              No rank above this one.
+            </p>
+          ) : (
+            <div className="mt-1.5 flex flex-col gap-2" data-testid="notoriety-next">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="font-stamp text-[15px] leading-none text-brass-100">{next}</span>
+                <span className="font-display text-[13px] tabular-nums text-ink-200">
+                  {cost.toLocaleString()} infamy
                 </span>
-                {/* The shortfall as a figure, not a sentence about how to earn it. */}
-                {!affordable && (
-                  <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
-                    <span className="tabular-nums text-oxblood-300">
-                      {Math.max(0, cost - Math.round(infamy)).toLocaleString()}
-                    </span>{' '}
-                    short
-                  </p>
-                )}
-                <Button
-                  size="sm"
-                  disabled={!affordable || upgrade.isPending}
-                  // The rung this chip is showing: the server refuses a press that names one the
-                  // row has already left, so a double click buys one rank and not two.
-                  onClick={() => upgrade.mutate({ fromNotoriety: notoriety })}
-                  data-testid="upgrade-tier"
-                >
-                  Upgrade Tier
-                </Button>
               </div>
-            )}
-          </WindowSection>
-        </InfoWindow>
+              <DrawnMeter
+                percent={pct}
+                className="text-oxblood-300"
+                data-testid="infamy-card-meter"
+              />
+              {/*
+               * What the rank is for, in the channels' own words.
+               *
+               * A rank used to be a gate and nothing else, and the top eight rungs of the ladder
+               * gated nothing at all: every unit tier is fieldable by `Marked`. They pay now
+               * (`economy/renown.ts`), and the card is where a player is told so, because it is
+               * where a rank is bought.
+               */}
+              {buys.length > 0 && (
+                <ul
+                  className="flex flex-wrap gap-1"
+                  data-testid="notoriety-grant"
+                  aria-label={`What ${next} pays`}
+                >
+                  {buys.map((line) => (
+                    <li
+                      key={line}
+                      className="rounded-sm border border-brass-300/40 bg-brass-500/10 px-1.5 py-px font-display text-[11px] font-bold tracking-[0.04em] text-brass-100"
+                    >
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {/* The shortfall as a figure, not a sentence about how to earn it. */}
+              {!affordable && (
+                <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
+                  <span className="tabular-nums text-oxblood-300">
+                    {Math.max(0, cost - Math.round(infamy)).toLocaleString()}
+                  </span>{' '}
+                  short
+                </p>
+              )}
+              <DrawnButton
+                size="sm"
+                className="self-start"
+                disabled={!affordable || upgrade.isPending}
+                // The rung this chip is showing: the server refuses a press that names one the
+                // row has already left, so a double click buys one rank and not two.
+                onClick={() => upgrade.mutate({ fromNotoriety: notoriety })}
+                data-testid="upgrade-tier"
+              >
+                Upgrade Tier
+              </DrawnButton>
+            </div>
+          )}
+        </DrawnCard>
       }
     >
       <div
@@ -283,14 +509,6 @@ export function InfamyChip({
         <span className="w-[58px] shrink-0 truncate text-center font-display text-base font-bold leading-none tabular-nums text-oxblood-300">
           {compactFigure(infamy)}
         </span>
-        {/* The rank, beside the points and visibly a different kind of thing: a word on a brass
-            plate, not another number.
-
-            Hidden below 1400px, which is the same width the two meter labels appear at and for the
-            same reason: the standing bar has to fit five resources, two doors and an identity on
-            one line, and a line that wraps costs fifty pixels of the world underneath it. The hover
-            card carries the rank at every width, and it is the only place the ladder and its price
-            are legible anyway. */}
         {/*
          * The rank, in a box that does not grow with the word in it.
          *
@@ -309,6 +527,11 @@ export function InfamyChip({
          * characters and needs room for `Back-` (five); what actually sets the floor is
          * `Whispered` and `Nightmare` at nine, which nothing can break. That is the difference
          * between a 6.25rem plate and a 4.75rem one.
+         *
+         * Hidden below 1400px, which is the same width the two meter labels appear at and for the
+         * same reason: the standing bar has to fit five resources, two doors and an identity on
+         * one line, and a line that wraps costs fifty pixels of the world underneath it. The hover
+         * card carries the rank at every width.
          */}
         <span
           className="hidden w-[4.75rem] shrink-0 border-l border-surface-600 pl-2 pr-0.5 text-balance text-center font-display text-[10px] font-bold uppercase leading-tight tracking-[0.06em] text-brass-300 [@media(min-width:1400px)]:block"
@@ -335,7 +558,7 @@ export function StandingReadout({
 }) {
   return (
     <div className="flex flex-wrap gap-2 p-4">
-      <CrewLevelChip level={level} xpIntoLevel={xpIntoLevel} xpToNextLevel={xpToNextLevel} />
+      <DistrictLevelChip level={level} xpIntoLevel={xpIntoLevel} xpToNextLevel={xpToNextLevel} />
       <InfamyChip infamy={economy.infamy} notoriety={economy.notoriety} />
     </div>
   );

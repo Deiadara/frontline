@@ -1,4 +1,5 @@
 import {
+  DEFAULT_CITY_ID,
   ITEM_RARITY_LABELS,
   RESOURCE_KEYS,
   supplyBoard,
@@ -35,6 +36,8 @@ function marketWith(inventory: Inventory): MarketResponse {
   return {
     reimagining: { hasHeadOfResearch: false, hasReimaginingResearch: false },
     serverNow: NOW,
+    cityId: DEFAULT_CITY_ID,
+    cities: [DEFAULT_CITY_ID],
     caps: resources.caps,
     resources,
     inventory,
@@ -204,9 +207,9 @@ describe('what a page tile says about the page (§D8)', () => {
     stub({ pg_colossus_hull_sections: 1 });
     renderPage();
     const colossus = findBlueprint('bp_the_colossus');
-    expect(colossus?.rarity).toBe('exotic');
+    expect(colossus?.rarity).toBe('masterpiece');
     expect(await screen.findByTestId('rarity-bp_the_colossus')).toHaveTextContent(
-      ITEM_RARITY_LABELS.exotic,
+      ITEM_RARITY_LABELS.masterpiece,
     );
   });
 });

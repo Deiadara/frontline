@@ -12,6 +12,7 @@ import { OFFICER_ROLES, RESEARCH_TRACK_STEPS } from '@frontline/shared';
 import { lateGame, research } from './fixtures';
 import {
   expectNoImagesClipped,
+  growPastTheFold,
   expectNothingOverflowsTheScreen,
   installApi,
   settleFonts,
@@ -151,17 +152,21 @@ for (const size of VIEWPORTS) {
     expect(cut, `cut text on the tracks: ${cut.join(' | ')}`).toEqual([]);
 
     await expectNothingOverflowsTheScreen(page);
-    /*
-     * Scoped to the rungs rather than run over the page.
-     *
-     * The rail is nineteen rows in a scroller, so at any scroll offset its last visible row is
-     * half past the edge, sigil included, and `expectNoImagesClipped` cannot tell a list being
-     * scrolled from a box drawn too small. That distinction does not arise inside the detail
-     * panel, which lays out rather than scrolls, so that is where the gate has teeth. The sigils
-     * themselves are proved whole by their own box in the test above.
-     */
-    await expectNoImagesClipped(page, '[data-testid="tech-track-head_of_growth"]');
     await page.screenshot({ path: `screenshots/research-tracks-${tag}.png` });
+
+    /*
+     * Grown until nothing is over its own fold, and only then swept for a sliced drawing.
+     *
+     * Both columns carry their own scroller now (maintainer, 2026-09-17), so at any scroll offset
+     * the last visible row of either is half past its edge, sigil and rung disc included, and
+     * `expectNoImagesClipped` cannot tell a list being scrolled from a box drawn too small. Growing
+     * the window until every scroller fits removes the ambiguity rather than working around it: what
+     * is left over is a real clipping edge. The picture is filed before the window moves, or it
+     * would be a picture of a viewport nobody has.
+     */
+    await growPastTheFold(page);
+    await expectNoImagesClipped(page, '[data-testid="tech-track-head_of_growth"]');
+    await expectNoImagesClipped(page, '[data-testid="research-tracks"]');
   });
 }
 

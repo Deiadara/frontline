@@ -66,6 +66,15 @@ export interface HoverCardProps {
   /** Only meaningful alongside `onActivate`. The card still opens, so the reason is readable. */
   disabled?: boolean;
   /**
+   * Whether this control is the one currently chosen, for a trigger that is also a tab or a door.
+   *
+   * Only meaningful alongside `onActivate`, and it exists because a rail row that grew a hover card
+   * stopped announcing its own state: the trigger here is the button, so `aria-pressed` has to be
+   * its, and a caller wrapping one in a `<span>` to carry the attribute would be describing a thing
+   * nobody can press (maintainer, 2026-09-17).
+   */
+  pressed?: boolean;
+  /**
    * How much room the card takes.
    *
    * `tip` is a sentence or two beside the thing it explains. `window` is a framed panel roughly
@@ -102,6 +111,7 @@ export function HoverCard({
   side = 'bottom',
   onActivate,
   disabled = false,
+  pressed,
   size = 'tip',
   interactive = false,
   'data-testid': testId,
@@ -217,6 +227,7 @@ export function HoverCard({
         // the card explaining *why* it is disabled would never open, which is the one moment it
         // is worth reading.
         aria-disabled={onActivate !== undefined && disabled ? true : undefined}
+        aria-pressed={pressed}
         onClick={onActivate !== undefined && !disabled ? onActivate : undefined}
         aria-label={label}
         /*
@@ -245,16 +256,39 @@ export function HoverCard({
             onMouseEnter={interactive ? show : undefined}
             onMouseLeave={interactive ? hide : undefined}
             className={cn(
-              'z-[200] w-max',
+              'z-[200]',
               interactive ? 'pointer-events-auto' : 'pointer-events-none',
               size === 'card'
-                ? 'max-w-[42rem]'
+                ? /*
+                   * One width for every unit card, not a ceiling (maintainer, 2026-09-17: "make
+                   * the unit cards all be equally as big in size so that it all comfortably fits").
+                   *
+                   * `w-max` under a `max-w` gave each card its own content's width, and the roster
+                   * is exactly the content that varies: measured across the twenty-four doors on
+                   * the Scrapyard's unit rail, the cards ran 547px for a Razor to 720px for a Cyber
+                   * Dog, so moving down the rail resized the card under the pointer every row. The
+                   * 42rem ceiling made it worse rather than better, since it clipped the two widest
+                   * to 672 and wrapped their marks band instead of letting it run.
+                   *
+                   * 45rem is the widest of them at its natural width, so the roomiest card is the
+                   * one that sets the box and nothing wraps that did not want to. The viewport
+                   * clamp is for the narrow end: `HoverCard` places the card by subtracting its
+                   * width from the window, and a card wider than the window places at a negative
+                   * left.
+                   */
+                  //
+                  // `rounded-sm` and a ground of its own, because a locked unit's card carries
+                  // `opacity-75` (the roster's way of saying "you cannot have this yet") and on a
+                  // portal over artwork that is not a dim card, it is a transparent one: the
+                  // Scrapyard's benches and the bar behind read straight through it. Dimming
+                  // against this ground keeps the signal and loses the window.
+                  'w-[45rem] max-w-[calc(100vw-2rem)] rounded-sm bg-[rgb(18_18_22)]'
                 : size === 'window'
-                  ? 'max-w-[26rem]'
+                  ? 'w-max max-w-[26rem]'
                   : // A torn scrap of paper with a hand-inked rule round it, not a rounded
                     // rectangle with a hairline border. The card is the game's most-read surface
                     // and it was the one that looked most like a form.
-                    'scrap max-w-[17rem] px-4 py-3.5',
+                    'scrap w-max max-w-[17rem] px-4 py-3.5',
               // Invisible for the one frame between mounting and being measured, so it never
               // flashes at the top-left corner on its way to where it belongs.
               placement === null && 'opacity-0',

@@ -1,3 +1,4 @@
+import type { ItemRarity } from '../items/rarity.js';
 import { seedFrom } from '../rng.js';
 import {
   BLUEPRINTS,
@@ -81,6 +82,44 @@ export function pagePrizeFor(
 }
 
 /**
+ * How often a page of each rarity turns up, as a ratio (maintainer, 2026-09-17).
+ *
+ * Every page used to be equally likely. Rarity was authored on all 255 of them, read by the
+ * Scrapyard for gating and pricing, and ignored by both draws that hand one out, so a Masterpiece
+ * page was exactly as common as a Basic one. In the unit category that put the scale *backwards*:
+ * six Basic pages against nine Masterpiece ones meant the cheap end was the rare end.
+ *
+ * ## Why the ladder is this gentle
+ *
+ * Because a rarer blueprint already costs more pages. A Basic drawing is two or three sheets and a
+ * Masterpiece is five to eight, so the two gradients multiply, and the maintainer's brief was
+ * "rarer than normal, but not too much, since you need more of them". Modelled over the shipped
+ * catalogue as the expected number of page finds to complete one blueprint:
+ *
+ * | category | Basic | Intricate | Advanced | Masterpiece |
+ * | -------- | ----- | --------- | -------- | ----------- |
+ * | unit     | 167 to 128 | 198 to 178 | 218 to 225 | 252 to 285 |
+ * | upgrade  | 199 to 154 | 241 to 221 | 271 to 311 | 305 to 423 |
+ *
+ * So the cheap end gets meaningfully quicker, the dear end gets modestly slower, and the spread
+ * across the scale goes from 1.5x to about 2.8x. A steeper ladder was measured too: at 8/6/5/3 an
+ * upgrade Masterpiece runs to 506, which is the punishing version the brief ruled out.
+ *
+ * ## Why this is not the salvage ladder
+ *
+ * `items/salvage.ts` draws components at 0.58/0.28/0.12/0.02, which is a 29x spread, and the
+ * Runner's barrow stocks at 5/3/2/1. Both are right for what they are: a component is one find and
+ * you use it, while a page is one of several you have to collect before anything happens at all.
+ * Steepness that reads as "a lucky day" on a component reads as a wall on a page.
+ */
+export const PAGE_DRAW_WEIGHT: Readonly<Record<ItemRarity, number>> = {
+  basic: 6,
+  intricate: 5,
+  advanced: 4,
+  masterpiece: 3,
+};
+
+/**
  * Which page a completed run actually won.
  *
  * Decided on arrival rather than when the card was drawn, so nothing about the offer can be read
@@ -91,9 +130,45 @@ export function pageWonFrom(
   category: BlueprintCategory,
   seed: string | number,
 ): BlueprintPageId | null {
-  const pages = BLUEPRINTS.filter((blueprint) => blueprint.category === category).flatMap(
-    (blueprint) => blueprint.pages.map((page) => page.id),
+  return drawPage(pagesIn(category), `won:${seed}`);
+}
+
+/** Every page in a category, each with the rarity it was authored at. */
+export function pagesIn(category: BlueprintCategory): { id: BlueprintPageId; weight: number }[] {
+  return BLUEPRINTS.filter((blueprint) => blueprint.category === category).flatMap((blueprint) =>
+    blueprint.pages.map((page) => ({
+      id: page.id,
+      // A page may be authored a step above its blueprint (`BlueprintPage.rarity`), which is the
+      // one sheet that makes a drawing hard to finish. Reading the page's own rarity rather than
+      // the blueprint's is what makes that authoring mean something here.
+      weight:
+        PAGE_DRAW_WEIGHT[
+          ('rarity' in page ? (page.rarity as ItemRarity | undefined) : undefined) ??
+            blueprint.rarity
+        ],
+    })),
   );
-  if (pages.length === 0) return null;
-  return pages[seedFrom(`won:${seed}`) % pages.length]!;
+}
+
+/**
+ * One page out of a weighted pool, off a hash rather than a stream.
+ *
+ * Seeded the same way the uniform draw it replaces was, so a given seed still answers the same way
+ * forever; what changed is only which page a given point in the range lands on.
+ */
+export function drawPage(
+  pool: readonly { id: BlueprintPageId; weight: number }[],
+  seed: string,
+): BlueprintPageId | null {
+  const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+  if (pool.length === 0 || total <= 0) return null;
+  // The hash is an integer of arbitrary size; taking it modulo a scaled total and dividing back is
+  // what turns it into a point in [0, total) without ever going through a float.
+  const SCALE = 1_000_000;
+  let at = (seedFrom(seed) % (total * SCALE)) / SCALE;
+  for (const entry of pool) {
+    at -= entry.weight;
+    if (at < 0) return entry.id;
+  }
+  return pool[pool.length - 1]!.id;
 }

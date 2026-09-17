@@ -39,19 +39,47 @@ const GROUP_LABELS: Record<AttributeGroup, string> = {
 function AttributeRow({
   name,
   value,
+  lifted,
+  lift,
   bar,
   roomy,
   importance,
 }: {
   name: AttributeName;
   value: number;
+  /**
+   * The figure as the crew actually fields it, teaching perks and held ground folded in.
+   *
+   * Equal to `value` everywhere nobody is lifting anybody, which is most sheets and every sheet at
+   * the Bar: a candidate is not on the books yet, so nobody on the books is teaching them.
+   */
+  lifted: number;
+  /** Where the difference came from, for the hover. Empty when there is no difference. */
+  lift: readonly { from: string; amount: number }[];
   bar: boolean;
   roomy: boolean;
   /** How much the chair this person sits in cares. `null` where there is no chair. */
   importance: AttributeImportance | null;
 }) {
-  const band = ratingBand(value);
-  const share = Math.max(0, Math.min(1, value / MAX_ATTRIBUTE));
+  // Banded on the figure the player is being shown, so the colour and the number agree.
+  const band = ratingBand(lifted);
+  const share = Math.max(0, Math.min(1, lifted / MAX_ATTRIBUTE));
+  const own = Math.max(0, Math.min(1, value / MAX_ATTRIBUTE));
+  const boosted = lifted > value;
+  /*
+   * The receipt, as one sentence: "20 base, +2 from Sergeant Vantner".
+   *
+   * A figure that is partly somebody else's is a figure a player cannot plan with unless they can
+   * see whose it is. The lines are summed per source rather than listed per perk, because what a
+   * player is deciding is whether to keep that person on the books, not which of their three perks
+   * did it.
+   */
+  const receipt = boosted
+    ? [`${value} base`, ...lift.map((one) => `+${one.amount} from ${one.from}`)].join(', ')
+    : null;
+  const tip = [importance === null ? null : IMPORTANCE_LABELS[importance], receipt]
+    .filter((part) => part !== null)
+    .join('. ');
   return (
     // Without the bar this is the row the thumbnail always had, to the pixel: a 4px gap and a
     // figure that takes only the width its digits need. The bar version can afford 8px and a
@@ -61,7 +89,8 @@ function AttributeRow({
     <li
       data-testid={importance === null ? undefined : `attr-${name}`}
       data-importance={importance ?? undefined}
-      data-tip={importance === null ? undefined : IMPORTANCE_LABELS[importance]}
+      data-lifted={boosted ? lifted - value : undefined}
+      data-tip={tip === '' ? undefined : tip}
       className={cn(
         'flex items-center',
         bar ? 'gap-2' : 'gap-1',
@@ -97,10 +126,48 @@ function AttributeRow({
           )}
           aria-hidden
         >
+          {/* One fill to the lifted figure, and the person's own share cut out of it by a hairline.
+              Two stacked bars would need the second to know the first's colour; a line is one node
+              and it reads as what it is, a mark on a bar rather than a second bar. */}
           <span
             className={cn('block h-full rounded-full opacity-90', RATING_FILL[band])}
             style={{ width: `${share * 100}%` }}
           />
+          {boosted && (
+            <>
+              {/*
+                What the lift added, in a pale tint rather than a colour of its own.
+
+                The fill under it is one of four hues (`RATING_FILL` runs red, amber, green, cyan
+                by band), so any hue picked here collides with one of them: at `fair` a brass
+                segment on a brass bar is invisible, which is the thing this segment exists to
+                stop. A light value contrasts with all four and with the empty track.
+
+                Floored at 3px, which is the one place this bar is deliberately not to scale. The
+                track is 56px wide, so the +2 in the maintainer's own example ("20, and 22 with the
+                Overseer") is one and a bit pixels: drawn honestly it is a rounding error nobody
+                can see, which is the same as not drawing it. The figure beside it and the hover
+                carry the exact number; what this has to do is make a player look.
+              */}
+              <span
+                className="absolute inset-y-0 bg-ink-100/85"
+                style={{
+                  left: `${own * 100}%`,
+                  width: `max(3px, ${(share - own) * 100}%)`,
+                }}
+              />
+              {/*
+                ...and the line where the person ends, which is the part the maintainer asked for
+                by name. Two pixels of the panel's own ground rather than one of black: at 8px tall
+                on a saturated fill a single dark hairline reads as an artefact of the rounding.
+              */}
+              <span
+                data-testid={`attr-base-mark-${name}`}
+                className="absolute inset-y-0 w-0.5 bg-surface-900"
+                style={{ left: `calc(${own * 100}% - 1px)` }}
+              />
+            </>
+          )}
         </span>
       )}
       <span
@@ -111,7 +178,7 @@ function AttributeRow({
           RATING_TEXT[band],
         )}
       >
-        {value}
+        {lifted}
       </span>
     </li>
   );
@@ -136,12 +203,25 @@ function AttributeRow({
  */
 export function AttributeSheet({
   attributes,
+  lifted,
+  lift = [],
   columns = 2,
   bars = true,
   roomy = false,
   role = null,
 }: {
   attributes: Attributes;
+  /**
+   * The same sheet as the crew fields it, where somebody is lifting this person (§B7).
+   *
+   * Given, every row draws to the lifted figure with the person's own share cut out of it by a
+   * line, and the hover says where the difference came from. Omitted is the plain sheet, which is
+   * right for the Overseer (nobody teaches them) and for a recruit at the Bar, who is not on the
+   * books yet and so has nobody teaching them either.
+   */
+  lifted?: Attributes;
+  /** Where the lift came from, one line per source per attribute. See {@link lifted}. */
+  lift?: readonly { attribute: AttributeName; from: string; amount: number }[];
   /**
    * How many groups sit side by side.
    *
@@ -225,6 +305,8 @@ export function AttributeSheet({
                 key={name}
                 name={name}
                 value={attributes[name]}
+                lifted={lifted?.[name] ?? attributes[name]}
+                lift={lift.filter((one) => one.attribute === name)}
                 bar={bars}
                 roomy={roomy}
                 importance={role === null ? null : importanceOf(role, name)}

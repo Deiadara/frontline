@@ -50,7 +50,14 @@ export interface RaisePayrollProps {
   className?: string;
 }
 
-/** Buy a step on the book: the button, what it costs, and why it is refused. */
+/**
+ * Buy a step on the book: the button, what it costs, and why it is refused.
+ *
+ * `nextStepCost` of `null` is the ladder bought out, and then there is no button. A disabled one
+ * would say "not yet" to a player who would go looking for the caps that open it, and there are
+ * none: `POST /bar/payroll` answers `PAYROLL_AT_MAX` at any price. The sentence takes the price
+ * line's place, because that is the line somebody reading for a number is already looking at.
+ */
 export function RaisePayroll({
   ledger,
   caps,
@@ -61,7 +68,8 @@ export function RaisePayroll({
   showShortfall = false,
   className,
 }: RaisePayrollProps) {
-  const affordable = caps >= ledger.nextStepCost;
+  const price = ledger.nextStepCost;
+  const affordable = price !== null && caps >= price;
   return (
     <>
       <div
@@ -70,16 +78,29 @@ export function RaisePayroll({
           className,
         )}
       >
-        <Button size="sm" disabled={!affordable || pending} onClick={onRaise} data-testid={testId}>
-          {pending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
-        </Button>
-        <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-          {ledger.nextStepCost.toLocaleString()} caps, once
-        </span>
+        {price === null ? (
+          <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+            The book is as wide as it goes
+          </span>
+        ) : (
+          <>
+            <Button
+              size="sm"
+              disabled={!affordable || pending}
+              onClick={onRaise}
+              data-testid={testId}
+            >
+              {pending ? 'Raising…' : `Increase payroll · +${ledger.stepSize}`}
+            </Button>
+            <span className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
+              {price.toLocaleString()} caps, once
+            </span>
+          </>
+        )}
       </div>
-      {showShortfall && !affordable && (
+      {showShortfall && price !== null && !affordable && (
         <p className="font-body text-[12px] leading-snug text-oxblood-300">
-          {(ledger.nextStepCost - caps).toLocaleString()} caps short of the next step.
+          {(price - caps).toLocaleString()} caps short of the next step.
         </p>
       )}
       {error !== null && (

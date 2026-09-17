@@ -457,7 +457,9 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
   const entries = RESOURCE_ORDER.filter((kind) => (cost[kind] ?? 0) > 0);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    // A handle of its own, so a test can ask what a price says without matching a bare number
+    // against a whole card: the roster's sheet has a `Morale 40` two inches above a `40 Caps`.
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="cost-line">
       {entries.map((kind) => {
         const amount = cost[kind] ?? 0;
         const meta = RESOURCE_META[kind];

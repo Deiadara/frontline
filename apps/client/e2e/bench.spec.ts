@@ -147,3 +147,34 @@ test('lists what is on the road, and offers to turn back only what is still clos
   await expect.poll(() => sent.length).toBeGreaterThan(0);
   expect(sent[0]).toContain(early!.id);
 });
+
+/**
+ * §A5: a bracket on a roster card is a door to the yard's unit bench (2026-09-16).
+ *
+ * The yard cuts a card for a named unit and bolts it on in the same press, so the picker that used
+ * to open here, and `POST /units/loadout` under it, are gone. What is asserted is the contract
+ * between the two screens: the unit rides in the query string, which is how the bench knows whose
+ * brackets the player was looking at.
+ */
+test('an empty bracket opens the unit bench with that unit chosen', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/units');
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  await page.getByRole('button', { name: 'Rabble' }).click();
+  await settleFonts(page);
+
+  const brackets = page.getByTestId('slots-razors');
+  await expect(brackets).toBeVisible();
+
+  // A filled bracket stays on the roster and asks before it destroys the card: the fixture bolts
+  // Filed Sights into the Razors' first bracket, so this is the control for the door below.
+  await brackets.getByTestId('slot-0').click();
+  await expect(page.getByTestId('slot-burn-razors')).toBeVisible();
+  await expect(page).toHaveURL(/\/game\/units/);
+  await page.getByTestId('slot-burn-razors-no').click();
+
+  await brackets.getByTestId('slot-1').click();
+  await expect(page).toHaveURL(/\/game\/scrapyard\?view=refits&unit=razors/);
+  // The menu that used to stand between the press and the card is gone, not merely skipped.
+  await expect(page.locator('[data-testid^="slot-option-"]')).toHaveCount(0);
+});

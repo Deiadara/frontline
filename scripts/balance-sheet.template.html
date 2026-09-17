@@ -1,0 +1,1611 @@
+<title>Frontline Balance Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Roboto+Condensed:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+/>
+
+<style>
+  /*
+   * The game's own chrome, lifted from apps/client/src/theme/tokens.ts.
+   *
+   * Single visual world on purpose: this is the maintainer's console for a game that is dark
+   * everywhere, and a light variant of it would be a different tool. Every colour is painted
+   * explicitly so the page holds on whichever ground the host puts behind it.
+   */
+  :root {
+    --ground: #171320;
+    --panel: #221d2f;
+    --raised: #2f283f;
+    --rule: #3e3551;
+    --rule-soft: #2b2439;
+
+    --ink: #f8f2e6;
+    --ink-2: #bcb2a2;
+    --ink-3: #948b96;
+    --ink-4: #726a80;
+
+    --brass: #f0ad4c;
+    --brass-dim: #c1832a;
+    --brass-deep: #77500f;
+    --iris: #a99ef0;
+    --verdigris: #5fbcaf;
+    --oxblood: #e05a4a;
+
+    --stamp: 'Special Elite', 'Roboto Condensed', ui-sans-serif, sans-serif;
+    --display: 'Roboto Condensed', ui-sans-serif, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--display);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  /*
+   * The publish skeleton carries this rule; a file opened straight off disk does not, and without
+   * it the export sheet's own `display: grid` beats the browser's `hidden` and lays a full-screen
+   * scrim over the console. Declared here so the page behaves the same either way.
+   */
+  [hidden] {
+    display: none !important;
+  }
+
+  button,
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brass);
+    outline-offset: 1px;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ------------------------------------------------------------- top bar */
+
+  .topbar {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--rule);
+    box-shadow: 0 10px 24px -14px rgba(0, 0, 0, 0.9);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-right: auto;
+  }
+
+  .brand .mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--brass-deep);
+    background: linear-gradient(180deg, rgba(240, 173, 76, 0.16), rgba(240, 173, 76, 0.04));
+    color: var(--brass);
+    font-family: var(--stamp);
+    font-size: 13px;
+  }
+
+  .brand h1 {
+    margin: 0;
+    font-family: var(--stamp);
+    font-size: 17px;
+    font-weight: 400;
+    line-height: 1.1;
+  }
+
+  .brand p {
+    margin: 1px 0 0;
+    color: var(--ink-4);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search {
+    position: relative;
+  }
+
+  .search input {
+    width: 220px;
+    max-width: 100%;
+    padding: 6px 10px 6px 26px;
+    background: var(--ground);
+    border: 1px solid var(--rule);
+    font-size: 13px;
+  }
+
+  .search input::placeholder {
+    color: var(--ink-4);
+  }
+
+  .search svg {
+    position: absolute;
+    left: 7px;
+    top: 50%;
+    width: 13px;
+    height: 13px;
+    transform: translateY(-50%);
+    fill: none;
+    stroke: var(--ink-4);
+    stroke-width: 1.6;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    color: var(--ink-2);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s,
+      background 0.12s;
+  }
+
+  .btn:hover:not(:disabled) {
+    border-color: var(--brass-dim);
+    color: var(--ink);
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn.primary {
+    background: linear-gradient(180deg, rgba(240, 173, 76, 0.2), rgba(240, 173, 76, 0.07));
+    border-color: var(--brass-dim);
+    color: var(--brass);
+  }
+
+  .btn.primary:hover:not(:disabled) {
+    background: linear-gradient(180deg, rgba(240, 173, 76, 0.3), rgba(240, 173, 76, 0.12));
+    color: #ffe4ae;
+  }
+
+  .btn.quiet {
+    background: none;
+  }
+
+  .btn.danger:hover:not(:disabled) {
+    border-color: var(--oxblood);
+    color: var(--oxblood);
+  }
+
+  .tally {
+    min-width: 20px;
+    padding: 0 5px;
+    background: var(--brass);
+    color: #17130a;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .tally[data-zero='true'] {
+    background: var(--rule);
+    color: var(--ink-4);
+  }
+
+  .keep {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--brass-dim);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .keep .dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--brass);
+  }
+
+  .keep[data-state='synced'] {
+    color: var(--verdigris);
+  }
+
+  .keep[data-state='synced'] .dot {
+    background: var(--verdigris);
+    box-shadow: 0 0 7px rgba(95, 188, 175, 0.7);
+  }
+
+  /* --------------------------------------------------------------- panes */
+
+  .panes {
+    display: grid;
+    grid-template-columns: 210px minmax(230px, 310px) minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* The changes list is the whole width: there is no entry list to pick from in that view. */
+  .panes[data-wide='true'] {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .panes[data-wide='true'] .list {
+    display: none;
+  }
+
+  .rail,
+  .list,
+  .detail {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .rail {
+    padding: 8px 0 24px;
+    background: var(--panel);
+    border-right: 1px solid var(--rule);
+  }
+
+  .rail-head {
+    margin: 6px 0 4px;
+    padding: 4px 14px 0;
+    color: var(--ink-4);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .rail button {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 14px;
+    background: none;
+    border: 0;
+    border-left: 2px solid transparent;
+    color: var(--ink-2);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .rail button:hover {
+    background: rgba(169, 158, 240, 0.08);
+    color: var(--ink);
+  }
+
+  .rail button[aria-current='true'] {
+    background: rgba(169, 158, 240, 0.13);
+    border-left-color: var(--iris);
+    color: var(--ink);
+  }
+
+  .rail .n {
+    margin-left: auto;
+    color: var(--ink-4);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rail .edits {
+    padding: 0 4px;
+    background: var(--brass);
+    color: #17130a;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  /* ---------------------------------------------------------- entry list */
+
+  .list {
+    background: #1c1826;
+    border-right: 1px solid var(--rule);
+  }
+
+  .list-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 9px 14px;
+    background: #1c1826;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .list-head h2 {
+    margin: 0;
+    font-family: var(--stamp);
+    font-size: 14px;
+    font-weight: 400;
+  }
+
+  .list-head p {
+    margin: 2px 0 0;
+    color: var(--ink-4);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    word-break: break-all;
+  }
+
+  .list ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .list li button {
+    display: block;
+    width: 100%;
+    padding: 7px 14px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--rule-soft);
+    border-left: 2px solid transparent;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .list li button:hover {
+    background: rgba(169, 158, 240, 0.07);
+  }
+
+  .list li button[aria-current='true'] {
+    background: rgba(169, 158, 240, 0.14);
+    border-left-color: var(--iris);
+  }
+
+  .list .nm {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink);
+    font-size: 13px;
+  }
+
+  .list .pip {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: var(--brass);
+    box-shadow: 0 0 6px rgba(240, 173, 76, 0.8);
+  }
+
+  .list .tag {
+    display: block;
+    color: var(--ink-4);
+    font-family: var(--mono);
+    font-size: 10.5px;
+  }
+
+  .list .where {
+    display: block;
+    color: var(--iris);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .empty {
+    padding: 22px 16px;
+    color: var(--ink-4);
+    font-size: 13px;
+  }
+
+  /* -------------------------------------------------------------- detail */
+
+  .detail {
+    padding-bottom: 48px;
+  }
+
+  .detail-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 12px 20px;
+    background: linear-gradient(180deg, var(--panel), #1e1a29);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .detail-head h2 {
+    margin: 0;
+    font-family: var(--stamp);
+    font-size: 21px;
+    font-weight: 400;
+    text-wrap: balance;
+  }
+
+  .crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 10px;
+    margin: 0 0 4px;
+    color: var(--ink-4);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .crumbs .id {
+    color: var(--brass-dim);
+    font-family: var(--mono);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .note {
+    max-width: 68ch;
+    margin: 8px 0 0;
+    color: var(--ink-3);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .note code {
+    padding: 0 3px;
+    background: rgba(169, 158, 240, 0.12);
+    color: var(--iris);
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
+  .fields {
+    display: grid;
+    gap: 1px;
+    background: var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  .field {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 4px 18px;
+    align-items: start;
+    padding: 9px 20px;
+    background: var(--ground);
+    border-left: 2px solid transparent;
+  }
+
+  .field:hover {
+    background: #1b1724;
+  }
+
+  .field[data-dirty='true'] {
+    background: rgba(240, 173, 76, 0.05);
+    border-left-color: var(--brass);
+  }
+
+  .field .key {
+    padding-top: 5px;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-word;
+  }
+
+  .field[data-dirty='true'] .key {
+    color: var(--brass);
+  }
+
+  .field .kind {
+    display: block;
+    color: var(--ink-4);
+    font-family: var(--display);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .field .control {
+    min-width: 0;
+  }
+
+  .field input[type='text'],
+  .field input[type='number'],
+  .field textarea {
+    width: 100%;
+    padding: 5px 8px;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    font-size: 13px;
+  }
+
+  .field input[type='number'] {
+    width: 190px;
+    max-width: 100%;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .field textarea {
+    display: block;
+    min-height: 60px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .field textarea.prose {
+    font-family: var(--display);
+    font-size: 13px;
+  }
+
+  .field input:focus,
+  .field textarea:focus {
+    border-color: var(--iris);
+    outline: none;
+  }
+
+  .field[data-dirty='true'] input,
+  .field[data-dirty='true'] textarea {
+    border-color: var(--brass-dim);
+  }
+
+  .field textarea[data-bad='true'] {
+    border-color: var(--oxblood);
+  }
+
+  .was {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin: 5px 0 0;
+    color: var(--ink-4);
+    font-size: 11.5px;
+  }
+
+  .was b {
+    color: var(--ink-3);
+    font-family: var(--mono);
+    font-weight: 400;
+    word-break: break-word;
+  }
+
+  .was button {
+    padding: 1px 7px;
+    background: none;
+    border: 1px solid var(--rule);
+    color: var(--ink-4);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  .was button:hover {
+    border-color: var(--oxblood);
+    color: var(--oxblood);
+  }
+
+  .toggle {
+    display: inline-flex;
+    border: 1px solid var(--rule);
+  }
+
+  .toggle button {
+    padding: 4px 14px;
+    background: var(--panel);
+    border: 0;
+    color: var(--ink-4);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .toggle button[aria-pressed='true'] {
+    background: var(--raised);
+    color: var(--brass);
+  }
+
+  .hint {
+    margin: 4px 0 0;
+    color: var(--ink-4);
+    font-size: 11px;
+  }
+
+  /* --------------------------------------------------- changes and export */
+
+  .changes {
+    padding: 10px 20px 40px;
+  }
+
+  .change {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 14px;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  .change .path {
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-word;
+  }
+
+  .change .path em {
+    color: var(--ink-4);
+    font-style: normal;
+  }
+
+  .change .swap {
+    grid-column: 1 / -1;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-word;
+  }
+
+  .change .swap s {
+    color: var(--ink-4);
+    text-decoration-color: var(--oxblood);
+  }
+
+  .change .swap b {
+    color: var(--brass);
+    font-weight: 500;
+  }
+
+  .sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(8, 7, 11, 0.82);
+  }
+
+  .sheet-inner {
+    display: flex;
+    flex-direction: column;
+    width: min(880px, 100%);
+    max-height: min(86vh, 720px);
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    box-shadow: 0 30px 70px -20px rgba(0, 0, 0, 0.95);
+  }
+
+  .sheet-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .sheet-head h2 {
+    margin: 0 auto 0 0;
+    font-family: var(--stamp);
+    font-size: 16px;
+    font-weight: 400;
+  }
+
+  .sheet pre {
+    flex: 1;
+    margin: 0;
+    padding: 14px 16px;
+    overflow: auto;
+    background: var(--ground);
+    color: var(--ink-2);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .sheet-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .sheet-foot .said {
+    align-self: center;
+    margin-left: auto;
+    color: var(--verdigris);
+    font-size: 12px;
+  }
+
+  @media (max-width: 900px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rail {
+      display: flex;
+      gap: 6px;
+      padding: 8px 16px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .rail-head {
+      display: none;
+    }
+
+    .rail button {
+      flex: none;
+      width: auto;
+      padding: 5px 10px;
+      border: 1px solid var(--rule);
+      border-left-width: 2px;
+      white-space: nowrap;
+    }
+
+    .list {
+      max-height: 38vh;
+      border-right: 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .field {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 9px 16px;
+    }
+
+    .field .key {
+      padding-top: 0;
+    }
+
+    .detail-head {
+      padding: 12px 16px;
+    }
+
+    .changes {
+      padding: 10px 16px 40px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+</style>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">FL</span>
+      <div>
+        <h1>Balance Console</h1>
+        <p id="stamp">Frontline</p>
+      </div>
+    </div>
+    <div class="tools">
+      <div class="keep" id="keep" data-state="local">
+        <span class="dot" aria-hidden="true"></span><span id="keep-text">Kept in this browser</span>
+      </div>
+      <div class="search">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5"></circle>
+          <path d="M10.5 10.5 14 14"></path>
+        </svg>
+        <input
+          id="search"
+          type="search"
+          placeholder="Find anything"
+          aria-label="Find anything"
+          autocomplete="off"
+        />
+      </div>
+      <button class="btn danger quiet" id="revert-all" type="button">Revert all</button>
+      <button class="btn primary" id="export" type="button">
+        Export <span class="tally" id="tally" data-zero="true">0</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="panes">
+    <nav class="rail" id="rail" aria-label="Sections"></nav>
+    <section class="list" id="list" aria-label="Entries"></section>
+    <section class="detail" id="detail" aria-label="Editor"></section>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-label="Export changes">
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <h2>Hand it over</h2>
+      <div class="toggle" role="group" aria-label="Format">
+        <button type="button" id="fmt-md" aria-pressed="true">Markdown</button>
+        <button type="button" id="fmt-json" aria-pressed="false">JSON</button>
+      </div>
+      <button class="btn quiet" id="sheet-close" type="button">Close</button>
+    </div>
+    <pre id="sheet-body"></pre>
+    <div class="sheet-foot">
+      <button class="btn primary" id="copy" type="button">Copy to clipboard</button>
+      <button class="btn" id="download" type="button" hidden>Save as file</button>
+      <span class="said" id="said" hidden></span>
+    </div>
+  </div>
+</div>
+
+<script>
+  (() => {
+    'use strict';
+
+    const DATA = JSON.parse('__BALANCE_DATA__');
+    const SECTIONS = DATA.sections;
+    const BY_ID = new Map(SECTIONS.map((section) => [section.id, section]));
+
+    /** Row id and field key joined into one storage key. No id or key in the catalogue holds a pipe. */
+    const SPLIT = '|';
+    const slot = (rowId, key) => rowId + SPLIT + key;
+
+    /**
+     * Edits, as `sectionId` -> `rowId|fieldKey` -> the new value.
+     *
+     * Only the differences are kept, never a copy of the catalogue: the page already holds every
+     * number the game ships, so what is worth storing is what the maintainer decided instead. That
+     * is also exactly the list an implementer needs, which is why Export can be built straight off
+     * this map without a diff pass.
+     */
+    const edits = new Map();
+    const STORE_KEY = 'frontline-balance-edits/v1';
+    let db = null;
+    let showingChanges = false;
+    let currentSection = SECTIONS[0].id;
+    let currentRow = SECTIONS[0].rows[0].id;
+    let query = '';
+    let format = 'md';
+
+    /* ----------------------------------------------------------- helpers */
+
+    const el = (id) => document.getElementById(id);
+
+    const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (value) => String(value).replace(/[&<>"']/g, (ch) => ESCAPES[ch]);
+
+    function bag(sectionId) {
+      let found = edits.get(sectionId);
+      if (found === undefined) {
+        found = new Map();
+        edits.set(sectionId, found);
+      }
+      return found;
+    }
+
+    const editCount = (sectionId) => (edits.has(sectionId) ? edits.get(sectionId).size : 0);
+
+    function totalEdits() {
+      let sum = 0;
+      for (const held of edits.values()) sum += held.size;
+      return sum;
+    }
+
+    function rowEdited(sectionId, rowId) {
+      const held = edits.get(sectionId);
+      if (held === undefined) return false;
+      for (const key of held.keys()) if (key.startsWith(rowId + SPLIT)) return true;
+      return false;
+    }
+
+    /** What the catalogue ships, for the `was` line and for spotting a field put back by hand. */
+    function shipped(sectionId, rowId, key) {
+      const section = BY_ID.get(sectionId);
+      const row = section === undefined ? undefined : section.rows.find((one) => one.id === rowId);
+      const field = row === undefined ? undefined : row.fields.find((one) => one.key === key);
+      return field === undefined ? '' : field.value;
+    }
+
+    function flatten() {
+      const flat = {};
+      for (const [sectionId, held] of edits) {
+        if (held.size === 0) continue;
+        flat[sectionId] = Object.fromEntries(held);
+      }
+      return flat;
+    }
+
+    function absorb(flat) {
+      if (flat === null || typeof flat !== 'object') return;
+      for (const [sectionId, held] of Object.entries(flat)) {
+        if (!BY_ID.has(sectionId) || held === null || typeof held !== 'object') continue;
+        const into = bag(sectionId);
+        for (const [key, value] of Object.entries(held)) into.set(key, value);
+      }
+    }
+
+    /* ---------------------------------------------------------- the keep */
+
+    function readLocal() {
+      try {
+        const text = window.localStorage.getItem(STORE_KEY);
+        return text === null ? null : JSON.parse(text);
+      } catch {
+        return null;
+      }
+    }
+
+    let pending = null;
+
+    function keep() {
+      try {
+        window.localStorage.setItem(STORE_KEY, JSON.stringify(flatten()));
+      } catch {
+        // A private window, or site data the viewer has blocked. The page works either way: the
+        // edits live as long as the tab does, and Export is the way out of it regardless.
+      }
+      if (db === null) return;
+      window.clearTimeout(pending);
+      // One write once the typing stops, rather than one per keystroke.
+      pending = window.setTimeout(() => {
+        db.doc('balance/edits')
+          .set({ edits: flatten(), saved: new Date().toISOString() })
+          .catch(() => setKeep('local', 'Kept in this browser'));
+      }, 700);
+    }
+
+    function setKeep(state, text) {
+      el('keep').dataset.state = state;
+      el('keep-text').textContent = text;
+    }
+
+    async function connect() {
+      if (typeof (window.claude && window.claude.use) !== 'function') return;
+      let found = null;
+      try {
+        found = await window.claude.use('db');
+      } catch {
+        found = null;
+      }
+      if (found === null) return;
+      db = found;
+      setKeep('synced', 'Kept for you');
+      try {
+        const doc = await db.doc('balance/edits').get();
+        if (doc !== null && doc !== undefined && doc.edits) {
+          absorb(doc.edits);
+          redraw();
+        }
+      } catch {
+        setKeep('local', 'Kept in this browser');
+      }
+    }
+
+    /* -------------------------------------------------------- the rail */
+
+    function drawRail() {
+      const rows = SECTIONS.map((section) => {
+        const n = editCount(section.id);
+        return (
+          '<button type="button" data-section="' +
+          esc(section.id) +
+          '" aria-current="' +
+          (section.id === currentSection && !showingChanges ? 'true' : 'false') +
+          '"><span>' +
+          esc(section.label) +
+          '</span>' +
+          (n > 0 ? '<span class="edits">' + n + '</span>' : '') +
+          '<span class="n">' +
+          section.rows.length +
+          '</span></button>'
+        );
+      });
+      el('rail').innerHTML =
+        '<p class="rail-head">Catalogue</p>' +
+        rows.join('') +
+        '<p class="rail-head">Your work</p>' +
+        '<button type="button" data-section="__changes" aria-current="' +
+        (showingChanges ? 'true' : 'false') +
+        '"><span>Changes</span><span class="n">' +
+        totalEdits() +
+        '</span></button>';
+    }
+
+    /* -------------------------------------------------------- the list */
+
+    /** One section's rows, or every section's matches while the search box has something in it. */
+    function listed() {
+      const needle = query.trim().toLowerCase();
+      if (needle === '') {
+        return BY_ID.get(currentSection).rows.map((row) => ({ sectionId: currentSection, row }));
+      }
+      const found = [];
+      for (const section of SECTIONS) {
+        for (const row of section.rows) {
+          if (
+            row.name.toLowerCase().includes(needle) ||
+            row.id.toLowerCase().includes(needle) ||
+            row.tag.toLowerCase().includes(needle)
+          ) {
+            found.push({ sectionId: section.id, row });
+            if (found.length >= 400) return found;
+          }
+        }
+      }
+      return found;
+    }
+
+    function drawList() {
+      const list = el('list');
+      if (showingChanges) {
+        list.innerHTML = '';
+        return;
+      }
+
+      const entries = listed();
+      const searching = query.trim() !== '';
+      const head = searching
+        ? '<div class="list-head"><h2>' +
+          entries.length +
+          (entries.length === 1 ? ' match' : ' matches') +
+          '</h2><p>across every catalogue</p></div>'
+        : '<div class="list-head"><h2>' +
+          esc(BY_ID.get(currentSection).label) +
+          '</h2><p>' +
+          esc(BY_ID.get(currentSection).source) +
+          '</p></div>';
+
+      if (entries.length === 0) {
+        list.innerHTML = head + '<p class="empty">Nothing here by that name.</p>';
+        return;
+      }
+
+      const items = entries.map((entry) => {
+        const dirty = rowEdited(entry.sectionId, entry.row.id);
+        return (
+          '<li><button type="button" data-section="' +
+          esc(entry.sectionId) +
+          '" data-row="' +
+          esc(entry.row.id) +
+          '" aria-current="' +
+          (entry.sectionId === currentSection && entry.row.id === currentRow && !searching
+            ? 'true'
+            : 'false') +
+          '"><span class="nm">' +
+          esc(entry.row.name) +
+          (dirty ? '<span class="pip"></span>' : '') +
+          '</span><span class="tag">' +
+          esc(entry.row.tag || entry.row.id) +
+          '</span>' +
+          (searching
+            ? '<span class="where">' + esc(BY_ID.get(entry.sectionId).label) + '</span>'
+            : '') +
+          '</button></li>'
+        );
+      });
+      list.innerHTML = head + '<ul>' + items.join('') + '</ul>';
+    }
+
+    /* ------------------------------------------------------ the editor */
+
+    const HINTS = {
+      list: 'Comma separated.',
+      json: 'JSON. The box turns red while it will not parse.',
+    };
+
+    function controlFor(sectionId, rowId, field, value) {
+      const common =
+        ' data-section="' +
+        esc(sectionId) +
+        '" data-row="' +
+        esc(rowId) +
+        '" data-key="' +
+        esc(field.key) +
+        '"';
+
+      if (field.kind === 'number') {
+        return '<input type="number" step="any"' + common + ' value="' + esc(value) + '" />';
+      }
+      if (field.kind === 'bool') {
+        const on = value === true || value === 'true';
+        return (
+          '<span class="toggle"><button type="button"' +
+          common +
+          ' data-bool="true" aria-pressed="' +
+          (on ? 'true' : 'false') +
+          '">True</button><button type="button"' +
+          common +
+          ' data-bool="false" aria-pressed="' +
+          (on ? 'false' : 'true') +
+          '">False</button></span>'
+        );
+      }
+      if (field.kind === 'json') {
+        const lines = String(value).split('\n').length;
+        return (
+          '<textarea rows="' +
+          Math.min(20, Math.max(4, lines)) +
+          '"' +
+          common +
+          '>' +
+          esc(value) +
+          '</textarea>'
+        );
+      }
+      if (field.kind === 'para') {
+        const rows = Math.max(2, Math.ceil(String(value).length / 78));
+        return (
+          '<textarea class="prose" rows="' +
+          Math.min(10, rows) +
+          '"' +
+          common +
+          '>' +
+          esc(value) +
+          '</textarea>'
+        );
+      }
+      return '<input type="text"' + common + ' value="' + esc(value) + '" />';
+    }
+
+    function wasLine(sectionId, rowId, key) {
+      return (
+        'was <b>' +
+        esc(readable(shipped(sectionId, rowId, key))) +
+        '</b><button type="button" data-revert="' +
+        esc(key) +
+        '">Put it back</button>'
+      );
+    }
+
+    function drawDetail() {
+      const detail = el('detail');
+      if (showingChanges) {
+        detail.innerHTML = changesPane();
+        return;
+      }
+      const section = BY_ID.get(currentSection);
+      const row = section.rows.find((one) => one.id === currentRow);
+      if (row === undefined) {
+        detail.innerHTML = '<p class="empty">Pick something on the left.</p>';
+        return;
+      }
+      const held = edits.get(currentSection) || new Map();
+
+      const fields = row.fields.map((field) => {
+        const dirty = held.has(slot(row.id, field.key));
+        const value = dirty ? held.get(slot(row.id, field.key)) : field.value;
+        const hint = HINTS[field.kind];
+        return (
+          '<div class="field" data-dirty="' +
+          (dirty ? 'true' : 'false') +
+          '"><div class="key">' +
+          esc(field.key) +
+          '<span class="kind">' +
+          esc(field.kind) +
+          '</span></div><div class="control">' +
+          controlFor(currentSection, row.id, field, value) +
+          (hint === undefined ? '' : '<p class="hint">' + esc(hint) + '</p>') +
+          (dirty ? '<p class="was">' + wasLine(currentSection, row.id, field.key) + '</p>' : '') +
+          '</div></div>'
+        );
+      });
+
+      detail.innerHTML =
+        '<div class="detail-head"><p class="crumbs"><span>' +
+        esc(section.label) +
+        '</span><span class="id">' +
+        esc(row.id) +
+        '</span>' +
+        (row.tag === '' ? '' : '<span>' + esc(row.tag) + '</span>') +
+        '</p><h2>' +
+        esc(row.name) +
+        '</h2><p class="note">' +
+        marked(section.note) +
+        '</p></div><div class="fields">' +
+        fields.join('') +
+        '</div>';
+    }
+
+    /** Backticks in a section note name files and fields, so they come out as code. */
+    function marked(text) {
+      return esc(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+    }
+
+    /** One line of a value, short enough to sit beside another one. */
+    function readable(value) {
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+      const flat = String(text).replace(/\s+/g, ' ').trim();
+      if (flat === '') return '(empty)';
+      return flat.length > 130 ? flat.slice(0, 127) + '...' : flat;
+    }
+
+    /* ----------------------------------------------------- the changes */
+
+    function changeList() {
+      const out = [];
+      for (const section of SECTIONS) {
+        const held = edits.get(section.id);
+        if (held === undefined || held.size === 0) continue;
+        for (const [key, value] of held) {
+          const cut = key.indexOf(SPLIT);
+          const rowId = key.slice(0, cut);
+          const fieldKey = key.slice(cut + 1);
+          const row = section.rows.find((one) => one.id === rowId);
+          out.push({
+            section: section.id,
+            sectionLabel: section.label,
+            source: section.source,
+            entry: rowId,
+            entryName: row === undefined ? rowId : row.name,
+            field: fieldKey,
+            from: shipped(section.id, rowId, fieldKey),
+            to: value,
+          });
+        }
+      }
+      return out;
+    }
+
+    function changesPane() {
+      const all = changeList();
+      if (all.length === 0) {
+        return (
+          '<div class="detail-head"><p class="crumbs"><span>Your work</span></p>' +
+          '<h2>Nothing moved yet</h2><p class="note">Change a number anywhere and it lands here, ' +
+          'with what it was beside what you made it. Export hands the whole list over in one piece.</p></div>'
+        );
+      }
+      const rows = all.map(
+        (change) =>
+          '<div class="change"><span class="path"><em>' +
+          esc(change.sectionLabel) +
+          ' / </em>' +
+          esc(change.entryName) +
+          '<em> / </em>' +
+          esc(change.field) +
+          '</span><button class="btn quiet" type="button" data-undo="' +
+          esc(change.section) +
+          '' +
+          esc(change.entry) +
+          '' +
+          esc(change.field) +
+          '">Put it back</button><span class="swap"><s>' +
+          esc(readable(change.from)) +
+          '</s> &rarr; <b>' +
+          esc(readable(change.to)) +
+          '</b></span></div>',
+      );
+      return (
+        '<div class="detail-head"><p class="crumbs"><span>Your work</span></p><h2>' +
+        all.length +
+        (all.length === 1 ? ' change' : ' changes') +
+        '</h2><p class="note">Every one of these is a decision waiting to be applied. Export copies ' +
+        'the list in a form an implementer can work straight off.</p></div><div class="changes">' +
+        rows.join('') +
+        '</div>'
+      );
+    }
+
+    function drawTally() {
+      const n = totalEdits();
+      el('tally').textContent = String(n);
+      el('tally').dataset.zero = n === 0 ? 'true' : 'false';
+      el('revert-all').disabled = n === 0;
+    }
+
+    /* ------------------------------------------------------- the export */
+
+    function asMarkdown() {
+      const all = changeList();
+      if (all.length === 0) return 'Nothing changed yet.';
+      const lines = [
+        '# Frontline balance changes',
+        '',
+        all.length + (all.length === 1 ? ' change' : ' changes') + '.',
+        '',
+      ];
+      let heading = '';
+      for (const change of all) {
+        if (change.sectionLabel !== heading) {
+          heading = change.sectionLabel;
+          lines.push('## ' + heading, '', '`' + change.source + '`', '');
+        }
+        lines.push(
+          '- **' +
+            change.entryName +
+            '** (`' +
+            change.entry +
+            '`) `' +
+            change.field +
+            '`: `' +
+            readable(change.from) +
+            '` to `' +
+            readable(change.to) +
+            '`',
+        );
+      }
+      lines.push('');
+      return lines.join('\n');
+    }
+
+    const asJson = () =>
+      JSON.stringify({ generated: DATA.generated, changes: changeList() }, null, 2);
+
+    function drawSheet() {
+      el('fmt-md').setAttribute('aria-pressed', format === 'md' ? 'true' : 'false');
+      el('fmt-json').setAttribute('aria-pressed', format === 'json' ? 'true' : 'false');
+      el('sheet-body').textContent = format === 'md' ? asMarkdown() : asJson();
+    }
+
+    async function offerDownload() {
+      if (typeof (window.claude && window.claude.use) !== 'function') return;
+      let downloads = null;
+      try {
+        downloads = await window.claude.use('downloads');
+      } catch {
+        downloads = null;
+      }
+      if (downloads === null) return;
+      const button = el('download');
+      button.hidden = false;
+      button.addEventListener('click', () => {
+        downloads
+          .save({
+            filename: format === 'md' ? 'balance-changes.md' : 'balance-changes.json',
+            data: el('sheet-body').textContent,
+          })
+          .catch(() => said('That save was declined'));
+      });
+    }
+
+    function said(text) {
+      const box = el('said');
+      box.textContent = text;
+      box.hidden = false;
+      window.setTimeout(() => {
+        box.hidden = true;
+      }, 2400);
+    }
+
+    /* ------------------------------------------------------------ wiring */
+
+    function redraw() {
+      document.querySelector('.panes').dataset.wide = showingChanges ? 'true' : 'false';
+      drawRail();
+      drawList();
+      drawDetail();
+      drawTally();
+    }
+
+    function setValue(sectionId, rowId, key, value) {
+      const was = shipped(sectionId, rowId, key);
+      const held = bag(sectionId);
+      const same = typeof was === 'number' ? Number(value) === was : String(value) === String(was);
+      if (same) held.delete(slot(rowId, key));
+      else held.set(slot(rowId, key), value);
+      keep();
+      drawTally();
+      drawRail();
+      return !same;
+    }
+
+    el('rail').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-section]');
+      if (button === null) return;
+      if (button.dataset.section === '__changes') {
+        showingChanges = true;
+      } else {
+        showingChanges = false;
+        currentSection = button.dataset.section;
+        const section = BY_ID.get(currentSection);
+        currentRow = section.rows.length === 0 ? '' : section.rows[0].id;
+        query = '';
+        el('search').value = '';
+      }
+      redraw();
+      el('list').scrollTop = 0;
+      el('detail').scrollTop = 0;
+    });
+
+    el('list').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-row]');
+      if (button === null) return;
+      showingChanges = false;
+      currentSection = button.dataset.section;
+      currentRow = button.dataset.row;
+      drawList();
+      drawDetail();
+      el('detail').scrollTop = 0;
+    });
+
+    el('search').addEventListener('input', (event) => {
+      query = event.target.value;
+      showingChanges = false;
+      drawList();
+    });
+
+    /*
+     * One listener for every control in the editor.
+     *
+     * On `input` rather than `change`, so the rail on the field, the pip in the list and the tally
+     * in the bar move while the maintainer is still typing. A number that has been changed and one
+     * that has not must never look alike, not even for the second before a blur.
+     *
+     * The pane is not redrawn from here, only the one field: rebuilding it would take the caret
+     * out of the box being typed into on every keystroke.
+     */
+    el('detail').addEventListener('input', (event) => {
+      const control = event.target;
+      const key = control.dataset === undefined ? undefined : control.dataset.key;
+      if (key === undefined) return;
+
+      const field = control.closest('.field');
+      let value = control.value;
+
+      if (control.type === 'number') {
+        if (control.value.trim() === '') return;
+        value = Number(control.value);
+        if (!Number.isFinite(value)) return;
+      } else if (field.querySelector('.kind').textContent === 'json') {
+        try {
+          JSON.parse(control.value);
+          control.dataset.bad = 'false';
+        } catch {
+          control.dataset.bad = 'true';
+        }
+      }
+
+      const dirty = setValue(control.dataset.section, control.dataset.row, key, value);
+      field.dataset.dirty = dirty ? 'true' : 'false';
+
+      const was = field.querySelector('.was');
+      if (dirty && was === null) {
+        const note = document.createElement('p');
+        note.className = 'was';
+        note.innerHTML = wasLine(control.dataset.section, control.dataset.row, key);
+        field.querySelector('.control').appendChild(note);
+      } else if (!dirty && was !== null) {
+        was.remove();
+      }
+      drawList();
+    });
+
+    el('detail').addEventListener('click', (event) => {
+      const bool = event.target.closest('button[data-bool]');
+      if (bool !== null) {
+        setValue(
+          bool.dataset.section,
+          bool.dataset.row,
+          bool.dataset.key,
+          bool.dataset.bool === 'true',
+        );
+        drawDetail();
+        drawList();
+        return;
+      }
+      const revert = event.target.closest('button[data-revert]');
+      if (revert !== null) {
+        bag(currentSection).delete(slot(currentRow, revert.dataset.revert));
+        keep();
+        redraw();
+        return;
+      }
+      const undo = event.target.closest('button[data-undo]');
+      if (undo !== null) {
+        const [sectionId, rowId, key] = undo.dataset.undo.split('');
+        bag(sectionId).delete(slot(rowId, key));
+        keep();
+        redraw();
+      }
+    });
+
+    el('revert-all').addEventListener('click', () => {
+      const n = totalEdits();
+      if (!window.confirm('Put all ' + n + ' of your changes back to what the game ships?')) return;
+      edits.clear();
+      keep();
+      redraw();
+    });
+
+    el('export').addEventListener('click', () => {
+      drawSheet();
+      el('sheet').hidden = false;
+      el('copy').focus();
+    });
+    el('sheet-close').addEventListener('click', () => {
+      el('sheet').hidden = true;
+    });
+    el('sheet').addEventListener('click', (event) => {
+      if (event.target === el('sheet')) el('sheet').hidden = true;
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !el('sheet').hidden) el('sheet').hidden = true;
+    });
+    el('fmt-md').addEventListener('click', () => {
+      format = 'md';
+      drawSheet();
+    });
+    el('fmt-json').addEventListener('click', () => {
+      format = 'json';
+      drawSheet();
+    });
+    el('copy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(el('sheet-body').textContent);
+        said('Copied');
+      } catch {
+        const range = document.createRange();
+        range.selectNodeContents(el('sheet-body'));
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        said('Selected: press copy');
+      }
+    });
+
+    /* ------------------------------------------------------------- boot */
+
+    el('stamp').textContent =
+      SECTIONS.reduce((sum, section) => sum + section.rows.length, 0) +
+      ' entries, read off the game on ' +
+      new Date(DATA.generated).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+
+    absorb(readLocal());
+    redraw();
+    void connect();
+    void offerDownload();
+  })();
+</script>

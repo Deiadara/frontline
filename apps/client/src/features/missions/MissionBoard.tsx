@@ -420,7 +420,7 @@ export function MissionBoard({
   const step = (delta: number) => setIndex(boardAfter(delta));
 
   return (
-    <div className="flex flex-col" data-testid="mission-board">
+    <div className="flex flex-col xl:min-h-0 xl:flex-1" data-testid="mission-board">
       {/* Where you are, and the way out either side of it. */}
       <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-3">
         <StepArrow
@@ -473,7 +473,12 @@ export function MissionBoard({
           One of your crews is working this area. Nothing else here is on offer until they are home.
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-3 p-4">
+        <div className="grid grid-cols-3 gap-3 p-4 xl:min-h-0 xl:flex-1 xl:gap-4">
+          {/*
+           * The grid takes the slack the header leaves, so the cards finish on the same line as the
+           * crews beside them. `items-stretch` is the grid default and is what carries it into the
+           * cards: each one is `h-full`, and the haul band inside is the part that grows.
+           */}
           {area.offers.map((offer) => (
             <OfferCard
               key={offer.templateId}
@@ -535,14 +540,14 @@ function OfferCard({
 }) {
   return (
     <article
-      className="card-paper washed edge-lit flex min-w-0 flex-col rounded-sm border border-surface-700 p-3"
+      className="card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border border-surface-700 p-3"
       data-testid={`offer-${offer.templateId}`}
     >
-      <h4 className="h-9 min-w-0 break-words font-display text-[13px] font-semibold uppercase leading-tight tracking-[0.12em] text-ink-100">
+      <h4 className="h-9 min-w-0 break-words font-display text-[13px] font-semibold uppercase leading-tight tracking-[0.12em] text-ink-100 xl:text-[14px]">
         {offer.name}
       </h4>
 
-      <p className="h-16 min-w-0 overflow-hidden break-words font-body text-[12px] leading-snug text-ink-300">
+      <p className="h-16 min-w-0 overflow-hidden break-words font-body text-[12px] leading-snug text-ink-300 xl:h-auto xl:min-h-[4rem] xl:flex-1 xl:text-[13px]">
         {offer.brief}
       </p>
 
@@ -555,7 +560,7 @@ function OfferCard({
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           Round trip
         </span>
-        <span className="font-display text-[13px] font-bold tabular-nums text-brass-300">
+        <span className="font-display text-[13px] font-bold tabular-nums text-brass-300 xl:text-[14px]">
           {formatDuration(offer.totalMinutes)}
         </span>
       </div>
@@ -576,7 +581,7 @@ function OfferCard({
           past the fold. Below `xl` the board has the whole width and the old height still fits: at
           1024x768 the extra rem pushed the card's own bottom tags under the fold of the screen.
           Fixed either way, for the same reason as before: three cards, one line of buttons. */}
-      <div className="flex h-28 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-32">
+      <div className="flex h-28 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-32">
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           Expected haul
         </span>
@@ -585,7 +590,7 @@ function OfferCard({
           className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300"
           data-tip="Loot slots. Send enough bags or you leave some of it on the floor"
         >
-          <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> to carry
+          <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> loot slots to carry
         </span>
         {/* §F1b: the category, and never the page. Which sheet it turns out to be is not decided
             until the crew is home, so a card that named it would turn a run into a shopping trip
@@ -898,10 +903,10 @@ function SendDialog({
             <Readout label="Going" value={String(going)} />
             <Readout
               label="Can carry"
-              value={String(Math.round(carry))}
+              value={`${Math.round(carry)} loot slots`}
               tone={carry >= offer.payoutSlots ? 'good' : 'warn'}
             />
-            <Readout label="Job pays" value={`${offer.payoutSlots} slots`} />
+            <Readout label="Job pays" value={`${offer.payoutSlots} loot slots`} />
           </div>
         </div>
 
@@ -1033,7 +1038,7 @@ function SendDialog({
                       {unit.name}
                     </span>
                     <span className="block font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-                      {count} at home · carries {unit.stats.lootCapacity}
+                      {count} at home · carries {unit.stats.lootCapacity} loot slots
                       {isCombatUnit(unit) ? '' : ' · cannot fight'}
                       {/* §C3: this one is not getting on the truck, so the column waits for it.
                           Only worth saying once something is loaded: with nothing picked everybody

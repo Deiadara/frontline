@@ -13,6 +13,7 @@ import {
 } from '@frontline/shared';
 import { adminCost, adminMinutes, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
+import { officerFitReader, type OfficerFitReader } from '../crew/standing.js';
 import { chairMarksFor, minutesFor, priceOf } from './tracks.js';
 
 /**
@@ -55,15 +56,15 @@ export type StartResult =
  * Order matters and follows the fiction: is the bench free, are the two chairs good enough for
  * this rung, and only then, can we pay for it.
  */
-function refusalFor(input: StartInput): ResearchRefusal | null {
+function refusalFor(input: StartInput, fit: OfficerFitReader): ResearchRefusal | null {
   const { base, project } = input;
   if (base.research.active) return 'already_running';
 
-  const refusal = trackRefusal(base, project.techId);
+  const refusal = trackRefusal(base, project.techId, fit);
   if (refusal) return refusal;
 
   if (input.admin) return null;
-  return canAfford(base.resources, projectCost(base, project)) ? null : 'cannot_afford';
+  return canAfford(base.resources, projectCost(base, project, fit)) ? null : 'cannot_afford';
 }
 
 /**
@@ -74,28 +75,32 @@ function refusalFor(input: StartInput): ResearchRefusal | null {
  * refusal admin mode waives (a progress gate) from the one it does not (a statement about reality),
  * which is exactly the `locked` / `already_researched` split.
  */
-function trackRefusal(base: Base, techId: string): ResearchRefusal | null {
+function trackRefusal(base: Base, techId: string, fit: OfficerFitReader): ResearchRefusal | null {
   const spec = findResearchItem(techId);
   if (!spec) return 'unknown_research';
   const refusal = researchItemRefusal(
     techId,
     base.research.technologies,
-    chairMarksFor(base, spec.track),
+    chairMarksFor(spec.track, fit),
   );
   if (refusal === null) return null;
   return refusal === 'already_known' ? 'already_researched' : 'locked';
 }
 
 /** What this rung costs this crew: the catalogue price with the track officer's cut taken off. */
-function projectCost(base: Base, project: ResearchProject): PartialResources {
+function projectCost(
+  base: Base,
+  project: ResearchProject,
+  fit: OfficerFitReader,
+): PartialResources {
   const spec = findResearchItem(project.techId);
-  return spec ? priceOf(base, spec) : {};
+  return spec ? priceOf(base, spec, fit) : {};
 }
 
 /** The rung's own duration with every cut applied: the Lab, the crew's standing, and the Head. */
-function projectMinutes(repos: Repositories, input: StartInput): number {
+function projectMinutes(repos: Repositories, input: StartInput, fit: OfficerFitReader): number {
   const spec = findResearchItem(input.project.techId);
-  return spec ? minutesFor(repos, input.base, spec) : 1;
+  return spec ? minutesFor(repos, input.base, spec, fit) : 1;
 }
 
 /**
@@ -106,19 +111,22 @@ function projectMinutes(repos: Repositories, input: StartInput): number {
  * applies to a crew already out.
  */
 export function startResearch(repos: Repositories, input: StartInput): StartResult {
-  const refusal = refusalFor(input);
+  // One reader for the gate, the price and the clock, so a rung cannot be refused on one sheet and
+  // charged on another.
+  const fit = officerFitReader(repos, input.base, input.now);
+  const refusal = refusalFor(input, fit);
   // The testing build waives the progress and price gates but not the "there is nothing to do"
   // ones: see `admin/mode.ts` for which and why.
   if (refusal && !adminWaives(refusal, input.admin ?? false))
     return { kind: 'refused', reason: refusal };
 
   const { base, project, id, now, admin = false } = input;
-  const paid = adminCost(projectCost(base, project), admin);
+  const paid = adminCost(projectCost(base, project, fit), admin);
   const active: ActiveResearch = {
     id,
     project,
     startedAt: now.toISOString(),
-    durationMinutes: adminMinutes(projectMinutes(repos, input), admin),
+    durationMinutes: adminMinutes(projectMinutes(repos, input, fit), admin),
     // So a cancel in the first tenth can hand ninety percent of it back (`time/cancel.ts`).
     paid,
   };

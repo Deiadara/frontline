@@ -191,6 +191,20 @@
    * It is drawn on a pseudo-element rather than as a real border so the panel keeps its own box:
    * a `border-image` on the element itself would move every child by a pixel or two, which is how
    * you get a layout that shifts when you restyle it.
+   *
+   * ## How far the pen is allowed to wander (maintainer request, 2026-09-16: "a little less hand
+   * drawn, and the text clearly inside")
+   *
+   * Two numbers decide that, and both were set too high. `feDisplacementMap scale` was 3, so the
+   * line could leave its nominal rectangle by 3 units in either direction, which on a button the
+   * height of one line of display type is most of the gap between the frame and the glyphs: the
+   * label read as sitting *on* the border. And `border-image-width` was 6px, which is the width of
+   * the band the image is painted into, so even a straight line had 6px of room to be anywhere in.
+   *
+   * 1.2 and 4px. The edge still frays, at about the amplitude a felt pen leaves on tin; what it no
+   * longer does is reach the text. Neither number moves any layout: the band is painted on a
+   * pseudo-element that is `position: absolute` over the control, so the button's own box, its
+   * padding and every row it sits in are the same as before.
    */
   .brushed {
     position: relative;
@@ -203,9 +217,9 @@
     pointer-events: none;
     border: 6px solid transparent;
     border-image-slice: 6;
-    border-image-width: 6px;
+    border-image-width: 4px;
     border-image-repeat: stretch;
-    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='3'/%3E%3C/filter%3E%3Crect x='3' y='3' width='34' height='34' fill='none' stroke='%23c1832a' stroke-opacity='0.55' stroke-width='2' filter='url(%23r)'/%3E%3C/svg%3E");
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.2'/%3E%3C/filter%3E%3Crect x='3' y='3' width='34' height='34' fill='none' stroke='%23c1832a' stroke-opacity='0.55' stroke-width='1.6' filter='url(%23r)'/%3E%3C/svg%3E");
   }
 
   /**
@@ -218,7 +232,7 @@
    * darker orange is what a pen leaves on brass.
    */
   .brushed-deep::after {
-    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='3'/%3E%3C/filter%3E%3Crect x='3' y='3' width='34' height='34' fill='none' stroke='%237a3c08' stroke-opacity='0.85' stroke-width='2' filter='url(%23r)'/%3E%3C/svg%3E");
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.06' numOctaves='3' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.2'/%3E%3C/filter%3E%3Crect x='3' y='3' width='34' height='34' fill='none' stroke='%237a3c08' stroke-opacity='0.85' stroke-width='1.6' filter='url(%23r)'/%3E%3C/svg%3E");
   }
 
   /**
@@ -465,11 +479,20 @@
    * `preserveAspectRatio='none'` so one drawing stretches to whatever the label needs; the wobble
    * is in the path rather than in the stroke width, so stretching it does not thin the line.
    */
+  /*
+   * The line is three units off the edge, not eight (maintainer, 2026-09-17).
+   *
+   * Every drawn box in the game was asked to stop landing on its own label. Eight units of two
+   * hundred is four per cent of the width: on a 300px door that is twelve pixels of inset, and a
+   * button with twelve pixels of padding has the pen coming down on the first letter. Three units
+   * is under five pixels at that width, and the wobble is halved for the same reason. `.ink-field`
+   * below already carried this fix for the search box; this is the rest of the game.
+   */
   .ink-box {
     background-repeat: no-repeat;
     background-position: center;
     background-size: 100% 100%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.8'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 6 L192 5 L194 50 L7 51 Z' stroke-opacity='0.75' stroke-width='2'/%3E%3Cpath d='M7 51 L10 49 L26 50' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='7'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.9'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%23f0ad4c' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3 L197 2.5 L197.5 53 L2.5 53.5 Z' stroke-opacity='0.75' stroke-width='2'/%3E%3Cpath d='M2.5 53.5 L6 51.5 L26 52.5' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**
@@ -503,7 +526,7 @@
     background-repeat: no-repeat;
     background-position: center;
     background-size: 100% 100%;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='1.8'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%235fbcaf' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 6 L192 5 L194 50 L7 51 Z' stroke-opacity='0.8' stroke-width='2'/%3E%3Cpath d='M7 51 L10 49 L26 50' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='11'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.9'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%235fbcaf' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3 L197 2.5 L197.5 53 L2.5 53.5 Z' stroke-opacity='0.8' stroke-width='2'/%3E%3Cpath d='M2.5 53.5 L6 51.5 L26 52.5' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
   }
 
   /**
@@ -1303,10 +1326,15 @@
    *
    * The plate texture is on `::before` rather than in `background-image`, which `.rivets` owns:
    * this element carries both, and a `background` shorthand here would quietly wipe the bolts.
+   *
+   * Every number in both `--sock` clamps carries a 0.9 the maintainer asked for on 2026-09-17: the
+   * apparatus 10 percent smaller inside a plate that keeps its size. Trimming `--sock` rather than
+   * the plate is what keeps that true, since the plate is sized by the row and the machine is the
+   * only thing reading this variable.
    */
   .lab-bench {
     /* Below `lg` the plate has no definite height, so the machine is sized off the window. */
-    --sock: clamp(96px, 13vh, 132px);
+    --sock: clamp(86.4px, 11.7vh, 118.8px);
     position: relative;
     background-color: rgb(15 13 21 / 0.72);
   }
@@ -1331,7 +1359,7 @@
       container-type: size;
     }
     .lab-plate .lab-apparatus {
-      --sock: clamp(72px, min(40cqh, 19.35cqw), 180px);
+      --sock: clamp(64.8px, min(36cqh, 17.415cqw), 162px);
     }
   }
   .lab-bench::before {

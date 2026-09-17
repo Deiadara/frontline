@@ -6,3 +6,4 @@ test-results/
 pnpm-lock.yaml
 *.sqlite
 docs/CATALOG.md
+docs/balance-sheet.html

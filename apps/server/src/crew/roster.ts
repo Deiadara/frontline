@@ -1,5 +1,7 @@
 import {
   markFromPoints,
+  type AttributeLift,
+  type Attributes,
   type Base,
   type Commander,
   type CrewOfficer,
@@ -7,6 +9,7 @@ import {
   type OfficerRole,
 } from '@frontline/shared';
 import { roleFit } from '../roles/requirements.js';
+import { liftedOfficerSheet, officerLiftRoom } from './standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { districtUnitSlots, type DistrictUnitSlots } from '../district/unit-slots.js';
 
@@ -19,14 +22,27 @@ import { districtUnitSlots, type DistrictUnitSlots } from '../district/unit-slot
  * is the only part of the payload a player was ever reading.
  */
 
-/** One officer as the crew screen shows them: the person, not a unit count. */
-export function projectCrewOfficer(officer: Commander): CrewOfficer {
+/**
+ * One officer as the crew screen shows them: the person, not a unit count.
+ *
+ * `lifted` defaults to the person's own sheet so the two callers that have no room around them
+ * (a single officer projected out of a mutation response) keep working and simply show no lift.
+ */
+export function projectCrewOfficer(
+  officer: Commander,
+  lifted: { attributes: Attributes; lift: AttributeLift[] } = {
+    attributes: officer.attributes,
+    lift: [],
+  },
+): CrewOfficer {
   return {
     officerId: officer.id,
     name: officer.name,
     portraitId: officer.portraitId ?? null,
     role: officer.role,
     attributes: officer.attributes,
+    lifted: lifted.attributes,
+    lift: lifted.lift,
     perks: officer.perks,
     weeklyWage: officer.weeklyWage,
     // §D4: sent as the raw clock rather than as a boolean, so the card can count down to it.
@@ -41,8 +57,13 @@ export function projectCrewOfficer(officer: Commander): CrewOfficer {
      *
      * Null on the bench. A mark is a statement about a fit, and somebody with no chair has nothing
      * to fit: the same officer reads differently in two roles, which is the point of showing it.
+     *
+     * Off `lifted.attributes`, which is the sheet two lines above this one on the same card. It
+     * used to read `officer.attributes` and the card contradicted itself: the bars drew 20 base
+     * plus 2 from the Overseer and the mark under them was the mark for 20. Whichever of the two
+     * is right, they cannot both be on the same card.
      */
-    mark: officer.role === null ? null : markFromPoints(roleFit(officer.attributes, officer.role)),
+    mark: officer.role === null ? null : markFromPoints(roleFit(lifted.attributes, officer.role)),
   };
 }
 
@@ -53,10 +74,20 @@ function housingOf(slots: DistrictUnitSlots): CrewResponse['housing'] {
 
 /** The whole crew screen in one payload. */
 export function projectCrew(repos: Repositories, base: Base): CrewResponse {
+  /*
+   * The room every officer is lifted by, read once for the screen.
+   *
+   * The same three sources the effects fold uses (`crewSheetsFor`), through the same function, so
+   * the figure on the card is the figure the game fights and builds with. An officer in a bed is
+   * out of the room in both directions: they lift nobody, and `crewSheetsFor` drops them.
+   */
+  const room = officerLiftRoom(repos, base);
   return {
     level: base.level,
     housing: housingOf(districtUnitSlots(repos, base)),
-    officers: base.commanders.map(projectCrewOfficer),
+    officers: base.commanders.map((officer) =>
+      projectCrewOfficer(officer, liftedOfficerSheet(officer, room)),
+    ),
   };
 }
 

@@ -113,19 +113,22 @@ describe('rarity is authored, not derived (§D3)', () => {
   });
 
   /**
-   * Exotic is the rarest, which is what the word has to mean for the colour to be worth anything.
+   * Masterpiece is the rarest, which is what the word has to mean for the colour to be worth
+   * anything.
    *
    * Counted over documents and pages together, because that is the pool a player draws from: what
    * makes brass mean something is how rarely one turns up, not how many entries the catalogue has.
    */
-  it('makes exotic the scarcest tier of the lot', () => {
+  it('makes masterpiece the scarcest tier of the lot', () => {
     const counts = tally([
       ...BLUEPRINTS.map((blueprint) => blueprint.rarity),
       ...ALL_PAGES.map(({ blueprint, page }) => pageRarity(blueprint, page)),
     ]);
     for (const rarity of ITEM_RARITIES) {
-      if (rarity === 'exotic') continue;
-      expect(counts.exotic, `exotic is not scarcer than ${rarity}`).toBeLessThan(counts[rarity]);
+      if (rarity === 'masterpiece') continue;
+      expect(counts.masterpiece, `masterpiece is not scarcer than ${rarity}`).toBeLessThan(
+        counts[rarity],
+      );
     }
   });
 });

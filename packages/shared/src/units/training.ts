@@ -229,10 +229,46 @@ export function homeTrainingBonus(
   unit: UnitSpec,
   heldLevels: ReadonlyMap<LocationKind, number>,
 ): { costPercent: number; speedPercent: number } {
-  let best = 0;
-  for (const kind of locationsTraining(unit)) best = Math.max(best, heldLevels.get(kind) ?? 0);
-  const levels = Math.max(0, best - 1);
+  const home = homeTrainingSource(unit, heldLevels);
+  if (home === null) return { costPercent: 0, speedPercent: 0 };
+  return { costPercent: home.costPercent, speedPercent: home.speedPercent };
+}
+
+/** Which home paid a unit's own training bonus, and what it was worth. */
+export interface HomeTrainingSource {
+  kind: LocationKind;
+  level: number;
+  costPercent: number;
+  speedPercent: number;
+}
+
+/**
+ * The same bonus as {@link homeTrainingBonus}, keeping which kind of ground paid it.
+ *
+ * Split out rather than worked out twice (maintainer, 2026-09-17: each unit should carry a tag
+ * saying what it is given, "including the global ones and its private ones"). The private half is
+ * this, and a page that names the Doghouse has to agree with the figure the route charges: one
+ * walk, two readers, the way `crewSheetSources` is split from `crewSheet`.
+ *
+ * Null when this crew holds none of the ground this unit calls home, which is also the case where
+ * the bonus is zero: there is nothing to name and nothing to print.
+ */
+export function homeTrainingSource(
+  unit: UnitSpec,
+  heldLevels: ReadonlyMap<LocationKind, number>,
+): HomeTrainingSource | null {
+  let best: { kind: LocationKind; level: number } | null = null;
+  for (const kind of locationsTraining(unit)) {
+    const level = heldLevels.get(kind) ?? 0;
+    if (level > (best?.level ?? 0)) best = { kind, level };
+  }
+  if (best === null) return null;
+  // The first level of a home is worth nothing: what pays is the work put into it above level one.
+  const levels = Math.max(0, best.level - 1);
+  if (levels === 0) return null;
   return {
+    kind: best.kind,
+    level: best.level,
     costPercent: levels * TRAINING_COST_PER_LOCATION_LEVEL,
     speedPercent: levels * TRAINING_SPEED_PER_LOCATION_LEVEL,
   };

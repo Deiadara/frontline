@@ -2,7 +2,7 @@ import { ITEM_CATALOG, ITEM_IDS, type Inventory, type ItemId } from '@frontline/
 import { useEffect, useId, useRef, useState } from 'react';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { Icon } from '../../components/ui/Icon';
-import { RARITY_INK } from '../../lib/rarity';
+import { RARITY_TEXT } from '../../lib/rarity';
 import { cn } from '../../lib/cn';
 
 /**
@@ -179,7 +179,7 @@ export function PartsPicker({
                       <span
                         className={cn(
                           'font-display text-[9px] font-bold uppercase tracking-[0.15em]',
-                          RARITY_INK[spec.rarity],
+                          RARITY_TEXT[spec.rarity],
                         )}
                       >
                         {stock} held

@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import type { ItemCost } from '../items/inventory.js';
+import type { OfficerMark } from '../crew/marks.js';
+import type { OfficerRole } from '../roles.js';
+import { requirementRefusal, unitModificationRequirement } from '../building/requirements.js';
 import {
   findUnitModification,
   unitModificationBlueprintMet,
@@ -53,6 +56,19 @@ export const UPGRADE_REFUSALS = [
   'needs_blueprint',
   'cannot_afford',
   'missing_parts',
+  /*
+   * The same seven a structure card can hit (`building/addons.ts`), because the two benches are
+   * one mechanic as of 2026-09-16: a card is cut for a named unit and bolted straight onto it.
+   */
+  'does_not_fit',
+  'cannot_train',
+  'gauntlet_too_low',
+  'crew_too_low',
+  /** §D7: the street has not heard enough about this crew for the good drawings. */
+  'crew_unknown',
+  'no_officer',
+  'officer_too_green',
+  'slot_taken',
 ] as const;
 export type UpgradeRefusal = (typeof UPGRADE_REFUSALS)[number];
 
@@ -106,6 +122,69 @@ export function upgradeRefusal(input: {
   if (!unitModificationBlueprintMet(spec, blueprintUnlocked)) return 'needs_blueprint';
   if (!hasParts(spec.parts)) return 'missing_parts';
   return affordable(spec) ? null : 'cannot_afford';
+}
+
+/**
+ * Everything between pressing Bolt It On and the card being on the unit (maintainer rule, 2026-09-16).
+ *
+ * The unit bench is the structure bench with units down the left, so this is `boltInRefusal` with
+ * a unit where the structure was. Two differences, both from what a unit is:
+ *
+ * - the level gate reads the **Gauntlet**, which is where a unit's kit belongs the way a
+ *   production card belongs to the Greenhouse;
+ * - the unit has to be one the crew **could train today** (`cannot_train`). Not whether they can
+ *   afford one: whether the roster is open to them at all, which is the blueprint, the location and
+ *   the Gauntlet's own level. Bolting a plate onto a sheet the crew cannot field is a card spent
+ *   on nothing.
+ */
+export function boltOntoUnitRefusal(input: {
+  id: string;
+  unitId: string;
+  /** Whether this crew could put one of these on the training queue today, money aside. */
+  trainable: boolean;
+  fitsUnit: (spec: UnitModificationSpec, unitId: string) => boolean;
+  /** This unit's three brackets, as the loadout has them. */
+  slots: readonly (string | null)[];
+  yardLevel: number;
+  requiredYardLevel: (spec: UnitModificationSpec) => number;
+  blueprintUnlocked: UpgradeBlueprintGate;
+  gauntletLevel: number;
+  crewLevel: number;
+  /** §D7: the rank the crew has bought, which the top two bands ask for. */
+  notoriety?: number;
+  markFor: (role: OfficerRole) => OfficerMark | null;
+  affordable: (spec: UnitModificationSpec) => boolean;
+  hasParts: (parts: ItemCost) => boolean;
+}): UpgradeRefusal | null {
+  const spec = findUnitModification(input.id);
+  if (!spec) return 'unknown_upgrade';
+  /*
+   * What the sheet is, before what the crew has.
+   *
+   * A Counterweight Harness is never going on a Razor, so telling that player to go and find the
+   * drawings first sends them after a document they still could not use when they got back. The
+   * same ordering the bracket rule has always had, and for the same reason.
+   */
+  if (!input.fitsUnit(spec, input.unitId)) return 'does_not_fit';
+  if (!input.trainable) return 'cannot_train';
+  if (input.yardLevel < input.requiredYardLevel(spec)) return 'yard_too_low';
+  if (!unitModificationBlueprintMet(spec, input.blueprintUnlocked)) return 'needs_blueprint';
+
+  const requirement = unitModificationRequirement(spec);
+  const missing = requirementRefusal({
+    requirement,
+    buildingLevel: input.gauntletLevel,
+    crewLevel: input.crewLevel,
+    notoriety: input.notoriety ?? 0,
+    officerMark: requirement.officer ? input.markFor(requirement.officer.role) : null,
+  });
+  if (missing === 'building_too_low') return 'gauntlet_too_low';
+  if (missing !== null) return missing;
+
+  if (input.slots.includes(spec.id)) return 'already_fitted';
+  if (!input.slots.some((slot) => slot === null)) return 'slot_taken';
+  if (!input.hasParts(spec.parts)) return 'missing_parts';
+  return input.affordable(spec) ? null : 'cannot_afford';
 }
 
 /**

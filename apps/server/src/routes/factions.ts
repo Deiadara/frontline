@@ -29,7 +29,7 @@ import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
 import { sendMessage } from '../social/send.js';
 import { adjustDeployment } from '../battle/deploy.js';
-import { defendingBaseOf } from '../battle/declare.js';
+import { defendingBaseOf } from '../battle/ground.js';
 import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
 
@@ -507,8 +507,20 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           throw new AppError('BATTLE_REFUSED', REFUSAL_MESSAGES[result.reason]);
         }
 
-        // The ally hears about it, because a column arriving is a fact about *their* fight.
-        const ownerOfBattle = app.repos.bases.findById(battle.attackerBaseId)?.ownerId;
+        /*
+         * The ally hears about it, because a column arriving is a fact about *their* fight.
+         *
+         * The ally, not the attacker. This read `battle.attackerBaseId` whichever side the help
+         * was going to, so reinforcing a friend's **defence** sent the notification to the crew
+         * attacking them: the defender was never told the column was coming, and the raider was
+         * handed "units are on the road" for free. That is the one fact this game works hardest to
+         * hide, which is the whole of `deploymentBlurPercent` and the ring that buys a silence.
+         * Whoever is being helped is the side the units were just put on.
+         */
+        const helped = allyOnAttack
+          ? app.repos.bases.findById(battle.attackerBaseId)
+          : defendingBase;
+        const ownerOfBattle = helped?.ownerId;
         if (ownerOfBattle && ownerOfBattle !== userId) {
           notify(app.repos, {
             userId: ownerOfBattle,

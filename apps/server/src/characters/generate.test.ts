@@ -4,13 +4,15 @@ import {
   MAX_RECRUITMENT_ATTRIBUTE,
   OFFICER_ROLES,
   MAX_OFFICER_PERKS,
+  ROLLABLE_PERK_IDS,
   findPerk,
+  perkWorth,
   type AttributeName,
   type OfficerRole,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { ROLE_REQUIREMENTS, roleFit } from '../roles/requirements.js';
-import { generateCharacter, rollRecruit } from './generate.js';
+import { ORDINARY_ROLL, generateCharacter, rollRecruit, type RollShape } from './generate.js';
 
 /**
  * B2/B2a is a claim about a *distribution*, so it is checked over a large sample rather than by
@@ -112,6 +114,46 @@ describe('generateCharacter', () => {
     for (const character of SAMPLE) {
       expect(new Set(character.perks).size).toBe(character.perks.length);
     }
+  });
+
+  /**
+   * Which tag, not just how many (maintainer, 2026-09-16).
+   *
+   * The draw was flat over the whole book, so "a share of your dead walk back from every fight you
+   * will ever have" turned up exactly as often as "Anodics cost a little less". Those are not the
+   * same event, and a book that treats them as one has no rare tags in it at all: the good ones are
+   * simply the ones you happened to see. A plain draw makes them scarce and the Bar's standout seats
+   * draw rich, which is the maintainer's point that a tag is the half of an officer nobody can
+   * train, so it is the half that should decide how rare they are.
+   *
+   * Measured over two thousand rolls: 4.0 mean worth a tag on a plain draw against 7.7 on a rich
+   * one, on a book whose flat mean is 5.4.
+   */
+  it('makes a broad tag scarce on a plain draw and likely on a rich one', () => {
+    const flat = mean(ROLLABLE_PERK_IDS.map((id) => perkWorth(id)));
+    const worthOf = (shape: RollShape) =>
+      mean(
+        Array.from({ length: SAMPLE_SIZE }, (_, seed) => rollRecruit(seed, 0, shape).perks)
+          .flat()
+          .map((id) => perkWorth(id)),
+      );
+
+    const plain = worthOf(ORDINARY_ROLL);
+    const rich = worthOf({ ...ORDINARY_ROLL, minPerks: 2, perkDraw: 'rich' });
+    expect(plain, 'the plain draw is the flat book again').toBeLessThan(flat);
+    expect(rich, 'a rich draw is no better than an ordinary one').toBeGreaterThan(flat);
+    // ...and the gap between the two chairs is one a player would feel, not a rounding difference.
+    expect(rich / plain).toBeGreaterThan(1.5);
+  });
+
+  /** No tag is unreachable at an ordinary seat: scarce is the rule, never shut out. */
+  it('can still hand the best tag in the book to an ordinary recruit', () => {
+    const best = [...ROLLABLE_PERK_IDS].sort((a, b) => perkWorth(b) - perkWorth(a))[0]!;
+    const seen = Array.from(
+      { length: SAMPLE_SIZE * 5 },
+      (_, seed) => rollRecruit(seed, 0, ORDINARY_ROLL).perks,
+    ).some((perks) => perks.includes(best));
+    expect(seen, `${best} never turns up on an ordinary seat`).toBe(true);
   });
 });
 

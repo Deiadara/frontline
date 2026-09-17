@@ -110,6 +110,7 @@ function open(over: Partial<BattleView> = {}, army: Army = ARMY) {
         view={{ ...view, ...over }}
         army={army}
         loadouts={{}}
+        bagPercent={0}
         homeDistrictId="neon-docks"
         notoriety={100_000}
         mode="line"

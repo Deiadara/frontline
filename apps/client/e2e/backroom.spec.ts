@@ -110,9 +110,11 @@ test.describe('the black market', () => {
       // Five, written as a number. Reading the count off the shared constant would make this
       // assertion agree with whatever the code currently does, which is not an assertion.
       await expect(page.getByTestId('black-market-shelf').locator('> li')).toHaveCount(5);
-      // Priced in infamy, and the balance is on the header where it can be read before shopping.
-      await expect(page.getByTestId('black-infamy')).toBeVisible();
-      await expect(page.getByTestId('black-allowance')).toContainText('1 left today');
+      // The infamy box in the corner went at the maintainer's request (2026-09-17): the standing
+      // bar across the top of every screen already carries the figure, and what this screen leads
+      // with now is the allowance, which is how many lots the crew may actually walk out with.
+      await expect(page.getByTestId('black-infamy')).toHaveCount(0);
+      await expect(page.getByTestId('black-allowance')).toContainText('1 to win tonight');
 
       expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
       await expectSheetNotWashedOut(page);
@@ -522,6 +524,9 @@ test.describe('a write whose response shape the fixture has to get right', () =>
     const build = page.locator('[data-testid^="addon-build-"]').first();
     await expect(build, 'the fixture offers no add-on to build').toBeVisible();
     await build.click();
+    // Bolting one in is asked for first (2026-09-16): the bill is spent on the press and taking it
+    // out again destroys it, so the press opens the dialog and the dialog does the writing.
+    await page.getByTestId('scrapyard-bolt-yes').click();
 
     // Same rule as above: wait for the write to have come back before asking whether it failed.
     // `disabled` while it is in flight, enabled again once the response has parsed.

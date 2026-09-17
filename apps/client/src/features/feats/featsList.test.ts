@@ -6,8 +6,10 @@ import {
   countMatching,
   featBlocks,
   filterBlocks,
+  ladderState,
   ladderTitle,
-  rungMatches,
+  type FeatBlock,
+  type FeatFilter,
 } from './featsList';
 
 /**
@@ -22,16 +24,27 @@ import {
 const BOARD = F.featsBoard.progress;
 const blockFor = (chain: string) => featBlocks(BOARD).find((block) => block.chain === chain);
 
-/** The fixture's one four-rung ladder, which is the one carrying all four states. */
-const RUNS = ['runs_1', 'runs_2', 'runs_3', 'runs_4'] as const;
+/** The fixture's ladder carrying all four states, and one of the eight that run to tier X. */
+const RUNS = [
+  'runs_1',
+  'runs_2',
+  'runs_3',
+  'runs_4',
+  'runs_5',
+  'runs_6',
+  'runs_7',
+  'runs_8',
+  'runs_9',
+  'runs_10',
+] as const;
 
 describe('the ladders', () => {
   it('groups the consecutive steps of a chain into one block, in catalogue order', () => {
     const runs = blockFor('runs');
     expect(runs).toBeDefined();
     expect(runs?.rungs.map((rung) => rung.spec.id)).toEqual([...RUNS]);
-    expect(runs?.steps).toBe(4);
-    expect(runs?.rungs.map((rung) => rung.step)).toEqual([1, 2, 3, 4]);
+    expect(runs?.steps).toBe(RUNS.length);
+    expect(runs?.rungs.map((rung) => rung.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   /**
@@ -92,88 +105,96 @@ describe('a shut rung', () => {
     expect(last?.progress.value).toBe(0);
     expect(last?.progress.progress).toBe(0);
     // The target on the row is the catalogue's, which the page must not draw for a shut rung.
-    expect(last?.progress.target).toBe(findFeat('runs_4')?.target);
+    expect(last?.progress.target).toBe(findFeat('runs_10')?.target);
   });
 });
 
-describe('the two filters', () => {
+describe('the one filter, over whole ladders', () => {
   const blocks = featBlocks(BOARD);
+  const keysUnder = (filter: FeatFilter) => filterBlocks(blocks, filter).map((block) => block.key);
 
-  it('narrows a ladder to the rungs of one era, keeping their real step numbers', () => {
-    const [mid] = filterBlocks(blocks, { era: 'mid', done: 'all' }).filter(
-      (block) => block.chain === 'runs',
-    );
-    expect(mid?.rungs.map((rung) => rung.spec.id)).toEqual(['runs_3']);
-    // Still step three of four, not renumbered to one of one: every chain in the catalogue spans
-    // eras, so a filtered ladder that renumbered itself would lie about where a rung sits.
-    expect(mid?.rungs[0]?.step).toBe(3);
-    expect(mid?.steps).toBe(4);
+  /**
+   * The states a ladder can be in, and the rule that decides them.
+   *
+   * `runs` is the fixture's mixed ladder: one rung collected, one waiting, the rest in hand. It is
+   * `unclaimed`, because a rung waiting for the button is the only thing on this page asking a
+   * player to do something and it outranks everything else about the chain.
+   */
+  it('calls a ladder with a rung waiting unclaimed, whatever else is true of it', () => {
+    const runs = blocks.find((block) => block.chain === 'runs');
+    expect(runs?.ready, 'the fixture ladder has nothing waiting').toBeGreaterThan(0);
+    expect(runs?.claimed, 'and nothing collected either').toBeGreaterThan(0);
+    expect(ladderState(runs!)).toBe('unclaimed');
   });
 
-  it('counts a finished feat as completed whether or not it has been collected', () => {
-    const done = filterBlocks(blocks, { era: 'all', done: 'done' })
-      .flatMap((block) => block.rungs)
-      .map((rung) => rung.progress.state);
-    expect(new Set(done)).toEqual(new Set(['ready', 'claimed']));
-
-    const todo = filterBlocks(blocks, { era: 'all', done: 'todo' })
-      .flatMap((block) => block.rungs)
-      .map((rung) => rung.progress.state);
-    expect(new Set(todo)).toEqual(new Set(['open', 'locked']));
+  it('calls a ladder with nothing waiting and nothing finished shut', () => {
+    const shut = blocks.find((block) => block.ready === 0 && block.claimed < block.steps);
+    expect(shut, 'the fixture has no ladder still in hand').toBeDefined();
+    expect(ladderState(shut!)).toBe('shut');
   });
 
-  it('combines: the two together leave only the rungs that answer to both', () => {
-    const both = filterBlocks(blocks, { era: 'early', done: 'todo' }).flatMap(
-      (block) => block.rungs,
-    );
-    expect(both.length).toBeGreaterThan(0);
-    for (const rung of both) {
-      expect(rung.spec.era).toBe('early');
-      expect(['open', 'locked']).toContain(rung.progress.state);
+  it('calls a ladder claimed only when every rung of it is collected', () => {
+    const whole: FeatBlock = {
+      chain: 'x',
+      steps: 3,
+      claimed: 3,
+      ready: 0,
+      key: 'x',
+      rungs: [],
+    };
+    expect(ladderState(whole)).toBe('claimed');
+    // One short is not finished, however many of the others are in.
+    expect(ladderState({ ...whole, claimed: 2 })).toBe('shut');
+  });
+
+  it('lists every ladder under All, and splits them across the other three', () => {
+    const all = keysUnder('all');
+    expect(all.length).toBe(blocks.length);
+    const parts = (['claimed', 'unclaimed', 'shut'] as const).map((filter) => keysUnder(filter));
+    // Every ladder in exactly one of the three, which is what makes the chips' counts add up.
+    expect(parts.flat().length).toBe(all.length);
+    expect(new Set(parts.flat()).size).toBe(all.length);
+    for (const part of parts) expect(part.length).toBeGreaterThan(0);
+  });
+
+  it('keeps a ladder whole rather than narrowing it to the rungs that matched', () => {
+    const runs = filterBlocks(blocks, 'unclaimed').find((block) => block.chain === 'runs');
+    // Ten rungs, not the one that is waiting: the pane opens the whole ladder.
+    expect(runs?.rungs).toHaveLength(runs?.steps ?? 0);
+    expect(runs?.steps).toBe(RUNS.length);
+  });
+
+  it('counts ladders rather than rungs, so the chips agree with the list', () => {
+    for (const filter of ['all', 'claimed', 'unclaimed', 'shut'] as const) {
+      expect(countMatching(blocks, filter), filter).toBe(filterBlocks(blocks, filter).length);
     }
-    /*
-     * And each filter is really being applied, rather than one of them quietly winning.
-     *
-     * Both bounds are needed and neither on its own would do: an implementation that ignored the
-     * era would land on the second figure and one that ignored the state would land on the first,
-     * and a test checking only one of them would pass for half the bugs it exists to catch.
-     */
-    expect(both.length).toBeLessThan(countMatching(blocks, { era: 'early', done: 'all' }));
-    expect(both.length).toBeLessThan(countMatching(blocks, { era: 'all', done: 'todo' }));
+    // ...and the figure is a count of ladders, which is far short of the rungs in them.
+    expect(countMatching(blocks, 'all')).toBeLessThan(FEATS.length);
   });
 
-  it('keeps a finished early rung under early and completed, and nowhere else', () => {
-    const both = filterBlocks(blocks, { era: 'early', done: 'done' }).flatMap(
-      (block) => block.rungs,
-    );
-    expect(both.map((rung) => rung.spec.id)).toContain('runs_2');
-    for (const rung of both) {
-      expect(rung.spec.era).toBe('early');
-      expect(['ready', 'claimed']).toContain(rung.progress.state);
-    }
-    const elsewhere = filterBlocks(blocks, { era: 'mid', done: 'done' }).flatMap(
-      (block) => block.rungs,
-    );
-    expect(elsewhere.map((rung) => rung.spec.id)).not.toContain('runs_2');
-  });
-
-  it('drops a block whose every rung the filter refused, and keeps the rest', () => {
-    const kept = filterBlocks(blocks, { era: 'late', done: 'done' });
-    expect(kept.every((block) => block.rungs.length > 0)).toBe(true);
-    expect(kept.length).toBeLessThan(blocks.length);
-  });
-
-  it('leaves everything alone when nothing is set', () => {
-    expect(countMatching(blocks, ALL_FEATS)).toBe(FEATS.length);
+  it('opens on everything', () => {
+    expect(ALL_FEATS).toBe('all');
     expect(filterBlocks(blocks, ALL_FEATS)).toHaveLength(blocks.length);
   });
+});
 
-  it('agrees with the per-rung answer the chips are counted from', () => {
-    const probe = { era: 'mid', done: 'todo' } as const;
-    const byRung = blocks
-      .flatMap((block) => block.rungs)
-      .filter((rung) => rungMatches(rung, probe)).length;
-    expect(countMatching(blocks, probe)).toBe(byRung);
+/**
+ * What a card knows about a ladder it is drawing.
+ *
+ * The sidebar row and the card header both read `claimed` and `steps` off the block rather than
+ * counting the rungs on screen, which is what lets a row say `1/10` in a list of seventy.
+ */
+describe('what a ladder carries about itself', () => {
+  it('counts its collected and waiting rungs off the whole chain', () => {
+    const blocks = featBlocks(BOARD);
+    const runs = blocks.find((block) => block.chain === 'runs');
+    expect(runs?.steps).toBe(10);
+    expect(runs?.claimed).toBe(1);
+    expect(runs?.ready).toBe(1);
+    // And the counts are of the ladder, not of the catalogue: they never exceed its own length.
+    for (const block of blocks) {
+      expect(block.claimed + block.ready, block.key).toBeLessThanOrEqual(block.steps);
+    }
   });
 });
 

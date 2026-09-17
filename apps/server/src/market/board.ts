@@ -24,6 +24,7 @@ import {
   supplyPrice,
   supplyRefusal,
   vendorSessionsFor,
+  DEFAULT_CITY_ID,
   vendorStockFor,
   vendorVisitAt,
   visibleTo,
@@ -36,6 +37,7 @@ import {
   type TradeBundle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -126,7 +128,12 @@ function releaseEscrow(repos: Repositories, offer: MarketOffer): void {
   );
 }
 
-export function projectMarket(repos: Repositories, base: Base, now: Date): MarketResponse {
+export function projectMarket(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  cityId: string = DEFAULT_CITY_ID,
+): MarketResponse {
   const day = marketDay(now);
   /*
    * §F2: the Logistics the crew has, on the shelf the run is measured against.
@@ -162,7 +169,7 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
   const bids = visit ? repos.vendorAuctions.bidsOn(visit.day, visit.session) : [];
   const usernames = bidderNames(repos, bids);
   const stock = visit
-    ? vendorStockFor(day).map((line) => {
+    ? vendorStockFor(day, cityId).map((line) => {
         const left = Math.max(0, line.stock - vendorSoldCount(repos, day, line.id));
         return {
           line: { ...line, stock: left },
@@ -185,6 +192,8 @@ export function projectMarket(repos: Repositories, base: Base, now: Date): Marke
   const listings = repos.market.listByStatus('open');
   return {
     serverNow: now.toISOString(),
+    cityId,
+    cities: citiesFor(repos, base),
     caps: base.resources.caps,
     resources: base.resources,
     inventory: base.inventory,
@@ -521,6 +530,9 @@ export const MARKET_REFUSAL_TEXT: Record<
       ? `He will not take under ${minimum}`
       : `Somebody is at ${leading}. You need at least ${minimum}`,
   cannot_afford: 'You cannot cover that',
+  // Not "at two lots": the number is `MAX_OPEN_LOTS` and the screen prints what is left on every
+  // read, so a refusal that baked the figure in would be a second place for it to go stale.
+  too_many_lots: 'You have money on every lot you can hold. Let one close first',
   too_small: 'The Broker will not get out of his chair for that little',
   same_resource: 'The Broker trades one thing for another, not for itself',
   no_caps: 'The Broker does not touch caps. Materials for materials, or the supply run',

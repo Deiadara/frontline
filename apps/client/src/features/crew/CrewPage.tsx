@@ -596,7 +596,16 @@ function OfficerWindow({
             {/* Two across, which is `AttributeSheet`'s own guidance for a modal: at four it picks
                 its columns off the *viewport*, so inside a window it lays out four-wide in whatever
                 width the window has and cuts `Communication`. */}
-            <AttributeSheet attributes={officer.attributes} columns={2} roomy role={officer.role} />
+            <AttributeSheet
+              attributes={officer.attributes}
+              // §B7: what the rest of the crew, the ground and the Lab add to this person, shown
+              // on the bar rather than folded silently into the fight.
+              lifted={officer.lifted}
+              lift={officer.lift}
+              columns={2}
+              roomy
+              role={officer.role}
+            />
           </div>
         </div>
       </div>

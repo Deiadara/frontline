@@ -265,6 +265,45 @@ describe('bidding on a lot', () => {
     });
   });
 
+  /**
+   * §H7a on the barrow: two lots at once (maintainer, 2026-09-17).
+   *
+   * Three things in one test, because they are one rule and the middle one is the one a count gets
+   * wrong: two lots go on, a third is refused, and raising on a lot the crew is already in still
+   * works at the limit. A crew told they are at every table while looking at their own bid on this
+   * one would be a refusal that reads as a bug.
+   */
+  it('holds a crew to two lots at once, and still lets them raise on one of the two', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const bex = await signIn(app, 'bex');
+    const day = aDayWhere(() => true);
+    const stock = vendorStockFor(day);
+    const now = duringVisit(day, 0);
+
+    expect(bid(app, ana, { lineId: stock[0]!.id, amount: stock[0]!.price, now })).toEqual({
+      kind: 'placed',
+    });
+    expect(bid(app, ana, { lineId: stock[1]!.id, amount: stock[1]!.price, now })).toEqual({
+      kind: 'placed',
+    });
+    expect(bid(app, ana, { lineId: stock[2]!.id, amount: stock[2]!.price, now })).toMatchObject({
+      kind: 'refused',
+      reason: 'too_many_lots',
+    });
+
+    // Somebody tops them on the first, and answering that is not opening a third lot.
+    bid(app, bex, { lineId: stock[0]!.id, amount: stock[0]!.price * 3, now });
+    expect(bid(app, ana, { lineId: stock[0]!.id, amount: stock[0]!.price * 10, now })).toEqual({
+      kind: 'placed',
+    });
+
+    // ...and a crew with nothing on the barrow is not limited by anybody else's lots.
+    expect(bid(app, bex, { lineId: stock[2]!.id, amount: stock[2]!.price, now })).toEqual({
+      kind: 'placed',
+    });
+  });
+
   it('refuses a bid under the next one, and the refusal names the figures', async () => {
     const app = await makeApp();
     const ana = await signIn(app, 'ana');

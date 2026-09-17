@@ -407,9 +407,11 @@ with nothing failing. Three weights, and they stay a hierarchy: **1.5** the moti
 **1.15** the detail inside it, **0.9** annotation on it. The sheet's own furniture is 0.8 and below,
 always lighter than a motif's line.
 
-**Rarity is the ink.** The whole glyph is drawn in its tier's colour, `ink-200` common,
-`verdigris-100` uncommon, `iris-100` rare, `brass-300` exotic, matching the border-and-ink tones the
-market has carried on lot cards since the barrow shipped (`apps/client/src/lib/rarity.ts`). A page
+**Rarity is the ink.** The whole glyph is drawn in its tier's colour, `ink-300` basic,
+`iris-300` intricate, `oxblood-300` advanced, `brass-300` masterpiece, matching the bench cards, the
+market's lot frames and the roster's brackets (`apps/client/src/lib/rarity.tsx`). Four words and four
+colours for everything a crew can hold: the game ran two ladders until 2026-09-16, loot on common to
+exotic and engineering on basic to masterpiece, which meant a player learned purple twice. A page
 takes its document's tier unless the catalogue authors it one step off; nothing is ever two steps
 off, and the catalogue throws at load if it is.
 

@@ -27,7 +27,8 @@ import { type BlueprintMotif } from './motifs.js';
  * ## This module is a leaf
  *
  * It names its targets by id as plain strings and imports nothing from the rest of the domain
- * except `items/rarity.ts`, which is a scale and four words and imports nothing itself.
+ * except `items/rarity.ts`, which is a scale and four words over `modification-rarity.ts`, and
+ * neither of those imports anything but zod.
  * `items/catalog.ts` turns every page into an item so a page can sit in an inventory and survive a
  * save, and `items` is below `units`, `building` and `battle` in the import graph. A blueprint
  * catalogue that reached back up into the unit catalogue would close that loop at module-load
@@ -141,7 +142,7 @@ export const BLUEPRINTS = [
     name: 'Sniper Blueprint',
     motif: 'rifle',
     category: 'unit',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'A long barrel, a cold room to zero it in, and the tables to read wind off.',
     targets: [{ kind: 'unit', id: 'snipers' }],
     pages: [
@@ -151,7 +152,7 @@ export const BLUEPRINTS = [
         motif: 'bore',
         description:
           'A bore in section with the rifling twist inked twice, because the first hand had it backwards.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_snipers_range_cards',
@@ -174,7 +175,7 @@ export const BLUEPRINTS = [
     name: 'Demolisher Blueprint',
     motif: 'breach',
     category: 'unit',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Where to put the charge so the wall falls the way you wanted it to.',
     targets: [{ kind: 'unit', id: 'demolishers' }],
     pages: [
@@ -191,7 +192,7 @@ export const BLUEPRINTS = [
         motif: 'fuse',
         description:
           'Burn rates per metre of cord, and a warning about damp cord that somebody underlined.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_demolishers_breaching_frames',
@@ -207,7 +208,7 @@ export const BLUEPRINTS = [
     name: 'Kite Crew Blueprint',
     motif: 'kite',
     category: 'unit',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Spars, sail and a winch. Somebody goes up and everybody else finds out what is coming.',
     targets: [{ kind: 'unit', id: 'kite_crews' }],
     pages: [
@@ -231,7 +232,7 @@ export const BLUEPRINTS = [
         motif: 'winch',
         description:
           'Gear teeth counted out on a drum, with the brake pawl sketched in the margin.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_kite_crews_launch_rails',
@@ -246,7 +247,7 @@ export const BLUEPRINTS = [
     name: 'Cyberhound Blueprint',
     motif: 'hound',
     category: 'unit',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Four legs, a rebuilt jaw and a nose that was never a nose.',
     targets: [{ kind: 'unit', id: 'cyber_dogs' }],
     pages: [
@@ -275,7 +276,7 @@ export const BLUEPRINTS = [
         name: 'Kennel Wiring',
         motif: 'plan',
         description: 'Charging rails and a floor drain, with DO NOT STAND HERE lettered across it.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -284,7 +285,7 @@ export const BLUEPRINTS = [
     name: 'Twins Blueprint',
     motif: 'twin_figures',
     category: 'unit',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Two rigs cut from one drawing. Neither of them works on its own.',
     targets: [{ kind: 'unit', id: 'the_twins' }],
     pages: [
@@ -321,7 +322,7 @@ export const BLUEPRINTS = [
         name: 'Signal Cord',
         motif: 'line_run',
         description: 'A cord run between two rigs, and what each number of tugs on it means.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -330,7 +331,7 @@ export const BLUEPRINTS = [
     name: 'Ironside Blueprint',
     motif: 'cuirass',
     category: 'unit',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Plate cut to a schedule somebody worked out under fire, and never changed since.',
     targets: [{ kind: 'unit', id: 'ironsides' }],
     pages: [
@@ -340,7 +341,7 @@ export const BLUEPRINTS = [
         motif: 'table',
         description:
           'Plate thickness by body zone, in a schedule nobody has dared change since it was written.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_ironsides_shoulder_anchors',
@@ -368,7 +369,7 @@ export const BLUEPRINTS = [
     name: 'Juggernaut Blueprint',
     motif: 'exoframe',
     category: 'unit',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'An exoframe with a person somewhere inside it, and a cooling loop that has to hold.',
     targets: [{ kind: 'unit', id: 'juggernauts' }],
     pages: [
@@ -392,7 +393,7 @@ export const BLUEPRINTS = [
         motif: 'cut_list',
         description:
           'Slabs laid out with the cut order on them, so nothing warps before it is hung.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_juggernauts_coolant_loop',
@@ -415,7 +416,7 @@ export const BLUEPRINTS = [
     name: 'Hollow Man Blueprint',
     motif: 'husk',
     category: 'unit',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'A shell that walks, weighted at the ankles so it does not fall over when it is shot.',
     targets: [{ kind: 'unit', id: 'hollow_men' }],
     pages: [
@@ -444,7 +445,7 @@ export const BLUEPRINTS = [
         motif: 'ballast',
         description:
           'Weight at the ankles, worked out from how far it can lean before it goes over.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_hollow_men_standing_order',
@@ -462,7 +463,7 @@ export const BLUEPRINTS = [
     name: 'Specter Blueprint',
     motif: 'shroud',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Six pages on not being seen, and the last one is mostly about the cold.',
     targets: [{ kind: 'unit', id: 'the_specter' }],
     pages: [
@@ -472,28 +473,28 @@ export const BLUEPRINTS = [
         motif: 'weave',
         description:
           'A weave in close-up, thread count in the corner, drawn so it vanishes at arm length.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_the_specter_silent_boots',
         name: 'Silent Boots',
         motif: 'boot',
         description: 'A sole cut in five layers, with the one layer that does the work shaded.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_the_specter_cold_optics',
         name: 'Cold Optics',
         motif: 'optics',
         description: 'Optics that read heat, and the housing that stops them giving any off.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_the_specter_ghost_wiring',
         name: 'Ghost Wiring',
         motif: 'cable_run',
         description: 'A wiring run with no loom, taped flat, every joint drawn on its own.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_the_specter_scent_null',
@@ -501,7 +502,7 @@ export const BLUEPRINTS = [
         motif: 'list',
         description:
           'A sealed bag and a chemical list, half of it in a shorthand nobody else uses.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_the_specter_last_page',
@@ -517,7 +518,7 @@ export const BLUEPRINTS = [
     name: 'Crimson Dancer Blueprint',
     motif: 'blade',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Edge geometry and footwork, written by somebody who thought of it as choreography.',
     targets: [{ kind: 'unit', id: 'the_crimson_dancer' }],
     pages: [
@@ -526,21 +527,21 @@ export const BLUEPRINTS = [
         name: 'Edge Geometry',
         motif: 'section',
         description: 'Blade sections at five points along the edge, each one at a different angle.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_crimson_dancer_balance_rig',
         name: 'Balance Rig',
         motif: 'balance',
         description: 'A rig for finding the point it turns about, sketched from three sides.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_crimson_dancer_red_lacquer',
         name: 'Red Lacquer',
         motif: 'table',
         description: 'A lacquer recipe and a drying schedule. The colour swatch has gone brown.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_crimson_dancer_footwork_chart',
@@ -548,14 +549,14 @@ export const BLUEPRINTS = [
         motif: 'footprints',
         description:
           'Footprints on a grid with numbers beside them, read as a dance and meant as one.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_crimson_dancer_pulse_lace',
         name: 'Pulse Lace',
         motif: 'lace',
         description: 'Lacing that tightens on a pulse, drawn at the wrist and again at the ankle.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_crimson_dancer_curtain_call',
@@ -570,7 +571,7 @@ export const BLUEPRINTS = [
     name: 'Loose End Blueprint',
     motif: 'frayed_end',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Seven pages, none of them signed, and one of them is a list of ways to burn the rest.',
     targets: [{ kind: 'unit', id: 'the_loose_end' }],
     pages: [
@@ -579,14 +580,14 @@ export const BLUEPRINTS = [
         name: 'Frayed Schematic',
         motif: 'elevation',
         description: 'A schematic torn across one corner, so the part it names is missing.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_dead_drop_keys',
         name: 'Dead Drop Keys',
         motif: 'key',
         description: 'Key blanks and the cuts for them, with no lock named anywhere on the sheet.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_untraceable_frame',
@@ -594,14 +595,14 @@ export const BLUEPRINTS = [
         motif: 'frame',
         description:
           'A frame with the serial positions marked, and every one of them struck through.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_burn_sequence',
         name: 'Burn Sequence',
         motif: 'list',
         description: 'The order in which to burn the other six pages, illustrated, with timings.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_spare_face',
@@ -609,7 +610,7 @@ export const BLUEPRINTS = [
         motif: 'face',
         description:
           'A face in three views, unsigned, with the measurements of somebody real on it.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_cutout_ledger',
@@ -617,7 +618,7 @@ export const BLUEPRINTS = [
         motif: 'table',
         description:
           'A ledger of go-betweens, names blacked out, the columns still perfectly legible.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_loose_end_final_knot',
@@ -632,7 +633,7 @@ export const BLUEPRINTS = [
     name: 'Abomination Blueprint',
     motif: 'graft_body',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Grafting tables and a growth log. The handwriting gets worse towards the end.',
     targets: [{ kind: 'unit', id: 'the_abomination' }],
     pages: [
@@ -641,28 +642,28 @@ export const BLUEPRINTS = [
         name: 'Grafting Tables',
         motif: 'table',
         description: 'Tables of what takes and what does not, with the failures listed first.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_bone_lattice',
         name: 'Bone Lattice',
         motif: 'weave',
         description: 'A lattice drawn over a skeleton nobody can name the species of.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_feeding_rig',
         name: 'Feeding Rig',
         motif: 'hopper',
         description: 'A rig, a hopper and a schedule. The quantities go up every week.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_nerve_braid',
         name: 'Nerve Braid',
         motif: 'braid',
         description: 'Nerve runs braided into one cable, under a note saying the order matters.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_containment_straps',
@@ -670,14 +671,14 @@ export const BLUEPRINTS = [
         motif: 'strap',
         description:
           'Strap widths and anchor points, revised three times, heavier at each revision.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_growth_log',
         name: 'Growth Log',
         motif: 'chart',
         description: 'A log rather than a drawing. Dates, weights, and a gap of eleven days.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_abomination_waking_order',
@@ -692,7 +693,7 @@ export const BLUEPRINTS = [
     name: 'Colossus Blueprint',
     motif: 'walking_hull',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Eight pages and a hull nobody in this city could cast today. You are assembling it.',
     targets: [{ kind: 'unit', id: 'the_colossus' }],
     pages: [
@@ -702,21 +703,21 @@ export const BLUEPRINTS = [
         motif: 'section',
         description:
           'Hull stations drawn one over another, at a casting size nobody here can pour.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_leg_actuators',
         name: 'Leg Actuators',
         motif: 'piston',
         description: 'One actuator at full stroke, with the loads it sees at each end of it.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_spine_frame',
         name: 'Spine Frame',
         motif: 'frame',
         description: 'The frame everything else hangs from, drawn in one continuous line.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_reactor_housing',
@@ -729,14 +730,14 @@ export const BLUEPRINTS = [
         name: 'Arm Assemblies',
         motif: 'mirrored_pair',
         description: 'Two arms drawn as one and mirrored, with the differences called out in red.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_sighting_gear',
         name: 'Sighting Gear',
         motif: 'optics',
         description: 'Optics and their mount, on a sightline that clears the shoulder by a hand.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_armour_schedule',
@@ -744,7 +745,7 @@ export const BLUEPRINTS = [
         motif: 'table',
         description:
           'Plate by station and the weight it adds, totalled at the bottom in a shaky hand.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_colossus_ignition_sequence',
@@ -765,7 +766,7 @@ export const BLUEPRINTS = [
     name: 'Scrappy Blueprint',
     motif: 'motorcycle',
     category: 'unit',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'A frame jig and a rebuilt engine. Also the only thing a Road Reaver ever needed.',
     targets: [
       { kind: 'vehicle', id: 'motorcycle' },
@@ -784,7 +785,7 @@ export const BLUEPRINTS = [
         motif: 'engine',
         description:
           'An engine opened across both halves of the sheet, oily thumbprint in the corner.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -795,7 +796,7 @@ export const BLUEPRINTS = [
     name: 'Offie Blueprint',
     motif: 'pickup',
     category: 'unit',
-    rarity: 'common',
+    rarity: 'basic',
     blurb:
       'Bed plating, a bull bar and a lift kit, for a pickup that has to arrive with everybody.',
     targets: [{ kind: 'vehicle', id: 'dirt_runner' }],
@@ -818,7 +819,7 @@ export const BLUEPRINTS = [
         name: 'Lift Kit',
         motif: 'spring',
         description: 'Spacer stacks and the ride height they buy, with the tyre that then fits.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -827,7 +828,7 @@ export const BLUEPRINTS = [
     name: 'Scar Blueprint',
     motif: 'car',
     category: 'unit',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Three donor bodies into one car, and where to cut each of them.',
     targets: [{ kind: 'vehicle', id: 'scrap_car' }],
     pages: [
@@ -843,7 +844,7 @@ export const BLUEPRINTS = [
         motif: 'mount',
         description:
           'Mounts for an engine that was never meant to sit here, drawn in two versions.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_scrap_car_bench_seating',
@@ -860,7 +861,7 @@ export const BLUEPRINTS = [
     name: 'Cheese Wagon Blueprint',
     motif: 'bus',
     category: 'unit',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Hull plate, window mesh, a plough and a roof rack, for a school bus that stops for nobody.',
     targets: [{ kind: 'vehicle', id: 'armoured_car' }],
@@ -883,14 +884,14 @@ export const BLUEPRINTS = [
         name: 'Ram Plough',
         motif: 'plough',
         description: 'A plough on the nose, drawn with the frame behind it that makes it any use.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_armoured_car_firing_ports',
         name: 'Roof Rack',
         motif: 'rack',
         description: 'A rack, its rails, and the load at which the roof stops being a roof.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -899,7 +900,7 @@ export const BLUEPRINTS = [
     name: 'Gas Balloon Blueprint',
     motif: 'balloon',
     category: 'unit',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Envelope panels and a page on the gas that nobody will put a source on.',
     targets: [{ kind: 'vehicle', id: 'gas_balloon' }],
     pages: [
@@ -921,14 +922,14 @@ export const BLUEPRINTS = [
         name: 'Basket Weave',
         motif: 'weave',
         description: 'A weave pattern and the load the cane takes, sketched from underneath.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_gas_balloon_ballast_sacks',
         name: 'Ballast Sacks',
         motif: 'ballast',
         description: 'Sacks, their fill and where they hang, so it comes down where you meant.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_gas_balloon_burner_head',
@@ -944,7 +945,7 @@ export const BLUEPRINTS = [
     name: 'Rotorcraft Blueprint',
     motif: 'rotor_head',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb: 'Rotor geometry, in a hand that assumed the reader already knew how to fly.',
     targets: [{ kind: 'vehicle', id: 'rotorcraft' }],
     pages: [
@@ -953,21 +954,21 @@ export const BLUEPRINTS = [
         name: 'Rotor Geometry',
         motif: 'chart',
         description: 'Blade twist and chord along the span, in a hand that assumed you could fly.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_rotorcraft_swashplate',
         name: 'Swashplate',
         motif: 'swashplate',
         description: 'The swashplate from above and from the side, every linkage numbered.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_rotorcraft_tail_boom',
         name: 'Tail Boom',
         motif: 'shaft',
         description: 'A boom, its drive shaft, and the bearing spacing that stops it whipping.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_rotorcraft_gearbox_tolerances',
@@ -982,21 +983,21 @@ export const BLUEPRINTS = [
         motif: 'balance',
         description:
           'A balancing rig and its weights, with what vibration is left plotted as a curve.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_rotorcraft_fuel_governor',
         name: 'Fuel Governor',
         motif: 'governor',
         description: 'A governor drawn open, with the fuel it wants at each collective setting.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_rotorcraft_flight_notes',
         name: 'Flight Notes',
         motif: 'prose',
         description: 'Not engineering. Four paragraphs on what it does before it is ready to fly.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -1005,7 +1006,7 @@ export const BLUEPRINTS = [
     name: 'Heli Porter Blueprint',
     motif: 'helicopter',
     category: 'unit',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'A factory manual, complete, with corrections pencilled in the margins where the factory was wrong.',
     targets: [{ kind: 'vehicle', id: 'heli_porter' }],
@@ -1015,21 +1016,21 @@ export const BLUEPRINTS = [
         name: 'Main Gearbox',
         motif: 'gear_train',
         description: 'A factory plate of the main gearbox, with the factory corrected in pencil.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_heli_porter_rotor_head',
         name: 'Rotor Head',
         motif: 'exploded',
         description: 'The head exploded across a double page, every shim listed by part number.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_heli_porter_cabin_frame',
         name: 'Cabin Frame',
         motif: 'frame',
         description: 'A frame in station lines, doors and load hooks drawn in their real places.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_heli_porter_twin_turbines',
@@ -1046,14 +1047,14 @@ export const BLUEPRINTS = [
         motif: 'shaft',
         description:
           'The tail drive shaft in sections, and the bearing that goes first if it goes.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_heli_porter_hydraulics',
         name: 'Hydraulics',
         motif: 'manifold',
         description: 'Two hydraulic circuits, one drawn in red for the day the other one fails.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_heli_porter_load_floor',
@@ -1080,7 +1081,7 @@ export const BLUEPRINTS = [
     name: 'Filed Sights Blueprint',
     motif: 'elevation',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Where to take metal off a front post, and how to know when to stop.',
     targets: [{ kind: 'unit_upgrade', id: 'filed_sights' }],
     pages: [
@@ -1105,7 +1106,7 @@ export const BLUEPRINTS = [
     name: 'Rag Wraps Blueprint',
     motif: 'weave',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'What to wrap, what to leave bare, and the knots that hold through a night of rain.',
     targets: [{ kind: 'unit_upgrade', id: 'rag_wraps' }],
     pages: [
@@ -1130,7 +1131,7 @@ export const BLUEPRINTS = [
     name: 'Whistle Code Blueprint',
     motif: 'speaker',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb:
       'Six notes, what each one means, and how to be heard over a fight without being understood by it.',
     targets: [{ kind: 'unit_upgrade', id: 'whistle_code' }],
@@ -1156,7 +1157,7 @@ export const BLUEPRINTS = [
     name: 'Hook and Line Blueprint',
     motif: 'knot',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'A grapple bent out of rebar, forty metres of rope, and the throws that land it.',
     targets: [{ kind: 'unit_upgrade', id: 'hook_and_line' }],
     pages: [
@@ -1181,7 +1182,7 @@ export const BLUEPRINTS = [
     name: 'Knuckle Guards Blueprint',
     motif: 'cut_list',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Plate over the knuckles, cut from what the yard has, shaped to a fist that is closed.',
     targets: [{ kind: 'unit_upgrade', id: 'knuckle_guards' }],
     pages: [
@@ -1206,7 +1207,7 @@ export const BLUEPRINTS = [
     name: 'Ear Defenders Blueprint',
     motif: 'mould',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb:
       'Plugs cast to the ear that wears them, and the check that they are in before the shooting starts.',
     targets: [{ kind: 'unit_upgrade', id: 'ear_defenders' }],
@@ -1232,7 +1233,7 @@ export const BLUEPRINTS = [
     name: 'Ablative Layers Blueprint',
     motif: 'exploded',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Plate that leaves in pieces so the person under it does not. Replaced after every fight, by design.',
     targets: [{ kind: 'unit_upgrade', id: 'ablative_layers' }],
@@ -1249,7 +1250,7 @@ export const BLUEPRINTS = [
         motif: 'bolts',
         description:
           'The pin pattern holding each tile, sized to let go under a hit rather than hold through one.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_ablative_layers_replacement_count',
@@ -1265,7 +1266,7 @@ export const BLUEPRINTS = [
     name: 'Recoil Dampers Blueprint',
     motif: 'spring',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Springs, a gas port and the fitting that makes the second shot land where the first one did.',
     targets: [{ kind: 'unit_upgrade', id: 'recoil_dampers' }],
@@ -1283,7 +1284,7 @@ export const BLUEPRINTS = [
         motif: 'bore',
         description:
           'A barrel in section with the port drilled at the angle that bleeds enough and no more.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_recoil_dampers_buffer_assembly',
@@ -1299,7 +1300,7 @@ export const BLUEPRINTS = [
     name: 'Twitch Loop Blueprint',
     motif: 'circuit',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'A wire from the eye to the hand with nothing in between. The thinking was the slow part.',
     targets: [{ kind: 'unit_upgrade', id: 'twitch_loop' }],
@@ -1310,7 +1311,7 @@ export const BLUEPRINTS = [
         motif: 'implant',
         description:
           'A shunt set into the forearm, with the two nerves it bridges inked and the rest left grey.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_twitch_loop_loop_timing',
@@ -1333,7 +1334,7 @@ export const BLUEPRINTS = [
     name: 'Smoke Discipline Blueprint',
     motif: 'prose',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Nothing lit, nothing cooked, nothing said on the approach. Written down so it can be read out.',
     targets: [{ kind: 'unit_upgrade', id: 'smoke_discipline' }],
@@ -1366,7 +1367,7 @@ export const BLUEPRINTS = [
     name: 'Drill Book Blueprint',
     motif: 'list',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Forty pages of standing still, read aloud every morning until nobody needs it read.',
     targets: [{ kind: 'unit_upgrade', id: 'drill_book' }],
     pages: [
@@ -1376,7 +1377,7 @@ export const BLUEPRINTS = [
         motif: 'footprints',
         description:
           'Footprints on a numbered grid, every movement of the morning drill in the order it is called.',
-        rarity: 'common',
+        rarity: 'basic',
       },
       {
         id: 'pg_mod_drill_book_reading_order',
@@ -1399,7 +1400,7 @@ export const BLUEPRINTS = [
     name: 'Hardened Optics Blueprint',
     motif: 'optics',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Sealed glass, a coating that will not fog or flare, and the housing that keeps the two aligned.',
     targets: [{ kind: 'unit_upgrade', id: 'hardened_optics' }],
@@ -1410,7 +1411,7 @@ export const BLUEPRINTS = [
         motif: 'vessel',
         description:
           'A drum with a level line for the coating bath, and the dwell time written on the side of it.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_hardened_optics_seal_section',
@@ -1433,7 +1434,7 @@ export const BLUEPRINTS = [
     name: 'Counterweight Harness Blueprint',
     motif: 'ballast',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Load on the hips instead of the shoulders. Twice the bag comes home at the same walking pace.',
     targets: [{ kind: 'unit_upgrade', id: 'counterweight_harness' }],
@@ -1458,7 +1459,7 @@ export const BLUEPRINTS = [
         motif: 'lace',
         description:
           'Lacing through an eyelet run down the bag, tightened in the order that keeps it off the spine.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -1467,7 +1468,7 @@ export const BLUEPRINTS = [
     name: 'Bone Lattice Blueprint',
     motif: 'frame',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Pins and mesh through the long bones, so the frame stops being the first thing that fails.',
     targets: [{ kind: 'unit_upgrade', id: 'bone_lattice' }],
@@ -1492,7 +1493,7 @@ export const BLUEPRINTS = [
         motif: 'bed',
         description:
           'A ward bed with a chart on the end, six weeks of it, and the day the patient may stand.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -1501,7 +1502,7 @@ export const BLUEPRINTS = [
     name: 'Trophy Rack Blueprint',
     motif: 'rack',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Plate, teeth and body markings off everybody they have beaten, hung where it will be seen.',
     targets: [{ kind: 'unit_upgrade', id: 'trophy_rack' }],
@@ -1526,7 +1527,7 @@ export const BLUEPRINTS = [
         motif: 'elevation',
         description:
           'The rack in elevation with a centre line, the biggest piece on it and the rest ranked outward.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -1535,7 +1536,7 @@ export const BLUEPRINTS = [
     name: 'Composite Carapace Blueprint',
     motif: 'pattern',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'Panels cut to one body, the layup that makes them hard, and the hinges that let it come off.',
     targets: [{ kind: 'unit_upgrade', id: 'composite_carapace' }],
@@ -1553,7 +1554,7 @@ export const BLUEPRINTS = [
         motif: 'laminate',
         description:
           'Cloth, resin and plate in section, layer by layer, with the cure oven temperature along the top.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_composite_carapace_hinge_lines',
@@ -1576,7 +1577,7 @@ export const BLUEPRINTS = [
     name: 'Ranging Gear Blueprint',
     motif: 'gear_train',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'A drum, a wire and a cam cut by hand that solves the drop. Arguments about elevation end.',
     targets: [{ kind: 'unit_upgrade', id: 'ranging_gear' }],
@@ -1587,7 +1588,7 @@ export const BLUEPRINTS = [
         motif: 'chart',
         description:
           'The cam drawn as the curve it follows, drop against range, with the hand cuts visible in it.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_ranging_gear_drum_graduations',
@@ -1617,7 +1618,7 @@ export const BLUEPRINTS = [
     name: 'Dry Joints Blueprint',
     motif: 'boot',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'Graphite and rubber through every hinge and sole. Gravel underfoot stops being a warning.',
     targets: [{ kind: 'unit_upgrade', id: 'dry_joints' }],
@@ -1642,7 +1643,7 @@ export const BLUEPRINTS = [
         motif: 'governor',
         description:
           'The speed linkage on each servo with its stops moved in, so nothing slams at the end of travel.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_dry_joints_valve_bleed',
@@ -1658,7 +1659,7 @@ export const BLUEPRINTS = [
     name: 'Adrenal Regulator Blueprint',
     motif: 'governor',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'A pump under the collarbone, the dose it meters, and what to watch for once it is done metering.',
     targets: [{ kind: 'unit_upgrade', id: 'adrenal_regulator' }],
@@ -1676,7 +1677,7 @@ export const BLUEPRINTS = [
         motif: 'chart',
         description:
           'Dose against fear, plotted, with the band where the hands stop shaking and before they start again.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_adrenal_regulator_valve_timing',
@@ -1699,7 +1700,7 @@ export const BLUEPRINTS = [
     name: 'Breaching Charges Blueprint',
     motif: 'fuse',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'Cone liners carried into a fight rather than laid the night before, and the packing that makes them cut.',
     targets: [{ kind: 'unit_upgrade', id: 'breaching_charges' }],
@@ -1717,7 +1718,7 @@ export const BLUEPRINTS = [
         motif: 'balance',
         description:
           'A beam on a fulcrum with the charge in the pan, and the grain weight for each liner size beside it.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_breaching_charges_standoff_sleeves',
@@ -1740,7 +1741,7 @@ export const BLUEPRINTS = [
     name: 'Rescue Rig Blueprint',
     motif: 'winch',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'Winch, sled and a harness that will hold a body. What went out comes back, and sometimes who went out.',
     targets: [{ kind: 'unit_upgrade', id: 'rescue_rig' }],
@@ -1765,7 +1766,7 @@ export const BLUEPRINTS = [
         motif: 'strap',
         description:
           'A harness strap over its anchor, rated in the margin for a body and a half, in case.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_rescue_rig_recovery_drill',
@@ -1773,7 +1774,7 @@ export const BLUEPRINTS = [
         motif: 'footprints',
         description:
           'Footprints on a numbered grid: who goes to the casualty, who holds the line, who works the winch.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -1782,7 +1783,7 @@ export const BLUEPRINTS = [
     name: 'Monofilament Edge Blueprint',
     motif: 'line_run',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb:
       'An edge one molecule wide, and the handle that keeps it away from the hand that holds it.',
     targets: [{ kind: 'unit_upgrade', id: 'monofilament_edge' }],
@@ -1793,7 +1794,7 @@ export const BLUEPRINTS = [
         motif: 'press',
         description:
           'A press with the drawing die under it, pulling the filament down through eleven passes.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_monofilament_edge_handle_keep',
@@ -1823,7 +1824,7 @@ export const BLUEPRINTS = [
     name: 'Hardshell Exoframe Blueprint',
     motif: 'piston',
     category: 'upgrade',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'A powered shell with its own cooling and its own opinion about doorways. Three streets hear it coming.',
     targets: [{ kind: 'unit_upgrade', id: 'hardshell_exoframe' }],
@@ -1862,7 +1863,7 @@ export const BLUEPRINTS = [
         motif: 'plating',
         description:
           'A plate with rivets round its edge, one of forty, with the order they go on drawn in the corner.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_hardshell_exoframe_egress_drill',
@@ -1870,7 +1871,7 @@ export const BLUEPRINTS = [
         motif: 'list',
         description:
           'Numbered items down a sheet for getting out of it in under a minute, the last one about the latch.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -1879,7 +1880,7 @@ export const BLUEPRINTS = [
     name: 'Synaptic Lace Blueprint',
     motif: 'lace',
     category: 'upgrade',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'Six weeks of growing a net through a brain, and what to do about the parts of the person it displaces.',
     targets: [{ kind: 'unit_upgrade', id: 'synaptic_lace' }],
@@ -1918,7 +1919,7 @@ export const BLUEPRINTS = [
         motif: 'prose',
         description:
           'Handwriting, no drawing, listing what came back after six weeks and what did not, in two columns.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -1927,7 +1928,7 @@ export const BLUEPRINTS = [
     name: 'Guided Rounds Blueprint',
     motif: 'cartridge',
     category: 'upgrade',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'A round that turns in the last half second, the fins that turn it, and what each one costs to make.',
     targets: [{ kind: 'unit_upgrade', id: 'guided_rounds' }],
@@ -1966,7 +1967,7 @@ export const BLUEPRINTS = [
         motif: 'card',
         description:
           'A ruled card of every part in one round against its caps value, totalled, one row struck out as unaffordable.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -1975,7 +1976,7 @@ export const BLUEPRINTS = [
     name: 'Ghost Protocol Blueprint',
     motif: 'hood',
     category: 'upgrade',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'Heat, sound and signal, each killed by a different hand, so that afterwards nobody can prove you were there.',
     targets: [{ kind: 'unit_upgrade', id: 'ghost_protocol' }],
@@ -2021,7 +2022,7 @@ export const BLUEPRINTS = [
         motif: 'prose',
         description:
           'Handwriting in a hand that was trained for it, on how this was done before, and who is still alive to ask.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -2030,7 +2031,7 @@ export const BLUEPRINTS = [
     name: 'Colours of the Line Blueprint',
     motif: 'mast',
     category: 'upgrade',
-    rarity: 'exotic',
+    rarity: 'masterpiece',
     blurb:
       'A standard, the pole it hangs from, and who carries it. A line that can see it does not break.',
     targets: [{ kind: 'unit_upgrade', id: 'colours_of_the_line' }],
@@ -2055,7 +2056,7 @@ export const BLUEPRINTS = [
         motif: 'list',
         description:
           'Numbered items down a sheet, names, every bearer the line has had and how each one stopped.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_mod_colours_of_the_line_battle_honours',
@@ -2083,7 +2084,7 @@ export const BLUEPRINTS = [
     name: 'Nexus Retrofit Blueprint',
     motif: 'switchboard',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Cable runs and cipher racks. Everything the district knows goes through this room.',
     targets: [{ kind: 'building', id: 'nexus' }],
     pages: [
@@ -2105,14 +2106,14 @@ export const BLUEPRINTS = [
         name: 'Floor Plan',
         motif: 'plan',
         description: 'The room from above, with the one wall marked that must not be moved.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_nexus_aerial_mast',
         name: 'Aerial Mast',
         motif: 'mast',
         description: 'A mast, its guys, and the height it has to reach to be worth putting up.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2121,7 +2122,7 @@ export const BLUEPRINTS = [
     name: 'Quarters Retrofit Blueprint',
     motif: 'hut',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Bunk framing and a flue that draws. People sleep or they do not.',
     targets: [{ kind: 'building', id: 'quarters' }],
     pages: [
@@ -2136,7 +2137,7 @@ export const BLUEPRINTS = [
         name: 'Stove Flue',
         motif: 'flue',
         description: 'A flue that draws, in section, with the one bend it will tolerate.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2145,7 +2146,7 @@ export const BLUEPRINTS = [
     name: 'Greenhouse Retrofit Blueprint',
     motif: 'greenhouse',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Glazing bars and an irrigation loop that does not need anybody standing over it.',
     targets: [{ kind: 'building', id: 'greenhouse' }],
     pages: [
@@ -2161,7 +2162,7 @@ export const BLUEPRINTS = [
         name: 'Irrigation Loop',
         motif: 'loop',
         description: 'A loop off a header tank, so nobody has to stand there with a watering can.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2170,7 +2171,7 @@ export const BLUEPRINTS = [
     name: 'Generator Retrofit Blueprint',
     motif: 'generator_set',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Winding diagrams and a governor linkage, for the machine everything else is plugged into.',
     targets: [{ kind: 'building', id: 'generator' }],
@@ -2180,7 +2181,7 @@ export const BLUEPRINTS = [
         name: 'Winding Diagram',
         motif: 'coil',
         description: 'Windings counted out turn by turn, with the wire gauge noted in the corner.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_generator_governor_linkage',
@@ -2193,7 +2194,7 @@ export const BLUEPRINTS = [
         name: 'Exhaust Scrubber',
         motif: 'column',
         description: 'A scrubber, its packing, and how often somebody has to go and change it.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2202,7 +2203,7 @@ export const BLUEPRINTS = [
     name: 'Scrapyard Retrofit Blueprint',
     motif: 'scrap_heap',
     category: 'upgrade',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'A sorting line and press tooling. The yard stops being a heap and becomes a shop.',
     targets: [{ kind: 'building', id: 'scrapyard' }],
     pages: [
@@ -2217,14 +2218,14 @@ export const BLUEPRINTS = [
         name: 'Press Tooling',
         motif: 'press',
         description: 'Tooling for the press in hardened steel, drawn with the tonnage it needs.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_scrapyard_crane_gantry',
         name: 'Crane Gantry',
         motif: 'crane',
         description: 'A gantry across the yard, and the footings that stop it walking under load.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2233,7 +2234,7 @@ export const BLUEPRINTS = [
     name: 'Apothecary Retrofit Blueprint',
     motif: 'retort',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'A still column and dosage tables somebody died working out.',
     targets: [{ kind: 'building', id: 'apothecary' }],
     pages: [
@@ -2242,7 +2243,7 @@ export const BLUEPRINTS = [
         name: 'Still Column',
         motif: 'column',
         description: 'A column in section, plate by plate, with which cut to take and when.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_apothecary_dosage_tables',
@@ -2255,7 +2256,7 @@ export const BLUEPRINTS = [
         name: 'Cold Store',
         motif: 'plan',
         description: 'An insulated room and its ice budget, for the things that will not keep.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2264,7 +2265,7 @@ export const BLUEPRINTS = [
     name: 'Gate Retrofit Blueprint',
     motif: 'gate',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Counterweights and bar sockets. It has to shut faster than anybody can run.',
     targets: [{ kind: 'building', id: 'gate' }],
     pages: [
@@ -2280,7 +2281,7 @@ export const BLUEPRINTS = [
         motif: 'plan',
         description:
           'Holes in the soffit, spaced to cover the whole gateway and nothing beyond it.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_gate_bar_sockets',
@@ -2295,7 +2296,7 @@ export const BLUEPRINTS = [
     name: 'Lab Retrofit Blueprint',
     motif: 'microscope',
     category: 'upgrade',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Bench layout, an extraction hood and a room clean enough to be worth the trouble.',
     targets: [{ kind: 'building', id: 'lab' }],
     pages: [
@@ -2304,7 +2305,7 @@ export const BLUEPRINTS = [
         name: 'Bench Layout',
         motif: 'plan',
         description: 'Benches, services and walking room, in that order of importance.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_lab_extraction_hood',
@@ -2318,7 +2319,7 @@ export const BLUEPRINTS = [
         name: 'Reference Shelf',
         motif: 'rack',
         description: 'Shelving, and a list of what should be on it that is mostly not.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_lab_clean_room',
@@ -2334,7 +2335,7 @@ export const BLUEPRINTS = [
     name: 'Gauntlet Retrofit Blueprint',
     motif: 'hurdles',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb:
       'Obstacle frames, drainage under the sand, and a board everyone can read their score off.',
     targets: [{ kind: 'building', id: 'gauntlet' }],
@@ -2356,14 +2357,14 @@ export const BLUEPRINTS = [
         name: 'Scoring Board',
         motif: 'board',
         description: 'A board readable from the rail, with the letter heights that prove it.',
-        rarity: 'common',
+        rarity: 'basic',
       },
       {
         id: 'pg_gauntlet_armoury_racks',
         name: 'Armoury Racks',
         motif: 'rack',
         description: 'Racks by weapon length, with the lock on the door and who holds the key.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
     ],
   },
@@ -2372,7 +2373,7 @@ export const BLUEPRINTS = [
     name: 'Infirmary Retrofit Blueprint',
     motif: 'bed',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Ward layout and a sterile line people actually keep to.',
     targets: [{ kind: 'building', id: 'infirmary' }],
     pages: [
@@ -2388,14 +2389,14 @@ export const BLUEPRINTS = [
         motif: 'list',
         description:
           'A line on the floor and the rules for crossing it, which people keep to or do not.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_infirmary_triage_board',
         name: 'Triage Board',
         motif: 'board',
         description: 'A board, four columns, and the order the columns are worked through in.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2404,7 +2405,7 @@ export const BLUEPRINTS = [
     name: 'Garage Retrofit Blueprint',
     motif: 'hoist',
     category: 'upgrade',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Pit layout, hoist ratings and a parts wall with everything where it should be.',
     targets: [{ kind: 'building', id: 'garage' }],
     pages: [
@@ -2420,7 +2421,7 @@ export const BLUEPRINTS = [
         name: 'Hoist Rating',
         motif: 'table',
         description: 'Ratings against what the district actually drives, two of them crossed out.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_garage_fuel_bay',
@@ -2433,7 +2434,7 @@ export const BLUEPRINTS = [
         name: 'Parts Wall',
         motif: 'tools',
         description: 'A wall of shadows, every tool outlined, so a missing one is obvious.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2444,7 +2445,7 @@ export const BLUEPRINTS = [
     name: 'Overnight Plating Blueprint',
     motif: 'plating',
     category: 'consumable',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'A cut list and a weld sequence, for the night before rather than the month before.',
     targets: [{ kind: 'battle_boost', id: 'boost_plated_overnight' }],
     pages: [
@@ -2459,7 +2460,7 @@ export const BLUEPRINTS = [
         name: 'Weld Sequence',
         motif: 'list',
         description: 'The order to run the welds in, so it is still straight in the morning.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2468,7 +2469,7 @@ export const BLUEPRINTS = [
     name: 'Shaped Charge Blueprint',
     motif: 'charge',
     category: 'consumable',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'Cone geometry and a standoff table. Cut for this wall, this week.',
     targets: [{ kind: 'battle_boost', id: 'boost_shaped_for_this' }],
     pages: [
@@ -2477,7 +2478,7 @@ export const BLUEPRINTS = [
         name: 'Cone Geometry',
         motif: 'chart',
         description: 'Cone angles against standoff, plotted, with the useful band shaded in.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_shaped_charges_standoff_table',
@@ -2490,7 +2491,7 @@ export const BLUEPRINTS = [
         name: 'Tamping Notes',
         motif: 'section',
         description: 'What to pack behind it, and what happens when there is nothing behind it.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2499,7 +2500,7 @@ export const BLUEPRINTS = [
     name: 'Approach Plans Blueprint',
     motif: 'frontage',
     category: 'consumable',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Somebody surveyed the doors and wrote down which way the specialists go in.',
     targets: [{ kind: 'battle_boost', id: 'boost_the_right_doors' }],
     pages: [
@@ -2514,7 +2515,7 @@ export const BLUEPRINTS = [
         name: 'Timing Sheet',
         motif: 'table',
         description: 'Times down the left, rooms across the top, filled in for one night only.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2523,7 +2524,7 @@ export const BLUEPRINTS = [
     name: 'Refined Accelerant Blueprint',
     motif: 'can',
     category: 'consumable',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Fuel nobody should be able to make, and four pages on how not to be standing near it.',
     targets: [{ kind: 'battle_boost', id: 'boost_the_colossus_walks' }],
     pages: [
@@ -2544,7 +2545,7 @@ export const BLUEPRINTS = [
         name: 'Handling Rules',
         motif: 'list',
         description: 'Four rules, lettered large, and none of them about the fuel itself.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
       {
         id: 'pg_refined_accelerant_burn_rate',
@@ -2568,7 +2569,7 @@ export const BLUEPRINTS = [
     name: 'Pressure Plate Blueprint',
     motif: 'pressure_plate',
     category: 'consumable',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'Which boards to lift, what to put under them, and how much weight sets it off.',
     targets: [{ kind: 'trap', id: 'trap_pressure_plates' }],
     pages: [
@@ -2584,7 +2585,7 @@ export const BLUEPRINTS = [
         motif: 'balance',
         description:
           'Weights against what sets it off, found with a sack of scrap and a stopwatch.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2593,7 +2594,7 @@ export const BLUEPRINTS = [
     name: 'Buried Shell Blueprint',
     motif: 'buried_shell',
     category: 'consumable',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'How to move a cracked chemical round, how deep to put it, and where the wire runs.',
     targets: [{ kind: 'trap', id: 'trap_gas_shell' }],
     pages: [
@@ -2602,7 +2603,7 @@ export const BLUEPRINTS = [
         name: 'Round Handling',
         motif: 'shell',
         description: 'How to carry a cracked round, in six drawings, none of them reassuring.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_buried_shell_burial_depth',
@@ -2615,7 +2616,7 @@ export const BLUEPRINTS = [
         name: 'Trip Wiring',
         motif: 'line_run',
         description: 'Wire runs, anchor points, and the slack that keeps it quiet in the rain.',
-        rarity: 'common',
+        rarity: 'basic',
       },
     ],
   },
@@ -2624,7 +2625,7 @@ export const BLUEPRINTS = [
     name: 'Prepared Collapse Blueprint',
     motif: 'collapse',
     category: 'consumable',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'A survey of what is holding the frontage up, and the order in which to stop it.',
     targets: [{ kind: 'trap', id: 'trap_collapse' }],
     pages: [
@@ -2651,7 +2652,7 @@ export const BLUEPRINTS = [
         name: 'Fall Line',
         motif: 'plan',
         description: 'Where it lands, drawn on a street plan, with a house inside the arc.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2660,7 +2661,7 @@ export const BLUEPRINTS = [
     name: 'Razor Wire Blueprint',
     motif: 'braid',
     category: 'consumable',
-    rarity: 'common',
+    rarity: 'basic',
     blurb: 'How to draw tape off a reel without losing a hand, and where to peg it down.',
     targets: [{ kind: 'trap', id: 'trap_razor_wire' }],
     pages: [
@@ -2675,7 +2676,7 @@ export const BLUEPRINTS = [
         name: 'Picket Lines',
         motif: 'line_run',
         description: 'Peg spacings for a belt of it, with the gap a runner is meant to find.',
-        rarity: 'uncommon',
+        rarity: 'intricate',
       },
     ],
   },
@@ -2684,7 +2685,7 @@ export const BLUEPRINTS = [
     name: 'Fuel Fougasse Blueprint',
     motif: 'vessel',
     category: 'consumable',
-    rarity: 'uncommon',
+    rarity: 'intricate',
     blurb: 'A drum on its side in a pit, the angle it is dug at, and the charge behind it.',
     targets: [{ kind: 'trap', id: 'trap_fuel_fougasse' }],
     pages: [
@@ -2700,7 +2701,7 @@ export const BLUEPRINTS = [
         name: 'Thickened Mix',
         motif: 'mortar_pestle',
         description: 'Oil, rubber crumb and soap flake, worked until it stops running off a wall.',
-        rarity: 'rare',
+        rarity: 'advanced',
       },
       {
         id: 'pg_fuel_fougasse_scatter_charge',
@@ -2715,7 +2716,7 @@ export const BLUEPRINTS = [
     name: 'Flooded Cellar Blueprint',
     motif: 'cable_run',
     category: 'consumable',
-    rarity: 'rare',
+    rarity: 'advanced',
     blurb: 'Which cellar to fill, where the water goes when it is let go, and what is in it.',
     targets: [{ kind: 'trap', id: 'trap_flooded_cellar' }],
     pages: [
@@ -2731,7 +2732,7 @@ export const BLUEPRINTS = [
         motif: 'section',
         description:
           'A cut through the basement showing how deep it goes and how fast it gets there.',
-        rarity: 'exotic',
+        rarity: 'masterpiece',
       },
       {
         id: 'pg_flooded_cellar_bus_bars',

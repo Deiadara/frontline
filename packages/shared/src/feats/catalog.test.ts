@@ -6,9 +6,21 @@ import {
   modificationsFittingIn,
   storageCapacityFor,
 } from '../building/index.js';
+import { BLUEPRINTS } from '../blueprints/catalog.js';
+import { HOUSING_BASE, HOUSING_PER_QUARTERS_LEVEL } from '../building/production.js';
+import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
+import { MAX_LOCATION_LEVEL } from '../city/locations.js';
+import { MAX_PER_VEHICLE, VEHICLE_IDS } from '../building/vehicles.js';
+import { MAX_NOTORIETY } from '../economy/notoriety.js';
+import { RESEARCH_ITEMS } from '../research/tracks.js';
+import { SEAT_SLOT_ORDER } from '../factions/cards.js';
+import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from '../attributes.js';
+import { OFFICER_ROLES } from '../roles.js';
+import { UNIT_IDS } from '../units/catalog.js';
+import { UNIT_UPGRADE_SLOTS } from '../units/loadout.js';
 import { BUILDING_PART_GATES } from '../building/parts.js';
 import { UNIT_MODIFICATIONS } from '../units/modifications.js';
-import { CITY_DISTRICTS } from '../city/districts.js';
+import { CITY_DISTRICTS, CITY_LOCATIONS } from '../city/districts.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import { BLACK_MARKET_GOOD_IDS } from '../market/blackmarket.js';
@@ -123,10 +135,78 @@ describe('the feat catalogue', () => {
     expect(over, over.join('\n')).toEqual([]);
   });
 
+  /**
+   * The beds a crew could ever have, off the two things that make them.
+   *
+   * The absolute ceiling: a maxed Quarters at home plus every location in the city, held at once by
+   * one crew, at the top level. Nobody reaches it, which is the point of using it as a bound.
+   */
+  const HOUSING_CEILING =
+    HOUSING_BASE +
+    HOUSING_PER_QUARTERS_LEVEL * BUILDING_MAX_LEVEL +
+    CITY_LOCATIONS.length *
+      (UNIT_SLOTS_PER_LOCATION + UNIT_SLOTS_PER_LOCATION_LEVEL * MAX_LOCATION_LEVEL);
+
+  /**
+   * A unit reward has to be one a district can take, and the band check cannot see that.
+   *
+   * §A1 refuses a payout of units while there is nowhere to put them, and the feat stays **ready**:
+   * the backlog does not empty, the count on the Collect-all button does not move, and pressing it
+   * again pays nothing. The catalogue shipped two rungs (`trained_10` and `faction_10`) paying 844
+   * units worth 3,377 unit slots against a ceiling of 3,186, so the top of two ladders could not be
+   * collected by anybody, ever (bug pass, 2026-09-17).
+   *
+   * Held to half the ceiling rather than to all of it, because a crew collecting a feat has an army
+   * already: a reward that fits only into an empty district is a reward that has to be made room
+   * for, which is not what a reward is. Half is also where the catalogue already sat: the biggest
+   * bundle it has ever paid, `recruits('late', 'large')`, is 1,560 slots.
+   */
+  it('never pays more units than a district could house', () => {
+    const over: string[] = [];
+    let biggest = 0;
+    for (const feat of FEATS) {
+      const slots = Object.entries(feat.reward.units ?? {}).reduce(
+        (total, [id, count]) => total + (findUnit(id)?.unitSlots ?? 0) * (count ?? 0),
+        0,
+      );
+      biggest = Math.max(biggest, slots);
+      if (slots > HOUSING_CEILING / 2) {
+        over.push(
+          `${feat.id} pays ${slots} unit slots of units, half the ceiling is ${HOUSING_CEILING / 2}`,
+        );
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+    // A guard on the guard: with no unit rewards in the catalogue this proves nothing.
+    expect(biggest, 'nothing pays in units').toBeGreaterThan(0);
+  });
+
   /** A guard on the guard: a demand table that came out empty would make the above vacuous. */
   it('knows what the district and the unit bench actually ask for', () => {
     expect(Object.keys(LIFETIME_PART_DEMAND).length).toBeGreaterThan(5);
     expect(LIFETIME_PART_DEMAND['rotor_hub']).toBe(1);
+  });
+
+  /**
+   * Every reward is a whole number of whatever it pays.
+   *
+   * The schema only holds four of the five channels to it: `xp`, `infamy`, items and units are all
+   * `z.number().int()`, and **resources are not**, because production settles in fractional carry
+   * and the bundle has to be able to carry it. So a reward computed rather than typed can put a
+   * fraction on a stockpile, and `addResources` adds it straight on: `rise(3, 'coin')` paid
+   * 14000.000000000002 scrap, which a crew then held for ever (bug pass, 2026-09-17).
+   */
+  it('pays a whole number of everything, including the channel the schema lets be fractional', () => {
+    const fractional: string[] = [];
+    for (const feat of FEATS) {
+      for (const [key, amount] of Object.entries(feat.reward.resources ?? {})) {
+        if (!Number.isInteger(amount)) fractional.push(`${feat.id} pays ${amount} ${key}`);
+      }
+      for (const [key, amount] of Object.entries(feat.reward.units ?? {})) {
+        if (!Number.isInteger(amount)) fractional.push(`${feat.id} pays ${amount} ${key}`);
+      }
+    }
+    expect(fractional, fractional.join('\n')).toEqual([]);
   });
 
   it('pays something real for every feat', () => {
@@ -199,6 +279,67 @@ describe('chains', () => {
           steps[index - 1]!.target,
         );
       }
+    }
+  });
+
+  /**
+   * A rung never pays less than the one below it.
+   *
+   * The deep rungs (tier IV and up, added 2026-09-16) are the reason this is a rule now. They all
+   * sit in `late`/`large`, a band six hundred thousand caps wide at the time, and the natural way
+   * to write them was to reach for the same helpers the rest of the file uses. Do that and a
+   * ladder pays 402,790 at tier IV, 183,200 at tier V and 200,000 at tier VI: every gate in this
+   * file passes, because every one of those is inside its band, and the ladder still asks a player
+   * to do four times the work for half the money.
+   *
+   * Equal is allowed. Two rungs of one chain may pay the same bundle in different currencies.
+   */
+  it('never pays a rung less than the rung below it', () => {
+    const byChain = new Map<string, typeof FEATS>();
+    for (const feat of FEATS) {
+      if (feat.chain === null) continue;
+      byChain.set(feat.chain, [...(byChain.get(feat.chain) ?? []), feat]);
+    }
+    const fell: string[] = [];
+    for (const [chainId, steps] of byChain) {
+      for (let index = 1; index < steps.length; index += 1) {
+        const below = featRewardValue(steps[index - 1]!.reward);
+        const here = featRewardValue(steps[index]!.reward);
+        if (here < below) {
+          fell.push(
+            `${chainId}: ${steps[index]!.id} pays ${Math.round(here)} under ${Math.round(below)}`,
+          );
+        }
+      }
+    }
+    expect(fell, fell.join('\n')).toEqual([]);
+  });
+
+  /**
+   * Every part of the game has one ladder that runs the whole way up (maintainer, 2026-09-16).
+   *
+   * The catalogue was chains of two, three and four, which meant a crew that had been playing for
+   * months had collected the top rung of everything and had nothing left on the board. One ladder
+   * per group climbs to ten instead, so there is always a rung above the one you are on.
+   *
+   * Pinned per group rather than as a total, so that folding a group into another one, or dropping
+   * the ladder that carries it, fails here instead of quietly leaving that part of the game with a
+   * board that stops at four.
+   */
+  it('gives every part of the game one ladder that climbs to tier X', () => {
+    const TEN: Readonly<Record<string, string>> = {
+      'the work': 'runs',
+      fighting: 'kills',
+      'the city': 'taken',
+      'the district': 'addons',
+      'the crew': 'trained',
+      'the trade': 'caps',
+      'the name': 'infamy',
+      people: 'faction',
+    };
+    for (const [group, chainId] of Object.entries(TEN)) {
+      const steps = FEATS.filter((feat) => feat.chain === chainId);
+      expect(steps.length, `${group} (${chainId})`).toBe(10);
     }
   });
 
@@ -323,6 +464,56 @@ describe('measures and scopes', () => {
     }
   });
 
+  /**
+   * A target has to be a number the game can actually reach (bug pass, 2026-09-17).
+   *
+   * `resources_held` already had this check, for the reason the note above it gives: `stock_3`
+   * asked for 400,000 scrap against a widest-possible store of 93,056 and sat at 23% for ever,
+   * which looks exactly like a feat nobody has got round to. Growing the ladders to ten rungs made
+   * that failure mode much likelier, because the deep rungs are all guesses at how far a thing can
+   * go, so every **capped** measure is now held to its own ceiling rather than only that one.
+   *
+   * Derived from the tables rather than typed here, so shrinking the map, dropping a building kind
+   * or shortening the mark ladder fails this test instead of quietly stranding a rung.
+   */
+  it('never asks for more of a capped measure than the game can ever hold', () => {
+    const holdableDistricts = CITY_DISTRICTS.filter(
+      (district) => district.locations.length > 0,
+    ).length;
+    const CEILINGS: Partial<Record<FeatMeasure, number>> = {
+      building_level: BUILDING_MAX_LEVEL,
+      buildings_total: BUILDING_KINDS.length * BUILDING_MAX_LEVEL,
+      modifications_fitted: BUILDING_KINDS.length * MAX_MODIFICATION_SLOTS,
+      unit_modifications_fitted: UNIT_IDS.length * UNIT_UPGRADE_SLOTS,
+      unit_kinds_held: UNIT_IDS.length,
+      officer_best_mark: OFFICER_MARKS.length - 1,
+      officers_held: OFFICER_ROLES.length,
+      overseer_skills_at: ATTRIBUTE_NAMES.length,
+      overseer_best_skill: MAX_ATTRIBUTE,
+      notoriety: MAX_NOTORIETY,
+      research_done: RESEARCH_ITEMS.length,
+      blueprints_unlocked: BLUEPRINTS.length,
+      fleet_size: MAX_PER_VEHICLE * VEHICLE_IDS.length,
+      districts_held_whole: holdableDistricts,
+      locations_held: CITY_LOCATIONS.length,
+      faction_seats: SEAT_SLOT_ORDER.length,
+    };
+
+    const over: string[] = [];
+    let checked = 0;
+    for (const feat of FEATS) {
+      const ceiling = CEILINGS[feat.measure];
+      if (ceiling === undefined) continue;
+      checked += 1;
+      if (feat.target > ceiling) {
+        over.push(`${feat.id} wants ${feat.target} ${feat.measure}, ceiling ${ceiling}`);
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+    // A guard on the guard: a ceiling table that stopped matching any measure proves nothing.
+    expect(checked, 'no feat measures anything capped').toBeGreaterThan(30);
+  });
+
   it('uses every measure it declares', () => {
     const used = new Set<FeatMeasure>(FEATS.map((feat) => feat.measure));
     const unused = FEAT_MEASURES.filter((measure) => !used.has(measure));
@@ -396,10 +587,12 @@ describe('the shape of the set', () => {
     const areaFeats = FEATS.filter(
       (feat) => feat.measure === 'missions_in_area' && feat.scope !== MISC_AREA_ID,
     );
-    // Two rungs each, ten jobs then fifty, and both generated from the same city row. Pinned as a
-    // multiple rather than as a total so that adding a contested district to the map cannot
-    // silently leave it without work: the arithmetic moves with `CITY_DISTRICTS`.
-    expect(areaFeats.length).toBe(contested.length * 2);
+    // Four rungs each, ten jobs then fifty then two hundred then six hundred, all generated from
+    // the same city row. Pinned as a multiple rather than as a total so that adding a contested
+    // district to the map cannot silently leave it without work: the arithmetic moves with
+    // `CITY_DISTRICTS`.
+    const AREA_RUNGS = 4;
+    expect(areaFeats.length).toBe(contested.length * AREA_RUNGS);
     // The multiple alone is derived from the same filter the generator runs, so it holds for any
     // generator that walks the contested list, including one that walks it and writes the wrong
     // thing. One rung named by hand is the anchor that is not: Neon Docks is contested, and its
@@ -411,13 +604,15 @@ describe('the shape of the set', () => {
     expect(findFeat('area_neon_docks_2')?.target).toBe(50);
     for (const district of contested) {
       const rungs = areaFeats.filter((feat) => feat.scope === district.id);
-      expect(rungs.length, district.id).toBe(2);
+      expect(rungs.length, district.id).toBe(AREA_RUNGS);
       // A real ladder, not two feats that happen to share a scope: the second is locked behind
       // the first and asks for more.
       expect(rungs[0]?.after, district.id).toBeNull();
-      expect(rungs[1]?.after, district.id).toBe(rungs[0]?.id);
-      expect(rungs[1]?.target, district.id).toBeGreaterThan(rungs[0]?.target ?? 0);
-      expect(rungs[0]?.chain, district.id).toBe(rungs[1]?.chain);
+      for (let step = 1; step < rungs.length; step += 1) {
+        expect(rungs[step]?.after, district.id).toBe(rungs[step - 1]?.id);
+        expect(rungs[step]?.target, district.id).toBeGreaterThan(rungs[step - 1]?.target ?? 0);
+        expect(rungs[step]?.chain, district.id).toBe(rungs[0]?.chain);
+      }
     }
   });
 });

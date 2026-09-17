@@ -22,8 +22,9 @@ import {
   scaledSuccessChance,
 } from './missions.areas.js';
 import { CITY_DISTRICTS } from './city/index.js';
-import { MISSION_TEMPLATES } from './missions.js';
+import { MISSION_TEMPLATES, missionRewards } from './missions.js';
 import { RESOURCE_KG, lootCapacityOf } from './raid.js';
+import { RESOURCE_KEYS } from './resources.js';
 import { findUnit } from './units/index.js';
 import { MILESTONE_THIRD_CREW, playerUnlocksBetween } from './progression/index.js';
 
@@ -394,5 +395,68 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
 
   it('leaves nothing behind for a crew with no bags at all', () => {
     expect(carriedHome({ scrap: 100 }, 0, RESOURCE_KG)).toEqual({});
+  });
+
+  /**
+   * And it fills the bag, rather than flooring every line and walking home with slack in it.
+   *
+   * The trim used to be a proportional floor and nothing else, which left the remainders on the
+   * floor: 2.4 slots on an average trim across the board, nine on the Deep Expedition. At the
+   * bottom it was worse than untidy. A crew with one slot free and seventeen scrap on offer
+   * carried `floor(17 * 1/32) = 0` and came home with an empty bag, having walked to the edge of
+   * the map for it.
+   */
+  it('fills the last slots instead of flooring them away', () => {
+    const payout = { scrap: 17, planks: 13, caps: 2 };
+
+    // One slot, one unit of something that fits in it. Never an empty bag.
+    expect(payoutSlots(carriedHome(payout, 1, RESOURCE_KG), RESOURCE_KG)).toBe(1);
+
+    // And an exact fill wherever the weights allow one.
+    for (const room of [2, 5, 10, 20, 31]) {
+      const carried = carriedHome(payout, room, RESOURCE_KG);
+      expect(payoutSlots(carried, RESOURCE_KG), `room ${room}`).toBe(room);
+    }
+  });
+
+  /** Filling it must not invent anything, nor overload the crew. */
+  it('never carries more of a line than was on offer, nor more than the bags hold', () => {
+    const payout = { scrap: 9, highQualityMetal: 4, supplies: 3 };
+    const needed = payoutSlots(payout, RESOURCE_KG);
+    for (let room = 0; room <= needed + 5; room += 1) {
+      const carried = carriedHome(payout, room, RESOURCE_KG);
+      expect(payoutSlots(carried, RESOURCE_KG), `room ${room}`).toBeLessThanOrEqual(
+        Math.min(room, needed),
+      );
+      for (const [key, amount] of Object.entries(carried)) {
+        expect(amount, `${key} at room ${room}`).toBeLessThanOrEqual(
+          payout[key as keyof typeof payout] ?? 0,
+        );
+      }
+    }
+  });
+
+  /**
+   * The only slots left empty are ones nothing fits in.
+   *
+   * A crew can finish with room and still leave something: when every line that is left weighs
+   * more than the gap, the last bar of good metal stays on the ground. What must not happen is
+   * room going spare while a one-slot line is still on offer.
+   */
+  it('leaves a slot empty only when nothing on offer fits in it', () => {
+    for (const template of MISSION_TEMPLATES) {
+      const payout = missionRewards(template, 'success');
+      const needed = payoutSlots(payout, RESOURCE_KG);
+      if (needed <= 1) continue;
+      for (const fraction of [0.25, 0.5, 0.75, 0.95]) {
+        const room = Math.floor(needed * fraction);
+        const carried = carriedHome(payout, room, RESOURCE_KG);
+        const spare = room - payoutSlots(carried, RESOURCE_KG);
+        const couldStillFit = RESOURCE_KEYS.some(
+          (key) => (payout[key] ?? 0) > (carried[key] ?? 0) && RESOURCE_KG[key] <= spare,
+        );
+        expect(couldStillFit, `${template.id} at ${room} slots left ${spare} spare`).toBe(false);
+      }
+    }
   });
 });

@@ -14,8 +14,6 @@ import type {
   LaunchMissionResponse,
   MeResponse,
   TrainUnitsResponse,
-  UnitsResponse,
-  FitSlotRequest,
   BuildStructureResponse,
   ResearchResponse,
   TrainingResponse,
@@ -65,7 +63,6 @@ import {
   scoutDistrict,
   setGarrison,
   cancelTraining,
-  fitSlot,
   increasePayroll,
   releaseOfficer,
   trainUnits,
@@ -73,7 +70,6 @@ import {
   buyBuildBoost,
   buildAddon,
   clearModification,
-  fitModification,
   getScrapyard,
   getCrew,
   createOverseer,
@@ -101,7 +97,7 @@ import {
   withdrawOffer,
   acceptOffer,
   getBlackMarket,
-  takeFromBlackMarket,
+  placeBlackMarketBid,
   getSettings,
   updateProfile,
   changePassword,
@@ -195,7 +191,7 @@ function invalidateLevelSensitive(queryClient: QueryClient): void {
  *
  * Every caller invalidates the same key right after. A poll that left before the write answered
  * still resolves to the pre-write district, and `setQueryData` has no way to say "newer than
- * that"; invalidating cancels the read in flight and asks again. `useFitSlot` says the same.
+ * that"; invalidating cancels the read in flight and asks again. `useBurnUpgrade` says the same.
  */
 function setBase(queryClient: QueryClient, baseId: string, base: BaseDetailResponse['base']): void {
   const key = queryKeys.base(baseId);
@@ -400,12 +396,18 @@ export function useLaunchMission() {
  */
 const BAR_POLL_MS = 10_000;
 
-/** The Bar: tonight's tables plus the officers already on the books (GDD §H). */
-export function useBar() {
+/**
+ * The Bar: tonight's tables plus the officers already on the books (GDD §H).
+ *
+ * `city` is part of the key, so walking into another city's room is a different cache entry rather
+ * than the same one overwritten: a player flicking between two rooms gets each back instantly and
+ * neither poll clobbers the other's tables.
+ */
+export function useBar(city?: string) {
   const token = useSession((s) => s.token);
   return useQuery({
-    queryKey: queryKeys.bar,
-    queryFn: getBar,
+    queryKey: [...queryKeys.bar, city ?? ''],
+    queryFn: () => getBar(city),
     enabled: token !== null,
     refetchInterval: BAR_POLL_MS,
   });
@@ -540,6 +542,16 @@ export function useOverseerChoices() {
     queryKey: queryKeys.overseerChoices,
     queryFn: getOverseerChoices,
     staleTime: 0,
+    /*
+     * §F6: an empty offer is a wait, not an answer.
+     *
+     * Thirty characters, four held per offer and a hold that outlives the tab it was drawn for, so
+     * eight people signing up at once can leave the ninth with nothing to be offered. Measured on a
+     * hosted server: two of five registrations found the pool empty behind a previous burst. The
+     * screen has no button in that state and the holds ahead of it lapse on their own, so it asks
+     * again rather than leaving a player on an empty grid until they think to reload.
+     */
+    refetchInterval: (query) => (query.state.data?.choices.length === 0 ? 15_000 : false),
   });
 }
 
@@ -724,31 +736,6 @@ export function useTrainUnits(baseId: string | undefined) {
   return useBenchMutation(trainUnits, baseId);
 }
 
-/**
- * §A5: put one of the crew's built upgrades in one of a unit's three brackets, or empty it.
- *
- * The response is the whole refreshed roster, and it is written straight into the cache rather
- * than only invalidated: every sheet on the page is folded from the loadout at read time, so the
- * numbers under a bracket have to change on the same frame the bracket does. Still invalidated as
- * well, so a poll already in flight cannot land the pre-change roster on top of it.
- *
- * `me` with it, though fitting is free: `POST /units/loadout` settles the base on its first line
- * and only then asks whether the bracket will take the plate, so a refit banks production and a
- * *refused* one banks it too. Its twin `useBurnUpgrade` already dropped `me`; this one did not,
- * which left the two halves of the same screen disagreeing about the stockpile for a poll.
- */
-export function useFitSlot() {
-  const queryClient = useQueryClient();
-  return useMutation<UnitsResponse, ApiRequestError, FitSlotRequest>({
-    mutationFn: fitSlot,
-    onSuccess: (roster) => queryClient.setQueryData(queryKeys.units, roster),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
-    },
-  });
-}
-
 /** §A5: take a batch back off it, inside its window. Pays resources back, so the same refresh. */
 export function useCancelTraining(baseId: string | undefined) {
   return useBenchMutation(cancelTraining, baseId);
@@ -840,11 +827,13 @@ export function useCrewStanding() {
  * The market. Polled, because the Runner's hours turn over on the server's clock and somebody
  * else's listing can appear or vanish between two glances at the board.
  */
-export function useMarket() {
+export function useMarket(city?: string) {
   const token = useSession((s) => s.token);
   return useQuery({
-    queryKey: queryKeys.market,
-    queryFn: getMarket,
+    // The city is in the key so two markets are two cache entries: see `useBar`, which is keyed the
+    // same way for the same reason.
+    queryKey: [...queryKeys.market, city ?? ''],
+    queryFn: () => getMarket(city),
     enabled: token !== null,
     refetchInterval: DISTRICT_POLL_MS,
   });
@@ -943,29 +932,36 @@ export const useAcceptOffer = marketMutation(acceptOffer);
  * reason: the shelf is shared with the whole city, so a slot can be emptied and refilled by
  * somebody else while a player is reading it. Seeing that happen is the feature.
  */
-export function useBlackMarket() {
+export function useBlackMarket(city?: string) {
   const token = useSession((s) => s.token);
   return useQuery({
-    queryKey: queryKeys.blackMarket,
-    queryFn: getBlackMarket,
+    // The city is in the key so two rooms are two cache entries, the way `useMarket` and `useBar`
+    // are keyed: without it, switching city would show the previous city's crates until the
+    // refetch landed, and a crate is a lot somebody may be about to bid on.
+    queryKey: [...queryKeys.blackMarket, city ?? ''],
+    queryFn: () => getBlackMarket(city),
     enabled: token !== null,
     refetchInterval: DISTRICT_POLL_MS,
   });
 }
 
 /**
- * Taking something off the shelf.
+ * Saying a number on one of the fence's lots.
  *
  * The response is the whole refreshed shelf, so it is set first: a refetch alone would flash the
- * pre-purchase board. It is dropped as well, so a poll already in flight cannot land that board on
- * top of the response. The inventory and the HUD both moved (a blueprint landed, infamy was spent),
- * so `me` and the yard are dropped, and so are the battle board and the roster: contraband bought
- * here is what `BattleView.boosts` lists, and a crate can put units on the roster.
+ * board from before the bid. It is dropped as well, so a poll already in flight cannot land that
+ * board on top of the response.
+ *
+ * Everything downstream is dropped too, and still is now that a bid spends nothing: the same read
+ * settles last night's lots, so the very request that writes a number can be the one that hands
+ * this crew a crate it won overnight. That moves the ledger, the inventory and the yard (`me`), and
+ * the battle board and the roster with them, because contraband is what `BattleView.boosts` lists
+ * and a crate can put units on the roster.
  */
-export function useTakeFromBlackMarket() {
+export function usePlaceBlackMarketBid() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: takeFromBlackMarket,
+    mutationFn: placeBlackMarketBid,
     onSuccess: (response) => {
       queryClient.setQueryData(queryKeys.blackMarket, response.blackMarket);
       void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
@@ -1098,7 +1094,7 @@ function battleMutation<TArgs>(mutationFn: (args: TArgs) => Promise<BattleMutati
       // still have banked a resolved fight, a levelled crew and a district that changed hands.
       onSettled: () => {
         // The board itself, though it was just written: a 5s poll that left before the write
-        // answered would otherwise land the pre-write board on top of it. See `useFitSlot`.
+        // answered would otherwise land the pre-write board on top of it. See `useBurnUpgrade`.
         void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
         void queryClient.invalidateQueries({ queryKey: queryKeys.city });
         void queryClient.invalidateQueries({ queryKey: queryKeys.units });
@@ -1324,7 +1320,6 @@ function districtMutation<TArgs, TResponse extends { base: BaseDetailResponse['b
 }
 
 export const useBuyBuildBoost = districtMutation(buyBuildBoost);
-export const useFitModification = districtMutation(fitModification);
 export const useClearModification = districtMutation(clearModification);
 
 /** §B11: the Garage, on its own page and its own key. */
@@ -1465,7 +1460,7 @@ function useFactionMutation<TInput>(
     // `POST /factions/reinforce` settles the base and only then asks whether the fight is still
     // open, and "they are already through the gate" is the answer it gives most often.
     onSettled: () => {
-      // The screen that was just written, against a poll already in flight. See `useFitSlot`.
+      // The screen that was just written, against a poll already in flight. See `useBurnUpgrade`.
       void queryClient.invalidateQueries({ queryKey: queryKeys.faction });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       // A reinforcement takes units off the roster and puts a column on the road.

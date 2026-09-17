@@ -181,7 +181,7 @@ describe('the opening strike', () => {
     const [only] = run({ razors: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
     expect(only).toBeDefined();
     if (!only) return;
-    expect(ambushShare(only.attacker, only.defender, 48)).toBe(0);
+    expect(ambushShare(only.attacker, only.defender)).toBe(0);
   });
 
   it('is worth something to a force that can hide from what it is hitting', () => {
@@ -189,7 +189,7 @@ describe('the opening strike', () => {
     const [only] = run({ ghosts: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
     expect(only).toBeDefined();
     if (!only) return;
-    expect(ambushShare(only.attacker, only.defender, 48)).toBeGreaterThan(0);
+    expect(ambushShare(only.attacker, only.defender)).toBeGreaterThan(0);
   });
 
   /**
@@ -202,16 +202,15 @@ describe('the opening strike', () => {
     expect(only).toBeDefined();
     if (!only) return;
 
-    expect(ambushShare(only.attacker, seeing(only.defender, 0), 48)).toBeGreaterThan(0);
-    expect(ambushShare(only.attacker, seeing(only.defender, 100), 48)).toBe(0);
+    expect(ambushShare(only.attacker, seeing(only.defender, 0))).toBeGreaterThan(0);
+    expect(ambushShare(only.attacker, seeing(only.defender, 100))).toBe(0);
   });
 
   it('is worth more the wider the stealth gap', () => {
     const [only] = run({ ghosts: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
     expect(only).toBeDefined();
     if (!only) return;
-    const against = (stealth: number) =>
-      ambushShare(only.attacker, seeing(only.defender, stealth), 48);
+    const against = (stealth: number) => ambushShare(only.attacker, seeing(only.defender, stealth));
     expect(against(0)).toBeGreaterThan(against(20));
     expect(against(20)).toBeGreaterThan(against(40));
   });

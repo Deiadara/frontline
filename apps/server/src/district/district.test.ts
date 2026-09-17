@@ -19,7 +19,6 @@ import {
   BUILD_BOOST_PERCENT,
   buildBoostActive,
   addonsOf,
-  shelvedModifications,
   queueCompletesAt,
   startingEconomy,
   startingProgression,
@@ -39,7 +38,7 @@ import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBase } from './settle.js';
 import { queueBuild, buildClocksFor } from './build.js';
 import { buyBuildBoost } from './boost.js';
-import { clearSlot, fitIntoSlot } from './modifications.js';
+import { clearSlot } from './modifications.js';
 import { districtUnitSlots } from './unit-slots.js';
 import { setGarrison } from '../city/actions.js';
 import { projectUnits } from '../units/roster.js';
@@ -654,64 +653,42 @@ describe('unit slots (§A1: one pool)', () => {
 
 describe('modification brackets (§E)', () => {
   /**
-   * §E: a slot is filled and emptied from the structure, out of what the Scrapyard has built.
+   * §E: a bracket is emptied from the structure, and what comes out is destroyed.
    *
-   * Owning an add-on and having it installed are two facts, so a slot can be emptied and the thing
-   * is still yours.
+   * Filling one is the Scrapyard's own press as of 2026-09-16 (`district/scrapyard.ts` cuts the
+   * card for a named structure and bolts it in), so the half that lives here is the other one.
+   * There is no shelf for it to go back to: the card is gone and putting the same one in again
+   * means paying the yard again, which is the whole weight behind choosing a bracket.
    */
-  it('fits a built add-on, refuses a second copy, and empties the slot again', () => {
+  it('empties a bracket, destroys what was in it, and refuses to empty it twice', () => {
     const repos = openStack();
     const base = seedBase(repos, {
-      buildings: [build('nexus', 20), build('lab', 20)],
-      addons: { researched: ['lab_quantum_modeling'], built: ['lab_quantum_modeling'] },
+      buildings: [
+        build('nexus', 20),
+        { id: 'lab-1', kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'], damage: 0 },
+      ],
     });
 
-    const fitted = fitIntoSlot(repos, base, 'lab', 'lab_quantum_modeling');
-    expect(fitted.kind).toBe('fitted');
-    const withMod = fitted.kind === 'fitted' ? fitted.base : base;
-    expect(findBuilding(withMod.buildings, 'lab')?.modifications).toEqual(['lab_quantum_modeling']);
-
-    // One built, one fitted, so there is nothing left on the shelf to fit a second time.
-    const again = fitIntoSlot(repos, withMod, 'lab', 'lab_quantum_modeling');
-    expect(again).toEqual({ kind: 'refused', reason: 'already_fitted' });
-
-    const cleared = clearSlot(repos, withMod, 'lab', 0);
+    const cleared = clearSlot(repos, base, 'lab', 0);
     expect(cleared.kind).toBe('cleared');
-    const emptied = cleared.kind === 'cleared' ? cleared.base : withMod;
+    const emptied = cleared.kind === 'cleared' ? cleared.base : base;
     expect(findBuilding(emptied.buildings, 'lab')?.modifications).toEqual([]);
-    // ...and it is back on the shelf, which is what makes emptying reversible.
-    expect(shelvedModifications(addonsOf(emptied), emptied.buildings)).toEqual([
-      'lab_quantum_modeling',
-    ]);
+    // Nowhere to be found: not on the structure, and not on a shelf either, because there is none.
+    expect(addonsOf(emptied).built).toEqual([]);
+
     expect(clearSlot(repos, emptied, 'lab', 0)).toEqual({
       kind: 'refused',
       reason: 'already_empty',
     });
   });
 
-  it('says why a slot cannot be filled, before anything is spent', () => {
+  it('refuses a bracket the structure does not have', () => {
     const repos = openStack();
-    const shelved = seedBase(repos, {
-      buildings: [build('nexus', 20), build('lab', 4)],
-      addons: { researched: [], built: ['lab_quantum_modeling'] },
-    });
-    // One seeded crew per stack: `seedBase` inserts the same user row every time.
-    // The Lab is standing but is below the level that opens the first bracket.
-    expect(fitIntoSlot(repos, shelved, 'lab', 'lab_quantum_modeling')).toEqual({
-      kind: 'refused',
-      reason: 'slot_locked',
-    });
-
-    const empty: Base = {
-      ...shelved,
-      buildings: [build('nexus', 20), build('lab', 20)],
-      addons: { researched: [], built: [] },
-    };
-    expect(fitIntoSlot(repos, empty, 'lab', 'lab_quantum_modeling')).toEqual({
-      kind: 'refused',
-      reason: 'not_built',
-    });
-    expect(fitIntoSlot(repos, empty, 'gate', 'lab_quantum_modeling')).toEqual({
+    const base = seedBase(repos, { buildings: [build('nexus', 20), build('lab', 20)] });
+    // A slot index past the three every structure has.
+    expect(clearSlot(repos, base, 'lab', 9)).toEqual({ kind: 'refused', reason: 'bad_slot' });
+    // ...and a structure that is not standing at all.
+    expect(clearSlot(repos, base, 'gate', 0)).toEqual({
       kind: 'refused',
       reason: 'no_structure',
     });
