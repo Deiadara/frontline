@@ -1,3 +1,4 @@
+import { BUILDING_KINDS } from '../building/kinds.js';
 import { CITY_DISTRICTS } from '../city/districts.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
 import { markIndex } from '../crew/marks.js';
@@ -1338,6 +1339,250 @@ const FIGHTING: FeatSpec[] = [
       reward: rise(12, 'blood'),
     },
   ]),
+
+  /*
+   * The fights worth telling somebody about (maintainer request, 2026-09-18).
+   *
+   * Everything above this point counts fights. These count *particular* fights: the one you had no
+   * business winning, the one nobody died in, the one that was over in a round. A board made only
+   * of counters rewards showing up, and showing up is the one thing a player is going to do anyway.
+   *
+   * The thresholds are in `feats/battle.ts` rather than here, so a blurb promising a line twice
+   * your own and the settler that decides it cannot drift apart. Force is unit slots, not heads:
+   * see the note there for why counting bodies would make this ladder farmable with Razors.
+   */
+  ...chain('odds', 'battles_won_outnumbered', [
+    {
+      id: 'odds_1',
+      name: 'Against the Odds',
+      blurb: 'Win a fight where the line facing you was twice the size of your own.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: spoils('mid', 'medium'),
+    },
+    {
+      id: 'odds_2',
+      name: 'A Habit of It',
+      blurb: 'Ten wins at two to one against. It stops being a story and starts being a method.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'odds_3',
+      name: 'The Smaller Side',
+      blurb: 'Fifty won while outnumbered. Nobody sizes you up by what you brought any more.',
+      era: 'late',
+      size: 'large',
+      target: 50,
+      reward: spoils('late', 'large'),
+    },
+  ]),
+  ...chain('overwhelmed', 'battles_won_overwhelmed', [
+    {
+      id: 'overwhelmed_1',
+      name: 'Four to One',
+      blurb: 'Win a fight where they had four unit slots on the ground for every one of yours.',
+      era: 'late',
+      size: 'medium',
+      target: 1,
+      reward: street('late', 'medium'),
+    },
+    {
+      id: 'overwhelmed_2',
+      name: 'Five Times Over',
+      blurb: 'Five wins at four to one against. The first was the dice. These are not.',
+      era: 'late',
+      size: 'large',
+      target: 5,
+      reward: spoils('late', 'large'),
+    },
+    {
+      id: 'overwhelmed_3',
+      name: 'They Stopped Counting',
+      blurb: 'Twenty five fights won at four to one against. Bringing numbers has stopped helping.',
+      era: 'late',
+      size: 'large',
+      target: 25,
+      reward: rise(4, 'blood'),
+    },
+  ]),
+  ...chain('unbloodied', 'battles_won_flawless', [
+    {
+      id: 'unbloodied_1',
+      name: 'Everybody Home',
+      blurb: 'Win a fight and walk every single unit back off the field.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'unbloodied_2',
+      name: 'Not a Scratch',
+      blurb: 'Fifteen fights won without burying anybody. The crew has noticed.',
+      era: 'late',
+      size: 'medium',
+      target: 15,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'unbloodied_3',
+      name: 'Nobody Buried',
+      blurb: 'Seventy five wins, and not one casualty across the lot of them.',
+      era: 'late',
+      size: 'large',
+      target: 75,
+      reward: rise(4, 'coin'),
+    },
+  ]),
+  ...chain('routs', 'battles_won_lopsided', [
+    {
+      id: 'routs_1',
+      name: 'Ten for One',
+      blurb: 'Win a fight killing ten of theirs for every one of yours, and at least ten.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: spoils('mid', 'medium'),
+    },
+    {
+      id: 'routs_2',
+      name: 'One Sided',
+      blurb: 'Twenty fights over before the other crew worked out what they had walked into.',
+      era: 'late',
+      size: 'medium',
+      target: 20,
+      reward: street('late', 'medium'),
+    },
+    {
+      id: 'routs_3',
+      name: 'A Bad Trade to Take',
+      blurb: 'A hundred routs. The arithmetic of fighting you is public, and it is ugly.',
+      era: 'late',
+      size: 'large',
+      target: 100,
+      reward: spoils('late', 'large'),
+    },
+  ]),
+  ...chain('sacked', 'districts_raided', [
+    {
+      id: 'sacked_1',
+      name: 'Inside the Wall',
+      blurb: 'Break into a district somebody lives in and come back out with their stock.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'sacked_2',
+      name: 'Ten Doors In',
+      blurb: 'Ten districts broken into. Those roofs take weeks to come back.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: purse('late', 'medium'),
+    },
+    {
+      id: 'sacked_3',
+      name: 'The Sacking Season',
+      blurb: 'Forty break-ins. There are districts that budget for you now.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: rise(4, 'coin'),
+    },
+  ]),
+  ...chain('repelled', 'raids_repelled', [
+    {
+      id: 'repelled_1',
+      name: 'Not Today',
+      blurb: 'Turn back a break-in on the district you live in.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'repelled_2',
+      name: 'The Door Holds',
+      blurb: 'Ten raids on your own roofs, and ten crews sent home with nothing.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'repelled_3',
+      name: 'The District Holds',
+      blurb: 'Forty break-ins called on your district, every one of them stopped at the gate.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: rise(4, 'blood'),
+    },
+  ]),
+  ...chain('snares', 'trap_kills', [
+    {
+      id: 'snares_1',
+      name: 'Before They Knew',
+      blurb: 'Twenty five units taken by your traps before a shot was fired at anybody.',
+      era: 'mid',
+      size: 'small',
+      target: 25,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'snares_2',
+      name: 'The Ground Is Wired',
+      blurb: 'Five hundred killed by things buried under the approach.',
+      era: 'late',
+      size: 'medium',
+      target: 500,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'snares_3',
+      name: 'Nothing Walks In Clean',
+      blurb: 'Five thousand taken by traps. Columns slow right down two blocks out.',
+      era: 'late',
+      size: 'large',
+      target: 5_000,
+      reward: rise(4, 'blood'),
+    },
+  ]),
+  ...chain('ring', 'runners_caught', [
+    {
+      id: 'ring_1',
+      name: 'Nowhere to Run',
+      blurb: 'Stop ten beaten runners on their way out with a ring of your own.',
+      era: 'late',
+      size: 'small',
+      target: 10,
+      reward: purse('late', 'small'),
+    },
+    {
+      id: 'ring_2',
+      name: 'The Ring Holds',
+      blurb: 'Two hundred and fifty runners cut off. Losing to you is expensive twice over.',
+      era: 'late',
+      size: 'medium',
+      target: 250,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'ring_3',
+      name: 'No Way Back',
+      blurb: 'Two and a half thousand caught leaving. Nobody gets home to tell it.',
+      era: 'late',
+      size: 'large',
+      target: 2_500,
+      reward: spoils('late', 'large'),
+    },
+  ]),
 ];
 
 // --- the city ---
@@ -1999,6 +2244,16 @@ const DISTRICT: FeatSpec[] = [
       reward: rise(5, 'coin'),
     },
   ]),
+  /*
+   * Standing levels, against the district's true total rather than against eleven times the global
+   * ceiling (2026-09-18).
+   *
+   * The top rung is "every roof at its ceiling", and that number stopped being 220 when the Garage
+   * and the Infirmary were held to level 10: nine structures at 20 and two at 10 is 200, so the
+   * rung as written could not be collected by anybody. `catalog.test.ts` derives the bound the
+   * same way, per structure, so the next retune of a ceiling fails there instead of stranding this
+   * ladder again.
+   */
   ...chain('estate', 'buildings_total', [
     {
       id: 'estate_1',
@@ -2039,10 +2294,10 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'estate_5',
       name: 'Nothing Left to Raise',
-      blurb: 'Two hundred and twenty levels standing. Every roof is at its ceiling.',
+      blurb: 'Two hundred levels standing. Every roof is at its ceiling.',
       era: 'late',
       size: 'large',
-      target: 220,
+      target: 200,
       reward: rise(8, 'coin'),
     },
   ]),
@@ -2132,6 +2387,16 @@ const DISTRICT: FeatSpec[] = [
     ],
     'lab',
   ),
+  /*
+   * The Garage stops at level 10, not 20, so this ladder runs 1 / 4 / 7 / 10 (maintainer,
+   * 2026-09-18).
+   *
+   * It used to ask for 8, 16 and 20. Two of those were rungs nobody could ever stand on once the
+   * ceiling came down, and a feat pinned above its own ceiling is the failure this file's own doc
+   * block describes: it sits at a percentage for ever and looks exactly like a feat nobody has got
+   * round to. Same four feats and same rewards; only the numbers under them moved, and the top one
+   * is a maxed Garage the way it always was.
+   */
   ...chain(
     'garage',
     'building_level',
@@ -2148,28 +2413,28 @@ const DISTRICT: FeatSpec[] = [
       {
         id: 'garage_2',
         name: 'A Real Yard',
-        blurb: 'Garage eight. The big machines need somewhere to be.',
+        blurb: 'Garage four. The big machines need somewhere to be.',
         era: 'late',
         size: 'medium',
-        target: 8,
+        target: 4,
         reward: purse('late', 'medium'),
       },
       {
         id: 'garage_3',
         name: 'A Yard With a Name',
-        blurb: 'A Garage at sixteen. Machines come out of it that nobody else can build.',
+        blurb: 'A Garage at seven. Machines come out of it that nobody else can build.',
         era: 'late',
         size: 'large',
-        target: 16,
+        target: 7,
         reward: wages('late', 'large'),
       },
       {
         id: 'garage_4',
         name: 'The Garage, Finished',
-        blurb: 'Twenty levels. Everything the game can build has a bay in there.',
+        blurb: 'Ten levels. Everything the game can build has a bay in there.',
         era: 'late',
         size: 'large',
-        target: 20,
+        target: 10,
         reward: rise(7, 'coin'),
       },
     ],
@@ -2252,6 +2517,10 @@ const DISTRICT: FeatSpec[] = [
    * slot at level 5. A set is three slots on one structure all of one family, so it needs a
    * structure at twenty and belongs late; the targets stop at five because a sixth set is a sixth
    * building at maximum level, which is further than any other feat in the catalogue reaches.
+   *
+   * "All of them" is 31 rather than 33 (2026-09-18). The third bracket opens at level 20
+   * (`MODIFICATION_SLOT_LEVELS`), and the Garage and the Infirmary now stop at 10, so those two
+   * never get a third one: nine structures with three brackets and two with two.
    */
   ...chain('fittings', 'modifications_fitted', [
     {
@@ -2293,10 +2562,10 @@ const DISTRICT: FeatSpec[] = [
     {
       id: 'fittings_5',
       name: 'Every Bracket Full',
-      blurb: 'Thirty three fittings, which is all of them. There is nowhere left to bolt anything.',
+      blurb: 'Thirty one fittings, which is all of them. There is nowhere left to bolt anything.',
       era: 'late',
       size: 'large',
-      target: 33,
+      target: 31,
       reward: rise(4, 'coin'),
     },
   ]),
@@ -2489,6 +2758,47 @@ const DISTRICT: FeatSpec[] = [
       size: 'large',
       target: 20_000,
       reward: rise(12, 'coin'),
+    },
+  ]),
+
+  /*
+   * The end of the build queue (maintainer request, 2026-09-18).
+   *
+   * `buildings_total` counts standing levels and climbs the whole game, which makes it a good
+   * ladder and a bad answer to "is the district done". This is the other question, and the last
+   * rung is the only feat in the file that can be finished by having nothing left to build.
+   *
+   * The ceiling is not one number: the Garage and the Infirmary stop at 10 and everything else at
+   * 20 (`building/kinds.ts`), so the measure asks each structure about its own. The last target is
+   * read off `BUILDING_KINDS` rather than typed, because a twelfth structure has to move it.
+   */
+  ...chain('finished', 'buildings_maxed', [
+    {
+      id: 'finished_1',
+      name: 'As High as It Goes',
+      blurb: 'Take one structure all the way to its ceiling.',
+      era: 'late',
+      size: 'medium',
+      target: 1,
+      reward: wages('late', 'medium'),
+    },
+    {
+      id: 'finished_2',
+      name: 'Five at the Top',
+      blurb: 'Five structures with nowhere left to build. The queue is getting picky.',
+      era: 'late',
+      size: 'large',
+      target: 5,
+      reward: wages('late', 'large'),
+    },
+    {
+      id: 'finished_3',
+      name: 'The Finished District',
+      blurb: 'Every structure you own standing at its ceiling. There is nothing left to raise.',
+      era: 'late',
+      size: 'large',
+      target: BUILDING_KINDS.length,
+      reward: rise(7, 'coin'),
     },
   ]),
 ];

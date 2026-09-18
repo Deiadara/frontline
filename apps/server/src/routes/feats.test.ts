@@ -146,8 +146,8 @@ describe('GET /feats', () => {
       base.id,
       [
         ...base.buildings,
-        { id: 'test-greenhouse', kind: 'greenhouse', level: 3, modifications: [], damage: 0 },
-        { id: 'test-scrapyard', kind: 'scrapyard', level: 3, modifications: [], damage: 0 },
+        { id: 'test-greenhouse', kind: 'greenhouse', level: 3, modifications: [] },
+        { id: 'test-scrapyard', kind: 'scrapyard', level: 3, modifications: [] },
       ],
       base.buildQueue,
     );

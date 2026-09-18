@@ -6,10 +6,12 @@ import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from './unit-slots.
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
+  BUILDING_LEVEL_CEILINGS,
   BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
   buildingsUnlockedAt,
   describeBuildingRequirement,
+  levelCeilingFor,
   nexusLevelFor,
 } from './kinds.js';
 import { blueprintForModification, modificationGateMet } from '../blueprints/index.js';
@@ -42,6 +44,7 @@ import { MAX_EFFECT_REDUCTION, districtEffects, localProductionPercent } from '.
 import {
   BUILDING_COST_GROWTH,
   GENERATOR_TIME_DISCOUNT_PER_LEVEL,
+  LATE_COST_FROM_LEVEL,
   baseBuildSeconds,
   baseBuildingCost,
   buildDiscountFor,
@@ -60,6 +63,7 @@ import {
 import { NEXUS_LADDERS, levelCapForNexus, nexusLevelForUpgrade } from './kinds.js';
 import {
   GATE_DEFENSE_PERCENT_PER_LEVEL,
+  GATE_INTEL_RESISTANCE_PER_LEVEL,
   MAX_GAUNTLET_TRAINING_BONUS,
   MAX_GREENHOUSE_SUPPLIES_DISCOUNT,
   TRAINING_TIME_PER_GAUNTLET_LEVEL,
@@ -117,7 +121,6 @@ const build = (kind: (typeof BUILDING_KINDS)[number], level: number): Building =
   kind,
   level,
   modifications: [],
-  damage: 0,
 });
 
 /** What `POST /overseer` mints. */
@@ -217,7 +220,9 @@ describe('level caps and unlocks (§A1)', () => {
    * reason forever the moment any other rung moves.
    */
   it('holds a structure back on another structure, and on the crew’s own level', () => {
-    const maxed = BUILDING_KINDS.filter((kind) => kind !== 'garage').map((kind) => build(kind, 20));
+    const maxed = BUILDING_KINDS.filter((kind) => kind !== 'garage').map((kind) =>
+      build(kind, levelCeilingFor(kind)),
+    );
 
     // Everything standing, crew too green: the level clause alone is unmet.
     const green = unmetRequirements('garage', maxed, 1);
@@ -264,7 +269,7 @@ describe('level caps and unlocks (§A1)', () => {
 describe('what a level costs and how long it takes (§A1, §D3)', () => {
   it('never gets cheaper in any material as it climbs', () => {
     for (const kind of BUILDING_KINDS) {
-      for (let level = 2; level <= BUILDING_MAX_LEVEL; level += 1) {
+      for (let level = 2; level <= levelCeilingFor(kind); level += 1) {
         const lower = baseBuildingCost(kind, level - 1);
         const higher = baseBuildingCost(kind, level);
         for (const key of RESOURCE_KEYS) {
@@ -284,25 +289,72 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
   });
 
   /**
-   * The maintainer asked for seconds at the start, minutes in the middle and hours at the end. Asserted
-   * in those units rather than against the growth constant. This is the one claim in the module
-   * that a reader can check against the request itself.
+   * The maintainer's ladder, in the maintainer's own units: "early game is low minutes, mid game is
+   * hours and end game is day".
+   *
+   * Asserted in minutes and hours rather than against {@link BUILDING_TIME_GROWTH}, so a reader can
+   * check it against the request rather than against the arithmetic. Every band is a real bound in
+   * both directions: a one-sided band would pass on a catalogue of zeroes.
+   *
+   * Read against each structure's own {@link levelCeilingFor}, which is what makes the Infirmary
+   * and the Garage fit the same shape as everybody else on ten rungs instead of twenty.
    */
-  it('runs seconds → minutes → hours across the twenty levels', () => {
+  it('runs low minutes → hours → most of a day up each structure’s own ladder', () => {
+    const MINUTE = 60;
+    const HOUR = 3600;
+
+    // Early: the first level of every plot a district can open before the Nexus reaches 10.
+    const early = BUILDING_KINDS.filter((kind) => nexusLevelFor(kind) < 10);
+    expect(early.length, 'the early plots').toBe(9);
+    for (const kind of early) {
+      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeGreaterThanOrEqual(2 * MINUTE);
+      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeLessThanOrEqual(3 * MINUTE);
+    }
+
+    // The two late plots open at about an hour instead, because they unlock at Nexus 10 and 12 and
+    // then have ten rungs to climb rather than twenty. A two-minute first level would put their
+    // whole ladder inside an afternoon.
+    const late = BUILDING_KINDS.filter((kind) => nexusLevelFor(kind) >= 10);
+    expect(late).toEqual(['infirmary', 'garage']);
+    for (const kind of late) {
+      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeGreaterThan(HOUR);
+      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeLessThan(1.5 * HOUR);
+    }
+
+    // Mid: three fifths of the way up its own ladder, every structure is into the hours. Level 12
+    // of a twenty-rung structure, level 6 of a ten-rung one.
     for (const kind of BUILDING_KINDS) {
-      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeLessThan(90);
-      expect(baseBuildSeconds(kind, 1), `${kind} L1`).toBeGreaterThanOrEqual(10);
+      const level = Math.round(levelCeilingFor(kind) * 0.6);
+      const seconds = baseBuildSeconds(kind, level);
+      expect(seconds, `${kind} L${level}`).toBeGreaterThan(HOUR);
+      expect(seconds, `${kind} L${level}`).toBeLessThan(8 * HOUR);
     }
-    const mid = BUILDING_KINDS.map((kind) => baseBuildSeconds(kind, 10));
-    for (const seconds of mid) {
-      expect(seconds).toBeGreaterThan(3 * 60);
-      expect(seconds).toBeLessThan(60 * 60);
+
+    // End: the last level of anything is the better part of a day, and the Nexus is the longest of
+    // them because the maintainer asked for it to finish in the 30 hour range.
+    const ceilings = BUILDING_KINDS.map((kind) => baseBuildSeconds(kind, levelCeilingFor(kind)));
+    for (const [index, seconds] of ceilings.entries()) {
+      expect(seconds, `${BUILDING_KINDS[index]} at its ceiling`).toBeGreaterThanOrEqual(20 * HOUR);
+      expect(seconds, `${BUILDING_KINDS[index]} at its ceiling`).toBeLessThanOrEqual(30 * HOUR);
     }
-    const top = BUILDING_KINDS.map((kind) => baseBuildSeconds(kind, BUILDING_MAX_LEVEL));
-    for (const seconds of top) {
-      expect(seconds).toBeGreaterThan(2 * 3600);
-      expect(seconds).toBeLessThan(24 * 3600);
-    }
+    expect(Math.max(...ceilings)).toBe(baseBuildSeconds(CENTRAL_BUILDING, BUILDING_MAX_LEVEL));
+  });
+
+  /**
+   * The constraint the openers were compressed for, pinned so it cannot be undone by halves.
+   *
+   * One {@link BUILDING_TIME_GROWTH} for every structure means the ratio between any two of them is
+   * the same at every level: the 8x spread the maintainer's sheet had at level 1 (a Gate at 60
+   * seconds, a Lab at 500) would be an 8x spread at the ceiling too, and the endings were asked to
+   * come out flat. The endings won. If somebody re-spreads the openers without giving each
+   * structure its own growth rate, this is the test that says what it cost.
+   */
+  it('keeps the openers as tightly grouped as the endings, because one rate cannot do both', () => {
+    const ordinary = BUILDING_KINDS.filter((kind) => levelCeilingFor(kind) === BUILDING_MAX_LEVEL);
+    const first = ordinary.map((kind) => baseBuildSeconds(kind, 1));
+    const last = ordinary.map((kind) => baseBuildSeconds(kind, BUILDING_MAX_LEVEL));
+    expect(Math.max(...first) / Math.min(...first)).toBeLessThan(1.5);
+    expect(Math.max(...last) / Math.min(...last)).toBeLessThan(1.5);
   });
 
   it('§B4: discounts every *other* structure as the Generator grows, and never itself', () => {
@@ -321,7 +373,7 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
     const stacked = [
       { ...build('nexus', BUILDING_MAX_LEVEL) },
       { ...build('lab', 20), modifications: ['lab_process_cell'] },
-      { ...build('garage', 20), modifications: ['garage_machine_shop'] },
+      { ...build('garage', 10), modifications: ['garage_machine_shop'] },
       { ...build('quarters', 20), modifications: ['quarters_prefab_stacks'] },
     ];
     const cost = buildingCost('greenhouse', 1, stacked);
@@ -350,7 +402,7 @@ describe('§B1: the Nexus permission table', () => {
   it('asks a Nexus level of every upgrade, per building and per level', () => {
     for (const kind of BUILDING_KINDS) {
       if (kind === CENTRAL_BUILDING) continue;
-      const rungs = Array.from({ length: BUILDING_MAX_LEVEL }, (_, index) =>
+      const rungs = Array.from({ length: levelCeilingFor(kind) }, (_, index) =>
         nexusLevelForUpgrade(kind, index + 1),
       );
       // Never steps down: a level being legal while the one below it is not is unplayable.
@@ -363,15 +415,17 @@ describe('§B1: the Nexus permission table', () => {
   });
 
   it('is asymmetric: the Gate and the Lab do not want the same Nexus at the same level', () => {
-    expect(nexusLevelForUpgrade('gate', 5)).toBe(2);
+    expect(nexusLevelForUpgrade('gate', 5)).toBe(1);
     expect(nexusLevelForUpgrade('lab', 5)).toBe(4);
     // The board's own example, and the general claim behind it: some pair of structures disagrees
     // at every level worth reaching.
     const disagreements = Array.from({ length: BUILDING_MAX_LEVEL }, (_, index) => {
       const level = index + 1;
-      const wanted = BUILDING_KINDS.filter((kind) => kind !== CENTRAL_BUILDING).map((kind) =>
-        nexusLevelForUpgrade(kind, level),
-      );
+      // Only the structures that can be ordered to this level at all: a Garage's rung at 15 is not
+      // a disagreement about anything, because there is no fifteenth Garage.
+      const wanted = BUILDING_KINDS.filter(
+        (kind) => kind !== CENTRAL_BUILDING && levelCeilingFor(kind) >= level,
+      ).map((kind) => nexusLevelForUpgrade(kind, level));
       return new Set(wanted).size;
     });
     expect(Math.min(...disagreements)).toBeGreaterThan(1);
@@ -383,6 +437,8 @@ describe('§B1: the Nexus permission table', () => {
     expect(structureLevelCap('gate', nexusAt(2))).toBeGreaterThan(2);
     expect(structureLevelCap('lab', nexusAt(2))).toBe(0);
     expect(levelCapForNexus('gate', BUILDING_MAX_LEVEL)).toBe(BUILDING_MAX_LEVEL);
+    // ...and a finished Nexus still will not sign a Garage past its own ten rungs.
+    expect(levelCapForNexus('garage', BUILDING_MAX_LEVEL)).toBe(10);
     // The Nexus answers to nobody.
     expect(NEXUS_LADDERS[CENTRAL_BUILDING]).toHaveLength(0);
     expect(structureLevelCap(CENTRAL_BUILDING, nexusAt(1))).toBe(BUILDING_MAX_LEVEL);
@@ -967,13 +1023,12 @@ describe('the build queue (§A1)', () => {
   });
 
   it('lets a player queue the Nexus and the thing it unlocks in the same breath', () => {
-    const gate = nexusLevelFor('gate');
-    // The Gate also waits on the Scrapyard, so the district here has one standing: the clause
-    // under test is the Nexus one, and leaving the other unmet would prove nothing about it.
-    const yard = [...NEW_DISTRICT, build('scrapyard', 3)];
-    expect(isUnlockedForQueue('gate', yard, [], 99)).toBe(false);
-    const queue: BuildQueue = [entry('nexus', gate, NOW, 60)];
-    expect(isUnlockedForQueue('gate', yard, queue, 99)).toBe(true);
+    // The Greenhouse waits on Nexus 3 and on nothing else, so the clause under test is the only
+    // thing standing between the district and the plot.
+    const greenhouse = nexusLevelFor('greenhouse');
+    expect(isUnlockedForQueue('greenhouse', NEW_DISTRICT, [], 99)).toBe(false);
+    const queue: BuildQueue = [entry('nexus', greenhouse, NOW, 60)];
+    expect(isUnlockedForQueue('greenhouse', NEW_DISTRICT, queue, 99)).toBe(true);
   });
 
   it('stacks repeat orders for the same plot', () => {
@@ -985,12 +1040,15 @@ describe('the build queue (§A1)', () => {
   it('refuses to queue past the ceiling, standing or projected', () => {
     const maxed = [build('nexus', BUILDING_MAX_LEVEL)];
     expect(nextQueuedLevel('nexus', maxed, [])).toBeNull();
-    // §B1: the Greenhouse's ladder wants Nexus 3 for level 5, and `NEW_DISTRICT` has a Nexus 1,
-    // so four levels are available and the fifth is not: the projection is what it is measured on.
-    expect(nextQueuedLevel('greenhouse', NEW_DISTRICT, [])).toBe(1);
-    expect(
-      nextQueuedLevel('greenhouse', NEW_DISTRICT, [entry('greenhouse', 4, NOW, 60)]),
-    ).toBeNull();
+    /*
+     * §B1: the Quarters' ladder wants Nexus 3 for level 5, and `NEW_DISTRICT` has a Nexus 1, so
+     * four levels are available and the fifth is not: the projection is what it is measured on.
+     * Read on the Quarters rather than the Greenhouse since 2026-09-18, because the Greenhouse's
+     * own plot now waits on Nexus 3 and a district that cannot lay one at all says nothing about
+     * where its ceiling is.
+     */
+    expect(nextQueuedLevel('quarters', NEW_DISTRICT, [])).toBe(1);
+    expect(nextQueuedLevel('quarters', NEW_DISTRICT, [entry('quarters', 4, NOW, 60)])).toBeNull();
   });
 
   it('splits the queue at the first order that is not finished, in order', () => {
@@ -1082,7 +1140,15 @@ describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are w
     }
   });
 
-  it('§B7: raises defence and cover with the Gate, and both fall when it is wrecked', () => {
+  /**
+   * §B7: both figures are the Gate's level and nothing else.
+   *
+   * There used to be a third term here, the damage a won raid did to the structure, and the levels
+   * were multiplied by what was left of it. That mechanic is retired (§A4, 2026-09-18): a lost raid
+   * costs the district hours of output, not roofs. So the pin is an equality on the level rather
+   * than an inequality against a wrecked copy, which is the stronger statement anyway.
+   */
+  it('§B7: raises defence and cover with the Gate, off its level and nothing else', () => {
     expect(gateDefensePercent([])).toBe(0);
     expect(gateIntelResistancePercent([])).toBe(0);
 
@@ -1091,16 +1157,13 @@ describe('§B5, §B6, §B7: what the Greenhouse, the Gauntlet and the Gate are w
     expect(gateDefensePercent(high)).toBeGreaterThan(gateDefensePercent(low));
     expect(gateIntelResistancePercent(high)).toBeGreaterThan(gateIntelResistancePercent(low));
     expect(gateDefensePercent(high)).toBe(12 * GATE_DEFENSE_PERCENT_PER_LEVEL);
-
-    // A breached Gate is worth less on both counts until it is put right (§A4).
-    const wrecked: Building[] = [{ ...build('gate', 12), damage: 100 }];
-    expect(gateDefensePercent(wrecked)).toBeLessThan(gateDefensePercent(high));
-    expect(gateIntelResistancePercent(wrecked)).toBeLessThan(gateIntelResistancePercent(high));
+    expect(gateIntelResistancePercent(high)).toBe(12 * GATE_INTEL_RESISTANCE_PER_LEVEL);
+    expect(gateDefensePercent(low)).toBe(4 * GATE_DEFENSE_PERCENT_PER_LEVEL);
   });
 });
 
 describe('§A1: the unit-slot ceiling', () => {
-  const finished: Building[] = BUILDING_KINDS.map((kind) => build(kind, BUILDING_MAX_LEVEL));
+  const finished: Building[] = BUILDING_KINDS.map((kind) => build(kind, levelCeilingFor(kind)));
 
   it('houses about two thousand once the district is built and holding ground', () => {
     // Fifteen locations, which is a crew with a real grip on the map rather than a maximal one.
@@ -1132,7 +1195,7 @@ describe('§A1: the unit-slot ceiling', () => {
  */
 describe('the Infirmary, at the boardrate', () => {
   const gate = (level: number): Building[] => [
-    { id: 'i', kind: 'infirmary', level, modifications: [], damage: 0 },
+    { id: 'i', kind: 'infirmary', level, modifications: [] },
   ];
 
   it('hands back four percent of the dead per level', () => {
@@ -1147,7 +1210,10 @@ describe('the Infirmary, at the boardrate', () => {
 
   /** The ceiling is on the recovery itself, so two sources cannot add past it. */
   it('never returns more than four in ten, however deep it goes', () => {
-    const deep = recoverCasualties({ razors: 100 }, infirmaryRecoveryPercent(gate(20)));
+    const deep = recoverCasualties(
+      { razors: 100 },
+      infirmaryRecoveryPercent(gate(levelCeilingFor('infirmary'))),
+    );
     expect(100 - (deep.razors ?? 0)).toBeLessThanOrEqual(40);
   });
 });
@@ -1166,11 +1232,11 @@ describe('the Infirmary, at the boardrate', () => {
  */
 describe('what the Garage makes (§B11)', () => {
   const at = (kind: Building['kind'], level: number): Building[] => [
-    { id: 'x', kind, level, modifications: [], damage: 0 },
+    { id: 'x', kind, level, modifications: [] },
   ];
 
   it('produces nothing at any level', () => {
-    for (const level of [1, 5, 10, 20]) {
+    for (const level of [1, 5, levelCeilingFor('garage')]) {
       expect(districtProduction(at('garage', level)).perHour).toEqual({});
     }
   });
@@ -1244,5 +1310,137 @@ describe('§D12f: what the Scrapyard will not cut yet', () => {
     // here (`needs_research`), and this is the assertion that keeps it from coming back.
     expect(refuse(read, BROKE)).toBe('cannot_afford');
     expect(refuse(read, RICH)).toBeNull();
+  });
+});
+
+/**
+ * A ceiling of a structure's own, on top of the Nexus's permission table (§B1).
+ *
+ * The Infirmary and the Garage open at Nexus 10 and 12 and stop at level 10. Every other structure
+ * still runs to {@link BUILDING_MAX_LEVEL}. The two rules are separate and both have to hold: the
+ * Nexus can sign for a level the structure does not have, and a structure can have a level the
+ * Nexus will not sign for.
+ */
+describe('the ceiling a structure has of its own', () => {
+  it('stops the two late plots at ten and leaves everything else at twenty', () => {
+    expect(levelCeilingFor('garage')).toBe(10);
+    expect(levelCeilingFor('infirmary')).toBe(10);
+    for (const kind of BUILDING_KINDS) {
+      if (kind === 'garage' || kind === 'infirmary') continue;
+      expect(levelCeilingFor(kind), kind).toBe(BUILDING_MAX_LEVEL);
+    }
+    // The table is the only place the exception is written: nothing else may name a structure.
+    expect(Object.keys(BUILDING_LEVEL_CEILINGS).sort()).toEqual(['garage', 'infirmary']);
+  });
+
+  /**
+   * The ceiling has to reach the queue, or it is a number on a screen.
+   *
+   * Asserted through `structureLevelCap` and `nextStructureLevel` rather than through
+   * `levelCeilingFor` a second time, because those two are what the build queue, the upgrade
+   * routes and the structure dialog all actually call.
+   */
+  it('refuses an eleventh Garage under a finished Nexus, and offers a twentieth Lab', () => {
+    const district = BUILDING_KINDS.map((kind) => build(kind, levelCeilingFor(kind)));
+    expect(structureLevelCap('garage', district)).toBe(10);
+    expect(nextStructureLevel('garage', district)).toBeNull();
+    expect(structureLevelCap('infirmary', district)).toBe(10);
+    expect(nextStructureLevel('infirmary', district)).toBeNull();
+
+    // One rung short of each ceiling, the same district is still offering the next level.
+    const nearly = BUILDING_KINDS.map((kind) => build(kind, levelCeilingFor(kind) - 1));
+    expect(nextStructureLevel('garage', nearly)).toBe(10);
+    expect(nextStructureLevel('lab', nearly)).toBe(BUILDING_MAX_LEVEL);
+  });
+
+  /** And the Nexus, which is not what is stopping them, is not blamed for it either. */
+  it('is not a Nexus shortfall: a Garage at ten wants nothing from the Nexus', () => {
+    const district = [build(CENTRAL_BUILDING, BUILDING_MAX_LEVEL), build('garage', 10)];
+    expect(nexusShortfall('garage', district)).toBeNull();
+  });
+
+  it('names no rung its structure cannot be ordered to', () => {
+    for (const kind of BUILDING_KINDS) {
+      for (const [target] of NEXUS_LADDERS[kind]) {
+        expect(target, `${kind}'s ladder`).toBeLessThanOrEqual(levelCeilingFor(kind));
+      }
+    }
+    // And the two short ladders still climb across the ten rungs they have, rather than being
+    // truncated into a single breakpoint.
+    expect(NEXUS_LADDERS.garage.length).toBeGreaterThanOrEqual(3);
+    expect(NEXUS_LADDERS.infirmary.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+/**
+ * High quality metal from the fifth level up, on the seven structures that charge none at the first
+ * (maintainer request, 2026-09-18).
+ *
+ * `baseCost` could not say this: every line in it is charged at level 1 and multiplied from there,
+ * so "none until level 5" is a change to the cost model rather than a number in the same table.
+ * `lateCost` is that change, and these are the two claims that make it worth having.
+ */
+describe('what a structure starts asking for partway up', () => {
+  const LATE_METAL: Partial<Record<(typeof BUILDING_KINDS)[number], number>> = {
+    nexus: 60,
+    scrapyard: 45,
+    gate: 40,
+    greenhouse: 35,
+    generator: 35,
+    quarters: 30,
+    apothecary: 25,
+  };
+
+  it('charges none of it below the fifth level and all of it at the fifth', () => {
+    // The level is written out rather than read off the constant. Deriving both sides of this from
+    // `LATE_COST_FROM_LEVEL` would agree with any starting level at all, including 1, which is the
+    // one thing the maintainer asked against.
+    expect(LATE_COST_FROM_LEVEL).toBe(5);
+    for (const [kind, amount] of Object.entries(LATE_METAL)) {
+      const structure = kind as (typeof BUILDING_KINDS)[number];
+      expect(BUILDING_CATALOG[structure].baseCost.highQualityMetal, kind).toBeUndefined();
+      for (const level of [1, 2, 3, 4]) {
+        expect(
+          baseBuildingCost(structure, level).highQualityMetal,
+          `${kind} L${level}`,
+        ).toBeUndefined();
+      }
+      // The figure in the catalogue is what the fifth level costs, not a level-1 price scaled up.
+      expect(baseBuildingCost(structure, 5).highQualityMetal, kind).toBe(amount);
+      // ...and it climbs from there like every other line.
+      expect(baseBuildingCost(structure, 6).highQualityMetal ?? 0, kind).toBeGreaterThan(amount);
+    }
+  });
+
+  it('leaves the four that charge it from the first level charging it from the first level', () => {
+    for (const kind of ['lab', 'gauntlet', 'infirmary', 'garage'] as const) {
+      expect(BUILDING_CATALOG[kind].lateCost, kind).toBeUndefined();
+      expect(baseBuildingCost(kind, 1).highQualityMetal ?? 0, kind).toBeGreaterThan(0);
+      expect(baseBuildingCost(kind, 4).highQualityMetal ?? 0, kind).toBeGreaterThan(
+        baseBuildingCost(kind, 1).highQualityMetal ?? 0,
+      );
+    }
+  });
+
+  /**
+   * The bill has to stay in proportion to the rest of the structure, or the metal is the only
+   * thing anybody is buying. The four that already charged it sit between 1 and 5 percent of what
+   * the rest of their level costs, and the seven new lines are held to the same band.
+   */
+  it('keeps the metal a fraction of the bill rather than the bill', () => {
+    for (const kind of BUILDING_KINDS) {
+      const bill = baseBuildingCost(kind, LATE_COST_FROM_LEVEL);
+      const metal = bill.highQualityMetal ?? 0;
+      const rest = Object.entries(bill)
+        .filter(([key]) => key !== 'highQualityMetal')
+        .reduce((total, [, amount]) => total + (amount ?? 0), 0);
+      expect(metal, kind).toBeGreaterThan(0);
+      expect(metal / rest, kind).toBeGreaterThan(0.01);
+      expect(metal / rest, kind).toBeLessThan(0.05);
+    }
+    // The heavier structures carry the heavier line, which is the whole of how the seven were
+    // sized against each other.
+    expect(LATE_METAL.nexus).toBeGreaterThan(LATE_METAL.scrapyard ?? 0);
+    expect(LATE_METAL.scrapyard).toBeGreaterThan(LATE_METAL.apothecary ?? 0);
   });
 });

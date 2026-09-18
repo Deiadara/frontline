@@ -69,7 +69,6 @@ or client-facing type.
 | `battle/intel.ts`       | What the other side can count of a deployment, on the §F2 channels                   |
 | `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                              |
 | `economy/infamy.ts`     | §D7 as an uncapped point total: what a kill is worth, and what a name buys           |
-| `building/damage.ts`    | What a breach does to a structure, and what watching one is worth                    |
 | `api.ts`                | All request/response DTO schemas + `ApiErrorSchema`                                  |
 | `api.battle.ts`         | The declared-battle contract, kept separate because it is a whole feature's worth    |
 

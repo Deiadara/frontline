@@ -194,6 +194,112 @@ describe('special units are almost immune to certain damage', () => {
     }
   });
 
+  /**
+   * Every unit answers something and dreads something (maintainer, 2026-09-18).
+   *
+   * Twenty-one of the thirty-one sheets carried no resistances at all, which made the damage type
+   * axis inert for two thirds of the roster: whatever you brought against a Razor or a Sniper or a
+   * Cyberhound, it landed at exactly full price, and the defending player had no counter-build to
+   * make. The mechanic read as designed on the cards of the ten units that had one and did nothing
+   * anywhere else.
+   *
+   * This is the rule rather than a snapshot of today's numbers: what it refuses is a *new* unit
+   * arriving with an empty sheet, which is how the hole opened in the first place.
+   */
+  it('gives every unit something it answers and something it dreads', () => {
+    for (const spec of UNIT_CATALOG) {
+      const entries = Object.values(spec.stats.resistances);
+      expect(
+        entries.some((value) => value > 0),
+        `${spec.id} answers nothing: there is no force it is the right call against`,
+      ).toBe(true);
+      expect(
+        entries.some((value) => value < 0),
+        `${spec.id} dreads nothing: there is no force that is the right call against it`,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * ...and both halves of every type exist somewhere on the roster.
+   *
+   * A type nobody resists is a type with no counter-play, and a type nobody dreads is a type with
+   * no reason to bring it. Either one turns the axis back into flat damage for that type.
+   */
+  it('leaves no damage type without both an answer and a victim', () => {
+    for (const type of DAMAGE_TYPES) {
+      const resists = UNIT_CATALOG.filter((spec) => (spec.stats.resistances[type] ?? 0) > 0);
+      const dreads = UNIT_CATALOG.filter((spec) => (spec.stats.resistances[type] ?? 0) < 0);
+      expect(resists.length, `nothing answers ${type}`).toBeGreaterThan(0);
+      expect(dreads.length, `nothing dreads ${type}`).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * The sheet is the same sheet on both sides of the line.
+   *
+   * A resistance protects the unit being shot at, whichever side of the fight it is standing on,
+   * because `exchange` reads the sheet of whoever is the target of *that* exchange and both sides
+   * fire through it. This pins that: it is the property the maintainer asked for, and it is the one
+   * a future "defence bonus" shortcut would quietly break by teaching the engine to read the
+   * defender's sheet only while defending.
+   */
+  it('is worth the same whether the unit is attacking or holding', () => {
+    const energy = { ...bare('razors'), damageType: 'energy' as const };
+    const weak = bare('hollow_men');
+    const attacking = exchange(energy, [], weak, weak.morale);
+    const holding = exchange(energy, [], weak, weak.morale);
+    expect(attacking.parts.type).toBe(holding.parts.type);
+    // And it is the *vulnerability*, not a neutral 1: the fixture has to be a real matchup or the
+    // equality above holds for two numbers that are both meaningless.
+    expect(attacking.parts.type).toBeGreaterThan(1.3);
+  });
+
+  /**
+   * The defender meets the mix that actually turns up (maintainer, 2026-09-18).
+   *
+   * The Travian idea the maintainer asked about: a defending force should answer the *composition*
+   * of what attacks it rather than being flatly good, so scouting is worth something and there is a
+   * counter-build to make. This engine gets it for free, because every exchange is resolved stack
+   * against stack: a column that is 70% blade delivers 70% of its damage into the defender's blade
+   * sheet. Free is exactly why it is worth pinning.
+   *
+   * **Both attacking sheets are the same sheet but for the damage type**, and that is the whole
+   * design of the test. A first version sent Razors and Breakers, which is how a player would
+   * actually do it, and it passed with the damage type axis deleted outright: Breakers are a heavy
+   * unit and simply hit harder, so the defenders died faster for a reason that had nothing to do
+   * with what they answer. Confounding the type with the unit that carries it measures the unit.
+   */
+  it('reads the mix of the column, not just its size', () => {
+    const wardens = bare('wardens');
+    // Wardens answer blade at +25 and dread explosive at -20.
+    const hitting = (type: UnitStats['damageType']) =>
+      exchange(carrying(type), [], wardens, wardens.morale).perBody;
+    /** What one body of a column that is `share` explosive and the rest blade lands, on average. */
+    const column = (share: number) => (1 - share) * hitting('blade') + share * hitting('explosive');
+
+    const ladder = [0, 0.25, 0.5, 0.75, 1].map(column);
+    for (let step = 1; step < ladder.length; step += 1) {
+      expect(ladder[step]!, `${ladder.map((n) => n.toFixed(1)).join(' -> ')}`).toBeGreaterThan(
+        ladder[step - 1]!,
+      );
+    }
+    // A pure explosive column is worth about half again what a pure blade one is, into this sheet.
+    expect(ladder[4]! / ladder[0]!).toBeGreaterThan(1.4);
+
+    /*
+     * And against a sheet with no answer, the mix stops mattering entirely.
+     *
+     * The other half of the claim, and the one that says the ladder above is the *defender's*
+     * sheet talking rather than something about the two damage types themselves.
+     */
+    const noAnswer = { ...bare('wardens'), resistances: {} };
+    const flat = (share: number) =>
+      (1 - share) * exchange(carrying('blade'), [], noAnswer, noAnswer.morale).perBody +
+      share * exchange(carrying('explosive'), [], noAnswer, noAnswer.morale).perBody;
+    expect(flat(1)).toBeCloseTo(flat(0), 6);
+  });
+
   it('never lets a resistance reach immunity', () => {
     // The Abomination's sheet says 100. Nothing in this game is immune.
     const abomination = bare('the_abomination');
@@ -207,7 +313,17 @@ describe('special units are almost immune to certain damage', () => {
     const netrunners = bare('netrunners');
     const juggernauts = bare('juggernauts');
     expect(damageTypeMultiplier(netrunners, juggernauts)).toBeGreaterThan(1.3);
-    expect(damageTypeMultiplier(netrunners, bare('razors'))).toBe(1);
+    /*
+     * The plain hit is built rather than borrowed, for the same reason `carrying` is.
+     *
+     * Every unit in the roster now carries a sheet (2026-09-18), which is the point of the change:
+     * a damage type that nobody answers is a type the defending player has no decision about. So
+     * "a unit with no answer to this" is no longer something the catalogue can be asked for, and
+     * pointing this at whichever unit happens to have no energy line today would put the test back
+     * on the roster instead of on the rule.
+     */
+    const noAnswer = { ...bare('razors'), resistances: {} };
+    expect(damageTypeMultiplier(netrunners, noAnswer)).toBe(1);
   });
 
   it('never lets a vulnerability run away either', () => {

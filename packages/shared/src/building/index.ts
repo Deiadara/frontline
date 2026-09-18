@@ -1,6 +1,5 @@
 export * from './kinds.js';
 export * from './modifications.js';
-export * from './damage.js';
 export * from './state.js';
 export * from './effects.js';
 export * from './cost.js';

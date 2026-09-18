@@ -5,7 +5,6 @@ import {
   type ResourceKey,
   type Resources,
 } from '../resources.js';
-import { buildingEffectiveness, districtEffectiveness } from './damage.js';
 import { districtEffects, localProductionPercent, withBonus } from './effects.js';
 import { BUILDING_KINDS, type BuildingKind } from './kinds.js';
 import { LOCAL_EFFECTS, MODIFICATIONS, fitsIn } from './modifications.js';
@@ -107,7 +106,7 @@ for (const spec of MODIFICATIONS) {
  *
  * Nothing scales this district-wide any more. The Generator used to hold a grid up and everything
  * ran at a fraction of itself when it could not (§A1 as it was); the grid is gone (§A1 as it is),
- * so what a line makes is what its own level, its own modifications and its own damage say.
+ * so what a line makes is what its own level and its own modifications say.
  */
 export function buildingProduction(
   kind: BuildingKind,
@@ -118,20 +117,14 @@ export function buildingProduction(
   if (!rates || level <= 0) return {};
 
   const local = localProductionPercent(findBuilding(buildings, kind));
-  // §A4: a wrecked line runs at up to half. Applied here rather than to the district total so a
-  // crew that lost its Greenhouse and kept its Scrapyard sees exactly that on the readout.
-  const working = buildingEffectiveness(findBuilding(buildings, kind));
 
   return Object.fromEntries(
-    Object.entries(rates).map(([key, rate]) => [
-      key,
-      withBonus((rate ?? 0) * level, local) * working,
-    ]),
+    Object.entries(rates).map(([key, rate]) => [key, withBonus((rate ?? 0) * level, local)]),
   );
 }
 
 export interface DistrictProduction {
-  /** Units per hour, damage and modifications already folded in. */
+  /** Units per hour, modifications already folded in. */
   perHour: PartialResources;
 }
 
@@ -196,7 +189,6 @@ export function storageCapacity(
   const effects = districtEffects(buildings);
   return Math.round(
     withBonus(STORAGE_BASE * STORAGE_GROWTH ** level, effects.storage_percent) *
-      buildingEffectiveness(findBuilding(buildings, 'apothecary')) *
       Math.max(1, 1 + crewStorageCapacityPercent / 100),
   );
 }
@@ -250,12 +242,9 @@ export function unitSlotCapacity(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   const quarters = buildingLevel(buildings, 'quarters');
   const beds = HOUSING_BASE + HOUSING_PER_QUARTERS_LEVEL * ((quarters * (quarters + 1)) / 2);
-  // Weighted across the whole district: people sleep in the Quarters but a wrecked district is a
-  // wrecked district, and the floor keeps the founding crew housed however bad the night was.
-  return Math.max(
-    HOUSING_BASE,
-    Math.floor(withBonus(beds, effects.housing_percent) * districtEffectiveness(buildings)),
-  );
+  // Floored at the founding crew's own beds, so a negative `housing_percent` cannot leave a crew
+  // with nowhere to sleep the people it started with.
+  return Math.max(HOUSING_BASE, Math.floor(withBonus(beds, effects.housing_percent)));
 }
 
 export interface CrewYield {

@@ -12,7 +12,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Consumables and other items](#consumables-and-other-items) (92 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (406 entries)
+- [Feats](#feats) (433 entries)
 - [Missions](#missions) (38 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
 - [Locations](#locations) (105 entries)
@@ -999,6 +999,30 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `kills_8` | Six Figures | late | large | `kills` | `kills_7` | `kills` | 100,000 | infamy | 991,700 |
 | `kills_9` | The Long List | late | large | `kills` | `kills_8` | `kills` | 170,000 | infamy | 1,181,600 |
 | `kills_10` | What the War Cost | late | large | `kills` | `kills_9` | `kills` | 280,000 | infamy | 1,413,700 |
+| `odds_1` | Against the Odds | mid | medium | `odds` | - | `battles_won_outnumbered` | 1 | resources, infamy | 20,100 |
+| `odds_2` | A Habit of It | late | medium | `odds` | `odds_1` | `battles_won_outnumbered` | 10 | resources, infamy | 116,200 |
+| `odds_3` | The Smaller Side | late | large | `odds` | `odds_2` | `battles_won_outnumbered` | 50 | resources, infamy | 183,200 |
+| `overwhelmed_1` | Four to One | late | medium | `overwhelmed` | - | `battles_won_overwhelmed` | 1 | infamy | 80,000 |
+| `overwhelmed_2` | Five Times Over | late | large | `overwhelmed` | `overwhelmed_1` | `battles_won_overwhelmed` | 5 | resources, infamy | 183,200 |
+| `overwhelmed_3` | They Stopped Counting | late | large | `overwhelmed` | `overwhelmed_2` | `battles_won_overwhelmed` | 25 | infamy | 189,900 |
+| `unbloodied_1` | Everybody Home | mid | medium | `unbloodied` | - | `battles_won_flawless` | 1 | infamy | 15,000 |
+| `unbloodied_2` | Not a Scratch | late | medium | `unbloodied` | `unbloodied_1` | `battles_won_flawless` | 15 | resources, infamy | 116,200 |
+| `unbloodied_3` | Nobody Buried | late | large | `unbloodied` | `unbloodied_2` | `battles_won_flawless` | 75 | resources | 189,900 |
+| `routs_1` | Ten for One | mid | medium | `routs` | - | `battles_won_lopsided` | 1 | resources, infamy | 20,100 |
+| `routs_2` | One Sided | late | medium | `routs` | `routs_1` | `battles_won_lopsided` | 20 | infamy | 80,000 |
+| `routs_3` | A Bad Trade to Take | late | large | `routs` | `routs_2` | `battles_won_lopsided` | 100 | resources, infamy | 183,200 |
+| `sacked_1` | Inside the Wall | mid | medium | `sacked` | - | `districts_raided` | 1 | resources | 17,700 |
+| `sacked_2` | Ten Doors In | late | medium | `sacked` | `sacked_1` | `districts_raided` | 10 | resources | 103,200 |
+| `sacked_3` | The Sacking Season | late | large | `sacked` | `sacked_2` | `districts_raided` | 40 | resources | 189,900 |
+| `repelled_1` | Not Today | mid | medium | `repelled` | - | `raids_repelled` | 1 | infamy | 15,000 |
+| `repelled_2` | The Door Holds | late | medium | `repelled` | `repelled_1` | `raids_repelled` | 10 | resources, infamy | 116,200 |
+| `repelled_3` | The District Holds | late | large | `repelled` | `repelled_2` | `raids_repelled` | 40 | infamy | 189,900 |
+| `snares_1` | Before They Knew | mid | small | `snares` | - | `trap_kills` | 25 | resources | 2,500 |
+| `snares_2` | The Ground Is Wired | late | medium | `snares` | `snares_1` | `trap_kills` | 500 | resources, infamy | 116,200 |
+| `snares_3` | Nothing Walks In Clean | late | large | `snares` | `snares_2` | `trap_kills` | 5,000 | infamy | 189,900 |
+| `ring_1` | Nowhere to Run | late | small | `ring` | - | `runners_caught` | 10 | resources | 12,200 |
+| `ring_2` | The Ring Holds | late | medium | `ring` | `ring_1` | `runners_caught` | 250 | resources, infamy | 116,200 |
+| `ring_3` | No Way Back | late | large | `ring` | `ring_2` | `runners_caught` | 2,500 | resources, infamy | 183,200 |
 | `holdings_1` | Something of Your Own | early | medium | `holdings` | - | `locations_held` | 1 | resources, xp | 1,574 |
 | `holdings_2` | A Portfolio | mid | medium | `holdings` | `holdings_1` | `locations_held` | 5 | resources, xp | 19,940 |
 | `holdings_3` | Landlord | late | large | `holdings` | `holdings_2` | `locations_held` | 15 | resources, xp | 499,000 |
@@ -1069,7 +1093,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `estate_2` | Fifty | mid | medium | `estate` | `estate_1` | `buildings_total` | 50 | resources, xp | 19,940 |
 | `estate_3` | A Hundred and Forty | late | large | `estate` | `estate_2` | `buildings_total` | 140 | resources, xp | 499,000 |
 | `estate_4` | A Hundred and Ninety Standing | late | large | `estate` | `estate_3` | `buildings_total` | 190 | resources | 569,700 |
-| `estate_5` | Nothing Left to Raise | late | large | `estate` | `estate_4` | `buildings_total` | 220 | resources | 675,200 |
+| `estate_5` | Nothing Left to Raise | late | large | `estate` | `estate_4` | `buildings_total` | 200 | resources | 675,200 |
 | `gate_1` | Shut the Gate | early | medium | `gate` | - | `building_level:gate` | 3 | resources | 1,364 |
 | `gate_2` | A Serious Door | mid | medium | `gate` | `gate_1` | `building_level:gate` | 10 | resources | 17,700 |
 | `gate_3` | Nothing Gets Through | late | large | `gate` | `gate_2` | `building_level:gate` | 18 | resources, xp | 499,000 |
@@ -1079,9 +1103,9 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `lab_3` | The Whole Library | late | large | `lab` | `lab_2` | `building_level:lab` | 16 | resources, xp | 499,000 |
 | `lab_4` | The Lab, Finished | late | large | `lab` | `lab_3` | `building_level:lab` | 20 | xp | 567,000 |
 | `garage_1` | Under Cover | mid | medium | `garage` | - | `building_level:garage` | 1 | resources | 17,700 |
-| `garage_2` | A Real Yard | late | medium | `garage` | `garage_1` | `building_level:garage` | 8 | resources | 103,200 |
-| `garage_3` | A Yard With a Name | late | large | `garage` | `garage_2` | `building_level:garage` | 16 | resources, xp | 499,000 |
-| `garage_4` | The Garage, Finished | late | large | `garage` | `garage_3` | `building_level:garage` | 20 | resources | 569,700 |
+| `garage_2` | A Real Yard | late | medium | `garage` | `garage_1` | `building_level:garage` | 4 | resources | 103,200 |
+| `garage_3` | A Yard With a Name | late | large | `garage` | `garage_2` | `building_level:garage` | 7 | resources, xp | 499,000 |
+| `garage_4` | The Garage, Finished | late | large | `garage` | `garage_3` | `building_level:garage` | 10 | resources | 569,700 |
 | `traps_1` | Something Nasty | early | small | `traps` | - | `traps_built` | 1 | items | 240 |
 | `traps_2` | Ten Surprises | mid | small | `traps` | `traps_1` | `traps_built` | 10 | items | 2,520 |
 | `traps_3` | The Whole Yard Is a Trap | late | small | `traps` | `traps_2` | `traps_built` | 40 | resources, items | 7,700 |
@@ -1093,7 +1117,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `fittings_2` | Every Slot Earns | mid | small | `fittings` | `fittings_1` | `modifications_fitted` | 8 | items | 2,520 |
 | `fittings_3` | Rebuilt From The Inside | late | medium | `fittings` | `fittings_2` | `modifications_fitted` | 20 | resources, items | 82,540 |
 | `fittings_4` | Twenty Seven Fitted | late | medium | `fittings` | `fittings_3` | `modifications_fitted` | 27 | resources | 118,160 |
-| `fittings_5` | Every Bracket Full | late | large | `fittings` | `fittings_4` | `modifications_fitted` | 33 | resources | 189,900 |
+| `fittings_5` | Every Bracket Full | late | large | `fittings` | `fittings_4` | `modifications_fitted` | 31 | resources | 189,900 |
 | `sets_1` | Built Around One Idea | late | small | `sets` | - | `modification_sets` | 1 | resources, items | 7,700 |
 | `sets_2` | A Hand, Not A Pile | late | medium | `sets` | `sets_1` | `modification_sets` | 3 | resources, items | 82,540 |
 | `sets_3` | Nothing Here By Accident | late | large | `sets` | `sets_2` | `modification_sets` | 5 | resources, items | 459,100 |
@@ -1113,6 +1137,9 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `addons_8` | The Second Yard | late | large | `addons` | `addons_7` | `addons_built` | 4,400 | resources | 991,700 |
 | `addons_9` | Everything Twice Over | late | large | `addons` | `addons_8` | `addons_built` | 9,500 | resources | 1,181,600 |
 | `addons_10` | Twenty Thousand Welds | late | large | `addons` | `addons_9` | `addons_built` | 20,000 | resources | 1,413,700 |
+| `finished_1` | As High as It Goes | late | medium | `finished` | - | `buildings_maxed` | 1 | resources, xp | 115,800 |
+| `finished_2` | Five at the Top | late | large | `finished` | `finished_1` | `buildings_maxed` | 5 | resources, xp | 499,000 |
+| `finished_3` | The Finished District | late | large | `finished` | `finished_2` | `buildings_maxed` | 11 | resources | 569,700 |
 | `skills_70` | Sharpened | late | medium | - | - | `overseer_skills_at:70` | 3 | xp | 77,000 |
 | `roster_1` | Twenty at Home | early | small | `roster` | - | `army_units` | 20 | resources | 220 |
 | `roster_2` | A Hundred and Fifty | mid | small | `roster` | `roster_1` | `army_units` | 150 | resources | 2,500 |
@@ -1546,64 +1573,64 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 #### Carriers (2)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `scavengers` | Scavengers | no | no | 1 | 5 | 60 | 0 | 30 | ballistic | 25 Caps, 15 Supplies | 30s | The Gauntlet at level 1 | Picks the Field | - | They know which floors still hold weight and which pipes still have copper in them. Hand… |
-| `haulers` | Haulers | no | no | 2 | 5 | 75 | 2 | 22 | ballistic | 60 Caps, 20 Supplies, 30 Planks | 2m | The Gauntlet at level 4; The Nexus at level 4 | - | - | Barrow, harness and a back that has done this for twenty years. Slow, patient, and they n… |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `scavengers` | Scavengers | no | no | 1 | 5 | 60 | 0 | 30 | ballistic | chemical +20, ballistic -25 | 25 Caps, 15 Supplies | 30s | The Gauntlet at level 1 | Picks the Field | - | They know which floors still hold weight and which pipes still have copper in them. Hand… |
+| `haulers` | Haulers | no | no | 2 | 5 | 75 | 2 | 22 | ballistic | energy +20, explosive -30 | 60 Caps, 20 Supplies, 30 Planks | 2m | The Gauntlet at level 4; The Nexus at level 4 | - | - | Barrow, harness and a back that has done this for twenty years. Slow, patient, and they n… |
 
 #### Rabble (6)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `razors` | Razors | no | yes | 1 | 160 | 75 | 5 | 45 | blade | 40 Caps, 10 Supplies | 45s | The Gauntlet at level 1 | - | Urban Bonus, Close Quarters | Light blade-wielding urban fighters. Cheap, willing, and not expected back. |
-| `anodics` | Anodics | no | yes | 2 | 190 | 140 | 15 | 40 | blade | 55 Caps, 15 Supplies, 10 Scrap | 1m | The Scrapyard at level 2 | - | Close Quarters, Last Stand | Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every… |
-| `sparks` | Sparks | no | yes | 1 | 280 | 55 | 3 | 40 | ballistic | 45 Caps, 5 Supplies, 20 Scrap | 50s | The Generator at level 2 | - | Urban Bonus | Young recruits with jury-rigged weapons. Hit hard once, then hope. |
-| `scrapers` | Scrapers | no | yes | 1 | 165 | 78 | 6 | 50 | blade | 50 Caps, 10 Supplies, 25 Scrap | 55s | The Gauntlet at level 2 | - | Urban Bonus, Ambush | Scavengers turned fighters. Light armour, quick hands, gone before the answer comes. |
-| `ash_walkers` | Ash Walkers | no | yes | 2 | 275 | 170 | 42 | 35 | chemical | 190 Caps, 30 Supplies, 40 Oil, 70 Scrap | 4m | The Gauntlet at level 6; The Greenhouse at level 5 | Picks the Field | Tunnel Rat | Chem-suited troops who go where the air is wrong and come back out of it. |
-| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | 300 Caps, 120 Supplies | 10m | The Quarters at level 12; Hold The Fight Pit | Runs in Packs | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `razors` | Razors | no | yes | 1 | 160 | 75 | 5 | 45 | blade | energy +15, explosive -35 | 40 Caps, 10 Supplies | 45s | The Gauntlet at level 1 | - | Urban Bonus, Close Quarters | Light blade-wielding urban fighters. Cheap, willing, and not expected back. |
+| `anodics` | Anodics | no | yes | 2 | 190 | 140 | 15 | 40 | blade | chemical +30, ballistic -30 | 55 Caps, 15 Supplies, 10 Scrap | 1m | The Scrapyard at level 2 | - | Close Quarters, Last Stand | Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every… |
+| `sparks` | Sparks | no | yes | 1 | 280 | 55 | 3 | 40 | ballistic | energy +15, explosive -40 | 45 Caps, 5 Supplies, 20 Scrap | 50s | The Generator at level 2 | - | Urban Bonus | Young recruits with jury-rigged weapons. Hit hard once, then hope. |
+| `scrapers` | Scrapers | no | yes | 1 | 165 | 78 | 6 | 50 | blade | chemical +15, blade -30 | 50 Caps, 10 Supplies, 25 Scrap | 55s | The Gauntlet at level 2 | - | Urban Bonus, Ambush | Scavengers turned fighters. Light armour, quick hands, gone before the answer comes. |
+| `ash_walkers` | Ash Walkers | no | yes | 2 | 275 | 170 | 42 | 35 | chemical | chemical +90, blade -25 | 190 Caps, 30 Supplies, 40 Oil, 70 Scrap | 4m | The Gauntlet at level 6; The Greenhouse at level 5 | Picks the Field | Tunnel Rat | Chem-suited troops who go where the air is wrong and come back out of it. |
+| `the_condemned` | The Condemned | no | yes | 3 | 255 | 120 | 12 | 40 | blade | energy +20, ballistic -25 | 300 Caps, 120 Supplies | 10m | The Quarters at level 12; Hold The Fight Pit | Runs in Packs | Last Stand, Close Quarters | Death row, handed one last chance and a blade. Nothing left to threaten them with. |
 
 #### Specialists (6)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | 160 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
-| `snipers` | Snipers | no | yes | 2 | 350 | 85 | 8 | 30 | ballistic | 260 Caps, 40 Supplies, 60 Scrap, 12 HQ metal | 5m | The Sniper Blueprint; The Gate at level 7; Live-Fire Range | Opening Volley | Rooftop, Open Field | Long range, one shot, one kill. Everything else is spent waiting for it. |
-| `stitchers` | Stitchers | no | yes | 1 | 60 | 120 | 20 | 35 | blade | 220 Caps, 60 Supplies | 5m | The Gauntlet at level 7; The Infirmary at level 5 | Field Medic | Dug In | Field medics. Contribute nothing to a fight and decide how many walk out of it. |
-| `demolishers` | Demolishers | no | yes | 3 | 420 | 180 | 32 | 28 | explosive | 280 Caps, 40 Supplies, 80 Oil, 120 Scrap, 15 HQ metal | 6m | The Demolisher Blueprint; The Scrapyard at level 6; The Generator at level 8 | Wall Breaker | Breaching, Armour Piercing | Explosive ordnance experts. Uninterested in your people; very interested in your walls. |
-| `netrunners` | Netrunners | no | yes | 3 | 460 | 150 | 20 | 40 | energy | 360 Caps, 55 Supplies, 30 HQ metal | 6m | The Gauntlet at level 9; The Lab at level 8; Quantum Modeling | - | Night Operations, Armour Piercing, Tracking | Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them. |
-| `sleepers` | Sleepers | no | yes | 2 | 360 | 125 | 14 | 40 | blade | 340 Caps, 50 Supplies, 30 Oil | 6m | The Nexus at level 9; Encrypted Core | - | Ambush, Urban Bonus | Planted long ago, and useful exactly once. They are already inside. |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `ghosts` | Ghosts | no | yes | 2 | 310 | 115 | 15 | 50 | blade | energy +20, ballistic -25 | 160 Caps, 25 Supplies, 20 Oil | 3m | The Gauntlet at level 6 | - | Night Operations, Ambush | Lightly armed and hard to pin down. Fighting them is easy. Finding them is the job. |
+| `snipers` | Snipers | no | yes | 2 | 350 | 85 | 8 | 30 | ballistic | explosive +15, chemical -35 | 260 Caps, 40 Supplies, 60 Scrap, 12 HQ metal | 5m | The Sniper Blueprint; The Gate at level 7; Live-Fire Range | Opening Volley | Rooftop, Open Field | Long range, one shot, one kill. Everything else is spent waiting for it. |
+| `stitchers` | Stitchers | no | yes | 1 | 60 | 120 | 20 | 35 | blade | chemical +50, blade -30 | 220 Caps, 60 Supplies | 5m | The Gauntlet at level 7; The Infirmary at level 5 | Field Medic | Dug In | Field medics. Contribute nothing to a fight and decide how many walk out of it. |
+| `demolishers` | Demolishers | no | yes | 3 | 420 | 180 | 32 | 28 | explosive | explosive +45, energy -25 | 280 Caps, 40 Supplies, 80 Oil, 120 Scrap, 15 HQ metal | 6m | The Demolisher Blueprint; The Scrapyard at level 6; The Generator at level 8 | Wall Breaker | Breaching, Armour Piercing | Explosive ordnance experts. Uninterested in your people; very interested in your walls. |
+| `netrunners` | Netrunners | no | yes | 3 | 460 | 150 | 20 | 40 | energy | energy +40, explosive -20 | 360 Caps, 55 Supplies, 30 HQ metal | 6m | The Gauntlet at level 9; The Lab at level 8; Quantum Modeling | - | Night Operations, Armour Piercing, Tracking | Combat hackers who hijack enemy augmentations mid-fight. Nobody enjoys meeting them. |
+| `sleepers` | Sleepers | no | yes | 2 | 360 | 125 | 14 | 40 | blade | energy +15, explosive -30 | 340 Caps, 50 Supplies, 30 Oil | 6m | The Nexus at level 9; Encrypted Core | - | Ambush, Urban Bonus | Planted long ago, and useful exactly once. They are already inside. |
 
 #### Wonders of Engineering (5)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `road_reavers` | Road Reavers | no | yes | 2 | 250 | 115 | 18 | 65 | ballistic | 180 Caps, 25 Supplies, 60 Oil, 90 Scrap | 3m | The Scrappy Blueprint; The Gauntlet at level 7; The Garage at level 4; The Scrappys buildable in the Garage | - | Open Field, Urban Bonus | Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel. |
-| `kite_crews` | Kite Crews | no | yes | 2 | 290 | 135 | 16 | 85 | energy | 280 Caps, 40 Supplies, 40 Scrap, 18 HQ metal | 5m | The Kite Crew Blueprint; The Lab at level 5; The Generator at level 8 | - | Rooftop, Open Field, Tracking | Drone operators working off rooftops. They see the fight before anybody is in it. |
-| `cyber_dogs` | Cyberhounds | no | yes | 2 | 290 | 90 | 8 | 90 | blade | 190 Caps, 90 Supplies, 15 HQ metal | 7m | The Cyberhound Blueprint; The Infirmary at level 6; Hold The Doghouse | Runs in Packs | Ambush, Night Operations | Augmented working dogs off the kennels under the flyover. They find what is hiding and th… |
-| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blade | 650 Caps, 200 Supplies, 70 HQ metal | 14m | The Hollow Man Blueprint; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
-| `the_twins` | Twins | no | yes | 4 | 170 | 190 | 38 | 30 | blade | 460 Caps, 75 Supplies, 90 Oil, 190 Scrap, 70 HQ metal | 9m | The Twins Blueprint; The Lab at level 12; Hold The Mad Scientist's Lair; Hold The Gene Clinic | - | Last Stand, Night Operations | One body, two minds, and neither of them sleeps. Nothing has ever got behind it. |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `road_reavers` | Road Reavers | no | yes | 2 | 250 | 115 | 18 | 65 | ballistic | blade +35, explosive -25 | 180 Caps, 25 Supplies, 60 Oil, 90 Scrap | 3m | The Scrappy Blueprint; The Gauntlet at level 7; The Garage at level 4; The Scrappys buildable in the Garage | - | Open Field, Urban Bonus | Motorcycle raiders. Fast, loud, aggressive, and halfway home with your fuel. |
+| `kite_crews` | Kite Crews | no | yes | 2 | 290 | 135 | 16 | 85 | energy | blade +25, energy -40 | 280 Caps, 40 Supplies, 40 Scrap, 18 HQ metal | 5m | The Kite Crew Blueprint; The Lab at level 5; The Generator at level 8 | - | Rooftop, Open Field, Tracking | Drone operators working off rooftops. They see the fight before anybody is in it. |
+| `cyber_dogs` | Cyberhounds | no | yes | 2 | 290 | 90 | 8 | 90 | blade | explosive +15, chemical -45 | 190 Caps, 90 Supplies, 15 HQ metal | 7m | The Cyberhound Blueprint; The Infirmary at level 6; Hold The Doghouse | Runs in Packs | Ambush, Night Operations | Augmented working dogs off the kennels under the flyover. They find what is hiding and th… |
+| `hollow_men` | Hollow Men | no | yes | 5 | 345 | 225 | 45 | 45 | blade | chemical +35, energy -45 | 650 Caps, 200 Supplies, 70 HQ metal | 14m | The Hollow Man Blueprint; The Infirmary at level 10; The Lab at level 13; Hold The Gene Clinic | - | Close Quarters, Terror | Shock troops with the fear surgically removed. It took the rest of it with it. |
+| `the_twins` | Twins | no | yes | 4 | 170 | 190 | 38 | 30 | blade | ballistic +25, blade +20, energy -25 | 460 Caps, 75 Supplies, 90 Oil, 190 Scrap, 70 HQ metal | 9m | The Twins Blueprint; The Lab at level 12; Hold The Mad Scientist's Lair; Hold The Gene Clinic | - | Last Stand, Night Operations | One body, two minds, and neither of them sleeps. Nothing has ever got behind it. |
 
 #### Heavy (5)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `breakers` | Breakers | no | yes | 2 | 225 | 122 | 24 | 40 | explosive | 120 Caps, 20 Supplies, 15 Oil, 60 Scrap | 3m | The Gauntlet at level 4 | - | Close Quarters, Breaching | Door-kicking close-quarters specialists. Whatever is behind it, they go through it. |
-| `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | ballistic | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | Dug In, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
-| `ironsides` | Ironsides | no | yes | 3 | 45 | 470 | 64 | 22 | blade | 200 Caps, 30 Supplies, 140 Scrap, 10 HQ metal | 4m | The Ironside Blueprint; The Scrapyard at level 5; The Gate at level 6 | Shield Line | Bulwark, Dug In | A shield wall of salvaged plate. It will not beat you. It will not move, either. |
-| `juggernauts` | Juggernauts | no | yes | 6 | 355 | 365 | 68 | 25 | ballistic | 700 Caps, 105 Supplies, 200 Oil, 300 Scrap, 90 HQ metal | 15m | The Juggernaut Blueprint; The Generator at level 10; The Infirmary at level 12; Hold The Gene Clinic | - | Armour Piercing, Last Stand | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
-| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | 210 Caps, 30 Supplies, 110 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | Dug In, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `breakers` | Breakers | no | yes | 2 | 225 | 122 | 24 | 40 | explosive | explosive +35, energy -25 | 120 Caps, 20 Supplies, 15 Oil, 60 Scrap | 3m | The Gauntlet at level 4 | - | Close Quarters, Breaching | Door-kicking close-quarters specialists. Whatever is behind it, they go through it. |
+| `wardens` | Wardens | no | yes | 2 | 172 | 168 | 40 | 28 | ballistic | blade +25, explosive -20 | 130 Caps, 20 Supplies, 80 Scrap | 3m | The Gauntlet at level 5 | Holds the Line | Dug In, Last Stand | Defensive specialists. Considerably better at holding a location than at taking one. |
+| `ironsides` | Ironsides | no | yes | 3 | 45 | 470 | 64 | 22 | blade | ballistic +35, blade +35, explosive -30 | 200 Caps, 30 Supplies, 140 Scrap, 10 HQ metal | 4m | The Ironside Blueprint; The Scrapyard at level 5; The Gate at level 6 | Shield Line | Bulwark, Dug In | A shield wall of salvaged plate. It will not beat you. It will not move, either. |
+| `juggernauts` | Juggernauts | no | yes | 6 | 355 | 365 | 68 | 25 | ballistic | ballistic +40, blade +50, energy -35 | 700 Caps, 105 Supplies, 200 Oil, 300 Scrap, 90 HQ metal | 15m | The Juggernaut Blueprint; The Generator at level 10; The Infirmary at level 9; Hold The Gene Clinic | - | Armour Piercing, Last Stand | Fully augmented heavy assault units. Barely human any more, and no longer bothered by it. |
+| `sluggers` | Sluggers | no | yes | 2 | 180 | 135 | 30 | 30 | ballistic | ballistic +35, explosive -25 | 210 Caps, 30 Supplies, 110 Scrap, 8 HQ metal | 4m | The Gauntlet at level 6; The Scrapyard at level 4 | - | Dug In, Armour Piercing | Scrap plate and a short slug gun. Stands where it is put and makes the room expensive. |
 
 #### Legendary (7)
 
-| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Cost | Train | Requires | Rules | Modifiers | Blurb |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | - | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
-| `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 12; Hold The Mad Scientist's Lair | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
-| `the_colossus` | The Colossus | yes | yes | 12 | 490 | 1000 | 95 | 15 | explosive | 2200 Caps, 330 Supplies, 600 Oil, 900 Scrap, 400 HQ metal | 1h 30m | The Colossus Blueprint; The Garage at level 16; The Generator at level 14; Hold The Construction Site | Too big to ride, Wall Breaker | Breaching, Armour Piercing | A single massive machine that functions like a walking fortress. It arrives slowly. |
-| `the_saint` | The Saint | yes | yes | 6 | 275 | 265 | 30 | 45 | blade | 1200 Caps, 300 Supplies, 120 HQ metal | 50m | The Quarters at level 12; The Infirmary at level 15; Hold The Downtown Tavern | Holds the Line | Last Stand, Dug In | A legendary fighter whose presence alone steadies everyone who can see them. |
-| `the_cartographer` | The Cartographer | yes | yes | 5 | 300 | 270 | 28 | 88 | ballistic | 1000 Caps, 150 Supplies, 150 Oil, 100 HQ metal | 45m | The Lab at level 12; Hold The Rail Yard; Hold The Satellite Uplink | - | Urban Bonus, Night Operations, Tracking | Has walked every street in this city and remembers which ones are still there. |
-| `the_crimson_dancer` | The Crimson Dancer | yes | yes | 6 | 490 | 250 | 18 | 92 | blade | 1400 Caps, 260 Supplies, 180 Oil, 200 HQ metal | 55m | The Crimson Dancer Blueprint; The Lab at level 12; The Quarters at level 15; Hold The Fight Pit | Opening Volley | Close Quarters, Terror | Went into the Fight Pit a dancer and came out on blades. Still counts the beats. |
-| `the_loose_end` | The Loose End | yes | yes | 7 | 700 | 200 | 8 | 95 | blade | 1600 Caps, 240 Supplies, 220 Oil, 260 HQ metal | 1h | The Loose End Blueprint; The Garage at level 12; The Generator at level 16; Hold The Rail Yard | - | Close Quarters, Ambush | Walked out of a contract nobody walks out of. The chain-blade was the severance. |
+| Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | ballistic +45, chemical -30 | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | - | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
+| `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | ballistic +30, chemical +100, explosive -25 | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 9; Hold The Mad Scientist's Lair | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
+| `the_colossus` | The Colossus | yes | yes | 12 | 490 | 1000 | 95 | 15 | explosive | ballistic +70, blade +80, explosive +40, energy -30 | 2200 Caps, 330 Supplies, 600 Oil, 900 Scrap, 400 HQ metal | 1h 30m | The Colossus Blueprint; The Garage at level 10; The Generator at level 14; Hold The Construction Site | Too big to ride, Wall Breaker | Breaching, Armour Piercing | A single massive machine that functions like a walking fortress. It arrives slowly. |
+| `the_saint` | The Saint | yes | yes | 6 | 275 | 265 | 30 | 45 | blade | blade +45, chemical -25 | 1200 Caps, 300 Supplies, 120 HQ metal | 50m | The Quarters at level 12; The Infirmary at level 10; Hold The Downtown Tavern | Holds the Line | Last Stand, Dug In | A legendary fighter whose presence alone steadies everyone who can see them. |
+| `the_cartographer` | The Cartographer | yes | yes | 5 | 300 | 270 | 28 | 88 | ballistic | explosive +40, blade -20 | 1000 Caps, 150 Supplies, 150 Oil, 100 HQ metal | 45m | The Lab at level 12; Hold The Rail Yard; Hold The Satellite Uplink | - | Urban Bonus, Night Operations, Tracking | Has walked every street in this city and remembers which ones are still there. |
+| `the_crimson_dancer` | The Crimson Dancer | yes | yes | 6 | 490 | 250 | 18 | 92 | blade | blade +30, explosive -35 | 1400 Caps, 260 Supplies, 180 Oil, 200 HQ metal | 55m | The Crimson Dancer Blueprint; The Lab at level 12; The Quarters at level 15; Hold The Fight Pit | Opening Volley | Close Quarters, Terror | Went into the Fight Pit a dancer and came out on blades. Still counts the beats. |
+| `the_loose_end` | The Loose End | yes | yes | 7 | 700 | 200 | 8 | 95 | blade | ballistic +15, explosive -40 | 1600 Caps, 240 Supplies, 220 Oil, 260 HQ metal | 1h | The Loose End Blueprint; The Garage at level 9; The Generator at level 16; Hold The Rail Yard | - | Close Quarters, Ambush | Walked out of a contract nobody walks out of. The chain-blade was the severance. |
 
 #### Sheet numbers (11)
 
@@ -1725,27 +1752,27 @@ Source: `packages/shared/src/building/vehicles.ts`
 | `scrap_car` | Scar | car | 4 | 800 Oil, 2600 Scrap, 180 HQ metal | 2h | 55 | 8 | no | Three donor bodies and one working engine. Everybody fits and nobody is comfortable. |
 | `dirt_runner` | The Offie | car | 5 | 1050 Oil, 3300 Scrap, 300 HQ metal | 2h 30m | 58 | 10 | no | A pickup with plate welded over everything that mattered and a bull bar over what did not… |
 | `armoured_car` | Cheese Wagon | truck | 7 | 2400 Oil, 6400 Scrap, 760 HQ metal | 4h 30m | 48 | 30 | no | A school bus with plate riveted over every window and a plough where the bumper was. Thir… |
-| `gas_balloon` | Gas Balloon | flying | 9 | 2600 Oil, 6800 Scrap, 940 HQ metal | 5h | 70 | 10 | no | Lifting gas nobody will say the source of, and a basket. Silent, and over the wall rather… |
-| `rotorcraft` | Rotorcraft | flying | 12 | 4200 Oil, 11000 Scrap, 2400 HQ metal | 8h | 78 | 18 | yes | Somebody built a helicopter in a yard out of two other helicopters. It flies, it is quick… |
-| `heli_porter` | Heli Porter | flying | 14 | 5800 Oil, 15000 Scrap, 3400 HQ metal | 11h | 95 | 30 | no | A real transport helicopter, kept flying by people who understand it. Thirty in the cabin… |
+| `gas_balloon` | Gas Balloon | flying | 8 | 2600 Oil, 6800 Scrap, 940 HQ metal | 5h | 70 | 10 | no | Lifting gas nobody will say the source of, and a basket. Silent, and over the wall rather… |
+| `rotorcraft` | Rotorcraft | flying | 9 | 4200 Oil, 11000 Scrap, 2400 HQ metal | 8h | 78 | 18 | yes | Somebody built a helicopter in a yard out of two other helicopters. It flies, it is quick… |
+| `heli_porter` | Heli Porter | flying | 10 | 5800 Oil, 15000 Scrap, 3400 HQ metal | 11h | 95 | 30 | no | A real transport helicopter, kept flying by people who understand it. Thirty in the cabin… |
 
 ## Buildings
 
 Source: `packages/shared/src/building/kinds.ts`
 
-| Kind | Name | Short | Requires | Level 1 cost | Level 1 build | Role | Description |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `nexus` | The Nexus | Nexus | nothing | 400 Caps, 60 Oil, 200 Scrap, 120 Planks | 45s | Authorises every other structure. Each of them has a level it cannot pass until the Nexus… | A commandeered transit hub with the maps still on the walls. Everything the district deci… |
-| `quarters` | The Quarters | Quarters | The Nexus at 1 | 120 Caps, 70 Supplies, 10 Oil, 90 Scrap, 110 Planks | 20s | Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every… | Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they… |
-| `greenhouse` | The Greenhouse | Greenhouse | The Nexus at 1 | 100 Caps, 40 Supplies, 10 Oil, 70 Scrap, 90 Planks | 20s | Grows supplies and timber around the clock, and every level takes a little more of the su… | Grow lamps over stacked trays, running day and night. The only food down here nobody had… |
-| `generator` | The Generator | Generator | The Nexus at 1 | 150 Caps, 220 Oil, 70 Scrap, 55 Planks | 30s | Refines oil around the clock, takes time off every other structure's build by level, and… | A turbine block running on whatever burns. It is loud, it is filthy, and every crane in t… |
-| `scrapyard` | The Scrapyard | Scrapyard | The Nexus at 2; The Generator at 1 | 140 Caps, 20 Oil, 120 Scrap, 60 Planks | 25s | Strips salvage into scrap and the occasional length of good metal, and builds the add-ons… | Torch work, press lines and a sorting floor. Where wreckage is taken apart and something… |
-| `apothecary` | The Apothecary | Apothecary | The Nexus at 3; The Scrapyard at 2; District level 3 | 180 Caps, 25 Oil, 140 Scrap, 80 Planks | 35s | Sets the ceiling on how much of each resource the district can hold. Production stops the… | Racks, cages and a ledger nobody else can read. Half dispensary, half the only honest war… |
-| `gate` | The Gate | Gate | The Nexus at 2; The Scrapyard at 3 | 100 Caps, 30 Oil, 220 Scrap, 150 Planks | 30s | Adds a percentage of defence to every unit holding this district, and makes the place har… | Ferrocrete, razorwire and a firing step. The first thing anyone coming for this district… |
-| `lab` | The Lab | Lab | The Nexus at 4; The Apothecary at 2; District level 5 | 260 Caps, 40 Oil, 130 Scrap, 60 Planks, 10 HQ metal | 50s | The door to research, and the clock on it: every project takes less time as the Lab grows. | Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Idea… |
-| `gauntlet` | The Gauntlet | Gauntlet | The Nexus at 2; The Quarters at 1 | 280 Caps, 90 Supplies, 40 Oil, 180 Scrap, 100 Planks, 8 HQ metal | 55s | Unlocks units as it grows and takes time off training every one of them, including the on… | A run of welded obstacles, a mat that has seen better decades, and somebody shouting. Peo… |
-| `infirmary` | The Infirmary | Infirmary | The Nexus at 10; The Greenhouse at 4; The Lab at 2; District level 10 | 300 Caps, 80 Supplies, 45 Oil, 160 Scrap, 70 Planks, 14 HQ metal | 1m | Looks after the crew. Some of the people a fight would have cost you walk out of here ins… | Four beds, a printer for the drugs the Combine will not sell down here, and a medic who d… |
-| `garage` | The Garage | Garage | The Nexus at 12; The Scrapyard at 6; The Generator at 6; District level 14 | 340 Caps, 60 Oil, 240 Scrap, 50 Planks, 20 HQ metal | 50s | Builds and keeps the machines. Gives nothing on its own: what it is worth is what is park… | Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles a… |
+| Kind | Name | Short | Requires | Ceiling | Level 1 cost | Level 5 extra | Level 1 build | Role | Description |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `nexus` | The Nexus | Nexus | nothing | 20 | 400 Caps, 60 Oil, 200 Scrap, 120 Planks | 60 HQ metal | 3m | Authorises every other structure. Each of them has a level it cannot pass until the Nexus… | A seized ex-transport hub with the maps still on the walls. Everything the district decid… |
+| `quarters` | The Quarters | Quarters | The Nexus at 1 | 20 | 50 Caps, 200 Supplies, 20 Oil, 40 Scrap, 110 Planks | 30 HQ metal | 2m | Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every… | Container stacks, hot bunks and a stove that never goes out. Changing the world requires… |
+| `greenhouse` | The Greenhouse | Greenhouse | The Nexus at 3 | 20 | 100 Caps, 200 Oil, 150 Scrap, 200 Planks | 35 HQ metal | 3m | Grows supplies and planks around the clock, and every level takes a little more of the su… | Grow lamps over stacked trays, running day and night. The only food down here nobody had… |
+| `generator` | The Generator | Generator | The Nexus at 1 | 20 | 120 Caps, 270 Oil, 40 Scrap | 35 HQ metal | 2m | Refines oil around the clock, takes time off every other structure's build by level, and… | A turbine block running on whatever burns. It is loud, it is filthy, and every crane in t… |
+| `scrapyard` | The Scrapyard | Scrapyard | The Nexus at 3; The Generator at 1 | 20 | 200 Caps, 20 Oil, 300 Scrap, 100 Planks | 45 HQ metal | 3m | Strips salvage into scrap and the occasional length of good metal, and builds the add-ons… | If it's not a resource you can use as is, it ends up here. What comes out depends on the… |
+| `apothecary` | The Apothecary | Apothecary | The Nexus at 1 | 20 | 120 Caps, 70 Scrap, 200 Planks | 25 HQ metal | 2m | Sets the ceiling on how much of each resource the district can hold. Production stops the… | Abandoned markets that now store the district's resources. The more you can store, the lo… |
+| `gate` | The Gate | Gate | The Nexus at 1 | 20 | 200 Caps, 20 Oil, 220 Scrap, 150 Planks | 40 HQ metal | 2m | Adds a percentage of defence to every unit holding this district, and makes the place har… | The first thing anyone coming for this district sees. Better make sure they are scared. |
+| `lab` | The Lab | Lab | The Nexus at 4; The Apothecary at 2; District level 5 | 20 | 400 Caps, 250 Oil, 200 Scrap, 200 Planks, 25 HQ metal | none | 3m | Makes research faster and unlocks a number of upgrades and projects. | Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Lite… |
+| `gauntlet` | The Gauntlet | Gauntlet | The Nexus at 3; The Quarters at 2 | 20 | 300 Caps, 300 Supplies, 100 Scrap, 100 Planks, 10 HQ metal | none | 3m | Unlocks units as it grows and takes time off training every one of them, including the on… | A run of welded obstacles, a mat that has seen better decades, and somebody shouting. Peo… |
+| `infirmary` | The Infirmary | Infirmary | The Nexus at 10; The Greenhouse at 4; The Lab at 2; District level 10 | 10 | 1000 Caps, 200 Supplies, 600 Oil, 200 Scrap, 100 Planks, 75 HQ metal | none | 1h 7m | Looks after the crew. Some of the people a fight would have cost you walk out of here ins… | Four beds, a cabinet for the drugs the Combine will not sell down here, and a self-procla… |
+| `garage` | The Garage | Garage | The Nexus at 12; The Scrapyard at 6; The Generator at 6; District level 14 | 10 | 400 Caps, 2000 Oil, 2000 Scrap, 500 Planks, 200 HQ metal | none | 1h 12m | Builds and keeps the machines. Gives nothing on its own: what it is worth is what is park… | Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles a… |
 
 ## Building modifications
 
@@ -2135,7 +2162,7 @@ How many of them come back.
 | 3 | `tech_stretcher_drill` | Stretcher Drill | +8% wounded recovered | 2650 Caps, 1600 Scrap | 95 | F+ | - | Off the ground and moving in ninety seconds. |
 | 4 | `tech_blood_bank` | Blood Bank | +1 battle stim | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Cold storage, cross-matched, and everybody on the books is typed. |
 | 5 | `tech_antiseptics` | Antiseptics | +6% unit vitality | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Boiled instruments, and the surgeon washes first. |
-| 6 | `tech_forward_aid_posts` | Forward Aid Posts | +12% wounded recovered | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Treatment where they fell, not where the ward is. |
+| 6 | `tech_carry_both` | Carry Both | the ones the medics get back carry their share of the haul home | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The party that brings a body back brings the pack with it. |
 | 7 | `tech_trauma_theatre` | Trauma Theatre | -25% The Infirmary cost | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | A room in the Infirmary that nobody is allowed to use for anything else. |
 | 8 | `tech_convalescence` | Convalescence | +5 unit morale | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Back on the line when they are ready, not when they are needed. |
 | 9 | `tech_prosthetics_bench` | Prosthetics Bench | +2 to officer physical skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | A hand that works is a person who stays. |

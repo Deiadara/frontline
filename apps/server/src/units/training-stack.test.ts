@@ -28,7 +28,6 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   kind,
   level,
   modifications,
-  damage: 0,
 });
 
 function stack(): { repos: Repositories; base: Base } {

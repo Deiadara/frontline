@@ -6,14 +6,18 @@ import {
   type Inventory,
   type ItemCost,
 } from '../items/inventory.js';
-import { seedFrom } from '../rng.js';
+import { ITEM_RARITIES, RARITY_ORDER, type ItemRarity } from '../items/rarity.js';
+import { drawWeighted, seedFrom } from '../rng.js';
 import {
   BLUEPRINTS,
+  blueprintOfPage,
   findBlueprint,
   findBlueprintPage,
+  pageRarity,
   type BlueprintPage,
   type BlueprintSpec,
 } from './catalog.js';
+import { reimaginingOdds } from './reimagine-odds.js';
 
 /**
  * What a crew knows about a blueprint (GDD §D5 to §D10).
@@ -309,19 +313,79 @@ export interface Reimagined {
 }
 
 /**
+ * What one page id is worth on the rarity scale, or undefined if it is not a page at all.
+ *
+ * `pageRarity` is the one copy of the rule (the sheet's own rarity if it was authored one, else
+ * its document's) and `items/catalog.ts`, the Blueprints screen and the mission page draw all read
+ * it. This is only the lookup that turns an id back into the pair it wants.
+ */
+function rarityOfPage(pageId: string): ItemRarity | undefined {
+  const blueprint = blueprintOfPage(pageId);
+  const page = findBlueprintPage(pageId);
+  return blueprint && page ? pageRarity(blueprint, page) : undefined;
+}
+
+/**
+ * The tier the bench actually pays out in, once the tier it rolled is checked against the shelf.
+ *
+ * A roll can name a tier the crew has nothing left to find in: a player who has seen every Basic
+ * page still rolls Basic four times in five off a cheap input. The trade is guaranteed (§G2) and
+ * `nothing_left_to_find` is the only refusal for an empty pool, so an exhausted tier cannot be a
+ * refusal and cannot be a reroll either, since a reroll is just this rule with the seed spent
+ * twice.
+ *
+ * **The fallback is the nearest stocked tier, and a tie goes downwards.** Nearest, because a
+ * Masterpiece roll landing on Advanced is the closest thing to the payout that was earned, where
+ * dropping to Basic would throw the input away. Downwards on a tie, because the alternative hands
+ * a player a free upgrade for clearing out a tier: with ties going up, emptying every Advanced
+ * page would turn each Advanced roll into a Masterpiece, and the quickest route to the top of the
+ * ladder would be to exhaust the rung below it.
+ *
+ * At least one tier is stocked whenever this is reached, because the refusal above has already
+ * turned away an empty pool.
+ */
+function payoutRarity(rolled: ItemRarity, unseen: readonly string[]): ItemRarity {
+  const stocked = new Set(unseen.map(rarityOfPage));
+  if (stocked.has(rolled)) return rolled;
+  const from = RARITY_ORDER[rolled];
+  const nearestFirst = [...ITEM_RARITIES].sort(
+    (a, b) =>
+      Math.abs(RARITY_ORDER[a] - from) - Math.abs(RARITY_ORDER[b] - from) ||
+      RARITY_ORDER[a] - RARITY_ORDER[b],
+  );
+  return nearestFirst.find((rarity) => stocked.has(rarity))!;
+}
+
+/**
  * Runs the trade, or returns null when {@link reimaginingRefusal} would refuse it.
  *
  * The three that go in are the three that were named. What comes back cannot be one of them: the
  * pool is read off the inventory as it stands *before* the spend, and every named page is held
  * there, so `unseenPages` has already left all three out. Pinned by a test rather than by a second
  * filter, because a filter here would be a second copy of the rule that could drift from the first.
+ *
+ * ## Two draws, two seeds
+ *
+ * The tier comes first, off {@link reimaginingOdds} and the three sheets in the sockets, and the
+ * page comes second, uniformly out of the unseen pages of that tier. The two hash different
+ * strings so that neither can be read off the other, and the page draw keeps the string the
+ * uniform draw used before the tiers existed, so nothing about how a seed reaches a page changed
+ * beyond the pool it indexes into.
  */
 export function reimagine(input: ReimaginingInput): Reimagined | null {
   if (reimaginingRefusal(input) !== null) return null;
 
   const spent = [...input.pages];
   const unseen = unseenPages(input.inventory);
-  const gained = unseen[seedFrom(`reimagine:${input.seed}`) % unseen.length]!;
+  // Every named page passed `holdsNamedPages`, so it is a real page and has a rarity.
+  const odds = reimaginingOdds(spent.map((pageId) => rarityOfPage(pageId)!));
+  const rolled = drawWeighted(
+    ITEM_RARITIES.map((rarity) => ({ id: rarity, weight: odds[rarity] })),
+    `reimagine:rarity:${input.seed}`,
+  )!;
+  const paying = payoutRarity(rolled, unseen);
+  const pool = unseen.filter((pageId) => rarityOfPage(pageId) === paying);
+  const gained = pool[seedFrom(`reimagine:${input.seed}`) % pool.length]!;
   const cost: ItemCost = {};
   for (const pageId of spent) {
     const id = pageId as ItemId;

@@ -186,8 +186,8 @@ export function visibleDistricts(
  * `bases` table carries no unique index on `district_id`, four districts hold any number of players,
  * and the seeded rivals live in three of them. So a district still holds as many crews as have
  * landed on it. Answering "the resident" with the first row of a `SELECT ... FROM bases` served the
- * earliest-registered player's whole structure list, damage and all, to every other player on the
- * one screen nobody has to scout.
+ * earliest-registered player's whole structure list to every other player on the one screen
+ * nobody has to scout.
  *
  * For somebody else's ground it is still the first row, but a stably ordered one
  * (`db/repos/bases.ts` orders the summary scan), so at least the map and the battle board name the
@@ -266,7 +266,6 @@ function unbuiltDistrict(districtId: string): Building[] {
     kind,
     level: 1,
     modifications: [] as string[],
-    damage: 0,
     fortification: 0,
   }));
 }

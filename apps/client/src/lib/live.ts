@@ -1,5 +1,6 @@
 import {
   LIVE_SILENCE_TIMEOUT_MS,
+  LIVE_STABLE_MS,
   LiveEventSchema,
   type LiveEvent,
   type LiveEventKind,
@@ -243,6 +244,8 @@ export function useLiveEvents(): LiveStatus {
         // open on this side and dead on the other: the case a plain `fetch` never reports, because
         // no error ever arrives. Aborting is what turns it back into a reconnect.
         let silence = setTimeout(() => controller.abort(), LIVE_SILENCE_TIMEOUT_MS);
+        /** When this connection's stream opened, or null when it never did. See below. */
+        let openedAt: number | null = null;
         try {
           const res = await fetch(`${API_BASE_URL}/events`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -257,26 +260,30 @@ export function useLiveEvents(): LiveStatus {
           const decoder = new TextDecoder();
           let buffer = '';
           /*
-           * Nothing counts as a connection until a byte of it arrives.
+           * What counts as a connection that worked: one that stayed up (`LIVE_STABLE_MS`).
            *
-           * The backoff used to reset here, on the response *headers*, which is a weaker claim than
-           * it looks: a proxy that accepts the request and then closes the unit immediately, an LB
-           * idle timeout, or a server in a crash loop all produce `res.ok` with a stream that ends
-           * at once. Every one of those iterations counted as a success, so `attempt` never grew
-           * past zero and the tab reconnected roughly once a second, forever, taking a full cache
-           * invalidation with it each time.
+           * Two weaker answers were tried here and both were wrong in the same direction. Response
+           * headers are wrong because a proxy that accepts a request and closes it still produces
+           * `res.ok`. The **first byte** is wrong for a reason particular to this server: it writes
+           * a `ready` frame before anything else, deliberately, so every connection that opens at
+           * all delivers a byte. A server in a crash loop, which is the case that matters most,
+           * therefore looked identical to a healthy one, `attempt` never grew past zero, and the
+           * tab reconnected about once a second forever, taking a full cache invalidation with it
+           * every time. React Query cancels in-flight refetches when it invalidates, so a screen
+           * being polled every five seconds could have every poll cancelled before it landed: the
+           * channel being down took the *polls* down with it, which is the one thing the polls are
+           * there to survive.
            *
-           * The server writes a `ready` frame before anything else precisely so this is cheap to
-           * check: on a healthy connection the first read arrives immediately, and on the broken
-           * ones above it never arrives at all.
+           * So the reset moved to where the stream ends, below, and the first byte keeps only the
+           * job it can actually do: telling a reconnect from a first connection.
            */
+          openedAt = Date.now();
           let delivered = false;
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             if (!delivered) {
               delivered = true;
-              attempt = 0;
               // Anything that happened while this tab was disconnected is already in the database
               // and was never pushed. Refetching on a *re*connect is what makes a dropped
               // connection cost latency and not a stale screen; on the first connection there was
@@ -315,6 +322,10 @@ export function useLiveEvents(): LiveStatus {
 
         if (cancelled) return;
         setStatus('offline');
+        // A connection that lasted counts as one; anything shorter is the next step of the backoff,
+        // however much it wrote before it died. `openedAt` is unset when the fetch itself threw,
+        // which is the same answer: nothing worked.
+        if (openedAt !== null && Date.now() - openedAt >= LIVE_STABLE_MS) attempt = 0;
         await new Promise<void>((resolve) => {
           retry = setTimeout(resolve, retryDelay(attempt++));
         });

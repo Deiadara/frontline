@@ -548,7 +548,7 @@ describe('§I4a/§I4b: the yard cuts one, behind two gates', () => {
       base.id,
       [
         ...base.buildings.filter((building) => building.kind !== 'scrapyard'),
-        { id: 'yard-1', kind: 'scrapyard', level: 3, modifications: [], damage: 0 },
+        { id: 'yard-1', kind: 'scrapyard', level: 3, modifications: [] },
       ],
       base.buildQueue,
     );

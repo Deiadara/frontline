@@ -24,7 +24,6 @@ const at = (kind: BuildingKind, level: number): Building => ({
   kind,
   level,
   modifications: [],
-  damage: 0,
 });
 
 /** A district with a bit of everything, so the cross-structure bonuses have something to read. */

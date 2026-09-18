@@ -82,8 +82,20 @@ const clamp = (value: number, low: number, high: number): number =>
  * is a decision, where flat damage reduction only describes a thing you beat by bringing more.
  */
 export function damageTypeMultiplier(attacker: Effective, defender: Effective): number {
-  const raw = defender.resistances[attacker.damageType] ?? 0;
-  return 1 - clamp(raw, MIN_RESISTANCE, MAX_RESISTANCE) / 100;
+  return 1 - effectiveResistance(defender.resistances[attacker.damageType]) / 100;
+}
+
+/**
+ * What a written resistance is actually worth, once the ceiling and the floor have had it.
+ *
+ * Exported because a sheet may be authored past either bound and two of them are: the Abomination
+ * says `chemical: 100` and the Ash Walkers say 90, against a ceiling of 85. A screen printing the
+ * written number tells a player something the fight will not do, and a screen doing its own
+ * `Math.min`/`Math.max` on the two constants is a second copy of this rule that can drift from the
+ * one the engine uses. There is one copy, and this is it.
+ */
+export function effectiveResistance(written: number | undefined): number {
+  return clamp(written ?? 0, MIN_RESISTANCE, MAX_RESISTANCE);
 }
 
 /**

@@ -44,7 +44,6 @@ const at = (kind: Building['kind'], mods: string[], level = 20): Building => ({
   kind,
   level,
   modifications: mods,
-  damage: 0,
 });
 
 /** A card of `family` that fits `kind`, or nothing when the catalogue has none. */

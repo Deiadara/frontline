@@ -11,7 +11,8 @@
  * negative count in the inventory.
  */
 import { describe, expect, it } from 'vitest';
-import { BLUEPRINTS } from './catalog.js';
+import { BLUEPRINTS, pageRarity } from './catalog.js';
+import { reimaginingOdds } from './reimagine-odds.js';
 import {
   REIMAGINING_PAGES_SPENT,
   REIMAGINING_REFUSAL_MESSAGES,
@@ -20,6 +21,7 @@ import {
   unseenPages,
 } from './state.js';
 import type { Inventory } from '../items/inventory.js';
+import { ITEM_RARITIES, type ItemRarity } from '../items/rarity.js';
 
 const READY = { hasHeadOfResearch: true, hasReimaginingResearch: true };
 const ALL_PAGES = BLUEPRINTS.flatMap((spec) => spec.pages.map((page) => page.id));
@@ -30,6 +32,15 @@ function holding(copies: number, distinct = 3): Inventory {
   for (const pageId of ALL_PAGES.slice(0, distinct)) bag[pageId] = copies;
   return bag;
 }
+
+/** Every page with the tier it is graded at, which is what the payout ladder is measured against. */
+const PAGE_RARITY = new Map<string, ItemRarity>(
+  BLUEPRINTS.flatMap((spec) =>
+    spec.pages.map((page) => [page.id, pageRarity(spec, page)] as const),
+  ),
+);
+const PAGES_OF = (rarity: ItemRarity): string[] =>
+  ALL_PAGES.filter((pageId) => PAGE_RARITY.get(pageId) === rarity);
 
 const first = ALL_PAGES[0]!;
 const second = ALL_PAGES[1]!;
@@ -259,6 +270,214 @@ describe('reimagining a page (§G2, §G3)', () => {
     for (const [reason, sentence] of Object.entries(REIMAGINING_REFUSAL_MESSAGES)) {
       expect(sentence.length, `${reason} has no sentence`).toBeGreaterThan(10);
       expect(sentence, `${reason} prints its own machine name`).not.toContain('_');
+    }
+  });
+});
+
+/**
+ * What the bench pays out, and why it is measured rather than argued.
+ *
+ * The rarity draw and the ladder are tested apart in `reimagine-odds.test.ts`. What only shows up
+ * here is the wiring: that the three sheets the player named are the ones the ladder is read off,
+ * that the page really is picked out of the tier that was rolled, and that a tier with nothing
+ * unseen in it still pays.
+ *
+ * The samples below are 5,000 trades and the tolerance is four binomial standard errors on the
+ * share being checked, sqrt(p * (1 - p) / n), which is 2.3 percentage points against an 80% share
+ * and 0.4 against a 0.5% one. That is an honest window rather than a round one: it is wide enough
+ * that no reasonable hash reddens it, and a good deal narrower than the distance between any two
+ * rungs of the ladder, so a swapped ladder or an ignored input misses it by a factor of ten.
+ *
+ * Nothing here is actually random. The seeds are fixed strings, so a passing run passes forever and
+ * the only thing that moves these numbers is the maths moving. A 200,000-trade run off this code,
+ * covering all twenty input multisets, came in inside 1.3 standard errors everywhere.
+ */
+describe('what the three sheets buy (maintainer, 2026-09-18)', () => {
+  const SAMPLE = 5_000;
+  /** Four binomial standard errors on a share of `share` over `SAMPLE` draws. See the note above. */
+  const window = (share: number) => 4 * Math.sqrt((share * (1 - share)) / SAMPLE);
+
+  /** Trades `SAMPLE` times off the same bag and counts the tier of the page that came back. */
+  function payouts(inventory: Inventory, pages: readonly string[], tag: string) {
+    const counts = new Map<ItemRarity, number>(ITEM_RARITIES.map((rarity) => [rarity, 0]));
+    for (let index = 0; index < SAMPLE; index += 1) {
+      const result = reimagine({ inventory, context: READY, pages, seed: `${tag}-${index}` });
+      expect(result, 'the trade refused mid-sample').not.toBeNull();
+      const rarity = PAGE_RARITY.get(result!.gained)!;
+      counts.set(rarity, counts.get(rarity)! + 1);
+    }
+    return (rarity: ItemRarity) => counts.get(rarity)! / SAMPLE;
+  }
+
+  /** Three sheets of the named tiers, held one deep each, and nothing else in the bag. */
+  function feed(tiers: readonly ItemRarity[]): { inventory: Inventory; pages: string[] } {
+    const bag: Record<string, number> = {};
+    const pages: string[] = [];
+    const taken = new Map<ItemRarity, number>();
+    for (const tier of tiers) {
+      const at = taken.get(tier) ?? 0;
+      taken.set(tier, at + 1);
+      const pageId = PAGES_OF(tier)[at]!;
+      pages.push(pageId);
+      bag[pageId] = (bag[pageId] ?? 0) + 1;
+    }
+    return { inventory: bag, pages };
+  }
+
+  it.each([
+    ['basic', 'basic', 'basic'],
+    ['basic', 'basic', 'masterpiece'],
+    ['advanced', 'advanced', 'advanced'],
+    ['masterpiece', 'masterpiece', 'masterpiece'],
+  ] as ItemRarity[][])('pays %s + %s + %s at the ladder those three buy', (...tiers) => {
+    const { inventory, pages } = feed(tiers);
+    const odds = reimaginingOdds(tiers);
+    const share = payouts(inventory, pages, tiers.join('+'));
+    for (const rarity of ITEM_RARITIES) {
+      expect(
+        Math.abs(share(rarity) - odds[rarity]),
+        `${tiers.join('+')} paid ${rarity} at ${(share(rarity) * 100).toFixed(2)}% against ${(odds[rarity] * 100).toFixed(2)}%`,
+      ).toBeLessThan(window(odds[rarity]));
+    }
+  });
+
+  /** The headline the brief asked for, stated as the two numbers a player would notice. */
+  it('turns three Basic sheets into a Basic page four times in five, and three Masterpiece sheets into a Masterpiece page four times in five', () => {
+    const cheap = feed(['basic', 'basic', 'basic']);
+    expect(payouts(cheap.inventory, cheap.pages, 'cheap')('basic')).toBeGreaterThan(0.78);
+    const dear = feed(['masterpiece', 'masterpiece', 'masterpiece']);
+    expect(payouts(dear.inventory, dear.pages, 'dear')('masterpiece')).toBeGreaterThan(0.78);
+  });
+
+  /** Same bag, same seed, different sheets in the sockets: the page that comes back moves. */
+  it('reads the ladder off the three that were named rather than off the bag', () => {
+    const bag: Record<string, number> = {};
+    for (const tier of ITEM_RARITIES)
+      for (const pageId of PAGES_OF(tier).slice(0, 3)) bag[pageId] = 2;
+    const inventory = bag as Inventory;
+    const cheap = PAGES_OF('basic').slice(0, 3);
+    const dear = PAGES_OF('masterpiece').slice(0, 3);
+    const cheapShare = payouts(inventory, cheap, 'same-bag-cheap');
+    const dearShare = payouts(inventory, dear, 'same-bag-dear');
+    expect(cheapShare('basic')).toBeGreaterThan(0.7);
+    expect(dearShare('masterpiece')).toBeGreaterThan(0.7);
+    expect(dearShare('masterpiece')).toBeGreaterThan(cheapShare('masterpiece') * 50);
+  });
+
+  /**
+   * A tier with nothing unseen left in it still has to pay.
+   *
+   * The trade is guaranteed, so an exhausted tier falls to the nearest stocked one. A crew that has
+   * seen every Basic page rolls Basic four times in five off a cheap input, and every one of those
+   * rolls has to come back as an Intricate page: 80% plus the 15% that was Intricate anyway.
+   */
+  it('falls to the next tier up when the tier it rolled has nothing unseen left', () => {
+    const bag: Record<string, number> = {};
+    for (const pageId of PAGES_OF('basic')) bag[pageId] = 1;
+    const paying = PAGES_OF('basic')[0]!;
+    bag[paying] = 4;
+    const inventory = bag as Inventory;
+    const pages = [paying, paying, paying];
+    expect(
+      unseenPages(inventory).filter((pageId) => PAGE_RARITY.get(pageId) === 'basic'),
+      'the fixture left a Basic page unseen, so the fallback is never reached',
+    ).toEqual([]);
+
+    const share = payouts(inventory, pages, 'no-basics');
+    expect(share('basic')).toBe(0);
+    // 0.80 rolled Basic plus the 0.15 that rolled Intricate.
+    expect(Math.abs(share('intricate') - 0.95)).toBeLessThan(window(0.95));
+    // The tiers that were never exhausted are untouched.
+    expect(Math.abs(share('advanced') - 0.045)).toBeLessThan(window(0.045));
+    expect(Math.abs(share('masterpiece') - 0.005)).toBeLessThan(window(0.005));
+  });
+
+  /**
+   * Nearest, and a tie goes down.
+   *
+   * With every Advanced page seen, an Advanced roll is one step from Intricate and one step from
+   * Masterpiece. It has to land on Intricate: ties going up would make emptying a tier the fastest
+   * route to the tier above it.
+   */
+  it('breaks a tie downwards when the exhausted tier sits between two stocked ones', () => {
+    const bag: Record<string, number> = {};
+    for (const pageId of PAGES_OF('advanced')) bag[pageId] = 1;
+    const paying = PAGES_OF('advanced')[0]!;
+    bag[paying] = 4;
+    const inventory = bag as Inventory;
+    const share = payouts(inventory, [paying, paying, paying], 'no-advanced');
+    const odds = reimaginingOdds(['advanced', 'advanced', 'advanced']);
+
+    expect(share('advanced')).toBe(0);
+    // The 29.3% that rolled Advanced went to Intricate, not to Masterpiece.
+    const toIntricate = odds.intricate + odds.advanced;
+    expect(Math.abs(share('intricate') - toIntricate)).toBeLessThan(window(toIntricate));
+    expect(Math.abs(share('masterpiece') - odds.masterpiece)).toBeLessThan(
+      window(odds.masterpiece),
+    );
+    expect(Math.abs(share('basic') - odds.basic)).toBeLessThan(window(odds.basic));
+  });
+
+  /**
+   * The search walks as far as it has to, not exactly one rung.
+   *
+   * With both Basic and Intricate emptied out, a cheap input rolls one of those two 95 times in a
+   * hundred and every one of them has to come back Advanced. A fallback that steps a single tier
+   * and stops would have nothing to hand over on the Basic rolls.
+   */
+  it('keeps stepping until it finds a stocked tier, however far that is', () => {
+    const bag: Record<string, number> = {};
+    for (const pageId of [...PAGES_OF('basic'), ...PAGES_OF('intricate')]) bag[pageId] = 1;
+    const paying = PAGES_OF('basic')[0]!;
+    bag[paying] = 4;
+    const inventory = bag as Inventory;
+    expect(
+      unseenPages(inventory).filter((pageId) => {
+        const rarity = PAGE_RARITY.get(pageId)!;
+        return rarity === 'basic' || rarity === 'intricate';
+      }),
+    ).toEqual([]);
+
+    const share = payouts(inventory, [paying, paying, paying], 'two-steps');
+    expect(share('basic')).toBe(0);
+    expect(share('intricate')).toBe(0);
+    // 0.80 + 0.15 rolled a tier that is gone, plus the 0.045 that rolled Advanced anyway.
+    expect(share('advanced')).toBeGreaterThan(0.99);
+    expect(Math.abs(share('masterpiece') - 0.005)).toBeLessThan(window(0.005));
+  });
+
+  /** Whatever the ladder says, the page is still one nobody has seen and not one of the three. */
+  it('still hands back an unseen page that is not one of the three, at every tier', () => {
+    for (const tiers of [
+      ['basic', 'basic', 'basic'],
+      ['intricate', 'advanced', 'masterpiece'],
+      ['masterpiece', 'masterpiece', 'masterpiece'],
+    ] as ItemRarity[][]) {
+      const { inventory, pages } = feed(tiers);
+      const pool = new Set(unseenPages(inventory));
+      for (let index = 0; index < 300; index += 1) {
+        const result = reimagine({
+          inventory,
+          context: READY,
+          pages,
+          seed: `${tiers.join('+')}-clean-${index}`,
+        })!;
+        expect(pages).not.toContain(result.gained);
+        expect(pool.has(result.gained), `${result.gained} was not in the unseen pool`).toBe(true);
+      }
+    }
+  });
+
+  /** Determinism survived the second draw: one seed, one answer, however many times it is asked. */
+  it('gives the same page for the same seed and the same three sheets, every time', () => {
+    const { inventory, pages } = feed(['basic', 'intricate', 'masterpiece']);
+    for (let index = 0; index < 50; index += 1) {
+      const seed = `stable-${index}`;
+      const once = reimagine({ inventory, context: READY, pages, seed })!;
+      const twice = reimagine({ inventory, context: READY, pages, seed })!;
+      const thrice = reimagine({ inventory, context: READY, pages, seed })!;
+      expect(once.gained).toBe(twice.gained);
+      expect(twice.gained).toBe(thrice.gained);
     }
   });
 });

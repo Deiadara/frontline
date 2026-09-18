@@ -494,7 +494,7 @@ describe('the ground a unit is trained on (§A4)', () => {
   /** Cyberhounds want an Infirmary at 6 as well as the Doghouse, and a purse to pay with. */
   function readyToBreed(stack: Stack): void {
     stack.app.repos.bases.updateBuildings(stack.baseId, [
-      { id: 'b-infirmary', kind: 'infirmary', level: 6, modifications: [], damage: 0 },
+      { id: 'b-infirmary', kind: 'infirmary', level: 6, modifications: [] },
     ]);
     stack.app.repos.bases.updateHoldings(
       stack.baseId,
@@ -642,7 +642,6 @@ describe('what the yard adds to a haul', () => {
           kind: rigs.building,
           level: BUILDING_MAX_LEVEL,
           modifications: [rigs.id],
-          damage: 0,
         },
       ],
     };

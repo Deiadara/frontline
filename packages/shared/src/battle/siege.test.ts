@@ -1,18 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUILDING_MAX_LEVEL,
-  MAX_DAMAGE_PENALTY,
-  MIN_STRIKE_DAMAGE,
-  MAX_STRIKE_DAMAGE,
-  RECOVERY_PER_LEVEL,
-  buildingEffectiveness,
-  buildingProduction,
-  damageBuilding,
   districtDefense,
   gateDefensePercent,
   gateIntelResistancePercent,
-  repairedByBuilding,
-  strikeDamage,
   type Building,
 } from '../building/index.js';
 import {
@@ -949,46 +940,6 @@ describe('everything that feeds the engine (§A5)', () => {
 });
 
 describe('what a breach does to a district (§A4)', () => {
-  const structure = (damage: number): Building => ({
-    id: 'g',
-    kind: 'greenhouse',
-    level: 10,
-    modifications: [],
-    damage,
-  });
-
-  it('costs a wrecked structure up to half its job, and never more', () => {
-    expect(buildingEffectiveness(structure(0))).toBe(1);
-    expect(buildingEffectiveness(structure(100))).toBe(1 - MAX_DAMAGE_PENALTY);
-    expect(buildingEffectiveness(structure(50))).toBeCloseTo(1 - MAX_DAMAGE_PENALTY / 2, 6);
-    expect(MAX_DAMAGE_PENALTY).toBeLessThanOrEqual(0.5);
-  });
-
-  it('actually reaches the district clocks rather than sitting on the record', () => {
-    const intact = buildingProduction('greenhouse', [structure(0)]).supplies ?? 0;
-    const wrecked = buildingProduction('greenhouse', [structure(100)]).supplies ?? 0;
-    expect(wrecked).toBeLessThan(intact);
-    // Halved, not stopped: a Greenhouse wrecked to a standstill starves a roster that had nothing
-    // to do with the fight, which is a punishment loop rather than a setback.
-    expect(wrecked).toBeCloseTo(intact * (1 - MAX_DAMAGE_PENALTY), 6);
-  });
-
-  it('scales the wrecking by how badly the defence lost, and always leaves a mark', () => {
-    expect(strikeDamage(0)).toBe(MIN_STRIKE_DAMAGE);
-    expect(strikeDamage(1)).toBe(MAX_STRIKE_DAMAGE);
-    expect(strikeDamage(0.5)).toBeGreaterThan(strikeDamage(0));
-    expect(MIN_STRIKE_DAMAGE).toBeGreaterThan(0);
-  });
-
-  it('puts a structure right when a level goes on it, and never past intact', () => {
-    expect(repairedByBuilding(structure(30)).damage).toBe(0);
-    expect(repairedByBuilding(structure(100)).damage).toBe(100 - RECOVERY_PER_LEVEL);
-  });
-
-  it('stops damage at wrecked rather than letting it climb for ever', () => {
-    expect(damageBuilding(structure(90), 40, NOON.toISOString()).damage).toBe(100);
-  });
-
   /**
    * A gate's strength is its level, and nothing else (maintainer request).
    *
@@ -1002,7 +953,12 @@ describe('what a breach does to a district (§A4)', () => {
    * home and a wall you took are worth the same per level.
    */
   it('is worth its level and nothing else, at home and on ground it took', () => {
-    const gateAt = (level: number): Building => ({ ...structure(0), kind: 'gate', level });
+    const gateAt = (level: number): Building => ({
+      id: 'g',
+      kind: 'gate',
+      level,
+      modifications: [],
+    });
     for (const level of [1, 4, 12, BUILDING_MAX_LEVEL]) {
       expect(gateDefensePercent([gateAt(level)])).toBe(capturedGateDefensePercent(level));
       expect(gateIntelResistancePercent([gateAt(level)])).toBe(

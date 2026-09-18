@@ -38,8 +38,8 @@ duration frozen onto the entry. Settled lazily on read: no scheduler.
 structure that finished an hour ago is not paid for the three days nobody looked). Greenhouse →
 supplies/planks, Generator → oil, Scrapyard → scrap/HQ metal. The Garage produces nothing: its worth
 is the machines built in it. Caps are not farmed: they come off missions and raids. There is no
-power grid and no district morale; a structure runs at its own level, its own cards and its own
-damage, and the Generator's oil burn is a purchase rather than a standing draw.
+power grid and no district morale; a structure runs at its own level and its own cards, and the
+Generator's oil burn is a purchase rather than a standing draw.
 
 ✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back. Three
 shelves, not one: bulk for scrap and planks, two thirds of it for oil and supplies, a third for HQ

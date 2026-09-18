@@ -38,7 +38,10 @@ export const BUILDING_PART_GATES: Readonly<
   // The garage is where machines are made, so it is the one that asks for the hard parts.
   garage: {
     5: { gyro_assembly: 2 },
-    12: { gyro_assembly: 4, rotor_hub: 1 },
+    // Ten, not twelve: the Garage stops at ten (`BUILDING_LEVEL_CEILINGS`), and a gate above a
+    // structure's ceiling is a gate nobody ever pays. It took the whole of the game's lifetime
+    // demand for `rotor_hub` with it, so the one part with a single sink had no sink at all.
+    10: { gyro_assembly: 4, rotor_hub: 1 },
   },
   // The infirmary's theatre. There is one part in the district that can hold a life open.
   infirmary: {

@@ -231,7 +231,9 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     const rewards = carriedHome(
       paid,
       missionCarry(
-        stored.mission.force,
+        // The ones still standing, not the ones who set out: see `MissionBattle.carrying`. A job
+        // with no fight in it kills nobody, so the force that went is the force that carries.
+        battle?.carrying ?? stored.mission.force,
         base.unitLoadouts,
         // §A4: the Pawn Shop, the raid modifications and `sig_scavenger_king` all pay into the same
         // channel, and it reached the raid path only. A crew that bought a bigger bag carried the

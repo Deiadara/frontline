@@ -20,6 +20,7 @@ import {
   RESOURCE_KEYS,
   addItems,
   buildingLevel,
+  levelCeilingFor,
   startingProgression,
   type ItemCost,
   type ItemId,
@@ -112,7 +113,11 @@ function buildingsAt(
 ): Building[] {
   return BUILDING_KINDS.flatMap((kind) => {
     const standing = current.find((building) => building.kind === kind);
-    const target = only === undefined || only === kind ? level : (standing?.level ?? 0);
+    const wanted = only === undefined || only === kind ? level : (standing?.level ?? 0);
+    // Clamped to what the structure can actually reach. The knob is one number for eleven
+    // structures and two of them stop at 10, so an unclamped 20 writes a Garage level no build
+    // queue could produce and every ceiling readout on the client then disagrees with the plot.
+    const target = Math.min(wanted, levelCeilingFor(kind));
     if (target <= 0) return [];
     return [
       {
@@ -120,9 +125,6 @@ function buildingsAt(
         kind,
         level: target,
         modifications: standing?.modifications ?? [],
-        // Carried through rather than reset: a knob that moves a level should not also repair the
-        // siege damage or dismiss the garrison a reviewer is standing there to look at.
-        damage: standing?.damage ?? 0,
       },
     ];
   });

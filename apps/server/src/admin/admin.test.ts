@@ -1,5 +1,6 @@
 import {
   BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   buildingBuildSeconds,
   buildingCost,
   type AdminSnapshot,
@@ -218,7 +219,9 @@ describe('the bench', () => {
     });
     expect(up.statusCode).toBe(200);
     const raised = up.json<{ admin: AdminSnapshot }>().admin;
-    expect(raised.buildings.every((entry) => entry.level === BUILDING_MAX_LEVEL)).toBe(true);
+    expect(raised.buildings.every((entry) => entry.level === levelCeilingFor(entry.kind))).toBe(
+      true,
+    );
 
     // Level zero is a real instruction: the stage before a structure exists is one a reviewer
     // needs to be able to get back to.

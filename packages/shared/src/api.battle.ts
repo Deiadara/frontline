@@ -220,9 +220,6 @@ export const StructureDefenceSchema = z.object({
   kind: z.string(),
   label: z.string(),
   level: z.number().int().positive(),
-  damage: z.number().min(0).max(100),
-  /** 0..1: how much of its job it is still doing. */
-  effectiveness: z.number().min(0).max(1),
   /**
    * What it is worth to a defence right now, for the one structure that is bought *for* that.
    *

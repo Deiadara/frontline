@@ -3,6 +3,7 @@ import type { PartialResources } from '../resources.js';
 import {
   BUILDING_CATALOG,
   BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   VEHICLE_IDS,
   type Building,
 } from '../building/index.js';
@@ -108,7 +109,6 @@ const building = (
   kind,
   level,
   modifications,
-  damage: 0,
 });
 
 /** A crew at the top of every tree, holding one of every kind of location. */
@@ -322,6 +322,32 @@ describe('unlocking them (§A5)', () => {
   });
 
   /** §B6: exactly the twelve the maintainer named hang off the Gauntlet, and each on a real level. */
+  /**
+   * No unit is gated on a structure level that structure cannot reach (maintainer, 2026-09-18).
+   *
+   * The Garage and the Infirmary stop at ten (`BUILDING_LEVEL_CEILINGS`), and the day they did,
+   * five units became unfieldable forever: the Juggernauts and The Abomination wanted an Infirmary
+   * at 12, The Saint at 15, The Colossus a Garage at 16 and The Loose End at 12. Three of the five
+   * were legendaries. Nothing caught it, because the only check here was against the *global*
+   * ceiling, which every one of those clauses satisfied.
+   *
+   * Walked over every building clause on every unit rather than the five that bit, because the
+   * failure is structural: it opens again the moment another structure gets a ceiling, or another
+   * unit is authored against the old one.
+   */
+  it('never asks for a structure level that structure cannot reach', () => {
+    for (const unit of UNIT_CATALOG) {
+      for (const need of unit.requires) {
+        if (need.kind !== 'building') continue;
+        const ceiling = levelCeilingFor(need.building);
+        expect(
+          need.level,
+          `${unit.id} wants ${need.building} ${need.level}, which stops at ${ceiling}`,
+        ).toBeLessThanOrEqual(ceiling);
+      }
+    }
+  });
+
   it('gates the board’s twelve on the Gauntlet and nothing else', () => {
     const gated = UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) !== null).map(
       (unit) => unit.id,

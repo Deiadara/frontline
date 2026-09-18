@@ -149,6 +149,19 @@ export interface CrewOnlyEffects {
   /** How much faster the wounded come back after a fight instead of staying dead. */
   casualtyRecoveryPercent: number;
   /**
+   * Whether a unit the Infirmary brought back still carries its share of the haul.
+   *
+   * What comes home is carried by the units that **survived** the fight, and a unit the medics
+   * recover was dead at the moment the packs were counted, so by default it carries nothing. The
+   * Chief Medic's `recovered_carry_loot` rung is the one thing that turns this on: the party that
+   * brings a body back brings the pack with it.
+   *
+   * A switch rather than a percentage, and crew-only: no piece of ground grants it, so it is not a
+   * `TerritoryEffects` channel. Ored in the folds like the other switches, and false in
+   * {@link noCrewEffects}, so a consumer reads it without knowing whether the rung exists.
+   */
+  recoveredCarryLoot: boolean;
+  /**
    * How much of a large force can actually be brought to bear at once (§A5).
    *
    * The teamwork channel. Combat width (`battle/battlefield.ts`) means units past the frontage are
@@ -308,6 +321,7 @@ export function noCrewEffects(): CrewEffects {
     payrollStepDiscountPercent: 0,
     intelResistancePercent: 0,
     casualtyRecoveryPercent: 0,
+    recoveredCarryLoot: false,
     cohesionPercent: 0,
     unitEvasionFlat: 0,
     alliedOffensePercent: 0,

@@ -134,6 +134,71 @@ If a fight should ever be worth taking at a disadvantage, that is the number to 
 number: `CONCENTRATION_EDGE` damps the feedback and the two luck constants widen the band. At
 `ROUND_LUCK` 0.35 the same ladder reads 55%, 63%, 68%, 76%, 86%.
 
+## Depth, and what it costs
+
+Combat width caps what a side can bring to bear; it never charged for exceeding it. Those are two
+different mechanics and the engine had only the first.
+
+The rotation the cap's own note promises needed no code and always worked: `frontageShare` is
+recomputed every round off who is _still fighting_, so as the front rank falls the queue behind it
+becomes the front rank, and a deep side goes on firing at the width of the ground until it is
+finally thinner than the ground. Measured on open ground (frontage 48) against 60 defenders, before
+any of this changed:
+
+| Attackers | Wins  | Mean survivors |
+| --------- | ----- | -------------- |
+| 60        | 28/60 | 21.1           |
+| 120       | 60/60 | 101.7          |
+| 180       | 60/60 | 166.2          |
+| 300       | 60/60 | 287.3          |
+
+Depth was never dead weight. It was _free_: the cap held a deep side's output at the width of the
+ground while its pool went on growing without limit, so there was no number at which bringing more
+stopped being the answer.
+
+Worse, and this is the part that made the mechanic actively wrong: **narrow ground favoured the
+bigger force.** Two hundred attackers lost 2.8 men taking a corridor (frontage 10) off forty
+defenders, and 20.1 men taking open ground off the same forty. A choke point was doing the attacker
+a favour, because the cap silenced both sides equally while only one of them had a deep pool.
+
+`overstackPenalty` is the price, and two decisions in it are worth keeping:
+
+- **It falls on the attacker alone.** The symmetric version was measured first and made narrow
+  fights bloodless: both sides are over the width in a corridor, both lose the same share of their
+  fire, and the round cap decides a stalemate nobody dies in. A harsher symmetric penalty made this
+  _worse_, not better: at a 0.85 ceiling, 200 attackers lost 0.8 men in a corridor.
+- **It is on fire, not on toughness.** Crowding makes a force harder to shoot past, not easier to
+  kill, and charging toughness would cancel the staying power that is the reason to bring depth in
+  the first place. A variant that also raised incoming damage was measured and dropped: it moved
+  survivors at 300-v-60 from 287 to 274, which is not worth a second mechanic.
+
+With it, an even fight at a choke goes to whoever is holding it (40 attackers against 40 defenders
+in a corridor: 20/60 wins before, 0/60 after) and the way through is the one the game already sells:
+at 50% cohesion the same 40 attackers win 51/60, because cohesion widens the frontage this side can
+use and is therefore worth exactly as much against the penalty as it is to deployment.
+
+## Every unit answers something
+
+Twenty-one of the thirty-one sheets carried no `resistances` at all, so `damageTypeMultiplier`
+returned 1.0 for two thirds of the roster whatever was shooting at it. The axis read as designed on
+the ten cards that had one and did nothing anywhere else, which meant the defending player had no
+counter-build to make and scouting told them nothing they could act on.
+
+Every unit now carries both a resistance and a weakness, and `matchup.test.ts` refuses a new unit
+that arrives with an empty sheet. The spine the ten authored sheets already drew, now applied to all
+of them: armour answers blade and ballistic and dreads blast; energy is the anti-machine type and
+the unaugmented shrug it off; chemical is the anti-organic type and the sealed shrug it off.
+
+The sheet is the same sheet on both sides of the line, and always was: `exchange` reads the sheet of
+whichever stack is the _target_ of that exchange, and both sides fire through it. Measured, 40
+energy-weak Hollow Men against 40 Netrunners leave 11.7 standing when they attack and 11.4 when they
+hold, which is the same fight twice.
+
+One thing to watch when authoring: **blade is dealt by fourteen of the thirty-one units and
+explosive by three**, so an answer to blade is worth nearly five times an answer to explosive. A
+first pass that spread blade resistance around on flavour alone pushed eight pairs out of the gate
+ladder in `balance.test.ts`, all of them blade-dealers gated deep.
+
 ## Things that were wrong
 
 Kept because each of them was invisible and each would be easy to reintroduce.

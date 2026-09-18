@@ -162,6 +162,7 @@ import {
   officerBattleStats,
   fleetCapacity,
   type GarageResponse,
+  OVERSEER_HOLD_MS,
   OVERSEER_PRESETS,
   STARTING_RESOURCES,
   averageLevel,
@@ -239,6 +240,15 @@ export const overseerChoices: OverseerChoicesResponse = {
   choices: OVERSEER_PRESETS.slice(0, 4),
   remaining: OVERSEER_PRESETS.length - 4,
   total: OVERSEER_PRESETS.length,
+  /*
+   * A live hold, because the screen counts it down and redraws when it runs out.
+   *
+   * Written off the clock at module load: a fixed timestamp would be in the past by the time
+   * anybody ran this, the countdown would read zero, and the screen would refetch on its first
+   * frame rather than showing the four cards the tests press by name.
+   */
+  serverNow: new Date().toISOString(),
+  expiresAt: new Date(Date.now() + OVERSEER_HOLD_MS).toISOString(),
 };
 
 export const base: Base = {
@@ -253,11 +263,11 @@ export const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [] },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [] },
     // A Gate, dug in one level: the §A4 fortification the board screen is built around, so the
     // default screenshot shows the meter part-filled rather than empty.
-    { id: 'b3', kind: 'gate', level: 2, modifications: [], damage: 0 },
+    { id: 'b3', kind: 'gate', level: 2, modifications: [] },
   ],
   buildQueue: [],
   // Fighters and porters both, so the send window and the roster show the support tier (§A5).
@@ -738,12 +748,12 @@ const NEIGHBOUR: BaseSummary = {
  * differ so the plates are not all the same reading.
  */
 const NEIGHBOUR_BUILDINGS: Building[] = [
-  { id: 'n1', kind: 'nexus', level: 6, modifications: [], damage: 0 },
-  { id: 'n2', kind: 'generator', level: 4, modifications: [], damage: 0 },
-  { id: 'n3', kind: 'gate', level: 5, modifications: [], damage: 0 },
-  { id: 'n4', kind: 'quarters', level: 3, modifications: [], damage: 0 },
-  { id: 'n5', kind: 'scrapyard', level: 4, modifications: [], damage: 0 },
-  { id: 'n6', kind: 'apothecary', level: 2, modifications: [], damage: 0 },
+  { id: 'n1', kind: 'nexus', level: 6, modifications: [] },
+  { id: 'n2', kind: 'generator', level: 4, modifications: [] },
+  { id: 'n3', kind: 'gate', level: 5, modifications: [] },
+  { id: 'n4', kind: 'quarters', level: 3, modifications: [] },
+  { id: 'n5', kind: 'scrapyard', level: 4, modifications: [] },
+  { id: 'n6', kind: 'apothecary', level: 2, modifications: [] },
 ];
 
 /**
@@ -2363,7 +2373,6 @@ export const districtWithAddons: Base = {
     // draws a fitted slot, an empty one and a locked one.
     level: index < 2 ? 20 : 3,
     modifications: index === 0 ? [modificationsFor(kind)[0]!.id] : [],
-    damage: 0,
   })),
   addons: {
     researched: [],
@@ -2924,13 +2933,11 @@ export const battles: BattlesResponse = {
       brokenUntil: null,
     },
   ],
-  structures: base.buildings.map((building, index) => ({
+  structures: base.buildings.map((building) => ({
     buildingId: building.id,
     kind: building.kind,
     label: BUILDING_CATALOG[building.kind].name,
     level: building.level,
-    damage: index === 0 ? 42 : 0,
-    effectiveness: index === 0 ? 0.79 : 1,
     // Only the Gate is bought for a defence, so only the Gate says what it is worth. Read off the
     // same folds the server projects with, so the screen's figures are the fight's figures.
     defensePercent: building.kind === 'gate' ? gateDefensePercent(base.buildings) : null,

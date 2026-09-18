@@ -648,3 +648,64 @@ describe('the research payload publishes nothing finer than its grain (§B8)', (
     expect(offGrain, 'these ship at a finer grain than we publish at').toEqual([]);
   });
 });
+
+/**
+ * The Chief Medic's sixth rung, at the seam every consumer reads (maintainer, 2026-09-18).
+ *
+ * `researchEffects` turning the switch on is asserted in shared. What cannot be asserted there is
+ * that the switch survives the fold this side does on top of it: `standingEffectsFor` merges the
+ * Lab into the ground and the people, then adds the table, the Gate and the rank, then runs the
+ * whole struct through `disrupted`. A boolean has been dropped by that chain before, which is why
+ * `mergeCrewEffects` has an arm of its own for it, and why a sibling switch is folded beside this
+ * one here rather than trusted to behave the same.
+ */
+describe('a recovered unit carrying its share home, through the standing fold', () => {
+  const CARRY_BOTH = itemsInTrack('chief_medic')[5];
+  if (!CARRY_BOTH) throw new Error('the Chief Medic track has no sixth rung');
+
+  /** The sibling switch: a permission a rung grants, ored into the same struct. */
+  const YARD = RESEARCH_ITEMS.find((spec) => spec.payout.bonus.kind === 'carriers_fight');
+  if (!YARD) throw new Error('expected a carriers_fight rung');
+
+  const standingWith = (...technologies: string[]) =>
+    standingEffectsFor(
+      fakeRepos().repos,
+      makeBase([], { ...startingResearch(), technologies }),
+      NOW,
+    );
+
+  it('is off for a crew that has not finished it', () => {
+    expect(standingWith().recoveredCarryLoot).toBe(false);
+    // ...including a crew that has finished the five rungs below it and stopped there.
+    const below = itemsInTrack('chief_medic')
+      .filter((spec) => spec.step < 6)
+      .map((spec) => spec.id);
+    expect(standingWith(...below).recoveredCarryLoot).toBe(false);
+  });
+
+  it('is on once it is finished, and reaches the fold the same way the sibling switch does', () => {
+    const only = standingWith(CARRY_BOTH.id);
+    expect(only.recoveredCarryLoot).toBe(true);
+    expect(only.carriersFight).toBe(false);
+
+    const sibling = standingWith(YARD.id);
+    expect(sibling.carriersFight).toBe(true);
+    expect(sibling.recoveredCarryLoot).toBe(false);
+
+    const both = standingWith(CARRY_BOTH.id, YARD.id);
+    expect(both.recoveredCarryLoot).toBe(true);
+    expect(both.carriersFight).toBe(true);
+  });
+
+  it('survives a raid, the way a permission should', () => {
+    // `disrupted` takes a quarter off every positive percentage while a raid lasts. A switch is
+    // not a percentage: half a permission is not a thing, and a raided crew that had bought this
+    // still gets its people home with their packs.
+    const raided = makeBase([], { ...startingResearch(), technologies: [CARRY_BOTH.id] });
+    raided.economy = {
+      ...raided.economy,
+      disruption: { until: new Date(NOW.getTime() + 3_600_000).toISOString(), percent: 25 },
+    };
+    expect(standingEffectsFor(fakeRepos().repos, raided, NOW).recoveredCarryLoot).toBe(true);
+  });
+});

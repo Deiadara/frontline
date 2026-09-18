@@ -16,7 +16,7 @@ import { MISC_AREA_ID, missionOffers } from '../missions.areas.js';
 import { BLUEPRINT_CATEGORIES } from './catalog.js';
 import { pagesOnShelf } from '../market/blackmarket.js';
 import { BLUEPRINTS } from './catalog.js';
-import { pagePrizeFor, pagePrizeOdds, pageWonFrom } from './prize.js';
+import { drawPage, pagePrizeFor, pagePrizeOdds, pageWonFrom, pagesIn } from './prize.js';
 
 /** Enough days to settle a one-in-twenty-one rate, few enough to stay quick. */
 const DAYS = 150;
@@ -159,5 +159,80 @@ describe('how often each rarity of page turns up', () => {
         rates[i - 1]!,
       );
     }
+  });
+});
+
+/**
+ * The draw replays, seed for seed (2026-09-18).
+ *
+ * `drawPage` is a seeded draw and nothing pinned what it returns, only that the rate it produces
+ * over a sweep is right. Those are different promises: a refactor can keep the distribution exactly
+ * and still hand a different page to the same seed, and a seeded draw whose output moves is a
+ * replay that no longer replays. It nearly happened the day this was written, when `drawPage` was
+ * rewritten to call a shared `drawWeighted` helper and the only thing standing behind "identical"
+ * was an argument about `Math.round` being a no-op on integer weights. The argument was right, and
+ * an argument is not a measurement.
+ *
+ * Pinned by category rather than by a hand-written list of ids, so the table is regenerable and a
+ * reader can see what it is: the same seeds, the same answers, before and after whatever changed.
+ */
+describe('the page draw is a replay', () => {
+  const SEEDS = ['run:1', 'run:2', 'run:3', 'prize:alpha', 'prize:omega'];
+
+  it('hands the same seed the same page every time it is asked', () => {
+    for (const category of BLUEPRINT_CATEGORIES) {
+      const pool = pagesIn(category);
+      for (const seed of SEEDS) {
+        const first = drawPage(pool, seed);
+        expect(first, `${category} drew nothing for ${seed}`).not.toBeNull();
+        // Ten times rather than twice: a draw that reads a module-level cursor would pass a pair.
+        for (let again = 0; again < 10; again += 1) {
+          expect(drawPage(pool, seed), `${category}/${seed} moved on read ${again}`).toBe(first);
+        }
+      }
+    }
+  });
+
+  /**
+   * And the answers themselves, which is the half a determinism check cannot see.
+   *
+   * A rewrite that is deterministic but *different* passes everything above this line. These are
+   * the pages the draw returned on the day the table was written. If a change moves one, that is a
+   * decision somebody makes and re-records deliberately, not a green suite.
+   *
+   * Written out rather than snapshotted on purpose. Nothing else in this repo uses snapshots, and a
+   * snapshot is the wrong tool for a guard like this one: `vitest -u` re-records it silently, which
+   * is exactly the failure the test exists to make loud.
+   */
+  it('returns the pages it returned when this table was written', () => {
+    const drawn = Object.fromEntries(
+      BLUEPRINT_CATEGORIES.map((category) => [
+        category,
+        SEEDS.map((seed) => drawPage(pagesIn(category), seed)),
+      ]),
+    );
+    expect(drawn).toEqual({
+      unit: [
+        'pg_juggernauts_coolant_loop',
+        'pg_hollow_men_voice_box',
+        'pg_the_specter_silent_boots',
+        'pg_juggernauts_power_spine',
+        'pg_kite_crews_sail_cutting',
+      ],
+      upgrade: [
+        'pg_mod_bone_lattice_pin_sites',
+        'pg_mod_trophy_rack_mounting_frame',
+        'pg_mod_composite_carapace_layup_schedule',
+        'pg_mod_counterweight_harness_balance_points',
+        'pg_mod_recoil_dampers_gas_port_drilling',
+      ],
+      consumable: [
+        'pg_razor_wire_picket_lines',
+        'pg_flooded_cellar_sluice_gates',
+        'pg_overnight_plating_weld_sequence',
+        'pg_prepared_collapse_fall_line',
+        'pg_shaped_charges_tamping_notes',
+      ],
+    });
   });
 });

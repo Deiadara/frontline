@@ -46,3 +46,33 @@ export function mulberry32(seed: number): () => number {
 export function seededRoll(seed: string): number {
   return mulberry32(seedFrom(seed))();
 }
+
+/**
+ * One entry out of a weighted pool, off a hash rather than a stream.
+ *
+ * Seeded the same way a uniform `seedFrom(seed) % length` pick is, so a given seed answers the same
+ * way forever; what a weight changes is only which entry a given point in the range lands on.
+ *
+ * It lives here rather than beside its first caller because there are now two of them, the page
+ * draw in `blueprints/prize.ts` and the rarity draw the Reimagining bench takes, and a second copy
+ * of this loop is a second place for the scaling trick below to be "tidied" into a float.
+ *
+ * Weights may be integers (the page pool) or fractions summing to one (the odds ladder): the hash
+ * is an integer of arbitrary size, so taking it modulo a scaled total and dividing back is what
+ * turns it into a point in [0, total) without ever going through a float. Returns null on an empty
+ * pool or one whose weights are all zero, which is a question with no answer rather than a default.
+ */
+export function drawWeighted<T>(
+  pool: readonly { id: T; weight: number }[],
+  seed: string,
+): T | null {
+  const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
+  if (pool.length === 0 || total <= 0) return null;
+  const SCALE = 1_000_000;
+  let at = (seedFrom(seed) % Math.round(total * SCALE)) / SCALE;
+  for (const entry of pool) {
+    at -= entry.weight;
+    if (at < 0) return entry.id;
+  }
+  return pool[pool.length - 1]!.id;
+}

@@ -28,6 +28,7 @@ import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/r
 import { formatDuration } from '../base/format';
 import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
 import { UnitBonuses } from './UnitBonuses';
+import { DamageLine } from './UnitDamage';
 import { UnitPortrait } from './UnitPortrait';
 import { UpgradeSlots } from './UpgradeSlots';
 
@@ -153,10 +154,29 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
         // same height on every card and the box lands on the picture's bottom edge.
         //
         // The budget, measured at 1440 two-up: header 39, gap 8, sheet 199 with two rows of
-        // marks (the Colossus, eight of them), 12 to the brackets, 24 of brackets, 12 to the
-        // price box, and the box at 92, which is what a price that wraps to two lines needs
-        // (five materials wrap at every width the card is drawn at, and none reach three). That
-        // is 386 of column, plus 24 of padding and 2 of border: 412px, 25.75rem. A `min-h` does
+        // marks (the Colossus, eight of them) and the damage line under them, 12 to the
+        // brackets, 24 of brackets, 12 to the price box, and the box at 92, which is what a
+        // price that wraps to two lines needs (five materials wrap at every width the card is
+        // drawn at, and none reach three). That is 386 of column, plus 24 of padding and 2 of
+        // border: 412px, 25.75rem.
+        //
+        // **The damage line was added without moving this figure, and that was the cheap way
+        // round rather than the tidy one.** A line added to this column costs width as well as
+        // height: the picture is 3:4 of the column, so 4px of frame is 3px of picture and 3px
+        // off the sheet beside it, and the sheet is where the header has to fit a tier, a
+        // building and a slot count on one line. The line wanted 18px (16 of it, 2 of gap) and
+        // the band had one of them. Taken off the frame, those 17 would have widened the
+        // picture by 13 and started drawing `Heavy · The Gauntlet · 2 SLOT…` on three of the
+        // six tiers, which have between 2 and 11px of room at this width, and the roster's own
+        // cut-text sweep would not have said a word, since it allows a pixel of slack and a
+        // one-pixel clip still eats a letter. So they came out of the sheet instead, where a
+        // pixel costs nothing: 8 off its own padding (`py-1`, inside rules that read the same
+        // either way) and 12 off the gaps between the four rating rows, which were 4px apart
+        // and are now ranged solid like the table they are.
+        //
+        // What is left: 3px of headroom in the band under the marks. A row added there next
+        // has to find its own 20 somewhere, and there is no obvious next 20.
+        // A `min-h` does
         // not work instead: the marks are a `flex-wrap` row, and a wrapping row's contribution
         // to an auto grid track is measured as though it never wrapped, so the frame would
         // squash the price box rather than grow. The roster sweep in `visual.spec.ts` walks every
@@ -319,7 +339,11 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
           The chips now sit in the middle of whatever room the card has, which reads as a row with
           air around it rather than as a row that lost an argument with the layout.
         */}
-        <div className="flex flex-1 flex-col border-y border-surface-600/50 py-2">
+        {/* `py-1` rather than `py-2`, and no `gap-y` on the ratings below: 20px, freed for the
+            damage line under the marks where a pixel costs nothing rather than taken off the
+            frame, which would have spent it on the picture and charged the header. See the
+            frame's note above. */}
+        <div className="flex flex-1 flex-col border-y border-surface-600/50 py-1">
           <dl className="grid grid-cols-2 gap-2">
             {UNIT_HEADLINE_KEYS.map((key) => (
               <div
@@ -342,7 +366,7 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
               its own bar or got cut, and both are forbidden. 24px of track and a 12px gutter give
               the word 73px, which is what `Penetration` measures at 11px condensed and the
               widest label on the sheet. */}
-          <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+          <dl className="mt-2 grid grid-cols-2 gap-x-3">
             {UNIT_RATING_KEYS.map((key) => {
               // The same four bands every other rating out of a hundred is read on: see
               // `lib/rating.ts`. These were a flat cyan at every value, which made the bar a
@@ -379,9 +403,16 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
 
           {/* Every keyword the unit carries, wrapping: one row on most cards, two on the widest.
               `flex-1` with the chips centred, so a one-line row is centred in the band's spare
-              height and a two-line row simply takes it. */}
-          <div className="mt-1 flex flex-1 flex-col justify-center border-t border-surface-700/70 pt-1">
+              height and a two-line row simply takes it.
+
+              And under them, on its own line, what this unit hits with and what hits it
+              (maintainer, 2026-09-18). Inside the same band rather than below it, because the
+              band is the one part of the column that is sized by what is left over: a line of
+              its own between the band and the brackets would push the price box off the
+              picture's bottom edge on every card in the game. */}
+          <div className="mt-1 flex flex-1 flex-col justify-center gap-0.5 border-t border-surface-700/70 pt-1">
             <Marks unit={unit} />
+            <DamageLine unit={unit} />
           </div>
         </div>
 

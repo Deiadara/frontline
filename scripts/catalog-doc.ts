@@ -119,6 +119,9 @@ import {
   type MissionTemplate,
   type PartialResources,
   type UnitSpec,
+  DAMAGE_TYPES,
+  LATE_COST_FROM_LEVEL,
+  levelCeilingFor,
   type UnitStats,
 } from '@frontline/shared';
 
@@ -638,6 +641,27 @@ function environmentSection(): Section {
 
 /* ----------------------------------------------------------------------- units */
 
+/**
+ * What a unit answers and what it dreads, in one cell.
+ *
+ * Every unit carries both since 2026-09-18, and the sheet is the axis a defending player builds
+ * against, so a catalogue that prints `Damage type` and stops tells half the story: it says what a
+ * unit deals and nothing about what deals with it. Signed numbers because the sign is the meaning,
+ * a plus being damage taken off and a minus being damage taken extra.
+ */
+function resistanceLine(resistances: UnitStats['resistances']): string {
+  const of = (keep: (points: number) => boolean) =>
+    DAMAGE_TYPES.flatMap((type) => {
+      const points = resistances[type];
+      return points === undefined || !keep(points)
+        ? []
+        : [`${type} ${points > 0 ? '+' : ''}${points}`];
+    });
+  // Answers before dreads, because that is the order the column heading promises. Reading the
+  // sheet in `DAMAGE_TYPES` order alone put a weakness first whenever its type sorted earlier.
+  return [...of((points) => points > 0), ...of((points) => points < 0)].join(', ');
+}
+
 function unitRow(unit: UnitSpec): readonly string[] {
   return [
     code(unit.id),
@@ -650,6 +674,7 @@ function unitRow(unit: UnitSpec): readonly string[] {
     String(unit.stats.armor),
     String(unit.stats.speed),
     unit.stats.damageType,
+    resistanceLine(unit.stats.resistances),
     money(unit.cost),
     clock(unit.trainSeconds),
     unitUnlockClauses(unit).map(describeRequirement).join('; '),
@@ -673,6 +698,7 @@ function unitsSection(): Section {
     'Armour',
     'Speed',
     'Damage type',
+    'Answers / dreads',
     'Cost',
     'Train',
     'Requires',
@@ -815,7 +841,18 @@ function buildingsSection(): Section {
     sources: ['packages/shared/src/building/kinds.ts'],
     rows: BUILDING_KINDS.length,
     body: table(
-      ['Kind', 'Name', 'Short', 'Requires', 'Level 1 cost', 'Level 1 build', 'Role', 'Description'],
+      [
+        'Kind',
+        'Name',
+        'Short',
+        'Requires',
+        'Ceiling',
+        'Level 1 cost',
+        `Level ${LATE_COST_FROM_LEVEL} extra`,
+        'Level 1 build',
+        'Role',
+        'Description',
+      ],
       BUILDING_KINDS.map((kind) => {
         const spec = BUILDING_CATALOG[kind];
         return [
@@ -823,7 +860,11 @@ function buildingsSection(): Section {
           spec.name,
           spec.shortName,
           spec.requires.map(describeBuildingRequirement).join('; ') || 'nothing',
+          String(levelCeilingFor(kind)),
           money(spec.baseCost),
+          // Seven structures charge no high quality metal until their fifth level (`lateCost`), and
+          // a reference that prints only `baseCost` says they never charge any at all.
+          spec.lateCost === undefined ? 'none' : money(spec.lateCost),
           clock(spec.baseSeconds),
           clip(spec.role),
           clip(spec.description),

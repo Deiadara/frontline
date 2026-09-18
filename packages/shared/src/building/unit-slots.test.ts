@@ -23,7 +23,6 @@ const build = (kind: Building['kind'], level: number): Building => ({
   kind,
   level,
   modifications: [],
-  damage: 0,
 });
 
 const noGround = noTerritoryEffects();

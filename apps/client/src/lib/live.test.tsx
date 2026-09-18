@@ -1,3 +1,4 @@
+import { LIVE_STABLE_MS } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -160,6 +161,93 @@ describe('the live channel', () => {
       // seconds; resetting every time it is one a second.
       await vi.advanceTimersByTimeAsync(10_000);
       expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * ...and neither does one that says hello and dies, which is the case this server produces.
+   *
+   * The sibling above pins the *header* version of the mistake and passes against the first-byte
+   * rule that replaced it, because its fake stream delivers nothing at all. No real connection to
+   * this server behaves that way: `live/routes.ts` writes an `event: ready` frame before anything
+   * else, on purpose, so a crash-looping server still hands the client a byte on the way down. That
+   * put the reset back exactly where it started, and nothing noticed, because the test that was
+   * supposed to be guarding it was written against a stream the server cannot produce.
+   *
+   * What makes this expensive rather than merely untidy: every reconnect fires
+   * `invalidateQueries({ refetchType: 'active' })`, and React Query cancels in-flight refetches
+   * when it invalidates. A screen polling every five seconds, reconnecting every one, can have
+   * every poll cancelled before it lands, so the channel being down takes the polls down with it.
+   * The polls exist precisely to cover for the channel being down.
+   */
+  it('backs off when the stream says hello and then dies', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      const greeting = fakeStream();
+      const body = greeting.body;
+      // A byte, then nothing: what a server that accepts the connection and falls over looks like.
+      queueMicrotask(() => {
+        greeting.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
+        greeting.close();
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+
+    try {
+      renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
+      // The same ten seconds and the same ladder as the sibling above: 1s, 2s, 4s, 8s is five
+      // fetches, and resetting on the greeting is one a second.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * And a connection that actually held gets its backoff back.
+   *
+   * The other half of the rule, and the one that stops "stayed up" from quietly becoming "never
+   * reset". The ladder has to have *climbed* for this to measure anything: on the first drop of a
+   * run `attempt` is zero whether or not anything reset it, so a version of this test that opened
+   * one good connection and dropped it passed against a threshold set a thousand times too high.
+   * So three connections fail first, which puts the next wait at four seconds, and only then does
+   * one hold.
+   */
+  it('starts the ladder again after a connection that lasted', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const held: ReturnType<typeof fakeStream>[] = [];
+    let opened = 0;
+    const FLAPS = 3;
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      const stream = fakeStream();
+      const mine = opened++;
+      queueMicrotask(() => {
+        stream.push('event: ready\ndata: {"at":"2026-08-31T12:00:00.000Z"}\n\n');
+        // The first three say hello and fall over; the fourth stays up.
+        if (mine < FLAPS) stream.close();
+        else held.push(stream);
+      });
+      return Promise.resolve(new Response(stream.body, { status: 200 }));
+    });
+
+    try {
+      renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
+      // 1s + 2s + 4s of backoff gets the fourth connection open, then it holds past a heartbeat.
+      await vi.advanceTimersByTimeAsync(10_000 + LIVE_STABLE_MS);
+      expect(held, 'the fourth connection never opened').toHaveLength(1);
+      expect(opened).toBe(FLAPS + 1);
+
+      held[0]!.close();
+      await vi.advanceTimersByTimeAsync(0);
+      // Without the reset the next wait is the eight second rung the flapping earned. With it, the
+      // ladder starts again and the reconnect lands inside a second and a half.
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(fetchSpy.mock.calls.length).toBe(FLAPS + 2);
     } finally {
       vi.useRealTimers();
     }

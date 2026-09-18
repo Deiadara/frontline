@@ -51,13 +51,12 @@ const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0 },
+    { id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] },
     {
       id: 'b-generator',
       kind: 'generator',
       level: 1,
       modifications: [],
-      damage: 0,
     },
   ],
   buildQueue: [],
@@ -781,7 +780,7 @@ describe("a neighbour's district (§A4)", () => {
   it('explains a locked plot on hover rather than being a dead square', async () => {
     render(
       <DistrictScene
-        buildings={[{ id: 'n1', kind: 'nexus', level: 1, modifications: [], damage: 0 }]}
+        buildings={[{ id: 'n1', kind: 'nexus', level: 1, modifications: [] }]}
         queue={[]}
         playerLevel={1}
         selected={null}

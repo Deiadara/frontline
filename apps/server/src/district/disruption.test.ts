@@ -1,4 +1,4 @@
-import { RAID_DISRUPTION_PERCENT, type Base } from '@frontline/shared';
+import { MAX_RAID_DISRUPTION_PERCENT, type Base } from '@frontline/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
@@ -49,15 +49,15 @@ async function makeBase(): Promise<{ app: FastifyInstance; base: Base }> {
   const raw = app.repos.bases.findById(baseId);
   if (!raw) throw new Error('no base');
   // A level-1 plot produces almost nothing in ten hours, and a difference of two units cannot
-  // separate 8.5 hours from 10. So the ground is built up first: this is a measurement fixture,
+  // separate a cut window from a whole one. So the ground is built up first: a measurement fixture,
   // not a claim about what a new crew has.
   const base: Base = {
     ...raw,
     buildings: [
       ...raw.buildings.map((building) => ({ ...building, level: 12 })),
-      { id: 'greenhouse-1', kind: 'greenhouse' as const, level: 12, modifications: [], damage: 0 },
-      { id: 'scrapyard-1', kind: 'scrapyard' as const, level: 12, modifications: [], damage: 0 },
-      { id: 'apothecary-1', kind: 'apothecary' as const, level: 12, modifications: [], damage: 0 },
+      { id: 'greenhouse-1', kind: 'greenhouse' as const, level: 12, modifications: [] },
+      { id: 'scrapyard-1', kind: 'scrapyard' as const, level: 12, modifications: [] },
+      { id: 'apothecary-1', kind: 'apothecary' as const, level: 12, modifications: [] },
     ],
   };
   return { app, base };
@@ -75,7 +75,7 @@ function tenHoursWith(
     economy: {
       ...base.economy,
       productionSettledAt: new Date(now.getTime() - 10 * HOUR).toISOString(),
-      disruption: { until, percent: until === null ? 0 : RAID_DISRUPTION_PERCENT },
+      disruption: { until, percent: until === null ? 0 : MAX_RAID_DISRUPTION_PERCENT },
     },
   };
   const after = settleDistrict(app.repos, fixture, now).base;
@@ -108,8 +108,11 @@ describe('what a raid takes off a district while it lasts', () => {
 
     for (const key of measurable) {
       const full = undisturbed[key] ?? 0;
-      // Six of the ten hours were disrupted, so the window is worth 6 x 0.75 + 4 = 8.5 hours.
-      const expected = (full * 8.5) / 10;
+      // Six of the ten hours were disrupted, so the window is worth six hours at the cut rate
+      // plus four at the full one. Derived from the constant rather than typed out, because the
+      // percentage moved with the defeat when it stopped being a flat quarter.
+      const worked = 6 * (1 - MAX_RAID_DISRUPTION_PERCENT / 100) + 4;
+      const expected = (full * worked) / 10;
       expect(expiredMidWindow[key] ?? 0, key).toBeGreaterThan(expected * 0.97);
       expect(expiredMidWindow[key] ?? 0, key).toBeLessThan(expected * 1.03);
       // And a raid that has not run out yet costs the whole window, which is the case the old

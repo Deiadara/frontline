@@ -443,3 +443,61 @@ describe('the ladder of prices and clocks', () => {
     expect(trackProgress(finishedBelow('trader', 8), track)).toBe(0);
   });
 });
+
+/**
+ * The rung that lets a recovered unit carry its share home (maintainer, 2026-09-18).
+ *
+ * A haul is carried by the units that survived the fight. A unit the Infirmary brings back was
+ * dead when the packs were counted, so it carries nothing, and this is the one thing that changes
+ * that. Asserted as a switch on the fold rather than as a number, because the consumer is a
+ * yes-or-no and reads it that way.
+ */
+describe('§C: the Chief Medic rung that brings the pack back', () => {
+  const rung = itemsInTrack('chief_medic')[5];
+  if (!rung) throw new Error('the Chief Medic track has no sixth rung');
+
+  it('is the sixth rung of the Chief Medic track, priced and gated off that depth', () => {
+    expect(rung.id).toBe('tech_carry_both');
+    expect(rung.name).toBe('Carry Both');
+    expect(rung.track).toBe('chief_medic');
+    expect(rung.step).toBe(6);
+    // Written out rather than recomputed: a rung that moved up or down the track would change all
+    // four of these at once, which is exactly what this is here to catch.
+    expect(rung.cost).toEqual({ caps: 6750, scrap: 3750, highQualityMetal: 130 });
+    expect(rung.minutes).toBe(170);
+    expect(rung.requiresMark).toBe('D');
+    expect(rung.requiresHeadMark).toBe('D+');
+    expect(findResearchItem('tech_carry_both')).toBe(rung);
+  });
+
+  it('is off until the rung is finished, and on once it is', () => {
+    expect(noCrewEffects().recoveredCarryLoot).toBe(false);
+    expect(researchEffects([]).recoveredCarryLoot).toBe(false);
+    // ...and no other rung in the catalogue turns it on by itself.
+    const others = RESEARCH_ITEMS.filter((spec) => spec.id !== rung.id).map((spec) => spec.id);
+    expect(researchEffects(others).recoveredCarryLoot).toBe(false);
+    expect(researchEffects([rung.id]).recoveredCarryLoot).toBe(true);
+    // Held once, not twice: a switch is ored wherever it is folded.
+    expect(researchEffects([rung.id, rung.id]).recoveredCarryLoot).toBe(true);
+  });
+
+  it('folds like the other switch rung on the tree, and changes nothing else', () => {
+    // `carriers_fight` is the sibling: a permission a rung grants, ored into the same struct.
+    const sibling = RESEARCH_ITEMS.find((spec) => spec.payout.bonus.kind === 'carriers_fight');
+    if (!sibling) throw new Error('expected a carriers_fight rung');
+    expect(researchEffects([sibling.id])).toEqual({ ...noCrewEffects(), carriersFight: true });
+    expect(researchEffects([rung.id])).toEqual({ ...noCrewEffects(), recoveredCarryLoot: true });
+    expect(researchEffects([rung.id, sibling.id])).toEqual({
+      ...noCrewEffects(),
+      carriersFight: true,
+      recoveredCarryLoot: true,
+    });
+  });
+
+  it('says what it does in words, and is filed under what it changes', () => {
+    expect(describeResearchPayout(rung)).toBe(
+      'the ones the medics get back carry their share of the haul home',
+    );
+    expect(payoutFamily(rung.payout)).toBe('yield');
+  });
+});

@@ -90,7 +90,7 @@ async function countedThroughGate(
   const buildings: Building[] =
     level <= 0
       ? without
-      : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [], damage: 0 }];
+      : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [] }];
   app.repos.bases.updateBuildings(defender.baseId, buildings);
   app.repos.bases.updateArmy(defender.baseId, { razors: 57 }, base.trainingQueue);
   if (fittings.length > 0)

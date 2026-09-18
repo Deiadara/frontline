@@ -135,5 +135,15 @@ describe('which bucket a route falls in', () => {
       expect((await attempt()).statusCode).not.toBe(429);
     }
     expect((await attempt()).statusCode).toBe(429);
-  });
+    /*
+     * Twenty-one bcrypt comparisons, and bcrypt is slow on purpose.
+     *
+     * Every attempt here is a real `POST /settings/password` with a wrong current password, so each
+     * one pays a full `BCRYPT_COST` compare. It runs in about 2.2 seconds on its own, which fits
+     * inside vitest's default five, and does not fit when four packages' suites are running at
+     * once: it timed out at 5005ms in a `pnpm -r test` and passed alone minutes later. The quota is
+     * the thing under test and shortening it would test a different limiter, so the budget is what
+     * moves.
+     */
+  }, 30_000);
 });

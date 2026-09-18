@@ -66,8 +66,8 @@ function stack(): { repos: Repositories; base: Base } {
     progression: startingProgression(),
     research: startingResearch(),
     buildings: [
-      { id: 'nexus', kind: 'nexus', level: 20, modifications: [], damage: 0 },
-      { id: 'generator', kind: 'generator', level: 1, modifications: [], damage: 0 },
+      { id: 'nexus', kind: 'nexus', level: 20, modifications: [] },
+      { id: 'generator', kind: 'generator', level: 1, modifications: [] },
     ],
     buildQueue: [],
     army: {},

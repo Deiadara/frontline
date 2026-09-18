@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_ISOLATED } from './vite.config';
 
 /*
  * The e2e stack runs on its own ports and its own throwaway database so it never
@@ -76,6 +77,10 @@ export default defineConfig({
       env: {
         CLIENT_PORT: String(CLIENT_PORT),
         API_PROXY_TARGET: apiUrl,
+        // Hot reload off for the duration of the run: the whole argument is on `E2E_ISOLATED` in
+        // `vite.config.ts`. Short version: a peer rebuilding `packages/shared` mid-run remounts the
+        // game shell about twice a second, which stops every countdown and every poll on the page.
+        [E2E_ISOLATED]: '1',
       },
     },
   ],

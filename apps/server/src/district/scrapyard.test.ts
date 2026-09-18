@@ -74,7 +74,6 @@ const build = (kind: Building['kind'], level: number): Building => ({
   kind,
   level,
   modifications: [],
-  damage: 0,
 });
 
 function openStack(): Repositories {
@@ -749,7 +748,7 @@ describe('the Scrapyard charges the parts a card is authored with', () => {
       },
       inventory: drawings(),
       buildings: [
-        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+        { id: 's', kind: 'scrapyard', level: 20, modifications: [] },
         build('gauntlet', 20),
       ],
     });
@@ -782,7 +781,7 @@ describe('the Scrapyard charges the parts a card is authored with', () => {
       },
       inventory: { ...held, ...drawings() },
       buildings: [
-        { id: 's', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+        { id: 's', kind: 'scrapyard', level: 20, modifications: [] },
         build('gauntlet', 20),
       ],
     });

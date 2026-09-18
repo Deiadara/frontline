@@ -16,9 +16,8 @@ import { chooseOverseer } from '../testing/overseer.js';
  *
  * The `bases` table has no unique index on `district_id`, so a district holds as many crews as land
  * on it. Both city projections used to answer "the resident" with the first row of an unordered
- * `SELECT ... FROM bases`, which meant the earliest-registered player's whole structure list, damage
- * and all, was served to every other player on the one screen nobody has to scout: their own front
- * door.
+ * `SELECT ... FROM bases`, which meant the earliest-registered player's whole structure list was
+ * served to every other player on the one screen nobody has to scout: their own front door.
  *
  * Sharing used to be the default, because every account was created in `STARTER_DISTRICT_ID`. New
  * crews are spread across the four residential districts now (`quietestDistrict`), so these tests
@@ -89,7 +88,6 @@ describe('the crew a residential district page is about', () => {
         kind: 'scrapyard',
         level: 3,
         modifications: [],
-        damage: 0,
       },
     ]);
 
@@ -141,7 +139,6 @@ describe('the crew a residential district page is about', () => {
         kind: 'scrapyard',
         level: 7,
         modifications: [],
-        damage: 40,
       },
     ]);
 

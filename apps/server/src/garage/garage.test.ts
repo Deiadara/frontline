@@ -80,7 +80,7 @@ function raiseGarage(app: FastifyInstance, baseId: string, level: number): void 
     base.id,
     [
       ...base.buildings.filter((building) => building.kind !== 'garage'),
-      { id: 'gar', kind: 'garage', level, modifications: [], damage: 0 },
+      { id: 'gar', kind: 'garage', level, modifications: [] },
     ],
     base.buildQueue,
   );

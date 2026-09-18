@@ -9,8 +9,6 @@ import {
   findUnit,
   queueCompletesAt,
   splitDueQueue,
-  repairCompletesAt,
-  repairedDistrict,
   xpForClock,
   type Base,
   type Building,
@@ -115,20 +113,11 @@ function walk(
       const working =
         1 -
         disruptionPercentAt(base.economy.disruption, new Date(cursor + (mark - cursor) / 2)) / 100;
-      // §A4: the crew put the place right while all this was happening, so the district this
-      // segment produced with is not the one it started as.
-      //
-      // Evaluated at the segment's **midpoint**, which is exact rather than a compromise: repair is
-      // linear in time and a structure's effectiveness is linear in its damage, so the average of a
-      // linear function over the window is its value halfway through it. Using the start would
-      // charge a crew for a whole day of damage they spent that day fixing; using the end would
-      // hand them a day they never had.
-      const halfway = repairedDistrict(buildings, new Date(cursor + (mark - cursor) / 2));
       // The carry threads through every segment of the walk, so cutting the window at a completed
       // build cannot round anything away: three segments owe exactly what one segment would have.
       const accrued = accrueProduction(
         resources,
-        halfway,
+        buildings,
         hours * working,
         crew,
         carry,
@@ -136,43 +125,21 @@ function walk(
       );
       resources = accrued.resources;
       carry = accrued.carry;
-      // ...and the state carried out of the segment is the district as it stands at `mark`.
-      buildings = repairedDistrict(buildings, new Date(mark));
       cursor = mark;
     }
   };
 
-  /*
-   * The next instant before `mark` at which the district stops being the district it is.
+  /**
+   * Everything up to `mark`, cut at the disruption's expiry so no stretch straddles it.
    *
-   * Two things move without anybody doing anything: a raid's disruption expires, and a wrecked
-   * structure finishes repairing itself. Both are the same problem the completed builds above are:
-   * `advanceTo` prices a stretch at its midpoint, which is exact only while the factors are
-   * constant or linear across it, and both of these are neither. The disruption is a step; the
-   * repair is linear right up to the moment the damage hits zero and flat afterwards, so a stretch
-   * that straddles that moment is priced at whatever the line says halfway through and the line is
-   * wrong on one side of it. A district settled once after three days away, raided at the start of
-   * them, read zero damage at the midpoint and banked all three days at full rate: measured at 9%
-   * over what the same seventy-two hours pay when they are read hour by hour.
-   *
-   * Read from the current `buildings` rather than worked out once up front, because a level landing
-   * mid-window puts its structure right (`repairedByBuilding`) and moves that structure's own mark
-   * earlier.
+   * `advanceTo` prices a stretch at its midpoint, which is exact only while the factor is constant
+   * across it, and `disruptionPercentAt` is a step. A district settled once after three days away
+   * and raided at the start of them read the midpoint as undisrupted and banked all three days at
+   * full rate.
    */
-  const nextCut = (before: number): number | null => {
-    let soonest: number | null = null;
-    const consider = (at: number | null): void => {
-      if (at === null || at <= cursor || at >= before) return;
-      if (soonest === null || at < soonest) soonest = at;
-    };
-    consider(disruptionEnds);
-    for (const building of buildings) consider(repairCompletesAt(building));
-    return soonest;
-  };
-
-  /** Everything up to `mark`, stopping at each cut on the way so no stretch straddles one. */
   const advanceThrough = (mark: number): void => {
-    for (let cut = nextCut(mark); cut !== null; cut = nextCut(mark)) advanceTo(cut);
+    if (disruptionEnds !== null && disruptionEnds > cursor && disruptionEnds < mark)
+      advanceTo(disruptionEnds);
     advanceTo(mark);
   };
 
@@ -183,19 +150,6 @@ function walk(
   advanceThrough(now.getTime());
 
   return { buildings, resources, carry };
-}
-
-/** Did the walk actually move a structure? Damage and its clock are the only fields it can move. */
-function changed(before: readonly Building[], after: readonly Building[]): boolean {
-  return after.some((building, index) => {
-    const was = before[index];
-    return (
-      was === undefined ||
-      was.damage !== building.damage ||
-      (was.damagedAt ?? null) !== (building.damagedAt ?? null) ||
-      was.level !== building.level
-    );
-  });
 }
 
 export function settleDistrict(repos: Repositories, base: Base, now: Date): DistrictSettlement {
@@ -251,10 +205,9 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
     },
   };
 
-  // Written when a build landed **or** when the repair clock moved a structure: the second is
-  // silent and would otherwise be recomputed and thrown away on every read, so a district would
-  // never actually come back.
-  if (due.length > 0 || changed(base.buildings, settled.buildings)) {
+  // Nothing but a completed order can move a structure now, so a read that finished nothing does
+  // not touch the district row at all.
+  if (due.length > 0) {
     repos.bases.updateDistrict(settled.id, settled.buildings, settled.buildQueue);
   }
   repos.bases.updateResources(settled.id, settled.resources);

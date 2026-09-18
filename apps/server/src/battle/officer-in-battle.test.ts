@@ -581,7 +581,6 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
           kind: 'infirmary' as const,
           level: 8,
           modifications: [],
-          damage: 0,
         },
       ],
       base.buildQueue,
@@ -686,7 +685,7 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
       base.id,
       [
         ...base.buildings,
-        { id: 'inf-1', kind: 'infirmary' as const, level: 20, modifications: [], damage: 0 },
+        { id: 'inf-1', kind: 'infirmary' as const, level: 20, modifications: [] },
       ],
       base.buildQueue,
     );

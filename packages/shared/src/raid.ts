@@ -1,3 +1,4 @@
+import { mulberry32, seedFrom } from './rng.js';
 import { z } from 'zod';
 import {
   RESOURCE_KEYS,
@@ -125,38 +126,80 @@ export function lootCapacityOf(
 /**
  * What a successful raid actually takes off `stock`.
  *
- * Walks {@link PLUNDER_PRIORITY}, taking up to {@link MAX_RAID_SHARE} of each line and stopping
- * when the raiders run out of arms. Rounded **down** at every step: a raid never carries away a
- * fraction of a unit, and rounding up would let a tiny force take a whole one.
+ * Bounded by what the raiders can carry and by {@link MAX_RAID_SHARE} of each line, rounded
+ * **down** at every step: a raid never carries away a fraction of a unit, and rounding up would let
+ * a tiny force take a whole one.
  *
  * `without` names lines the raiders leave alone. A raid on a home skips `caps`: caps are the only
- * resource a player spends on everything, they are first in the priority order and they weigh a
- * kilogram apiece, so a raid that could take them filled its whole hold with somebody's wallet and
- * left the interesting half of the stockpile standing. The rest of the order is unchanged, so an
- * excluded line costs the raiders nothing but their place in the queue.
+ * resource a player spends on everything and they weigh a kilogram apiece, so a raid that could
+ * take them filled its whole hold with somebody's wallet and left the interesting half of the
+ * stockpile standing.
+ *
+ * ## The split is drawn, not ranked (maintainer, 2026-09-18)
+ *
+ * This used to walk {@link PLUNDER_PRIORITY} and fill the hold from the top, which made every raid
+ * on a stocked district return the same shopping list: the priciest line per kilogram, to the share
+ * cap, then the next. The maintainer asked for the haul to be "assigned randomly between the
+ * resources it has", and that is what a raid is: people filling bags with whatever is in front of
+ * them, not a valuation exercise.
+ *
+ * Two passes, because one is not enough. The first hands each eligible line a random share of the
+ * hold, which is the mix. The second walks the same lines in a drawn order and tops the hold up
+ * with whatever the first pass could not spend, because a line that runs out of stock or rounds
+ * down to nothing would otherwise leave the raiders carrying air: a random split that wastes a
+ * third of the capacity is a nerf to raiding dressed up as a mix.
+ *
+ * Seeded, like everything else a fight decides. A raid is replayable and two reads of one battle
+ * cannot disagree about what left the district.
  */
 export function plunder(
   stock: Resources,
   capacityKg: number,
   without: readonly ResourceKey[] = [],
+  seed = 'plunder',
 ): PartialResources {
   let left = Math.max(0, capacityKg);
   const taken: Record<string, number> = {};
   const skip = new Set(without);
 
-  for (const key of PLUNDER_PRIORITY) {
-    if (left <= 0) break;
-    if (skip.has(key)) continue;
-    const available = Math.floor(stock[key] * MAX_RAID_SHARE);
-    if (available <= 0) continue;
+  /** The lines with something on them, in the order the priority table names them. */
+  const eligible = PLUNDER_PRIORITY.filter(
+    (key) => !skip.has(key) && Math.floor(stock[key] * MAX_RAID_SHARE) > 0,
+  );
+  if (eligible.length === 0 || left <= 0) return taken;
 
+  const next = mulberry32(seedFrom(seed));
+  /** A weight per line, normalised: this is the mix, before anything is rounded or capped. */
+  const draws = eligible.map(() => next());
+  const total = draws.reduce((sum, draw) => sum + draw, 0);
+
+  /** How much of a line the raiders can still take, after the share cap and what is already in. */
+  const roomOn = (key: ResourceKey): number =>
+    Math.floor(stock[key] * MAX_RAID_SHARE) - (taken[key] ?? 0);
+
+  const load = (key: ResourceKey, budgetKg: number): void => {
     const perUnit = RESOURCE_KG[key];
-    const affordable = perUnit <= 0 ? available : Math.floor(left / perUnit);
-    const amount = Math.min(available, affordable);
-    if (amount <= 0) continue;
-
-    taken[key] = amount;
+    const affordable = perUnit <= 0 ? roomOn(key) : Math.floor(Math.min(budgetKg, left) / perUnit);
+    const amount = Math.min(roomOn(key), affordable);
+    if (amount <= 0) return;
+    taken[key] = (taken[key] ?? 0) + amount;
     left -= amount * perUnit;
+  };
+
+  // The mix.
+  eligible.forEach((key, index) => {
+    if (left <= 0) return;
+    const share = total <= 0 ? 1 / eligible.length : (draws[index] ?? 0) / total;
+    load(key, capacityKg * share);
+  });
+
+  // ...and the hold, filled. Walked in the drawn order so the line that soaks up the remainder is
+  // not always the same one, which a fixed order would make it.
+  for (const key of [...eligible].sort(
+    (a, b) => (draws[eligible.indexOf(b)] ?? 0) - (draws[eligible.indexOf(a)] ?? 0),
+  )) {
+    if (left <= 0) break;
+    load(key, left);
   }
 
   return taken;
@@ -169,11 +212,57 @@ export function weightOf(bundle: PartialResources): number {
 
 // --- disruption: what a raid leaves behind ---
 
-/** How much of a district's output a raid knocks out while the disruption lasts. */
-export const RAID_DISRUPTION_PERCENT = 25;
+/**
+ * What a broken gate costs a district (GDD §A4, battle rework).
+ *
+ * A home district still cannot be taken: that rule has not moved and it is not going to. What a
+ * breach buys instead is a window in which the place runs badly: things get carried out and what
+ * is left limps for a few hours. That is the whole design. A player who loses a siege loses
+ * *tempo and stock*, not the thing they have spent three weeks building, so a bad night is
+ * something to come back from rather than a reason to stop playing.
+ *
+ * ## The cut is a percentage, and it is capped at half
+ *
+ * The board's ceiling, and the right one (maintainer, 2026-09-18: "let us keep it to 50% meaning
+ * that it can reduce it by half at most"). Half is enough to hurt and not enough to end anything.
+ * Nothing in this game drains a stockpile on a clock, so a production cut slows the fill rate and
+ * can never starve a roster: what it takes is the evening, which is the part the victim cannot buy
+ * back. A district stopped dead would be a punishment loop rather than a setback, and one crew
+ * holding another at zero is the grief tactic {@link refreshDisruption} exists to refuse.
+ *
+ * ## One penalty, not two
+ *
+ * A raid used to do this *and* wreck three structures on a 24 hour repair clock, so the same win
+ * was charged to the victim twice: once per roof and once across the district. The per-structure
+ * half is gone, along with `damage` on a structure and everything that read it. What is left is
+ * this one number, scaled by how badly the defence lost so that the size of a raid still matters.
+ */
+
+/** The least a won raid takes: a breach nobody felt is a siege the attacker paid for and got nothing from. */
+export const MIN_RAID_DISRUPTION_PERCENT = 10;
+
+/** ...and the most, the board's half (§A4). */
+export const MAX_RAID_DISRUPTION_PERCENT = 50;
 
 /** And for how long. Long enough to matter, short enough to be worth logging in to fix. */
 export const RAID_DISRUPTION_HOURS = 6;
+
+/**
+ * How hard the raid landed, from how badly the defence lost.
+ *
+ * `defenderLossShare` is the share of the defending line that was put in the ground, and it is 1
+ * when nobody turned up at all. A fight that went the distance leaves the district at
+ * {@link MIN_RAID_DISRUPTION_PERCENT} and an undefended one at
+ * {@link MAX_RAID_DISRUPTION_PERCENT}: half the line lost is 30%, which is about what the flat
+ * quarter this replaced used to charge everybody.
+ */
+export function raidDisruptionPercent(defenderLossShare: number): number {
+  const share = Math.min(1, Math.max(0, defenderLossShare));
+  return Math.round(
+    MIN_RAID_DISRUPTION_PERCENT +
+      (MAX_RAID_DISRUPTION_PERCENT - MIN_RAID_DISRUPTION_PERCENT) * share,
+  );
+}
 
 export const DisruptionSchema = z.object({
   /** When the district stops running at reduced effectiveness. Null when it is not. */
@@ -187,11 +276,11 @@ export function noDisruption(): Disruption {
   return { until: null, percent: 0 };
 }
 
-/** A fresh raid's worth of disruption, starting now. */
-export function disruptionFrom(now: Date): Disruption {
+/** A fresh raid's worth of disruption, starting now, priced off how badly the defence lost. */
+export function disruptionFrom(now: Date, defenderLossShare: number): Disruption {
   return {
     until: new Date(now.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
-    percent: RAID_DISRUPTION_PERCENT,
+    percent: raidDisruptionPercent(defenderLossShare),
   };
 }
 
@@ -210,11 +299,35 @@ export function disruptionPercentAt(disruption: Disruption, now: Date): number {
  * A second raid does not stack: it **refreshes**.
  *
  * Stacking would let a coordinated pair of crews hold a district at zero output indefinitely,
- * which is a grief tactic rather than a strategy. Taking the later expiry keeps repeat raids
- * meaningful without making them terminal.
+ * which is a grief tactic rather than a strategy. The later expiry and the harsher percentage,
+ * taken field by field: the percentage moved with the defeat when it stopped being a constant, so
+ * taking the whole of the later record wholesale would let a crew throw a token raid at a district
+ * they had just flattened and *lift* it from 50% back to 10%. Neither field ever sums, so the cap
+ * still holds and repeat raids stay meaningful without being terminal.
  */
 export function refreshDisruption(current: Disruption, next: Disruption): Disruption {
   if (current.until === null) return next;
   if (next.until === null) return current;
-  return Date.parse(next.until) > Date.parse(current.until) ? next : current;
+  return {
+    until: Date.parse(next.until) > Date.parse(current.until) ? next.until : current.until,
+    percent: Math.max(current.percent, next.percent),
+  };
+}
+
+/**
+ * What a breach carries out, on top of the disruption.
+ *
+ * Heavier than a street raid. This is somebody standing inside your warehouse rather than jumping
+ * a truck, and still bounded by what the force could physically carry, which {@link plunder}
+ * decides. The share here is the ceiling before that bound applies.
+ */
+export const BREACH_LOOT_SHARE = 0.35;
+
+export function breachLoot(stock: Resources, share = BREACH_LOOT_SHARE): PartialResources {
+  return Object.fromEntries(
+    RESOURCE_KEYS.flatMap((key) => {
+      const taken = Math.floor(stock[key] * share);
+      return taken > 0 ? [[key, taken] as const] : [];
+    }),
+  );
 }

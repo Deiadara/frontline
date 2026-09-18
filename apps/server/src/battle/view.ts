@@ -6,7 +6,6 @@ import {
   CITY_DISTRICTS,
   BATTLE_BOOSTS,
   TRAP_CATALOG,
-  buildingEffectiveness,
   declarableSlots,
   deploymentBlurPercent,
   districtHolder,
@@ -328,10 +327,10 @@ function reportsFor(repos: Repositories, base: Base): BattleReportView[] {
 /**
  * The crew's own structures, as the defence tab lists them.
  *
- * Level and damage, and nothing to buy: a gate's strength is the level it has been raised to
- * (maintainer request), which is bought in the district's own build queue like every other level. The
- * digging that used to sit here bought defence without buying height and is gone; locations keep
- * theirs, where the ground varies and the choice is real.
+ * Level, and nothing to buy: a gate's strength is the level it has been raised to (maintainer
+ * request), which is bought in the district's own build queue like every other level. The digging
+ * that used to sit here bought defence without buying height and is gone; locations keep theirs,
+ * where the ground varies and the choice is real.
  */
 function structuresOf(base: Base): StructureDefence[] {
   return base.buildings.map((building) => ({
@@ -339,8 +338,6 @@ function structuresOf(base: Base): StructureDefence[] {
     kind: building.kind,
     label: BUILDING_CATALOG[building.kind].name,
     level: building.level,
-    damage: building.damage,
-    effectiveness: buildingEffectiveness(building),
     /*
      * What the Gate is worth, on the Gate's own row.
      *

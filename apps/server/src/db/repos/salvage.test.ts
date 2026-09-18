@@ -197,7 +197,7 @@ function seedBase(repos: Repositories, commanders: ReturnType<typeof createComma
     economy: startingEconomy(now),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] }],
     buildQueue: [],
     army: {},
     trainingQueue: [],

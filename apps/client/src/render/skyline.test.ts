@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ramps } from '../theme/tokens';
 import {
   BAND_PROFILES,
@@ -8,6 +8,20 @@ import {
   type DepthBand,
   type Skyline,
 } from './skyline';
+
+/*
+ * A budget that matches what this file does, rather than vitest's default five seconds.
+ *
+ * Seven of the cases below generate forty skylines per depth band and assert over every tower,
+ * storey, window cell and gantry in them, which is tens of thousands of expectations apiece. The
+ * file takes about 2.5 seconds on its own and does not fit in five when all four packages' suites
+ * are running at once: `far: keeps lit windows within the plane` timed out at 5582ms in a
+ * `pnpm -r test` and passed alone a minute later.
+ *
+ * Set for the file rather than sprinkled over seven cases, and the sweeps keep their forty seeds:
+ * the coverage is the point of them, so the budget is what moves.
+ */
+vi.setConfig({ testTimeout: 30_000 });
 
 const BANDS: DepthBand[] = ['sky', 'far', 'mid', 'fore'];
 const RAMP_STOPS = new Set<string>(Object.values(ramps).flatMap((ramp) => Object.values(ramp)));

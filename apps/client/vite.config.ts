@@ -7,6 +7,37 @@ const clientPort = Number(process.env.CLIENT_PORT ?? 5173);
 const apiTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:4000';
 
 /**
+ * The name of the flag `playwright.config.ts` sets on the dev server it starts for a run.
+ *
+ * Exported so the pairing is one symbol rather than two copies of a string: the Playwright config
+ * imports this and puts it in the server's environment, and `scripts/e2e-isolation.test.ts` fails
+ * if either half goes missing.
+ */
+export const E2E_ISOLATED = 'E2E_ISOLATED';
+
+/**
+ * Whether this dev server is the one a Playwright run started, in which case **hot reload is off**.
+ *
+ * Several agents share one working tree, and `pnpm test` in any workspace runs
+ * `pnpm --filter @frontline/shared build` first. A build writes about two hundred files into
+ * `packages/shared/dist`, the dev server watches every one of them, and the page under test is
+ * handed a hot update per file. React Fast Refresh cannot preserve state across a module that
+ * re-exports a shared value, so it remounts the game shell instead: measured at 81 remounts of
+ * `GameScreen` from a single `touch` of that directory, over seventeen seconds.
+ *
+ * A remount restarts every timer the screen owns before it can fire. `useServerClock` ticks once a
+ * second and the district polls every five, so at two remounts a second neither ever runs: the
+ * build countdown freezes on the figure it last drew and `GET /base/:id` is never re-read, which
+ * leaves a finished structure reading "under construction" for as long as the rebuild lasts. That
+ * is what failed `live.spec.ts` at the ninety-second wait, and nothing about it is a fault in the
+ * game: the page is fine, it is being rebuilt underneath itself.
+ *
+ * The run does not need hot reload. Nothing edits the client between `page.goto` and the last
+ * assertion, so the only thing the channel can deliver is somebody else's build.
+ */
+const isolated = process.env[E2E_ISOLATED] === '1';
+
+/**
  * What the dev proxy says when the API is not answering (maintainer report, 2026-09-17).
  *
  * `pnpm dev` runs the API under `tsx watch`, so every save on the server restarts it, and for the
@@ -47,6 +78,8 @@ export default defineConfig({
   server: {
     port: clientPort,
     strictPort: true,
+    // Off for the e2e stack, on everywhere else. See `E2E_ISOLATED`.
+    ...(isolated ? { hmr: false as const } : {}),
     proxy: {
       '/api': {
         target: apiTarget,

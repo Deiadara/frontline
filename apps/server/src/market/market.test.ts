@@ -549,10 +549,10 @@ describe("unit modification cards, over the yard's route", () => {
         ...base.buildings.filter(
           (building) => building.kind !== 'scrapyard' && building.kind !== 'gauntlet',
         ),
-        { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
+        { id: 'y', kind: 'scrapyard', level: 20, modifications: [] },
         // A unit card's level gate reads the Gauntlet, and the roster it may be bolted to is the
         // one the Gauntlet has opened: without one, every sheet answers "you cannot field them".
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [] },
       ],
       [],
     );
@@ -757,11 +757,11 @@ describe('one of a thing is one of a thing (§D5c)', () => {
             building.kind !== 'gauntlet' &&
             building.kind !== 'generator',
         ),
-        { id: 'y', kind: 'scrapyard', level: 20, modifications: [], damage: 0 },
-        { id: 'g', kind: 'gauntlet', level: 20, modifications: [], damage: 0 },
+        { id: 'y', kind: 'scrapyard', level: 20, modifications: [] },
+        { id: 'g', kind: 'gauntlet', level: 20, modifications: [] },
         // The Sparks want a Generator, and this test is about two sheets rather than about which
         // structures open which roster.
-        { id: 'gen', kind: 'generator', level: 6, modifications: [], damage: 0 },
+        { id: 'gen', kind: 'generator', level: 6, modifications: [] },
       ],
       [],
     );

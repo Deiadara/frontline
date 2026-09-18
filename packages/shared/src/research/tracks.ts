@@ -127,7 +127,16 @@ export type ResearchBonus =
   /** Another fight called and pending at once. */
   | { kind: 'declarations'; flat: number }
   /** §D7: another name a crew may burn on one fight. */
-  | { kind: 'battle_boosts'; flat: number };
+  | { kind: 'battle_boosts'; flat: number }
+  /**
+   * The units the Infirmary brought back carry their share of the haul home.
+   *
+   * A switch, like `carriers_fight` and `steady_nerve`, and for the same reason: what it buys is a
+   * permission rather than an amount. A haul is carried by whoever survived the fight, so a unit
+   * the medics recover is carrying nothing until this is held. Folded into
+   * `CrewEffects.recoveredCarryLoot`, and spent by whatever sizes the haul.
+   */
+  | { kind: 'recovered_carry_loot' };
 
 export interface ResearchPayout {
   bonus: ResearchBonus;
@@ -235,6 +244,11 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   unit_mark: 'battle',
   steady_nerve: 'battle',
   scout_parties: 'counterintel',
+
+  // Filed by what it changes, the same way the rules above are: this one decides how much of a
+  // haul reaches the yard, so it sits with `loot_capacity` and `mission_spoils` rather than with
+  // the rest of the Chief Medic's track.
+  recovered_carry_loot: 'yield',
 };
 
 export function payoutFamily(payout: ResearchPayout): PayoutFamily {
@@ -1116,9 +1130,15 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'unit_vitality', percent: 6 },
     },
     {
-      name: 'Forward Aid Posts',
-      blurb: 'Treatment where they fell, not where the ward is.',
-      bonus: { kind: 'casualty_recovery', percent: 12 },
+      name: 'Carry Both',
+      blurb: 'The party that brings a body back brings the pack with it.',
+      // The sixth rung of this track rather than a third `casualty_recovery`, on the same argument
+      // `steady_nerve` took on the defence track: the Chief Medic already had three percentages on
+      // how many bodies come back, and what a recovered body is *worth* is a different question
+      // from how many of them there are. A haul is carried by the survivors, and a unit the
+      // Infirmary recovers was dead when the packs were counted, so without this it walks home
+      // empty.
+      bonus: { kind: 'recovered_carry_loot' },
     },
     {
       name: 'Trauma Theatre',
@@ -1482,6 +1502,10 @@ export function applyResearchBonus(into: CrewEffects, bonus: ResearchBonus): Cre
     case 'battle_boosts':
       into.battleBoostsFlat += bonus.flat;
       return into;
+    // A switch, so it is set rather than added: two sources of one permission grant it once.
+    case 'recovered_carry_loot':
+      into.recoveredCarryLoot = true;
+      return into;
     default:
       return applyPerkBonus(into, bonus);
   }
@@ -1498,6 +1522,8 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `+${bonus.flat} ${bonus.flat === 1 ? 'fight' : 'fights'} called at once`;
     case 'battle_boosts':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'name' : 'names'} burned on one fight`;
+    case 'recovered_carry_loot':
+      return 'the ones the medics get back carry their share of the haul home';
     default:
       return describePerkBonus(bonus);
   }

@@ -105,7 +105,7 @@ function plantBot(app: FastifyInstance, districtId: string): string {
     economy: startingEconomy(born),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'bot-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0 }],
+    buildings: [{ id: 'bot-nexus', kind: 'nexus', level: 4, modifications: [] }],
     buildQueue: [],
     army: { razors: 4 },
     trainingQueue: [],

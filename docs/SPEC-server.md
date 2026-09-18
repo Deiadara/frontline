@@ -279,13 +279,22 @@ so the inventory updates from the response instead of racing a refetch.
   `409 REIMAGINING_REFUSED` carrying the machine name, and `REIMAGINING_REFUSAL_MESSAGES` in shared
   is the sentence each one prints.
 
-What comes back is never the caller's choice: `unseenPages` is read off the inventory as it stands
-_before_ the spend and indexed by a seed of the base id and the moment, so a request retried because
-the connection dropped cannot be retried until the Lab offers something better. The three named
-pages are held at that point, so none of them can be the page handed back, and a page of a document
-the crew has already unlocked is out of the pool whatever its count says. The answer carries `spent`
-and `gained` beside the board: the response is the only place a player ever learns which page they
-got.
+What comes back is never the caller's choice, but since the maintainer's 2026-09-18 call it does
+depend on what went in. The trade is two seeded draws off a seed of the base id and the moment, so a
+request retried because the connection dropped cannot be retried until the Lab offers something
+better. The first draw picks a **rarity** off `reimaginingOdds`, which reads the three sheets in the
+sockets: three Basic pages pay 80% Basic, 15% Intricate, 4.5% Advanced and 0.5% Masterpiece, three
+Masterpiece pages pay that ladder backwards, and everything between is the two ends blended
+geometrically on the mean input tier (`blueprints/reimagine-odds.ts` has the maths and the reason it
+is not a straight line). The second draw picks a page uniformly out of the unseen pages of that
+rarity. When the rolled rarity has nothing unseen left the payout falls to the nearest stocked
+rarity, ties going down, because the trade is guaranteed and an empty tier can be neither a refusal
+nor a reroll.
+
+`unseenPages` is read off the inventory as it stands _before_ the spend. The three named pages are
+held at that point, so none of them can be the page handed back, and a page of a document the crew
+has already unlocked is out of the pool whatever its count says. The answer carries `spent` and
+`gained` beside the board: the response is the only place a player ever learns which page they got.
 
 ### Closing a visit
 
@@ -452,17 +461,29 @@ Inside that day the whole district is one target. A won `district` raid does thr
   line, bounded by `lootCapacityOf(committed force, lootCapacityPercent)`, **with caps excluded**:
   caps are first in the order and weigh one apiece, so a raid that could take them filled its hold
   with the victim's wallet and left the materials standing.
-- **Disruption.** `refreshDisruption(disruptionFrom(now))` on the resident: production down
-  `RAID_DISRUPTION_PERCENT` (25) for `RAID_DISRUPTION_HOURS` (6), and for the same hours every
-  _positive percentage_ the crew holds is worth a quarter less. That second half is `disrupted`,
-  applied at the end of both `standingEffectsFor` and `crewEffectsFor`, so it reaches every consumer
-  of a crew's standing. Negative percentages and flat channels are left alone, and so is
-  `productionPercent` (`DISRUPTION_EXEMPT_CHANNELS`): the settle walk already cuts the disruption
+- **Disruption**, and it is the only thing a won raid leaves broken.
+  `refreshDisruption(disruptionFrom(now, defenderLossShare))` on the resident: production down by
+  `raidDisruptionPercent(lossShare)` for `RAID_DISRUPTION_HOURS` (6), and for the same hours every
+  _positive percentage_ the crew holds is worth the same share less. That second half is
+  `disrupted`, applied at the end of both `standingEffectsFor` and `crewEffectsFor`, so it reaches
+  every consumer of a crew's standing. Negative percentages and flat channels are left alone, and so
+  is `productionPercent` (`DISRUPTION_EXEMPT_CHANNELS`): the settle walk already cuts the disruption
   off the _hours_ that channel multiplies, so cutting it here as well would charge one raid twice.
-  The two halves do not overlap: production loses its quarter in the walk, everything else loses
-  its quarter in the fold.
-- **Structures.** `STRUCTURES_WRECKED_PER_RAID` (3) of the resident's standing structures, tallest
-  first and ties broken by id, take `damageBuilding(strikeDamage(lossShare))`.
+  The two halves do not overlap: production loses its share in the walk, everything else loses its
+  share in the fold.
+
+  The percentage runs from `MIN_RAID_DISRUPTION_PERCENT` (10) to `MAX_RAID_DISRUPTION_PERCENT` (50)
+  on `lossShare`, which is `forceSize(outcome.killed) / defenderStarted` and 1 when nobody defended.
+  Half the line lost is 30. **Half is the ceiling** (maintainer, 2026-09-18): enough to hurt and not
+  enough to end anything, and nothing in this game drains a stockpile on a clock, so a cut slows the
+  fill rate and can never starve a roster. A second raid **refreshes** rather than stacks, field by
+  field: the later expiry and the harsher percentage. Taking the later record whole would let a
+  token raid lift a district out of a cut it had just been put in; summing would let two crews hold
+  it at zero for ever.
+
+  A raid used to wreck three of the victim's roofs on a 24 hour repair clock on top of this, so the
+  same win was charged twice. That half is retired (migration `0101`), along with `damage` on a
+  `Building`, its repair walk and everything that read them.
 
 Migration `0087` rewrote every stored `building` target into the `district` target of the same
 district, resolved history included, so the repo carries no legacy branch.

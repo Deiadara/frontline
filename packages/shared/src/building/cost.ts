@@ -24,11 +24,27 @@ import { buildingLevel, type Building } from './state.js';
 export const BUILDING_COST_GROWTH = 1.28;
 
 /**
- * The clock multiplies by this per level: level 20 takes ~1050x level 1.
+ * The level a structure's `BuildingSpec.lateCost` lines first appear on, and the level they
+ * scale from.
  *
- * With the catalogue's 20-70 second first levels that is the ladder the maintainer asked for: seconds
- * at the start, a few minutes by level 10, and the better part of a working day at the top before
- * the Generator takes its cut.
+ * One number for every structure that has such lines, rather than a per-structure `fromLevel`. A
+ * material that turns up on the fifth level of a Gate and the ninth of a Greenhouse is a rule a
+ * player has to learn per building; one that turns up on everybody's fifth is a rule they learn
+ * once, on the first structure they take that far.
+ *
+ * Five is early enough that nobody finishes the opening without meeting it and late enough that a
+ * new district is never blocked on high quality metal it has no Scrapyard to make.
+ */
+export const LATE_COST_FROM_LEVEL = 5;
+
+/**
+ * The clock multiplies by this per level: level 20 takes ~598x level 1.
+ *
+ * With the catalogue's 125 to 180 second first levels that is the ladder the maintainer asked for:
+ * low minutes at the start, about an hour by level 10, hours through the teens and 20 to 30 at the
+ * twentieth, before the Generator takes its cut. One rate for every structure, which is what makes
+ * the openers as tightly grouped as the endings: see `BuildingSpec.baseSeconds` for why that
+ * tradeoff went the way it did.
  */
 export const BUILDING_TIME_GROWTH = 1.4;
 
@@ -68,15 +84,35 @@ export function buildDiscountFor(
   };
 }
 
-/** The undiscounted price of raising `kind` **to** `level`: level 1 being the first construction. */
-export function baseBuildingCost(kind: BuildingKind, level: number): PartialResources {
-  const growth = BUILDING_COST_GROWTH ** (level - 1);
-  const { baseCost } = BUILDING_CATALOG[kind];
+/** Every line of `bill`, multiplied by `growth` and rounded. Absent lines stay absent. */
+function scaleBill(bill: PartialResources, growth: number): PartialResources {
   const scaled = RESOURCE_KEYS.flatMap((key) => {
-    const amount = baseCost[key];
+    const amount = bill[key];
     return amount === undefined ? [] : [[key, Math.round(amount * growth)] as const];
   });
   return Object.fromEntries(scaled);
+}
+
+/**
+ * The undiscounted price of raising `kind` **to** `level`: level 1 being the first construction.
+ *
+ * Two bundles, added. `baseCost` is charged from the first level and scales from it; `lateCost` is
+ * charged from {@link LATE_COST_FROM_LEVEL} and scales from *that* level, so the figure in the
+ * catalogue is what the structure asks for the first time it asks at all rather than a level-1
+ * price nobody is ever quoted. Added per line rather than replacing, so a structure could one day
+ * charge more of something it already charges without the two tables disagreeing about which one
+ * wins.
+ */
+export function baseBuildingCost(kind: BuildingKind, level: number): PartialResources {
+  const { baseCost, lateCost } = BUILDING_CATALOG[kind];
+  const bill = scaleBill(baseCost, BUILDING_COST_GROWTH ** (level - 1));
+  if (lateCost === undefined || level < LATE_COST_FROM_LEVEL) return bill;
+  const late = scaleBill(lateCost, BUILDING_COST_GROWTH ** (level - LATE_COST_FROM_LEVEL));
+  for (const [key, amount] of Object.entries(late)) {
+    const resource = key as keyof PartialResources;
+    bill[resource] = (bill[resource] ?? 0) + (amount ?? 0);
+  }
+  return bill;
 }
 
 /**

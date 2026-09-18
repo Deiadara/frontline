@@ -1,7 +1,7 @@
 import {
   describeAddonEffect,
   BUILDING_CATALOG,
-  BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   CENTRAL_BUILDING,
   MAX_BUILD_QUEUE,
   MAX_MODIFICATION_SLOTS,
@@ -880,9 +880,13 @@ function ceilingReason(kind: BuildingKind, base: Base): string {
   if (unmet.length > 0) {
     return `NEEDS ${unmet.map(describeBuildingRequirement).join(' · ').toUpperCase()}`;
   }
-  if (kind === CENTRAL_BUILDING) return `MAXED AT LEVEL ${BUILDING_MAX_LEVEL}`;
-  if (structureLevelCap(kind, projected) === BUILDING_MAX_LEVEL) {
-    return `MAXED AT LEVEL ${BUILDING_MAX_LEVEL}`;
+  // The structure's own ceiling, not the game's: the Garage and the Infirmary stop at 10, and
+  // telling a player at that rung that the Nexus is in the way sends them off to buy levels that
+  // will never sign for an eleventh.
+  const ceiling = levelCeilingFor(kind);
+  if (kind === CENTRAL_BUILDING) return `MAXED AT LEVEL ${ceiling}`;
+  if (structureLevelCap(kind, projected) === ceiling) {
+    return `MAXED AT LEVEL ${ceiling}`;
   }
   return `CAPPED BY THE NEXUS (LV ${buildingLevel(projected, CENTRAL_BUILDING)})`;
 }

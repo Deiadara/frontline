@@ -1,6 +1,5 @@
-import { buildingEffectiveness } from './damage.js';
 import { districtEffects, MAX_EFFECT_REDUCTION } from './effects.js';
-import { buildingLevel, findBuilding, type Building } from './state.js';
+import { buildingLevel, type Building } from './state.js';
 
 /**
  * What the district is worth to the crew standing in it (§A1).
@@ -70,22 +69,17 @@ export const GATE_DEFENSE_PERCENT_PER_LEVEL = 2.5;
  */
 export const GATE_INTEL_RESISTANCE_PER_LEVEL = 1.5;
 
-/** The Gate's own working level: what is standing, less whatever a siege took out of it. */
-function workingGateLevel(buildings: readonly Building[]): number {
-  // A Gate that has been kicked in is worth less until it is rebuilt, which is most of what a
-  // breach is *for*, and the reason a second raid inside the window is easier than the first.
-  return buildingLevel(buildings, 'gate') * buildingEffectiveness(findBuilding(buildings, 'gate'));
-}
-
 /** §B7: what the Gate adds to every defender's `defensePercent`, modifications included. */
 export function gateDefensePercent(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  return workingGateLevel(buildings) * GATE_DEFENSE_PERCENT_PER_LEVEL + effects.defense_percent;
+  return (
+    buildingLevel(buildings, 'gate') * GATE_DEFENSE_PERCENT_PER_LEVEL + effects.defense_percent
+  );
 }
 
 /** §B7: what the Gate adds to `intelResistancePercent`. */
 export function gateIntelResistancePercent(buildings: readonly Building[]): number {
-  return workingGateLevel(buildings) * GATE_INTEL_RESISTANCE_PER_LEVEL;
+  return buildingLevel(buildings, 'gate') * GATE_INTEL_RESISTANCE_PER_LEVEL;
 }
 
 /**
@@ -93,12 +87,12 @@ export function gateIntelResistancePercent(buildings: readonly Building[]): numb
  *
  * The flat rating, kept alongside the percentage above because they answer different questions: a
  * player looking at the Gate's dialog wants one number for "how hard is this to get through", and
- * the engine wants a percentage it can put on a unit. Both scale with the same level and the same
- * damage, so they cannot disagree about whether the Gate is standing.
+ * the engine wants a percentage it can put on a unit. Both scale with the same level, so they
+ * cannot disagree about what the Gate is worth.
  */
 export function districtDefense(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
-  const gate = workingGateLevel(buildings) * DEFENSE_PER_GATE_LEVEL;
+  const gate = buildingLevel(buildings, 'gate') * DEFENSE_PER_GATE_LEVEL;
   return Math.round(gate * (1 + effects.defense_percent / 100));
 }
 

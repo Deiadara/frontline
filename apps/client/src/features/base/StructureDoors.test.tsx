@@ -43,9 +43,9 @@ const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 12, modifications: [], damage: 0 },
-    { id: 'b-generator', kind: 'generator', level: 6, modifications: [], damage: 0 },
-    { id: 'b-lab', kind: 'lab', level: 8, modifications: [], damage: 0 },
+    { id: 'b-nexus', kind: 'nexus', level: 12, modifications: [] },
+    { id: 'b-generator', kind: 'generator', level: 6, modifications: [] },
+    { id: 'b-lab', kind: 'lab', level: 8, modifications: [] },
   ],
   buildQueue: [],
   army: {},

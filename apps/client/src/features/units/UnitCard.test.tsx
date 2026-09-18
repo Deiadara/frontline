@@ -10,11 +10,12 @@ import {
   type UnitSpec,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { UnitCard } from './UnitCard';
+import { splitResistances } from './UnitDamage';
 import { ruleTone, walksAlways } from './rules';
 
 /**
@@ -265,5 +266,124 @@ describe('the count over the picture', () => {
     const badge = badgeFor(6, 2);
     expect(badge.textContent).toBe('12 +2 / 6');
     expect(within(badge).getByText('+2').className).toContain('brass');
+  });
+});
+
+/**
+ * The damage line, under the marks (maintainer, 2026-09-18).
+ *
+ * "Have the damage type be displayed on the unit, and have their weaknesses also be visible in the
+ * unit type. So right below the tags make another line on each unit that has their damage type."
+ *
+ * Both halves were on `UnitStats` and on no screen at all, and the half that matters is the one
+ * with a sign in it: `resistances` writes a resistance and a weakness into the same record, so
+ * `{ blade: 25, explosive: -20 }` is two opposite facts a player would otherwise have to decode.
+ * The tests below are on which side of the line a figure lands on, because getting that backwards
+ * is the one defect here that still looks completely correct on screen.
+ *
+ * **Every sheet here is built, not borrowed.** The first cut of these asserted against whichever
+ * unit in the catalogue happened to carry the shape the test wanted, and the catalogue moved under
+ * them the same afternoon: the roster now has to give every unit a resistance and a weakness
+ * (`battle/matchup.test.ts`), so the empty table this component still has to draw is no longer
+ * something any real unit produces. A fixture off the catalogue is a test of the catalogue.
+ */
+describe('the damage line', () => {
+  const base = findUnit('wardens') as UnitSpec;
+
+  /** One card, with the damage table this test is about and nothing the catalogue happens to say. */
+  const sheet = (
+    resistances: UnitOption['stats']['resistances'],
+    damageType: UnitOption['stats']['damageType'] = 'ballistic',
+  ): UnitOption => {
+    const option = optionFor(base);
+    return { ...option, stats: { ...option.stats, damageType, resistances } };
+  };
+
+  it('names what the unit hits with, on its own line under the tags', () => {
+    draw(<UnitCard unit={sheet({ blade: 25 }, 'explosive')} garrisoned={0} abroad={0} />);
+
+    const line = screen.getByTestId(`damage-line-${base.id}`);
+    expect(line.textContent).toContain('Explosive');
+    expect(line.textContent).toContain('damage');
+
+    // Under the marks rather than among them, which is the half of the ask a text assertion cannot
+    // see: `compareDocumentPosition` answers `DOCUMENT_POSITION_FOLLOWING` (4) for a node drawn
+    // after the one it is asked of.
+    const marks = screen.getByTestId(`marks-${base.id}`);
+    expect(marks.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('files the positives under Resistances and the negatives under Weaknesses', () => {
+    draw(<UnitCard unit={sheet({ blade: 25, explosive: -20 })} garrisoned={0} abroad={0} />);
+
+    fireEvent.mouseEnter(screen.getByTestId(`resistances-${base.id}`));
+    const tough = screen.getByTestId(`resistances-sheet-${base.id}`);
+    expect(tough.textContent).toContain('Blade');
+    expect(tough.textContent).toContain('25% less');
+    // The other half of the table is not on this page, sign stripped and read as a resistance.
+    expect(tough.textContent).not.toContain('Explosive');
+
+    fireEvent.mouseEnter(screen.getByTestId(`weaknesses-${base.id}`));
+    const soft = screen.getByTestId(`weaknesses-sheet-${base.id}`);
+    expect(soft.textContent).toContain('Explosive');
+    expect(soft.textContent).toContain('20% more');
+    expect(soft.textContent).not.toContain('Blade');
+  });
+
+  it('answers the question rather than opening an empty panel when the table is bare', () => {
+    draw(<UnitCard unit={sheet({})} garrisoned={0} abroad={0} />);
+
+    fireEvent.mouseEnter(screen.getByTestId(`weaknesses-${base.id}`));
+    const soft = screen.getByTestId(`weaknesses-sheet-${base.id}`);
+    expect(soft.textContent).toContain('Nothing lands on them harder');
+    expect(soft.textContent).not.toMatch(/\d+%/);
+
+    fireEvent.mouseEnter(screen.getByTestId(`resistances-${base.id}`));
+    const tough = screen.getByTestId(`resistances-sheet-${base.id}`);
+    expect(tough.textContent).toContain('Every type lands in full');
+    expect(tough.textContent).not.toMatch(/\d+%/);
+  });
+
+  it('colours the word only when there is a table behind it', () => {
+    const { unmount } = draw(
+      <UnitCard unit={sheet({ explosive: -20 })} garrisoned={0} abroad={0} />,
+    );
+    const loud = screen.getByTestId(`weaknesses-${base.id}`).firstElementChild as HTMLElement;
+    expect(loud.className).toContain('oxblood');
+    unmount();
+
+    // Greyed, not coloured: an oxblood **Weaknesses** on a unit nothing is strong against sends a
+    // player to a page with nothing on it.
+    draw(<UnitCard unit={sheet({})} garrisoned={0} abroad={0} />);
+    const quiet = screen.getByTestId(`weaknesses-${base.id}`).firstElementChild as HTMLElement;
+    expect(quiet.className).not.toContain('oxblood');
+    expect(quiet.className).toContain('ink-400');
+  });
+});
+
+describe('splitResistances', () => {
+  it('reads the sign, and leaves a zero out of both lists', () => {
+    // A zero is a type this unit has nothing to say about, not a resistance of nothing.
+    const split = splitResistances({ blade: 40, explosive: -15, energy: 0 });
+    expect(split.resistance).toEqual([{ type: 'blade', points: 40 }]);
+    expect(split.weakness).toEqual([{ type: 'explosive', points: 15 }]);
+  });
+
+  it('walks the damage types in catalogue order, whatever order the sheet was written in', () => {
+    // `the_loose_end` writes its weakness first; two cards listing the same two types in
+    // different orders is a table nobody can compare across a roster.
+    const split = splitResistances({ energy: 20, blade: 30 });
+    expect(split.resistance.map((line) => line.type)).toEqual(['blade', 'energy']);
+  });
+
+  it('prints what the fight will use, not what the sheet was allowed to say', () => {
+    // The Abomination is written at `chemical: 100` and the engine gives it 85 (`MAX_RESISTANCE`).
+    // A card printing the 100 promises a player a fight that cannot happen.
+    const split = splitResistances({ chemical: 100, blade: -80 });
+    expect(split.resistance).toEqual([{ type: 'chemical', points: 85 }]);
+    // And the floor at the other end: `MIN_RESISTANCE` is -60, so -80 lands as 60% more.
+    expect(split.weakness).toEqual([{ type: 'blade', points: 60 }]);
   });
 });

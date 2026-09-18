@@ -247,10 +247,10 @@ describe('the scrapyard', () => {
     app.repos.bases.updateDistrict(
       base.id,
       [
-        { id: 'q-nexus', kind: 'nexus', level: 10, modifications: [], damage: 0 },
-        { id: 'q-yard', kind: 'scrapyard', level: 8, modifications: [], damage: 0 },
-        { id: 'q-quarters', kind: 'quarters', level: 6, modifications: [], damage: 0 },
-        { id: 'q-gate', kind: 'gate', level: 6, modifications: [], damage: 0 },
+        { id: 'q-nexus', kind: 'nexus', level: 10, modifications: [] },
+        { id: 'q-yard', kind: 'scrapyard', level: 8, modifications: [] },
+        { id: 'q-quarters', kind: 'quarters', level: 6, modifications: [] },
+        { id: 'q-gate', kind: 'gate', level: 6, modifications: [] },
       ],
       [],
     );
@@ -293,11 +293,11 @@ describe('the drill yard and the lab', () => {
     app.repos.bases.updateDistrict(
       base.id,
       [
-        { id: 'd-nexus', kind: 'nexus', level: 8, modifications: [], damage: 0 },
+        { id: 'd-nexus', kind: 'nexus', level: 8, modifications: [] },
         // Beds, or the order has nowhere to put anybody; and the Gauntlet, or nothing is unlocked
         // to train in the first place.
-        { id: 'd-quarters', kind: 'quarters', level: 8, modifications: [], damage: 0 },
-        { id: 'd-gauntlet', kind: 'gauntlet', level: 6, modifications: [], damage: 0 },
+        { id: 'd-quarters', kind: 'quarters', level: 8, modifications: [] },
+        { id: 'd-gauntlet', kind: 'gauntlet', level: 6, modifications: [] },
       ],
       [],
     );
@@ -359,8 +359,8 @@ describe('the drill yard and the lab', () => {
     app.repos.bases.updateDistrict(
       base.id,
       [
-        { id: 'l-nexus', kind: 'nexus', level: 10, modifications: [], damage: 0 },
-        { id: 'l-lab', kind: 'lab', level: 6, modifications: [], damage: 0 },
+        { id: 'l-nexus', kind: 'nexus', level: 10, modifications: [] },
+        { id: 'l-lab', kind: 'lab', level: 6, modifications: [] },
       ],
       [],
     );

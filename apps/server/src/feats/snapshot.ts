@@ -3,6 +3,7 @@ import {
   BUILDING_KINDS,
   CITY_LOCATIONS,
   isBlueprintUnlocked,
+  levelCeilingFor,
   OFFICER_ROLES,
   RESOURCE_KEYS,
   completedSet,
@@ -65,6 +66,17 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   put(
     'buildings_total',
     base.buildings.reduce((total, building) => total + building.level, 0),
+  );
+  /*
+   * ...and how many of them have nowhere left to go.
+   *
+   * Each structure against its own ceiling rather than against `BUILDING_MAX_LEVEL`: the Garage and
+   * the Infirmary stop at 10, so one flat twenty would report a finished district as unfinished for
+   * ever and strand the last rung of the ladder that asks for all eleven.
+   */
+  put(
+    'buildings_maxed',
+    base.buildings.filter((building) => building.level >= levelCeilingFor(building.kind)).length,
   );
   /*
    * The deck, counted two ways, because they are two different questions.

@@ -62,35 +62,31 @@ export const MVP_BOT: BotBlueprint = {
    * seeding a rival with structures at all.
    */
   buildings: [
-    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0 },
-    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [], damage: 0 },
+    { id: 'vex-nexus', kind: 'nexus', level: 4, modifications: [] },
+    { id: 'vex-gate', kind: 'gate', level: 4, modifications: [] },
     {
       id: 'vex-gauntlet',
       kind: 'gauntlet',
       level: 3,
       modifications: [],
-      damage: 0,
     },
     {
       id: 'vex-generator',
       kind: 'generator',
       level: 3,
       modifications: [],
-      damage: 0,
     },
     {
       id: 'vex-scrapyard',
       kind: 'scrapyard',
       level: 2,
       modifications: [],
-      damage: 0,
     },
     {
       id: 'vex-quarters',
       kind: 'quarters',
       level: 2,
       modifications: [],
-      damage: 0,
     },
   ],
   army: { razors: 12, wardens: 6, breakers: 4 },
@@ -148,21 +144,19 @@ export const MVP_ALLY: BotBlueprint = {
     highQualityMetal: 700,
   },
   buildings: [
-    { id: 'ally-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0 },
-    { id: 'ally-gate', kind: 'gate', level: 3, modifications: [], damage: 0 },
+    { id: 'ally-nexus', kind: 'nexus', level: 5, modifications: [] },
+    { id: 'ally-gate', kind: 'gate', level: 3, modifications: [] },
     {
       id: 'ally-gauntlet',
       kind: 'gauntlet',
       level: 4,
       modifications: [],
-      damage: 0,
     },
     {
       id: 'ally-quarters',
       kind: 'quarters',
       level: 4,
       modifications: [],
-      damage: 0,
     },
   ],
   // Deliberately a different shape from the player's opening roster: an ally worth having is one
@@ -219,10 +213,10 @@ export const MVP_RIVAL_SECOND: BotBlueprint = {
     highQualityMetal: 620,
   },
   buildings: [
-    { id: 'sollen-nexus', kind: 'nexus', level: 4, modifications: [], damage: 0 },
-    { id: 'sollen-gate', kind: 'gate', level: 3, modifications: [], damage: 0 },
-    { id: 'sollen-gauntlet', kind: 'gauntlet', level: 3, modifications: [], damage: 0 },
-    { id: 'sollen-quarters', kind: 'quarters', level: 3, modifications: [], damage: 0 },
+    { id: 'sollen-nexus', kind: 'nexus', level: 4, modifications: [] },
+    { id: 'sollen-gate', kind: 'gate', level: 3, modifications: [] },
+    { id: 'sollen-gauntlet', kind: 'gauntlet', level: 3, modifications: [] },
+    { id: 'sollen-quarters', kind: 'quarters', level: 3, modifications: [] },
   ],
   // A salvage outfit: thin on units, heavy on the machines that pull a wreck apart. Different
   // again from the rival's line troops and the ally's mixed roster, so the three NPC crews read as

@@ -86,6 +86,10 @@ async function shootEveryViewport(page: Page, step: string): Promise<void> {
   await page.waitForTimeout(400);
 }
 
+// The build wait below is four minutes on its own, against a two minute default for the whole
+// spec (`playwright.config.ts`). This is that wait plus the rest of the walk through the game.
+test.setTimeout(360_000);
+
 test('live: Nikos logs in, meets the AI rival and raids it against the real backend', async ({
   page,
 }) => {
@@ -221,8 +225,14 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * database rather than a stubbed response. `buildingBuildSeconds` at the bottom of the tree is
    * tens of seconds, and the page polls every five, so the timeout is that plus a wide margin for
    * a loaded CI box rather than a number picked to be comfortable.
+   *
+   * Two hundred and forty seconds since the 2026-09-18 retune. The Quarters' first level went from
+   * twenty seconds to a hundred and forty, which is the maintainer's "early game is low minutes",
+   * and the old ninety second budget was then shorter than the build it was waiting for: a
+   * guaranteed red, not a flake. The whole test's budget moves with it below, since a single
+   * assertion cannot outlast the test that contains it.
    */
-  await expect(quarters).toHaveAttribute('aria-label', /level 1/, { timeout: 90_000 });
+  await expect(quarters).toHaveAttribute('aria-label', /level 1/, { timeout: 240_000 });
   await page.getByTestId('reports-toggle').click();
   await expect(page.getByTestId('build-queue')).toHaveCount(0);
   await shootEveryViewport(page, 'district-built');
@@ -353,7 +363,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
  * by asking the city which ground is already walked and is not home.
  */
 async function openGround(page: Page): Promise<District> {
-  const city = await page.evaluate(async () => {
+  const { city, gates } = await page.evaluate(async () => {
     // `zustand/persist` stores `{ state, version }` under the store's own key.
     const token = JSON.parse(localStorage.getItem('frontline.token') ?? '{}') as {
       state?: { token?: string };
@@ -361,17 +371,47 @@ async function openGround(page: Page): Promise<District> {
     const res = await fetch('/api/city', {
       headers: { authorization: `Bearer ${token.state?.token ?? ''}` },
     });
-    return (await res.json()) as {
-      homeDistrictId: string;
-      districts: { district: { id: string }; scouted: boolean }[];
+    const board = await fetch('/api/battles', {
+      headers: { authorization: `Bearer ${token.state?.token ?? ''}` },
+    });
+    return {
+      city: (await res.json()) as {
+        homeDistrictId: string;
+        districts: { district: { id: string }; scouted: boolean }[];
+      },
+      // `shut` lives on the battle board's gate rows rather than on the city, because it is a fact
+      // about who holds the ground rather than about what this crew can see.
+      gates: ((await board.json()) as { gates: { districtId: string; shut: boolean }[] }).gates,
     };
   });
-  // Home is always "scouted" because you live there, and clicking its tag opens your own district
-  // rather than the city's view of somebody else's ground. `homeDistrictId` is what excludes it.
+  /*
+   * Scouted, not home, and **not behind an armed gate**.
+   *
+   * The last clause is the one this was missing. A district is shut exactly when one party holds
+   * all of it, and nothing inside a shut district can be called: the card says "The gate is armed"
+   * and offers a dead "Behind the gate" button where "Call a fight" would be. This took the first
+   * scouted district it found, which on 2026-09-18 was `datavault-sigma`, held end to end by the
+   * Combine, so step five waited six minutes for a button the game was correctly refusing to draw.
+   *
+   * Home is always "scouted" because you live there, and clicking its tag opens your own district
+   * rather than the city's view of somebody else's ground, which is what `homeDistrictId` excludes.
+   */
+  const shut = new Set(gates.filter((gate) => gate.shut).map((gate) => gate.districtId));
   const open = city.districts.find(
-    (entry) => entry.scouted && entry.district.id !== city.homeDistrictId,
+    (entry) =>
+      entry.scouted && entry.district.id !== city.homeDistrictId && !shut.has(entry.district.id),
   );
   const district = open ? findDistrict(open.district.id) : undefined;
-  if (!district) throw new Error('a new crew should start with one district open');
+  if (!district) {
+    throw new Error(
+      `no scouted district this crew can call on: ${city.districts
+        .filter((entry) => entry.scouted)
+        .map((entry) => `${entry.district.id}${shut.has(entry.district.id) ? ' (shut)' : ''}`)
+        .join(', ')}`,
+    );
+  }
+  if (district.locations.length === 0) {
+    throw new Error(`fixture error: ${district.id} is callable but has no locations`);
+  }
   return district;
 }

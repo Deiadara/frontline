@@ -5,6 +5,8 @@ import {
   ITEM_CATALOG,
   MAX_ATTRIBUTE,
   featMeasureKey,
+  levelCeilingFor,
+  type BuildingKind,
   findOverseerPreset,
   makeAttributes,
   overseerFromPreset,
@@ -58,7 +60,7 @@ function makeBase(): Base {
     economy: startingEconomy(now),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [], damage: 0 }],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [] }],
     buildQueue: [],
     army: {},
     trainingQueue: [],
@@ -149,7 +151,7 @@ describe('the numbers a feat can be measured on', () => {
     // A structure at twenty, which is what three open slots costs.
     const yard = (modifications: string[]) => {
       repos.bases.updateBuildings(base.id, [
-        { id: 'b-yard', kind: 'scrapyard', level: 20, modifications, damage: 0 },
+        { id: 'b-yard', kind: 'scrapyard', level: 20, modifications },
       ]);
     };
 
@@ -175,6 +177,46 @@ describe('the numbers a feat can be measured on', () => {
     ]);
     expect(fitted()).toBe(3);
     expect(sets()).toBe(0);
+  });
+
+  /**
+   * A structure is finished against **its own** ceiling, which is not one number.
+   *
+   * The Garage stops at 10 and the Nexus at 20 (`building/kinds.ts`), so a reader holding one flat
+   * `BUILDING_MAX_LEVEL` reports a Garage that can never be built any higher as unfinished for
+   * ever, and the last rung of the ladder, which asks for all eleven, is a feat nobody can collect.
+   * The fixture is exactly that pair: a Garage at its own ceiling and a Nexus at the Garage's,
+   * which is one for this measure under the right rule and zero or two under either wrong one.
+   */
+  it('counts the structures with nowhere left to build, each against its own ceiling', () => {
+    const base = repos.bases.findByOwnerId(OWNER)!;
+    const read = () => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)['buildings_maxed'];
+    const stand = (buildings: { id: string; kind: BuildingKind; level: number }[]) => {
+      repos.bases.updateBuildings(
+        base.id,
+        buildings.map((one) => ({ ...one, modifications: [], damage: 0 })),
+      );
+    };
+
+    expect(levelCeilingFor('garage'), 'the fixture assumes the Garage stops first').toBeLessThan(
+      levelCeilingFor('nexus'),
+    );
+
+    stand([
+      { id: 'b-garage', kind: 'garage', level: levelCeilingFor('garage') },
+      { id: 'b-nexus', kind: 'nexus', level: levelCeilingFor('garage') },
+    ]);
+    expect(read(), 'the Nexus has eleven levels left in it').toBe(1);
+
+    stand([
+      { id: 'b-garage', kind: 'garage', level: levelCeilingFor('garage') },
+      { id: 'b-nexus', kind: 'nexus', level: levelCeilingFor('nexus') },
+    ]);
+    expect(read()).toBe(2);
+
+    // And it goes back down, which is what makes it a crew measure: a structure can be dismantled.
+    stand([{ id: 'b-nexus', kind: 'nexus', level: levelCeilingFor('nexus') }]);
+    expect(read()).toBe(1);
   });
 
   /**

@@ -1,7 +1,9 @@
 import {
   ITEM_CATALOG,
   RESOURCE_KEYS,
+  battleFeatsEarned,
   featMeasureKey,
+  type BattleFeatFacts,
   type FeatMeasure,
   type ItemCost,
   type ItemId,
@@ -137,6 +139,63 @@ export function tallyBattleResolved(
     ...(outcome.won && !outcome.attacked ? [one('battles_defended_won')] : []),
     ...(outcome.kills > 0 ? [by('kills', outcome.kills)] : []),
   ]);
+}
+
+/**
+ * ...and the four ways one of those fights can be worth telling somebody about.
+ *
+ * Separate from {@link tallyBattleResolved} because it is a different kind of call: that one is
+ * bookkeeping every fight does, this one asks a question about the shape of the fight and most of
+ * the time the answer is "none of them". Split so the settle site reads as what happened (a fight
+ * settled, and here is what it looked like) rather than as one function with nine arguments.
+ *
+ * The rule is `feats/battle.ts` in shared, not here. The blurbs promise a line twice your own and
+ * ten of theirs for one of yours, and a threshold written at the settle site is a threshold that
+ * drifts away from the sentence a player was sold.
+ */
+export function tallyBattleShape(
+  repos: Repositories,
+  baseId: string,
+  facts: BattleFeatFacts,
+): void {
+  const earned = battleFeatsEarned(facts);
+  if (earned.length === 0) return;
+  record(
+    repos,
+    baseId,
+    earned.map((measure) => one(measure)),
+  );
+}
+
+/**
+ * A break-in on a lived-in district, counted for whoever came out of it on top.
+ *
+ * Only a `district` target reaches here. Taking a location or a gate is a capture and has its own
+ * counters; a raid moves no control row at all, which is exactly why it needed its own.
+ *
+ * Named rather than a boolean, and the reason is a bug this call had on the way in: `forced` read
+ * off the losing side's point of view paid the defender a repelled raid for one they lost, and a
+ * boolean argument at the call site is the thing that made it possible to write and impossible to
+ * see. Both words mean a win, so neither side is paid for turning up.
+ */
+export function tallyDistrictRaid(
+  repos: Repositories,
+  baseId: string,
+  outcome: 'forced' | 'held',
+): void {
+  record(repos, baseId, [one(outcome === 'forced' ? 'districts_raided' : 'raids_repelled')]);
+}
+
+/** What a trap took before contact, counted for the crew that laid it rather than for the side. */
+export function tallyTrapKills(repos: Repositories, baseId: string, killed: number): void {
+  if (killed <= 0) return;
+  record(repos, baseId, [by('trap_kills', killed)]);
+}
+
+/** Beaten runners a ring stopped on the way out, counted for the side that set it. */
+export function tallyRunnersCaught(repos: Repositories, baseId: string, caught: number): void {
+  if (caught <= 0) return;
+  record(repos, baseId, [by('runners_caught', caught)]);
 }
 
 /**

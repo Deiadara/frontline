@@ -20,13 +20,16 @@
 import {
   DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
+  MAX_RAID_DISRUPTION_PERCENT,
+  MIN_RAID_DISRUPTION_PERCENT,
   RAID_DISRUPTION_HOURS,
-  RAID_DISRUPTION_PERCENT,
   DISRUPTED_CHANNELS,
   RESOURCE_KEYS,
   featMeasureKey,
   declarationWindow,
   skirmishOutcome,
+  weightOf,
+  type Army,
   type BattleTarget,
   type BattlesResponse,
   type Resources,
@@ -41,7 +44,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleDistrict } from '../district/settle.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
-import { STRUCTURES_WRECKED_PER_RAID, settleBattles } from './resolve.js';
+import { settleBattles } from './resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -54,15 +57,46 @@ afterEach(async () => {
 
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
-/** The attacker wins and both sides lose units, so there is something to refund on each end. */
-const bloody: SkirmishEngine = {
+/**
+ * The attacker wins and both sides lose units, so there is something to refund on each end.
+ *
+ * The attacker's losses are a parameter since 2026-09-18: what a raid carries home now depends on
+ * who is still standing to carry it, so a fixture that always kills the same two cannot measure the
+ * rule. Two is the default, which is what every case written before that change was built on.
+ */
+const bloodyWith = (winnerLosses: Army = { razors: 2 }): SkirmishEngine => ({
   resolve: (input) =>
     skirmishOutcome({
       winner: 'attacker',
       log: ['through the wall'],
       killed: input.defending,
-      winnerLosses: { razors: 2 },
+      winnerLosses,
     }),
+});
+const bloody = bloodyWith();
+
+/**
+ * The attacker wins, and half the defending line walks away alive.
+ *
+ * What a won raid costs the district is priced off the share of the defence that was put in the
+ * ground (`defenderLossShare`), so a fixture where everybody always dies can only ever measure the
+ * ceiling. `fled` carries the other half, because a defender who ran is a defender the raiders did
+ * not have to go through: that is the distinction the scaling is built on.
+ */
+const halfLost: SkirmishEngine = {
+  resolve: (input) => {
+    const half = (keep: (count: number) => number): Army =>
+      Object.fromEntries(
+        Object.entries(input.defending).map(([unitId, count]) => [unitId, keep(count)]),
+      );
+    return skirmishOutcome({
+      winner: 'attacker',
+      log: ['through the wall'],
+      killed: half((count) => Math.floor(count / 2)),
+      fled: half((count) => count - Math.floor(count / 2)),
+      winnerLosses: { razors: 2 },
+    });
+  },
 };
 
 interface Crew {
@@ -96,11 +130,11 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
   return { token, baseId: base.id, districtId: base.districtId };
 }
 
-async function makeWorld(): Promise<World> {
+async function makeWorld(engine: SkirmishEngine = bloody): Promise<World> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
-  const app = await buildApp({ config, db, skirmishEngine: bloody, logger: false });
+  const app = await buildApp({ config, db, skirmishEngine: engine, logger: false });
   instances.push({ app, db });
 
   const raider = await register(app, 'raider');
@@ -319,42 +353,178 @@ describe('one raid on the whole district', () => {
     }
   });
 
-  it('leaves three of their structures limping, not one and not all of them', async () => {
+  /**
+   * Dead people do not carry sacks (maintainer, 2026-09-18).
+   *
+   * The hold used to be loaded off `committed`, the whole force that marched, so a crew that lost
+   * nine tenths of itself taking a district carried exactly as much home as one that walked in
+   * unopposed. Casualties were free twice over: they stopped being a cost the moment the ground
+   * was taken, and they cost nothing at the pickup either.
+   *
+   * Measured as an ordering across two otherwise identical raids rather than against a figure,
+   * because the haul is a drawn mix now and the numbers move with the seed. What may not move is
+   * which of the two comes home heavier.
+   */
+  it('carries less home when fewer of the raiders are standing', async () => {
+    const weigh = async (winnerLosses: Army): Promise<number> => {
+      const world = await makeWorld(bloodyWith(winnerLosses));
+      fill(world, world.victim.baseId);
+      world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+      const before = stockOf(world, world.raider.baseId);
+      await breakIn(world);
+      const after = stockOf(world, world.raider.baseId);
+      return weightOf(
+        Object.fromEntries(RESOURCE_KEYS.map((key) => [key, after[key] - before[key]])),
+      );
+    };
+
+    // Six march in. In the first raid they all walk out; in the second, five of the six do not.
+    const whole = await weigh({});
+    const mauled = await weigh({ razors: 5 });
+    expect(whole, 'a raid that lost nobody carried nothing').toBeGreaterThan(0);
+    expect(mauled, `a raid down to one carrier took ${mauled} against ${whole}`).toBeLessThan(
+      whole,
+    );
+  });
+
+  /**
+   * ...and the ones the medics bring round were on the ground while the bags were filled.
+   *
+   * The Infirmary takes people off the casualty list *after* the fight, so the roster that walks
+   * home is longer than the one that did the carrying. Loading the hold off the survivors would be
+   * easy to get wrong in exactly this way, and the wrong version is invisible: it pays out slightly
+   * too much, on a number nobody can check by hand.
+   *
+   * So the raid is run twice on identical fixtures, once with a deep Infirmary and once without,
+   * and the haul may not move. `recoveredCarryLoot` is the research that buys the other answer, and
+   * it is covered where the research lives.
+   */
+  it('does not let the Infirmary put people back on the carrying party', async () => {
+    const weigh = async (infirmary: number): Promise<number> => {
+      const world = await makeWorld(bloodyWith({ razors: 5 }));
+      fill(world, world.victim.baseId);
+      world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+      if (infirmary > 0) {
+        const base = world.app.repos.bases.findById(world.raider.baseId)!;
+        world.app.repos.bases.updateDistrict(
+          base.id,
+          [
+            ...base.buildings,
+            {
+              id: 'raider-infirmary',
+              kind: 'infirmary',
+              level: infirmary,
+              modifications: [],
+            },
+          ],
+          base.buildQueue,
+        );
+      }
+      const before = stockOf(world, world.raider.baseId);
+      await breakIn(world);
+      const after = stockOf(world, world.raider.baseId);
+      /*
+       * Weighed rather than counted, and the difference matters.
+       *
+       * The haul is a drawn mix now, and every world here has its own battle id, which is the seed:
+       * two raids of identical capacity come home with different *lines*. Counting units compares
+       * a kilogram of supplies against a fifth of a bar of metal and reports a difference that is
+       * the draw rather than the rule. The hold bounds weight, so weight is the comparable figure.
+       */
+      return weightOf(
+        Object.fromEntries(RESOURCE_KEYS.map((key) => [key, after[key] - before[key]])),
+      );
+    };
+
+    const bare = await weigh(0);
+    const withMedics = await weigh(12);
+    expect(bare, 'the fixture carried nothing, so this compares two zeroes').toBeGreaterThan(0);
+    /*
+     * Within a fifth, not exactly equal, and the tolerance is the honest part.
+     *
+     * Exact equality was written first and is a knife edge: the two runs are separate worlds with
+     * separate battle ids, the battle id seeds the draw, and a hold whose remainder cannot buy one
+     * more of anything comes home a kilogram or two short in one mix and not the other. It passed
+     * every run in isolation and failed once under full suite load, which is the worst way for a
+     * test to be wrong.
+     *
+     * A fifth separates the rule from the noise with room to spare. Five of the six raiders fall
+     * and a level 12 Infirmary recovers two of the five, so the wrong answer puts three people on
+     * the carrying party instead of one: a **three times** heavier haul, not a few kilos.
+     */
+    expect(
+      withMedics,
+      `the medics added ${(withMedics - bare).toFixed(1)}kg to a ${bare.toFixed(1)}kg haul`,
+    ).toBeLessThan(bare * 1.2);
+  });
+
+  /**
+   * One penalty, not two (maintainer, 2026-09-18).
+   *
+   * A won raid used to wreck three of the victim's roofs on a 24 hour repair clock *and* disrupt
+   * the whole district, so the same win was charged twice. The per-structure half is gone, and
+   * this is the pin on its absence: a raid that does everything else it does leaves every
+   * structure exactly as it found it, and takes its pound of flesh off the district's clocks.
+   */
+  it('leaves every structure standing, and takes the hours instead', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
 
-    // Enough roofs that "three" and "all of them" are different answers.
+    // More than one roof, so "untouched" is a claim about a district rather than about a building.
     const victimBase = world.app.repos.bases.findById(world.victim.baseId)!;
     world.app.repos.bases.updateDistrict(
       victimBase.id,
       [
         ...victimBase.buildings,
-        { id: 'v-scrapyard', kind: 'scrapyard', level: 7, modifications: [], damage: 0 },
-        { id: 'v-gate', kind: 'gate', level: 6, modifications: [], damage: 0 },
-        { id: 'v-quarters', kind: 'quarters', level: 5, modifications: [], damage: 0 },
+        { id: 'v-scrapyard', kind: 'scrapyard', level: 7, modifications: [] },
+        { id: 'v-gate', kind: 'gate', level: 6, modifications: [] },
+        { id: 'v-quarters', kind: 'quarters', level: 5, modifications: [] },
       ],
       victimBase.buildQueue,
     );
     const standing = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
-    expect(standing.length, 'fixture: not enough roofs to tell three from all').toBeGreaterThan(
-      STRUCTURES_WRECKED_PER_RAID,
-    );
-    expect(standing.every((building) => building.damage === 0)).toBe(true);
+    expect(
+      standing.length,
+      'fixture: too few roofs to tell untouched from unlucky',
+    ).toBeGreaterThan(3);
 
     await breakIn(world);
 
     const after = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
-    const hit = after.filter((building) => building.damage > 0);
-    expect(hit).toHaveLength(STRUCTURES_WRECKED_PER_RAID);
-    // The tallest first, which is the rule a defender can plan around.
-    const tallest = [...standing]
-      .sort((a, b) => b.level - a.level || a.id.localeCompare(b.id))
-      .slice(0, STRUCTURES_WRECKED_PER_RAID)
-      .map((building) => building.id);
-    expect(hit.map((building) => building.id).sort()).toEqual([...tallest].sort());
-    // And the raid's own clock is on each of them, so they repair from now.
-    for (const building of hit) expect(building.damagedAt).not.toBeNull();
+    expect(after).toEqual(standing);
+    // And the raid did land: without this the test above passes on a raid that never happened.
+    expect(
+      world.app.repos.bases.findById(world.victim.baseId)!.economy.disruption.until,
+    ).not.toBeNull();
+  });
+
+  /**
+   * ...and the surviving penalty moves with the defeat.
+   *
+   * Two worlds, identical but for what the engine does to the defending line: one where it is wiped
+   * out and one where half of it walks away. A flat percentage, which is what this replaced, makes
+   * these two numbers the same.
+   */
+  it('cuts the district by more when the defence lost by more', async () => {
+    const raidWith = async (engine: SkirmishEngine): Promise<number> => {
+      const world = await makeWorld(engine);
+      fill(world, world.victim.baseId);
+      world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+      // A line to lose: with nobody home there is no "half" to leave standing.
+      world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 8 }, []);
+      await breakIn(world);
+      return world.app.repos.bases.findById(world.victim.baseId)!.economy.disruption.percent;
+    };
+
+    const wiped = await raidWith(bloody);
+    const halved = await raidWith(halfLost);
+
+    expect(halved, 'the cut did not move with the defeat').toBeLessThan(wiped);
+    expect(halved).toBeGreaterThanOrEqual(MIN_RAID_DISRUPTION_PERCENT);
+    // The board's ceiling, and the worst night in the game is exactly on it.
+    expect(wiped).toBe(MAX_RAID_DISRUPTION_PERCENT);
+    expect(wiped).toBeLessThanOrEqual(50);
   });
 
   /**
@@ -383,7 +553,9 @@ describe('one raid on the whole district', () => {
     await breakIn(world);
 
     const after = standingEffectsFor(world.app.repos, victim(), new Date());
-    const scale = 1 - RAID_DISRUPTION_PERCENT / 100;
+    // Read off what the raid actually wrote rather than off a constant: the percentage moves with
+    // the defeat now, and a test that assumed one would drift the day a fixture's defence changed.
+    const scale = 1 - victim().economy.disruption.percent / 100;
     for (const channel of paying) {
       expect(after[channel], `${channel} was untouched by the raid`).toBeCloseTo(
         before[channel] * scale,
@@ -422,7 +594,8 @@ describe('what a raid leaves behind (§A4)', () => {
     await breakIn(world);
 
     const hurt = disruptionOf(world, world.victim.baseId);
-    expect(hurt.percent).toBe(RAID_DISRUPTION_PERCENT);
+    // Nobody survived the stub's fight, which is the worst a defence can do, so this is the cap.
+    expect(hurt.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
     expect(hurt.until).not.toBeNull();
     const hours = (Date.parse(hurt.until as string) - at) / 3_600_000;
     expect(hours).toBeGreaterThan(RAID_DISRUPTION_HOURS - 0.1);
@@ -433,7 +606,7 @@ describe('what a raid leaves behind (§A4)', () => {
   });
 
   /** And what the victim actually loses for it: a share of the hours, off the production walk. */
-  it('costs the victim a quarter of what the district would have made', async () => {
+  it('costs the victim the share the disruption names, off what it would have made', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
@@ -445,7 +618,7 @@ describe('what a raid leaves behind (§A4)', () => {
       victimBase.id,
       [
         ...victimBase.buildings,
-        { id: 'victim-scrapyard', kind: 'scrapyard', level: 10, modifications: [], damage: 0 },
+        { id: 'victim-scrapyard', kind: 'scrapyard', level: 10, modifications: [] },
       ],
       victimBase.buildQueue,
     );
@@ -515,24 +688,24 @@ describe('what a raid leaves behind (§A4)', () => {
     for (const key of made) {
       expect(limping[key], `${key} was untouched by the raid`).toBeLessThan(well[key]);
       const share = 1 - limping[key] / well[key];
-      // A quarter off, within the rounding a whole-number stockpile imposes.
-      expect(share, `${key} lost the wrong share`).toBeGreaterThan(
-        RAID_DISRUPTION_PERCENT / 100 - 0.06,
-      );
-      expect(share, `${key} lost the wrong share`).toBeLessThan(
-        RAID_DISRUPTION_PERCENT / 100 + 0.06,
-      );
+      // Exactly the percentage the raid wrote, within the rounding a whole-number stockpile
+      // imposes. Read off the record rather than off a constant, because the number depends on how
+      // badly this fixture's defence lost and the walk must charge whatever was written.
+      expect(share, `${key} lost the wrong share`).toBeGreaterThan(raided.percent / 100 - 0.06);
+      expect(share, `${key} lost the wrong share`).toBeLessThan(raided.percent / 100 + 0.06);
     }
   });
 
   /**
-   * A second raid refreshes rather than stacks, and refreshing never *shortens* a longer one.
+   * A second raid refreshes rather than stacks, field by field.
    *
    * The grief case `refreshDisruption` was written for: two crews taking turns must not be able to
    * hold a district at zero output, and a crew that raided an hour ago must not be able to raid
-   * again to hand the victim back four of the six hours.
+   * again to hand the victim back four of the six hours. Both fields are asserted because the
+   * percentage moves with the defeat now: taking the later record whole would let a token raid
+   * *lift* a district out of a cut it had just been put in.
    */
-  it('refreshes a standing disruption rather than stacking or shortening it', async () => {
+  it('takes the longer window and the harsher cut, never the sum of either', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 40 }, []);
@@ -541,14 +714,38 @@ describe('what a raid leaves behind (§A4)', () => {
     const longer = new Date(Date.now() + 24 * 3_600_000).toISOString();
     world.app.repos.bases.updateEconomy(victim.id, {
       ...victim.economy,
-      disruption: { until: longer, percent: RAID_DISRUPTION_PERCENT },
+      disruption: { until: longer, percent: MIN_RAID_DISRUPTION_PERCENT },
     });
 
     await breakIn(world);
 
     const after = disruptionOf(world, world.victim.baseId);
-    // The later expiry stands, and the percentage is one raid's worth rather than two.
+    // The longer expiry stands: six fresh hours must not shorten a day that was already owed.
     expect(after.until).toBe(longer);
-    expect(after.percent).toBe(RAID_DISRUPTION_PERCENT);
+    // ...and the harsher cut stands, at one raid's worth rather than two.
+    expect(after.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
+  });
+
+  /** The other direction: a gentler raid on a district already cut to the bone lifts nothing. */
+  it('does not let a token second raid lift a standing cut', async () => {
+    const world = await makeWorld(halfLost);
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 40 }, []);
+    world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 8 }, []);
+
+    const victim = world.app.repos.bases.findById(world.victim.baseId)!;
+    const shorter = new Date(Date.now() + 60_000).toISOString();
+    world.app.repos.bases.updateEconomy(victim.id, {
+      ...victim.economy,
+      disruption: { until: shorter, percent: MAX_RAID_DISRUPTION_PERCENT },
+    });
+
+    await breakIn(world);
+
+    const after = disruptionOf(world, world.victim.baseId);
+    // The fresh six hours are the longer window, so they win...
+    expect(Date.parse(after.until as string)).toBeGreaterThan(Date.parse(shorter));
+    // ...and half a line walking away does not buy the district its output back.
+    expect(after.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
   });
 });

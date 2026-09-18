@@ -36,10 +36,39 @@ export type BuildingKind = z.infer<typeof BuildingKindSchema>;
 export const CENTRAL_BUILDING: BuildingKind = 'nexus';
 
 /**
- * Ceiling on every structure's level. The Nexus is the only one that reaches it on its own
- * authority; see {@link NEXUS_LADDERS}, which says how far up the Nexus lets each of the others go.
+ * The ceiling a structure has unless its own entry in {@link BUILDING_LEVEL_CEILINGS} says
+ * otherwise. The Nexus is the only one that reaches it on its own authority; see
+ * {@link NEXUS_LADDERS}, which says how far up the Nexus lets each of the others go.
+ *
+ * Still the right number to reach for when the question is about the *game's* top level rather
+ * than one structure's: the Nexus's own ceiling, the bound a stored level is parsed against, the
+ * highest rung any ladder may name. When the question is "how far can this one go", ask
+ * {@link levelCeilingFor}.
  */
 export const BUILDING_MAX_LEVEL = 20;
+
+/**
+ * Structures that stop short of {@link BUILDING_MAX_LEVEL}, and where they stop.
+ *
+ * The Infirmary opens at Nexus 10 and the Garage at Nexus 12, which is most of the way through a
+ * district's life, and a twenty-rung ladder started that late is a ladder nobody finishes. Ten
+ * rungs each puts their last level in the same week as everybody else's twentieth instead of a
+ * month behind it.
+ *
+ * Authored here and nowhere else. The alternative was a pair of `kind === 'garage'` tests at every
+ * call site that asks about a ceiling, which is five places today and the sixth one that gets
+ * forgotten. Everything else reads {@link levelCeilingFor}, including the Nexus permission table,
+ * so a ladder, a build queue, an upgrade refusal and a dialog all stop at the same rung.
+ */
+export const BUILDING_LEVEL_CEILINGS: Partial<Record<BuildingKind, number>> = {
+  infirmary: 10,
+  garage: 10,
+};
+
+/** How high `kind` can go. {@link BUILDING_MAX_LEVEL} unless it has a ceiling of its own. */
+export function levelCeilingFor(kind: BuildingKind): number {
+  return BUILDING_LEVEL_CEILINGS[kind] ?? BUILDING_MAX_LEVEL;
+}
 
 /**
  * One condition on laying a structure's first level. **All** of a structure's clauses must hold.
@@ -84,7 +113,44 @@ export interface BuildingSpec {
   requires: readonly BuildingRequirement[];
   /** Cost of level 1 before the Nexus discount. Every level above scales it: see `buildingCost`. */
   baseCost: PartialResources;
-  /** Seconds to raise level 1, before the Generator's discount. See `buildingBuildSeconds`. */
+  /**
+   * Lines this structure is only charged from `LATE_COST_FROM_LEVEL` (`building/cost.ts`) up, at the amounts
+   * written here, scaling from that level rather than from the first.
+   *
+   * The bill a structure opens with and the bill it grows into are two different statements, and
+   * `baseCost` can only make the first one: everything in it is charged at level 1 and multiplied
+   * by `BUILDING_COST_GROWTH` from there. The maintainer wanted the seven ordinary structures to
+   * start asking for high quality metal partway up, which is not a number you can write in
+   * `baseCost` at all. A second, later-starting bundle says it in one field.
+   *
+   * The amount here is what the structure is charged the **first** time it is charged at all, so
+   * the table reads as the price of that level rather than as a level-1 price nobody ever pays.
+   * Structures that want a material from the ground up keep writing it in `baseCost`, which is why
+   * the Lab, the Gauntlet, the Infirmary and the Garage are untouched.
+   */
+  lateCost?: PartialResources;
+  /**
+   * Seconds to raise level 1, before the Generator's discount. See `buildingBuildSeconds`.
+   *
+   * ## Why the openers are all within a whisker of each other
+   *
+   * The maintainer's sheet asked for two things a single growth rate cannot both give. It spread
+   * the first levels over 8x (a Gate at 60 seconds, a Lab at 500) and it asked for the twentieth
+   * levels to come out "similar in the final hours flat". With one `BUILDING_TIME_GROWTH` for
+   * every structure, the ratio between any two of them is the same at level 1 as it is at level
+   * 20: 8x apart at the bottom is 8x apart at the top, which with a 20 hour Gate would put the Lab
+   * at the better part of a week.
+   *
+   * The flat endings won, so the openers compress. Every twenty-rung structure lands between 2
+   * minutes 5 seconds and 3 minutes at its first level and between 20.7 and 29.9 hours at its
+   * last, with the Nexus at the top of both bands because the maintainer asked for it to finish
+   * "in the 30 hour range". Getting the 8x spread back means a per-structure growth rate, which is
+   * a change to `BUILDING_TIME_GROWTH` and to everything reading it, not a retune of this column.
+   *
+   * The Infirmary and the Garage are off that scale on purpose. They unlock at Nexus 10 and 12 and
+   * stop at level 10 ({@link BUILDING_LEVEL_CEILINGS}), so they open at about an hour and finish
+   * at 23 and 24.7, inside the same band as everybody else's twentieth.
+   */
   baseSeconds: number;
 }
 
@@ -102,33 +168,40 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     name: 'The Nexus',
     shortName: 'Nexus',
     description:
-      'A commandeered transit hub with the maps still on the walls. Everything the district decides, it decides here.',
+      'A seized ex-transport hub with the maps still on the walls. Everything the district decides, it decides here.',
     role: 'Authorises every other structure. Each of them has a level it cannot pass until the Nexus is senior enough to sign for it, and new plots open as it grows.',
     requires: [],
     baseCost: { caps: 400, scrap: 200, planks: 120, oil: 60 },
-    baseSeconds: 45,
+    // Plate and bar, once the hub stops being a room with maps in it. The heaviest bill of the
+    // seven, on the heaviest structure.
+    lateCost: { highQualityMetal: 60 },
+    baseSeconds: 180,
   },
   quarters: {
     name: 'The Quarters',
     shortName: 'Quarters',
     description:
-      'Container stacks, hot bunks and a stove that never goes out. Nobody works for a crew they cannot sleep in.',
+      'Container stacks, hot bunks and a stove that never goes out. Changing the world requires a place to sleep at night.',
     role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every soldier, officer and machine takes a slot, so the first number decides how big the army can be and the second how many names you can pay.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.
-    baseCost: { caps: 120, supplies: 70, scrap: 90, planks: 110, oil: 10 },
-    baseSeconds: 20,
+    baseCost: { caps: 50, supplies: 200, scrap: 40, planks: 110, oil: 20 },
+    lateCost: { highQualityMetal: 30 },
+    baseSeconds: 140,
   },
   greenhouse: {
     name: 'The Greenhouse',
     shortName: 'Greenhouse',
     description:
       'Grow lamps over stacked trays, running day and night. The only food down here nobody had to fight for.',
-    role: 'Grows supplies and timber around the clock, and every level takes a little more of the supplies bill off training a unit.',
-    requires: [nexus(1)],
-    baseCost: { caps: 100, scrap: 70, supplies: 40, planks: 90, oil: 10 },
-    baseSeconds: 20,
+    role: 'Grows supplies and planks around the clock, and every level takes a little more of the supplies bill off training a unit.',
+    requires: [nexus(3)],
+    baseCost: { caps: 100, scrap: 150, planks: 200, oil: 200 },
+    // Frames and ducting. Glass and trays are most of a glasshouse, so it asks for less good
+    // metal than its bill would suggest.
+    lateCost: { highQualityMetal: 35 },
+    baseSeconds: 160,
   },
   generator: {
     name: 'The Generator',
@@ -139,48 +212,56 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     requires: [nexus(1)],
     // Mainly oil (§B4). The turbine is fed rather than built: the plant is a drum, a rotor and a
     // fuel line, and what a bigger one costs is what it swallows getting there.
-    baseCost: { caps: 150, oil: 220, planks: 55, scrap: 70 },
-    baseSeconds: 30,
+    baseCost: { caps: 120, oil: 270, scrap: 40 },
+    // A bigger rotor is a rotor you cannot cut out of salvage.
+    lateCost: { highQualityMetal: 35 },
+    baseSeconds: 140,
   },
   scrapyard: {
     name: 'The Scrapyard',
     shortName: 'Scrapyard',
     description:
-      'Torch work, press lines and a sorting floor. Where wreckage is taken apart and something useful is made out of it.',
+      "If it's not a resource you can use as is, it ends up here. What comes out depends on the district's creativity.",
     role: 'Strips salvage into scrap and the occasional length of good metal, and builds the add-ons that bolt onto a structure or a unit.',
-    requires: [nexus(2), needs('generator', 1)],
-    baseCost: { caps: 140, scrap: 120, planks: 60, oil: 20 },
-    baseSeconds: 25,
+    requires: [nexus(3), needs('generator', 1)],
+    baseCost: { caps: 200, scrap: 300, planks: 100, oil: 20 },
+    // The yard that makes the stuff spends the most of it, after the Nexus.
+    lateCost: { highQualityMetal: 45 },
+    baseSeconds: 160,
   },
   apothecary: {
     name: 'The Apothecary',
     shortName: 'Apothecary',
     description:
-      'Racks, cages and a ledger nobody else can read. Half dispensary, half the only honest warehouse in the district.',
+      "Abandoned markets that now store the district's resources. The more you can store, the longer you will last.",
     role: 'Sets the ceiling on how much of each resource the district can hold. Production stops there, so a full district is a district wasting its own output.',
-    requires: [nexus(3), needs('scrapyard', 2), crew(3)],
-    baseCost: { caps: 180, scrap: 140, planks: 80, oil: 25 },
-    baseSeconds: 35,
+    requires: [nexus(1)],
+    baseCost: { caps: 120, scrap: 70, planks: 200 },
+    // Shelving and a door worth having. The lightest bill of the seven, and the lightest line.
+    lateCost: { highQualityMetal: 25 },
+    baseSeconds: 130,
   },
   gate: {
     name: 'The Gate',
     shortName: 'Gate',
     description:
-      'Ferrocrete, razorwire and a firing step. The first thing anyone coming for this district has to get through.',
+      'The first thing anyone coming for this district sees. Better make sure they are scared.',
     role: 'Adds a percentage of defence to every unit holding this district, and makes the place harder to scout.',
-    requires: [nexus(2), needs('scrapyard', 3)],
-    baseCost: { caps: 100, scrap: 220, planks: 150, oil: 30 },
-    baseSeconds: 30,
+    requires: [nexus(1)],
+    baseCost: { caps: 200, scrap: 220, planks: 150, oil: 20 },
+    // Armour plate. Past the fifth level the wall is metal rather than whatever was to hand.
+    lateCost: { highQualityMetal: 40 },
+    baseSeconds: 125,
   },
   lab: {
     name: 'The Lab',
     shortName: 'Lab',
     description:
-      'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Ideas, not devices.',
-    role: 'The door to research, and the clock on it: every project takes less time as the Lab grows.',
+      'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Literally re-inventing the wheel.',
+    role: 'Makes research faster and unlocks a number of upgrades and projects.',
     requires: [nexus(4), needs('apothecary', 2), crew(5)],
-    baseCost: { caps: 260, scrap: 130, planks: 60, oil: 40, highQualityMetal: 10 },
-    baseSeconds: 50,
+    baseCost: { caps: 400, scrap: 200, planks: 200, oil: 250, highQualityMetal: 25 },
+    baseSeconds: 175,
   },
   gauntlet: {
     name: 'The Gauntlet',
@@ -188,24 +269,31 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'A run of welded obstacles, a mat that has seen better decades, and somebody shouting. People come out of it better than they went in.',
     role: 'Unlocks units as it grows and takes time off training every one of them, including the ones it cannot train itself.',
-    requires: [nexus(2), needs('quarters', 1)],
+    requires: [nexus(3), needs('quarters', 2)],
     // Every recruit trained here eats while they do it, and the ground itself is no different.
-    baseCost: { caps: 280, supplies: 90, scrap: 180, planks: 100, oil: 40, highQualityMetal: 8 },
-    baseSeconds: 55,
+    baseCost: { caps: 300, supplies: 300, scrap: 100, planks: 100, highQualityMetal: 10 },
+    baseSeconds: 170,
   },
   infirmary: {
     name: 'The Infirmary',
     shortName: 'Infirmary',
     description:
-      'Four beds, a printer for the drugs the Combine will not sell down here, and a medic who does not ask.',
+      'Four beds, a cabinet for the drugs the Combine will not sell down here, and a self-proclaimed medic to oversee it.',
     // The old line promised it softened "a missed payday or a lean week". Nothing is charged on a
     // clock any more, so there is no lean week to soften: what it does is get people off the
     // casualty list, which is what `infirmaryRecoveryPercent` has always actually paid out.
-    role: 'Looks after the crew. Some of the people a fight would have cost you walk out of here instead.',
+    role: 'Looks after the crew. Some of the people a fight would have cost you walk out of here instead. Allows you to deploy stitchers.',
     requires: [nexus(10), needs('greenhouse', 4), needs('lab', 2), crew(10)],
     // Medical stores are stores.
-    baseCost: { caps: 300, supplies: 80, scrap: 160, planks: 70, oil: 45, highQualityMetal: 14 },
-    baseSeconds: 60,
+    baseCost: {
+      caps: 1000,
+      supplies: 200,
+      scrap: 200,
+      planks: 100,
+      oil: 600,
+      highQualityMetal: 75,
+    },
+    baseSeconds: 4000,
   },
   garage: {
     name: 'The Garage',
@@ -214,8 +302,8 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
       'Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles after, and eventually something that flies.',
     role: 'Builds and keeps the machines. Gives nothing on its own: what it is worth is what is parked in it.',
     requires: [nexus(12), needs('scrapyard', 6), needs('generator', 6), crew(14)],
-    baseCost: { caps: 340, scrap: 240, planks: 50, oil: 60, highQualityMetal: 20 },
-    baseSeconds: 50,
+    baseCost: { caps: 400, scrap: 2000, planks: 500, oil: 2000, highQualityMetal: 200 },
+    baseSeconds: 4300,
   },
 };
 
@@ -239,6 +327,10 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
  *
  * The first breakpoint is always the structure's own `requires` clause and is asserted to be, at
  * module load: two numbers for "when does this plot open" is two answers to one question.
+ *
+ * A ladder runs to the structure's own {@link levelCeilingFor}, not to
+ * {@link BUILDING_MAX_LEVEL}: the two ten-rung structures fit their four breakpoints into ten
+ * levels rather than naming rungs nobody can order.
  */
 export type NexusLadder = readonly (readonly [targetLevel: number, nexusLevel: number])[];
 
@@ -257,7 +349,7 @@ export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
   // Food, on much the same terms as beds until the top, where a glasshouse the size of a district
   // needs the district to be one.
   greenhouse: [
-    [1, 1],
+    [1, 3],
     [5, 3],
     [9, 6],
     [13, 9],
@@ -272,7 +364,7 @@ export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
     [16, 13],
   ],
   scrapyard: [
-    [1, 2],
+    [1, 3],
     [5, 4],
     [9, 7],
     [13, 10],
@@ -281,7 +373,7 @@ export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
   // The warehouse is the least interesting thing to be stopped by, and the most annoying: it is
   // the ceiling every other structure's output runs into.
   apothecary: [
-    [1, 3],
+    [1, 1],
     [6, 5],
     [11, 9],
     [16, 13],
@@ -290,7 +382,7 @@ export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
   // Defence is what a crew reaches for when it is losing, and a crew that is losing has a small
   // Nexus, so this is the shallowest ladder in the table by a wide margin.
   gate: [
-    [1, 2],
+    [1, 1],
     [9, 5],
     [13, 8],
     [17, 12],
@@ -307,25 +399,27 @@ export const NEXUS_LADDERS: Readonly<Record<BuildingKind, NexusLadder>> = {
   // The Gauntlet is the unit ladder (§B6), so it opens almost immediately and climbs steadily:
   // holding it back would be holding the roster back, which is the game.
   gauntlet: [
-    [1, 2],
+    [1, 3],
     [5, 4],
     [9, 7],
     [13, 10],
     [17, 14],
   ],
+  // Ten rungs rather than twenty ({@link BUILDING_LEVEL_CEILINGS}), so the four breakpoints sit
+  // closer together than everybody else's and the last one still wants a near-finished Nexus.
   infirmary: [
     [1, 10],
-    [6, 12],
-    [11, 15],
-    [16, 18],
+    [4, 12],
+    [7, 15],
+    [10, 18],
   ],
   // The last plot, and the steepest ladder: a motor pool is the end of a district rather than a
   // part of one.
   garage: [
     [1, 12],
-    [6, 14],
-    [11, 16],
-    [16, 19],
+    [4, 14],
+    [7, 16],
+    [10, 19],
   ],
 };
 
@@ -354,7 +448,9 @@ export function nexusLevelForUpgrade(kind: BuildingKind, level: number): number 
 export function levelCapForNexus(kind: BuildingKind, nexusLevel: number): number {
   if (kind === CENTRAL_BUILDING) return BUILDING_MAX_LEVEL;
   let cap = 0;
-  for (let level = 1; level <= BUILDING_MAX_LEVEL; level += 1) {
+  // The structure's own ceiling, so a Garage under a finished Nexus answers 10 and every caller
+  // that asks "can this go higher" gets the right no without knowing which structures are short.
+  for (let level = 1; level <= levelCeilingFor(kind); level += 1) {
     if (nexusLevelForUpgrade(kind, level) > nexusLevel) break;
     cap = level;
   }
@@ -405,8 +501,8 @@ for (const kind of BUILDING_KINDS) {
       throw new Error(`${kind} needs ${clause.building}, which is not a structure`);
     }
     if (clause.building === kind) throw new Error(`${kind} requires itself`);
-    if (clause.level > BUILDING_MAX_LEVEL) {
-      throw new Error(`${kind} needs ${clause.building} at ${clause.level}, past the ceiling`);
+    if (clause.level > levelCeilingFor(clause.building)) {
+      throw new Error(`${kind} needs ${clause.building} at ${clause.level}, past its ceiling`);
     }
   }
 }
@@ -416,10 +512,14 @@ for (const kind of BUILDING_KINDS) {
  * game and none of them shows up on a screen.
  *
  * A ladder that steps *down* would let a level be legal and the one below it not; a breakpoint past
- * the ceiling is a rung nobody reaches; a first breakpoint that disagrees with the structure's own
- * Nexus clause is two answers to "when does this open"; and a Nexus requirement at the ceiling
- * itself would make the top level of that structure unreachable, because the Nexus can only ever be
- * {@link BUILDING_MAX_LEVEL}.
+ * the structure's own {@link levelCeilingFor} is a rung nobody reaches; a first breakpoint that
+ * disagrees with the structure's own Nexus clause is two answers to "when does this open"; and a
+ * Nexus requirement above {@link BUILDING_MAX_LEVEL} would make the top level of that structure
+ * unreachable, because the Nexus can only ever be {@link BUILDING_MAX_LEVEL}.
+ *
+ * The rung bound is the per-structure one on purpose. The Garage and the Infirmary both used to
+ * name breakpoints at 11 and 16, which were legal under a flat ceiling of 20 and are two dead rungs
+ * each under a ceiling of 10.
  */
 for (const kind of BUILDING_KINDS) {
   let lastTarget = 0;
@@ -429,7 +529,7 @@ for (const kind of BUILDING_KINDS) {
       throw new Error(`${kind}'s ladder revisits level ${target}`);
     }
     if (needed < lastNexus) throw new Error(`${kind}'s ladder steps down at level ${target}`);
-    if (target > BUILDING_MAX_LEVEL || needed > BUILDING_MAX_LEVEL) {
+    if (target > levelCeilingFor(kind) || needed > BUILDING_MAX_LEVEL) {
       throw new Error(`${kind}'s ladder asks for ${needed} at level ${target}, past the ceiling`);
     }
     lastTarget = target;
@@ -445,7 +545,21 @@ for (const kind of BUILDING_KINDS) {
       `${kind} opens at Nexus ${clause?.level ?? 0} in its clauses and at ${nexusLevelForUpgrade(kind, 1)} on its ladder`,
     );
   }
-  if (levelCapForNexus(kind, BUILDING_MAX_LEVEL) !== BUILDING_MAX_LEVEL) {
-    throw new Error(`${kind} cannot reach level ${BUILDING_MAX_LEVEL} at any Nexus level`);
+  if (levelCapForNexus(kind, BUILDING_MAX_LEVEL) !== levelCeilingFor(kind)) {
+    throw new Error(`${kind} cannot reach level ${levelCeilingFor(kind)} at any Nexus level`);
+  }
+}
+
+/**
+ * And guards the ceiling table, which has two ways of writing a structure out of the game.
+ *
+ * A ceiling of zero or less is a plot that can be laid and never stands; one above
+ * {@link BUILDING_MAX_LEVEL} is a level no stored structure could hold, because `BuildingSchema`
+ * parses levels against the global bound. An entry equal to the global ceiling is not an error,
+ * only noise, and is left alone.
+ */
+for (const [kind, ceiling] of Object.entries(BUILDING_LEVEL_CEILINGS)) {
+  if (ceiling < 1 || ceiling > BUILDING_MAX_LEVEL) {
+    throw new Error(`${kind}'s ceiling of ${ceiling} is outside 1..${BUILDING_MAX_LEVEL}`);
   }
 }

@@ -255,19 +255,25 @@ describe('nobody runs because somebody else did', () => {
   });
 
   /**
-   * A found case, like the stalwart one in `marks.test.ts`: this exact matchup and seed lose a
-   * second stack to the cascade without the holding and keep it with it. Pinning a case the rule
-   * changes is the only way the test fails when the engine stops reading it.
+   * A found case, like the stalwart one in `marks.test.ts`: this exact matchup loses a fourth stack
+   * to the cascade without the holding and keeps it with it. Pinning a case the rule changes is the
+   * only way the test fails when the engine stops reading it.
+   *
+   * Refound on 2026-09-18, twice over: the old fixture put a hundred attackers on a frontage of 48,
+   * so {@link overstackPenalty} moved it, and the roster it was built from gained resistance sheets
+   * in the same pass. The replacement is deliberately **under** the frontage, at 46 of 48, so the
+   * thing being measured is the cascade and not how crowded the attacker is, and it is a stronger
+   * pin than the one it replaces: the old case separated on four seeds in five, this one separates
+   * on all thirty tried.
    */
   it('keeps a stack that the same fight loses to the panic beside it', () => {
-    const attacking: Army = { the_condemned: 60, razors: 20, sparks: 20 };
-    // The seed is part of the fixture: a fight is deterministic from it, and the sweep that found
-    // this case found the cascade taking a third stack on four of the five seeds tried.
-    const shaken = fight(attacking, { hollow_men: 40 }, 's1');
-    const steady = fight(attacking, { hollow_men: 40 }, 's1', fold({ kind: 'steady_nerve' }));
+    const attacking: Army = { the_condemned: 20, razors: 10, sparks: 10, scrapers: 6 };
+    // The seed is part of the fixture, since a fight is deterministic from it.
+    const shaken = fight(attacking, { juggernauts: 10 }, 'c0');
+    const steady = fight(attacking, { juggernauts: 10 }, 'c0', fold({ kind: 'steady_nerve' }));
     const broke = (side: Simulation['attacker']): number =>
       side.stacks.filter((stack) => stack.brokeAt !== null).length;
-    expect(broke(shaken.attacker)).toBe(3);
-    expect(broke(steady.attacker)).toBe(2);
+    expect(broke(shaken.attacker)).toBe(4);
+    expect(broke(steady.attacker)).toBe(3);
   });
 });

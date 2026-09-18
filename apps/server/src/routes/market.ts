@@ -15,6 +15,7 @@ import {
   OfferActionRequestSchema,
   PostOfferRequestSchema,
   type Base,
+  type ItemId,
   type MarketMutationResponse,
   type MarketResponse,
 } from '@frontline/shared';
@@ -36,6 +37,7 @@ import { AppError, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
+import { tallyPagesIn } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
 
 /**
@@ -181,6 +183,20 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         if (traded === null) throw new AppError('REIMAGINING_REFUSED', 'not_available');
 
         app.repos.bases.updateHoldings(base.id, base.resources, traded.inventory);
+        /*
+         * The one that came back, counted where it was found.
+         *
+         * `pages_found` is documented as "pages off a job, a shelf, a barrow or a feat", and the
+         * bench is one more door a page arrives through, but it was the only one of them that rang
+         * the bell and counted nothing: a crew that built its whole collection out of the Lab
+         * finished the `pages` ladder on zero. The other three doors call `tallyPagesIn` at the
+         * moment the goods move (`missions/resolve.ts`, `blackmarket/shelf.ts`, `market/auction.ts`).
+         *
+         * The bundle is the single page, not `traded.inventory`. Handing the whole bag over would
+         * count every page the crew is already holding on every trade, which is the same mistake in
+         * the other direction from counting the scrap servos in a mission haul.
+         */
+        tallyPagesIn(app.repos, base.id, { [traded.gained as ItemId]: 1 });
         // §G3: the one that came back, not the three that went in. The response says the same
         // thing to whoever pressed the button; the bell is for the list they read later.
         tellPagesFound(app.repos, {

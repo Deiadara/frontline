@@ -123,7 +123,7 @@ function raiseGate(world: World, level: number): readonly Building[] {
   const buildings: Building[] =
     level <= 0
       ? without
-      : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [], damage: 0 }];
+      : [...without, { id: 'gate-under-test', kind: 'gate', level, modifications: [] }];
   world.app.repos.bases.updateBuildings(world.victimBaseId, buildings);
   return buildings;
 }
@@ -177,7 +177,7 @@ describe('a Gate a crew is defending behind', () => {
 
     // What the player is told the Gate is worth (`battle/view.ts` sends exactly this figure).
     const quoted = gateDefensePercent([
-      { id: 'gate-under-test', kind: 'gate', level: GATE_LEVEL, modifications: [], damage: 0 },
+      { id: 'gate-under-test', kind: 'gate', level: GATE_LEVEL, modifications: [] },
     ]);
     expect(quoted).toBeCloseTo(GATE_LEVEL * GATE_DEFENSE_PERCENT_PER_LEVEL, 6);
     expect(walled - bare).toBeCloseTo(quoted, 6);

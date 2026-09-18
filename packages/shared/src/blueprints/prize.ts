@@ -1,8 +1,9 @@
 import type { ItemRarity } from '../items/rarity.js';
-import { seedFrom } from '../rng.js';
+import { drawWeighted, seedFrom } from '../rng.js';
 import {
   BLUEPRINTS,
   BLUEPRINT_CATEGORIES,
+  pageRarity,
   type BlueprintCategory,
   type BlueprintPageId,
 } from './catalog.js';
@@ -139,13 +140,10 @@ export function pagesIn(category: BlueprintCategory): { id: BlueprintPageId; wei
     blueprint.pages.map((page) => ({
       id: page.id,
       // A page may be authored a step above its blueprint (`BlueprintPage.rarity`), which is the
-      // one sheet that makes a drawing hard to finish. Reading the page's own rarity rather than
-      // the blueprint's is what makes that authoring mean something here.
-      weight:
-        PAGE_DRAW_WEIGHT[
-          ('rarity' in page ? (page.rarity as ItemRarity | undefined) : undefined) ??
-            blueprint.rarity
-        ],
+      // one sheet that makes a drawing hard to finish. `pageRarity` is the one copy of that rule,
+      // and the Reimagining bench reads the same function, so the two cannot grade a sheet
+      // differently.
+      weight: PAGE_DRAW_WEIGHT[pageRarity(blueprint, page)],
     })),
   );
 }
@@ -154,21 +152,12 @@ export function pagesIn(category: BlueprintCategory): { id: BlueprintPageId; wei
  * One page out of a weighted pool, off a hash rather than a stream.
  *
  * Seeded the same way the uniform draw it replaces was, so a given seed still answers the same way
- * forever; what changed is only which page a given point in the range lands on.
+ * forever; what changed is only which page a given point in the range lands on. The loop itself is
+ * {@link drawWeighted}, which the Reimagining bench draws its output rarity from.
  */
 export function drawPage(
   pool: readonly { id: BlueprintPageId; weight: number }[],
   seed: string,
 ): BlueprintPageId | null {
-  const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
-  if (pool.length === 0 || total <= 0) return null;
-  // The hash is an integer of arbitrary size; taking it modulo a scaled total and dividing back is
-  // what turns it into a point in [0, total) without ever going through a float.
-  const SCALE = 1_000_000;
-  let at = (seedFrom(seed) % (total * SCALE)) / SCALE;
-  for (const entry of pool) {
-    at -= entry.weight;
-    if (at < 0) return entry.id;
-  }
-  return pool[pool.length - 1]!.id;
+  return drawWeighted(pool, seed);
 }

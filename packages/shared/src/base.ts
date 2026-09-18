@@ -119,8 +119,8 @@ export const BaseSchema = z.object({
    * having it installed used to be one fact, which left §E's "a slot can be emptied" with nowhere
    * to put what came out. Migration 0056 fills it from what is already bolted on.
    *
-   * **Optional**, not defaulted, for the same reason `BuildingSchema.damagedAt` is: a default makes
-   * the field required on the way *out* of the parser, which would mean writing an empty shelf into
+   * **Optional**, not defaulted: a default makes the field required on the way *out* of the
+   * parser, which would mean writing an empty shelf into
    * every `Base` literal in the codebase, most of them fixtures with nothing to do with the
    * Scrapyard. Absent and empty are the same state; read it through {@link addonsOf}.
    */

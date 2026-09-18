@@ -64,3 +64,20 @@ export type LiveEvent = z.infer<typeof LiveEventSchema>;
  */
 export const LIVE_HEARTBEAT_MS = 20_000;
 export const LIVE_SILENCE_TIMEOUT_MS = LIVE_HEARTBEAT_MS * 3;
+
+/**
+ * How long a connection has to stay up before it counts as a good one.
+ *
+ * The backoff needs an answer to "did that work?", and the obvious answers are both wrong. Response
+ * headers are wrong because a proxy that accepts a request and closes it produces `res.ok`. The
+ * first byte is wrong too, and that is the one that was in use: the server writes a `ready` frame
+ * before anything else, on purpose, so *every* connection that opens at all delivers a byte,
+ * including a server in a crash loop that dies a moment later. A client reconnecting into a crash
+ * loop therefore reset its backoff every time and hammered the box about once a second, taking a
+ * full cache invalidation with it on each pass.
+ *
+ * Time up is the honest measure, and one heartbeat is the natural length of it: a channel that
+ * lived long enough to be sent a beat was a working channel, and one that died before its first
+ * beat was not, whatever it managed to write on the way up.
+ */
+export const LIVE_STABLE_MS = LIVE_HEARTBEAT_MS;

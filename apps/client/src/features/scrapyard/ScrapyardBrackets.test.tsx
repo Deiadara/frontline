@@ -61,12 +61,12 @@ const base: Base = {
   progression: startingProgression(),
   research: startingResearch(),
   buildings: [
-    { id: 'b-nexus', kind: 'nexus', level: 20, modifications: [], damage: 0 },
-    { id: 'b-yard', kind: 'scrapyard', level: 3, modifications: [], damage: 0 },
+    { id: 'b-nexus', kind: 'nexus', level: 20, modifications: [] },
+    { id: 'b-yard', kind: 'scrapyard', level: 3, modifications: [] },
     // One bracket filled and the rest open, so the rack has all three slot states on screen.
-    { id: 'b-lab', kind: 'lab', level: ALL_SLOTS, modifications: [FITTED.id], damage: 0 },
+    { id: 'b-lab', kind: 'lab', level: ALL_SLOTS, modifications: [FITTED.id] },
     // Standing, but below the level that opens its first bracket.
-    { id: 'b-generator', kind: 'generator', level: 1, modifications: [], damage: 0 },
+    { id: 'b-generator', kind: 'generator', level: 1, modifications: [] },
   ],
   // Two cut: one already in the Lab's wall, one still on the shelf.
   addons: { researched: [], built: [FITTED.id, SHELVED.id, GENERATOR_MOD.id] },

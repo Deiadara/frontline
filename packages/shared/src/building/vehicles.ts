@@ -191,7 +191,7 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'flying',
     description:
       'Lifting gas nobody will say the source of, and a basket. Silent, and over the wall rather than through it.',
-    requiresGarageLevel: 9,
+    requiresGarageLevel: 8,
     cost: { scrap: 6800, oil: 2600, highQualityMetal: 940 },
     buildSeconds: 5 * 3600,
     speed: 70,
@@ -203,7 +203,7 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'flying',
     description:
       'Somebody built a helicopter in a yard out of two other helicopters. It flies, it is quick, and it comes apart on days the Heli Porter walks away from.',
-    requiresGarageLevel: 12,
+    requiresGarageLevel: 9,
     cost: { scrap: 11000, oil: 4200, highQualityMetal: 2400 },
     buildSeconds: 8 * 3600,
     speed: 78,
@@ -221,7 +221,7 @@ const SPECS: readonly VehicleSpec[] = [
     class: 'flying',
     description:
       'A real transport helicopter, kept flying by people who understand it. Thirty in the cabin, over everything in the way, and it lands where it was told to.',
-    requiresGarageLevel: 14,
+    requiresGarageLevel: 10,
     cost: { scrap: 15000, oil: 5800, highQualityMetal: 3400 },
     buildSeconds: 11 * 3600,
     speed: 95,

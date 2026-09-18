@@ -56,6 +56,7 @@ export const FEAT_MEASURES = [
   'research_done',
   'building_level',
   'buildings_total',
+  'buildings_maxed',
   'modifications_fitted',
   'modification_sets',
   'unit_modifications_fitted',
@@ -86,6 +87,14 @@ export const FEAT_MEASURES = [
   'battles_won',
   'battles_attacked_won',
   'battles_defended_won',
+  'battles_won_outnumbered',
+  'battles_won_overwhelmed',
+  'battles_won_flawless',
+  'battles_won_lopsided',
+  'districts_raided',
+  'raids_repelled',
+  'trap_kills',
+  'runners_caught',
   'bodies_deployed',
   'supply_deployed',
   'kills',
@@ -133,6 +142,14 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   research_done: { source: 'crew', scoped: false, unit: 'programmes' },
   building_level: { source: 'crew', scoped: true, unit: 'levels' },
   buildings_total: { source: 'crew', scoped: false, unit: 'levels' },
+  /**
+   * Structures standing at their own ceiling, which is not the same number for all of them
+   * (`building/kinds.ts`: the Garage and the Infirmary stop at 10, everything else at 20).
+   *
+   * A crew measure, because a structure can be dismantled and because the question is "is your
+   * district finished", which has to be able to stop being true.
+   */
+  buildings_maxed: { source: 'crew', scoped: false, unit: 'structures' },
   modifications_fitted: { source: 'crew', scoped: false, unit: 'fittings' },
   modification_sets: { source: 'crew', scoped: false, unit: 'sets' },
   /**
@@ -167,6 +184,22 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   battles_won: { source: 'tally', scoped: false, unit: 'wins' },
   battles_attacked_won: { source: 'tally', scoped: false, unit: 'wins' },
   battles_defended_won: { source: 'tally', scoped: false, unit: 'holds' },
+  /**
+   * The four ways a win is worth telling somebody about. See `feats/battle.ts` for what each one
+   * asks and why the line is drawn where it is; the counters themselves are ordinary tallies, one
+   * per fight that qualified, so a ladder on one of them climbs like any other.
+   */
+  battles_won_outnumbered: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_overwhelmed: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_flawless: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_lopsided: { source: 'tally', scoped: false, unit: 'wins' },
+  /** Break-ins on a lived-in district: one counts for whoever forced it, the other for whoever did not let them. */
+  districts_raided: { source: 'tally', scoped: false, unit: 'raids' },
+  raids_repelled: { source: 'tally', scoped: false, unit: 'raids' },
+  /** What a trap took off a column before anybody was in contact, counted for whoever laid it. */
+  trap_kills: { source: 'tally', scoped: false, unit: 'kills' },
+  /** Beaten runners a ring stopped on the way out, counted for the side that set it. */
+  runners_caught: { source: 'tally', scoped: false, unit: 'runners' },
   bodies_deployed: { source: 'tally', scoped: false, unit: 'units' },
   supply_deployed: { source: 'tally', scoped: false, unit: 'unit slots' },
   kills: { source: 'tally', scoped: false, unit: 'kills' },
@@ -216,7 +249,12 @@ export function featValue(snapshot: FeatSnapshot, measure: FeatMeasure, scope?: 
  *
  * Exported so the server's counter table and this vocabulary cannot drift: a tally written under a
  * name no measure reads is a counter nothing will ever ask for, and a measure with no writer is a
- * feat nobody can finish. `feats.tallies.test.ts` pins both directions.
+ * feat nobody can finish. `apps/server/src/feats/tallies.test.ts` pins both directions.
+ *
+ * That sentence named `feats.tallies.test.ts` for a long time and no such file existed, so the gate
+ * it describes was guarding nothing at all: a measure could be authored with no writer and the feat
+ * built on it would sit at zero for ever, on the one screen that tells a player what to do. Written
+ * on 2026-09-18, after nine tally measures landed in a single change.
  */
 export const FEAT_TALLY_MEASURES: readonly FeatMeasure[] = FEAT_MEASURES.filter(
   (measure) => FEAT_MEASURE_SPECS[measure].source === 'tally',

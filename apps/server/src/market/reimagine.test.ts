@@ -24,6 +24,7 @@ import {
   REIMAGINING_PAGES_SPENT,
   REIMAGINING_RESEARCH_ID,
   createCommander,
+  featMeasureKey,
   type ItemId,
   type ReimagineResponse,
 } from '@frontline/shared';
@@ -33,6 +34,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { snapshotFor } from '../feats/project.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -213,6 +215,48 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     const res = await post(stack, THREE);
     expect(res.statusCode).toBe(409);
     expect(res.body).toContain('nothing_left_to_find');
+  });
+
+  /**
+   * The bench counts towards the `pages` ladder, like every other door a page comes through.
+   *
+   * It rang the bell and tallied nothing. `pages_found` names this door in its own documentation,
+   * "pages off a job, a shelf, a barrow or a feat", and the three other doors that hand a crew a
+   * page all call `tallyPagesIn` where the goods move, so a crew that fed the Lab for a month sat
+   * at zero on a ladder it had been climbing.
+   *
+   * The fixture is deliberately fat: four copies of the paid page, two other documents' sheets and
+   * a heap of scrap. Wire the bundle up as `traded.inventory` instead of the one page and this
+   * counts four, which is the trap the measure's own doc warns about read the other way round.
+   */
+  it('counts the page it handed back, and only that page, towards pages_found', async () => {
+    const stack = await crew();
+    openTheLab(stack);
+    const spare = ALL_PAGES[1] as ItemId;
+    const other = ALL_PAGES[2] as ItemId;
+    hold(stack, {
+      ...STACK,
+      [spare]: 1,
+      [other]: 1,
+      // Not paper. Counting salvage would finish the blueprint ladder off scrap servos.
+      scrap_servo: 40,
+    });
+
+    const read = (): number => {
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      return snapshotFor(stack.app.repos, base)[featMeasureKey('pages_found')] ?? 0;
+    };
+    const before = read();
+    expect(before, 'the fixture arrived with pages already counted').toBe(0);
+
+    const res = await post(stack, THREE);
+    expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+    const body = res.json<ReimagineResponse>();
+
+    // The page really landed, or the counter below is measuring a trade that never happened.
+    expect(heldBy(stack)[body.gained] ?? 0).toBe(1);
+    // One page found. Not the three that were spent, and not the four the crew is now holding.
+    expect(read() - before).toBe(1);
   });
 
   it('says the Lab is open on the board once both halves are met', async () => {

@@ -39,7 +39,7 @@ function makeBase(over: Partial<Base> = {}): Base {
     economy: startingEconomy(now),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [], damage: 0 }],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 3, modifications: [] }],
     buildQueue: [],
     army: {},
     trainingQueue: [],

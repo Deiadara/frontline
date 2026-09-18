@@ -1,14 +1,10 @@
 import {
-  BUILDING_KINDS,
   createCommander,
-  BUILDING_MAX_LEVEL,
   STARTING_RESOURCES,
   startingEconomy,
   startingProgression,
   startingResearch,
   startingTraining,
-  storageCapacity,
-  type Building,
 } from '@frontline/shared';
 import { cpSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,18 +15,18 @@ import { openDatabase, runMigrations, type AppDatabase } from './index.js';
 import { createRepositories, type Repositories } from './repos/index.js';
 
 /**
- * The bug that would not let the server start, from all three directions.
+ * The bug that would not let the server start, from the two directions still reachable.
  *
- * A `Building` that had skipped the parser had no `damage`. `Math.max(0, undefined)` is `NaN`; NaN
- * went through `buildingEffectiveness` into the storage ceiling, the ceiling into the sandbox's
- * stockpile, and `JSON.stringify` wrote NaN as `null` without a word. `ResourcesSchema` refuses
- * null, so the *next* boot threw reading a column nothing had knowingly touched and the process
- * died before it served a request.
+ * A `Building` that had skipped the parser was missing a field the storage ceiling multiplied by.
+ * `Math.max(0, undefined)` is `NaN`; NaN went through the ceiling into the sandbox's stockpile, and
+ * `JSON.stringify` wrote NaN as `null` without a word. `ResourcesSchema` refuses null, so the
+ * *next* boot threw reading a column nothing had knowingly touched and the process died before it
+ * served a request.
  *
- * Three separate things had to be true for a missing field to brick a save, so there are three
- * tests: the arithmetic must not produce NaN, the repository must not store it if something else
- * ever does, and a database already holding the nulls must be repairable rather than deleted.
- * Fixing only the first would leave the next arithmetic hole free to do the same thing.
+ * The arithmetic hole is gone with the field (§A4's structure damage was retired on 2026-09-18),
+ * so what is left is the two defences that outlive any one bug: the repository must not store a
+ * number that is not one, and a database already holding the nulls must be repairable rather than
+ * deleted.
  */
 
 const NOW = '2026-08-16T12:00:00.000Z';
@@ -120,38 +116,6 @@ function seed(repos: Repositories): string {
   repos.bases.insert(base);
   return base.id;
 }
-
-/** A district as it was stored before `damage` and `garrisons` existed. */
-const LEGACY_DISTRICT = BUILDING_KINDS.map((kind) => ({
-  id: `legacy-${kind}`,
-  kind,
-  level: BUILDING_MAX_LEVEL,
-  modifications: [],
-})) as unknown as Building[];
-
-describe('a structure with no damage field', () => {
-  it('is read as undamaged rather than as NaN', () => {
-    const ceiling = storageCapacity(LEGACY_DISTRICT);
-    expect(Number.isFinite(ceiling), 'the storage ceiling must be a number').toBe(true);
-    expect(ceiling).toBeGreaterThan(0);
-  });
-
-  /**
-   * The ceiling a *parsed* district gives and the one a legacy district gives must be the same
-   * number, not merely both finite. A guard that returned zero would also be "not NaN" and would
-   * quietly halve everybody's storage.
-   */
-  it('gives exactly the ceiling an intact district gives', () => {
-    const intact: Building[] = BUILDING_KINDS.map((kind) => ({
-      id: `intact-${kind}`,
-      kind,
-      level: BUILDING_MAX_LEVEL,
-      modifications: [],
-      damage: 0,
-    }));
-    expect(storageCapacity(LEGACY_DISTRICT)).toBe(storageCapacity(intact));
-  });
-});
 
 describe('the repository refuses to store a stockpile that is not numbers', () => {
   it('throws on NaN rather than writing a null the next read cannot parse', () => {

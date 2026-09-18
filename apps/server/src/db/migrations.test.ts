@@ -484,6 +484,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0098_black_market_lots.sql',
     '0099_black_market_cities.sql',
     '0100_overseer_holds.sql',
+    '0101_retire_structure_damage.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);

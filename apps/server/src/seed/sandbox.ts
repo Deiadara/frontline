@@ -1,6 +1,6 @@
 import {
   BUILDING_KINDS,
-  BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   RESOURCE_KEYS,
   storageCapacity,
   storageCapacityFor,
@@ -33,16 +33,20 @@ import type { Repositories } from '../db/repos/index.js';
 /** Level 20 is the ceiling the game actually has, so "end-game" means exactly this. */
 export const UNLOCKED_LEVEL = 20;
 
-/** Every structure standing at the ceiling, so no plot is empty and none is mid-curve. */
+/**
+ * Every structure standing at its ceiling, so no plot is empty and none is mid-curve.
+ *
+ * Each structure's own ceiling, not the global one. The Garage and the Infirmary stop at 10, and
+ * seeding them at 20 would put a level in the database that no build queue could ever produce,
+ * which is the one thing this seed's own doc comment promises not to do: the plot dialog would
+ * read "MAXED AT LEVEL 10" over a structure standing at 20.
+ */
 export function maxedBuildings(): Building[] {
   return BUILDING_KINDS.map((kind) => ({
     id: `unlocked-${kind}`,
     kind,
-    level: BUILDING_MAX_LEVEL,
+    level: levelCeilingFor(kind),
     modifications: [],
-    // Intact and ungarrisoned. The sandbox shows the end-game, and a district that opens
-    // pre-damaged would be showing a siege nobody laid.
-    damage: 0,
   }));
 }
 

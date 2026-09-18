@@ -5,7 +5,6 @@ import {
   battlefieldFor,
   breachExpiry,
   clampLevel,
-  damageBuilding,
   disruptionFrom,
   refreshDisruption,
   districtDefense,
@@ -27,7 +26,6 @@ import {
   removeItems,
   spendResources,
   springTrap,
-  strikeDamage,
   type Army,
   type Battlefield,
   type BattleAnalysis,
@@ -86,9 +84,13 @@ import { cityLevelFor } from '../blackmarket/shelf.js';
 import { forceSize, mergeArmies, removeForce } from './forces.js';
 import {
   tallyBattleResolved,
+  tallyBattleShape,
   tallyCaptured,
+  tallyDistrictRaid,
   tallyInfamyEarned,
   tallyResourcesEarned,
+  tallyRunnersCaught,
+  tallyTrapKills,
 } from '../feats/tally.js';
 import { controlsIn, defendingBaseOf, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
@@ -249,6 +251,13 @@ interface TrapResult {
   killed: Army;
   note: { name: string; killed: number } | null;
   wipedOut: boolean;
+  /**
+   * Whose trap it was, or null when nobody laid one.
+   *
+   * Not the defending crew: the row that carries the shell may belong to an ally who came to
+   * reinforce, and the feat counter is about who buried the thing rather than who owns the ground.
+   */
+  ownerBaseId: string | null;
 }
 
 /**
@@ -268,7 +277,13 @@ interface TrapResult {
  * now, and every fight this crew is defending is ground it is standing on.
  */
 function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: Army): TrapResult {
-  const nothing: TrapResult = { attacking, killed: {}, note: null, wipedOut: false };
+  const nothing: TrapResult = {
+    attacking,
+    killed: {},
+    note: null,
+    wipedOut: false,
+    ownerBaseId: null,
+  };
   const row = repos.sieges
     .side(battle.id, 'defender')
     .find((entry) => entry.trapId !== null && entry.baseId !== null);
@@ -304,6 +319,7 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
     killed: toll.killed,
     note: { name: spec.name, killed: forceSize(toll.killed) },
     wipedOut: toll.wipedOut,
+    ownerBaseId: owner.id,
   };
 }
 
@@ -1093,6 +1109,53 @@ function resolveOne(
     tallyCaptured(repos, attacker.id, battle.target.kind === 'gate' ? 'gate' : 'location');
   }
 
+  /*
+   * The feats that are about *this* fight rather than about how many you have had.
+   *
+   * Every number here is read off what the settler already worked out, and two of them are read
+   * the long way round on purpose. The force sizes come off `assembled`, which is the two lines
+   * that stood at the mark, rather than off the analysis: a stub engine's ledger reports nobody
+   * committed at all, and half the server suite injects one, so the odds would read as a walkover
+   * in exactly the tests that drive a fight. The casualty figures are crossed over because
+   * `attackerKills` is what the attacker *took off* the defender, which is the defender's losses.
+   */
+  const attackerForce = unitSlotsUsed(assembled.attacking);
+  const defenderForce = unitSlotsUsed(assembled.defending);
+  tallyBattleShape(repos, attacker.id, {
+    won: attackerWon,
+    ownForce: attackerForce,
+    enemyForce: defenderForce,
+    killed: settlement.attackerKills,
+    lost: settlement.defenderKills,
+  });
+  if (defenderBase) {
+    tallyBattleShape(repos, defenderBase.id, {
+      won: !attackerWon,
+      ownForce: defenderForce,
+      enemyForce: attackerForce,
+      killed: settlement.defenderKills,
+      lost: settlement.attackerKills,
+    });
+  }
+
+  /*
+   * A break-in, counted for whichever crew won it and for neither when nobody did.
+   *
+   * Only a whole-district target is one: taking a location or a gate is a capture and has its
+   * counters two lines up. A raid the defence turned back is a repelled raid rather than a raid,
+   * which is why this is two calls and not one with the side flipped.
+   */
+  if (battle.target.kind === 'district') {
+    if (attackerWon) tallyDistrictRaid(repos, attacker.id, 'forced');
+    else if (defenderBase) tallyDistrictRaid(repos, defenderBase.id, 'held');
+  }
+
+  // The trap goes to whoever buried it, which may be an ally rather than the crew being attacked.
+  if (trap.ownerBaseId) tallyTrapKills(repos, trap.ownerBaseId, forceSize(trap.killed));
+  // ...and the ring to whoever won, because only the winner's ring ever catches anybody.
+  const ringOwner = attackerWon ? attacker : defenderBase;
+  if (ringOwner) tallyRunnersCaught(repos, ringOwner.id, forceSize(outcome.perimeterCaught));
+
   return { battle: { ...battle, resolvedAt: now.toISOString() }, analysis };
 }
 
@@ -1487,7 +1550,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       repos.city.setGarrison(battle.target.locationId, principalLine);
     }
   } else if (attackerWon) {
-    const broken = breakIn(repos, input);
+    const broken = breakIn(repos, input, winnerDead);
     haul = mergeResources(haul, broken.haul);
     raided = broken.raided;
   }
@@ -1676,17 +1739,17 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   }
 
   /*
-   * §A4: what stays broken.
+   * §A4: what stays broken, and it is the **only** thing a won raid leaves broken.
    *
    * "What leaves is bounded by what the raiders can carry; what stays broken is disruption" is
    * `raid.ts`'s whole second half, and `settleDistrict` reads `economy.disruption` per segment of
-   * every production walk. Nothing wrote it: `disruptionFrom` and `refreshDisruption` were
-   * exported, documented and called by nobody, so the one consequence of a raid the victim cannot
-   * buy back never happened.
+   * every production walk. A raid used to charge the victim twice, here and again per roof on a
+   * 24 hour repair clock; the per-structure half is gone and this one scales with the defeat
+   * instead, so the size of a raid still decides what it costs.
    *
    * Written last, off a fresh read, and against the **resident** rather than the defending crew.
    * Those are the same row on an ordinary break-in and not on the odd one where a crew holds a
-   * district it does not live in: the structures that were wrecked are the resident's, so the
+   * district it does not live in: the district that was turned over is the resident's, so the
    * hours of bad running are the resident's too. Last, because the defender's own economy write
    * above rebuilds that column from the snapshot this settle opened with.
    */
@@ -1697,7 +1760,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         ...limping.economy,
         // A second raid refreshes rather than stacks: two crews taking turns must not be able to
         // hold a district at zero output for ever.
-        disruption: refreshDisruption(limping.economy.disruption, disruptionFrom(now)),
+        disruption: refreshDisruption(
+          limping.economy.disruption,
+          disruptionFrom(now, defenderLossShare(input)),
+        ),
       });
     }
   }
@@ -1713,16 +1779,41 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 }
 
 /**
+ * How badly the defence lost, 0..1: the share of the line that defended and did not walk away.
+ *
+ * What the raid's disruption is priced off (`raidDisruptionPercent`), so a fight that went the
+ * distance costs the district a tenth of its output for the evening and one nobody turned up to
+ * costs it half. **1 when nobody defended**, which is the honest reading of an undefended district
+ * rather than a division by zero: everything that was there to lose was lost.
+ *
+ * `outcome.killed` is the losing side's dead, and this is only ever read on a won raid, so it is
+ * the defender's. The routed are deliberately not in it: somebody who ran is somebody the raiders
+ * did not have to go through.
+ */
+function defenderLossShare(input: SettleInput): number {
+  const started = forceSize(input.assembled.defending);
+  if (started === 0) return 1;
+  return Math.min(1, forceSize(input.outcome.killed) / started);
+}
+
+/**
  * What a won siege takes out of a lived-in district (§A4).
  *
  * A gate goes down for a day and everything behind it becomes reachable; a raid inside that day
- * carries off a share of the stockpile and leaves three roofs in a state. What never happens is the
- * district changing hands: losing three weeks of building because you were asleep is not a strategy
- * game.
+ * carries off a share of the stockpile and leaves the place limping (the disruption written by the
+ * caller). What never happens is the district changing hands: losing three weeks of building
+ * because you were asleep is not a strategy game.
  */
 function breakIn(
   repos: Repositories,
   input: SettleInput,
+  /**
+   * The attacker's dead with the Infirmary's recovered already taken off (`winnerDead`).
+   *
+   * Handed in rather than recomputed because the recovery is settled above, once, and two reads of
+   * "who did we get back" would be two answers to one question.
+   */
+  recoveredDead: Army,
 ): { haul: PartialResources; raided: boolean } {
   const { battle, resident, outcome, now } = input;
   if (battle.target.kind === 'gate') {
@@ -1739,23 +1830,6 @@ function breakIn(
   }
   if (battle.target.kind !== 'district' || !resident) return { haul: {}, raided: false };
 
-  // How badly the place was hit follows how badly the defence lost, so a fight that went the
-  // distance leaves it scratched and one nobody turned up for leaves it wrecked.
-  const defenderStarted = forceSize(input.assembled.defending);
-  const lossShare =
-    defenderStarted === 0 ? 1 : Math.min(1, forceSize(outcome.killed) / defenderStarted);
-  const hit = strikeDamage(lossShare);
-  const at = now.toISOString();
-  const wrecked = new Set(structuresToWreck(resident.buildings).map((building) => building.id));
-  if (wrecked.size > 0) {
-    repos.bases.updateBuildings(
-      resident.id,
-      resident.buildings.map((building) =>
-        wrecked.has(building.id) ? damageBuilding(building, hit, at) : building,
-      ),
-    );
-  }
-
   /*
    * What left with them, bounded by what the force could physically carry, and never in caps.
    *
@@ -1765,40 +1839,32 @@ function breakIn(
    * makes the carry sheet matter, so the exclusion is passed to `plunder` rather than fixed in the
    * priority order: a location raid, if one ever pays out again, is a different question.
    */
+  /*
+   * Who is standing at the end of it, which is who carries (maintainer, 2026-09-18).
+   *
+   * Not the whole force that marched. A raid used to load its hold off `committed`, so a crew that
+   * lost nine tenths of itself taking a district carried exactly as much home as one that walked in
+   * unopposed. Dead people do not carry sacks.
+   *
+   * And the Infirmary's recovered do not either, by default: somebody the medics bring round
+   * tomorrow was lying on the ground while the stockpile was being emptied. `outcome.winnerLosses`
+   * is the raw list, before the medics, and is the right one for a question about who was upright
+   * at the time. `recoveredCarryLoot` is the research a crew buys to get the other answer, which is
+   * the stretcher party going back for the bags.
+   */
+  const effects = standingEffectsFor(repos, input.attacker, now);
+  const fallen = effects.recoveredCarryLoot ? recoveredDead : outcome.winnerLosses;
+  const carrying = removeForce(input.committed, fallen);
   const capacity = lootCapacityOf(
-    input.committed,
-    standingEffectsFor(repos, input.attacker, now).lootCapacityPercent,
+    carrying,
+    effects.lootCapacityPercent,
     input.attacker.unitLoadouts,
   );
-  const haul = plunder(resident.resources, capacity, ['caps']);
+  // Seeded off the battle so a raid replays: `plunder` draws the mix now rather than walking a
+  // priority table, and two reads of one fight cannot disagree about what left the district.
+  const haul = plunder(resident.resources, capacity, ['caps'], `plunder:${battle.id}`);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));
   return { haul, raided: true };
-}
-
-/**
- * How many of the resident's structures one won raid leaves limping.
- *
- * Three. A raid on a district is one fight rather than thirteen declarations, so it has to reach
- * more than one roof or the rework would have made wrecking a home thirteen times cheaper to
- * defend against. Three out of thirteen is an afternoon's damage rather than a demolition, and the
- * repair clock (`REPAIR_HOURS`) puts them all back on their own by tomorrow.
- */
-export const STRUCTURES_WRECKED_PER_RAID = 3;
-
-/**
- * Which three the raiders get to.
- *
- * The tallest standing structures, ties broken by id. Deterministic rather than rolled off the
- * battle seed, and that is the useful half: a defender can predict what a lost raid costs them and
- * decide whether their Gate or their Nexus is what they are actually defending. A structure already
- * wrecked is skipped, so a second raid the same evening spreads to the ones still working rather
- * than re-flattening the same roof.
- */
-function structuresToWreck(buildings: readonly Building[]): Building[] {
-  return [...buildings]
-    .filter((building) => building.damage < 100)
-    .sort((a, b) => b.level - a.level || a.id.localeCompare(b.id))
-    .slice(0, STRUCTURES_WRECKED_PER_RAID);
 }
 
 function holderWord(kind: ScheduledBattle['defender']['kind']): string {

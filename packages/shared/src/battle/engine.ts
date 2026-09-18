@@ -91,11 +91,16 @@ export const MAX_CONCENTRATION = 1.6;
  *
  * Combat width (`battlefield.ts`). Units past the frontage are queuing, not fighting: they cannot
  * shoot, though they are still there to absorb losses and to rotate forward as the front rank
- * falls. That asymmetry is the point: an overstacked force is not *weaker*, it is slower, and it
- * pays for the ground it could not deploy on.
+ * falls. The rotation needs no code of its own and never did: this is recomputed every round off
+ * who is *still fighting*, so as the front rank falls the queue behind it becomes the front rank
+ * and the side goes on firing at the width of the ground. Measured on open ground (frontage 48),
+ * 300 Razors against 60 won every seed and walked away with 287 of them.
  *
- * Without this the answer to every fight is "bring more", which is the failure mode combat width
- * was invented to fix.
+ * Which was the problem. Depth was already staying power, so "bring five times as many" was not
+ * merely allowed, it was free: the cap held a deep side's *output* at the width of the ground
+ * while its pool went on growing without limit. {@link overstackPenalty} is the price, and the
+ * two together are the mechanic: bring more and you last longer, bring far more and every body
+ * you added is also in the way of the ones doing the shooting.
  */
 export function engagedUnits(side: SideState, frontage: number): number {
   return Math.min(fighting(side), Math.max(1, effectiveFrontage(side, frontage)));
@@ -113,6 +118,47 @@ export const MAX_COHESION_WIDTH = 1.5;
 /** This side's usable frontage: the ground's, widened by what the crew can co-ordinate. */
 export function effectiveFrontage(side: SideState, frontage: number): number {
   return frontage * Math.min(MAX_COHESION_WIDTH, 1 + Math.max(0, side.cohesionPercent) / 100);
+}
+
+/**
+ * What a force too big for the ground loses for being in its own way (maintainer, 2026-09-18).
+ *
+ * Combat width on its own only caps output, and a cap is not a price: a side over the width fires
+ * at the width, so the thousandth body costs nothing and adds a body's worth of soaking. The
+ * measurement that prompted this, on open ground against 60 defenders: 60 attackers won 28 seeds
+ * in 60 and left 21 standing, 120 won every seed and left 102, and 300 won every seed and left
+ * 287. There was no number at which bringing more stopped being the answer.
+ *
+ * So crowding costs output, which is the half of Hearts of Iron IV's combat width this engine did
+ * not have. It is deliberately a penalty on *fire* and not on toughness: a crowded street does not
+ * make a person easier to kill, it makes them harder to shoot past, and putting it on toughness
+ * would cancel the staying power that is the whole reason to bring depth.
+ *
+ * Linear in the excess and capped, because the shape a player has to be able to predict is "twice
+ * the ground is a fifth off, and it stops getting worse somewhere". The cap matters more than the
+ * slope: without it a big enough force silences itself, which would replace one degenerate answer
+ * with another.
+ *
+ * Cohesion is the counter, and it is already priced: it widens {@link effectiveFrontage}, so a
+ * crew that hires the organiser pays a real cost to bring more people to bear, which is what that
+ * stat is for.
+ */
+export const OVERSTACK_PENALTY_PER_EXCESS = 0.15;
+
+/** ...and the most crowding can ever take off, however deep the column behind the front rank. */
+export const MAX_OVERSTACK_PENALTY = 0.45;
+
+/**
+ * The fraction of its fire a side loses to crowding, 0 when it fits on the ground it chose.
+ *
+ * Measured against the frontage this side can actually use, so cohesion is worth exactly as much
+ * here as it is worth to deployment, and a side at or under the width is never touched.
+ */
+export function overstackPenalty(side: SideState, frontage: number): number {
+  if (side.defending) return 0;
+  const usable = Math.max(1, effectiveFrontage(side, frontage));
+  const excess = Math.max(0, fighting(side) / usable - 1);
+  return Math.min(MAX_OVERSTACK_PENALTY, excess * OVERSTACK_PENALTY_PER_EXCESS);
 }
 
 /**
@@ -825,7 +871,10 @@ function fireRound(
   only?: (stack: Stack) => boolean,
 ): Map<Stack, number> {
   const incoming = new Map<Stack, number>();
-  const deployed = frontageShare(side, frontage);
+  // Width decides how many can shoot; crowding decides what their shooting is worth. Multiplied
+  // rather than folded into `frontageShare`, because the two answer different questions and the
+  // report prints them apart.
+  const deployed = frontageShare(side, frontage) * (1 - overstackPenalty(side, frontage));
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
     if (only && !only(stack)) continue;

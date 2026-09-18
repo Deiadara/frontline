@@ -17,7 +17,7 @@ import { findUnit } from '../units/index.js';
  * balance claim about a table this size survives its first edit.
  *
  * The player never sees this number. It exists so that an author adding a feat cannot quietly hand
- * out a Rotorcraft for winning one fight.
+ * out a Heli-Porter for winning one fight.
  *
  * ## The exchange rates, and why each one is what it is
  *
@@ -147,7 +147,11 @@ export type FeatSize = z.infer<typeof FeatSizeSchema>;
  *
  * Mid and late are anchored on production instead, because by then a crew earns while asleep: mid
  * small is an hour of a level-8 district, mid large is two and a half days of it. Late large is a
- * Rotorcraft, the most expensive single object in the game.
+ * Heli-Porter, the most expensive single object in the game.
+ *
+ * It said Rotorcraft until 2026-09-18 and that was never true: the Heli-Porter costs 24,200 in
+ * materials against the Rotorcraft's 17,600, and is gated a rung deeper. Worth correcting rather
+ * than leaving, because an anchor is only useful if a reader can go and look the number up.
  *
  * The windows are wide, a factor of three or four, because these are guard rails and not targets.
  * An author should be able to pay a round number without the gate arguing; what the gate is there
@@ -170,7 +174,8 @@ export const FEAT_REWARD_BANDS: Readonly<
     small: { min: 5_000, max: 26_000 },
     medium: { min: 26_000, max: 160_000 },
     /*
-     * The ceiling was a Rotorcraft, 700,000, and a ladder that runs to tier X cannot live under it.
+     * The ceiling was one machine's worth, 700,000, and a ladder that runs to tier X cannot live
+     * under it.
      *
      * The deep rungs of a ten-step chain are all `late`/`large`: there is no band above this one to
      * climb into, so six rungs in a row would have had to pay inside a factor of 1.6 of each other
@@ -178,7 +183,7 @@ export const FEAT_REWARD_BANDS: Readonly<
      * on the notoriety ladder, and it is worse here, because a feat is claimed once and the only
      * thing a player weighs it by is what lands.
      *
-     * So the top band holds a multiple of the Rotorcraft rather than one of them, and `deep` in the
+     * So the top band holds a multiple of the dearest machine rather than one of them, and `deep` in the
      * catalogue is the only thing that spends the new headroom. Widening a ceiling cannot make an
      * existing feat fail this gate; what it costs is that the gate catches a little less, which is
      * why nothing else in the file was moved with it.

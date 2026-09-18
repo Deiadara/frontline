@@ -399,7 +399,7 @@ describe('an attribute changes an outcome', () => {
       economy: startingEconomy(HOUR),
       progression: startingProgression(),
       research: startingResearch(),
-      buildings: [{ id: 'n', kind: 'nexus', level: 3, modifications: [], damage: 0 }],
+      buildings: [{ id: 'n', kind: 'nexus', level: 3, modifications: [] }],
       buildQueue: [],
       army: {},
       trainingQueue: [],
@@ -1068,8 +1068,7 @@ describe('the Gate, from the district into a fight', () => {
       economy: startingEconomy(HOUR),
       progression: startingProgression(),
       research: startingResearch(),
-      buildings:
-        level === 0 ? [] : [{ id: 'g', kind: 'gate', level, modifications: [], damage: 0 }],
+      buildings: level === 0 ? [] : [{ id: 'g', kind: 'gate', level, modifications: [] }],
       buildQueue: [],
       army: {},
       trainingQueue: [],

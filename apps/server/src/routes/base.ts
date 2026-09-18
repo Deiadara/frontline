@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   BUILDING_CATALOG,
-  BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   BuildStructureRequestSchema,
   MAX_BUILD_QUEUE,
   RenameDistrictRequestSchema,
@@ -278,7 +278,7 @@ function refusalMessage(
       return `${spec.name} needs ${wanted || 'something you do not have yet'}`;
     }
     case 'at_max_level':
-      return `${spec.name} is as good as it gets at level ${BUILDING_MAX_LEVEL}`;
+      return `${spec.name} is as good as it gets at level ${levelCeilingFor(kind)}`;
     case 'nexus_cap': {
       /*
        * §B1: name the Nexus level this upgrade wants, not the one the district has.

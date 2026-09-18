@@ -73,7 +73,7 @@ async function makeStack(): Promise<{ app: FastifyInstance; token: string; baseI
     ...base.buildings.map((building) =>
       building.kind === 'nexus' ? { ...building, level: 10 } : building,
     ),
-    { id: 'b-apothecary', kind: 'apothecary', level: 4, modifications: [], damage: 0 },
+    { id: 'b-apothecary', kind: 'apothecary', level: 4, modifications: [] },
   ]);
   app.repos.bases.updateProgression(baseId, 9, base.progression);
   app.repos.bases.updateCommanders(baseId, [

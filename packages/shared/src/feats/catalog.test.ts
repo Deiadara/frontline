@@ -3,8 +3,11 @@ import {
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
   MAX_MODIFICATION_SLOTS,
+  levelCeilingFor,
+  modificationSlotsAt,
   modificationsFittingIn,
   storageCapacityFor,
+  type BuildingKind,
 } from '../building/index.js';
 import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { HOUSING_BASE, HOUSING_PER_QUARTERS_LEVEL } from '../building/production.js';
@@ -465,6 +468,36 @@ describe('measures and scopes', () => {
   });
 
   /**
+   * Every structure ladder finishes on a structure that has nowhere left to go.
+   *
+   * That was one number, twenty, for all nine of them, and it stopped being one number when the
+   * Garage was held to 10: `garage_3` and `garage_4` asked for 16 and 20 and became rungs nobody
+   * could ever stand on. The rule is the one the ladders were written under rather than a list of
+   * targets, and it reads `levelCeilingFor`, so the next structure whose ceiling moves fails here
+   * on the same line.
+   *
+   * The Garage's four rungs are pinned outright underneath it, because 1 / 4 / 7 / 10 is a
+   * maintainer's call (2026-09-18) and only the last of them is derivable from anything.
+   */
+  it('finishes every structure ladder on a maxed structure', () => {
+    const ladders = new Map<string, number[]>();
+    for (const feat of FEATS) {
+      if (feat.measure !== 'building_level' || feat.scope === undefined) continue;
+      ladders.set(feat.scope, [...(ladders.get(feat.scope) ?? []), feat.target]);
+    }
+    // A guard on the guard: no ladders found would make every assertion below vacuous.
+    expect(ladders.size).toBeGreaterThan(5);
+    for (const [kind, rungs] of ladders) {
+      expect(rungs.at(-1), `${kind} ladder tops out at ${rungs.at(-1)}`).toBe(
+        levelCeilingFor(kind as BuildingKind),
+      );
+    }
+    // The one figure here that is not read off the game: a maintainer's call, so a ceiling moving
+    // under the ladder cannot quietly take the rungs with it and leave this green.
+    expect(ladders.get('garage')).toEqual([1, 4, 7, 10]);
+  });
+
+  /**
    * A target has to be a number the game can actually reach (bug pass, 2026-09-17).
    *
    * `resources_held` already had this check, for the reason the note above it gives: `stock_3`
@@ -481,9 +514,16 @@ describe('measures and scopes', () => {
       (district) => district.locations.length > 0,
     ).length;
     const CEILINGS: Partial<Record<FeatMeasure, number>> = {
-      building_level: BUILDING_MAX_LEVEL,
-      buildings_total: BUILDING_KINDS.length * BUILDING_MAX_LEVEL,
-      modifications_fitted: BUILDING_KINDS.length * MAX_MODIFICATION_SLOTS,
+      // Both sums walk the structures one at a time: eleven times the tallest structure would say
+      // 220 standing levels and 33 brackets, and neither is a district anybody can build.
+      buildings_total: BUILDING_KINDS.reduce((total, kind) => total + levelCeilingFor(kind), 0),
+      // A district cannot finish a structure it does not have one of, so the whole board is the
+      // list of kinds. The last rung of `finished` is exactly this number, on purpose.
+      buildings_maxed: BUILDING_KINDS.length,
+      modifications_fitted: BUILDING_KINDS.reduce(
+        (total, kind) => total + modificationSlotsAt(levelCeilingFor(kind)),
+        0,
+      ),
       unit_modifications_fitted: UNIT_IDS.length * UNIT_UPGRADE_SLOTS,
       unit_kinds_held: UNIT_IDS.length,
       officer_best_mark: OFFICER_MARKS.length - 1,
@@ -502,7 +542,11 @@ describe('measures and scopes', () => {
     const over: string[] = [];
     let checked = 0;
     for (const feat of FEATS) {
-      const ceiling = CEILINGS[feat.measure];
+      // `building_level` is the one scoped measure here, and its ceiling is the structure's own.
+      const ceiling =
+        feat.measure === 'building_level'
+          ? levelCeilingFor(feat.scope as BuildingKind)
+          : CEILINGS[feat.measure];
       if (ceiling === undefined) continue;
       checked += 1;
       if (feat.target > ceiling) {

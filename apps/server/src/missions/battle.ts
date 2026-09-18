@@ -48,6 +48,16 @@ export interface MissionBattle {
   killed: Army;
   /** ...and the ones that did, `force` less `lost`. */
   home: Army;
+  /**
+   * Who was upright when the bags were filled, which is not the same list (maintainer, 2026-09-18).
+   *
+   * `home` is who walks back, and it includes everybody the medics brought round. Those two are
+   * the same people tomorrow and very different people at the moment the haul is picked up:
+   * somebody on a stretcher is not carrying a sack. So the pay and the salvage are loaded off this
+   * list instead, which is the force less its *raw* dead, and `recoveredCarryLoot` is the research
+   * that buys the other reading.
+   */
+  carrying: Army;
   /** The machines that came back. */
   vehicles: Fleet;
   /** §C3: and the ones whose riders all died. */
@@ -121,6 +131,10 @@ export function fightMissionBattle(args: {
   const fell = won ? fought.winnerLosses : fought.killed;
   const lost = won ? recoverCasualties(fell, args.recoveryPercent ?? 0) : fell;
   const home = removeForce(args.force, lost);
+  // See `MissionBattle.carrying`. On a loss the two lists are identical, because a routed crew
+  // gets nobody back, which is the rule `fell` already encodes.
+  const carrying =
+    args.territory?.recoveredCarryLoot === true ? home : removeForce(args.force, fell);
 
   /*
    * §C3: a machine whose riders all died is gone, the way the battle settler loses them.
@@ -141,6 +155,7 @@ export function fightMissionBattle(args: {
     lost,
     killed,
     home,
+    carrying,
     vehicles: mergeFleets(idle, removeFleet(riding, wreckedVehicles)),
     wreckedVehicles,
   };

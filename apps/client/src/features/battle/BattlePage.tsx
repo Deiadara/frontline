@@ -1583,11 +1583,6 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
                 <span className="font-display text-[13px] uppercase tracking-[0.14em] text-ink-100">
                   Level <span className="tabular-nums text-brass-300">{gate.level}</span>
                 </span>
-                <span className="font-body text-[11px] text-ink-300">
-                  {gate.damage > 0
-                    ? `Wrecked ${Math.round(gate.damage)}% · running at ${Math.round(gate.effectiveness * 100)}%`
-                    : 'Intact'}
-                </span>
               </div>
               {/* What the level is actually worth, which is the question the section exists to
                   answer. Both figures are the district's folded totals, so a modification that
@@ -1619,7 +1614,7 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
 
         <PanelSection
           label="What is standing"
-          note="A wrecked building does as little as half its job"
+          note="A lost raid costs the district hours of output, never a structure"
         >
           <div className="grid gap-2 sm:grid-cols-2">
             {rest.map((structure) => (
@@ -1631,11 +1626,6 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
                 <span className="min-w-0">
                   <span className="block truncate font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
                     {structure.label} {structure.level}
-                  </span>
-                  <span className="block font-body text-[11px] text-ink-300">
-                    {structure.damage > 0
-                      ? `Wrecked ${Math.round(structure.damage)}% · running at ${Math.round(structure.effectiveness * 100)}%`
-                      : 'Intact'}
                   </span>
                 </span>
               </div>

@@ -247,9 +247,8 @@ function plantRival(
         kind: 'nexus',
         level: 4,
         modifications: [],
-        damage: 0,
       },
-      { id: 'rival-gate', kind: 'gate', level: 4, modifications: [], damage: 0 },
+      { id: 'rival-gate', kind: 'gate', level: 4, modifications: [] },
     ],
     buildQueue: [],
     army: over.army ?? {},
@@ -1185,8 +1184,8 @@ describe('holding a district (§A4)', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  /** And the defence tab has nothing to offer on it either: level and damage, that is the row. */
-  it('lists a structure by its level and its damage, with nothing to dig', async () => {
+  /** And the defence tab has nothing to offer on it either: the level, that is the row. */
+  it('lists a structure by its level, with nothing to dig', async () => {
     const stack = await makeStack();
     const gate = raiseGate(stack);
 
@@ -1194,16 +1193,7 @@ describe('holding a district (§A4)', () => {
     const row = structures.find((entry) => entry.buildingId === gate.id)!;
     expect(row.level).toBe(1);
     expect(Object.keys(row).sort()).toEqual(
-      [
-        'buildingId',
-        'damage',
-        'defensePercent',
-        'effectiveness',
-        'intelResistancePercent',
-        'kind',
-        'label',
-        'level',
-      ].sort(),
+      ['buildingId', 'defensePercent', 'intelResistancePercent', 'kind', 'label', 'level'].sort(),
     );
     /*
      * The two figures are the Gate's alone (maintainer request, 2026-09-12: the section says what the

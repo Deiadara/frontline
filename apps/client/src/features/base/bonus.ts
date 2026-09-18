@@ -54,7 +54,7 @@ export function districtWith(
   // A level-0 preview is the district exactly as it is. Appending a row for it would be harmless
   // arithmetic today and a trap the first time something counts structures rather than levels.
   if (level <= 0) return [...buildings];
-  return [...buildings, { id: `preview-${kind}`, kind, level, modifications: [], damage: 0 }];
+  return [...buildings, { id: `preview-${kind}`, kind, level, modifications: [] }];
 }
 
 const round = (value: number): string => Math.round(value).toLocaleString();

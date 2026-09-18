@@ -490,9 +490,9 @@ function rowToSummary(row: BaseSummaryRow): BaseSummary {
  * `JSON.stringify` turns `NaN` and `Infinity` into `null` without a word, and `ResourcesSchema`
  * refuses `null`, so a single arithmetic hole anywhere upstream writes a row that the *next boot*
  * cannot read, and the server does not start. That is exactly what happened: one `Building` that
- * had skipped the parser had no `damage`, the storage ceiling came out `NaN`, the sandbox stored a
- * stockpile of five nulls, and the process died on the following read with a Zod error pointing at
- * a column nothing had knowingly touched.
+ * had skipped the parser was missing a field the storage ceiling multiplied by, the ceiling came
+ * out `NaN`, the sandbox stored a stockpile of five nulls, and the process died on the following
+ * read with a Zod error pointing at a column nothing had knowingly touched.
  *
  * Both halves of that are now fixed. This is the half that matters more: the arithmetic bug was one
  * missing field and there will be others, but a save can only be corrupted through a write. Failing

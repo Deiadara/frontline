@@ -1,6 +1,6 @@
 import {
   BUILDING_KINDS,
-  BUILDING_MAX_LEVEL,
+  levelCeilingFor,
   UNIT_IDS,
   isBuildingUnlocked,
   startingEconomy,
@@ -53,7 +53,7 @@ function seedFreshPlayer(repos: Repositories, username = 'Nikos'): Base {
     economy: startingEconomy(NOW),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 1, modifications: [] }],
     buildQueue: [],
     army: {},
     trainingQueue: [],
@@ -102,7 +102,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     expect(after.buildings).toHaveLength(BUILDING_KINDS.length);
     for (const kind of BUILDING_KINDS) {
       const standing = after.buildings.find((b) => b.kind === kind);
-      expect(standing?.level, kind).toBe(BUILDING_MAX_LEVEL);
+      expect(standing?.level, kind).toBe(levelCeilingFor(kind));
       // The gate function, not the level: this is the thing the client asks before it draws a plot
       // as buildable, so it is the thing that decides whether a reviewer sees the end-game.
       expect(isBuildingUnlocked(kind, after.buildings, after.level), kind).toBe(true);
@@ -144,7 +144,7 @@ describe('UNLOCKED: the end-game sandbox', () => {
     seedFreshPlayer(repos);
     repos.bases.updateDistrict(
       'b1',
-      [{ id: 'n', kind: 'nexus', level: 1, modifications: [], damage: 0 }],
+      [{ id: 'n', kind: 'nexus', level: 1, modifications: [] }],
       [
         {
           id: 'q1',

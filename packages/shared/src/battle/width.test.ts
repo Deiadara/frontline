@@ -10,7 +10,9 @@ import {
   ambushShare,
   engagedUnits,
   frontageShare,
+  MAX_OVERSTACK_PENALTY,
   mergeLosses,
+  overstackPenalty,
   simulate,
   type Simulation,
 } from './engine.js';
@@ -101,6 +103,102 @@ describe('combat width', () => {
     expect(engagedUnits(side.attacker, 0)).toBe(1);
     expect(frontageShare(side.attacker, 10)).toBeCloseTo(0.25, 6);
     expect(frontageShare(side.attacker, 100)).toBe(1);
+  });
+
+  /**
+   * The price of bringing more than the ground will take (maintainer, 2026-09-18).
+   *
+   * Combat width on its own is a cap, and a cap is not a price. Measured before this existed, on
+   * open ground against 60 defenders: 60 attackers won 28 seeds in 60, 120 won all 60 and left 102
+   * standing, 300 won all 60 and left 287. Every extra body was free, because the cap held a deep
+   * side's *output* at the width of the ground while its pool went on growing. The rotation the
+   * cap's own note promises was already there, since the share is recomputed each round off who is
+   * still fighting; what was missing was the other half of Hearts of Iron IV's combat width, the
+   * penalty for exceeding it.
+   *
+   * It falls on the attacker alone, and that is the design decision in it rather than an
+   * implementation detail. A symmetric version was measured first and made narrow ground *worse*:
+   * both sides are over the width in a corridor, both lose the same share of their fire, and the
+   * fight becomes a bloodless stalemate that the round cap decides. Sparing the defender is also
+   * what makes terrain mean what it is supposed to mean, which the case below measures.
+   */
+  describe('overstacking', () => {
+    const wide = { ...bareBattlefield(), frontage: 48 };
+    const corridor = { ...bareBattlefield(), frontage: 10 };
+
+    it('costs nothing at all to a force that fits on the ground it chose', () => {
+      const [only] = run({ razors: 40 }, { razors: 1 }, wide, 1).simulations;
+      expect(only).toBeDefined();
+      if (!only) return;
+      expect(overstackPenalty(only.attacker, 48)).toBe(0);
+      // And it is the *excess* that is charged, not the size: the same force on a tenth of the
+      // ground is deep in it.
+      expect(overstackPenalty(only.attacker, 10)).toBeGreaterThan(0);
+    });
+
+    it('never takes more than its ceiling, however deep the column behind the front rank', () => {
+      const [huge] = run({ razors: 400 }, { razors: 1 }, wide, 1).simulations;
+      expect(huge).toBeDefined();
+      if (!huge) return;
+      // 400 on a frontage of 10 is an excess of 39, which is past the ceiling many times over.
+      expect(overstackPenalty(huge.attacker, 10)).toBe(MAX_OVERSTACK_PENALTY);
+    });
+
+    /**
+     * The defender is spared, which is what makes a corridor worth holding.
+     *
+     * Not a detail of the formula: it is the whole reason the mechanic is here rather than the
+     * symmetric one. A crew standing on ground it already holds is not pushing a column through
+     * it.
+     */
+    it('is charged to the attacker and not to the crew holding the ground', () => {
+      // The same force and the same ground, with nothing different about it but the role. Reading
+      // the two sides of one fight instead would compare a force that has been shot at with one
+      // that has not, since the penalty is measured off who is still fighting.
+      const [only] = run({ razors: 60 }, { razors: 1 }, corridor, 1).simulations;
+      expect(only).toBeDefined();
+      if (!only) return;
+      const pushing = only.attacker;
+      const holding = { ...pushing, defending: true };
+      expect(overstackPenalty(pushing, 10)).toBeGreaterThan(0);
+      expect(overstackPenalty(holding, 10)).toBe(0);
+    });
+
+    /**
+     * And what that is worth at the table: an even fight at a choke goes to whoever is holding it.
+     *
+     * The same two forces on open ground and in a corridor. Before this, a corridor was *safer*
+     * for the bigger force than open ground was: 200 attackers lost 2.8 men taking a corridor off
+     * 40 defenders and 20.1 taking open ground off the same 40, so the narrow ground the defender
+     * chose was doing the attacker a favour.
+     */
+    it('turns a choke point into the defender’s ground rather than the attacker’s', () => {
+      const even = { razors: 40 };
+      expect(run(even, even, wide).attackerWins).toBeGreaterThan(0);
+      expect(run(even, even, corridor).attackerWins).toBe(0);
+    });
+
+    /**
+     * ...and the way through is the one the game already sells.
+     *
+     * Cohesion widens the frontage this side can use (`effectiveFrontage`), so it is worth exactly
+     * as much against the penalty as it is worth to deployment. Without a counter this would be a
+     * wall rather than a cost, and combat width would have been swapped for a different absolute.
+     */
+    it('is answered by the co-ordination the crew can buy', () => {
+      const crowd = { razors: 40 };
+      let organised = 0;
+      for (let seed = 0; seed < 24; seed += 1) {
+        const simulation = simulate({
+          seed: `w-${seed}`,
+          battlefield: corridor,
+          attacker: { name: 'A', army: crowd, defending: false, cohesionPercent: 50 },
+          defender: { name: 'D', army: crowd, defending: true },
+        });
+        if (simulation.winner === 'attacker') organised += 1;
+      }
+      expect(organised).toBeGreaterThan(0);
+    });
   });
 
   /**

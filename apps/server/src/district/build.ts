@@ -1,6 +1,5 @@
 import { adminWaives } from '../admin/mode.js';
 import {
-  BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
   MAX_BUILD_QUEUE,
   buildingBuildSeconds,
@@ -10,6 +9,7 @@ import {
   buildingLevel,
   canAfford,
   isUnlockedForQueue,
+  levelCeilingFor,
   nextQueuedLevel,
   projectedBuildings,
   queueStartsAt,
@@ -78,7 +78,8 @@ export interface BuildInput {
    * It waives the price, the clock, and every gate in {@link adminWaives}, which now includes the
    * Nexus's authorisation and its level cap, because a reviewer who wants to look at the Garage
    * should not have to spend the afternoon buying twelve Nexus levels first. What it cannot waive
-   * is {@link BUILDING_MAX_LEVEL}: there is no twenty-first level to queue.
+   * is the structure's own ceiling ({@link levelCeilingFor}): there is no twenty-first Gate and no
+   * eleventh Garage to queue.
    */
   admin?: boolean;
 }
@@ -86,10 +87,14 @@ export interface BuildInput {
 /**
  * The first reason this order cannot be placed, or `null` if it can.
  *
- * The ceilings are told apart on purpose. Hitting {@link BUILDING_MAX_LEVEL} is the end of the
- * content; hitting the Nexus's level is an instruction, raise the Nexus first, and being locked
- * is a third thing again, a structure the Nexus is not yet senior enough to authorise at all. A
- * player who cannot tell the three apart cannot act on any of them.
+ * The ceilings are told apart on purpose. Hitting the structure's own {@link levelCeilingFor} is
+ * the end of the content; hitting the Nexus's level is an instruction, raise the Nexus first, and
+ * being locked is a third thing again, a structure the Nexus is not yet senior enough to authorise
+ * at all. A player who cannot tell the three apart cannot act on any of them.
+ *
+ * Read per structure rather than against `BUILDING_MAX_LEVEL`, which told a Garage at its
+ * tenth and last level that the Nexus was holding it back and sent the player off to buy Nexus
+ * levels that would never sign for an eleventh.
  */
 function refusalFor(
   { base, structure, admin }: Omit<BuildInput, 'id' | 'now'>,
@@ -112,7 +117,7 @@ function refusalFor(
   const level = nextQueuedLevel(structure, buildings, buildQueue);
   if (level === null) {
     const projected = projectedBuildings(buildings, buildQueue);
-    return structureLevelCap(structure, projected) === BUILDING_MAX_LEVEL
+    return structureLevelCap(structure, projected) === levelCeilingFor(structure)
       ? 'at_max_level'
       : 'nexus_cap';
   }

@@ -59,8 +59,8 @@ function districtAt(level: number): typeof lateGame {
  */
 function freshDistrict(): typeof lateGame {
   const buildings: Building[] = [
-    { id: 'b1', kind: 'nexus', level: 1, modifications: [], damage: 0 },
-    { id: 'b2', kind: 'generator', level: 1, modifications: [], damage: 0 },
+    { id: 'b1', kind: 'nexus', level: 1, modifications: [] },
+    { id: 'b2', kind: 'generator', level: 1, modifications: [] },
   ];
   return { ...lateGame, base: { ...lateGameBase, level: 1, buildings, buildQueue: [] } };
 }

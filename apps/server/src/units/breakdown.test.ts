@@ -1,6 +1,6 @@
 import {
   RAID_DISRUPTION_HOURS,
-  RAID_DISRUPTION_PERCENT,
+  MAX_RAID_DISRUPTION_PERCENT,
   STARTING_RESOURCES,
   createCommander,
   startingEconomy,
@@ -49,7 +49,6 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   kind,
   level,
   modifications,
-  damage: 0,
 });
 
 function seedBase(repos: Repositories, patch: Partial<Base> = {}): Base {
@@ -309,7 +308,7 @@ describe('where a training percentage comes from', () => {
         ...raided.economy,
         disruption: {
           until: new Date(NOW.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
-          percent: RAID_DISRUPTION_PERCENT,
+          percent: MAX_RAID_DISRUPTION_PERCENT,
         },
       },
     });

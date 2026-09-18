@@ -57,7 +57,7 @@ function makeBase(over: Partial<Base> = {}): Base {
     economy: startingEconomy(now),
     progression: startingProgression(),
     research: startingResearch(),
-    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 5, modifications: [], damage: 0 }],
+    buildings: [{ id: 'b-nexus', kind: 'nexus', level: 5, modifications: [] }],
     buildQueue: [],
     army: { haulers: 400 },
     trainingQueue: [],
@@ -211,8 +211,8 @@ describe('a district producing', () => {
       base.id,
       [
         ...base.buildings,
-        { id: 'b-green', kind: 'greenhouse', level: 4, modifications: [], damage: 0 },
-        { id: 'b-yard', kind: 'scrapyard', level: 4, modifications: [], damage: 0 },
+        { id: 'b-green', kind: 'greenhouse', level: 4, modifications: [] },
+        { id: 'b-yard', kind: 'scrapyard', level: 4, modifications: [] },
       ],
       base.buildQueue,
     );

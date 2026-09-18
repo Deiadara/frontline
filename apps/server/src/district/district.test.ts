@@ -72,7 +72,6 @@ const build = (kind: Building['kind'], level: number, modifications: string[] = 
   kind,
   level,
   modifications,
-  damage: 0,
 });
 
 interface SeedOptions {
@@ -157,7 +156,10 @@ describe('ordering a level (§A1, §D3)', () => {
     const repos = openStack();
     let base = seedBase(repos);
 
-    for (const [index, kind] of (['quarters', 'greenhouse'] as const).entries()) {
+    // Two plots a Nexus 1 seed base can actually lay. The Greenhouse was the second of these until
+    // 2026-09-18, when it moved behind Nexus 3: a refused order makes this a test of the unlock
+    // table rather than of the queue, which is what it is for.
+    for (const [index, kind] of (['quarters', 'gate'] as const).entries()) {
       const result = queueBuild(repos, { base, structure: kind, id: `q${index}`, now: NOW });
       expect(result.kind).toBe('queued');
       if (result.kind !== 'queued') return;
@@ -665,7 +667,7 @@ describe('modification brackets (§E)', () => {
     const base = seedBase(repos, {
       buildings: [
         build('nexus', 20),
-        { id: 'lab-1', kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'], damage: 0 },
+        { id: 'lab-1', kind: 'lab', level: 20, modifications: ['lab_quantum_modeling'] },
       ],
     });
 
