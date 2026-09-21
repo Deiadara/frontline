@@ -23,6 +23,11 @@ const fight = (over: Partial<BattleFeatFacts> = {}): BattleFeatFacts => ({
   enemyForce: 100,
   killed: 1,
   lost: 1,
+  // No Netrunners in the default fixture, no cell planted and nobody making a racket: each is
+  // its own counter, and every other case here would earn them by accident.
+  jam: 0,
+  planted: false,
+  loud: false,
   ...over,
 });
 
@@ -111,6 +116,9 @@ describe('what a fight was worth telling somebody about', () => {
         enemyForce: 100 * OVERWHELMED_AT,
         killed: 400,
         lost: 0,
+        jam: 0,
+        planted: false,
+        loud: false,
       }),
     ).toEqual([
       'battles_won_outnumbered',

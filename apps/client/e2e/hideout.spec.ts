@@ -11,8 +11,11 @@
  * Screenshots land in `screenshots/hideout/` so the maintainer can open the whole matrix at once.
  */
 import {
+  CENTRAL_BUILDING,
   MAX_BUILD_QUEUE,
+  MODIFICATIONS,
   levelCapForNexus,
+  buildingCost,
   BUILDING_CATALOG,
   BUILDING_KINDS,
   describeBuildingRequirement,
@@ -49,6 +52,54 @@ function districtAt(level: number): typeof lateGame {
   // The crew's level as well as the district's (§I3): half the ladder is gated on it, so a
   // fixture that maxed the buildings and left the crew at 1 would draw a district full of locks.
   return { ...lateGame, base: { ...lateGameBase, level, buildings } };
+}
+
+/**
+ * A district that has been *played*: every plot standing, every bracket filled, an order on the
+ * clock for each of them (maintainer, 2026-09-18).
+ *
+ * `districtAt` alone is a rich crew with bare structures, and the plot window is a deck whose
+ * height is the sum of what a structure has to say. Bare, the Nexus draws four panels; played, it
+ * draws the same four with a payroll book, a bracket rack with three cards in it and a cancel
+ * control, and that is the state the window was measured in and the state it was cramped in: 707px
+ * of body in a 562px box at 1024x768, with the rack and the door to the bench below the fold.
+ *
+ * Level 13 rather than the ceiling, because a capped structure has no price to draw and the price
+ * is a third of the panel this is sizing.
+ */
+function playedDistrict(): typeof lateGame {
+  const buildings: Building[] = BUILDING_KINDS.map((kind, index) => ({
+    id: `b${index + 1}`,
+    kind,
+    level: 13,
+    // The three longest names the catalogue has for this structure, which is the widest a fitted
+    // bracket row can ever be.
+    modifications: MODIFICATIONS.filter((mod) => mod.building === kind)
+      .slice()
+      .sort((a, b) => b.name.length - a.name.length)
+      .slice(0, 3)
+      .map((mod) => mod.id),
+    damage: 0,
+  }));
+  return {
+    ...lateGame,
+    base: {
+      ...lateGameBase,
+      level: 20,
+      buildings,
+      // Nothing in the bag, so the part gates draw their chips in the refused colour.
+      inventory: {},
+      buildQueue: BUILDING_KINDS.map((kind, index) => ({
+        id: `played-${kind}`,
+        kind,
+        level: 14,
+        startedAt: new Date(Date.now() + index * 60_000).toISOString(),
+        durationSeconds: 3600,
+        paid: buildingCost(kind, 14, buildings),
+        parts: {},
+      })),
+    },
+  };
 }
 
 /**
@@ -504,27 +555,110 @@ for (const size of VIEWPORTS) {
     }
 
     /*
-     * The dialog is the fat case: the widest cost line the game has (a level-20 Garage,
-     * five figures in three materials) over the longest refusal copy. Its own screenshot, because
-     * a modal is drawn over the page and a `fullPage` shot of the district cannot show it.
+     * The dialog over the widest cost line the game has, and its own screenshot, because a modal
+     * is drawn over the page and a `fullPage` shot of the district cannot show it.
+     *
+     * The **Quarters** at level 20, measured rather than assumed: six materials and 89 characters
+     * of price, against the Gauntlet's five and 80. It said the Garage until 2026-09-18, and that
+     * had stopped being true twice over: the Garage's cost line is four materials, and its ceiling
+     * came down to 10 (`BUILDING_LEVEL_CEILINGS`), so `districtAt(19)` drew it refused with no
+     * price on screen at all. The assertion had never seen a cost line.
      */
     test(`the plot dialog lays out cleanly at ${tag}`, async ({ page }) => {
       // One level below the ceiling, so the dialog quotes the level-20 price rather than level 2's.
       await installApi(page, districtAt(19));
       await page.goto('/game/base');
-      await page.getByRole('button', { name: /^The Garage,/ }).click();
+      await page.getByRole('button', { name: /^The Quarters,/ }).click();
 
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
-      await expect(dialog.getByRole('heading', { name: 'The Garage' })).toBeInViewport({
+      await expect(dialog.getByRole('heading', { name: 'The Quarters' })).toBeInViewport({
         ratio: 1,
       });
+      /*
+       * The price is actually on screen, which is what the case is for.
+       *
+       * A refused upgrade draws no cost line at all, so the old Garage target left this test
+       * asserting the layout of something absent. Six materials, because that is what makes the
+       * Quarters the fat case: five would pass on the Gauntlet and on half the tree.
+       */
+      const price = dialog.getByTestId('cost-line').first();
+      await expect(price).toBeVisible();
+      expect(await price.locator('> span').count()).toBe(6);
       await expect(dialog.getByRole('button', { name: 'Queue upgrade' })).toBeInViewport({
         ratio: 1,
       });
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedVertically(page, '[role="dialog"]');
       await page.screenshot({ path: `screenshots/hideout/dialog-${tag}.png` });
+    });
+
+    /**
+     * A played district's window keeps the whole of itself on screen (maintainer, 2026-09-18).
+     *
+     * The test above opens a *bare* plot, which is the easy case: four short panels and room to
+     * spare at every viewport in the matrix. This is the one the window was rebuilt for. Measured
+     * before the rebuild, on {@link playedDistrict} at 1024x768: the Nexus wanted 707px of body in
+     * a 562px box, so 145px of it was behind a scroll with nothing on screen to say so, and the
+     * Scrapyard hid 36, the Generator 35, the Garage 24 and the Lab 16.
+     *
+     * Three separate claims, because they fail separately. The body may not be hiding anything it
+     * did not have to; the bench door, which is the *last* thing down the deck and therefore the
+     * first casualty, has to be whole and on screen; and the window itself has to fit the frame it
+     * is drawn over, which nothing else checks because a modal is portalled out of `#root` and
+     * `expectNothingOverflowsTheScreen` only ever looks inside it.
+     */
+    test(`a played district's plot window fits the frame at ${tag}`, async ({ page }) => {
+      await installApi(page, playedDistrict());
+      await page.goto('/game/base');
+
+      for (const kind of BUILDING_KINDS) {
+        await page.locator(`[data-testid="plot-${kind}"]`).click();
+        const dialog = page.getByRole('dialog');
+        await expect(dialog).toBeVisible();
+        await settleFonts(page);
+
+        const hidden = await page.evaluate(() => {
+          const box = document.querySelector('[role="dialog"]') as HTMLElement;
+          const body = [...box.querySelectorAll('*')].find((el) =>
+            /auto|scroll/.test(getComputedStyle(el).overflowY),
+          ) as HTMLElement | undefined;
+          const rect = box.getBoundingClientRect();
+          return {
+            under: body === undefined ? 0 : body.scrollHeight - body.clientHeight,
+            outside: Math.round(
+              Math.max(
+                0,
+                -rect.top,
+                -rect.left,
+                rect.bottom - window.innerHeight,
+                rect.right - window.innerWidth,
+              ),
+            ),
+          };
+        });
+        expect(hidden.under, `${kind}: ${hidden.under}px of the window is under a scroll`).toBe(0);
+        expect(hidden.outside, `${kind}: the window is ${hidden.outside}px off the frame`).toBe(0);
+
+        await expect(
+          page.getByTestId(`structure-build-addons-${kind}`),
+          `${kind}: the door to the bench is not on screen`,
+        ).toBeInViewport({ ratio: 1 });
+
+        // Inside the loop, not after it. Run once at the end this would sweep a closed dialog and
+        // pass on an empty selector, which is the shape of a gate that has quietly stopped
+        // measuring anything.
+        await expectNothingClippedVertically(page, '[role="dialog"]');
+
+        // The Nexus is the fat one: the only plot that draws the payroll book as well as the
+        // price, the rack and the clock. Its shot is the one worth opening.
+        if (kind === CENTRAL_BUILDING) {
+          await page.screenshot({ path: `screenshots/hideout/dialog-played-${tag}.png` });
+        }
+
+        await page.keyboard.press('Escape');
+        await expect(dialog).toBeHidden();
+      }
     });
 
     /**

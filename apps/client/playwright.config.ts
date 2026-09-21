@@ -61,6 +61,11 @@ export default defineConfig({
         // so a local `UNLOCKED=true` would hand every spec a level-20 account with a full roster
         // and the whole suite would quietly stop testing the game it ships: the first symptom
         // being the live flow asserting a starting stockpile it no longer has.
+        // Ctrl+C on a run does not reach a detached `webServer`, and killing it is a teardown an
+        // interrupt skips, so the server stops itself when Playwright is gone (`server/orphan.ts`).
+        // Set here and nowhere else: a developer's backgrounded server is the same shape and must
+        // not be caught by it.
+        EXIT_WITH_PARENT: 'true',
         UNLOCKED: 'false',
         // Same argument, and it caught the same test. Admin mode ships *on* by default so the
         // board can walk the game without grinding, and one of the things it does is waive every
@@ -71,7 +76,18 @@ export default defineConfig({
       },
     },
     {
-      command: 'pnpm dev',
+      /*
+       * Through `e2e/vite-orphan-guard.mjs`, for the reason that file sets out: Playwright starts
+       * a `webServer` detached, so Ctrl+C reaches Playwright and nothing under it, and the
+       * teardown that would kill this is the one an interrupt skips. Measured on 2026-09-20:
+       * interrupting a run left Vite holding 5175, and the next run refused to start.
+       *
+       * `pnpm dev` before this, which added a shell and pnpm above Vite as well. The API server
+       * next door answers the same problem inside itself (`apps/server/src/orphan.ts`), which is
+       * the better place when the process is ours; Vite is not, so it gets a parent whose whole
+       * job is to notice and to take it with it.
+       */
+      command: 'node e2e/vite-orphan-guard.mjs',
       url: clientUrl,
       reuseExistingServer: false,
       env: {

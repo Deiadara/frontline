@@ -56,15 +56,23 @@ export interface GovernmentGarrison {
 /** The composition every Combine site fields at minimum: also the fallback below the ladder. */
 const LIGHTEST_GARRISON: GovernmentGarrison = {
   minDifficulty: 1,
-  units: 'a Combine sanitation patrol and a pair of drone spotters',
+  units: 'a thin line of Civic Levy with surplus blades',
 };
 
+/**
+ * Named for the units that actually stand there now (`units/catalog.ts`, the Combine roster), so
+ * the sentence on the district screen and the garrison `city/control.ts` puts on the ground say
+ * the same thing. `city.test.ts` holds the two together.
+ */
 export const GOVERNMENT_GARRISONS: readonly GovernmentGarrison[] = [
   LIGHTEST_GARRISON,
-  { minDifficulty: 3, units: 'a Combine enforcer squad behind riot plate' },
-  { minDifficulty: 5, units: 'an enforcer column with rolling counter-ICE support' },
-  { minDifficulty: 7, units: 'a Directorate rifle company dug into hardened ferrocrete' },
-  { minDifficulty: 9, units: 'the Directorate household guard, and whatever the spire can wake' },
+  { minDifficulty: 2, units: 'Civic Levy with a squad of Greycoats behind them' },
+  { minDifficulty: 5, units: 'Greycoats with Street Enforcers on the corners' },
+  { minDifficulty: 7, units: 'Street Enforcers behind Suppressor positions' },
+  {
+    minDifficulty: 9,
+    units: 'Suppressors, Enforcers and Greycoats, and whatever the spire can wake',
+  },
 ];
 
 export function governmentGarrisonFor(difficulty: number): string {

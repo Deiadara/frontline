@@ -196,6 +196,22 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
   const infamyLeft = spendInfamy(base.economy.infamy, price);
   if (infamyLeft === null) return { kind: 'refused', reason: 'cannot_afford' };
 
+  /*
+   * §A4: the Sleepers this crew planted here, who wake into the attacking deployment.
+   *
+   * Poured into the deployment at the *declaration* rather than folded in at the settle, and the
+   * difference is everything a player sees. In the deployment they are on the board: the deploy
+   * window counts them in the force it is planning, and they can still be pulled back out before
+   * the mark, which `adjustDeployment` already does for anybody standing on the ground. Folded
+   * in at resolve they would be a surprise on the report, and the withdrawal would have needed a
+   * second door of its own.
+   *
+   * Only cells `waiting`: one still walking has not arrived, and one already recalled has left.
+   * And only on a `location` target, because a cell is planted on a location and nowhere else.
+   */
+  const woken =
+    target.kind === 'location' ? repos.sleepers.waitingAt(base.id, target.locationId) : undefined;
+
   const battle: ScheduledBattle = {
     id: randomUUID(),
     target,
@@ -206,15 +222,28 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     resolvedAt: null,
     seed: randomUUID(),
     holdAfterCapture: input.holdAfterCapture ?? false,
+    /*
+     * §A4: whether a cell of this crew's was already standing here (`city/sleepers.ts`).
+     *
+     * Recorded on the row because after the next few lines it is unrecoverable: the cell is
+     * deleted and its Sleepers are indistinguishable in the deployment from Sleepers somebody
+     * marched in the ordinary way. The `planted` ladder counts plans that came off, not crews
+     * that happen to own the sheet.
+     */
+    wokeSleepers: woken !== undefined,
   };
-  repos.sieges.insert(battle);
   // The row and the bill together. Both callers wrap this in one transaction, so a call that is
   // recorded is a call that was paid for.
+  repos.sieges.insert(battle);
   const economy = { ...base.economy, infamy: infamyLeft };
   repos.bases.updateEconomy(base.id, economy);
 
   const at = now.toISOString();
-  repos.sieges.putDeployment(emptyDeployment(battle.id, base.id, 'attacker', at));
+  if (woken) repos.sleepers.remove(woken.id);
+  repos.sieges.putDeployment({
+    ...emptyDeployment(battle.id, base.id, 'attacker', at),
+    ...(woken ? { army: woken.army } : {}),
+  });
 
   // The defending side's row exists from the moment the call is made, so both participants have
   // somewhere to move people to. An NPC fills theirs immediately (§A3: they answer a call the same

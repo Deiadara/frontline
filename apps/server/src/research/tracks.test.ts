@@ -704,7 +704,11 @@ describe('a recovered unit carrying its share home, through the standing fold', 
     const raided = makeBase([], { ...startingResearch(), technologies: [CARRY_BOTH.id] });
     raided.economy = {
       ...raided.economy,
-      disruption: { until: new Date(NOW.getTime() + 3_600_000).toISOString(), percent: 25 },
+      disruption: {
+        until: new Date(NOW.getTime() + 3_600_000).toISOString(),
+        since: new Date(NOW.getTime() - 3_600_000).toISOString(),
+        percent: 25,
+      },
     };
     expect(standingEffectsFor(fakeRepos().repos, raided, NOW).recoveredCarryLoot).toBe(true);
   });

@@ -44,7 +44,16 @@ describe('the e2e client', () => {
     const config = (await import(`${CLIENT}/playwright.config`)) as {
       default: { webServer: { command: string; env: Record<string, string> }[] };
     };
-    const client = config.default.webServer.find((server) => server.command.includes('dev'));
+    /*
+     * Found by `vite` rather than by `dev`, which is what the command used to say.
+     *
+     * The client server is started through `e2e/vite-orphan-guard.mjs` since 2026-09-20, so that
+     * an interrupted run does not leave Vite holding port 5175. `pnpm dev` was the old command and
+     * the word `dev` was how this line recognised it; `vite` is in the name of the thing being
+     * started either way, which is the part that cannot change without this gate deserving to
+     * fail.
+     */
+    const client = config.default.webServer.find((server) => server.command.includes('vite'));
     expect(client, 'playwright no longer starts a vite dev server').toBeDefined();
     expect(client?.env[E2E_ISOLATED]).toBe('1');
   });

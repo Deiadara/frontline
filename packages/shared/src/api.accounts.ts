@@ -10,6 +10,7 @@ import {
   BoostStashSchema,
 } from './market/blackmarket.js';
 import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
+import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 import { PartialResourcesSchema } from './resources.js';
 import { TimezoneSchema } from './time/zone.js';
 import { PLAYER_ICONS, PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
@@ -173,13 +174,27 @@ export const AdminStateSchema = z.object({
 });
 export type AdminState = z.infer<typeof AdminStateSchema>;
 
+/**
+ * How high the level knob goes: the deepest level the game authors content at.
+ *
+ * Derived rather than written down. The bound used to be a hand-typed 60, and the §I3 ladder had
+ * already grown two rungs past it: Deep Pockets at 70 (which `market/supply.ts` spends) and A
+ * Third Crew at 80 (which `missions.areas.ts` spends). Both are reachable by play and neither was
+ * reachable from the bench, so the one tool for setting a stage could not set the last two stages.
+ * Reading the catalogue means the next rung cannot fall off the end the same way.
+ */
+export const ADMIN_MAX_PLAYER_LEVEL = PLAYER_LEVEL_UNLOCKS.reduce(
+  (deepest, unlock) => Math.max(deepest, unlock.level),
+  1,
+);
+
 export const AdminKnobsRequestSchema = z
   .object({
     /** Put every structure at this level, or one named structure if `structure` is given. */
     buildingLevel: z.number().int().min(0).max(20).optional(),
     structure: BuildingKindSchema.optional(),
     /** The player level (§I), which is what most of the game's gates read. */
-    playerLevel: z.number().int().min(1).max(60).optional(),
+    playerLevel: z.number().int().min(1).max(ADMIN_MAX_PLAYER_LEVEL).optional(),
     /** Set the stockpile. Absent keys are left alone. */
     resources: PartialResourcesSchema.optional(),
     /** Set the infamy balance, which is what the black market spends. */

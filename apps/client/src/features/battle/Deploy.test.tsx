@@ -72,6 +72,7 @@ const view = (id: string, targetName: string): BattleView => ({
     defender: { kind: 'looters' },
     scheduledFor: MARK,
     holdAfterCapture: false,
+    wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
     seed: `${id}-seed`,
@@ -133,10 +134,18 @@ const roster: UnitsResponse = {
 };
 
 /** Nobody on the road: what the screen holds before the column sets out. */
-const nothingWalking: ActionsResponse = { movements: [], scoutingRun: null, serverNow: NOW };
+const nothingWalking: ActionsResponse = {
+  movements: [],
+  sleepers: [],
+  stationed: [],
+  scoutingRun: null,
+  serverNow: NOW,
+};
 
 /** The same screen once `troop_movements` has the column the deploy started. */
 const walking: ActionsResponse = {
+  sleepers: [],
+  stationed: [],
   scoutingRun: null,
   movements: [
     {

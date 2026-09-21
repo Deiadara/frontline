@@ -7,7 +7,7 @@ import { MAX_TRAINING_SPEED_BONUS } from '../time/speed.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import type { LocationKind } from '../city/locations.js';
 import {
-  UNIT_CATALOG,
+  PLAYER_UNITS,
   UnitIdSchema,
   findUnit,
   locationsTraining,
@@ -520,6 +520,37 @@ export function takeFromArmy(army: Army, unitId: string, count: number): Army {
   return next;
 }
 
+/**
+ * How many of any one legendary a crew may hold. One, and it is the whole rule.
+ *
+ * Written down here rather than as a bare `1` at the three doors that read it, because the
+ * maintainer asked for it as a *general* rule of the game on 2026-09-19 rather than as a check on
+ * the training queue: "you can have up to 1 of each legendary unit, no more". `trainUnits` has
+ * enforced it since uniques existed; what had not was the console, which handed out a dozen of
+ * every sheet in the catalogue including all seven legendaries.
+ */
+export const LEGENDARY_CAP = 1;
+
+/**
+ * An army with every legendary in it brought back to {@link LEGENDARY_CAP}.
+ *
+ * For the doors that *grant* rather than train. The training queue refuses a second one at the
+ * gate and never needs this; a grant has no gate, so it gets one here.
+ *
+ * Deliberately not applied inside `mergeArmies`, which is what a fight uses to hand a crew its
+ * survivors back: a clamp on that path would silently eat a unit whenever some other bug produced
+ * an over-count, and the place to catch that is where the over-count is made.
+ */
+export function capLegendaries(army: Army): Army {
+  const out: Army = {};
+  for (const [unitId, count] of Object.entries(army)) {
+    if ((count ?? 0) <= 0) continue;
+    const unique = findUnit(unitId)?.unique === true;
+    out[unitId] = unique ? Math.min(LEGENDARY_CAP, count) : count;
+  }
+  return out;
+}
+
 /** How many of a unique unit a crew already holds, counting the queue. Legendary units cap at 1. */
 export function alreadyHolds(unit: UnitSpec, army: Army, queue: TrainingQueue): number {
   const queued = queue
@@ -530,5 +561,5 @@ export function alreadyHolds(unit: UnitSpec, army: Army, queue: TrainingQueue): 
 
 /** Units this crew could train at `building`, before any unlock or affordability check. */
 export function unitsTrainedAt(building: Building['kind']): UnitSpec[] {
-  return UNIT_CATALOG.filter((unit) => unit.trainedAt === building);
+  return PLAYER_UNITS.filter((unit) => unit.trainedAt === building);
 }

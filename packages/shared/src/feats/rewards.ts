@@ -11,7 +11,7 @@ import { findUnit } from '../units/index.js';
  * ## One currency for the balance check, not for the player
  *
  * A feat can pay six different things and the maintainer asked for all of them. That makes "is this
- * reward fair" impossible to answer by eye across two hundred entries, so everything is
+ * reward fair" impossible to answer by eye across five hundred entries, so everything is
  * priced into one number, caps-equivalent, and every feat declares which band it is supposed to
  * land in. `catalog.test.ts` then checks the whole catalogue in one pass, which is the only way a
  * balance claim about a table this size survives its first edit.

@@ -3,8 +3,10 @@ import {
   type BattleAnalysis,
   type BattleSide,
   type SideAnalysis,
+  type SkirmishOutcome,
   type UnitPerformance,
   WEATHER_CATALOG,
+  findUnit,
   isPlainDay,
 } from '@frontline/shared';
 import { Button } from '../../components/ui/Button';
@@ -38,8 +40,19 @@ import { cn } from '../../lib/cn';
  * once: a row is on both columns or on neither.
  */
 
+/**
+ * What the Combine's two legendaries took off the attacker (`city/combine.ts`, 2026-09-19).
+ *
+ * `turned` is the attacker's units that changed sides under Directive Xero's Change of Heart, by
+ * unit id: lost for good, and fighting for him now. `executed` is the count the Executioner
+ * finished where they stood. Both are on `SkirmishOutcome`; the report reads them off the
+ * analysis it is handed, and draws nothing while they are zero, which is every fight the Combine
+ * is not in.
+ */
+type CombineToll = Pick<SkirmishOutcome, 'turned' | 'executed'>;
+
 interface BattleReportModalProps {
-  analysis: BattleAnalysis | null;
+  analysis: (BattleAnalysis & Partial<CombineToll>) | null;
   /** Which side the reader was on, so their own force leads. */
   side: BattleSide;
   onClose: () => void;
@@ -128,6 +141,7 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
               {analysis.trap.name} went off on the approach. It took {analysis.trap.killed}.
             </p>
           )}
+          <CombineTollLines toll={analysis} />
           {analysis.log.map((line, index) => (
             <p
               key={`${index}-${line}`}
@@ -155,6 +169,30 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
             </p>
           )}
         </section>
+
+        {analysis.underLeader !== null && (
+          /*
+           * Whose ground this was, said before the ledgers.
+           *
+           * The two tolls below say what the Executioner and Directive Xero *did*; neither says
+           * who did it, and the Syndic does nothing that leaves a toll at all. So a crew walked
+           * into a much harder fight in the Annexes, lost it, and read an aftermath with nothing
+           * in it about her. Oxblood, which is the colour the Combine wears everywhere else.
+           */
+          <section
+            className="border border-oxblood-500/40 bg-oxblood-500/5 p-3"
+            data-testid="report-under-leader"
+          >
+            <p className="font-display text-[10px] uppercase tracking-[0.22em] text-oxblood-300">
+              Whose ground this was
+            </p>
+            <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
+              Fought under <span className="text-oxblood-300">{analysis.underLeader.name}</span>.
+              Every unit the Combine put in the line carried{' '}
+              <span className="text-oxblood-300">{analysis.underLeader.powerName}</span>.
+            </p>
+          </section>
+        )}
 
         {analysis.legends.length > 0 && (
           <section className="border border-brass-500/30 bg-brass-300/5 p-3">
@@ -184,6 +222,50 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
   );
 }
 
+/** The turncoats as a report names them: `3 Razors, 1 Scrapers`, in unit-id order. */
+export function turnedLine(turned: Readonly<Record<string, number>>): string {
+  return Object.entries(turned)
+    .filter(([, count]) => count > 0)
+    .map(([unitId, count]) => `${count} ${findUnit(unitId)?.name ?? unitId}`)
+    .join(', ');
+}
+
+/**
+ * The two Combine lines, each drawn only when there is a number behind it.
+ *
+ * With the log rather than in the ledger: the ledger's rows are the same on both sides by
+ * construction (`ledgerRows`), and these are things that happened to one side only. A turned unit
+ * is not in "Lost" either, which is the reason the line exists: a player counting what came home
+ * would otherwise find units missing that the report never accounted for.
+ */
+function CombineTollLines({ toll }: { toll: Partial<CombineToll> }) {
+  const turned = Object.values(toll.turned ?? {}).reduce((sum, count) => sum + count, 0);
+  const executed = toll.executed ?? 0;
+  return (
+    <>
+      {turned > 0 && (
+        <p
+          className="font-body text-xs leading-relaxed text-oxblood-300"
+          data-testid="report-turned"
+        >
+          {turned === 1
+            ? '1 unit changed sides and is his now'
+            : `${turned} units changed sides and are his now`}
+          : {turnedLine(toll.turned ?? {})}.
+        </p>
+      )}
+      {executed > 0 && (
+        <p
+          className="font-body text-xs leading-relaxed text-oxblood-300"
+          data-testid="report-executed"
+        >
+          The Executioner finished {executed}.
+        </p>
+      )}
+    </>
+  );
+}
+
 interface LedgerRow {
   label: string;
   of: (side: SideAnalysis) => number;
@@ -206,7 +288,7 @@ function ledgerRows(mine: SideAnalysis, theirs: SideAnalysis): LedgerRow[] {
   ];
   const whenAnybodyHas: LedgerRow[] = [
     // §D3: the intimidation the engine has always settled before the first shot and never showed.
-    { label: 'Too cowed to fire', of: (side) => side.cowed },
+    { label: 'Too intimidated to fire', of: (side) => side.intimidated },
     { label: 'On the ring', of: (side) => side.perimeter },
     { label: 'Caught by the ring', of: (side) => side.perimeterCaught },
     { label: 'Lost holding the ring', of: (side) => side.perimeterLost },

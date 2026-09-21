@@ -5,6 +5,7 @@ import {
   bar,
   city,
   districtDetail,
+  crewStart,
   lateGame,
   UNSCOUTED_DISTRICT_ID,
   me,
@@ -137,7 +138,29 @@ test('the crew chart draws every chair, and a face on the filled ones', async ({
 });
 
 test('the crew chart explains itself before anybody is hired', async ({ page }) => {
-  await installApi(page, me);
+  /*
+   * A crew past the door with nobody in it. §I3 opens this screen at level 5 (2026-09-19), so the
+   * starting crew meets a locked door; `lateGame` is past it but now seats a Head of Research, and
+   * the whole case is nineteen empty chairs. So: the late-game save with its books cleared.
+   */
+  await installApi(page, {
+    ...lateGame,
+    base: { ...lateGame.base!, commanders: [] },
+  });
+  /*
+   * ...and the roster to match. The harness answers `/api/crew` with the full roster for any crew
+   * above level 1, which used to be a fair proxy for "has been playing a while". §I3 gates this
+   * screen at level 5, so the proxy now says the opposite of what this case needs: the only crew
+   * that would be served an empty roster is one that cannot open the screen at all. Said outright
+   * here rather than inferred from a level.
+   */
+  await page.route('**/api/crew', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(crewStart),
+    }),
+  );
   await page.goto('/game/crew');
 
   await expect(page.getByText('Nineteen positions, nobody in any of them yet')).toBeVisible();
@@ -1366,4 +1389,114 @@ test('the crew screen leads with the people, and every card stands at one height
   expect(layers.band, 'the file draws the Injured band at all').not.toBeNull();
   expect(layers.band?.width).toBeGreaterThan(0.98);
   expect(Math.abs((layers.band?.centre ?? 0) - 0.5)).toBeLessThan(0.05);
+});
+
+/**
+ * Opening a tab is not a payday (maintainer, 2026-09-20).
+ *
+ * `UnitsPage` fed `useDeltaMarks` an `Object.fromEntries(data?.units ?? [])`, so the frame before
+ * the roster arrived was a perfectly good first reading of a crew that owned **nothing**. The
+ * reading after it was therefore a crew that had just trained its whole roster, and every card on
+ * the page threw a green `+12` on arrival. The hook refuses to announce a first reading; what it
+ * could not know was that the caller had handed it a placeholder instead of `undefined`.
+ *
+ * Walked away and back, because that is the report: the figures come up on *navigation*, and a
+ * test that only loaded the page once would miss a remount.
+ */
+test('a unit count says nothing when you merely open the roster', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game/units');
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+
+  const floats = async (): Promise<string[]> =>
+    page
+      .locator('[data-testid^="delta-unit-"]')
+      .evaluateAll((nodes) => nodes.map((n) => (n.textContent ?? '').trim()).filter(Boolean));
+
+  // Straight after the first load, and again once anything late has had time to land.
+  expect(await floats(), 'a figure floated off a card on the first load').toEqual([]);
+  await page.waitForTimeout(700);
+  expect(await floats(), 'a figure floated off a card a moment later').toEqual([]);
+
+  // ...and on the way back, which is the case the report describes.
+  await page.getByTestId('nav-city').click();
+  await expect(page.getByTestId('unit-catalogue')).toHaveCount(0);
+  await page.getByTestId('nav-units').click();
+  await expect(page.getByTestId('unit-catalogue')).toBeVisible();
+  expect(await floats(), 'a figure floated off a card on the way back').toEqual([]);
+  await page.waitForTimeout(700);
+  expect(await floats(), 'a figure floated off a card after the walk back').toEqual([]);
+});
+
+/**
+ * Walking the whole bottom bar, twice, with nothing allowed to pop up (maintainer, 2026-09-20).
+ *
+ * The `+12` the roster threw on arrival was one instance of a shape rather than a one-off: a
+ * screen that diffs two readings and takes its own loading frame for the first of them announces
+ * the whole payload as news. The second lap is the half that matters, because the first visit to a
+ * tab is the only one a per-page hook has ever been tested on, and a remount over a warm cache is
+ * where the placeholder reading comes back.
+ *
+ * Three things are checked on every tab: no floating figure, no dialog, and no tooltip. A dialog
+ * or a tooltip appearing when a player merely arrived somewhere is the same defect wearing a
+ * different component.
+ */
+test('walking the whole bar twice pops nothing up', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game');
+
+  const quiet = async (where: string): Promise<void> => {
+    const noise = await page.evaluate(() => ({
+      floats: [...document.querySelectorAll('[data-testid^="delta-"]')]
+        .map((n) => (n.textContent ?? '').trim())
+        .filter(Boolean),
+      dialogs: [...document.querySelectorAll('[role="dialog"]')].length,
+      tooltips: [...document.querySelectorAll('[role="tooltip"]')].length,
+    }));
+    expect(noise.floats, `${where}: a figure floated`).toEqual([]);
+    expect(noise.dialogs, `${where}: a dialog opened`).toBe(0);
+    expect(noise.tooltips, `${where}: a tooltip opened`).toBe(0);
+  };
+
+  const stops = [
+    ['city', '/game'],
+    ['district', '/game/base'],
+    ['units', '/game/units'],
+    ['missions', '/game/missions'],
+    ['feats', '/game/feats'],
+    ['the-bar', '/game/bar'],
+    ['crew', '/game/crew'],
+  ] as const;
+
+  /*
+   * Both ways in, because they are different code paths and only one of them has the bug.
+   *
+   * Pressing a door is a client-side route change over a warm cache: `usePrefetchScreens` reads
+   * `/units` at login, so the roster's data is already there and the page never renders a frame
+   * without it. A `goto` is a cold mount, which is where a hook that mistakes its own loading
+   * frame for a first reading actually fires. A sweep that only pressed doors passed with the
+   * `+12` bug still in, which is how this got written the second way round.
+   */
+  const settle = async (): Promise<void> => {
+    // Somewhere neutral: a nav door left under the cursor opens its own tooltip, which would be
+    // this gate reporting its own mouse.
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(450);
+  };
+
+  for (const [stop, url] of stops) {
+    await page.goto(url);
+    await settle();
+    await quiet(`cold load of ${stop}`);
+  }
+
+  for (const lap of [1, 2]) {
+    for (const [stop] of stops) {
+      const door = page.getByTestId(`nav-${stop}`);
+      if ((await door.count()) === 0) continue;
+      await door.click();
+      await settle();
+      await quiet(`lap ${lap}, ${stop}`);
+    }
+  }
 });

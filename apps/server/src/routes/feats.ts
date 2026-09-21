@@ -23,7 +23,7 @@ import { projectFeats, progressFor } from '../feats/project.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { settleBase } from '../district/settle.js';
 import { mergeArmies } from '../battle/forces.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyInfamyEarned, tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -254,10 +254,21 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
    * twice over: `awardPlayerXp` a few lines up folds `xpGainPercent` into a feat's XP at its own
    * funnel, so the same reward already scaled one of its two currencies and not the other.
    *
+   * Off `standingEffectsFor`, which is the second half of that repair and was missed the first
+   * time. This read `crewEffectsFor`, the people-only fold, while the sentence above claimed
+   * parity with a fight and a job: `battle/resolve.ts` scales its payout off `attackerGround` and
+   * `missions/resolve.ts` off `crew`, and both of those are `standingEffectsFor`. The difference
+   * is not academic. `infamy_gain` is paid by a held location (the Graveyard, +15%) and by a
+   * faction card, and territory and the table are exactly the two things the people-only fold
+   * leaves out, so a crew holding the Graveyard was paid the bonus on every raid and every job and
+   * nothing on a feat. That is the same failure `missions/resolve.ts` records having already had
+   * once, in its own words: "the Graveyard and `sig_name_maker` paid on a raid and nothing on a
+   * job."
+   *
    * Read once, so the stockpile and the lifetime ladder below cannot be paid different numbers.
    */
   const infamy = reward.infamy
-    ? earnedInfamy(reward.infamy, crewEffectsFor(repos, base).infamyGainPercent)
+    ? earnedInfamy(reward.infamy, standingEffectsFor(repos, base, now).infamyGainPercent)
     : 0;
   if (infamy > 0) {
     repos.bases.updateEconomy(base.id, {

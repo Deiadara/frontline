@@ -279,12 +279,15 @@ describe('POST /api/overseer', () => {
   it('rejects a second overseer with 409', async () => {
     const { app } = await makeApp();
     const { token } = await register(app, 'commander');
-    await takeOverseer(app, token);
 
-    // Somebody this account is still offered and nobody holds, so the 409 is the once-per-account
-    // rule rather than §F6's pool refusal, which wears the same status code.
-    const [free] = await offeredOverseers(app, token);
+    // Read before choosing: a settled crew cannot ask again since 2026-09-18, because an offer is
+    // a hold and one it can never take must not come out of the pool. The second name is one this
+    // account was offered and nobody holds, so the 409 below is the once-per-account rule rather
+    // than §F6's pool refusal, which wears the same status code.
+    const offered = await offeredOverseers(app, token);
+    const free = offered[1];
     if (!free) throw new Error('fixture: the pool ran dry');
+    await takeOverseer(app, token);
     const res = await app.inject({
       method: 'POST',
       url: '/api/overseer',

@@ -82,6 +82,7 @@ const crewStanding = (): CrewStandingResponse => {
     crewSheet: makeAttributes(15),
     effects: {},
     marks: {},
+    haulPercent: 0,
   };
 };
 

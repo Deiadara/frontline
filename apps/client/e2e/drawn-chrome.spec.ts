@@ -65,3 +65,55 @@ test('the restyled screens are drawn rather than struck, and say nothing to the 
   // Fonts and favicons are the platform's business, not the page's.
   expect(noise.filter((line) => !/favicon|font/i.test(line))).toEqual([]);
 });
+
+/**
+ * And the plot window, which the maintainer asked for next (2026-09-18).
+ *
+ * Not in the table above, because it is not a screen you can navigate to: it opens over the
+ * district when a plot is clicked, and it is portalled to `document.body`, so it is outside every
+ * sweep the rest of this file and `visual.spec.ts` run over `#root`.
+ *
+ * Two claims the class names cannot make on their own. Its panels are actually *painted* as paper
+ * (`.ink-frame` is a `border-image`, and a `border-image-source` of `none` is what a dropped class
+ * looks like from the browser's side), and its controls are drawn rather than struck, counted the
+ * same way as above.
+ */
+test('the plot window is drawn rather than struck', async ({ page }) => {
+  const noise: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      noise.push(`${message.type()}: ${message.text()}`);
+    }
+  });
+  page.on('pageerror', (error) => noise.push(`pageerror: ${error.message}`));
+
+  await installApi(page, lateGame);
+  await page.goto('/game/base');
+  await page.locator('[data-testid="plot-nexus"]').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await settleFonts(page);
+
+  const unpainted = await page.evaluate(() => {
+    const panels = [...document.querySelectorAll('[role="dialog"] section')];
+    if (panels.length < 3) return [`the window drew ${panels.length} panels`];
+    return panels.flatMap((panel) => {
+      const style = getComputedStyle(panel);
+      const name = panel.querySelector('h3')?.textContent ?? '(unnamed)';
+      // The drawn frame, and the sheet under it. `card-paper` declares its ground as a longhand
+      // `background-color` precisely so that a later `background-image` cannot take it away, so
+      // that is the honest thing to read back.
+      if (style.borderImageSource === 'none') return [`${name}: no drawn frame`];
+      if (style.backgroundColor !== 'rgb(18, 18, 22)') return [`${name}: ${style.backgroundColor}`];
+      return [];
+    });
+  });
+  expect(unpainted, `panels that are not on paper: ${unpainted.join(' | ')}`).toEqual([]);
+
+  for (const name of ['Queue upgrade', 'Close']) {
+    const paths = await dialog.getByRole('button', { name }).locator('svg path').count();
+    expect(paths, `${name} is not drawn`).toBeGreaterThanOrEqual(4);
+  }
+
+  expect(noise.filter((line) => !/favicon|font/i.test(line))).toEqual([]);
+});

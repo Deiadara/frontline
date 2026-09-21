@@ -58,7 +58,7 @@ function draw(views: LocationView[]) {
 
 describe('a sign on the painting', () => {
   it('prints the location’s own blurb over its kind’s when it has one', () => {
-    const own = 'Glass on the yard side, and the Directorate behind it.';
+    const own = 'Glass on the yard side, and the Combine behind it.';
     draw([viewOf('blacksite-7-blackward', own)]);
     fireEvent.focus(screen.getByTestId('site-blacksite-7-blackward'));
     const card = screen.getByRole('tooltip');

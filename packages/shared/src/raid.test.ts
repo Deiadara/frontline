@@ -232,14 +232,39 @@ describe('what a raid leaves behind', () => {
 
     // ...and the other way round: a harsher raid inside a longer standing window raises the cut
     // without shortening it.
-    const longStandingWeak = { until: '2026-09-19T12:00:00.000Z', percent: 10 };
+    const longStandingWeak = {
+      until: '2026-09-19T12:00:00.000Z',
+      since: '2026-09-18T11:00:00.000Z',
+      percent: 10,
+    };
     const harsh = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 1);
     const harder = refreshDisruption(longStandingWeak, harsh);
     expect(harder.until).toBe(longStandingWeak.until);
     expect(harder.percent).toBe(harsh.percent);
+    // The start belongs to whichever raid set the rate, because a settle reads the two together
+    // as "cut by `percent` from `since`". Keeping the older start here would charge the four
+    // hours the district spent at a tenth as though it had spent them at a half.
+    expect(harder.since).toBe(harsh.since);
 
     // Nothing standing takes the fresh one whole, and a fresh one that is nothing leaves it alone.
     expect(refreshDisruption(noDisruption(), harsh)).toEqual(harsh);
     expect(refreshDisruption(harsh, noDisruption())).toEqual(harsh);
+  });
+
+  /**
+   * The other side of pairing the start with the rate: two raids that landed at the same rate
+   * are one window, so the earlier start survives and the later expiry does.
+   *
+   * Without this, a second raid at the rate already standing would hand the victim back every
+   * hour since the first one, which is the same "a token raid lifts the cut" hole one step along.
+   */
+  it('keeps the older start when a second raid matches the standing rate', () => {
+    const first = disruptionFrom(new Date('2026-09-18T12:00:00.000Z'), 1);
+    const second = disruptionFrom(new Date('2026-09-18T15:00:00.000Z'), 1);
+
+    const after = refreshDisruption(first, second);
+    expect(after.percent).toBe(first.percent);
+    expect(after.since).toBe(first.since);
+    expect(after.until).toBe(second.until);
   });
 });

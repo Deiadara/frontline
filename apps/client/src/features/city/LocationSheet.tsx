@@ -1,8 +1,13 @@
 import {
+  COMBAT_CONTEXT_LABELS,
   FORTIFY_DIFFICULTY_LABELS,
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
+  UNIT_MODIFIERS,
+  battlefieldFor,
+  findUnit,
   cancelWindowMs,
+  cellCanHold,
   findDistrict,
   fortifyBonusPercent,
   fortifyCost,
@@ -10,6 +15,7 @@ import {
   quoteFortify,
   weatherAt,
   type Army,
+  type CombatContext,
   type LocationHolderKind,
   type LocationView,
   type Resources,
@@ -28,10 +34,12 @@ import {
   useCancelLocationUpgrade,
   useFortify,
   useMe,
+  usePlantSleepers,
   useSetGarrison,
   useUpgradeLocation,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
+import { HOLDER_PLATE } from './holder';
 import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
 
@@ -129,6 +137,18 @@ export function LocationSheet({
   // the same map (`battle/resolve.ts`).
   const me = useMe();
   const [staging, setStaging] = useState(false);
+  const [planting, setPlanting] = useState(false);
+  const plant = usePlantSleepers(baseId, districtId);
+  /*
+   * How many sheets this crew has that can be planted at all (`UnitSpec.sleeper`).
+   *
+   * Counted off the roster rather than hardcoded to the Sleepers, so a second infiltrating sheet
+   * added tomorrow opens this door without an edit here.
+   */
+  const sleepersHeld = Object.entries(army).reduce(
+    (total, [unitId, count]) => (cellCanHold(findUnit(unitId)) ? total + count : total),
+    0,
+  );
 
   const quote = quoteFortify(view.location, view.fortification);
   const digging = view.fortifyingUntil !== null;
@@ -237,6 +257,7 @@ export function LocationSheet({
           when={whenItHolds(view.location.kind, weatherAt(now))}
           data-testid={`characteristics-${view.location.id}`}
         />
+        <FightsAs view={view} now={now} />
         <dl className="mt-1 grid grid-cols-3 gap-2">
           <Figure label="Defence" value={String(view.defense)} />
           <Figure label="Standing there" value={String(view.garrisonSize)} />
@@ -389,8 +410,50 @@ export function LocationSheet({
             >
               {shut ? 'Behind the gate' : 'Call a fight'}
             </Button>
+            {/*
+             * §A4: the other way onto somebody else's ground (maintainer, 2026-09-18).
+             *
+             * Beside Call a fight and not instead of it, because it is the *other half* of the
+             * same decision: plant them now and the fight you call next week is already half
+             * won. Shown only to a crew that actually has Sleepers, since a control that
+             * refuses everybody who presses it is a control nobody should be offered.
+             *
+             * Not disabled behind the gate. A cell is not a fight: it goes to ground whether or
+             * not the district's front door is shut, which is most of why anybody plants one.
+             */}
+            {sleepersHeld > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setPlanting(true)}
+                data-testid={`send-sleepers-${view.location.id}`}
+              >
+                Send Sleepers
+              </Button>
+            )}
           </div>
         </Sheet>
+      )}
+
+      {planting && (
+        <ForcePicker
+          title={`Send Sleepers into ${view.location.name}`}
+          blurb="They walk there, go to ground, and wait. Nothing finds them: no scout counts them and no digging turns them up. Call a fight on this place and they are already standing in it."
+          army={Object.fromEntries(
+            Object.entries(army).filter(([unitId]) => cellCanHold(findUnit(unitId))),
+          )}
+          loadouts={me.data?.base?.unitLoadouts ?? {}}
+          pending={plant.isPending}
+          error={plant.error}
+          confirmLabel="Send them in"
+          onClose={() => setPlanting(false)}
+          onConfirm={(sending) =>
+            plant.mutate(
+              { locationId: view.location.id, army: sending },
+              { onSuccess: () => setPlanting(false) },
+            )
+          }
+        />
       )}
 
       {staging && (
@@ -435,36 +498,13 @@ const HOLDER_READING: Record<
   unoccupied: { tone: 'unoccupied', icon: 'eye', note: 'Empty ground. Walk in and it is yours.' },
 };
 
-const HOLDER_TONE: Record<
-  (typeof HOLDER_READING)[LocationHolderKind]['tone'],
-  { frame: string; plate: string; name: string }
-> = {
-  mine: {
-    frame: 'border-verdigris-300/60 bg-verdigris-500/10',
-    plate: 'text-verdigris-100',
-    name: 'text-verdigris-100',
-  },
-  crew: {
-    frame: 'border-oxblood-500/60 bg-oxblood-500/10',
-    plate: 'text-oxblood-300',
-    name: 'text-ink-100',
-  },
-  looters: {
-    frame: 'border-ember-300/50 bg-ember-300/10',
-    plate: 'text-ember-300',
-    name: 'text-ink-100',
-  },
-  government: {
-    frame: 'border-oxblood-500/60 bg-surface-950/60',
-    plate: 'text-oxblood-300',
-    name: 'text-ink-100',
-  },
-  unoccupied: {
-    frame: 'border-surface-500/70 bg-surface-950/40',
-    plate: 'text-ink-300',
-    name: 'text-ink-200',
-  },
-};
+/*
+ * The plate's colours moved to `city/holder.ts` on 2026-09-20, so the sign on the district
+ * painting and this plate are coloured from one table. They were two literals, which is how the
+ * Combine and a rival crew came to wear the same red on one screen and a different pair on the
+ * other.
+ */
+const HOLDER_TONE = HOLDER_PLATE;
 
 /**
  * Who holds it, said first and said large.
@@ -601,4 +641,77 @@ function Figure({ label, value }: { label: string; value: string }) {
       <dd className="font-display text-[15px] font-bold tabular-nums text-ink-100">{value}</dd>
     </div>
   );
+}
+
+/**
+ * What the ground counts as in a fight (maintainer, 2026-09-18).
+ *
+ * A `CombatContext` is, in `battlefield.ts`'s own words, "a promise to the player that a modifier
+ * on a unit sheet will fire", and until now the promise was kept nowhere a player could read it.
+ * A market is Urban, a foundry is Indoor and Urban, a sewer junction is Underground, and the only
+ * way to find out was to send somebody and read the report afterwards. The Characteristics row
+ * above says what the place is *like*; this one says what it *counts as*, which is the half that
+ * decides who to bring.
+ *
+ * Read out of `battlefieldFor` rather than off `LOCATION_CONTEXTS` directly, so the chips are the
+ * list the fight will actually use: digging in adds Fortified, and a dark sky adds Unlit. A row
+ * derived from the catalogue alone would tell a player their Tunnel Rats were no use on ground
+ * the settler was about to call Underground.
+ */
+function FightsAs({ view, now }: { view: LocationView; now: Date }) {
+  const ground = battlefieldFor({
+    locationName: view.location.name,
+    kind: view.location.kind,
+    fortifyDifficulty: view.location.fortifyDifficulty,
+    fortifyLevel: view.fortification,
+    at: now,
+  });
+
+  return (
+    /*
+     * Label and chips on **one** line, where Characteristics above stacks them.
+     *
+     * Not a style preference: stacked, this row costs about thirty pixels, and the location
+     * window at 1024x768 had eight of them going spare. `profile.spec.ts` caught it, with "Work
+     * it up" at the foot of the window showing 24 of its 32 pixels. Inline, the row costs the
+     * height of the chips alone and the button is whole again.
+     */
+    <div
+      className="flex flex-wrap items-center gap-x-2 gap-y-1"
+      data-testid={`fights-as-${view.location.id}`}
+    >
+      <span className="font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
+        Fights as
+      </span>
+      <ul className="flex flex-wrap items-center gap-1">
+        {ground.contexts.map((context) => (
+          <li
+            key={context}
+            className="rounded-sm border border-brass-500/40 bg-brass-300/10 px-2 py-0.5 font-display text-[11px] uppercase tracking-[0.08em] text-brass-100"
+            data-tip={tipFor(context)}
+          >
+            {COMBAT_CONTEXT_LABELS[context].name}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * What a context is worth here, named by the sheets it turns on.
+ *
+ * Derived from `UNIT_MODIFIERS` rather than written per context, so a modifier added to the table
+ * tomorrow appears on the ground that grants it with no edit here. A context no modifier reads is
+ * still worth a chip: it says the ground is that, which is the fact, and the sentence says the
+ * roster has nothing for it rather than leaving a player to guess.
+ */
+function tipFor(context: CombatContext): string {
+  const fires = Object.values(UNIT_MODIFIERS)
+    .filter((modifier) => modifier.context === context)
+    .map((modifier) => modifier.label);
+  const when = COMBAT_CONTEXT_LABELS[context].when;
+  return fires.length === 0
+    ? `This ground counts ${when}. No unit modifier reads it yet.`
+    : `This ground counts ${when}, so ${fires.join(' and ')} fire here.`;
 }

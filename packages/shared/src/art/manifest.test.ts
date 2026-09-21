@@ -256,6 +256,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district-datavault-sigma', 'plate-district-datavault-sigma.webp', 130013],
   ['plate-district-glasshouse-fields', 'plate-district-glasshouse-fields.webp', 130014],
   ['plate-district-blacksite-7', 'plate-district-blacksite-7.webp', 130015],
+  ['plate-district-combine-spire', 'plate-district-combine-spire.webp', 130016],
   ['building-nexus', 'building-nexus.webp', 140001],
   ['building-quarters', 'building-quarters.webp', 140002],
   ['building-greenhouse', 'building-greenhouse.webp', 140003],
@@ -298,6 +299,14 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['unit-the-crimson-dancer', 'unit-the-crimson-dancer.webp', 145029],
   ['unit-sluggers', 'unit-sluggers.webp', 145030],
   ['unit-the-loose-end', 'unit-the-loose-end.webp', 145031],
+  // The Combine (2026-09-19), after the roster for the seed's sake: see `units/catalog.ts`.
+  ['unit-civic-levy', 'unit-civic-levy.webp', 145032],
+  ['unit-greycoat', 'unit-greycoat.webp', 145033],
+  ['unit-street-enforcers', 'unit-street-enforcers.webp', 145034],
+  ['unit-suppressor', 'unit-suppressor.webp', 145035],
+  ['unit-syndic', 'unit-syndic.webp', 145036],
+  ['unit-executioner', 'unit-executioner.webp', 145037],
+  ['unit-directive-xero', 'unit-directive-xero.webp', 145038],
   ['ui-frame-panel', 'ui-frame-panel.png', 150001],
   ['ui-frame-modal', 'ui-frame-modal.png', 150002],
   ['ui-frame-hud', 'ui-frame-hud.png', 150003],
@@ -361,6 +370,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-graveyard', 'icon-location-graveyard.webp', 160073],
   ['icon-location-revolutionary-statue', 'icon-location-revolutionary-statue.webp', 160074],
   ['icon-location-glasshouse', 'icon-location-glasshouse.webp', 160075],
+  ['icon-location-combine-chapel', 'icon-location-combine-chapel.webp', 160076],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
   ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
@@ -440,8 +450,9 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  it('holds the 337 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(337);
+  // 346 since 2026-09-20: the seven Combine portraits, the Chosen Chapel's icon, and the CCS plate.
+  it('holds the 346 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(346);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -541,6 +552,9 @@ describe('ART_MANIFEST', () => {
     // the full 3780x1800: seven signs and a gate stand on the first, eight and a gate on the second.
     'plate-district-glasshouse-fields': { width: 3780, height: 1800, aspect: '21:10' },
     'plate-district-blacksite-7': { width: 3780, height: 1800, aspect: '21:10' },
+    // The CCS, delivered 2026-09-20 at the Annexes' size rather than the other five's: the
+    // maintainer's own portrait of the spire, shipped as it came instead of upscaled.
+    'plate-district-combine-spire': { width: 1817, height: 866, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -714,7 +728,9 @@ describe('ART_MANIFEST', () => {
      * and delivery agree needs no step at all, which is the whole reason `postProcess` is derived
      * rather than written down.
      */
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(70);
+    // 71 since 2026-09-19: the Chosen Chapel's icon is one more downscale. The seven Combine
+    // portraits are delivered at their own size and add nothing here.
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(71);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {

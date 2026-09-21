@@ -217,6 +217,7 @@ describe('a declared battle', () => {
     resolvedAt: null,
     seed: 'seed',
     holdAfterCapture: false,
+    wokeSleepers: false,
   };
 
   it('comes due on the mark and not before, and never twice', () => {

@@ -93,6 +93,8 @@ import {
   RESOURCE_ORDER,
   TRAINING_DRILLS,
   TRAP_CATALOG,
+  COMBINE_UNITS,
+  PLAYER_UNITS,
   UNIT_CATALOG,
   UNIT_MODIFIER_IDS,
   UNIT_MODIFIERS,
@@ -707,12 +709,19 @@ function unitsSection(): Section {
     'Blurb',
   ];
   const groups = UNIT_TIERS.map((tier) => {
-    const units = UNIT_CATALOG.filter((unit) => unit.tier === tier);
+    const units = PLAYER_UNITS.filter((unit) => unit.tier === tier);
     return [
       `#### ${UNIT_TIER_LABELS[tier]} (${units.length})`,
       table(headers, units.map(unitRow)),
     ].join('\n\n');
   });
+  // The regime's own sheets, in a section of their own rather than mixed into the tiers: they are
+  // never trained, so listing them under Rabble beside the Razors would read as an offer.
+  const combine = [
+    `#### The Combine (${COMBINE_UNITS.length})`,
+    'Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.',
+    table(headers, COMBINE_UNITS.map(unitRow)),
+  ].join('\n\n');
   return {
     title: 'Units',
     sources: ['packages/shared/src/units/catalog.ts'],
@@ -720,6 +729,7 @@ function unitsSection(): Section {
     body: [
       'Four of the eleven sheet numbers are printed here. The rest (penetration, range, evasion, stealth, loot, intimidation) are in the catalogue beside them.',
       ...groups,
+      combine,
       `#### Sheet numbers (${UNIT_STAT_KEYS.length})`,
       table(
         ['Key', 'Label'],

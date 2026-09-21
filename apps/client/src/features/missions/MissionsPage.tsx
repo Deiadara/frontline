@@ -25,6 +25,7 @@ import { LoadFailure } from '../../components/ui/LoadFailure';
 import { cn } from '../../lib/cn';
 import {
   useCrewStanding,
+  useUnits,
   useLaunchMission,
   useMe,
   useMissions,
@@ -329,6 +330,15 @@ export function MissionsPage() {
   // §A4: what the crew's holdings and perks add to a haul. Its own query because the fold is not
   // on the missions payload, and the send dialog has to quote the bag the settle will pay.
   const standing = useCrewStanding();
+  /*
+   * The two switches the board's dialog needs and `effects` cannot carry (`UnitsResponse`).
+   *
+   * `effects` is `Record<string, number>`, so neither of these could ever ride on it: whether the
+   * crew's porters stand in a line (`carriers_fight`) and whether its machines seat anything
+   * (`any_ride`). Both pay the settle, and without them the picker said "cannot fight" beside a
+   * Scavenger that fights and "walks" beside a Colossus that rides.
+   */
+  const roster = useUnits();
   const launch = useLaunchMission();
 
   const data = missionsQuery.data;
@@ -549,8 +559,11 @@ export function MissionsPage() {
                   level={data.level}
                   now={now}
                   // §A4: the crew's own bag, so the dialog quotes the haul the settle will pay.
-                  bagPercent={standing.data?.effects['lootCapacityPercent'] ?? 0}
+                  bagPercent={standing.data?.haulPercent ?? 0}
                   marks={standing.data?.marks ?? {}}
+                  carriersFight={roster.data?.carriersFight ?? false}
+                  anyRide={roster.data?.anyRide ?? false}
+                  roster={roster.data}
                   atCapacity={atCapacity}
                   pendingTemplateId={
                     launch.isPending ? (launch.variables?.templateId ?? null) : null

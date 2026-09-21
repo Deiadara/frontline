@@ -12,10 +12,10 @@ import {
   type UnitLoadouts,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
-import { HoverCard } from '../../components/ui/HoverCard';
 import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
 import { UnitPortrait } from '../units/UnitPortrait';
+import { UnitTrigger } from '../units/UnitWindow';
 
 /**
  * A unit's sheet against the numbers it will actually fight with here (GDD §A4).
@@ -192,11 +192,15 @@ export function EffectiveCard({
 }
 
 /**
- * The trigger. Anywhere a unit is named inside a fight, hovering it opens the card above.
+ * The trigger for anything inside a fight that is *not* a chip: the deploy dialog's "On this
+ * ground" link is the caller.
  *
- * A wrapper rather than something built into `UnitChip`, because the chip is also drawn on the
- * Actions screen, where a column on the road has no battlefield to be effective on and a card
- * quoting one would be inventing the fight it is walking to.
+ * A chip carries its own hover now (`UnitChip`, which opens the catalogue sheet), so the battle
+ * screen hands that card this one instead of wrapping the chip in a second one: two nested hover
+ * cards are two nested `<button>`s. The chip is also drawn on the Actions screen, where a column
+ * on the road has no battlefield to be effective on and a card quoting one would be inventing the
+ * fight it is walking to, which is why the effective reading stays a card the caller passes in
+ * rather than something built into the chip.
  */
 export function OnThisGround({
   unitId,
@@ -214,13 +218,23 @@ export function OnThisGround({
   className?: string;
 }) {
   return (
-    <HoverCard
+    /*
+     * Through `UnitTrigger` since 2026-09-20, so this reading is a **press** as well as a hover.
+     *
+     * The hover stays the effective one, which is the better answer to "what will this do here":
+     * it is the engine's own `effectiveStats` against this ground rather than the catalogue's
+     * middle of the road. What it could not do is be pointed at, and the marks on a sheet are
+     * where the counterplay is written, so the press opens the unit's own card underneath it.
+     * Same trigger, same button, one card the whole game agrees on.
+     */
+    <UnitTrigger
+      unitId={unitId}
       label={label}
-      size="window"
       className={className}
+      size="window"
       card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
     >
       {children}
-    </HoverCard>
+    </UnitTrigger>
   );
 }

@@ -108,16 +108,18 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     expect(award.level).toBe(4);
     // Level 4 is where §G3's per-officer cap turns over from 1 to 2.
     expect(award.grants).toEqual({ recruitSlots: 5 });
-    // Level 4 opens nothing: the catalogue's doors are at 3, 5, 7 and 10. Pinned as empty rather
-    // than left unasserted: an award that announced a door it had not opened is the bug this field
-    // makes possible, and it would look exactly like a passing test.
+    // Level 4 opens nothing: the level doors are at 3, 5, 5, 10 and 15 (`AREA_REQUIREMENTS`,
+    // re-cut 2026-09-19). Pinned as empty rather than left unasserted: an award that announced a
+    // door it had not opened is the bug this field makes possible, and it would look exactly like
+    // a passing test.
     expect(award.unlocks).toEqual([]);
   });
 
   it('names the §I3 door a level-up opened, rather than leaving it to be found by accident', () => {
     const { db, repos } = makeRepos();
     // 280 of the 300 needed to clear level 2; one mission (120) carries it into level 3, which is
-    // where the Archive opens.
+    // where Drills opens. Re-recorded 2026-09-19: the Archive used to be the level-3 door and is
+    // now opened by hiring a Head of Research, so no level announces it at all.
     const base = seedBase(db, repos, 2);
     repos.bases.updateProgression(base.id, 2, { xpIntoLevel: 280 });
     const at2 = repos.bases.findById('base-1') as Base;
@@ -125,16 +127,16 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     const { award } = awardPlayerXp(repos, at2, 'missionCompleted');
 
     expect(award.level).toBe(3);
-    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['research']);
+    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['training']);
     // With its copy, because a locked door has to be able to say what is behind it.
-    expect(award.unlocks[0]?.name).toBe('The Archive');
+    expect(award.unlocks[0]?.name).toBe('Drills');
     expect(award.unlocks[0]?.description).toBeTruthy();
   });
 
   it('reports every door a single oversized award crossed, not just the last', () => {
     const { db, repos } = makeRepos();
     // Level 1 with 980 banked. One quest (200) clears level 1 (100), level 2 (300) and level 3
-    // (600) in one go, landing on 4: past both the Archive at 3 and nothing else.
+    // (600) in one go, landing on 4: past Drills at 3 and nothing else.
     const base = seedBase(db, repos, 1);
     repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 980 });
     const at1 = repos.bases.findById('base-1') as Base;
@@ -142,7 +144,7 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
     const { award } = awardPlayerXp(repos, at1, 'questCompleted');
 
     expect(award.levelsGained).toBeGreaterThan(1);
-    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['research']);
+    expect(award.unlocks.map((unlock) => unlock.id)).toEqual(['training']);
   });
 
   it("never leaves stored progress at or above the stored level's threshold", () => {
@@ -192,13 +194,13 @@ describe('levelUpFrom: one announcement for a whole settlement', () => {
     // Two settlements landing on one read, a mission home and a build finished, each crossing a
     // level with a door on it. Announcing only the last one loses the first for good: no later
     // read re-resolves a settle, so this response is the only place it can ever be said.
-    const first = findPlayerUnlock('research');
-    const second = findPlayerUnlock('market');
+    const first = findPlayerUnlock('training');
+    const second = findPlayerUnlock('bar');
     expect(first, 'the catalogue must still have these doors').toBeDefined();
     expect(second).toBeDefined();
 
     const announced = levelUpFrom([award(3, 1, [first!]), award(5, 2, [second!])]);
-    expect(announced?.unlocks.map((unlock) => unlock.id)).toEqual(['research', 'market']);
+    expect(announced?.unlocks.map((unlock) => unlock.id)).toEqual(['training', 'bar']);
   });
 });
 

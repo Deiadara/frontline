@@ -10,17 +10,34 @@ const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
 const buildStructure = vi.hoisted(() => vi.fn());
 const setGarrison = vi.hoisted(() => vi.fn());
+const getMarket = vi.hoisted(() => vi.fn());
+const barterResources = vi.hoisted(() => vi.fn());
+const getBlackMarket = vi.hoisted(() => vi.fn());
+const placeBlackMarketBid = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
   buildStructure,
   setGarrison,
+  getMarket,
+  barterResources,
+  getBlackMarket,
+  placeBlackMarketBid,
 }));
 
 const { ApiRequestError } = await import('./api');
-const { queryKeys, useSetGarrison, useBuildStructure, useLaunchMission, useMissions } =
-  await import('./queries');
+const {
+  queryKeys,
+  useSetGarrison,
+  useBuildStructure,
+  useLaunchMission,
+  useMissions,
+  useMarket,
+  useBarter,
+  useBlackMarket,
+  usePlaceBlackMarketBid,
+} = await import('./queries');
 const { useSession } = await import('../store/session');
 
 const LEVELLED = { level: 4, levelsGained: 1, grants: playerLevelGrants(4), unlocks: [] };
@@ -49,6 +66,10 @@ beforeEach(() => {
   getMissions.mockReset();
   buildStructure.mockReset();
   setGarrison.mockReset();
+  getMarket.mockReset();
+  barterResources.mockReset();
+  getBlackMarket.mockReset();
+  placeBlackMarketBid.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -195,5 +216,92 @@ describe('a level-up refreshes the §G layer it moved', () => {
         JSON.stringify(queryKeys.district('rustyard')),
       ]),
     );
+  });
+});
+
+/**
+ * The market and the back room are keyed by city (`['market', 'crossroads']`), and the writes on
+ * them answer with the whole refreshed board so the screen can show it without a second round
+ * trip. That is the entire reason those hooks write the cache instead of only invalidating it.
+ *
+ * The write has to land on the key the screen is reading. An exact `setQueryData(['market'], …)`
+ * does not: nothing subscribes to the bare prefix, so the board the server already paid for went
+ * into a cache entry with no observer and the screen kept the pre-trade board until the refetch
+ * came back. On a board two crews are both acting on, that is the gap that makes a market look
+ * broken.
+ *
+ * The refetch behind each write is held open here on purpose. A test whose assertion can be
+ * satisfied by the invalidation landing measures nothing about the write.
+ */
+describe('a write answered with a whole board puts it on the screen reading that city', () => {
+  /** A read that never answers, so only the mutation's own write can move what is on screen. */
+  const pending = () => new Promise<never>(() => undefined);
+
+  it('shows the traded market board before any refetch lands', async () => {
+    getMarket.mockResolvedValueOnce({ cityId: 'crossroads', caps: 10 });
+    getMarket.mockImplementation(pending);
+    barterResources.mockResolvedValueOnce({ market: { cityId: 'crossroads', caps: 90 } });
+    const { result } = harness(() => ({ market: useMarket('crossroads'), barter: useBarter() }));
+
+    await waitFor(() => expect(result.current.market.data?.caps).toBe(10));
+    result.current.barter.mutate({} as never);
+
+    await waitFor(() => expect(result.current.barter.isSuccess).toBe(true));
+    expect(result.current.market.data?.caps).toBe(90);
+  });
+
+  /*
+   * The same for the crew's own market, which is read with no city at all (`['market', '']`) while
+   * the board that comes back names the city it is. The two spellings are one room, so the answer
+   * has to land on it.
+   */
+  it('shows it on the bare read of the market a crew lives in', async () => {
+    getMarket.mockResolvedValueOnce({ cityId: 'crossroads', caps: 10 });
+    getMarket.mockImplementation(pending);
+    barterResources.mockResolvedValueOnce({ market: { cityId: 'crossroads', caps: 90 } });
+    const { result } = harness(() => ({ market: useMarket(), barter: useBarter() }));
+
+    await waitFor(() => expect(result.current.market.data?.caps).toBe(10));
+    result.current.barter.mutate({} as never);
+
+    await waitFor(() => expect(result.current.barter.isSuccess).toBe(true));
+    expect(result.current.market.data?.caps).toBe(90);
+  });
+
+  /*
+   * The control on the rule above. Every market write answers with the crew's *home* board
+   * whichever city it was made in (`routes/market.ts` calls `board(base, now)` with no city), so a
+   * write that landed on whatever market entry happened to be cached would put one city's barrow
+   * under another city's heading. The room the answer is about is the one it names.
+   */
+  it('leaves a board for a different city alone', async () => {
+    getMarket.mockResolvedValueOnce({ cityId: 'the-hollow', caps: 10 });
+    getMarket.mockImplementation(pending);
+    barterResources.mockResolvedValueOnce({ market: { cityId: 'crossroads', caps: 90 } });
+    const { result } = harness(() => ({ market: useMarket('the-hollow'), barter: useBarter() }));
+
+    await waitFor(() => expect(result.current.market.data?.caps).toBe(10));
+    result.current.barter.mutate({} as never);
+
+    await waitFor(() => expect(result.current.barter.isSuccess).toBe(true));
+    expect(result.current.market.data?.caps).toBe(10);
+  });
+
+  it('shows the bid shelf on the back room reading that city', async () => {
+    getBlackMarket.mockResolvedValueOnce({ cityId: 'crossroads', infamy: 10 });
+    getBlackMarket.mockImplementation(pending);
+    placeBlackMarketBid.mockResolvedValueOnce({
+      blackMarket: { cityId: 'crossroads', infamy: 90 },
+    });
+    const { result } = harness(() => ({
+      room: useBlackMarket('crossroads'),
+      bid: usePlaceBlackMarketBid(),
+    }));
+
+    await waitFor(() => expect(result.current.room.data?.infamy).toBe(10));
+    result.current.bid.mutate({} as never);
+
+    await waitFor(() => expect(result.current.bid.isSuccess).toBe(true));
+    expect(result.current.room.data?.infamy).toBe(90);
   });
 });

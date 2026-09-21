@@ -104,6 +104,8 @@ export const LOCATION_KINDS = [
    * the middle re-rolls the icon of every kind after it. Read the list by meaning, not by position.
    */
   'glasshouse',
+  // The Combine's seat, appended for the same reason (maintainer, 2026-09-19).
+  'combine_chapel',
 ] as const;
 export const LocationKindSchema = z.enum(LOCATION_KINDS);
 export type LocationKind = z.infer<typeof LocationKindSchema>;
@@ -1120,7 +1122,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     reward: 'Supplies straight off the beds, picked before they ever see a market.',
     /*
      * Between the Water Works (26) and the Soup Kitchen (14). The intake is what growing takes and
-     * the kitchen is what is left after the Directorate has weighed it; this is the growing itself,
+     * the kitchen is what is left after the Combine has weighed it; this is the growing itself,
      * so it pays less than the water it depends on and more than the ration line.
      */
     bonuses: [{ kind: 'resource', resource: 'supplies', perHour: 22 }],
@@ -1134,6 +1136,41 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       'A second pump on the intake line, so every bed is wet on the hour instead of when somebody remembers.',
       'Racks up the walls. Three tiers of beds under the same glass, and three harvests where there was one.',
     ],
+  },
+
+  /**
+   * The Chosen Chapel: where the Combine commands the city from (maintainer, 2026-09-19).
+   *
+   * The hardest ground in the game before anybody is standing on it. `baseDefense` 9 against a
+   * ceiling of 7 everywhere else, and it is meant to read that way on the map: this is the one
+   * location whose capture is the end of the campaign rather than a step in it, and Directive
+   * Zero is stood in it (`city/combine.ts`).
+   *
+   * What holding it pays is deliberately the two things the Combine had and the player did not:
+   * the city's fear, and the nerve that comes from having taken the room it was run from. Neither
+   * is the CCS unified bonus (a market discount) and neither repeats another CCS location, which
+   * `city.test.ts` holds.
+   */
+  combine_chapel: {
+    label: 'The Chosen Chapel',
+    blurb:
+      'A chapel in name. Glass, steel and a long table under the vault, and the room the whole city is run from. The pews were taken out a long time ago.',
+    reward:
+      'Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.',
+    bonuses: [
+      { kind: 'intimidation', flat: 12 },
+      { kind: 'unit_morale', flat: 8 },
+    ],
+    baseDefense: 9,
+    labels: [L('elevated', 3), L('crammed', 2), L('dark', 1)],
+    upgradeCost: { caps: 900, scrap: 260, highQualityMetal: 60, planks: 120 },
+    upgrades: [
+      'The long table is yours, and the people who used to sit at it know it.',
+      'The vault is lit again. Whoever looks up at the spire sees a different flag on it.',
+      'Orders go out from here, and the city does what it always did with orders from here.',
+    ],
+    /** §D8: taking the room the Combine ran the city from is the event of the whole game. */
+    captureInfamy: 40,
   },
 };
 

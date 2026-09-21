@@ -1,4 +1,5 @@
 import { BUILDING_KINDS } from '../building/kinds.js';
+import { SYNDIC_ARMOR, SYNDIC_PENETRATION } from '../city/combine.js';
 import { CITY_DISTRICTS } from '../city/districts.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
 import { markIndex } from '../crew/marks.js';
@@ -7,7 +8,7 @@ import type { FeatEra, FeatReward, FeatSize } from './rewards.js';
 import type { FeatMeasure } from './measures.js';
 
 /**
- * The feats (maintainer request, 2026-09-13): two hundred things to go and do.
+ * The feats (maintainer request, 2026-09-13): nearly five hundred things to go and do.
  *
  * ## How this is built, and why it is data rather than prose
  *
@@ -16,7 +17,7 @@ import type { FeatMeasure } from './measures.js';
  * whose targets do not climb, refuses an id used twice, and refuses a scope that names a district
  * or a building the game does not have. A catalogue this size cannot be kept honest by reading it.
  *
- * The rewards come from the nine helpers below rather than being typed out two hundred
+ * The rewards come from the nine helpers below rather than being typed out five hundred
  * times. That is not only brevity: a helper is priced once, in one place, against the survey of
  * what the live economy actually pays, so an author choosing `purse('mid', 'medium')` cannot
  * accidentally hand over four times what the feat beside it pays for the same work.
@@ -28,6 +29,7 @@ import type { FeatMeasure } from './measures.js';
  *
  *   * **the work**: missions, the core loop, and the one every player touches;
  *   * **fighting**: declared battles, units committed, ground taken;
+ *   * **the Combine**: the regime's units, its leaders and its ground, on a card of their own;
  *   * **the city**: scouting, holdings, whole districts, gates;
  *   * **the district**: buildings, traps, fittings, the things that are built and not won;
  *   * **the crew**: units, officers, the Overseer's own sheet;
@@ -57,11 +59,25 @@ import type { FeatMeasure } from './measures.js';
 
 // --- the reward helpers, priced once ---
 
+/**
+ * ## What the early bundles are made of, and why they changed (maintainer, 2026-09-18)
+ *
+ * The early tiers used to be caps and scrap, and scrap is the one thing the opening is not short
+ * of: a new crew holds 500 of it and the Scrap Run, a three minute job, brings back 34 more. What
+ * it holds none of is a faucet for **caps**, which no structure produces and which the second
+ * Nexus level wants 512 of, and what runs out next is **planks** and then **oil**.
+ *
+ * So the two early tiers lead with caps and carry all three of the things the first evening
+ * actually runs out of. They are worth about twice what they were, which the bands hold without
+ * argument: a `small` early was 220 against a ceiling of 500, and `spoils` and `wages` are the
+ * two helpers that stack on top of `medium`, so it stops at 1,812 rather than at the 2,180 the
+ * band would allow.
+ */
 const purse = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
-      small: { resources: { caps: 120, scrap: 40 } },
-      medium: { resources: { caps: 600, scrap: 200, planks: 120 } },
+      small: { resources: { caps: 240, scrap: 40, planks: 40, oil: 20 } },
+      medium: { resources: { caps: 800, scrap: 200, planks: 160, oil: 80 } },
       large: { resources: { caps: 1_800, scrap: 600, planks: 400, oil: 200 } },
     },
     mid: {
@@ -111,12 +127,22 @@ const street = (era: FeatEra, size: FeatSize): FeatReward => ({
   }[era][size],
 });
 
+/**
+ * Bodies.
+ *
+ * The early tiers pay **Scavengers** alongside the Razors, and used to pay Haulers. Haulers moved
+ * to Nexus 15 when both carriers were re-gated on the building that signs them
+ * (`units/catalog.ts`), so an early feat handing them over was handing a new crew a unit it could
+ * not replace for a fortnight, on a reward whose whole job is to teach what a bench is for.
+ * Scavengers are one bed each and trainable from the first second, so a crew paid them can go and
+ * buy more of the same.
+ */
 const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
   ({
     early: {
-      small: { units: { razors: 4 } },
-      medium: { units: { razors: 12, haulers: 4 } },
-      large: { units: { razors: 30, scrapers: 12, haulers: 8 } },
+      small: { units: { razors: 3, scavengers: 2 } },
+      medium: { units: { razors: 14, scavengers: 10 } },
+      large: { units: { razors: 30, scrapers: 12, scavengers: 20 } },
     },
     mid: {
       small: { units: { breakers: 6, razors: 8 } },
@@ -638,10 +664,37 @@ const WORK: FeatSpec[] = [
     ],
     'battle',
   ),
+  /**
+   * The haulage ladder opens on the second beat of the opening (maintainer, 2026-09-18).
+   *
+   * `overseer_taken` pays a new crew five Scavengers, which is enough to send one party out. This
+   * rung is what using them buys: three more carriers, so a player who did the thing the game
+   * just handed them the means to do comes back able to do it twice over. Three standard jobs at
+   * the Scrap Run's three minutes is ten minutes of play rather than an evening.
+   *
+   * Caps as well as bodies, because caps are what the opening is actually short of: nothing a new
+   * district produces is caps and the second Nexus level wants 512 of them.
+   *
+   * Prepended to the `hauls` ladder rather than stood on its own, and the reason is the screen:
+   * a block's title is its measure, so a standalone feat counting standard jobs would draw as a
+   * second card called "Standard missions" beside this one
+   * (`features/feats/featsList.ts:ladderTitle`). The ladder is also where it belongs, since
+   * haulage is what the carriers are for, and it gives this chain the instructor rung the
+   * catalogue's own note says most of them should open with.
+   */
   ...chain(
     'hauls',
     'missions_of_kind',
     [
+      {
+        id: 'first_jobs',
+        name: 'Three Jobs Home',
+        blurb: 'Send the crew out on three quiet jobs and get them all back. Bring bags next time.',
+        era: 'early',
+        size: 'small',
+        target: 3,
+        reward: { units: { scavengers: 3 }, resources: { caps: 200 } },
+      },
       {
         id: 'hauls_1',
         name: 'Quiet Money',
@@ -1348,8 +1401,9 @@ const FIGHTING: FeatSpec[] = [
    * of counters rewards showing up, and showing up is the one thing a player is going to do anyway.
    *
    * The thresholds are in `feats/battle.ts` rather than here, so a blurb promising a line twice
-   * your own and the settler that decides it cannot drift apart. Force is unit slots, not heads:
-   * see the note there for why counting bodies would make this ladder farmable with Razors.
+   * your own and the settler that decides it cannot drift apart. Force is the unit slots that
+   * stand in the line: see the note there for why counting bodies would make this ladder farmable
+   * with Razors, and why counting a district's porters made it farmable against a warehouse.
    */
   ...chain('odds', 'battles_won_outnumbered', [
     {
@@ -1384,7 +1438,7 @@ const FIGHTING: FeatSpec[] = [
     {
       id: 'overwhelmed_1',
       name: 'Four to One',
-      blurb: 'Win a fight where they had four unit slots on the ground for every one of yours.',
+      blurb: 'Win a fight where they had four unit slots in the line for every one of yours.',
       era: 'late',
       size: 'medium',
       target: 1,
@@ -1436,6 +1490,124 @@ const FIGHTING: FeatSpec[] = [
       size: 'large',
       target: 75,
       reward: rise(4, 'coin'),
+    },
+  ]),
+  /**
+   * §E: the fights the Netrunners were the reason for (maintainer, 2026-09-18).
+   *
+   * A jammer kills almost nobody, so every other battle ladder in this file is blind to one: a
+   * crew that wins on the back of forty per cent off the enemy's armour reads on the board as a
+   * crew that won. The threshold is in `feats/battle.ts` with the other four, so a blurb
+   * promising a real jam and the settler that decides it cannot drift apart.
+   */
+  ...chain('jammed', 'battles_won_jamming', [
+    {
+      id: 'jammed_1',
+      name: 'In Their Systems',
+      blurb: 'Win a fight with your jammers deep enough in the other side to be worth bringing.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'jammed_2',
+      name: 'Nothing Fired Straight',
+      blurb: 'Ten wins where the other crew never found out why their plate stopped working.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'jammed_3',
+      name: 'The Quiet War',
+      blurb: 'Forty fights decided by people who barely fired a shot between them.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: rise(4, 'blood'),
+    },
+  ]),
+  /**
+   * §A4: the fights that were decided days before they were called (maintainer, 2026-09-18).
+   *
+   * A cell is the only force in the game that can be somewhere before its crew has announced
+   * they want it (`sleepers.ts`), and nothing else on the board can see that it happened: the
+   * Sleepers wake into an ordinary deployment and the report names them like anybody else. This
+   * ladder is the one place the *setup* is counted rather than the fight.
+   *
+   * `battles_won_planted` needs a real enemy, unlike the jam: a cell woken onto an empty lot is
+   * a walk-in, and without the clause the chain would measure how much of the map is unheld.
+   */
+  ...chain('planted', 'battles_won_planted', [
+    {
+      id: 'planted_1',
+      name: 'Already Inside',
+      blurb: 'Win a fight on ground you had put people on before you called it.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'planted_2',
+      name: 'The Long Game',
+      blurb: 'Ten fights that were over before anybody knew they had started.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'planted_3',
+      name: 'Nobody Saw Them Arrive',
+      blurb: 'Thirty. The city has stopped being able to tell where your people are.',
+      era: 'late',
+      size: 'large',
+      target: 30,
+      reward: rise(4, 'blood'),
+    },
+  ]),
+  /**
+   * §A5: the Anodics, and the fights won inside the racket they brought (2026-09-19).
+   *
+   * `loud` is the only rule in the game whose weapon is the *ground*: the label goes onto the
+   * other side's reading of the battlefield and what it costs them is decided by their own
+   * sheets, so a crew that brings Anodics against something that hunts by ear has done something
+   * a report will never quite name. This is the one place it is counted.
+   *
+   * Shallower than the cell's ladder and starting earlier, because Anodics are rabble behind a
+   * level-two Scrapyard rather than a specialist behind a location: bringing some is an early
+   * decision, and the chain should be climbable by a crew making it.
+   */
+  ...chain('loud', 'battles_won_loud', [
+    {
+      id: 'loud_1',
+      name: 'Bring the Noise',
+      blurb: 'Win a fight with Anodics in the line, on ground they made unlistenable.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: street('early', 'small'),
+    },
+    {
+      id: 'loud_2',
+      name: 'Nobody Heard the Order',
+      blurb: 'Fifteen. Whole crews have walked into your racket and lost track of each other.',
+      era: 'mid',
+      size: 'medium',
+      target: 15,
+      reward: spoils('mid', 'medium'),
+    },
+    {
+      id: 'loud_3',
+      name: 'The Din',
+      blurb: 'Sixty fights decided by how loud you were willing to be.',
+      era: 'late',
+      size: 'large',
+      target: 60,
+      reward: rise(4, 'blood'),
     },
   ]),
   ...chain('routs', 'battles_won_lopsided', [
@@ -1583,6 +1755,602 @@ const FIGHTING: FeatSpec[] = [
       reward: spoils('late', 'large'),
     },
   ]),
+];
+
+// --- the Combine ---
+
+/**
+ * The Combine (maintainer, 2026-09-19): the regime that holds the city, on its own card.
+ *
+ * Six of the eight contested districts are the Combine's and the theme of the whole map is that
+ * it has been taken (`city/combine.ts`). Every ladder in the fighting section is blind to that:
+ * `kills` does not know whether the dead were looters or Greycoats, and `taken` counts a plot
+ * off another crew the same as one off the regime. So a crew that spent a month working its way
+ * up from the Docks to the Spire read on the board as a crew that had fought a lot. The measures
+ * here are tallied at the settle of any fight whose defender was the regime
+ * (`apps/server/src/feats/tally.ts`, `tallyCombineFight`), and nothing else moves them.
+ *
+ * ## One ladder per uniform
+ *
+ * The four common units are the ladder the city is built as: the conscript Levy on the cheapest
+ * ground, the Greycoats behind them as the difficulty rises, the Enforcers from the Annexes, the
+ * Suppressors on the Blacksite (`combineGarrison`). A ladder per unit is therefore a ladder up
+ * the map, and the eras follow it: nobody meets a Suppressor early. The targets are sized to the
+ * numbers each one turns up in, which is why the Levy's rungs are ten times the Suppressor's.
+ *
+ * ## The three leaders are standalones
+ *
+ * The Syndic, the Executioner and Directive Xero each die once, for the whole world, and are never
+ * replaced. `combine_leaders_slain` under any one of their ids can never reach two, so a ladder on
+ * it would be a ladder with one rung; these are `solo` for the same reason `overseer_taken` is.
+ * They pay at the top of the late band because each one is the end of a district, and the Chapel,
+ * which is Directive Xero's own plot, has a feat of its own for being held afterwards.
+ *
+ * ## The two crew measures
+ *
+ * `combine_districts_held` and `chapel_held` are read off the control map rather than tallied,
+ * for the reason every holding measure is: ground can be taken back, and a feat that asked "have
+ * you ever" would stay lit over a district the regime has walked back into. Six is the whole of
+ * the Combine's ground, which is why the ladder ends there and `catalog.test.ts` bounds it there.
+ *
+ * ## The turncoats
+ *
+ * `units_turned` is the one ladder in the catalogue that counts something that happened *to* the
+ * crew. Directive Xero's Change of Heart takes the units that would have been intimidated and keeps
+ * them, and the board would otherwise say nothing about it at all. It pays in experience, which
+ * is what a lost squad is worth, and the blurbs do not pretend it was a good day.
+ */
+const COMBINE: FeatSpec[] = [
+  ...chain('regime', 'combine_kills', [
+    {
+      id: 'regime_1',
+      name: 'The First Ten',
+      blurb: 'Ten of the Combine down. Levy, most likely, on the Docks. The regime has a face now.',
+      era: 'early',
+      size: 'small',
+      target: 10,
+      reward: street('early', 'small'),
+    },
+    {
+      id: 'regime_2',
+      name: 'A Hundred in Grey',
+      blurb:
+        'A hundred of the regime killed in your fights. Their replacements have a number and orders.',
+      era: 'mid',
+      size: 'small',
+      target: 100,
+      reward: spoils('mid', 'small'),
+    },
+    {
+      id: 'regime_3',
+      name: 'A Bad Quarter for the Ministry',
+      blurb:
+        'Five hundred dead in the Combine’s own ledger, all of them yours. Somebody upstairs has noticed.',
+      era: 'mid',
+      size: 'medium',
+      target: 500,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'regime_4',
+      name: 'Two Thousand Uniforms',
+      blurb: 'Two thousand of the regime killed. The Blacksite drill square has gaps in the ranks.',
+      era: 'late',
+      size: 'medium',
+      target: 2_000,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'regime_5',
+      name: 'The Conscription Notices',
+      blurb:
+        'Six thousand of the Combine dead. The Levy is being raised from streets that used to be exempt.',
+      era: 'late',
+      size: 'large',
+      target: 6_000,
+      reward: street('late', 'large'),
+    },
+    {
+      id: 'regime_6',
+      name: 'What the Spire Cannot Replace',
+      blurb:
+        'Fifteen thousand of the regime killed in your fights. There is no district left that can spare them.',
+      era: 'late',
+      size: 'large',
+      target: 15_000,
+      reward: rise(6, 'blood'),
+    },
+  ]),
+  ...chain(
+    'levy',
+    'combine_kills_of',
+    [
+      {
+        id: 'levy_1',
+        name: 'Fortnight of Drill',
+        blurb:
+          'Twenty five conscripts of the Civic Levy killed. A surplus blade and two weeks of training each.',
+        era: 'early',
+        size: 'small',
+        target: 25,
+        reward: purse('early', 'small'),
+      },
+      {
+        id: 'levy_2',
+        name: 'Every Street Corner',
+        blurb:
+          'Two hundred and fifty Levy down. They are on every corner because there are so many of them.',
+        era: 'mid',
+        size: 'small',
+        target: 250,
+        reward: purse('mid', 'small'),
+      },
+      {
+        id: 'levy_3',
+        name: 'The Quota',
+        blurb:
+          'A thousand conscripts killed. The Combine calls that a quarter’s intake and raises another.',
+        era: 'mid',
+        size: 'medium',
+        target: 1_000,
+        reward: spoils('mid', 'medium'),
+      },
+      {
+        id: 'levy_4',
+        name: 'Nobody Left to Conscript',
+        blurb:
+          'Four thousand of the Levy dead in your fights. The notices go up and the streets stay empty.',
+        era: 'late',
+        size: 'medium',
+        target: 4_000,
+        reward: spoils('late', 'medium'),
+      },
+    ],
+    'civic_levy',
+  ),
+  ...chain(
+    'greycoats',
+    'combine_kills_of',
+    [
+      {
+        id: 'greycoats_1',
+        name: 'A Rifle and a Number',
+        blurb:
+          'Twenty Greycoats killed. Government infantry, named for the coat, ordered to hold whatever they stood on.',
+        era: 'early',
+        size: 'medium',
+        target: 20,
+        reward: street('early', 'medium'),
+      },
+      {
+        id: 'greycoats_2',
+        name: 'The Coats Come Off',
+        blurb: 'Two hundred Greycoats down. The Steelbelt is full of grey cloth nobody claims.',
+        era: 'mid',
+        size: 'small',
+        target: 200,
+        reward: spoils('mid', 'small'),
+      },
+      {
+        id: 'greycoats_3',
+        name: 'A Rifle Company, Twice',
+        blurb: 'Eight hundred Greycoats killed in your fights. The dug-in ones die where they dug.',
+        era: 'mid',
+        size: 'large',
+        target: 800,
+        reward: street('mid', 'large'),
+      },
+      {
+        id: 'greycoats_4',
+        name: 'Three Thousand Helmets',
+        blurb:
+          'Three thousand of the grey infantry dead. The Combine has stopped issuing the number, only the coat.',
+        era: 'late',
+        size: 'large',
+        target: 3_000,
+        reward: spoils('late', 'large'),
+      },
+    ],
+    'greycoat',
+  ),
+  ...chain(
+    'enforcers',
+    'combine_kills_of',
+    [
+      {
+        id: 'enforcers_1',
+        name: 'The Batons Were Not for Show',
+        blurb:
+          'Ten Street Enforcers killed. Police infantry, more plate than a Greycoat and less patience.',
+        era: 'mid',
+        size: 'small',
+        target: 10,
+        reward: purse('mid', 'small'),
+      },
+      {
+        id: 'enforcers_2',
+        name: 'Nobody Is Being Arrested',
+        blurb:
+          'A hundred Enforcers down. What they carried into the Annexes for raids is in your stash now.',
+        era: 'mid',
+        size: 'medium',
+        target: 100,
+        reward: contraband('combat_stims', 'adrenaline_syringes', 'banned_explosives'),
+      },
+      {
+        id: 'enforcers_3',
+        name: 'The Raids Stop',
+        blurb:
+          'Four hundred Street Enforcers killed. There are streets the Combine no longer polices on foot.',
+        era: 'late',
+        size: 'medium',
+        target: 400,
+        reward: spoils('late', 'medium'),
+      },
+      {
+        id: 'enforcers_4',
+        name: 'The Plate Did Not Help',
+        blurb:
+          'Fifteen hundred Enforcers dead in your fights. Thirty points of armour, and none of it counted.',
+        era: 'late',
+        size: 'large',
+        target: 1_500,
+        reward: rise(5, 'blood'),
+      },
+    ],
+    'street_enforcers',
+  ),
+  ...chain(
+    'suppressors',
+    'combine_kills_of',
+    [
+      {
+        id: 'suppressors_1',
+        name: 'The Street Is Open',
+        blurb:
+          'Five Suppressor crews killed. A tripod, a belt and a closed street, and you crossed it anyway.',
+        era: 'mid',
+        size: 'small',
+        target: 5,
+        // The answer to a tripod is a bigger gun: pages of the Juggernaut's mount, which is
+        // the one sheet in the catalogue about out-shooting a Suppressor rather than out-running it.
+        reward: leaves('pg_juggernauts_gun_mount', 2),
+      },
+      {
+        id: 'suppressors_2',
+        name: 'Fifty Tripods',
+        blurb:
+          'Fifty Suppressors down. The Blacksite issues them to the berms and you keep bringing them back in pieces.',
+        era: 'late',
+        size: 'medium',
+        target: 50,
+        reward: kit('late', 'medium'),
+      },
+      {
+        id: 'suppressors_3',
+        name: 'Nothing Left to Deny',
+        blurb:
+          'Two hundred and fifty Suppressor crews killed. Area denial needs an area, and you hold it.',
+        era: 'late',
+        size: 'large',
+        target: 250,
+        reward: rise(6, 'coin'),
+      },
+    ],
+    'suppressor',
+  ),
+  ...chain('liberated', 'combine_locations_taken', [
+    {
+      id: 'liberated_1',
+      name: 'Off the Regime',
+      blurb:
+        'Take one location off the Combine. The Tideline Market is the closest and the cheapest.',
+      era: 'early',
+      size: 'medium',
+      target: 1,
+      reward: spoils('early', 'medium'),
+    },
+    {
+      id: 'liberated_2',
+      name: 'Five Doors the Combine Lost',
+      blurb: 'Five plots taken off the regime. The Docks and the Belt are where they come easiest.',
+      era: 'mid',
+      size: 'medium',
+      target: 5,
+      reward: spoils('mid', 'medium'),
+    },
+    {
+      id: 'liberated_3',
+      name: 'Up the Hill',
+      blurb: 'Twelve Combine holdings taken. You are past the Green Belt and the ground is harder.',
+      era: 'late',
+      size: 'medium',
+      target: 12,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'liberated_4',
+      name: 'The Annexes Answer to You',
+      blurb:
+        'Twenty five locations taken off the regime, retakes included. Whole districts have changed their signage.',
+      era: 'late',
+      size: 'large',
+      target: 25,
+      reward: spoils('late', 'large'),
+    },
+    {
+      id: 'liberated_5',
+      name: 'Every Plot on the Climb',
+      blurb: 'Fifty Combine holdings taken, counting every one they took back and you took again.',
+      era: 'late',
+      size: 'large',
+      target: 50,
+      reward: rise(7, 'coin'),
+    },
+  ]),
+  ...chain('pushback', 'combine_fights_won', [
+    {
+      id: 'pushback_1',
+      name: 'Against the Uniform',
+      blurb:
+        'Win a fight against the Combine. Anybody in the city can lose one; this is the other thing.',
+      era: 'early',
+      size: 'medium',
+      target: 1,
+      reward: spoils('early', 'medium'),
+    },
+    {
+      id: 'pushback_2',
+      name: 'Ten Over the Regime',
+      blurb: 'Ten fights won against the Combine. The Levy on the Docks flinches at your colours.',
+      era: 'mid',
+      size: 'medium',
+      target: 10,
+      reward: spoils('mid', 'medium'),
+    },
+    {
+      id: 'pushback_3',
+      name: 'A Standing Problem',
+      blurb:
+        'Forty wins over the regime. There is a file on you in the Annexes and it has a second volume.',
+      era: 'late',
+      size: 'medium',
+      target: 40,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'pushback_4',
+      name: 'The Blacksite Takes Notes',
+      blurb:
+        'A hundred and twenty fights won against the Combine. The rifle company drills against your formations now.',
+      era: 'late',
+      size: 'large',
+      target: 120,
+      reward: street('late', 'large'),
+    },
+    {
+      id: 'pushback_5',
+      name: 'The Only Uniform Saluted',
+      blurb:
+        'Three hundred wins over the regime. There are streets where yours is the only uniform that gets saluted.',
+      era: 'late',
+      size: 'large',
+      target: 300,
+      reward: rise(6, 'blood'),
+    },
+  ]),
+  ...chain('clean_sweep', 'combine_fights_won_flawless', [
+    {
+      id: 'clean_sweep_1',
+      name: 'Not One of Ours',
+      blurb:
+        'Beat the Combine and bring every unit home. The Suppressors are supposed to make that impossible.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'clean_sweep_2',
+      name: 'Ten Clean Against the Regime',
+      blurb:
+        'Ten fights won over the Combine without burying anybody. The Infirmary has a quiet week.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'clean_sweep_3',
+      name: 'The Berms Were Empty',
+      blurb: 'Forty flawless wins against the regime. Their area denial denied nothing.',
+      era: 'late',
+      size: 'large',
+      target: 40,
+      reward: street('late', 'large'),
+    },
+    {
+      id: 'clean_sweep_4',
+      name: 'The Combine Buries, You Do Not',
+      blurb:
+        'A hundred and twenty fights won against the regime with every unit walked back off the field.',
+      era: 'late',
+      size: 'large',
+      target: 120,
+      reward: rise(6, 'coin'),
+    },
+  ]),
+  /**
+   * Won while the district's legendary still lived, so under his power: Standing Orders on every
+   * Combine sheet in the Annexes, the Executioner finishing anybody under a tenth of a life,
+   * Directive Xero's line at a hundred morale. It is decided at the settle from the same control
+   * rows the engine reads (`combinePresenceOver`), so a fight after the leader has fallen counts
+   * for `pushback` only.
+   *
+   * The figures come off `city/combine.ts` rather than being typed out, because the retune of
+   * 2026-09-20 left two of these blurbs describing a power the game no longer had: twenty points
+   * off the player's armour, and a morale bonus that had gone to Directive Xero. A number written
+   * into copy is a number nothing moves when the mechanic moves.
+   */
+  ...chain('shadow', 'combine_fights_won_shadowed', [
+    {
+      id: 'shadow_1',
+      name: 'Under His Eye',
+      blurb:
+        'Win a fight in a district whose Combine legendary was still standing when you won it.',
+      era: 'mid',
+      size: 'medium',
+      target: 1,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'shadow_2',
+      name: 'Ten in His Shadow',
+      blurb: `Ten fights won under a living leader’s power. Standing Orders put +${SYNDIC_PENETRATION} penetration and +${SYNDIC_ARMOR} armour on the line facing you, and you won anyway.`,
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: street('late', 'medium'),
+    },
+    {
+      id: 'shadow_3',
+      name: 'Where the Executioner Walks',
+      blurb:
+        'Thirty wins in a district its legendary still commands. Anybody left under a tenth of a life dies, and you brought that into the plan.',
+      era: 'late',
+      size: 'large',
+      target: 30,
+      reward: spoils('late', 'large'),
+    },
+    {
+      id: 'shadow_4',
+      name: 'A Hundred Morale Means Nothing',
+      blurb:
+        'Seventy five fights won under a leader’s power. The Combine’s line cannot be intimidated, and it can still be broken.',
+      era: 'late',
+      size: 'large',
+      target: 75,
+      reward: rise(8, 'blood'),
+    },
+  ]),
+  ...chain('turncoats', 'units_turned', [
+    {
+      id: 'turncoats_1',
+      name: 'One of Yours Stayed',
+      blurb:
+        'Lose a unit to Directive Xero’s Change of Heart. They would have run; instead they crossed the line and stood with him.',
+      era: 'late',
+      size: 'small',
+      target: 1,
+      reward: lesson('late', 'small'),
+    },
+    {
+      id: 'turncoats_2',
+      name: 'The Roll Call Is Shorter',
+      blurb:
+        'Twenty five of your units have gone over to the Combine in the CCS. You paid for every one of them, and you will fight every one of them.',
+      era: 'late',
+      size: 'medium',
+      target: 25,
+      reward: lesson('late', 'medium'),
+    },
+    {
+      id: 'turncoats_3',
+      name: 'They Wear Grey Now',
+      blurb:
+        'A hundred and fifty of your people changed sides under the Chapel. Their names are still on your ledger. Their faces are on the other side of the line.',
+      era: 'late',
+      size: 'large',
+      target: 150,
+      reward: lesson('late', 'large'),
+    },
+  ]),
+  ...chain('annexed', 'combine_districts_held', [
+    {
+      id: 'annexed_1',
+      name: 'A District the Regime Lost',
+      blurb:
+        'Hold every location in a district that was the Combine’s. The Docks are the first anyone manages.',
+      era: 'mid',
+      size: 'large',
+      target: 1,
+      reward: wages('mid', 'large'),
+    },
+    {
+      id: 'annexed_2',
+      name: 'Half Their Map',
+      blurb: 'Three of the six Combine districts held whole, at the same time, in your name.',
+      era: 'late',
+      size: 'large',
+      target: 3,
+      reward: wages('late', 'large'),
+    },
+    {
+      id: 'annexed_3',
+      name: 'The Regime Holds Nothing',
+      blurb:
+        'All six Combine districts held whole at once: Docks, Belt, Green Belt, Annexes, Blacksite and the Spire.',
+      era: 'late',
+      size: 'large',
+      target: 6,
+      reward: rise(8, 'coin'),
+    },
+  ]),
+  solo(
+    {
+      id: 'syndic_slain',
+      name: 'The Liaison Is Dead',
+      blurb: `Kill the Syndic on the Annexe Uplink. Every yard in the Annexes fights without Standing Orders from then on: no +${SYNDIC_PENETRATION} penetration, no +${SYNDIC_ARMOR} armour.`,
+      era: 'late',
+      size: 'large',
+      target: 1,
+      // The Annexes are the factories: one of everything the game will ever ask for in parts.
+      reward: kit('late', 'large'),
+    },
+    'combine_leaders_slain',
+    'syndic',
+  ),
+  solo(
+    {
+      id: 'executioner_slain',
+      name: 'Arrests Resume',
+      blurb:
+        'Kill the Executioner at the Blacksite Armory. Nobody on the Blacksite is finished off where they stand again.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(6, 'bodies'),
+    },
+    'combine_leaders_slain',
+    'executioner',
+  ),
+  solo(
+    {
+      id: 'directive_xero_slain',
+      name: 'The Chapel Is Quiet',
+      blurb:
+        'Kill Directive Xero in the Chosen Chapel. The Combine, in one person, carried out; nobody changes sides for him again.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(8, 'blood'),
+    },
+    'combine_leaders_slain',
+    'directive_xero',
+  ),
+  solo(
+    {
+      id: 'chapel_held',
+      name: 'Whose Chapel It Is',
+      blurb:
+        'Hold the Chosen Chapel at the top of the city. The regime’s headquarters, with your colours on the door.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(5, 'coin'),
+    },
+    'chapel_held',
+  ),
 ];
 
 // --- the city ---
@@ -1843,10 +2611,19 @@ const CITY: FeatSpec[] = [
     {
       id: 'scouted_3',
       name: 'Nowhere Left Dark',
-      blurb: 'Twelve districts walked. There is nothing on that map you have not seen.',
+      blurb: 'Every district but your own walked. There is nothing on that map you have not seen.',
       era: 'mid',
       size: 'medium',
-      target: 12,
+      /*
+       * Every district a crew can send anybody to, which is one short of the map.
+       *
+       * `sendScout` refuses the crew's own district outright (`own_district`), and nothing else
+       * ever writes a `district_intel` row for where you live, so `districts_scouted` tops out at
+       * eleven of twelve. This asked for twelve and sat at 11/12 for ever: the `stock_3` failure
+       * again, where a feat nobody can finish is indistinguishable from one nobody has got round
+       * to. Derived rather than typed, so a thirteenth district moves the rung with it.
+       */
+      target: CITY_DISTRICTS.length - 1,
       reward: lesson('mid', 'medium'),
     },
   ]),
@@ -2806,6 +3583,36 @@ const DISTRICT: FeatSpec[] = [
 // --- the crew ---
 
 const CREW: FeatSpec[] = [
+  /**
+   * The first rung of the game, finished before the player has seen the board.
+   *
+   * The opening had no move in it (maintainer, 2026-09-18). A new crew stands a Nexus and a
+   * Generator, holds 600 caps against the 512 a second Nexus level costs, produces six oil an
+   * hour and no caps at all, and every unit in the game was behind a Gauntlet that needs Nexus 3
+   * and Quarters 2. The eight Razors it is handed were therefore the only bodies it would ever
+   * see until missions paid for a barracks, and missions need bodies.
+   *
+   * Five Scavengers is the answer to that, paid for the one thing a player has already done by
+   * the time they read this sentence. They are one unit slot each against the twenty six a bare
+   * district houses, they are the cheapest loot capacity in the game, and with the carriers
+   * re-gated on the Nexus (`units/catalog.ts`) the crew can train more of them the moment it can
+   * afford to. The rung after this one is `first_jobs`, which pays three more for using them.
+   *
+   * Standalone rather than the head of a ladder, because it is the one feat in the catalogue
+   * whose measure can never reach two: `POST /overseer` refuses a second character.
+   */
+  solo(
+    {
+      id: 'overseer_taken',
+      name: 'Whose Name It Goes Under',
+      blurb: 'Pick the person the district answers to. Five Scavengers turn up the same evening.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: { units: { scavengers: 5 } },
+    },
+    'overseer_taken',
+  ),
   solo(
     {
       id: 'skills_70',
@@ -4139,6 +4946,52 @@ const NAME: FeatSpec[] = [
       reward: rise(6, 'coin'),
     },
   ]),
+  /**
+   * The Reimagining bench, paying out at the top tier.
+   *
+   * Three sheets in the sockets buy one the crew has never seen, and since the tiers went in
+   * (`blueprints/reimagine-odds.ts`) what comes back depends on what went in: three Basic sheets
+   * pay a Masterpiece once in two hundred, three Masterpiece sheets pay one four times in five.
+   * That spread is the whole ladder. The first rung is a thing that happens to a crew and the
+   * third is a thing a crew does on purpose, by spending dear paper to make dearer paper.
+   *
+   * Only three rungs, because the supply is small by construction: the game holds thirty eight
+   * Masterpiece sheets against two hundred and fifty five pages, and a fourth rung would be asking
+   * a player to run the bench for its own sake.
+   */
+  ...chain('bench', 'masterpieces_reimagined', [
+    {
+      id: 'bench_1',
+      name: 'One Good Sheet',
+      blurb:
+        'The Lab hands back a Masterpiece page. On cheap paper that is one trade in two hundred.',
+      era: 'mid',
+      // A Masterpiece sheet back for a Masterpiece sheet out. The point of the rung is to show a
+      // player what the sockets are for, and a page of the Colossus is the clearest way to say it.
+      size: 'small',
+      target: 1,
+      reward: leaves('pg_colossus_reactor_housing', 1),
+    },
+    {
+      id: 'bench_2',
+      name: 'Five Off the Bench',
+      blurb:
+        'Five Masterpiece pages out of the Lab. You are choosing what goes in the sockets now.',
+      era: 'late',
+      size: 'medium',
+      target: 5,
+      reward: kit('late', 'medium'),
+    },
+    {
+      id: 'bench_3',
+      name: 'Nothing Cheap Goes In',
+      blurb: 'Fifteen Masterpiece pages reimagined. The bench only gets fed the good stuff.',
+      era: 'late',
+      size: 'large',
+      target: 15,
+      reward: rise(4, 'coin'),
+    },
+  ]),
   ...chain('blueprints', 'blueprints_unlocked', [
     {
       id: 'blueprints_1',
@@ -4481,6 +5334,7 @@ export const FEATS: readonly FeatSpec[] = [
   ...WORK,
   ...DISTRICT_WORK,
   ...FIGHTING,
+  ...COMBINE,
   ...CITY,
   ...DISTRICT,
   ...CREW,

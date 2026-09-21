@@ -1,7 +1,9 @@
 import {
   CITY_LOCATIONS,
+  DECLARE_INFAMY_COST,
   MAX_LOCATION_LEVEL,
   UNIT_CATALOG,
+  declarationWindow,
   type Base,
   type Location,
 } from '@frontline/shared';
@@ -13,6 +15,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { setGarrison } from './actions.js';
 import { isFightingForce } from '../battle/forces.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { elsewhere } from '../testing/districts.js';
 
 /**
  * §A5: a porter is never in a line, at any door.
@@ -76,6 +79,65 @@ async function makeStack(): Promise<Stack> {
   const base: Base = { ...found, army: { scavengers: 6, haulers: 4, razors: 5 } };
   app.repos.bases.updateArmy(base.id, base.army, base.trainingQueue);
   return { app, base, token };
+}
+
+/**
+ * The one exception the rule has, written onto the crew: `carriers_fight` (Yard Discipline, the
+ * fifth rung of the Chief Quartermaster's track, and the Scrap Cathedral).
+ *
+ * Returns the base as it reads *after* the write, because every door reads the crew back out of
+ * the repository and a stale fixture would prove nothing.
+ */
+function withYardDiscipline(stack: Stack): Base {
+  stack.app.repos.bases.updateResearch(stack.base.id, {
+    ...stack.base.research,
+    technologies: [...stack.base.research.technologies, 'tech_everybody_fights'],
+  });
+  const reread = stack.app.repos.bases.findById(stack.base.id);
+  if (!reread) throw new Error('the fixture crew vanished');
+  return { ...reread, army: stack.base.army };
+}
+
+/**
+ * Somebody else's gate, called for the earliest mark the board allows, so there is a real fight
+ * to deploy into. Goes through the route rather than the repository because the door is what is
+ * under test.
+ */
+async function callOutTheNeighbour(stack: Stack): Promise<string> {
+  const victim = await stack.app.inject({
+    method: 'POST',
+    url: '/api/auth/register',
+    payload: { username: 'the_neighbour', password: 'hunter2pass' },
+  });
+  const theirs = await chooseOverseer(stack.app, victim.json<{ token: string }>().token);
+  const theirBase = theirs.json<{ base: { id: string } }>().base.id;
+  // Moved off whatever plot they were given: a crew cannot be called out on ground the caller
+  // lives on, and `quietestDistrict` may well have put the two side by side.
+  const district = elsewhere(stack.base.districtId);
+  const theirs2 = stack.app.repos.bases.findById(theirBase);
+  if (!theirs2) throw new Error('the neighbour has no base');
+  stack.app.repos.bases.replace({ ...theirs2, districtId: district });
+  stack.app.repos.city.markScouted(stack.base.id, district, new Date().toISOString());
+  const mine = stack.app.repos.bases.findById(stack.base.id);
+  if (!mine) throw new Error('the fixture crew vanished');
+  stack.app.repos.bases.updateEconomy(mine.id, {
+    ...mine.economy,
+    infamy: DECLARE_INFAMY_COST + 100,
+  });
+
+  const called = await stack.app.inject({
+    method: 'POST',
+    url: '/api/battles/declare',
+    headers: { authorization: `Bearer ${stack.token}` },
+    payload: {
+      target: { kind: 'gate', districtId: district },
+      scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
+    },
+  });
+  expect(called.statusCode, called.body.slice(0, 300)).toBe(200);
+  const pending = stack.app.repos.sieges.pending();
+  if (pending[0] === undefined) throw new Error('no fight was scheduled');
+  return pending[0].id;
 }
 
 /** A location in the district this crew has scouted, and the control row that goes with it. */
@@ -161,5 +223,73 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
       expect(isFightingForce({ razors: 10, [porter.id]: 0 }), porter.id).toBe(true);
     }
     expect(isFightingForce({ razors: 4, snipers: 2 })).toBe(true);
+  });
+
+  /**
+   * ...and the exception, which the doors did not honour until 2026-09-18.
+   *
+   * `carriers_fight` has always worked *inside* a fight: `standsInLine` is what every round of
+   * `engine.ts` asks, and a porter standing in a defence is counted at `CARRIER_STRENGTH`. The
+   * doors asked `isCombatUnit` instead, so a crew that had paid for Yard Discipline still could
+   * not send a porter anywhere a fight was going to happen. The perk was reachable only when the
+   * enemy came to the crew's own plot, which is the one case a player does not choose.
+   *
+   * Tested at each door separately rather than only on the predicate: the fix landed at three
+   * sites and one control would leave two of them free to drift back.
+   */
+  describe('unless the crew has bought the exception', () => {
+    it('lets the predicate through only on a crew that holds carriers_fight', () => {
+      const fighting = { carriersFight: true, unitMarks: {} };
+      for (const porter of UNIT_CATALOG.filter((unit) => unit.tier === 'carrier')) {
+        expect(isFightingForce({ [porter.id]: 1 }, fighting), porter.id).toBe(true);
+        expect(isFightingForce({ razors: 2, [porter.id]: 1 }, fighting), porter.id).toBe(true);
+      }
+      // A key that names nothing is still refused, whatever the crew has bought: this is also the
+      // lock that keeps `constructor` and `toString` out of a roster.
+      expect(isFightingForce({ constructor: 1 }, fighting)).toBe(false);
+      expect(isFightingForce({ not_a_unit: 1 }, fighting)).toBe(false);
+    });
+
+    it('posts porters to a garrison, and still refuses them without the programme', async () => {
+      const stack = await makeStack();
+      const location = somewhere();
+      held(stack, location);
+
+      expect(
+        setGarrison(stack.app.repos, {
+          base: stack.base,
+          location,
+          changes: { scavengers: 3 },
+        }),
+      ).toEqual({ kind: 'refused', reason: 'not_a_fighting_force' });
+
+      const schooled = withYardDiscipline(stack);
+      expect(
+        setGarrison(stack.app.repos, { base: schooled, location, changes: { scavengers: 3 } }).kind,
+      ).toBe('ok');
+    });
+
+    it('deploys porters to a coming fight, and still refuses them without it', async () => {
+      const stack = await makeStack();
+      const battleId = await callOutTheNeighbour(stack);
+      const send = async (): Promise<{ code: number; body: string }> => {
+        const sent = await stack.app.inject({
+          method: 'POST',
+          url: '/api/battles/deploy',
+          headers: { authorization: `Bearer ${stack.token}` },
+          payload: { battleId, changes: { scavengers: 2 } },
+        });
+        return { code: sent.statusCode, body: sent.body };
+      };
+
+      const refused = await send();
+      expect(refused.code, 'the door let a porter into a fight').toBe(409);
+      // The refusal the player reads, so this cannot pass on some unrelated 409.
+      expect(refused.body).toContain('do not fight');
+
+      withYardDiscipline(stack);
+      const allowed = await send();
+      expect(allowed.code, `Yard Discipline bought nothing: ${allowed.body}`).toBe(200);
+    });
   });
 });

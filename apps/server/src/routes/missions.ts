@@ -11,7 +11,7 @@ import {
   findMissionTemplate,
   missionForceRefusal,
   unitsBeyondNotoriety,
-  missionBoardDay,
+  launchableBoardKeys,
   missionOffers,
   unledRule,
   type Base,
@@ -105,7 +105,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         areaStatesFor(app.repos, settlement.base),
         active,
         settlement.base.level,
-        missionBoardDay(now),
+        now,
         (({ missionSpeedPercent, missionSpoilsPercent }) => ({
           speedPercent: missionSpeedPercent,
           spoilsPercent: missionSpoilsPercent,
@@ -127,9 +127,25 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       throw new AppError('NOT_FOUND', 'That mission is not on the board');
     }
     const now = new Date();
-    // The offer has to be one this area is making *today*: boards turn over at midnight, Athens, so a
-    // tab left open overnight is posting a job that is no longer on the wall.
-    if (!missionOffers(areaId, missionBoardDay(now)).some((offer) => offer.id === templateId)) {
+    /*
+     * The offer has to be one this area is making now, or was one slot ago.
+     *
+     * A district's board turns over at midnight, Athens, so a tab left open overnight is posting
+     * a job that is no longer on the wall. `misc` turns over hourly now
+     * (`MISC_BOARD_ROTATION_MINUTES`), and one slot of grace is what stops a player who opened
+     * the send window at 10:59 and pressed the button at 11:00 being refused a card that was on
+     * the wall when they read it. `launchableBoardKeys` is one key for a district and two for
+     * misc, so nothing about the daily boards changed.
+     *
+     * The matching key is kept rather than only asked about, because it is what the card's page
+     * prize was drawn from and `launchMission` freezes that prize onto the row. The current slot
+     * is first in the list, so a job standing on both boards is launched on the terms the player
+     * is looking at now.
+     */
+    const boardKey = launchableBoardKeys(areaId, now).find((key) =>
+      missionOffers(areaId, key).some((offer) => offer.id === templateId),
+    );
+    if (boardKey === undefined) {
       throw new AppError('NOT_FOUND', 'That job is not on offer there');
     }
 
@@ -282,6 +298,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       base,
       template,
       areaId,
+      boardKey,
       force,
       vehicles,
       now,
@@ -393,7 +410,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           areaStatesFor(app.repos, settled),
           active,
           settled.level,
-          missionBoardDay(now),
+          now,
           (({ missionSpeedPercent, missionSpoilsPercent }) => ({
             speedPercent: missionSpeedPercent,
             spoilsPercent: missionSpoilsPercent,

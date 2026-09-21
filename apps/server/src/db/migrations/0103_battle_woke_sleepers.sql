@@ -1,0 +1,11 @@
+-- Whether the crew that called this fight had Sleepers already standing on the ground.
+--
+-- A fact about the *declaration*, and the only place it can live. A cell is poured into the
+-- attacking deployment the moment the fight is called and the row is deleted (`declare.ts`), so by
+-- the time the settler runs there is nothing left to ask: the Sleepers in the deployment look
+-- exactly like Sleepers somebody marched in the ordinary way.
+--
+-- The distinction is the whole of the `planted` feat ladder: it counts plans that came off, not
+-- crews that happen to own the sheet. Defaulted 0, which is the truth for every fight declared
+-- before cells existed.
+ALTER TABLE scheduled_battles ADD COLUMN woke_sleepers INTEGER NOT NULL DEFAULT 0;

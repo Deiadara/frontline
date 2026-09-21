@@ -161,6 +161,9 @@ describe('who gets away', () => {
       brokeAt,
       started: alive,
       suppressed: 0,
+      // Only `jamPercent` reads it, and nothing here is fitted, so the catalogue figure is it.
+      sheet: unit.stats,
+      loudTier: 0,
       dealt: 0,
     };
   };

@@ -85,6 +85,7 @@ function viewFor(side: BattleSide, trapId: string | null): BattleView {
       defender: { kind: 'crew', baseId: side === 'defender' ? base.id : 'them' },
       scheduledFor: MARK,
       holdAfterCapture: false,
+      wokeSleepers: false,
       declaredAt: NOW,
       resolvedAt: null,
       seed: 'press-seed',

@@ -44,7 +44,7 @@ round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WE
 
 ### Before round one
 
-- **Intimidation** (`cow`). Each side's total nerve, which is the morale of every unit in it, is
+- **Intimidation** (`intimidate`). Each side's total nerve, which is the morale of every unit in it, is
   compared with the other side's total menace. Where the pressure is greater the excess buys
   silence, cheapest first: the shakiest units do not fire this fight. They still stand in the line
   and still take casualties, so intimidation is not a way of killing anybody.

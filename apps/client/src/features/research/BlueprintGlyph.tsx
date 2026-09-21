@@ -793,6 +793,27 @@ const MOTIFS: Readonly<Record<BlueprintMotif, MotifArt>> = {
       </>
     ),
   },
+  /*
+   * §D8: the Stereo Rig's cover. A horn speaker in section, throat on the left, mouth flaring
+   * right, with the driver behind it. Its own drawing rather than a reused one, because the
+   * catalogue's rule is that no two documents open on the same picture.
+   */
+  horn: {
+    body: (pen) => (
+      <>
+        <path d="M-4.6-1.5H-2.2L4.6-4.9V4.9L-2.2 1.5H-4.6Z" strokeWidth={pen(1.5)} />
+      </>
+    ),
+    detail: (pen) => (
+      <>
+        {/* The driver at the narrow end, and the flare lines down the bell. */}
+        <path d="M-4.6-1.5V1.5" strokeWidth={pen(1.15)} />
+        <path d="M0-3.2V3.2M2.3-4.1V4.1" strokeWidth={pen(0.9)} />
+        {/* Two arcs of sound coming out of it, which is the whole point of the card. */}
+        <path d="M5.9-2.4A3 3 0 0 1 5.9 2.4" strokeWidth={pen(0.9)} fill="none" />
+      </>
+    ),
+  },
   turbine: {
     body: (pen) => (
       <>

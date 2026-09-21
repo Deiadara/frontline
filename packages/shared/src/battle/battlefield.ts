@@ -111,6 +111,8 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   revolutionary_statue: ['open_ground', 'urban'],
   // Glass walls and one-unit aisles between the beds: a room, with the sky showing through it.
   glasshouse: ['indoor'],
+  // A room at the top of a tower in the middle of a city: a corridor into it, streets around it.
+  combine_chapel: ['indoor', 'urban'],
 };
 
 /**

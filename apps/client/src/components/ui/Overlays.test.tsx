@@ -1,5 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
+import { HoverCard } from './HoverCard';
 import { Modal } from './Modal';
 import { TooltipLayer } from './TooltipLayer';
 
@@ -42,5 +44,65 @@ describe('what floats over what', () => {
     // The backdrop carries the dialog's layer; the panel inside it is positioned within.
     const backdrop = screen.getByTestId('window').parentElement;
     expect(floatingLayer(tip)).toBeGreaterThan(floatingLayer(backdrop));
+  });
+});
+
+/**
+ * A card and the window it opened, which used to be drawn at the same time (maintainer, 2026-09-20).
+ *
+ * A `HoverCard` trigger that also opens a dialog keeps the pointer on it, and from a keyboard keeps
+ * the focus on it, so nothing ever fired the leave that closes the card. The card outranks the
+ * dialog by `z-[200]` against `z-[100]`, which the test above is about, so what a player got was the
+ * same sheet twice with the stranded copy on top: measured in the browser at 1280x720, 720x230 of
+ * a 960x392 unit window covered by the hover it had been opened from.
+ *
+ * The rule is which window is on top rather than "a dialog is open anywhere", which is why the
+ * third case is here: a card whose trigger is *inside* the dialog is the card the dialog exists to
+ * make reachable, and turning that one off would trade one defect for a worse one.
+ */
+describe('a hover card under a dialog', () => {
+  /** A trigger that explains itself and opens a window, with a second trigger inside the window. */
+  function Chip() {
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <HoverCard label="Razors" card={<p>Nine of them</p>} onActivate={() => setOpen(true)}>
+          <span>Razors</span>
+        </HoverCard>
+        {open && (
+          <Modal onClose={() => setOpen(false)} data-testid="window">
+            <HoverCard label="Shield line" card={<p>They are shot at first</p>}>
+              <span>Shield line</span>
+            </HoverCard>
+          </Modal>
+        )}
+      </>
+    );
+  }
+
+  const cards = (): string[] =>
+    screen.queryAllByRole('tooltip').map((card) => card.textContent ?? '');
+
+  it('puts the card away while the window stands over it, and gives it back after', () => {
+    render(<Chip />);
+    const trigger = screen.getByRole('button', { name: 'Razors' });
+
+    // It opens at all, which is what stops the rest of this passing on a card nothing draws.
+    fireEvent.focus(trigger);
+    expect(cards()).toEqual(['Nine of them']);
+
+    fireEvent.click(trigger);
+    expect(screen.getByTestId('window')).toBeInTheDocument();
+    expect(cards(), 'the card it was opened from is still over the window').toEqual([]);
+
+    // The chips inside the window still answer: that is the whole reason the window exists.
+    fireEvent.focus(screen.getByRole('button', { name: 'Shield line' }));
+    expect(cards()).toEqual(['They are shot at first']);
+
+    // Nothing ever left the trigger, so closing the window hands the card back rather than
+    // leaving a chip that has quietly stopped explaining itself.
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('window')).toBeNull();
+    expect(cards()).toEqual(['Nine of them']);
   });
 });

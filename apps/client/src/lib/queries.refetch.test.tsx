@@ -21,6 +21,9 @@ const releaseOfficer = vi.hoisted(() => vi.fn());
 const startTraining = vi.hoisted(() => vi.fn());
 const burnUpgrade = vi.hoisted(() => vi.fn());
 const getScrapyard = vi.hoisted(() => vi.fn());
+const buildVehicle = vi.hoisted(() => vi.fn());
+const getUnits = vi.hoisted(() => vi.fn());
+const getBase = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
@@ -39,12 +42,17 @@ vi.mock('./api', async (importOriginal) => ({
   startTraining,
   burnUpgrade,
   getScrapyard,
+  buildVehicle,
+  getUnits,
+  getBase,
 }));
 
 const { ApiRequestError } = await import('./api');
 const {
   useActions,
+  useBase,
   useBuildAddon,
+  useBuildVehicle,
   useBurnUpgrade,
   useScrapyard,
   useCrew,
@@ -58,6 +66,7 @@ const {
   useReleaseOfficer,
   useStartTech,
   useStartTraining,
+  useUnits,
 } = await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -99,6 +108,12 @@ beforeEach(() => {
   deployToBattle.mockReset();
   burnUpgrade.mockReset();
   getScrapyard.mockReset().mockResolvedValue({ entries: [] });
+  buildVehicle.mockReset();
+  getUnits.mockReset().mockResolvedValue({ units: [], queue: [] });
+  getBase.mockReset().mockResolvedValue({
+    base: { id: 'base-1', buildQueue: [] },
+    serverNow: new Date().toISOString(),
+  });
   getActions.mockReset().mockResolvedValue({ movements: [], missions: [] });
   getBattles.mockReset().mockResolvedValue({ coming: [], reports: [] });
   buildAddon.mockReset();
@@ -370,5 +385,41 @@ describe('the writes that change what the crew is buying', () => {
     await waitFor(() => expect(result.current.train.isSuccess).toBe(true));
 
     await waitFor(() => expect(getCrew).toHaveBeenCalledTimes(2));
+  });
+});
+
+/**
+ * A machine is built on the **units bench**, not in the yard.
+ *
+ * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/training.ts`), which pushes
+ * the order onto `base.trainingQueue`: the same queue a batch of Razors goes on, sharing its
+ * length cap and the district's beds. `settleTraining` is what later puts the machine in the fleet.
+ *
+ * So the roster and the district both moved, and neither is on the garage response. Nothing else
+ * re-reads them in time: `staleTime` is 30s, `useUnits` and `useBase` only poll while their own
+ * screen is mounted, and the screen the button is on is the Garage. Walk to the roster straight
+ * after ordering and "On the bench 1 / 12" was the count from before the order.
+ */
+describe('ordering a machine', () => {
+  it('re-reads the roster whose bench it just joined', async () => {
+    buildVehicle.mockResolvedValueOnce({ garage: { vehicles: [] } });
+    const { result } = screen(() => ({ build: useBuildVehicle(), roster: useUnits() }));
+    await waitFor(() => expect(getUnits).toHaveBeenCalledTimes(1));
+
+    result.current.build.mutate({ vehicleId: 'scrap_car' });
+    await waitFor(() => expect(result.current.build.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getUnits).toHaveBeenCalledTimes(2));
+  });
+
+  it('re-reads the district whose stockpile and beds it just spent', async () => {
+    buildVehicle.mockResolvedValueOnce({ garage: { vehicles: [] } });
+    const { result } = screen(() => ({ build: useBuildVehicle(), district: useBase('base-1') }));
+    await waitFor(() => expect(getBase).toHaveBeenCalledTimes(1));
+
+    result.current.build.mutate({ vehicleId: 'scrap_car' });
+    await waitFor(() => expect(result.current.build.isSuccess).toBe(true));
+
+    await waitFor(() => expect(getBase).toHaveBeenCalledTimes(2));
   });
 });

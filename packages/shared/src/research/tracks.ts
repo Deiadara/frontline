@@ -589,9 +589,27 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
 
   ...buildTrack('field_commander', [
     {
-      name: 'Order of March',
-      blurb: 'Who walks where, so the column does not arrive in pieces.',
-      bonus: { kind: 'cohesion', percent: 4 },
+      name: 'Everybody Fights',
+      blurb: 'Hand a bag-carrier a weapon and tell them where to stand. Most of them manage it.',
+      /*
+       * §E: the porters take a place in the line at half strength (`carriers_fight`,
+       * `CARRIER_STRENGTH`).
+       *
+       * The **first** rung of this track (maintainer, 2026-09-19), replacing `Order of March`,
+       * and it moved here from the fifth rung of Deep Salvage. Two reasons it belongs at the
+       * front of this one rather than in the middle of that one:
+       *
+       * - The track is "how much of what you brought is really in the fight". A crew that cannot
+       *   put its porters in a line is the purest case of that question, so it is the door the
+       *   track opens with rather than something bought later.
+       * - It is a *permission*, not a magnitude. A permission behind five rungs of a salvage
+       *   track is a thing a player finds by accident; at the head of the one track named after
+       *   the problem it solves, it is a thing they go looking for.
+       *
+       * Until it is finished a carrier has no fighting numbers at all: `UnitCard` locks their
+       * damage and hit points and says so on the hover (`carrierCombatLocked`).
+       */
+      bonus: { kind: 'carriers_fight' },
     },
     {
       name: 'Standing Signals',
@@ -824,12 +842,21 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
     {
       name: 'Yard Discipline',
-      blurb: 'Everybody who works a site can hold one. That is how the site stays yours.',
-      // The porters take a place in the line at half strength (`carriers_fight`, `CARRIER_STRENGTH`).
-      // The fifth rung rather than the tenth: it is a permission rather than a magnitude, so a deep
-      // rung would be a door that opens once and pays nothing further, and the track's own late
-      // rungs are the ones that should carry the big figures.
-      bonus: { kind: 'carriers_fight' },
+      blurb: 'Everybody who works a site knows where everything on it is.',
+      /*
+       * A yield rung since `carriers_fight` moved to the head of Field Commander (2026-09-19).
+       *
+       * The permission used to be this rung's whole payout, so leaving it would have been a
+       * slot and a wait for nothing. It pays the track's own currency instead: this is the
+       * salvage track, and its fifth rung should make the salvage go further.
+       *
+       * Twelve rather than the eight it was repointed at, because Alloy Reclamation on the rung
+       * directly below already pays ten into the same channel, and a rung costs more and takes
+       * longer the deeper it sits. Eight made the fifth rung a dearer, slower version of the
+       * fourth, which is the one shape a ladder may not have. Twelve is also what the two other
+       * second helpings on this track pay (Dry Storage on storage, Haul Rigging on carry).
+       */
+      bonus: { kind: 'resource_yield', resource: 'scrap', percent: 12 },
     },
     {
       name: 'Dry Storage',
@@ -849,10 +876,18 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     {
       name: 'Haul Rigging',
       blurb: 'The truck comes back full because somebody loaded it properly.',
-      // A mark on one sheet rather than fifteen percent on one of its eleven numbers. Haulers were
-      // the only carrier in the roster without `picker`, and this is the rung that makes them the
-      // crew that goes through the ground on the way out (`PICKER_EXTRA_LOAD`).
-      bonus: { kind: 'unit_mark', unitId: 'haulers', mark: 'picker' },
+      /*
+       * A percentage on the crew's whole carry, since `picker` stopped existing (2026-09-19).
+       *
+       * This rung used to grant the Haulers that mark, which was the only thing it did. With the
+       * mark gone the payout would have been a cost and a wait for nothing at all, so it pays
+       * the channel the rung's own blurb describes instead: the truck comes back fuller, on
+       * every run, for everybody on it.
+       *
+       * Twelve rather than the fifteen the Bone Market pays, because this is a research rung a
+       * crew reaches rather than ground it has to take and hold.
+       */
+      bonus: { kind: 'loot_capacity', percent: 12 },
     },
     {
       name: 'Nothing Wasted',
@@ -990,9 +1025,26 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
 
   ...buildTrack('trader', [
     {
-      name: 'Scales and Measures',
-      blurb: 'Your scale, checked, and theirs, checked against yours.',
+      name: 'Getting On The Board',
+      blurb: 'A pitch, a name people recognise, and the right to nail paper to the wall.',
+      /*
+       * §I3: this is what opens the district offers board (`TECH_DISTRICT_OFFERS`).
+       *
+       * The **first** rung of this track (maintainer, 2026-09-19), replacing `Scales and
+       * Measures`, whose discount it keeps so the track's economy is unchanged. What is new is
+       * the door: trading with other crews is now something a crew decides to get into rather
+       * than a tab that is simply there.
+       *
+       * It belongs at the front of this track and nowhere else. The Trader's line is "what you
+       * can get for what you have", and a crew with nothing to post it on cannot ask the
+       * question at all, so this is the door the track opens with.
+       *
+       * `progression/unlocks.ts` gates the board on this rung's **id**, which `idOf` derives from
+       * the name above. A rename therefore shuts the door for good and silently, which is why
+       * `research/tracks.test.ts` pins the two together.
+       */
       bonus: { kind: 'market_discount', percent: 5 },
+      unlocks: 'The district offers board: post what you will trade, and take what others post.',
     },
     {
       name: 'Standing Buyers',

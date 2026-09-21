@@ -1,6 +1,6 @@
 import { STARTING_RESOURCES, battlefieldFor, type Army, type BattleView } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeployDialog } from './DeployDialog';
 import { useSession } from '../../store/session';
@@ -37,6 +37,7 @@ const view: BattleView = {
     defender: { kind: 'looters' },
     scheduledFor: MARK,
     holdAfterCapture: false,
+    wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
     seed: 'press-seed',
@@ -72,7 +73,7 @@ const view: BattleView = {
 const fetchMock = vi.fn();
 
 /** Only `/units` is answered: nothing in this file presses a control that writes. */
-function stubApi(): void {
+function stubApi(anyRide = false): void {
   fetchMock.mockImplementation((path: string) => {
     if (String(path).endsWith('/units')) {
       return Promise.resolve({
@@ -93,6 +94,7 @@ function stubApi(): void {
             trainingCostReduction: 0,
             trainingSpeedBonus: 0,
             built: [],
+            anyRide,
           }),
       } as Response);
     }
@@ -200,5 +202,65 @@ describe('what the machines will seat', () => {
     open({ vehicles: { motorcycle: 1 }, yard: { scrap_car: 2 } });
     expect(screen.getByTestId('deploy-take-motorcycle')).toBeInTheDocument();
     expect(screen.getByTestId('deploy-take-scrap_car')).toHaveTextContent('2 in the yard');
+  });
+});
+
+/**
+ * §C3: the crew that can seat anything (`any_ride`, bug pass 2026-09-19).
+ *
+ * `no_ride` is the one rule on a sheet that three different things in the game can *waive*: a
+ * location bonus, a research rung and a perk all set `anyRide`, and the server reads it in both
+ * places that matter. `ridingUnitSlots(muster, effects.anyRide)` is what `deploy.ts` refuses a
+ * batch against, and `ridingGroups(fielded, anyRide)` is what the settle spends seats with.
+ *
+ * The window read neither. It asked the catalogue (`walksAlways`), which is a fact about the
+ * sheet and not about this crew, so a crew holding the waiver got a Colossus that was charged no
+ * seat on screen and twelve at the door: the stepper went to its Max, the footer said the yard
+ * was empty, and the confirm came back `no_seats` with nothing on the window having said why.
+ */
+describe('a crew whose machines seat anything', () => {
+  /*
+   * The waiver rides on `/units`, so every assertion here is behind the fetch.
+   *
+   * `open` renders before the query has answered, and the first paint is the catalogue's reading
+   * by construction: `roster.data` is undefined and `anyRide` falls to `false`. Waiting for the
+   * row to change is the assertion, not a workaround for one, and the last test in this block is
+   * the control that proves the wait is not simply waiting for nothing.
+   */
+  it('charges the Colossus its twelve seats and stops the stepper there', async () => {
+    stubApi(true);
+    // An Armoured Car seats thirty. The Colossus is twelve of them for this crew, not nothing.
+    open({ vehicles: { armoured_car: 1 } });
+    await waitFor(() => expect(screen.queryByTestId('walks-the_colossus')).toBeNull());
+    expect(field('line-the_colossus').max).toBe('1');
+    fireEvent.click(screen.getByTestId('deploy-max-the_colossus'));
+    expect(screen.getByTestId('deploy-seats')).toHaveTextContent('12 of 30 unit slots loaded');
+    // ...and the eighteen left are what the Razors may have, not the whole thirty.
+    fireEvent.click(screen.getByTestId('deploy-max-razors'));
+    expect(screen.getByTestId('deploy-seats')).toHaveTextContent('21 of 30 unit slots loaded');
+  });
+
+  it('stops offering the Colossus a seat it does not have', async () => {
+    stubApi(true);
+    // One Scrappy seats two. Twelve will not fit, so the stepper may not leave zero.
+    open({ vehicles: { motorcycle: 1 } });
+    await waitFor(() => expect(field('line-the_colossus').max).toBe('0'));
+  });
+
+  it('does not tell this crew the Colossus walks', async () => {
+    stubApi(true);
+    open({ vehicles: { armoured_car: 1 } });
+    await waitFor(() => expect(screen.queryByTestId('walks-the_colossus')).toBeNull());
+  });
+
+  it('still says it walks for a crew without the waiver', async () => {
+    open({ vehicles: { armoured_car: 1 } });
+    // Awaited the same way as the three above, so this is the same moment in the render and the
+    // difference between them is the payload and nothing else.
+    await screen.findByTestId('deploy-seats');
+    expect(screen.getByTestId('walks-the_colossus')).toBeInTheDocument();
+    expect(field('line-the_colossus').max).toBe('1');
+    fireEvent.click(screen.getByTestId('deploy-max-the_colossus'));
+    expect(screen.getByTestId('deploy-seats')).toHaveTextContent('0 of 30 unit slots loaded');
   });
 });

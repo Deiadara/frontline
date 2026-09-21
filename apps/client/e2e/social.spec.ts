@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { installApi, screenOverflows, settleFonts } from './harness';
-import { factionScreen, lateGame, me } from './fixtures';
+import { factionNone, factionScreen, lateGame } from './fixtures';
 import type { FactionResponse } from '@frontline/shared';
 
 /**
@@ -477,7 +477,17 @@ for (const size of SIZES) {
 test('a player with no faction is offered both doors, and the invitation they hold', async ({
   page,
 }) => {
-  await installApi(page, me);
+  await installApi(page, lateGame);
+  // §I3 gates this screen at level 10 (2026-09-19), and the harness answers `/api/factions` with
+  // the empty state only for a level-1 crew, which can no longer open it. The case says which
+  // payload it wants rather than inferring it from a level.
+  await page.route('**/api/factions', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(factionNone),
+    }),
+  );
   await page.goto('/game/faction');
 
   const none = page.getByTestId('faction-none');
@@ -495,7 +505,17 @@ test('a player with no faction is offered both doors, and the invitation they ho
 });
 
 test('founding one takes a name, a drawn badge and a description', async ({ page }) => {
-  await installApi(page, me);
+  await installApi(page, lateGame);
+  // §I3 gates this screen at level 10 (2026-09-19), and the harness answers `/api/factions` with
+  // the empty state only for a level-1 crew, which can no longer open it. The case says which
+  // payload it wants rather than inferring it from a level.
+  await page.route('**/api/factions', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(factionNone),
+    }),
+  );
   await page.goto('/game/faction');
 
   await page.getByTestId('start-faction').click();

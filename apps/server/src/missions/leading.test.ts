@@ -13,9 +13,9 @@ import {
   findMissionTemplate,
   leaningsFor,
   makeAttributes,
-  missionBoardDay,
   missionCompletesAt,
   missionOdds,
+  missionBoardKey,
   missionOffers,
   scaledSuccessChance,
   templateTimings,
@@ -127,14 +127,23 @@ function withOfficer(stack: Stack, id = 'off-1', name = 'Halvard Nyx'): string {
   return officer.id;
 }
 
-/** Any standard job on a board today, so these tests never settle a fight by accident. */
+/**
+ * Any standard job on a board right now, so these tests never settle a fight by accident.
+ *
+ * Keyed through `missionBoardKey` rather than off the day, because the two boards no longer turn
+ * over together: `misc` carries an hourly slot as well (`MISC_BOARD_ROTATION_MINUTES`), so a
+ * fixture that asked the day for a misc job picked one off a board the route was not offering
+ * and every launch here came back `That job is not on offer there`.
+ */
 function aJobToday(): { template: MissionTemplate; areaId: string } {
-  const day = missionBoardDay(new Date());
+  const now = new Date();
   for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const template = missionOffers(areaId, day).find((entry) => entry.kind === 'standard');
+    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
+      (entry) => entry.kind === 'standard',
+    );
     if (template) return { template, areaId };
   }
-  throw new Error(`no standard job on any board on ${day}`);
+  throw new Error(`no standard job on any board at ${now.toISOString()}`);
 }
 
 async function board(stack: Stack): Promise<MissionsResponse> {
@@ -329,12 +338,12 @@ describe('the launch', () => {
     expect(first.statusCode, first.body.slice(0, 200)).toBe(200);
 
     // A second area, so the one-job-per-area rule is not what refuses this.
-    const day = missionBoardDay(new Date());
+    const at = new Date();
     const other = CITY_DISTRICTS.map((district) => district.id).find(
-      (id) => missionOffers(id, day).length > 0,
+      (id) => missionOffers(id, missionBoardKey(id, at)).length > 0,
     );
     if (!other) throw new Error('no second board today');
-    const offer = missionOffers(other, day)[0];
+    const offer = missionOffers(other, missionBoardKey(other, at))[0];
     if (!offer) throw new Error('no offer on the second board');
 
     const again = await stack.app.inject({
@@ -371,10 +380,19 @@ describe('the launch', () => {
       },
     );
 
-    const day = missionBoardDay(new Date());
+    /*
+     * Each board keyed the way the *server* keys it (`missionBoardKey`), which for the misc board
+     * is a day plus an hourly slot since 2026-09-19 and for a district is the bare day.
+     *
+     * This read `missionBoardDay` for all of them, so whenever the crew's home area was not the
+     * misc board this picked misc and then asked for the job yesterday's key offered, which the
+     * route answers with "That job is not on offer there". It passed only when the home area
+     * happened to be misc.
+     */
+    const now = new Date();
     const elsewhere = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]
       .filter((areaId) => areaId !== home.areaId)
-      .map((areaId) => ({ areaId, offer: missionOffers(areaId, day)[0] }))
+      .map((areaId) => ({ areaId, offer: missionOffers(areaId, missionBoardKey(areaId, now))[0] }))
       .find((entry) => entry.offer !== undefined);
     if (!elsewhere?.offer) throw new Error('no second board today');
 
@@ -466,7 +484,7 @@ function planted(
     id: `run-${seed}-${template.id}`,
     base,
     template,
-    areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+    areaId: areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID,
     force,
     vehicles,
     now: startedAt,
@@ -509,14 +527,25 @@ describe('a battle job is a fight', () => {
 
   it('pays a crew that held the field, and only the dead stay out there', async () => {
     const stack = await makeStack('victors');
-    const force: Army = { razors: 36, wardens: 12 };
+    const force: Army = { razors: 80, wardens: 20 };
     /*
      * The siege tier, and a force sized so holding the field still costs somebody.
      *
-     * This was sixty razors and twenty wardens against `convoy-ambush`, which the pinned crew now
-     * wins without a scratch: `total(home.lost)` was zero and the assertion below had nothing to
-     * measure. The rule under test is what a *won* fight does to the roster, so the fixture has to
-     * be a fight rather than a walkover.
+     * This was sixty razors and twenty wardens against `convoy-ambush`, which the pinned crew
+     * won without a scratch: `total(home.lost)` was zero and the assertion below had nothing to
+     * measure. The rule under test is what a *won* fight does to the roster, so the fixture has
+     * to be a fight rather than a walkover.
+     *
+     * Retuned again on 2026-09-19, when the Wardens moved from `ballistic` to `blunt` damage and
+     * thirty-six and twelve stopped winning at all (0 of 12 seeds). This is the crew's **whole**
+     * fighting stock, which is the most the fixture can send: `makeStack` mints 80 razors, 20
+     * wardens and 20 haulers, and asking for more than that sends a force the crew does not have
+     * and leaves the roster arithmetic below short.
+     *
+     * At full stock the siege is genuinely close: a sweep of the first twenty seeds holds the
+     * field on fourteen of them and loses somebody on every one. Seed 3, which this test already
+     * used, is one of the fourteen. A fixture this near a balance edge will move again, and the
+     * number to reach for is the one a sweep says works rather than a nudge.
      */
     const mission = planted(stack, siege, force, 3);
 

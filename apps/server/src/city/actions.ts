@@ -14,6 +14,7 @@ import {
   type Army,
   type Base,
   type Location,
+  type LineRules,
   type LocationControl,
   addResources,
   cancelRefund,
@@ -21,6 +22,7 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import { isFightingForce } from '../battle/forces.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
@@ -134,7 +136,16 @@ export function setGarrison(
    *
    * Only what is being *sent out* is checked, so bringing anybody home is never blocked.
    */
-  if (!isFightingForce(sending)) return { kind: 'refused', reason: 'not_a_fighting_force' };
+  // Read against this crew's rules, not the catalogue's: `carriers_fight` puts the porters in
+  // the line, and a garrison is a line. Without it the programme paid out at home and nowhere a
+  // crew actually holds ground.
+  const lineRules: LineRules = {
+    carriersFight: standingEffectsFor(repos, base).carriersFight,
+    unitMarks: {},
+  };
+  if (!isFightingForce(sending, lineRules)) {
+    return { kind: 'refused', reason: 'not_a_fighting_force' };
+  }
   if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
     return { kind: 'refused', reason: 'needs_infamy' };
   }

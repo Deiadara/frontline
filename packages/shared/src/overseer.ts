@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AttributesSchema, makeAttributes, type Attributes } from './attributes.js';
 import { IdSchema } from './primitives.js';
 import { PerksSchema } from './crew/perks.js';
+import { mulberry32, seedFrom } from './rng.js';
 
 export const OVERSEER_ARCHETYPES = ['enforcer', 'netrunner', 'fixer', 'technocrat'] as const;
 export const OverseerArchetypeSchema = z.enum(OVERSEER_ARCHETYPES);
@@ -668,51 +669,6 @@ export function findOverseerPreset(presetId: string): OverseerPreset | undefined
 }
 
 /**
- * FNV-1a over a string, the same hash `roles.ts` uses to spread officer faces.
- *
- * A character sum clusters hard over UUIDs, and a user id is a UUID, so every account would be
- * offered nearly the same four.
- */
-function hashOf(value: string): number {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
-
-function gcd(a: number, b: number): number {
-  let left = a;
-  let right = b;
-  while (right !== 0) {
-    const next = left % right;
-    left = right;
-    right = next;
-  }
-  return left;
-}
-
-/**
- * A step that visits every entry of a pool of `size` before it comes back to where it started.
- *
- * The walk `(start + step * stride) % size` covers the whole pool exactly when `stride` and `size`
- * are coprime, and only then. Anything else walks the subset `size / gcd` and repeats, so the
- * offer's `Set` stops filling and the account is shown fewer than four characters out of a pool
- * that has plenty left. Searching upward from the hash's own residue keeps the stride a function of
- * the account (two accounts on the same pool still walk differently) while making coverage a
- * property rather than a coincidence of the pool size. The range is 1..size and 1 is coprime with
- * everything, so this always finds one.
- */
-function strideFor(hash: number, size: number): number {
-  for (let offset = 0; offset < size; offset += 1) {
-    const stride = ((hash + offset) % size) + 1;
-    if (gcd(stride, size) === 1) return stride;
-  }
-  return 1;
-}
-
-/**
  * The characters nobody holds.
  *
  * `claimed` is whatever `overseers.preset_id` holds, which after migration 0095 includes spent
@@ -742,24 +698,31 @@ export function overseerRemaining(claimed: Iterable<string>): number {
  *
  * ## Why it is a hash of the account and not a roll
  *
- * The offer has to be the **same four every time this account asks**, or the screen is a slot
- * machine: reload until the one you wanted appears. A stored roll would do it too, at the cost of
- * a table and a write on a page the player may never come back to; hashing the account id gives
- * the same stability for nothing and cannot drift out of sync with itself.
+ * The offer is **stored**, so it is the same four every time this account asks: {@link
+ * OVERSEER_HOLD_MS} of hold in the `overseer_holds` table, not a recomputed hash. It used to be a
+ * pure function of the account id, and the doc here still described that walk long after the
+ * caller had moved on to a fresh `randomUUID()` per batch.
  *
  * It is deliberately not a promise that the four never change. A character somebody else claims
  * leaves the pool, and the next reader is offered somebody else in their place. That is the rule
  * the maintainer asked for working as intended rather than a bug: the pool is shared and it drains.
  *
- * ## The walk
+ * ## The draw
  *
- * A stride coprime with the pool size visits every entry before repeating, so the four are always
- * distinct and every remaining character is reachable by some account. {@link strideFor} is what
- * makes that true: an odd stride is **not** enough, which is the same arithmetic `officerPortraits`
- * in `roles.ts` already carries a linear sweep for. Three is odd and shares a factor with thirty,
- * so on the full pool an account hashing to a stride of fifteen walked `{i, i+15}` and was offered
- * two characters instead of four. Ordering the result by the pool's own order rather than by the
- * walk keeps the screen's four in a stable, readable order.
+ * A partial Fisher-Yates over the pool's indices, off one advancing `mulberry32` stream. Every
+ * four-character subset of the pool is reachable and they are drawn evenly.
+ *
+ * What was here before was a walk of `(hash + step * stride) % pool.length` with the stride itself
+ * derived from `hash % pool.length`. Both ends of that read the same residue, so the entire batch
+ * was a function of one number in `0..pool.length`: measured on the full pool of thirty, it
+ * produced **29 distinct quartets out of the 27,405** that exist, the commonest twice as likely as
+ * the rarest. Two independent draws came back identical 3.55% of the time, which is what
+ * `overseer-holds.test.ts` had started failing on intermittently. Drawing from a stream instead of
+ * one modulus is what fixes it; the coprime-stride reasoning it replaces was sound arithmetic
+ * answering a question the caller had stopped asking.
+ *
+ * Ordering the result by the pool's own order rather than by the draw keeps the screen's four in a
+ * stable, readable order.
  */
 /**
  * How long a batch of characters is held for the account it was offered to (§F6).
@@ -773,17 +736,20 @@ export const OVERSEER_HOLD_MS = 10 * 60 * 1000;
 
 export function overseerOffer(
   claimed: Iterable<string>,
-  accountId: string,
+  seed: string,
   size = OVERSEER_OFFER_SIZE,
 ): readonly OverseerPreset[] {
   const pool = unclaimedPool(claimed);
   if (pool.length <= size) return pool;
 
-  const hash = hashOf(accountId);
-  const stride = strideFor(hash, pool.length);
-  const picked = new Set<number>();
-  for (let step = 0; picked.size < size && step < pool.length; step += 1) {
-    picked.add((hash + step * stride) % pool.length);
+  const next = mulberry32(seedFrom(seed));
+  const indices = pool.map((_, index) => index);
+  for (let at = 0; at < size; at += 1) {
+    const swap = at + Math.floor(next() * (indices.length - at));
+    [indices[at], indices[swap]] = [indices[swap]!, indices[at]!];
   }
-  return [...picked].sort((a, b) => a - b).map((index) => pool[index]!);
+  return indices
+    .slice(0, size)
+    .sort((a, b) => a - b)
+    .map((index) => pool[index]!);
 }

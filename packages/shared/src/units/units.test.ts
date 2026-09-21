@@ -13,7 +13,10 @@ import type { Inventory } from '../items/inventory.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   GAUNTLET_UNLOCKED_UNITS,
+  COMBINE_UNITS,
+  PLAYER_UNITS,
   UNIT_CATALOG,
+  isCombineUnit,
   UNIT_RULE_IDS,
   UNIT_RULES,
   UNIT_TIERS,
@@ -149,6 +152,9 @@ describe('the catalogue (§A5)', () => {
       expect(unit.stats.vitality, unit.id).toBeGreaterThan(0);
       expect(unit.blurb.length, unit.id).toBeGreaterThan(20);
       expect(unit.unitSlots, unit.id).toBeGreaterThan(0);
+      // The price and the clock are the roster's half of the sheet. A Combine unit has neither
+      // by construction (`UnitSpec.faction`), and the catalogue's own load check holds that.
+      if (isCombineUnit(unit)) continue;
       expect(unit.trainSeconds, unit.id).toBeGreaterThan(0);
       expect(Object.keys(unit.cost).length, unit.id).toBeGreaterThan(0);
       for (const key of RESOURCE_KEYS) {
@@ -261,7 +267,7 @@ describe('the catalogue (§A5)', () => {
 
   it('gives the support tier the trade it exists for: a big bag on slow legs', () => {
     const average = (pick: (unit: UnitSpec) => number) => {
-      const fighters = UNIT_CATALOG.filter((unit) => unit.tier !== 'carrier');
+      const fighters = PLAYER_UNITS.filter((unit) => unit.tier !== 'carrier');
       return fighters.reduce((sum, unit) => sum + pick(unit), 0) / fighters.length;
     };
     for (const porter of unitsInTier('carrier')) {
@@ -285,7 +291,7 @@ describe('the catalogue (§A5)', () => {
    * write and quietly makes one unit the only one in the game that trains for free on the stores.
    */
   it('charges caps and supplies for every unit on the roster', () => {
-    for (const unit of UNIT_CATALOG) {
+    for (const unit of PLAYER_UNITS) {
       expect(unit.cost.caps, unit.id).toBeGreaterThan(0);
       expect(unit.cost.supplies, unit.id).toBeGreaterThan(0);
       // And it survives the batch price, which is where a rounding could drop a small line.
@@ -321,7 +327,7 @@ describe('unlocking them (§A5)', () => {
     expect(starters.length).toBeLessThan(UNIT_CATALOG.length / 3);
   });
 
-  /** §B6: exactly the twelve the maintainer named hang off the Gauntlet, and each on a real level. */
+  /** §B6: exactly the ten the maintainer named hang off the Gauntlet, and each on a real level. */
   /**
    * No unit is gated on a structure level that structure cannot reach (maintainer, 2026-09-18).
    *
@@ -348,12 +354,59 @@ describe('unlocking them (§A5)', () => {
     }
   });
 
-  it('gates the board’s twelve on the Gauntlet and nothing else', () => {
+  /**
+   * The opening move exists at all.
+   *
+   * Every unit in the game was behind the Gauntlet until 2026-09-18, and the Gauntlet is behind
+   * Nexus 3 and Quarters 2. A new district stands a Nexus and a Generator and produces no caps,
+   * so the eight Razors a crew is handed were the whole of its roster for hours: it could not
+   * train a replacement, and the only faucet that would have paid for the barracks is missions,
+   * which need somebody to send.
+   *
+   * The Scavenger is what breaks that, so what this pins is the *cheap carrier against the
+   * district a new crew actually has*, not the Gauntlet clause that used to be on it. `NOTHING`
+   * is the control: one Nexus is doing the work, rather than the fixture being permissive.
+   */
+  it('lets a district with nothing but its Nexus train the cheap carrier', () => {
+    const opening = { ...NOTHING, buildings: [building('nexus', 1), building('generator', 1)] };
+    const scavengers = findUnit('scavengers');
+    expect(isUnitUnlocked(scavengers!, opening)).toBe(true);
+    expect(isUnitUnlocked(scavengers!, NOTHING)).toBe(false);
+
+    // ...and it is the only thing the opening can turn out, which is the shape the design wants:
+    // a crew with no barracks fields carriers and nothing else.
+    expect(unlockedUnits(opening).map((unit) => unit.id)).toEqual(['scavengers']);
+  });
+
+  /**
+   * Both carriers answer to the Nexus and to nothing else (maintainer, 2026-09-18).
+   *
+   * The pair is one line of progress: the cheap one at the bottom of the tree and the deep one
+   * fifteen levels up. A Gauntlet clause on either is the defect this whole change was about, so
+   * it is named rather than left to the count in the test below.
+   */
+  it('gates the carriers on the Nexus, at either end of it', () => {
+    expect(findUnit('scavengers')?.requires).toEqual([
+      { kind: 'building', building: 'nexus', level: 1 },
+    ]);
+    expect(findUnit('haulers')?.requires).toEqual([
+      { kind: 'building', building: 'nexus', level: 15 },
+    ]);
+    for (const id of ['scavengers', 'haulers']) {
+      expect(gauntletLevelFor(id), id).toBeNull();
+    }
+    // The deep one really is deep: a district that could train it is most of the way up its tree.
+    const nexus14 = { ...NOTHING, buildings: [building('nexus', 14)] };
+    expect(isUnitUnlocked(findUnit('haulers')!, nexus14)).toBe(false);
+  });
+
+  it('gates the board’s ten on the Gauntlet and nothing else', () => {
     const gated = UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) !== null).map(
       (unit) => unit.id,
     );
     expect(new Set(gated)).toEqual(new Set(GAUNTLET_UNLOCKED_UNITS));
-    expect(gated).toHaveLength(12);
+    // Twelve until 2026-09-18, when the two carriers moved onto the Nexus that signs them.
+    expect(gated).toHaveLength(10);
     for (const id of GAUNTLET_UNLOCKED_UNITS) {
       expect(gauntletLevelFor(id), id).toBeGreaterThanOrEqual(1);
       expect(gauntletLevelFor(id), id).toBeLessThanOrEqual(BUILDING_MAX_LEVEL);
@@ -371,14 +424,14 @@ describe('unlocking them (§A5)', () => {
 
   /** §B6: no unit may become unreachable, which is the other half of moving every gate at once. */
   it('leaves every unit with a gate, and every gate reachable', () => {
-    for (const unit of UNIT_CATALOG) {
+    for (const unit of PLAYER_UNITS) {
       expect(unit.requires.length, unit.id).toBeGreaterThan(0);
       expect(isUnitUnlocked(unit, EVERYTHING), unit.id).toBe(true);
     }
   });
 
   it('lets a crew at the top of every tree field everything', () => {
-    expect(unlockedUnits(EVERYTHING)).toHaveLength(UNIT_CATALOG.length);
+    expect(unlockedUnits(EVERYTHING)).toHaveLength(PLAYER_UNITS.length);
   });
 
   it('needs more than one kind of progress for the units worth having', () => {
@@ -825,7 +878,7 @@ describe('how many a crew could order (§A5)', () => {
    * units the button lied about most often.
    */
   it('never offers a unique the crew cannot pay for', () => {
-    for (const unique of UNIT_CATALOG.filter((unit) => unit.unique)) {
+    for (const unique of PLAYER_UNITS.filter((unit) => unit.unique)) {
       const broke = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 1]));
       expect(maxTrainable(unique, broke, 500), unique.id).toBe(0);
 
@@ -933,7 +986,8 @@ describe('the bench clock climbs with the campaign', () => {
       0,
     );
 
-  const fighters = UNIT_CATALOG.filter((unit) => isCombatUnit(unit));
+  // The player's fighters: a Combine sheet has no clock at all, which is a ratio of infinity.
+  const fighters = PLAYER_UNITS.filter((unit) => isCombatUnit(unit));
 
   it('ranks by clock roughly the way it ranks by campaign', () => {
     const rankOf = (by: (unit: UnitSpec) => number) => {
@@ -1078,5 +1132,75 @@ describe('what a unit-producing location does to its own unit', () => {
         expect(locationsTraining(unit), unit.id).toContain(kind);
       }
     }
+  });
+});
+
+/**
+ * The Combine's sheets (maintainer, 2026-09-19): met, never held.
+ *
+ * The other half of every roster invariant above. Those were scoped to `PLAYER_UNITS` when the
+ * regime's units arrived, so a Combine sheet that grew a price or a gate by accident would be
+ * measured by nothing at all; this is the block that measures it, and the block that holds every
+ * door a player could reach one through shut.
+ */
+describe('the Combine roster (§A3)', () => {
+  it('has the seven units the maintainer named, and no others', () => {
+    expect(COMBINE_UNITS.map((unit) => unit.id)).toEqual([
+      'civic_levy',
+      'greycoat',
+      'street_enforcers',
+      'suppressor',
+      'syndic',
+      'executioner',
+      'directive_xero',
+    ]);
+  });
+
+  it('carries no price, no gate and no clock, because there is no door to train one', () => {
+    for (const unit of COMBINE_UNITS) {
+      expect(unit.cost, unit.id).toEqual({});
+      expect(unit.requires, unit.id).toEqual([]);
+      expect(unit.trainSeconds, unit.id).toBe(0);
+    }
+  });
+
+  it('is never unlocked, however much a crew has', () => {
+    for (const unit of COMBINE_UNITS) {
+      expect(isUnitUnlocked(unit, EVERYTHING), unit.id).toBe(false);
+    }
+    expect(unlockedUnits(EVERYTHING).some((unit) => isCombineUnit(unit))).toBe(false);
+  });
+
+  it('is in no tier a screen draws, and in the catalogue every engine reads', () => {
+    for (const tier of UNIT_TIERS) {
+      expect(
+        unitsInTier(tier).some((unit) => isCombineUnit(unit)),
+        tier,
+      ).toBe(false);
+    }
+    for (const unit of COMBINE_UNITS) {
+      expect(findUnit(unit.id), unit.id).toBe(unit);
+      expect(isCombatUnit(unit), unit.id).toBe(true);
+    }
+    expect(PLAYER_UNITS.length + COMBINE_UNITS.length).toBe(UNIT_CATALOG.length);
+  });
+
+  it('makes the three leaders one of a kind, and nobody else', () => {
+    const uniques = COMBINE_UNITS.filter((unit) => unit.unique).map((unit) => unit.id);
+    expect(uniques).toEqual(['syndic', 'executioner', 'directive_xero']);
+    for (const id of uniques) expect(findUnit(id)?.tier).toBe('legendary');
+  });
+
+  it('deals the damage the maintainer named for each', () => {
+    const dealt = Object.fromEntries(COMBINE_UNITS.map((unit) => [unit.id, unit.stats.damageType]));
+    expect(dealt).toEqual({
+      civic_levy: 'blade',
+      greycoat: 'ballistic',
+      street_enforcers: 'energy',
+      suppressor: 'ballistic',
+      syndic: 'ballistic',
+      executioner: 'blade',
+      directive_xero: 'energy',
+    });
   });
 });

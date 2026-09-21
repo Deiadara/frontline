@@ -1771,11 +1771,19 @@
     /* The five bands, and the one source for them: the arcs and the struck figure read the same
        swatch, so a retune moves both. Deliberately not ramp tokens: this is a painted instrument
        and its bands have to separate at a glance, which four steps of one ramp cannot do. */
-    --gauge-red: #e05a4a;
-    --gauge-orange: #ff8c1a;
-    --gauge-yellow: #ffd166;
-    --gauge-green: #43b56e;
-    --gauge-blue: #22d3ee;
+    /*
+     * Weathered, not fresh (maintainer, 2026-09-19: "make it a little rusty").
+     *
+     * Every one of these was a screen colour: #ff8c1a and #22d3ee in particular are the two
+     * brightest things the game puts anywhere, and on a panel of oxidised brass they read as two
+     * LEDs glued to it. Pulled toward oxide and patina, keeping the five far enough apart that a
+     * player can still tell a band at a glance, which is the only thing the ramp has to do.
+     */
+    --gauge-red: #c2503c;
+    --gauge-orange: #cf7526;
+    --gauge-yellow: #dcb257;
+    --gauge-green: #4f9a66;
+    --gauge-blue: #4d95ab;
     border-radius: 6px;
     background:
       radial-gradient(120% 90% at 50% 100%, rgb(62 53 81 / 0.75), rgb(23 19 32 / 0.95) 70%),
@@ -1801,17 +1809,12 @@
     --gauge-tone: var(--gauge-blue);
   }
 
-  /* The rim, and the scratch of a hairline inside it. Brass, because it is machined. */
+  /* The rim: old brass, gone dull, with the oxide drawn over it in the SVG. */
   .gauge-bezel {
     fill: none;
-    stroke: rgb(193 131 42 / 0.75);
+    stroke: rgb(166 118 48 / 0.8);
     stroke-width: 5;
     stroke-linecap: round;
-  }
-  .gauge-hairline {
-    fill: none;
-    stroke: rgb(240 173 76 / 0.28);
-    stroke-width: 1;
   }
   .gauge-tick {
     stroke: rgb(188 178 162 / 0.5);
@@ -1849,16 +1852,24 @@
    * there, and no inline `transform` for a stylesheet to fight with.
    */
   .gauge-needle {
-    fill: #f0ad4c;
+    fill: #d9a04a;
     transform-box: view-box;
-    transform-origin: 110px 118px;
+    /* The pivot, and it has to be the component's `PIVOT`. It moved to the floor of the box on
+       2026-09-19 and a stale origin here would swing the blade about a point the drawing no
+       longer has, which is a needle that leaves its own dial. */
+    transform-origin: 110px 112px;
     transform: rotate(var(--gauge-angle, -90deg));
     transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
-    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.65));
+    /*
+     * No `drop-shadow` here any more. The needle is inside the pen filter with the rest of the
+     * instrument now, and a CSS filter on a group that is already being displaced is smeared
+     * along with it: the blade came out with a grey bruise trailing off one edge. The ink line
+     * round the blade in the component is what separates it from the bands instead.
+     */
   }
   .gauge-hub {
-    fill: #c1832a;
-    stroke: rgb(255 236 196 / 0.45);
+    fill: #a8762f;
+    stroke: rgb(255 236 196 / 0.4);
     stroke-width: 1;
   }
 

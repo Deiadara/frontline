@@ -92,20 +92,28 @@ function walk(
    * Applied as a *fraction of the window* rather than as a scale on the output, which is exactly
    * equivalent for a linear accrual and keeps `accrueProduction` a statement about structures.
    *
-   * Read **per segment**, and the moment it expires is a cut in the walk exactly like a completed
+   * Read **per segment**, and *both* edges of it are cuts in the walk, exactly like a completed
    * build is. It used to be read once from `now` and multiplied into every segment, which is only
    * right for a factor that is constant across the window, and `disruptionPercentAt` is a step
    * function of time: a crew last settled three days ago and raided an hour ago lost 30% of three
    * days, and the same crew opening the game after the disruption expired banked the disrupted
-   * hours at full rate. Cutting at the expiry makes each segment's factor constant, so the midpoint
-   * reading below is exact rather than an average.
+   * hours at full rate.
+   *
+   * The expiry was cut first and the raid itself only on 2026-09-18, which left the other half of
+   * the same error in place: the step read as though the cut had always been on, so a crew raided
+   * an hour ago and settling twelve hours of absence was charged against all twelve, a 12x
+   * over-read and 23x at a day. It only ever hit players who were away, which is every player who
+   * gets raided. With both edges cut each segment's factor is constant, so the midpoint reading
+   * below is exact rather than an average.
    */
-  const disruptionEnds = ((): number | null => {
-    const until = base.economy.disruption.until;
-    if (until === null) return null;
-    const at = Date.parse(until);
+  /** A moment inside this window where the disruption steps, or null when it does not. */
+  const stepAt = (iso: string | null): number | null => {
+    if (iso === null) return null;
+    const at = Date.parse(iso);
     return at > cursor && at < now.getTime() ? at : null;
-  })();
+  };
+  const disruptionStarts = stepAt(base.economy.disruption.since);
+  const disruptionEnds = stepAt(base.economy.disruption.until);
 
   const advanceTo = (mark: number): void => {
     const hours = (mark - cursor) / HOUR_MS;
@@ -130,7 +138,7 @@ function walk(
   };
 
   /**
-   * Everything up to `mark`, cut at the disruption's expiry so no stretch straddles it.
+   * Everything up to `mark`, cut at the raid and at its expiry so no stretch straddles either.
    *
    * `advanceTo` prices a stretch at its midpoint, which is exact only while the factor is constant
    * across it, and `disruptionPercentAt` is a step. A district settled once after three days away
@@ -138,8 +146,10 @@ function walk(
    * full rate.
    */
   const advanceThrough = (mark: number): void => {
-    if (disruptionEnds !== null && disruptionEnds > cursor && disruptionEnds < mark)
-      advanceTo(disruptionEnds);
+    // Both edges of the window, in order, so no stretch straddles either one.
+    for (const step of [disruptionStarts, disruptionEnds]) {
+      if (step !== null && step > cursor && step < mark) advanceTo(step);
+    }
     advanceTo(mark);
   };
 

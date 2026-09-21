@@ -3,11 +3,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ATTRIBUTE_NAMES,
+  ArmySchema,
   AttributesSchema,
   BUILDING_KINDS,
   BadgeSchema,
   DEFAULT_BADGE,
   ResearchStateSchema,
+  SideAnalysisSchema,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -18,6 +20,8 @@ import { openDatabase, runMigrations, type AppDatabase } from './index.js';
 import { createBasesRepo } from './repos/bases.js';
 import { createMissionsRepo } from './repos/missions.js';
 import { createSiegeRepo } from './repos/sieges.js';
+import { createCityRepo } from './repos/city.js';
+import { createSleeperRepo } from './repos/sleepers.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
@@ -485,6 +489,11 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0099_black_market_cities.sql',
     '0100_overseer_holds.sql',
     '0101_retire_structure_damage.sql',
+    '0102_sleeper_cells.sql',
+    '0103_battle_woke_sleepers.sql',
+    '0104_directive_xero.sql',
+    '0105_intimidated.sql',
+    '0106_intimidated_again.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -609,6 +618,17 @@ describe('every migration from 0081 on, on a database with rows in every table',
       to_district_id: 'ashen-terraces',
       departed_at: NOW,
       arrives_at: NOW,
+    },
+    // 0102: a cell waiting on ground the crew does not hold.
+    sleeper_cells: {
+      id: 'cell-seed',
+      base_id: 'b-seed',
+      location_id: 'rustyard-press',
+      army_json: '{"sleepers":4}',
+      phase: 'waiting',
+      departed_at: NOW,
+      arrives_at: NOW,
+      travel_ms: 900000,
     },
     battles: {
       id: 'log-seed',
@@ -1370,5 +1390,414 @@ describe('0087: a building target becomes a district raid', () => {
       .get('fight-1') as { target_kind: string };
     expect(row.target_kind).toBe('district');
     expect(createSiegeRepo(db).find('fight-1')?.resolvedAt).toBe(NOW);
+  });
+});
+
+/**
+ * 0104: Directive Zero became Directive Xero, and the unit id went with the name.
+ *
+ * The id is not cosmetic in a save. `ArmySchema` is `z.record(UnitIdSchema, ...)` over the *live*
+ * catalogue, so a garrison still holding `directive_zero` does not read back with a bad field, it
+ * refuses to parse: the control row will not load at all. That is the fault line
+ * `0038_retired_units.sql` was written for, and this is the same fault line with a rename on it
+ * rather than a removal.
+ *
+ * Two more places name him and each fails differently. A scoped tally is stored under
+ * `<measure>:<scope>`, so a crew that had already fought him keeps its counter under a key no feat
+ * reads any more. And `crew_feats` is a claim, written once and never updated, so a claim left
+ * under the old id lets the renamed feat be collected a second time.
+ */
+describe('0104: Directive Xero', () => {
+  const THEN = '0104_directive_xero.sql';
+
+  const legacy = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u104', 'legacy104', 'x', NOW);
+    insert(db, 'bases', { id: 'b104', owner_id: 'u104', name: 'Legacy', created_at: NOW });
+    insert(db, 'location_control', {
+      location_id: 'combine-spire-chapel',
+      holder_kind: 'government',
+      base_id: null,
+      // The Chapel as a live save has it: him, and the rank and file he stands with.
+      garrison_json: JSON.stringify({ directive_zero: 1, greycoat: 12 }),
+      level: 1,
+    });
+    insert(db, 'crew_tallies', {
+      base_id: 'b104',
+      tally: 'combine_leaders_slain:directive_zero',
+      value: 1,
+    });
+    insert(db, 'crew_feats', {
+      base_id: 'b104',
+      feat_id: 'directive_zero_slain',
+      claimed_at: NOW,
+    });
+    // A cell planted on some ground, holding him. Unreachable in the shipped game, and that is the
+    // point: it is the one army column whose reader has no salvage pass, so it is the one that
+    // still throws rather than quietly losing a stack. See `sleeperArmy` below.
+    insert(db, 'sleeper_cells', {
+      id: 'cell-104',
+      base_id: 'b104',
+      location_id: 'rustyard-ramp',
+      army_json: JSON.stringify({ directive_zero: 3 }),
+      phase: 'waiting',
+      departed_at: NOW,
+      arrives_at: NOW,
+      travel_ms: 0,
+    });
+    return db;
+  };
+
+  const garrison = (db: AppDatabase): Record<string, number> =>
+    JSON.parse(
+      (
+        db
+          .prepare('SELECT garrison_json FROM location_control WHERE location_id = ?')
+          .get('combine-spire-chapel') as { garrison_json: string }
+      ).garrison_json,
+    ) as Record<string, number>;
+
+  const sleeperArmy = (db: AppDatabase): Record<string, number> =>
+    createSleeperRepo(db).forBase('b104')[0]!.army;
+
+  it('is a precondition that the old id is genuinely unreadable now', () => {
+    // Without this the cases below could all be passing on a schema that never cared.
+    expect(() => ArmySchema.parse({ directive_zero: 1 })).toThrow();
+    expect(ArmySchema.parse({ directive_xero: 1 })).toEqual({ directive_xero: 1 });
+  });
+
+  /**
+   * What the garrison column actually does when it is left alone, which is not what it looks like.
+   *
+   * `ArmySchema` refuses the key, but `db/repos/city.ts` runs `withoutRetiredUnits` over the
+   * garrison before the schema sees it, so nothing throws and nothing is logged: the Chapel simply
+   * reads back without him. `combineLeaderAlive` looks for his id in the garrison of his own plot,
+   * so the ground at the top of the city goes from the wall the whole map climbs towards to rank
+   * and file, on a save that reports no error anywhere. Pinned because a silent loss is the one
+   * that survives a test suite.
+   */
+  it('is a precondition that leaving the garrison alone loses him without a sound', () => {
+    const db = legacy();
+    expect(createCityRepo(db).control('combine-spire-chapel')?.garrison).toEqual({ greycoat: 12 });
+    db.close();
+  });
+
+  it('renames him in a garrison and leaves everybody standing with him alone', () => {
+    const db = legacy();
+    runMigrations(db);
+    expect(garrison(db)).toEqual({ directive_xero: 1, greycoat: 12 });
+    // ...and the row reads back through the schema that refused the old key, with him in it.
+    expect(() => ArmySchema.parse(garrison(db))).not.toThrow();
+    expect(createCityRepo(db).control('combine-spire-chapel')?.garrison).toEqual({
+      directive_xero: 1,
+      greycoat: 12,
+    });
+    db.close();
+  });
+
+  /**
+   * The army column with no floor under it.
+   *
+   * Every other stored army is read through a salvage pass that drops an id the catalogue has lost
+   * (`withoutRetiredUnits` for the garrison and a mission's losses, `knownTrainingQueue` for the
+   * bench). `sleeper_cells` arrived in 0102 and `db/repos/sleepers.ts` hands the column straight to
+   * `SleeperCellSchema`, so a stale id there is not a lost stack, it is a throw on every read of
+   * that crew's cells. He cannot be in one today, because a Combine sheet is met and never held;
+   * this is swept for the same reason the other five are, and it is the one where being wrong
+   * costs an exception rather than a silence.
+   */
+  it('renames him in a sleeper cell, the one army column whose reader still throws', () => {
+    const db = legacy();
+    expect(() => sleeperArmy(db), 'the precondition: unswept, this read throws').toThrow();
+    runMigrations(db);
+    expect(sleeperArmy(db)).toEqual({ directive_xero: 3 });
+    db.close();
+  });
+
+  it('carries the counter and the claim across, so neither is paid twice nor lost', () => {
+    const db = legacy();
+    runMigrations(db);
+    const tallies = db.prepare('SELECT tally, value FROM crew_tallies').all() as {
+      tally: string;
+      value: number;
+    }[];
+    expect(tallies).toEqual([{ tally: 'combine_leaders_slain:directive_xero', value: 1 }]);
+    const claims = db.prepare('SELECT feat_id FROM crew_feats').all() as { feat_id: string }[];
+    expect(claims).toEqual([{ feat_id: 'directive_xero_slain' }]);
+    db.close();
+  });
+
+  it('is a no-op on a save that never met him, and on one already carried across', () => {
+    const fresh = openDatabase(':memory:');
+    runMigrations(fresh);
+    expect(() => runMigrations(fresh)).not.toThrow();
+    fresh.close();
+
+    const db = legacy();
+    runMigrations(db);
+    const once = garrison(db);
+    const onceAsleep = sleeperArmy(db);
+    db.exec(readFileSync(path.join(MIGRATIONS_DIR, THEN), 'utf8'));
+    expect(garrison(db), 'running it twice moved something').toEqual(once);
+    expect(sleeperArmy(db), 'running it twice moved something').toEqual(onceAsleep);
+    db.close();
+  });
+});
+
+/**
+ * 0105: "cowed" became "intimidated" on a stored battle report.
+ *
+ * §D3's figure is a field on each side of the analysis, and the analysis is written once at the
+ * settle and read back for ever after: a report is a record of a fight that already happened, so
+ * nothing recomputes it. `SideAnalysisSchema.intimidated` carries `.default(0)`, so a report left
+ * under the old key does not fail to parse. It reads back as **zero units intimidated**, silently,
+ * on the one screen whose job is to explain a fight that looked broken.
+ *
+ * Measured through the repository rather than off the column, because the column is not the
+ * question: what a player sees is what `SiegeRepo.resolvedFor` hands the route after
+ * `BattleAnalysisSchema` has judged it, and the whole failure mode here is a parse that succeeds
+ * with the wrong number in it.
+ */
+/*
+ * Shared by the 0105 and 0106 blocks below: they are the same sweep, and 0106 exists only
+ * because 0105 shipped against the wrong column and is already recorded as applied on any
+ * database that ran it. One fixture, so the two cannot drift into testing different reports.
+ */
+/** A report as the settler wrote it the day before the rename, with §D3 on both sides. */
+const legacyAnalysis = (attackerCowed: number, defenderCowed: number) => ({
+  battleId: 'fight-105',
+  locationName: 'The Chosen Chapel',
+  winner: 'defender',
+  rounds: 6,
+  decidedOnPower: false,
+  settledBy: 'standing',
+  attacker: {
+    name: 'The Ninth Circle',
+    committed: 20,
+    lost: 14,
+    survived: 6,
+    fled: 6,
+    perimeter: 0,
+    perimeterCaught: 0,
+    perimeterLost: 0,
+    cowed: attackerCowed,
+    infamy: 120,
+    units: [
+      {
+        unitId: 'razors',
+        name: 'Razors',
+        tier: 'rabble',
+        unique: false,
+        started: 20,
+        lost: 14,
+        fled: 6,
+        caught: 0,
+        survived: 6,
+        damage: 900,
+        damageShare: 1,
+        brokeAtRound: 5,
+        state: 'Routed',
+      },
+    ],
+  },
+  defender: {
+    name: 'The Combine',
+    committed: 12,
+    lost: 3,
+    survived: 9,
+    fled: 0,
+    perimeter: 0,
+    perimeterCaught: 0,
+    perimeterLost: 0,
+    cowed: defenderCowed,
+    infamy: 40,
+    units: [
+      {
+        unitId: 'greycoat',
+        name: 'Greycoats',
+        tier: 'heavy',
+        unique: false,
+        started: 12,
+        lost: 3,
+        fled: 0,
+        caught: 0,
+        survived: 9,
+        damage: 1400,
+        damageShare: 1,
+        brokeAtRound: null,
+        state: 'Steady',
+      },
+    ],
+  },
+  log: ['The line held.'],
+  findings: [],
+  trap: null,
+  legends: [],
+  headline: 'The Combine held the Chosen Chapel.',
+  weather: 'normal',
+  ground: [],
+});
+
+describe('0105: a report written when the figure was called cowed', () => {
+  const THEN = '0105_intimidated.sql';
+  const SETTLED = '2026-09-19T09:00:00.000Z';
+
+  const legacy = (attackerCowed = 7, defenderCowed = 2): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u105', 'legacy105', 'x', SETTLED);
+    insert(db, 'bases', { id: 'b105', owner_id: 'u105', name: 'Legacy', created_at: SETTLED });
+    db.prepare(
+      `INSERT INTO scheduled_battles
+         (id, attacker_base_id, target_kind, district_id, location_id, defender_json,
+          scheduled_for, declared_at, resolved_at, seed, analysis_json)
+       VALUES (?, ?, 'location', ?, ?, '{"kind":"government"}', ?, ?, ?, 'seed', ?)`,
+    ).run(
+      'fight-105',
+      'b105',
+      'rustyard',
+      'rustyard-ramp',
+      SETTLED,
+      SETTLED,
+      SETTLED,
+      JSON.stringify(legacyAnalysis(attackerCowed, defenderCowed)),
+    );
+    return db;
+  };
+
+  const readBack = (db: AppDatabase) => {
+    const rows = createSiegeRepo(db).resolvedFor('b105', 10);
+    expect(rows, 'the report did not survive the read at all').toHaveLength(1);
+    return rows[0]!.analysis;
+  };
+
+  it('is a precondition that the old key reads back as nobody intimidated', () => {
+    // Without this the test below could be passing on a schema that never defaulted the field,
+    // which would have made this a loud failure rather than a silent zero.
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    db.close();
+    expect(SideAnalysisSchema.parse({ ...legacyAnalysis(7, 2).attacker }).intimidated).toBe(0);
+  });
+
+  it('carries both sides’ figure across, read back through the repository', () => {
+    const db = legacy(7, 2);
+    runMigrations(db);
+    const analysis = readBack(db);
+    expect(analysis.attacker.intimidated).toBe(7);
+    expect(analysis.defender.intimidated).toBe(2);
+    db.close();
+  });
+
+  it('leaves the old key behind rather than storing both', () => {
+    const db = legacy();
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT analysis_json FROM scheduled_battles WHERE id = ?')
+      .get('fight-105') as { analysis_json: string };
+    expect(row.analysis_json).not.toContain('"cowed"');
+    db.close();
+  });
+
+  /** A zero is a figure too: a fight where nobody flinched must not read back as unmigrated. */
+  it('carries a zero across as well as a number', () => {
+    const db = legacy(0, 0);
+    runMigrations(db);
+    const row = db
+      .prepare('SELECT analysis_json FROM scheduled_battles WHERE id = ?')
+      .get('fight-105') as { analysis_json: string };
+    expect(row.analysis_json).not.toContain('"cowed"');
+    expect(readBack(db).attacker.intimidated).toBe(0);
+    db.close();
+  });
+
+  it('is a no-op on a save with no fights, and on one already carried across', () => {
+    const fresh = openDatabase(':memory:');
+    runMigrations(fresh);
+    expect(() => runMigrations(fresh)).not.toThrow();
+    fresh.close();
+
+    const db = legacy(7, 2);
+    runMigrations(db);
+    const once = readBack(db);
+    db.exec(readFileSync(path.join(MIGRATIONS_DIR, THEN), 'utf8'));
+    expect(readBack(db), 'running it twice moved something').toEqual(once);
+    db.close();
+  });
+});
+
+/**
+ * 0106: the same sweep again, because 0105 shipped wrong and is already recorded as applied.
+ *
+ * Correcting a migration in place does nothing to a database that already ran the broken one: the
+ * runner keys on the file name, so the name is in `schema_migrations` and the corrected body is
+ * never executed. Measured on the working save on 2026-09-20: seven resolved reports, five still
+ * carrying `cowed`, none carrying `intimidated`, with `0105_intimidated.sql` recorded as applied.
+ *
+ * So this is the case the corrected 0105 cannot reach, and the only one that matters in practice.
+ */
+describe('0106: the save that already ran the broken sweep', () => {
+  const SETTLED = '2026-09-19T09:00:00.000Z';
+
+  /**
+   * A database in the exact state the bug left one in: the report still says `cowed`, and 0105 is
+   * already ticked off, so nothing but a new file will ever touch it.
+   */
+  const alreadyTicked = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    // Stop *before* 0105, then tick it off by hand without running it. That is exactly what the
+    // broken version left behind: the name recorded, the rows untouched.
+    migrateUpTo(db, '0105_intimidated.sql');
+    db.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run('0105_intimidated.sql');
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u106', 'legacy106', 'x', NOW);
+    insert(db, 'bases', { id: 'b106', owner_id: 'u106', name: 'Legacy', created_at: NOW });
+    insert(db, 'scheduled_battles', {
+      id: 'sb106',
+      attacker_base_id: 'b106',
+      district_id: 'combine-spire',
+      target_kind: 'gate',
+      scheduled_for: SETTLED,
+      resolved_at: SETTLED,
+      analysis_json: JSON.stringify(legacyAnalysis(7, 2)),
+    });
+    return db;
+  };
+
+  const stored = (db: AppDatabase): string =>
+    (
+      db.prepare('SELECT analysis_json FROM scheduled_battles WHERE id = ?').get('sb106') as {
+        analysis_json: string;
+      }
+    ).analysis_json;
+
+  it('is a precondition that 0105 is ticked off and the report still says cowed', () => {
+    const db = alreadyTicked();
+    const ticked = db
+      .prepare('SELECT name FROM schema_migrations WHERE name = ?')
+      .get('0105_intimidated.sql');
+    expect(ticked, 'the fixture does not reproduce the bug it is about').toBeDefined();
+    expect(stored(db)).toContain('"cowed"');
+    db.close();
+  });
+
+  it('runs anyway and carries both sides across', () => {
+    const db = alreadyTicked();
+    runMigrations(db);
+    const json = stored(db);
+    expect(json, 'the old key survived').not.toContain('"cowed"');
+    const analysis = JSON.parse(json) as {
+      attacker: { intimidated: number };
+      defender: { intimidated: number };
+    };
+    expect(analysis.attacker.intimidated).toBe(7);
+    expect(analysis.defender.intimidated).toBe(2);
+    db.close();
   });
 });

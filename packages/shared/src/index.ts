@@ -41,6 +41,7 @@ export * from './blueprints/index.js';
 export * from './market/index.js';
 export * from './units/index.js';
 export * from './raid.js';
+export * from './sleepers.js';
 export * from './missions.js';
 export * from './missions.areas.js';
 export * from './missions.leading.js';

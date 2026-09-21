@@ -1,9 +1,9 @@
 /**
- * §A4: holding intimidating ground makes your line harder to cow.
+ * §A4: holding intimidating ground makes your line harder to intimidate.
  *
  * `intimidationFlat` was summed out of the hold bonuses and read by nothing for the whole life of
  * the channel, which made the Broadcast Tower, whose only bonus is intimidation, worth nothing to
- * hold. `cow` in the engine is its consumer now, so this pins the wiring: the number has to reach
+ * hold. `intimidate` in the engine is its consumer now, so this pins the wiring: the number has to reach
  * the sheet, and it has to stop at the sheet's ceiling like every other bonus.
  */
 import { describe, expect, it } from 'vitest';

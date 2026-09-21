@@ -113,11 +113,17 @@ async function heldOn(stack: Stack): Promise<MissionLeader> {
 
 /** Declares a fight this crew could name somebody on, and answers with its id. */
 async function declareFight(stack: Stack): Promise<string> {
-  stack.app.repos.city.markScouted(stack.baseId, 'rustyard', new Date().toISOString());
+  /*
+   * Chrome Row, because the 2026-09-19 re-cut handed the Steelbelt to the Combine and a district
+   * the regime holds end to end is shut: the only thing a crew may declare on is its gate, and
+   * this helper wants an ordinary location fight to name an officer on. Chrome Row is the one
+   * contested district left with a seam, and the Exchange is in its squatted half.
+   */
+  stack.app.repos.city.markScouted(stack.baseId, 'chrome-row', new Date().toISOString());
   const target: BattleTarget = {
     kind: 'location',
-    districtId: 'rustyard',
-    locationId: 'rustyard-press',
+    districtId: 'chrome-row',
+    locationId: 'chrome-row-exchange',
   };
   const declared = await stack.app.inject({
     method: 'POST',

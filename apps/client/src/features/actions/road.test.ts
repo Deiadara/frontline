@@ -38,12 +38,29 @@ describe('who is on the road', () => {
         status: 'resolved' as const,
       })),
     };
+    // The cells and the postings go too (§A4): a crew with people planted or standing on held
+    // ground is not a crew with nobody out, and the empty card would cover the only screen that
+    // lists either of them.
     const road = onTheRoad(
-      { ...F.actionsResponse, movements: [], scoutingRun: null },
+      { ...F.actionsResponse, movements: [], scoutingRun: null, sleepers: [], stationed: [] },
       home,
       settled,
     );
     expect(roadIsEmpty(road)).toBe(true);
+
+    // ...and each of the two on its own is enough to make the page worth drawing.
+    const planted = onTheRoad(
+      { ...F.actionsResponse, movements: [], scoutingRun: null, stationed: [] },
+      home,
+      settled,
+    );
+    expect(roadIsEmpty(planted), 'a planted cell read as nobody out').toBe(false);
+    const posted = onTheRoad(
+      { ...F.actionsResponse, movements: [], scoutingRun: null, sleepers: [] },
+      home,
+      settled,
+    );
+    expect(roadIsEmpty(posted), 'a posting read as nobody out').toBe(false);
   });
 
   /**
@@ -66,8 +83,17 @@ describe('who is on the road', () => {
         0,
       ) +
       road.jobs.reduce((total, job) => total + slotsOf(job.force), 0) +
-      (press?.muster ? slotsOf(press.muster.army) + slotsOf(press.muster.perimeter) : 0);
+      (press?.muster ? slotsOf(press.muster.army) + slotsOf(press.muster.perimeter) : 0) +
+      // §A1: planted and posted people draw their beds too, and the server's `unitsAbroad` puts
+      // them in the district's draw. A header that left them out would disagree with the
+      // roster's own unit-slot chip by exactly the number of people standing somewhere.
+      road.cells.reduce((total, cell) => total + slotsOf(cell.army), 0) +
+      road.stationed.reduce((total, post) => total + slotsOf(post.army), 0);
     expect(counts.unitSlots).toBe(expected);
+    // The control on *that*: the fixture really does have both, so dropping either from the sum
+    // above would change the answer.
+    expect(road.cells.length, 'no cells in the fixture').toBeGreaterThan(0);
+    expect(road.stationed.length, 'no postings in the fixture').toBeGreaterThan(0);
 
     // The control: the fixture really does hold something that costs more than one slot, so the
     // two arithmetics give different answers and this test can tell them apart.

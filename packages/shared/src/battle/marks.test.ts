@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { lootCapacityOf, PICKER_EXTRA_LOAD } from '../raid.js';
 import { findUnit, UNIT_RULES, type Army, type UnitSpec } from '../units/index.js';
 import {
   holdsTheLine,
+  jamPercent,
   MAX_PACK_BONUS,
   MAX_SAPPER_CUT,
   opensFire,
   packBonusPercent,
-  PACK_STEP,
+  PACK_HALF,
   sappedGround,
   sapperCutPercent,
   simulate,
@@ -38,7 +38,7 @@ import {
  * `finally`, so a failing expectation inside the block cannot leak the mutation into the next test.
  */
 
-type Mark = 'strikes_first' | 'stalwart' | 'sapper' | 'pack' | 'picker';
+type Mark = 'strikes_first' | 'stalwart' | 'sapper' | 'pack';
 
 const spec = (unitId: string): UnitSpec => {
   const found = findUnit(unitId);
@@ -86,12 +86,43 @@ const lost = (side: Simulation['attacker']): number =>
 /** Fortified ground, so the sapper has something to take apart. */
 const dugIn = (percent: number): Battlefield => ({ ...bareBattlefield(), fortifyPercent: percent });
 
-describe('Runs in Packs: massing one sheet is worth something', () => {
-  it('pays nothing for the first unit and caps where the doc says', () => {
+describe('Collective: massing one sheet is worth something', () => {
+  it('pays nothing for the first unit and approaches the asymptote without reaching it', () => {
     expect(packBonusPercent(0)).toBe(0);
     expect(packBonusPercent(1)).toBe(0);
-    expect(packBonusPercent(11)).toBeCloseTo(10 * PACK_STEP, 6);
-    expect(packBonusPercent(1000)).toBe(MAX_PACK_BONUS);
+    // Half the asymptote at `PACK_HALF` others, which is the whole definition of the knob.
+    expect(packBonusPercent(PACK_HALF + 1)).toBeCloseTo(MAX_PACK_BONUS / 2, 6);
+    // Uncapped, so it never stops climbing, and convergent, so it never arrives.
+    expect(packBonusPercent(1000)).toBeLessThan(MAX_PACK_BONUS);
+    expect(packBonusPercent(1_000_000)).toBeLessThan(MAX_PACK_BONUS);
+    expect(packBonusPercent(1001)).toBeGreaterThan(packBonusPercent(1000));
+  });
+
+  /**
+   * The shape the maintainer asked for, in the two numbers they gave (2026-09-19).
+   *
+   * "Have it scale per unit used but have a diminishing returns effect where adding one more
+   * from 4 to 5 units increases all of their power more than from 49 to 50."
+   *
+   * Asserted as a ratio rather than as two magic figures, so a retune of either constant moves
+   * the curve without moving the rule: what has to stay true is that the early bodies are worth
+   * several times the late ones, not that they are worth 1.18 points.
+   */
+  it('pays the fifth body many times what the fiftieth is worth', () => {
+    const early = packBonusPercent(5) - packBonusPercent(4);
+    const late = packBonusPercent(50) - packBonusPercent(49);
+    expect(early).toBeGreaterThan(0);
+    expect(late).toBeGreaterThan(0);
+    expect(early / late).toBeGreaterThan(5);
+  });
+
+  it('never goes backwards and never goes flat, anywhere a player could reach', () => {
+    for (let units = 1; units < 300; units += 1) {
+      expect(
+        packBonusPercent(units + 1),
+        `the ${units + 1}th body was worth nothing`,
+      ).toBeGreaterThan(packBonusPercent(units));
+    }
   });
 
   it('raises the stack the engine builds, and names itself in the reasons', () => {
@@ -144,6 +175,35 @@ describe('Wall Breaker: the works come down', () => {
     expect(ground.fortifyPercent).toBeGreaterThan(0);
     // Nothing sapping is the identical object, so the common case costs no allocation.
     expect(sappedGround(dugIn(60), { razors: 40 })).toEqual(dugIn(60));
+  });
+
+  /**
+   * The half the card used to get wrong (bug pass, 2026-09-19).
+   *
+   * `UNIT_RULES.sapper` said the works were worth less "for as long as these are on the ground",
+   * which is the *jammer's* rule and not this one. `sapperCutPercent` reads the roster and
+   * `sappedGround` spends it on the battlefield once, before round one; nothing in the loop
+   * rebuilds the ground, so a wall stays down once it is down and killing every Demolisher does
+   * not put it back up. `jamPercent` is the contrast and is read off the stacks still standing.
+   *
+   * Pinned as a pair, because the two cards now promise opposite things and a change that made
+   * either function read the other's source would leave one of them lying.
+   */
+  it('is read off the roster, where the jam is read off whoever is still standing', () => {
+    const army: Army = { demolishers: 10, razors: 30 };
+    const cut = sapperCutPercent(army);
+    expect(cut).toBeCloseTo(MAX_SAPPER_CUT, 6);
+    expect(sappedGround(dugIn(60), army).fortifyPercent).toBeCloseTo(60 * (1 - cut / 100), 6);
+
+    const jamming = fight({ netrunners: 10, razors: 30 }, { razors: 40 }, 'jam-vs-sap').attacker;
+    expect(jamPercent(jamming)).toBeGreaterThan(0);
+    const wiped = {
+      ...jamming,
+      stacks: jamming.stacks.map((stack) =>
+        stack.unit.jammer === true ? { ...stack, alive: 0 } : stack,
+      ),
+    };
+    expect(jamPercent(wiped)).toBe(0);
   });
 
   it('costs the defender units that the same force without the mark does not take', () => {
@@ -217,40 +277,5 @@ describe('Holds the Line: it does not run while over half of it stands', () => {
       const wardens = stackOf(battle.defender, 'wardens');
       if (wardens.brokeAt !== null) expect(holdsTheLine(wardens), seed).toBe(false);
     }
-  });
-});
-
-describe('Picks the Field: a flat load per unit', () => {
-  it('adds the same load to every picker, over and above the sheet', () => {
-    const sheetOnly = spec('scavengers').stats.lootCapacity * 10;
-    expect(lootCapacityOf({ scavengers: 10 })).toBe(sheetOnly + PICKER_EXTRA_LOAD * 10);
-  });
-
-  it('is not scaled by the carry percentage, which is the whole difference', () => {
-    const sheetOnly = spec('scavengers').stats.lootCapacity * 10;
-    expect(lootCapacityOf({ scavengers: 10 }, 50)).toBeCloseTo(
-      sheetOnly * 1.5 + PICKER_EXTRA_LOAD * 10,
-      6,
-    );
-  });
-
-  /** A Counterweight Harness on the Haulers is a bigger bag on a raid as well as on a job. */
-  it('reads the bag off the fitted sheet when the loadouts are passed', () => {
-    const printed = lootCapacityOf({ haulers: 4 });
-    const harnessed = lootCapacityOf({ haulers: 4 }, 0, { haulers: ['counterweight_harness'] });
-    expect(harnessed).toBe(printed + 4 * 32);
-    // The percentage scales the fitted bag too, and the picker's flat load still sits outside it.
-    const pickers = lootCapacityOf({ scavengers: 10 }, 50, { scavengers: ['hook_and_line'] });
-    expect(pickers).toBeCloseTo(
-      (spec('scavengers').stats.lootCapacity + 12) * 10 * 1.5 + PICKER_EXTRA_LOAD * 10,
-      6,
-    );
-  });
-
-  it('pays nothing to a force that carries none of them', () => {
-    const carried = lootCapacityOf({ razors: 10 });
-    const control = withoutMark('scavengers', 'picker', () => lootCapacityOf({ scavengers: 10 }));
-    expect(carried).toBe(spec('razors').stats.lootCapacity * 10);
-    expect(control).toBe(spec('scavengers').stats.lootCapacity * 10);
   });
 });

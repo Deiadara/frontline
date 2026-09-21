@@ -936,8 +936,8 @@ the expected outcome of a matchup is.
       and stamped on the report. Nothing the engine reads is left unset. The wrapper's ledger adds
       up over 500 fights: everybody who set out is home, fled or dead.
 - [x] V2. **Two counting faults, fixed with tests and controls** (`engine.ts`, `engine.test.ts`).
-      The cowed (§D3) stood in the line and took fire but their count never moved, so as a stack
-      thinned the silenced number ate the shooters: ten bodies with six cowed lost five and had
+      The intimidated (§D3) stood in the line and took fire but their count never moved, so as a stack
+      thinned the silenced number ate the shooters: ten bodies with six intimidated lost five and had
       nobody left firing. They now fall with the rest of the line, through damage and through the
       run-down both. And the "outnumbered" reading counted porters, so forty Scavengers behind
       twenty Razors handed every Warden, Juggernaut, Anodic and Condemned sent against them a last

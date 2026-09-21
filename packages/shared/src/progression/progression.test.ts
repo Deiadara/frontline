@@ -12,7 +12,15 @@ import {
   type PlayerXpSource,
 } from './state.js';
 import {
-  AREA_UNLOCK_LEVELS,
+  AREA_REQUIREMENTS,
+  TECH_DISTRICT_OFFERS,
+  areaDescription,
+  areaLockCaption,
+  areaName,
+  areaUnlockLevel,
+  describeAreaRequirement,
+  isAreaUnlocked,
+  noUnlocks,
   FIRST_MILESTONE_LEVEL,
   GATED_AREAS,
   MILESTONE_STEP,
@@ -115,13 +123,87 @@ describe('the unlock catalogue (§I3)', () => {
     { id: 'hard-missions', level: 5, name: 'Hard work', description: 'The bad jobs.' },
   ];
 
-  it('opens the four screens at the levels the maintainer named', () => {
-    expect(AREA_UNLOCK_LEVELS).toEqual({ research: 3, market: 5, training: 7, bar: 10 });
+  /**
+   * Re-recorded on 2026-09-19: the maintainer moved the doors off levels alone, so the table this
+   * used to pin no longer exists. Written out by hand rather than derived from
+   * `AREA_REQUIREMENTS`, because a test that asks the source what the source says cannot catch a
+   * retune, which is the whole failure this assertion exists to prevent.
+   */
+  it('opens each door on the condition the maintainer named', () => {
+    expect(AREA_REQUIREMENTS).toEqual({
+      scrapyard: { kind: 'building', building: 'scrapyard' },
+      training: { kind: 'level', level: 3 },
+      bar: { kind: 'level', level: 5 },
+      crew: { kind: 'level', level: 5 },
+      research: { kind: 'officer', role: 'head_of_research' },
+      faction: { kind: 'level', level: 10 },
+      market: { kind: 'level', level: 15 },
+      offers: { kind: 'research', technology: TECH_DISTRICT_OFFERS },
+      black_market: { kind: 'notoriety', rank: 3 },
+    });
     for (const area of GATED_AREAS) {
-      expect(isPlayerUnlockActive(area, AREA_UNLOCK_LEVELS[area] - 1)).toBe(false);
-      expect(isPlayerUnlockActive(area, AREA_UNLOCK_LEVELS[area])).toBe(true);
       // A door has copy, because a locked one has to say what it is rather than only when.
+      expect(areaName(area)).toBeTruthy();
+      expect(areaDescription(area)).toBeTruthy();
+      // ...and a line telling the player what to go and do, which is the half a number cannot give.
+      expect(describeAreaRequirement(area)).toBeTruthy();
+      expect(areaLockCaption(area)).toBeTruthy();
+    }
+  });
+
+  /**
+   * The four screens a player sees before any of the above, and the reason the gate list is worth
+   * pinning from the other side too. A door added to `GATED_AREAS` by mistake would shut one of
+   * these, and nothing else in the suite would notice: the game would simply start smaller.
+   */
+  it('leaves the loop open from the first minute', () => {
+    const open: string[] = ['city', 'district', 'units', 'missions'];
+    for (const area of open) {
+      expect(GATED_AREAS).not.toContain(area);
+    }
+  });
+
+  it('is shut on a crew that has just started, and each opens on its own fact', () => {
+    for (const area of GATED_AREAS) {
+      expect(isAreaUnlocked(area, noUnlocks()), `${area} was open at the start`).toBe(false);
+    }
+    expect(isAreaUnlocked('scrapyard', { ...noUnlocks(), buildings: ['scrapyard'] })).toBe(true);
+    // ...and a different structure is not that structure.
+    expect(isAreaUnlocked('scrapyard', { ...noUnlocks(), buildings: ['lab'] })).toBe(false);
+    expect(isAreaUnlocked('research', { ...noUnlocks(), officers: ['head_of_research'] })).toBe(
+      true,
+    );
+    expect(isAreaUnlocked('research', { ...noUnlocks(), officers: ['trader'] })).toBe(false);
+    expect(isAreaUnlocked('black_market', { ...noUnlocks(), notoriety: 2 })).toBe(false);
+    expect(isAreaUnlocked('black_market', { ...noUnlocks(), notoriety: 3 })).toBe(true);
+    // A rank only ever rises, so anything above the rung opens it too.
+    expect(isAreaUnlocked('black_market', { ...noUnlocks(), notoriety: 9 })).toBe(true);
+  });
+
+  it('gates the level doors on the level either side of the rung', () => {
+    for (const area of GATED_AREAS) {
+      const opensAt = areaUnlockLevel(area);
+      if (opensAt === null) continue;
+      expect(isAreaUnlocked(area, { ...noUnlocks(), level: opensAt - 1 })).toBe(false);
+      expect(isAreaUnlocked(area, { ...noUnlocks(), level: opensAt })).toBe(true);
+      // The level doors are also the only ones a level-up may announce.
+      expect(isPlayerUnlockActive(area, opensAt - 1)).toBe(false);
+      expect(isPlayerUnlockActive(area, opensAt)).toBe(true);
       expect(findPlayerUnlock(area)?.description).toBeTruthy();
+    }
+  });
+
+  /**
+   * The four doors a level does **not** open must not appear in the level catalogue at all.
+   *
+   * Announcing "you have unlocked the Scrapyard" on a level-up, to a crew that has not built one,
+   * is a lie told by the one screen whose whole job is saying what just changed.
+   */
+  it('keeps the doors a level cannot open out of the level-up announcement', () => {
+    for (const area of GATED_AREAS) {
+      if (areaUnlockLevel(area) !== null) continue;
+      expect(findPlayerUnlock(area), `${area} is announced by a level-up`).toBeUndefined();
+      expect(isPlayerUnlockActive(area, 9_999)).toBe(false);
     }
   });
 
@@ -151,9 +233,10 @@ describe('the unlock catalogue (§I3)', () => {
   });
 
   it('names the next thing worth reaching, and stops naming one past the ladder', () => {
-    expect(nextPlayerUnlock(1)?.id).toBe('research');
-    expect(nextPlayerUnlock(3)?.id).toBe('market');
-    expect(nextPlayerUnlock(10)?.level).toBe(FIRST_MILESTONE_LEVEL);
+    expect(nextPlayerUnlock(1)?.id).toBe('training');
+    expect(nextPlayerUnlock(3)?.level).toBe(5);
+    expect(nextPlayerUnlock(10)?.id).toBe('market');
+    expect(nextPlayerUnlock(15)?.level).toBe(FIRST_MILESTONE_LEVEL);
     expect(nextPlayerUnlock(9_999)).toBeNull();
   });
 });

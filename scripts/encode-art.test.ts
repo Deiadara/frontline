@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { skipHeavy, skipNote } from './heavy.js';
 import {
   ART_MANIFEST,
   ASSET_CLASS_SPECS,
@@ -279,7 +280,30 @@ function skySpeckle(image: { data: Buffer; width: number }, skyRows: number): nu
   return opaque / (image.width * skyRows);
 }
 
-describe('post-process registry', () => {
+/**
+ * The one file in this repo slow enough to be worth gating (`heavy.ts` has the measurements and
+ * the rule). It decodes and re-encodes real images, and at 20.5 seconds it is thirty times the
+ * next slowest file in this workspace.
+ *
+ * It runs whenever anything it actually checks has moved: the encoder itself, the manifest it
+ * reads, the masters it encodes, the deliveries it audits, or the licensing register it audits
+ * them against. It runs unconditionally on CI and under `ART_TESTS=1`. It is skipped only on a
+ * local run where none of those has changed, which is the edit loop it was costing twenty seconds
+ * a time.
+ */
+const COVERS = [
+  'scripts/encode-art.ts',
+  'scripts/heavy.ts',
+  'assets/',
+  'art-src/',
+  'docs/ART-BIBLE.md',
+  'packages/shared/src/art/',
+] as const;
+
+const SKIP = skipHeavy({ covers: COVERS });
+if (SKIP) console.log(skipNote('encode-art.test.ts', COVERS));
+
+describe.skipIf(SKIP)('post-process registry', () => {
   /** MOU-125 scope item 4: nothing the manifest declares may be silently skipped. */
   it('implements every step the manifest declares', () => {
     expect(unimplementedSteps(ART_MANIFEST)).toEqual([]);
@@ -323,7 +347,7 @@ describe('post-process registry', () => {
   });
 });
 
-describe('keyBackground', () => {
+describe.skipIf(SKIP)('keyBackground', () => {
   it('clears the background and keeps the subject', async () => {
     const image = await decodeMaster(
       await master(64, 64, (x, y) => (x >= 16 && x < 48 && y >= 16 && y < 48 ? SUBJECT : SKY)),
@@ -512,7 +536,7 @@ describe('keyBackground', () => {
   });
 });
 
-describe('encodeAsset', () => {
+describe.skipIf(SKIP)('encodeAsset', () => {
   it('downscales an icon master to its ART-BIBLE §6 delivery size, keeping alpha', async () => {
     // gpt-image-1 renders icons at 1024² with a real alpha channel; only the size needs closing.
     const bytes = await master(1024, 1024, (x, y) =>
@@ -706,7 +730,7 @@ describe('encodeAsset', () => {
  * encode brings the shape to the manifest rather than refusing everything that is not already
  * exact (MOU-229 D1).
  */
-describe('normalizeMaster', () => {
+describe.skipIf(SKIP)('normalizeMaster', () => {
   it('takes the largest centred rectangle of the declared aspect', () => {
     // Master wider than 1:1 → the full height survives and the sides are trimmed evenly.
     expect(centredCrop({ width: 1600, height: 1000 }, { width: 512, height: 512 })).toEqual({
@@ -770,7 +794,7 @@ describe('normalizeMaster', () => {
   });
 });
 
-describe('parseArgs', () => {
+describe.skipIf(SKIP)('parseArgs', () => {
   it('defaults to a real run over the whole manifest', () => {
     expect(parseArgs([])).toMatchObject({
       dryRun: false,
@@ -834,7 +858,7 @@ async function withSplitDirs(body: (masters: string, out: string) => Promise<voi
 const captured = (spy: { mock: { calls: readonly unknown[][] } }): string =>
   spy.mock.calls.map((call) => String(call[0])).join('');
 
-describe('main', () => {
+describe.skipIf(SKIP)('main', () => {
   it('dry-runs clean against an empty master directory and names what is missing', async () => {
     await withTempDir(async (dir) => {
       const out = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -940,7 +964,7 @@ describe('main', () => {
  * What the game renders, which `--landed` does not answer: that reports masters in `art-src/`, and
  * a master can land and then fail its matte (MOU-229 D2).
  */
-describe('painted vs procedural', () => {
+describe.skipIf(SKIP)('painted vs procedural', () => {
   const keys = (split: readonly PaintedClass[], assetClass: string) =>
     split.find((row) => row.class === assetClass);
 
@@ -991,7 +1015,7 @@ describe('painted vs procedural', () => {
  * actually on disk. `plane-city-fore` draws in front of the district nodes, so an opaque one there
  * erases the playfield with every other gate green (MOU-289).
  */
-describe('delivery audit', () => {
+describe.skipIf(SKIP)('delivery audit', () => {
   const CLEAR: Rgba = [0, 0, 0, 0];
 
   /** A plane delivery whose top `clearRows` of 40 are transparent: each row is 2.5% of the frame. */
@@ -1208,7 +1232,7 @@ describe('delivery audit', () => {
  * enforced by prose alone. A correctly-named `.webp` saved straight into `assets/` renders with no
  * recorded provenance and every gate green: the project rule says it must not ship (MOU-296).
  */
-describe('provenance audit', () => {
+describe.skipIf(SKIP)('provenance audit', () => {
   const HEADER =
     '| File | Source | Author | Licence | Commercial OK | Attribution required | Added | Notes |\n' +
     '| ---- | ------ | ------ | ------- | ------------- | -------------------- | ----- | ----- |\n';

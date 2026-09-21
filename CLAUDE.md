@@ -3,6 +3,11 @@
 Cyberpunk/dystopian multiplayer base-building strategy game. pnpm TypeScript monorepo.
 See `docs/ARCHITECTURE.md`, `docs/SPEC-server.md`, `docs/SPEC-client.md`.
 
+## General Rules to always follow
+
+- When a new prompt is given while owrking on something else, prioritize them as you see fit (unless stated to prioritize something specific) but do not drop the rest of the items. The job is done when all requests are done not when the new one is.
+- Make sure the game can always be stopped by Ctrl + C in the console
+
 ## Writing style (project rule, applies to every file in this repo)
 
 **No em dashes. No en dashes. No double hyphens used as punctuation.** Not in code comments, not in

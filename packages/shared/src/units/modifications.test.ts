@@ -1,3 +1,4 @@
+import { isCombineUnit } from './catalog.js';
 import { describe, expect, it } from 'vitest';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import { UNIT_CATALOG, findUnit } from './catalog.js';
@@ -20,7 +21,7 @@ import {
 import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
 
 /** The maintainer's figure, written here rather than read off the array it is checking. */
-const CATALOGUE_SIZE = 30;
+const CATALOGUE_SIZE = 31;
 /** Tape, offcuts and second-hand boots: the three a crew can build on its first day. */
 const OPEN_FROM_THE_START = ['taped_grips', 'scrap_vest', 'broken_in_boots'];
 
@@ -70,7 +71,7 @@ const legendary = UNIT_CATALOG.filter((unit) => unit.tier === 'legendary');
 const carriers = UNIT_CATALOG.filter((unit) => unit.tier === 'carrier');
 
 describe('the modification catalogue', () => {
-  it('holds thirty cards with no two sharing an id', () => {
+  it('holds thirty-one cards with no two sharing an id', () => {
     expect(UNIT_MODIFICATIONS).toHaveLength(CATALOGUE_SIZE);
     expect(new Set(UNIT_MODIFICATION_IDS).size).toBe(CATALOGUE_SIZE);
     for (const spec of UNIT_MODIFICATIONS) {
@@ -268,7 +269,7 @@ describe('rarity is a claim about the numbers', () => {
  * halves here are measured on the **raw** sum, before the clamp, which is the only place a card
  * authored with an absurd delta can still be seen.
  *
- * The top half cannot be stated as "every card at once stays under 100": thirty cards on one unit
+ * The top half cannot be stated as "every card at once stays under 100": every card on one unit
  * is not a loadout, and no catalogue worth having would survive it. What is stated instead is a
  * per-card ceiling that climbs with the rarity, which is the authorable mistake this is for.
  */
@@ -305,7 +306,9 @@ describe('the hundred-point ceiling', () => {
     const under: string[] = [];
     for (const unit of UNIT_CATALOG) {
       const fitted = modificationsForUnit(unit.id);
-      if (unit.tier === 'legendary') {
+      // A legendary takes nothing, and neither does anything the Combine fields: the yard never
+      // sees their sheets (`UnitSpec.faction`).
+      if (unit.tier === 'legendary' || isCombineUnit(unit)) {
         expect(fitted, unit.id).toEqual([]);
         continue;
       }
@@ -420,7 +423,7 @@ describe('who a card will go on', () => {
     if (!spec) throw new Error('expected a universal card');
     for (const unit of UNIT_CATALOG) {
       expect(modificationFitsUnit(spec, unit.id), `${spec.id}: ${unit.id}`).toBe(
-        unit.tier !== 'legendary',
+        unit.tier !== 'legendary' && !isCombineUnit(unit),
       );
     }
   });
@@ -462,6 +465,80 @@ describe('the rarity a card is filed under', () => {
     const known = new Set<UnitModificationRarity>(UNIT_MODIFICATION_RARITIES);
     for (const spec of UNIT_MODIFICATIONS) {
       expect(known.has(spec.rarity), `${spec.id}: ${spec.rarity}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * A card's `fits` list is a claim that the card is worth buying for that unit.
+ *
+ * It stopped being true once, and quietly. The Netrunners' offense went to twenty when
+ * `UnitSpec.jammer` became the whole of what they are, and the yard went on selling them the
+ * marksman line: Hardened Optics, Ranging Gear and Guided Rounds, +12, +48 and +72 offense on a
+ * sheet where offense decides nothing. Three cards, a blueprint each, and no gate said a word.
+ *
+ * So the rule is written down. A sheet whose contribution is not its damage may not be sold a
+ * card whose only contribution is damage. `jamPercent` reads the stacks still standing and still
+ * in the line, so what a jammer is actually sold has to be able to keep it there.
+ */
+describe('what the yard sells a unit that does not shoot', () => {
+  /**
+   * The jammers, and only the jammers.
+   *
+   * The first cut of this said "every support sheet", which swept in the Stitchers and went red
+   * on Filed Sights. That was the test being wrong, not the catalogue: a Stitcher carries 60
+   * offense, so Recoil Dampers is a 47% boost to a real number and a perfectly good thing to sell
+   * one. A *jammer* is the case where damage is not merely low but definitionally beside the
+   * point, and its 20 is the lowest figure on the roster against a median of 280.
+   */
+  const SUPPORT = UNIT_CATALOG.filter((unit) => unit.jammer === true);
+
+  /** What a card moves, split into the figures that decide a fight for a support sheet. */
+  const movesOnly = (effect: Partial<UnitStats>, keys: readonly (keyof UnitStats)[]): boolean =>
+    Object.keys(effect).length > 0 &&
+    Object.keys(effect).every((key) => keys.includes(key as keyof UnitStats));
+
+  it('has support sheets in the catalogue at all, so this is not vacuous', () => {
+    expect(SUPPORT.length).toBeGreaterThan(0);
+    expect(SUPPORT.map((unit) => unit.id)).toContain('netrunners');
+  });
+
+  it('never sells one a card that is only a bigger gun', () => {
+    const gunOnly: readonly (keyof UnitStats)[] = ['offense', 'penetration', 'range'];
+    for (const unit of SUPPORT) {
+      for (const card of modificationsForUnit(unit.id)) {
+        expect(
+          movesOnly(card.effect, gunOnly),
+          `${card.name} is a gunsight and the yard offers it to ${unit.name}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  /**
+   * ...and it sells them something. Removing the wrong cards and leaving a sheet with nothing is
+   * the other way to get this wrong, and it would read as "fixed" on the test above alone.
+   */
+  it('leaves them cards that keep them upright, at every rarity', () => {
+    const keepsYouThere: readonly (keyof UnitStats)[] = [
+      'vitality',
+      'armor',
+      'evasion',
+      'morale',
+      'stealth',
+      'speed',
+      'intimidation',
+    ];
+    for (const unit of SUPPORT) {
+      const cards = modificationsForUnit(unit.id);
+      for (const rarity of UNIT_MODIFICATION_RARITIES) {
+        const atRarity = cards.filter((card) => card.rarity === rarity);
+        expect(atRarity.length, `${unit.name} is sold nothing at ${rarity}`).toBeGreaterThan(0);
+        expect(
+          atRarity.some((card) => movesOnly(card.effect, keepsYouThere)),
+          `${unit.name} has no ${rarity} card that only keeps it on the field`,
+        ).toBe(true);
+      }
     }
   });
 });

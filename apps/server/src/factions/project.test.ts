@@ -109,12 +109,18 @@ describe('an ally who reinforced somebody else’s attack', () => {
       });
     }
 
-    // Somebody else's attack, on ground held by nobody in the faction.
-    app.repos.city.markScouted(declarer.baseId, 'rustyard', new Date().toISOString());
+    /*
+     * Somebody else's attack, on ground held by nobody in the faction.
+     *
+     * Chrome Row since the 2026-09-19 re-cut: the Steelbelt is the Combine's now and a district
+     * held end to end is shut, which leaves a gate fight as the only legal call there. Any open
+     * location fight does for this test, and Chrome Row's squatted half is one.
+     */
+    app.repos.city.markScouted(declarer.baseId, 'chrome-row', new Date().toISOString());
     const target: BattleTarget = {
       kind: 'location',
-      districtId: 'rustyard',
-      locationId: 'rustyard-press',
+      districtId: 'chrome-row',
+      locationId: 'chrome-row-exchange',
     };
     const declared = await app.inject({
       method: 'POST',

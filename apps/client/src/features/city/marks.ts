@@ -57,6 +57,10 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // The Blacksite has no gate on its bottom edge: the way in is the great gate of the fortified
   // compound at upper left, under the red banners. The sign stands on the road at its foot.
   'blacksite-7': { x: 0.245, y: 0.415 },
+  // The CCS's gatehouse closes the bottom of the painting, left of centre. The sign stands on
+  // the road under its arch rather than on the arch, and no lower: the plate is 2.098:1, so at
+  // the worst band the bottom tenth is under the nav and a shut gate's plate stands 26px.
+  'combine-spire': { x: 0.43, y: 0.838 },
 };
 
 export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
@@ -206,4 +210,31 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
   'blacksite-7-motorpool': { x: 0.655, y: 0.745 },
   'blacksite-7-pile': { x: 0.9, y: 0.715 },
   'blacksite-7-pit17': { x: 0.2, y: 0.745 },
+
+  /*
+   * The CCS (`plate-district-combine-spire`, 1817x866, 2026-09-20). Read off the maintainer's
+   * mark-up of a 1380x602 cover-fitted band, then converted to plate fractions: that band shows
+   * the plate with 4.25% cropped off the top and the bottom, so a band `y` is `0.0425 + 0.915 y`
+   * on the plate. Each sign sits just under the thing it names, on open ground: the road under
+   * the uplink dish, the plaza in front of the chapel's door, the terrace under the green dome,
+   * the wall under the red mast, the paving under the statue, the yard in front of the armoury,
+   * the ground at the crane's foot (grows left: it stands at the right edge), the road below the
+   * barricade wall. Then checked at 1024x768, 1280x720 and 1920x1080 and moved where a sign
+   * sat on a building or on another sign.
+   *
+   * The chapel, the armoury and the barricade were moved again on 2026-09-20, off a second
+   * mark-up: three callouts drawn straight onto a 1320x648 grab of the painting. Converted by
+   * fitting the seven signs already in that grab against the fractions below, which gives
+   * `x_px = 1783.0 x - 134.3` and `y_px = 846.7 y - 85.5`; every one of the seven reproduces to
+   * within a pixel, so the three new figures are read off the same ruler rather than guessed.
+   * The callout's top edge is the sign's top edge, which is what `Mark.y` means.
+   */
+  'combine-spire-uplink': { x: 0.16, y: 0.29 },
+  'combine-spire-chapel': { x: 0.439, y: 0.285 },
+  'combine-spire-ascension': { x: 0.6, y: 0.395 },
+  'combine-spire-broadcast': { x: 0.822, y: 0.455 },
+  'combine-spire-martyrs': { x: 0.467, y: 0.532 },
+  'combine-spire-armory': { x: 0.649, y: 0.491 },
+  'combine-spire-scaffold': { x: 0.94, y: 0.701, side: 'left' },
+  'combine-spire-household': { x: 0.222, y: 0.481 },
 };

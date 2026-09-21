@@ -1,4 +1,6 @@
 import {
+  combineLeaderAt,
+  combinePresenceOver,
   capturedGateDefensePercent,
   addResources,
   mergeResources,
@@ -72,7 +74,10 @@ import {
   loadable,
   findVehicle,
   ridingGroups,
+  bareLineRules,
+  fightingSlots,
   unitSlotsUsed,
+  vehicleNoun,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { recallOvertaken } from './movement.js';
@@ -85,6 +90,7 @@ import { forceSize, mergeArmies, removeForce } from './forces.js';
 import {
   tallyBattleResolved,
   tallyBattleShape,
+  tallyCombineFight,
   tallyCaptured,
   tallyDistrictRaid,
   tallyInfamyEarned,
@@ -192,11 +198,32 @@ export function assemble(
   if (livesHere) {
     defending = mergeArmies(defending, defenderBase.army);
   } else if (!defenderBase) {
-    for (const { control } of controlsIn(repos, battle.target.districtId)) {
-      defending = mergeArmies(defending, control.garrison);
+    for (const { locationId, control } of controlsIn(repos, battle.target.districtId)) {
+      defending = mergeArmies(defending, withoutTheLeader(locationId, control.garrison));
     }
   }
   return { attacking, defending, attackerRing, defenderRing, fromHomeRoster: livesHere };
+}
+
+/**
+ * A plot's garrison with its Combine legendary left standing on it (`city/combine.ts`).
+ *
+ * "The leader himself stands on one location and fights only there." A gate fight is not on his
+ * plot, and nothing above this line is written back for a gate: `setGarrison` runs for a
+ * `location` target and nothing else. So folding him into a district's defence put him in a fight
+ * he cannot die in, and the settle then counted him among the dead anyway. Measured on the
+ * Annexes gate: the ledger wrote `combine_leaders_slain:syndic`, the uplink still held her sheet,
+ * and every later fight in the district carried her power. A crew could collect the feat for
+ * killing her as often as it liked and never once take the power off the ground.
+ *
+ * Only the leader is held back. The regiment standing beside him fights the gate as it always
+ * has, which is a separate rule with its own reasons written above.
+ */
+function withoutTheLeader(locationId: string, garrison: Army): Army {
+  const leader = combineLeaderAt(locationId);
+  if (!leader || (garrison[leader.unitId] ?? 0) <= 0) return garrison;
+  const { [leader.unitId]: _standing, ...rest } = garrison;
+  return rest;
 }
 
 /**
@@ -757,11 +784,16 @@ function settleSideVehicles(
   return { destroyed, lostBy };
 }
 
-/** "1 Cheese Wagon, 2 Scrappy": what a receipt says was wrecked. */
+/**
+ * "1 Cheese Wagon, 2 Scrappy": what a receipt says was wrecked.
+ *
+ * The article comes off the name here. Every machine is `The Something` since 2026-09-20, and a
+ * count already stands where the article would: `2 The Scrappy` is not a thing anybody writes.
+ */
 function describeFleet(fleet: Fleet): string {
   return Object.entries(fleet)
     .filter(([, count]) => (count ?? 0) > 0)
-    .map(([id, count]) => `${count} ${findVehicle(id)?.name ?? id}`)
+    .map(([id, count]) => `${count} ${vehicleNoun(findVehicle(id)?.name ?? id)}`)
     .join(', ');
 }
 
@@ -905,6 +937,22 @@ function resolveOne(
     ? leaderFor(repos, battle, 'defender', defenderBase, now)
     : null;
 
+  /*
+   * The Combine's legendary over this district, while he lives (`city/combine.ts`).
+   *
+   * Read at the settle off the control rows as they stand, which is the one reading that makes
+   * killing him worth anything: a crew that took his plot yesterday fights the rest of the
+   * district without his shadow today. Only the regime's ground carries one; a crew or the looters
+   * holding the same plot does not inherit his power with it.
+   */
+  const presence =
+    battle.defender.kind === 'government'
+      ? combinePresenceOver(
+          battle.target.districtId,
+          controlsIn(repos, battle.target.districtId).map(({ control }) => control),
+        )
+      : undefined;
+
   const attackerEffects = situational(
     boosted(standingEffectsFor(repos, attacker, now), attackerBoost),
     {
@@ -956,6 +1004,7 @@ function resolveOne(
     defenderPerimeter: assembled.defenderRing,
     ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead) } : {}),
     ...(defenderLead ? { defenderOfficer: asCombatant(defenderLead) } : {}),
+    ...(presence ? { defenderPresence: presence.power } : {}),
     ...(defenderFinal && defenderBase
       ? {
           // The Gate, and everybody garrisoned inside the structures behind it (§A1, §A4).
@@ -1110,6 +1159,25 @@ function resolveOne(
   }
 
   /*
+   * The Combine's ledger (maintainer, 2026-09-19): a section of the board that moves only when
+   * the other side was the regime. The Combine's dead are whichever map holds the defender's
+   * losses: the loser's `killed` when the attacker won, the winner's `winnerLosses` when it did
+   * not (an NPC has no infirmary, so nothing in that map came back). `flawless` is the attacker's
+   * own losses at zero, turncoats included: a unit that changed sides was lost.
+   */
+  if (battle.defender.kind === 'government') {
+    const turned = Object.values(outcome.turned).reduce((total, count) => total + count, 0);
+    tallyCombineFight(repos, attacker.id, {
+      won: attackerWon,
+      flawless: attackerWon && settlement.defenderKills === 0 && turned === 0,
+      underLeader: presence !== undefined,
+      killed: attackerWon ? outcome.killed : outcome.winnerLosses,
+      turned,
+      locationTaken: attackerWon && battle.target.kind === 'location',
+    });
+  }
+
+  /*
    * The feats that are about *this* fight rather than about how many you have had.
    *
    * Every number here is read off what the settler already worked out, and two of them are read
@@ -1118,15 +1186,38 @@ function resolveOne(
    * committed at all, and half the server suite injects one, so the odds would read as a walkover
    * in exactly the tests that drive a fight. The casualty figures are crossed over because
    * `attackerKills` is what the attacker *took off* the defender, which is the defender's losses.
+   *
+   * `fightingSlots` rather than `unitSlotsUsed`, each side under its own rules: a crew defends its
+   * home with its whole roster and the porters in it never take a place in the line, so the raw
+   * slot count was the size of a *warehouse* and not of a defence. See `battle/line.ts` for the
+   * measurement. `simulate` has counted its own sides this way since the rule was written; this is
+   * the feats board finally asking the same question the fight did.
    */
-  const attackerForce = unitSlotsUsed(assembled.attacking);
-  const defenderForce = unitSlotsUsed(assembled.defending);
+  /** §A5: whether a force has anything in it that makes the ground unbearable (`UnitSpec.loud`). */
+  const hasLoud = (army: Army): boolean =>
+    Object.entries(army).some(
+      ([unitId, count]) => (count ?? 0) > 0 && findUnit(unitId)?.loud === true,
+    );
+
+  const attackerForce = fightingSlots(assembled.attacking, attackerFinal);
+  // `bareLineRules` for the Combine's ground and for a holder with no crew sheet: nobody has
+  // bought `carriers_fight` for a lot that has no owner.
+  const defenderForce = fightingSlots(assembled.defending, defenderFinal ?? bareLineRules());
   tallyBattleShape(repos, attacker.id, {
     won: attackerWon,
     ownForce: attackerForce,
     enemyForce: defenderForce,
     killed: settlement.attackerKills,
     lost: settlement.defenderKills,
+    // §E: what this side's jammers laid on the other, read off the engine rather than recomputed
+    // here, so the counter is paid on the figure the rounds were fought at.
+    jam: outcome.jam.attacker,
+    // §A4: only the crew that called the fight can have woken a cell into it.
+    planted: battle.wokeSleepers,
+    // §A5: whether this side put the racket on the other's ground (`UnitSpec.loud`). Read off
+    // the force that actually stood there rather than off what was sent, so a crew whose
+    // Anodics never arrived is not paid for a din nobody heard.
+    loud: hasLoud(assembled.attacking),
   });
   if (defenderBase) {
     tallyBattleShape(repos, defenderBase.id, {
@@ -1135,6 +1226,10 @@ function resolveOne(
       enemyForce: attackerForce,
       killed: settlement.defenderKills,
       lost: settlement.attackerKills,
+      jam: outcome.jam.defender,
+      // A defender never plants: a cell goes on ground its crew does **not** hold.
+      planted: false,
+      loud: hasLoud(assembled.defending),
     });
   }
 
@@ -1242,7 +1337,27 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       ? attackerGround.casualtyRecoveryPercent
       : (defenderGround?.casualtyRecoveryPercent ?? 0)) +
     (winnerBase ? infirmaryRecoveryPercent(winnerBase.buildings) : 0);
-  const winnerDead = recoverCasualties(outcome.winnerLosses, winnerRecovery);
+  /*
+   * The Executioner's bodies come off before the medics see the list, and go back on after.
+   *
+   * His card says an attacker left under a tenth of a life is finished where it stands, and an
+   * Infirmary that walks those home makes it false. The winner's losses are the only list the
+   * medics work from, and a *winning attacker* carries every executed body inside them: measured
+   * on 2026-09-21 over 400 winning attacks on the Blacksite, he finished 129 bodies and all 129
+   * sat in the 447 winner losses this line recovers a share of.
+   *
+   * `removeForce` here rather than a smaller recovery percentage, because the two are not the same
+   * claim: a percentage would still hand some of them back, just fewer, and what is wanted is that
+   * these particular bodies are not candidates at all. Only ever the attacker's, since he only
+   * ever fires at the side opposite him, so this is a no-op on a defence that held.
+   */
+  const executed = outcome.executedForce;
+  const recoverable = attackerWon
+    ? removeForce(outcome.winnerLosses, executed)
+    : outcome.winnerLosses;
+  const winnerDead = attackerWon
+    ? mergeArmies(recoverCasualties(recoverable, winnerRecovery), executed)
+    : recoverCasualties(recoverable, winnerRecovery);
   /*
    * ...and who they were, which the report needs as much as the roster does.
    *
@@ -1256,7 +1371,15 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const attackerDead = attackerWon ? winnerDead : outcome.killed;
   const defenderDead = attackerWon ? outcome.killed : winnerDead;
 
-  const attackerSurvivors = attackerWon ? removeForce(input.committed, attackerDead) : outcome.fled;
+  /*
+   * Directive Xero's turncoats (`outcome.turned`) are off the attacker's books for good.
+   *
+   * They are in `committed` (they marched) and in neither `killed` nor `fled` (the engine settles
+   * them as nobody's), so without this line a winning attacker would walk home with the units
+   * that fought against them. Taken off before the dead are, so a unit cannot be both.
+   */
+  const stillTheirs = removeForce(input.committed, outcome.turned);
+  const attackerSurvivors = attackerWon ? removeForce(stillTheirs, attackerDead) : outcome.fled;
 
   /**
    * §A4: the survivors stay on the ground they took, because the attacker said so before the
@@ -1547,7 +1670,12 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       // Whoever held it holds it, and whoever of *theirs* is left standing is its garrison now,
       // including anybody they sent up for the fight. An ally's survivors are not theirs to keep:
       // a garrison belongs to the ground's holder, and the allies walk home below.
-      repos.city.setGarrison(battle.target.locationId, principalLine);
+      // ...plus whoever changed sides under Directive Xero and is still standing: they are his
+      // now, and his means the ground's (`outcome.turnedAlive`).
+      repos.city.setGarrison(
+        battle.target.locationId,
+        mergeArmies(principalLine, outcome.turnedAlive),
+      );
     }
   } else if (attackerWon) {
     const broken = breakIn(repos, input, winnerDead);
@@ -1855,14 +1983,28 @@ function breakIn(
   const effects = standingEffectsFor(repos, input.attacker, now);
   const fallen = effects.recoveredCarryLoot ? recoveredDead : outcome.winnerLosses;
   const carrying = removeForce(input.committed, fallen);
+  // `effects` is passed as the fourth argument rather than dropped. A `unit_mark` grant such as
+  // Haul Rigging's `picker` is only visible through `markedUnit`, so reading the raw sheet here
+  // made that research rung a cost and a wait for nothing at all. The mission door has always
+  // passed it (`missions/resolve.ts`); this one did not, and the two now agree.
   const capacity = lootCapacityOf(
     carrying,
     effects.lootCapacityPercent,
     input.attacker.unitLoadouts,
+    effects,
   );
-  // Seeded off the battle so a raid replays: `plunder` draws the mix now rather than walking a
-  // priority table, and two reads of one fight cannot disagree about what left the district.
-  const haul = plunder(resident.resources, capacity, ['caps'], `plunder:${battle.id}`);
+  /*
+   * Seeded off the battle's **seed**, not its id, so a raid replays.
+   *
+   * `plunder` draws the mix rather than walking a priority table, so it needs a stream, and two
+   * reads of one fight must not disagree about what left the district. Either field gives that.
+   * The seed is the right one because it is the field the record carries *for* this: the fight
+   * itself runs on `battle.seed`, and taking the haul off a different column made the loot the
+   * one part of a battle that could not be reproduced by fixing the seed. That cost a test, too:
+   * `breakin.test.ts` compares two worlds and had to tolerate a fifth of the haul as draw noise,
+   * because two worlds can share a seed and can never share an id.
+   */
+  const haul = plunder(resident.resources, capacity, ['caps'], `plunder:${battle.seed}`);
   repos.bases.updateResources(resident.id, spendResources(resident.resources, haul));
   return { haul, raided: true };
 }
@@ -1889,9 +2031,9 @@ function emptySide(name: string): SideAnalysis {
     fled: 0,
     perimeter: 0,
     perimeterCaught: 0,
-    // A stub engine set no ring and cowed nobody, because it ran no fight.
+    // A stub engine set no ring and intimidated nobody, because it ran no fight.
     perimeterLost: 0,
-    cowed: 0,
+    intimidated: 0,
     infamy: 0,
     units: [],
     // A stub engine ran no officer, because it ran no fight.
@@ -1926,6 +2068,12 @@ function fallbackAnalysis(
     rounds: outcome.rounds,
     decidedOnPower: false,
     settledBy: 'standing' as const,
+    // A stub ran no presence, so there is no leader to put over the ground.
+    underLeader: null,
+    // The Combine's two tolls ride along even on a stub, so a fight settled by a test engine
+    // still reports the same shape the report reads.
+    turned: outcome.turned,
+    executed: outcome.executed,
     // A stub engine's fights have no ring in them, so nobody was turned back by one.
     brokeThrough: outcome.brokeThrough,
     attacker,

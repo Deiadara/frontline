@@ -20,7 +20,7 @@ import {
  * day. A number cannot be that. An item can: it has a name, it either sits in your inventory or it
  * does not, and the sentence "you need one Gyro Assembly" is a sentence a player can act on.
  *
- * Five kinds, and the kind is what a player needs to know about it:
+ * Four kinds, and the kind is what a player needs to know about it:
  *
  * - **Blueprint**: permanent knowledge, and the record that a document was assembled and unlocked.
  *   Never tradeable: see `blueprintItemSpec`.
@@ -28,8 +28,10 @@ import {
  *   of these is generated from `blueprints/catalog.ts`, one item per page.
  * - **Component**: a physical part. Consumed by the thing it goes into. This is what makes a
  *   late-game structure or an implant cost something you cannot simply grind.
- * - **Relic**: worth caps and nothing else. Loot with no sink, so there is always something in
- *   the market worth haggling over that costs nobody a build.
+ * - **Consumable**: spent for an effect, and gone. The one kind whose value is in using it up.
+ *
+ * Relics were a fifth kind and are not here any more: `ITEM_KINDS` has four entries and nothing
+ * in the catalogue carries the kind. This list said five and named them for months after.
  * - **Consumable**: built to be spent once. The traps, cut in the Scrapyard and set under one
  *   fight the crew is defending (§I4).
  *

@@ -102,7 +102,8 @@ import {
   weatherAt,
   type WeatherKind,
   weatherLabels,
-  UNIT_CATALOG,
+  PLAYER_UNITS,
+  combineLeaderOf,
   BOT_DISTRICT_ID,
   STARTER_DISTRICT_ID,
   UNIT_MODIFIERS,
@@ -157,10 +158,12 @@ import {
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
   createCommander,
+  TECH_DISTRICT_OFFERS,
   findMissionTemplate,
   makeAttributes,
   officerBattleStats,
   fleetCapacity,
+  vehicleBuildSeconds,
   type GarageResponse,
   OVERSEER_HOLD_MS,
   OVERSEER_PRESETS,
@@ -271,7 +274,16 @@ export const base: Base = {
   ],
   buildQueue: [],
   // Fighters and porters both, so the send window and the roster show the support tier (§A5).
-  army: { razors: 4, scavengers: 2 },
+  /*
+   * §A4: one Sleeper still at home, so the screens that offer to *plant* them have something to
+   * offer. The two in `unitsResponse.sleeping` are a different two, already on the ground.
+   *
+   * Deliberately small. A Sleeper costs two beds and this crew's housing is nearly full: five of
+   * them between home and the cell took the spare beds down to one, and `bench.spec.ts` went red
+   * on its own guard that the fixture "must leave room for a batch". The fixture is shared, so
+   * what it spends has to leave the other screens something to work with.
+   */
+  army: { razors: 4, scavengers: 2, sleepers: 1 },
   trainingQueue: [],
   training: startingTraining('2026-08-16T00:00:00.000Z'),
   inventory: {},
@@ -314,9 +326,58 @@ export const meNoOverseer: MeResponse = {
  * are sized by the digits in them, so this, not `base`, is the widest the economy row ever
  * gets, and it is what the layout has to survive at the narrowest supported viewport.
  */
+/**
+ * The officer a late-game save has sitting in the Lab's chair.
+ *
+ * §I3 opens the Archive on the hire rather than on a level (maintainer, 2026-09-19), so a fixture
+ * with an empty `commanders` list cannot reach research, blueprints or the reimagining bench at
+ * any level at all. Every one of those screens went red on the gate landing, and the failures read
+ * as timeouts rather than as a locked door, because a spec waiting for a row it will never see
+ * waits the full fifteen seconds.
+ */
+const headOfResearch: Commander = createCommander(
+  'c-archive',
+  'Vela Roshan',
+  'head_of_research',
+  { logic: 62, signals: 48, stealth: 24 },
+  [],
+  420,
+);
+
 export const lateGameBase: Base = {
   ...base,
-  level: 12,
+  /*
+   * Fifteen, not twelve (2026-09-19). The Market opens at 15 and the back room at notoriety 3, so
+   * a save called `lateGame` that sat at 12 with no rank was a late game that could not open the
+   * two screens it exists to screenshot.
+   *
+   * The progression readout keeps the property it was pinned at twelve for, and gains on it: level
+   * 15 wants 12,000 XP to the next rung against level 12's 7,800, so the bar reads five digits
+   * either side of the slash rather than four. This is still the widest it ever gets.
+   */
+  level: 15,
+  commanders: [headOfResearch],
+  /*
+   * A district with the structures a late game has, and the Scrapyard above all.
+   *
+   * §I3 opens the Scrapyard's screen on the Scrapyard being *built* (2026-09-19), which is the one
+   * gate in the catalogue a level cannot satisfy. `base.buildings` is a Nexus, a Generator and a
+   * Gate, so this save had no yard and every Scrapyard screen drew a locked door: the refits, the
+   * traps, the parts bin and the badge builder, twenty visual cases between them.
+   */
+  buildings: [
+    { id: 'b1', kind: 'nexus', level: 12, modifications: [] },
+    { id: 'b2', kind: 'generator', level: 8, modifications: [] },
+    { id: 'b3', kind: 'gate', level: 5, modifications: [] },
+    { id: 'b4', kind: 'scrapyard', level: 9, modifications: [] },
+  ],
+  /*
+   * §I3 again: the district offers board opens on the Trader's first programme (2026-09-19), so a
+   * save with an empty `technologies` list cannot reach `/game/market/offers` however rich it is.
+   * One rung rather than a full tree, because that is the single door this fixture has to be past
+   * and a fixture that had researched everything would stop being able to screenshot the Lab.
+   */
+  research: { active: null, technologies: [TECH_DISTRICT_OFFERS] },
   resources: {
     caps: 125000,
     supplies: 48000,
@@ -325,10 +386,12 @@ export const lateGameBase: Base = {
     highQualityMetal: 12000,
     planks: 96000,
   },
-  economy: { ...base.economy, infamy: 100 },
-  // One XP short of level 13 (§I). Widest the progression readout ever gets: four digits either
-  // side of the slash and a bar at ~100%: where the starting base shows `0 / 100`.
-  progression: { xpIntoLevel: 7799 },
+  // Rank 3 is what the fence wants before he shows a crew the back room (§I3), and 100 infamy is
+  // deliberately short of the 300 the next rung costs: see `notoriousBase` for the other state.
+  economy: { ...base.economy, infamy: 100, notoriety: 3 },
+  // One XP short of level 16 (§I). Widest the progression readout ever gets: five digits either
+  // side of the slash and a bar at ~100%, where the starting base shows `0 / 100`.
+  progression: { xpIntoLevel: 11_999 },
   // Something on both clocks, because the in-flight rail is drawn on *every* screen from this
   // payload: a fixture with empty queues screenshots the whole shell without the one piece of
   // chrome that is meant to be always there.
@@ -576,6 +639,8 @@ if (!rustyard) throw new Error('fixture error: the Rustyard is missing from the 
 
 export const districtDetail: DistrictDetailResponse = {
   district: rustyard,
+  // Looters' ground: no legendary commands it. `districtDetailFor` fills this for the three that have one.
+  combineLeader: null,
   scouted: true,
   // Nobody out, and no quote: this ground is already open, so there is nothing to send anybody for.
   scoutingRun: null,
@@ -676,6 +741,32 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
  */
 export const UNSCOUTED_DISTRICT_ID = 'combine-spire';
 
+/**
+ * The Combine legendary over a district, alive, as the route projects him (`city/combine.ts`).
+ *
+ * Derived from the catalogue rather than typed per district, so the three fixtures cannot drift
+ * from the leader table: the Syndic on the Annexes, the Executioner on the Blacksite, Directive
+ * Zero in the CCS, and `null` everywhere else. Alive, because every screen that draws him has a
+ * live and a dead reading and the live one is the one with the power line on it.
+ */
+function combineLeaderFor(district: District): DistrictDetailResponse['combineLeader'] {
+  const leader = combineLeaderOf(district.id);
+  if (!leader) return null;
+  const unit = findUnit(leader.unitId);
+  const location = district.locations.find((one) => one.id === leader.locationId);
+  if (!unit || !location) throw new Error(`fixture error: ${leader.unitId} stands nowhere`);
+  return {
+    unitId: leader.unitId,
+    name: unit.name,
+    locationId: location.id,
+    locationName: location.name,
+    powerName: leader.powerName,
+    pronoun: leader.pronoun,
+    alive: true,
+    powerLine: leader.powerLine,
+  };
+}
+
 export function districtDetailFor(id: string): DistrictDetailResponse {
   const district = CITY_DISTRICTS.find((entry) => entry.id === id);
   if (!district || district.id === districtDetail.district.id) return districtDetail;
@@ -683,6 +774,8 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
     return {
       ...districtDetail,
       district,
+      // His existence is public: the fog hides what he has under him, not that he is there.
+      combineLeader: combineLeaderFor(district),
       scouted: false,
       unified: null,
       locations: [],
@@ -698,6 +791,7 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
   return {
     ...districtDetail,
     district,
+    combineLeader: combineLeaderFor(district),
     // The Rustyard's own run bonus does not belong to anywhere else.
     unified: null,
     // Contested ground has locations on it; a residential plot genuinely has none.
@@ -911,11 +1005,23 @@ export const unitsResponse: UnitsResponse = {
   // §A4: away at a fight, and drawing on the same beds as the two on held ground. Non-empty on
   // purpose: the card prints a third count for these, and a fixture with none of them would
   // screenshot a card that cannot show the thing it grew a column for.
-  abroad: { razors: 3 },
+  abroad: { razors: 3, sleepers: 2 },
+  /*
+   * §A4: a cell planted on somebody else's ground, and a **subset of `abroad`** rather than a
+   * fourth bucket beside it (`sleepers.ts`).
+   *
+   * Non-empty on purpose. The census separates these from the ones at a fight by subtracting,
+   * and a fixture with none of them screenshots a column that can never show anything: the
+   * first version of this page shipped with Planted reading zero on every row and nobody could
+   * have told whether the arithmetic worked.
+   */
+  sleeping: { sleepers: 2 },
   // Derived rather than typed, so the fixture cannot quietly become a crew that is over its own
   // cap, which is a real state, but a misleading one to make the default screenshot of.
   unitSlotsUsed:
-    unitSlotsUsed(base.army) + unitSlotsUsed({ razors: 2 }) + unitSlotsUsed({ razors: 3 }),
+    unitSlotsUsed(base.army) +
+    unitSlotsUsed({ razors: 2 }) +
+    unitSlotsUsed({ razors: 3, sleepers: 2 }),
   unitSlotsCap:
     districtUnitSlotCapacity(base.buildings, noTerritoryEffects()) -
     unitSlotDraw({ ...base, army: {}, trainingQueue: [] }).total,
@@ -1001,7 +1107,7 @@ export const unitsResponse: UnitsResponse = {
    * does not run. One entry rather than several: the point is that the card prints a granted mark
    * beside the sheet's own, and a roster where half the units carry one says nothing about which.
    */
-  units: UNIT_CATALOG.map((unit) => {
+  units: PLAYER_UNITS.map((unit) => {
     const unlocked = unit.tier === 'rabble';
     return {
       id: unit.id,
@@ -1014,7 +1120,7 @@ export const unitsResponse: UnitsResponse = {
       modifiers: unit.modifiers.map((id) => ({
         label: UNIT_MODIFIERS[id].label,
         description: UNIT_MODIFIERS[id].description,
-        when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
+        when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context].when,
       })),
       // §A5: the sheet's own marks plus whatever this crew's ground has granted, which is exactly
       // what `units/roster.ts` sends. Without the fold the fixture screenshots a card that cannot
@@ -2166,6 +2272,14 @@ export const crewStanding: CrewStandingResponse = {
   ),
   // Nothing granted: the fixture crew has finished no research that hands a sheet a mark.
   marks: {},
+  /*
+   * The bag the settle pays, which is the people fold plus the ground.
+   *
+   * Deliberately larger than anything in `effects`: this fixture crew holds district ground, and
+   * the whole reason the field exists is that `effects` is people-only and cannot say so. A zero
+   * here would draw the board exactly as the bug did and prove nothing.
+   */
+  haulPercent: effectsOfSheet(PROFESSOR_CREW).lootCapacityPercent + 25,
 };
 
 /**
@@ -2393,9 +2507,12 @@ export const districtWithAddons: Base = {
  * for everything else are missing, which is the state a mid-game crew is actually in and the one
  * where the lock lines are worth reading.
  */
+/** The yard this fixture crew has, named once: both `garageLevel` and every build time read it. */
+const GARAGE_LEVEL = 5;
+
 export const garage: GarageResponse = {
   resources: base.resources,
-  garageLevel: 5,
+  garageLevel: GARAGE_LEVEL,
   fleet: { motorcycle: 2 },
   capacity: fleetCapacity({ motorcycle: 2 }),
   vehicles: VEHICLES.map((spec) => ({
@@ -2407,7 +2524,10 @@ export const garage: GarageResponse = {
     // One more of them committed to the fight at the Press: the row says so rather than losing it.
     out: spec.id === 'motorcycle' ? 1 : 0,
     cost: spec.cost,
-    buildSeconds: spec.buildSeconds,
+    // Discounted by the yard's own level, the way the route quotes it (`garage/routes.ts`). The
+    // fixture named the catalogue's flat number, so the screen this suite guards was showing a
+    // time the real server never serves: the fixture is the contract.
+    buildSeconds: vehicleBuildSeconds(spec, GARAGE_LEVEL),
     capacity: spec.capacity,
     speed: spec.speed,
     // The deprecated duplicate of `speed`, shipped equal to it for one release: the fixture keeps
@@ -2594,6 +2714,11 @@ const boardSlots = declarableSlots(new Date(BOARD_NOW)).map((slot) => slot.toISO
 const boardAnalysis: BattleAnalysis = {
   battleId: 'fight-3',
   locationName: 'Ninth Street Pawn',
+  // No Combine leader over the Steelbelt's pawn shop, so neither toll was taken and no name is
+  // put to the ground.
+  underLeader: null,
+  turned: {},
+  executed: 0,
   // §A4: the sky it was fought under and what the ground was like, stamped at resolution. A
   // storm, so the card has something to draw and the chips are worth looking at.
   weather: 'stormy',
@@ -2618,7 +2743,7 @@ const boardAnalysis: BattleAnalysis = {
     // §D3: units the enemy's intimidation kept from firing at all. Non-zero here on purpose: the
     // engine has settled this before every first shot since intimidation landed and no screen drew
     // it, so the fixture that guards the report has to be one where it is drawn.
-    cowed: 3,
+    intimidated: 3,
     infamy: 118,
     // §D1: somebody led this one, so the card has an officer line to draw. The defender's is null,
     // which is the ordinary case and also has to render.
@@ -2671,7 +2796,7 @@ const boardAnalysis: BattleAnalysis = {
     perimeter: 0,
     perimeterCaught: 0,
     perimeterLost: 0,
-    cowed: 0,
+    intimidated: 0,
     infamy: 0,
     officer: null,
     units: [
@@ -2694,7 +2819,7 @@ const boardAnalysis: BattleAnalysis = {
   },
   log: [
     '34 moving on Ninth Street Pawn. Looters has 19 on the ground.',
-    'Fought inside a structure, in built-up ground.',
+    'Fought inside a structure, in urban ground.',
     'Round 4: Razors broke.',
     'Ninth Street Pawn changes hands. The Ninth Street Reclamation Company holds it.',
     '14 broke and ran; 5 did not.',
@@ -2734,6 +2859,7 @@ const comingBattle = (
     defender: { kind: 'looters' },
     scheduledFor,
     holdAfterCapture: false,
+    wokeSleepers: false,
     declaredAt: BOARD_NOW,
     resolvedAt: null,
     seed: `${id}-seed`,
@@ -2955,6 +3081,41 @@ export const battles: BattlesResponse = {
  */
 export const actionsResponse: ActionsResponse = {
   serverNow: BOARD_NOW,
+  /*
+   * §A4: a cell in place and a cell still walking, plus one posting on held ground.
+   *
+   * All three states the Monitor has to draw, in the one fixture the screenshots use: a waiting
+   * cell has no countdown at all, an outbound one does, and a posting is people who are simply
+   * somewhere. A fixture with only the easy case is how a row nobody laid out ships.
+   */
+  sleepers: [
+    {
+      cellId: 'cell-1',
+      locationId: 'rustyard-press',
+      locationName: 'No. 4 Press House',
+      districtName: 'The Rustyard',
+      army: { sleepers: 4 },
+      phase: 'waiting',
+      arrivesAt: BOARD_NOW,
+    },
+    {
+      cellId: 'cell-2',
+      locationId: 'rustyard-pawn',
+      locationName: 'Toolhouse Pawn',
+      districtName: 'The Rustyard',
+      army: { sleepers: 2 },
+      phase: 'outbound',
+      arrivesAt: new Date(Date.parse(BOARD_NOW) + 40 * 60_000).toISOString(),
+    },
+  ],
+  stationed: [
+    {
+      locationId: 'rustyard-kennels',
+      locationName: 'The Kennels',
+      districtName: 'The Rustyard',
+      army: { razors: 12, ironsides: 3 },
+    },
+  ],
   movements: [
     {
       id: 'col-1',
@@ -3562,7 +3723,7 @@ const scrapyardEntry = (
      */
     targets: (modification
       ? fitsIn(spec).map((kind) => ({ id: kind, name: BUILDING_CATALOG[kind].name }))
-      : UNIT_CATALOG.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => ({
+      : PLAYER_UNITS.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => ({
           id: unit.id,
           name: unit.name,
         }))
@@ -3572,7 +3733,9 @@ const scrapyardEntry = (
       blocker: shut ?? (locked ? `Needs the ${document?.name}` : null),
     })),
     requirement: ((): string[] => {
-      const need = modification ? modificationRequirement(spec) : unitModificationRequirement(spec);
+      const need = modification
+        ? modificationRequirement(spec, spec.building)
+        : unitModificationRequirement(spec);
       return describeModificationRequirement(need, {
         buildingName: BUILDING_CATALOG[modification ? spec.building : 'gauntlet'].name,
         // A BASIC card names no chair, so there is no label to look up for one.

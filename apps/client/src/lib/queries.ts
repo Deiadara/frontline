@@ -61,6 +61,8 @@ import {
   getDistrict,
   getUnits,
   scoutDistrict,
+  plantSleepers,
+  recallSleepers,
   setGarrison,
   cancelTraining,
   increasePayroll,
@@ -202,6 +204,36 @@ function setBase(queryClient: QueryClient, baseId: string, base: BaseDetailRespo
     base,
     serverNow: new Date(carried).toISOString(),
   });
+}
+
+/**
+ * Write a board a market write answered with onto the cache entry the screen is reading it from.
+ *
+ * The market, the back room and the Bar are keyed by city (`['market', 'crossroads']`), and the
+ * city a screen asked for is not something the mutation knows: the request bodies do not carry one
+ * and the answer is the board the server chose. An exact `setQueryData(queryKeys.market, …)`
+ * therefore wrote to the bare prefix, which no `useQuery` subscribes to, and every trade fell back
+ * on the invalidation's round trip while the screen kept the pre-trade board. That flash is the
+ * whole reason these writes carry a board at all.
+ *
+ * Matched on the board's own `cityId` rather than on the key's spelling, so both readings of one
+ * room are written (a crew's own market is fetched bare, `['market', '']`, and by name from the
+ * picker) and a board for a different city is left alone. The last part is load-bearing: every
+ * write route answers with the crew's **home** board whichever city the write was made in
+ * (`routes/market.ts` calls `board(base, now)` with no city), so a blind write would put one
+ * city's barrow under another city's heading.
+ *
+ * Nothing is written for a city that has never been read, the way {@link setBase} does nothing for
+ * an unread district: there is no screen to overwrite, and the caller's invalidation fetches it.
+ */
+function setBoard<Board extends { cityId: string }>(
+  queryClient: QueryClient,
+  key: readonly unknown[],
+  board: Board,
+): void {
+  queryClient.setQueriesData<Board>({ queryKey: key }, (previous) =>
+    previous?.cityId === board.cityId ? board : previous,
+  );
 }
 
 /**
@@ -573,6 +605,15 @@ export function useCreateOverseer() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.overseerChoices });
     },
     onSuccess: (data) => {
+      /*
+       * The offer is spent, so it comes out of the cache rather than sitting there stale.
+       *
+       * `GET /overseer/choices` refuses a crew that already has somebody (409), because since an
+       * offer became a hold it is no longer free to ask. A cached offer left behind is a query
+       * that can refetch on a window focus during navigation and answer with that refusal, on a
+       * screen whose failure branch is the one a player cannot get past.
+       */
+      queryClient.removeQueries({ queryKey: queryKeys.overseerChoices });
       setUser(data.user);
       queryClient.setQueryData<MeResponse>(queryKeys.me, (previous) => ({
         user: data.user,
@@ -644,6 +685,8 @@ function useCityWrite<Body, Result>(
   mutationFn: (body: Body) => Promise<Result>,
   baseId: string | undefined,
   districtOf: (body: Body) => string | null,
+  /** Anything else this particular write makes stale. Empty for almost all of them. */
+  alsoStale: readonly (readonly unknown[])[] = [],
 ) {
   const queryClient = useQueryClient();
   return useMutation<Result, ApiRequestError, Body>({
@@ -658,6 +701,7 @@ function useCityWrite<Body, Result>(
       if (baseId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.base(baseId) });
       }
+      for (const key of alsoStale) void queryClient.invalidateQueries({ queryKey: key });
       invalidateLevelSensitive(queryClient);
     },
   });
@@ -687,6 +731,34 @@ export const useScout = () => useCityWrite(scoutDistrict, undefined, (body) => b
 
 export const useSetGarrison = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(setGarrison, baseId, () => districtId ?? null);
+
+/**
+ * §A4: plant a cell, and pull one back out (`sleepers.ts`).
+ *
+ * Planting is a city write like garrisoning: it moves units off the roster and changes what the
+ * district looks like, so the same invalidations apply. The Monitor is added to both, because a
+ * cell appears there the moment it is sent and leaves it when it is recalled, and that page is
+ * the only place a player can see one at all.
+ */
+export const usePlantSleepers = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(plantSleepers, baseId, () => districtId ?? null, [queryKeys.actions]);
+
+export function useRecallSleepers() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: recallSleepers,
+    /*
+     * `onSettled`, not `onSuccess`: this route answers with an acknowledgement rather than the
+     * new state, and a refused recall can still have landed every other walk on the way past.
+     * The roster is in the list because a cell that finishes its walk home rejoins it.
+     */
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.city });
+    },
+  });
+}
 
 export const useFortify = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(fortifyLocation, baseId, () => districtId ?? null);
@@ -853,7 +925,7 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
     return useMutation({
       mutationFn,
       onSuccess: (response) => {
-        queryClient.setQueryData(queryKeys.market, response.market);
+        setBoard(queryClient, queryKeys.market, response.market);
         // Dropped as well as set: a 5s poll that left before the trade answered would otherwise
         // land the pre-trade board on top of it. See `usePlaceVendorBid`.
         void queryClient.invalidateQueries({ queryKey: queryKeys.market });
@@ -881,7 +953,7 @@ export function usePlaceVendorBid() {
   return useMutation({
     mutationFn: placeVendorBid,
     onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.market, response.market);
+      setBoard(queryClient, queryKeys.market, response.market);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
@@ -911,7 +983,7 @@ export function useReimagine() {
   return useMutation({
     mutationFn: reimagine,
     onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.market, response.market);
+      setBoard(queryClient, queryKeys.market, response.market);
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
@@ -963,7 +1035,7 @@ export function usePlaceBlackMarketBid() {
   return useMutation({
     mutationFn: placeBlackMarketBid,
     onSuccess: (response) => {
-      queryClient.setQueryData(queryKeys.blackMarket, response.blackMarket);
+      setBoard(queryClient, queryKeys.blackMarket, response.blackMarket);
       void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
@@ -1341,6 +1413,20 @@ export function useBuildVehicle() {
       // The stockpile moved, and the battle screen quotes what is in the yard.
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+      /*
+       * And the units bench, which is where a machine is actually built.
+       *
+       * `POST /garage/build` calls `queueVehicle` (`apps/server/src/units/training.ts`) and that
+       * pushes the order onto `base.trainingQueue`: the same queue a batch of Razors goes on,
+       * sharing its length cap and the district's beds, with `settleTraining` the thing that later
+       * puts the machine in the fleet. The roster's "On the bench 1 / 12" and the district's bed
+       * count are therefore both a poll behind, and neither poll runs: this button is on the
+       * Garage, so neither screen is mounted, and 30s of `staleTime` covers the walk to either.
+       *
+       * The district is prefix-matched because the id is not on this response.
+       */
+      void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+      void queryClient.invalidateQueries({ queryKey: ['base'] });
     },
   });
 }

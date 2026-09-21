@@ -56,10 +56,15 @@ export const BLUEPRINT_CATEGORY_BLURBS: Readonly<Record<BlueprintCategory, strin
 /**
  * What a blueprint gates.
  *
- * `building` is the coarse one on purpose. A structure offers five modifications and the advanced
- * half of them are the same class of work, so the retrofit blueprint is per structure rather than
- * per modification: eleven documents instead of thirty-two, and a player who has read the Garage
- * retrofit can fit any of the Garage's serious add-ons. See `advancedModificationBlueprint`.
+ * `building` is the coarse one on purpose. A structure offers seven modifications
+ * (`MODIFICATIONS_PER_BUILDING`) and the serious half of them are the same class of work, so the
+ * retrofit blueprint is per structure rather than per modification: **eleven** documents against
+ * the **62** modifications authored above the basic band, and a player who has read the Garage
+ * retrofit can fit any of the Garage's serious add-ons.
+ *
+ * The figures here read "five modifications" and "thirty-two" until 2026-09-20, and the
+ * `advancedModificationBlueprint` this pointed at no longer exists. The count of documents is the
+ * one number that did not move.
  */
 export const BLUEPRINT_TARGET_KINDS = [
   'unit',
@@ -79,7 +84,21 @@ export interface BlueprintTarget {
 
 export interface BlueprintPage {
   id: string;
-  /** What is actually on the page. Unique across the whole catalogue. */
+  /**
+   * What is actually on the page. Unique **within its own document**, which is the rule the
+   * catalogue keeps and `pages.test.ts` checks.
+   *
+   * It used to say "unique across the whole catalogue" and that was never true: `Winch Gearing`
+   * is a page of both Kite Crews and the Rescue Rig, and `Handling Rules` of both Breaching
+   * Charges and Refined Accelerant. The test named for the stronger rule keyed on
+   * `${blueprint.id}:${page.name}`, so it only ever enforced the weaker one.
+   *
+   * The weaker rule is the one that matters, because a page never reaches a player under this
+   * name alone. `items/catalog.ts` builds the item as `${blueprint.name}: ${page.name}`, so the
+   * two pairs above read as four distinct items in an inventory, and all 351 item names are
+   * distinct. Two pages of the *same* document sharing a name would be genuinely ambiguous, and
+   * that is what is forbidden.
+   */
   name: string;
   /**
    * What the sheet draws, chosen by hand off the name and the line under it (§D8).
@@ -120,8 +139,13 @@ export interface BlueprintSpec {
    * How scarce the finished document is, and the colour it is drawn in everywhere it appears.
    *
    * Authored per document off what it unlocks rather than read off the page count. The two mostly
-   * agree, and where they do not the thing at the end of it wins: a Heli Porter is four pages and
-   * a working turbine helicopter, which is not an uncommon object however short the manual is.
+   * agree, and where they do not the thing at the end of it wins: the Flooded Cellar is three
+   * pages and is authored `advanced`, because knowing which cellar to fill is not a common thing
+   * to know however short the manual is.
+   *
+   * The worked example here was the Heli Porter "at four pages" until 2026-09-20. It has seven
+   * and is authored a masterpiece, so it had stopped being an example of the two disagreeing at
+   * all: the pair above was measured against the catalogue before being written down.
    */
   rarity: ItemRarity;
   /** One line: what having it lets you do. Also the document's description everywhere it shows. */
@@ -1225,6 +1249,42 @@ export const BLUEPRINTS = [
         motif: 'table',
         description:
           'A ruled table of names against plug pairs, ticked at the door on the way out each night.',
+      },
+    ],
+  },
+  {
+    id: 'bp_mod_stereo_rig',
+    name: 'Stereo Rig Blueprint',
+    // Its own cover: `exploded` is already the Ablative Layers', and §D8 is that no two
+    // documents open on the same picture.
+    motif: 'horn',
+    category: 'upgrade',
+    rarity: 'intricate',
+    blurb:
+      'Horn speakers, a shoulder frame and a power pack. Drawn by somebody who had clearly done it before.',
+    targets: [{ kind: 'unit_upgrade', id: 'stereo_rig' }],
+    pages: [
+      {
+        id: 'pg_mod_stereo_rig_horn_array',
+        name: 'Horn Array',
+        motif: 'laminate',
+        description:
+          'Four horns on a yoke, angled outward and down, with the throat measurements written along each.',
+      },
+      {
+        id: 'pg_mod_stereo_rig_power_pack',
+        name: 'Power Pack',
+        motif: 'bolts',
+        description:
+          'The cell and its harness, and a note about how long it runs at full before it wants swapping.',
+        rarity: 'advanced',
+      },
+      {
+        id: 'pg_mod_stereo_rig_output_table',
+        name: 'Output Table',
+        motif: 'table',
+        description:
+          'What it measures at ten paces against what it measures at fifty, with a line under the figure nobody should stand inside.',
       },
     ],
   },

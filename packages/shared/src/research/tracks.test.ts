@@ -6,6 +6,7 @@ import { findUnit } from '../units/catalog.js';
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
 import { RESEARCH_UNLED_FREE, RESEARCH_UNLED_PENALISED, unledRule } from '../missions.leading.js';
 import { OFFICER_ROLES } from '../roles.js';
+import { TECH_DISTRICT_OFFERS, isAreaUnlocked, noUnlocks } from '../progression/unlocks.js';
 import { ResearchStateSchema } from './state.js';
 import {
   HEAD_MARK_THRESHOLDS,
@@ -336,6 +337,59 @@ describe('§C4a: what a rung pays', () => {
       }
     }
   });
+
+  /**
+   * ...and on every rung between them, not only the two ends.
+   *
+   * The check above compares rung 1 with rung 10 and skips the track entirely when those two pay
+   * into different channels, which is most of the catalogue. That left the middle of a track
+   * unguarded, and the Salvager's did go wrong there: rung 5 was repointed onto scrap yield at 8%
+   * when rung 4 below it already paid 10%, so a dearer, slower rung offered a fifth less than the
+   * one the player had just finished. A deeper rung costs more (`researchItemCost`) and takes
+   * longer (`researchItemMinutes`) whatever it pays, so the payout has to climb with it.
+   *
+   * Same *channel*, not same kind: `{ resource: 'scrap' }` and `{ resource: 'caps' }` are two
+   * ladders that happen to share a word, and comparing them would be arithmetic on unlike things.
+   */
+  it('climbs on every channel a track pays into twice, not just the two ends', () => {
+    // Only the string-valued discriminators, so a channel key is a key and never `[object Object]`.
+    const channelOf = (bonus: Record<string, unknown>): string =>
+      ['kind', 'resource', 'building', 'tier', 'unitId', 'group', 'attribute', 'stat']
+        .map((field) => bonus[field])
+        .filter((value): value is string => typeof value === 'string')
+        .join(':');
+    const magnitudeOf = (bonus: Record<string, unknown>): number | null => {
+      for (const field of ['percent', 'flat', 'perHour', 'districts', 'minutes', 'levels']) {
+        const value = bonus[field];
+        if (typeof value === 'number') return value;
+      }
+      return null;
+    };
+
+    for (const role of OFFICER_ROLES) {
+      const ladders = new Map<string, { step: number; id: string; paid: number }[]>();
+      for (const rung of itemsInTrack(role)) {
+        const bonus = rung.payout.bonus as unknown as Record<string, unknown>;
+        const paid = magnitudeOf(bonus);
+        if (paid === null) continue;
+        const channel = channelOf(bonus);
+        ladders.set(channel, [
+          ...(ladders.get(channel) ?? []),
+          { step: rung.step, id: rung.id, paid },
+        ]);
+      }
+      for (const [channel, rungs] of ladders) {
+        for (let index = 1; index < rungs.length; index += 1) {
+          const below = rungs[index - 1]!;
+          const above = rungs[index]!;
+          expect(
+            above.paid,
+            `${role}/${channel}: ${above.id} (rung ${above.step}) pays ${above.paid} against ${below.id} (rung ${below.step}) paying ${below.paid}`,
+          ).toBeGreaterThan(below.paid);
+        }
+      }
+    }
+  });
 });
 
 describe('the two rungs that open an unled run (maintainer, 2026-09-10)', () => {
@@ -499,5 +553,47 @@ describe('§C: the Chief Medic rung that brings the pack back', () => {
       'the ones the medics get back carry their share of the haul home',
     );
     expect(payoutFamily(rung.payout)).toBe('yield');
+  });
+});
+
+/**
+ * §I3: the rung that opens the district offers board (maintainer, 2026-09-19).
+ *
+ * This is a **cross-module pin**, and it is the only thing standing between a rename and a door
+ * that never opens again. `progression/unlocks.ts` gates the board on a string, and the string is
+ * derived from a rung's display name by `idOf`. Nothing in either module refers to the other at
+ * compile time, so renaming `Getting On The Board` type-checks, lints, builds, and quietly leaves
+ * every crew in the game unable to reach the board for the rest of the world's life.
+ *
+ * The failure is silent in the worst way: a locked screen still draws its sign, the sign still
+ * reads "finish the first programme on the Trader track", and the player finishes it and nothing
+ * happens.
+ */
+describe('the rung that opens the district offers board', () => {
+  const rung = findResearchItem(TECH_DISTRICT_OFFERS);
+
+  it('exists under the id the door is gated on', () => {
+    expect(rung, `no rung has the id ${TECH_DISTRICT_OFFERS}`).toBeDefined();
+  });
+
+  it('is the first rung of the Trader track, which is where the door says to look', () => {
+    expect(rung?.track).toBe('trader');
+    expect(rung?.step).toBe(1);
+  });
+
+  it('is what the door actually reads, and nothing else opens it', () => {
+    const facts = { ...noUnlocks(), level: 99, notoriety: 9 };
+    expect(isAreaUnlocked('offers', facts)).toBe(false);
+    // Every other rung in the catalogue, all at once, still leaves it shut.
+    const others = RESEARCH_ITEMS.filter((spec) => spec.id !== TECH_DISTRICT_OFFERS).map(
+      (spec) => spec.id,
+    );
+    expect(isAreaUnlocked('offers', { ...facts, technologies: others })).toBe(false);
+    expect(isAreaUnlocked('offers', { ...facts, technologies: [TECH_DISTRICT_OFFERS] })).toBe(true);
+  });
+
+  it('is filed as an unlock, because opening a screen is what it is for', () => {
+    expect(rung?.payout.unlocks).toBeDefined();
+    if (rung) expect(payoutFamily(rung.payout)).toBe('unlock');
   });
 });

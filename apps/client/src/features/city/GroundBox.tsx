@@ -1,8 +1,15 @@
-import { garrisonOf, isPlainDay, weatherAt, type District } from '@frontline/shared';
+import {
+  garrisonOf,
+  isPlainDay,
+  weatherAt,
+  type CombineLeaderView,
+  type District,
+} from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { Icon } from '../../components/ui/Icon';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { cn } from '../../lib/cn';
+import { leaderGroundLine } from './CombineLeader';
 
 /**
  * What is true of the whole district rather than of one thing on it (maintainer request, 2026-09-11).
@@ -15,11 +22,14 @@ import { cn } from '../../lib/cn';
  */
 export function GroundBox({
   district,
+  combineLeader,
   unified,
   at,
   className,
 }: {
   district: District;
+  /** The Combine legendary over this ground, or null where none commands it. */
+  combineLeader: CombineLeaderView | null;
   unified: { title: string; effect: string } | null;
   /** The server's clock, so the sky is the sky the rules are using. */
   at: Date;
@@ -50,6 +60,20 @@ export function GroundBox({
         <p className="font-body text-[12px] leading-relaxed text-ink-300">
           Expect {garrisonOf(district)}.
         </p>
+        {/* What his power does to every fight here while he stands, in the words the battle
+            report will use; once he is dead, the fact that it is gone. Under the garrison line
+            because it is a fact about the garrison: they are the ones carrying it. */}
+        {combineLeader && (
+          <p
+            className={cn(
+              'font-body text-[12px] leading-relaxed',
+              combineLeader.alive ? 'text-oxblood-300' : 'text-ink-300',
+            )}
+            data-testid="combine-leader-ground"
+          >
+            {leaderGroundLine(combineLeader)}
+          </p>
+        )}
       </GroundRow>
       <GroundRow label="Hold every location">
         {unified ? (

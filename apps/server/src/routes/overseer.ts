@@ -10,6 +10,8 @@ import {
   overseerOffer,
   overseerRemaining,
   CITY_DISTRICTS,
+  districtHolder,
+  districtIsShut,
   STARTER_DISTRICT_ID,
   findDistrict,
   travelMinutesBetween,
@@ -26,6 +28,7 @@ import { startingBase } from '../crew/starting.js';
 import { MVP_PLAYER } from '../seed/constants.js';
 import { seededFactionId } from '../seed/index.js';
 import { notify } from '../social/notify.js';
+import { tallyOverseerTaken } from '../feats/tally.js';
 import { AppError, parseBody } from '../errors.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -76,18 +79,36 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
  * walk. Starting wholly fogged in meant a first session that opens with a four-hour wait before
  * the first mission board can be read, which is the worst possible first five minutes.
  *
- * The **nearest district nobody lives in**, so the free ground is somewhere a new player can
- * actually work: the closest district overall is often another crew's home, and opening that would
- * hand a beginner a view of somebody's defences and nothing to do with it. Nearest rather than
- * best, because the map's geography should be the thing that decides, and nearest is also the one
- * they would have sent somebody to first.
+ * The **nearest district nobody lives in and whose gate is not shut**, so the free ground is
+ * somewhere a new player can actually work: the closest district overall is often another crew's
+ * home, and opening that would hand a beginner a view of somebody's defences and nothing to do
+ * with it. Nearest rather than best, because the map's geography should be the thing that decides,
+ * and nearest is also the one they would have sent somebody to first.
+ *
+ * ## Shut ground counts as nowhere to work (maintainer, 2026-09-18)
+ *
+ * The clause was only "nobody lives there" until new crews were spread across the four residential
+ * plots (`quietestDistrict`). A district nobody lives in can still be held end to end by one party,
+ * which shuts its gate, and nothing behind a shut gate can be called: the card offers a dead
+ * "Behind the gate" button where "Call a fight" would be. A crew planted on the Ashen Terraces was
+ * handed `datavault-sigma`, Combine-held from end to end, and opened its first evening with a
+ * district it could look at and not touch. Measured across all four homes, that was one in four
+ * new players.
+ *
+ * So the promise in the paragraph above is now actually checked rather than approximated by
+ * occupancy, which is the weaker half of it.
  */
 function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): void {
   const home = findDistrict(base.districtId);
   if (!home) return;
   const occupied = new Set(repos.bases.listSummaries().map((other) => other.districtId));
+  const controls = repos.city.controls();
+  const lived = new Set(repos.bases.listSummaries().map((other) => other.districtId));
   const nearest = CITY_DISTRICTS.filter(
-    (district) => district.id !== base.districtId && !occupied.has(district.id),
+    (district) =>
+      district.id !== base.districtId &&
+      !occupied.has(district.id) &&
+      !districtIsShut(districtHolder(district, controls) ?? null, lived.has(district.id)),
   ).sort(
     (a, b) =>
       travelMinutesBetween(home, a) - travelMinutesBetween(home, b) || a.id.localeCompare(b.id),
@@ -204,6 +225,21 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
     '/overseer/choices',
     { preHandler: app.authenticate },
     (request): OverseerChoicesResponse => {
+      /*
+       * A crew that already has somebody is not offered four more (maintainer, 2026-09-18).
+       *
+       * `POST /overseer` has always refused them, but this read did not, and since an offer became
+       * a **hold** it stopped being free to ask: a settled account calling this took four of the
+       * thirty characters out of the world for ten minutes and could never take one, because the
+       * write would refuse it. Nothing released them either, so a client that polled this endpoint
+       * after choosing held four hostage indefinitely, and a handful of such callers would empty
+       * the pool for everybody actually trying to start.
+       *
+       * Refused with the same code the write uses, because it is the same fact about the caller.
+       */
+      if (request.currentUser.overseerId !== null) {
+        throw new AppError('OVERSEER_ALREADY_CHOSEN', 'You have already chosen an overseer');
+      }
       const now = new Date();
       const claimed = app.repos.overseers.claimedPresetIds();
       const offer = app.db.transaction(() => offerFor(app.repos, request.currentUser.id, now))();
@@ -338,6 +374,16 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         if (standing === undefined) app.repos.bases.insert(base);
         district = standing ?? base;
         openTheNearestGround(app.repos, district, now);
+        /*
+         * ...and the feats board's first rung is finished before the player has seen it.
+         *
+         * `overseer_taken` is what the opening feat measures, and it pays the five Scavengers a
+         * new crew needs to send anybody anywhere: the Nexus can train them and nothing else in a
+         * fresh district can train anything (`units/catalog.ts`). Counted here rather than at the
+         * top of the handler because a tally is keyed by base, and until this transaction the
+         * base may not exist.
+         */
+        tallyOverseerTaken(app.repos, district.id);
       })();
 
       // The sandbox switch also runs at boot, but a base does not exist until this moment: on a

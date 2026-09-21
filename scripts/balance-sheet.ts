@@ -36,7 +36,9 @@ import {
   BATTLE_BOOSTS,
   BLUEPRINTS,
   BUILDING_CATALOG,
+  describeRequirement,
   FEATS,
+  findUnit,
   ITEM_CATALOG,
   LOCATION_CATALOG,
   MISSION_TEMPLATES,
@@ -45,7 +47,7 @@ import {
   PERK_CATALOG,
   RESEARCH_ITEMS,
   TRAP_CATALOG,
-  UNIT_CATALOG,
+  PLAYER_UNITS,
   UNIT_MODIFICATIONS,
   VEHICLES,
 } from '@frontline/shared';
@@ -135,6 +137,36 @@ function fieldsOf(entry: Record<string, unknown>): Field[] {
   return fields;
 }
 
+/**
+ * Where a unit comes from and what it takes to get one, in a sentence (maintainer, 2026-09-19).
+ *
+ * "Next to the units a description of where and how you can get them."
+ *
+ * Nothing on the sheet answered that. `trainedAt` is a building key, `requires` was a JSON box of
+ * clause objects, and `unique` was a bare boolean: three fields a reader had to assemble in their
+ * head into the one fact they came for. This composes them through `describeRequirement`, which
+ * is the same function the roster's locked card prints its missing list with, so the sentence
+ * here and the sentence in the game cannot drift apart.
+ *
+ * Written into the row as an ordinary editable field rather than a caption, because the point of
+ * this page is that the maintainer rewrites what is on it. The clauses underneath stay where they
+ * are: this is a description of the gate, not the gate itself, and an implementer handed a reworded
+ * sentence is being asked to move the clauses to match it.
+ */
+function acquisitionLine(unit: Record<string, unknown>): string {
+  const spec = findUnit(String(unit.id));
+  if (!spec) return '';
+  const where = BUILDING_CATALOG[spec.trainedAt]?.name ?? spec.trainedAt;
+  const gates = spec.requires.map(describeRequirement);
+  const opening = spec.unique ? `One of a kind, and made at ${where}.` : `Trained at ${where}.`;
+  // A sheet with no clauses at all is reachable: it means the structure alone is the whole gate.
+  const needs =
+    gates.length === 0
+      ? `Nothing gates it beyond having ${where} at all.`
+      : `Needs ${gates.join(', ')}.`;
+  return `${opening} ${needs}`;
+}
+
 function rowOf(entry: Record<string, unknown>, id: string, tag: string): Row {
   const name =
     typeof entry.name === 'string'
@@ -153,14 +185,36 @@ function listSection(
   note: string,
   entries: readonly Record<string, unknown>[],
   tagOf: (entry: Record<string, unknown>) => string,
+  /** A last pass over the built row, for a field composed out of several of the entry's own. */
+  decorate?: (row: Row, entry: Record<string, unknown>) => Row,
 ): Section {
   return {
     id,
     label,
     source,
     note,
-    rows: entries.map((entry) => rowOf(entry, String(entry.id), tagOf(entry))),
+    rows: entries.map((entry) => {
+      const row = rowOf(entry, String(entry.id), tagOf(entry));
+      return decorate ? decorate(row, entry) : row;
+    }),
   };
+}
+
+/**
+ * Puts {@link acquisitionLine} on a unit row, directly under the blurb.
+ *
+ * Under the blurb rather than at the end, because the two answer the same question from either
+ * side: the blurb says what these people are and this says how you come to have any. A field
+ * appended after the eleven stats would be read by nobody.
+ */
+function withAcquisition(row: Row, entry: Record<string, unknown>): Row {
+  const where = acquisitionLine(entry);
+  if (where === '') return row;
+  const at = row.fields.findIndex((field) => field.key === 'blurb');
+  const field: Field = { key: 'whereToGetThem', kind: 'para', value: where };
+  const fields = [...row.fields];
+  fields.splice(at < 0 ? fields.length : at + 1, 0, field);
+  return { ...row, fields };
 }
 
 /** A catalogue keyed by a record, where the key is the id and is not repeated inside the value. */
@@ -197,9 +251,10 @@ function catalogueSections(): Section[] {
       'units',
       'Units',
       'packages/shared/src/units/catalog.ts',
-      'Every trainable unit: what it costs, how long it takes, and the eleven stats it fights on. `stats.resistances` is a JSON box because it is a sparse map of damage type to percent.',
-      UNIT_CATALOG as unknown as Record<string, unknown>[],
+      "Every trainable unit: what it costs, how long it takes, and the eleven stats it fights on. `stats.resistances` is a JSON box because it is a sparse map of damage type to percent. The Combine's own sheets are not here: they carry no price and no clock, so there is nothing for a balance sheet to weigh (`UnitSpec.faction`).",
+      PLAYER_UNITS as unknown as Record<string, unknown>[],
       (entry) => str(entry.tier),
+      withAcquisition,
     ),
     listSection(
       'unit-modifications',

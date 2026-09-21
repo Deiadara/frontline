@@ -12,9 +12,11 @@ import {
   type MovementView,
   type StructureDefence,
   type UnitLoadouts,
+  combineLeaderOf,
   estimatedForce,
   findUnit,
   forecast,
+  type CombinePower,
 } from '@frontline/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -31,6 +33,7 @@ import { cn } from '../../lib/cn';
 import {
   useActions,
   useBattles,
+  useDistrict,
   useBlackMarket,
   useBuyBattleBoost,
   useLayTrap,
@@ -39,6 +42,7 @@ import {
   useDeployToBattle,
   useCrewStanding,
   useMe,
+  useUnits,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
@@ -50,7 +54,7 @@ import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
 import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
-import { OnThisGround } from './EffectiveCard';
+import { EffectiveCard } from './EffectiveCard';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -358,7 +362,7 @@ export function BattlePage() {
           view={deployingView}
           army={army}
           loadouts={loadouts}
-          bagPercent={standing.data?.effects['lootCapacityPercent'] ?? 0}
+          bagPercent={standing.data?.haulPercent ?? 0}
           homeDistrictId={me.data?.base?.districtId ?? null}
           notoriety={notoriety}
           mode={deploying.mode}
@@ -758,6 +762,16 @@ function VehiclePicker({
   homeDistrictId: string | null;
 }) {
   const take = useTakeVehicles();
+  /*
+   * §C3: whether this crew's machines seat anything at all (`any_ride`, bug pass 2026-09-19).
+   *
+   * The same read the deploy window makes, and for the same reason: `no_ride` is a fact about a
+   * sheet and the waiver is a fact about a crew, so a panel that quotes a road off the catalogue
+   * alone tells a crew holding it that a Colossus walks when the server puts it in a truck. A warm
+   * cache by the time anybody is standing on this page (`usePrefetchScreens`), and `?? false` is
+   * the reading before it lands.
+   */
+  const anyRide = useUnits().data?.anyRide ?? false;
   const shut = !view.deploymentOpen;
   const owned = mergeFleets(view.yard, view.vehicles);
   /*
@@ -782,7 +796,7 @@ function VehiclePicker({
     (total, spec) => total + spec.capacity * (view.vehicles[spec.id] ?? 0),
     0,
   );
-  const column = readColumn(view.vehicles, army, loadouts);
+  const column = readColumn(view.vehicles, army, loadouts, anyRide);
   const minutes =
     homeDistrictId === null
       ? null
@@ -1017,6 +1031,28 @@ function Figure({ label, value, note }: { label: string; value: string; note?: s
  * able to see whether they *sent* the heavy end of their force.
  */
 /**
+ * The Combine legendary's power over this fight, or `undefined`.
+ *
+ * Three conditions, all of them the settler's (`battle/resolve.ts`): the side being attacked is
+ * the regime, a legendary commands that district, and he is still standing. A crew or the looters
+ * holding a plot in his district do not inherit his shadow with it, and a district whose leader is
+ * dead fights without him, which is the whole of what killing him buys.
+ *
+ * Whether he is standing is the one part `BattlesResponse` does not carry, so it is read off the
+ * district the fight is on. The query is **off** for every other fight: `useDistrict` is disabled
+ * on an undefined id, so a fight against another crew, or on ground no legendary commands, adds no
+ * request and no poll to this page.
+ */
+function usePresenceOver(view: BattleView): CombinePower | undefined {
+  const districtId = view.battle.target.districtId;
+  const leader = combineLeaderOf(districtId);
+  const regime = view.battle.defender.kind === 'government';
+  const district = useDistrict(regime && leader ? districtId : undefined);
+  if (!leader || !regime) return undefined;
+  return district.data?.combineLeader?.alive === true ? leader.power : undefined;
+}
+
+/**
  * How this looks, before it happens.
  *
  * Sixty runs of **the engine that will actually settle it**, on **the ground it will settle on**,
@@ -1032,20 +1068,42 @@ function Figure({ label, value, note }: { label: string; value: string; note?: s
  * Nothing is shown when the crew cannot count the enemy. That is the §A4 rule and it is not a
  * limitation to work around: an estimate built on no intelligence is worse than no estimate, and
  * the line says so rather than printing a number nobody should trust.
+ *
+ * **The legendary over the ground is in the arithmetic** (maintainer, 2026-09-20). He was not, and
+ * that was the one omission here that reverses the answer rather than shading it: the engine reads
+ * a leader through `SideSetup.presence`, and with it left off, a fight in his district was
+ * forecast as a fight nobody commands. `battle/combine.test.ts` measures the Syndic on these
+ * numbers: 20 Greycoats hold 3 of 80 seeds against 24 Razors bare and 75 of 80 under her. A player
+ * was being shown a near-certain win for a fight they will almost certainly lose.
+ *
+ * This is not fog of war. The district header names him, his card is public and his power is on
+ * the chip at the top of it, so the only thing hidden was the sum.
  */
 function Odds({ view }: { view: BattleView }) {
   const facing = view.enemySize;
   const defending = view.role === 'defender';
+  const presence = usePresenceOver(view);
   // Keyed off the plan rather than the object: `view` is rebuilt on every poll, so depending on the
   // army's identity would re-run sixty simulations a second and the number would never hold still
   // long enough to read. Sixty runs is cheap once and not cheap every render.
-  const plan = JSON.stringify([view.muster?.army ?? {}, facing, view.battlefield, defending]);
+  //
+  // The presence is in the key as well as in the setup: it arrives one request after the rest of
+  // the plan (see {@link usePresenceOver}), so a key without it would hold the leaderless reading
+  // on screen for as long as the fight is open.
+  const plan = JSON.stringify([
+    view.muster?.army ?? {},
+    facing,
+    view.battlefield,
+    defending,
+    presence ?? null,
+  ]);
   const read = useMemo(() => {
-    const [sending, size, ground, holding] = JSON.parse(plan) as [
+    const [sending, size, ground, holding, shadow] = JSON.parse(plan) as [
       Record<string, number>,
       number | null,
       BattleView['battlefield'],
       boolean,
+      CombinePower | null,
     ];
     const units = Object.values(sending).reduce((total, count) => total + count, 0);
     if (size === null || units === 0) return null;
@@ -1053,7 +1111,15 @@ function Odds({ view }: { view: BattleView }) {
       seed: plan,
       battlefield: ground,
       attacker: { name: 'you', army: sending, defending: holding },
-      defender: { name: 'them', army: estimatedForce(size), defending: !holding },
+      defender: {
+        name: 'them',
+        army: estimatedForce(size),
+        defending: !holding,
+        // Defender-only by construction, and the gate above is `defender.kind === 'government'`:
+        // the one side a Combine legendary ever stands behind is the Combine's, which is the same
+        // reading `battle/resolve.ts` takes at the settle.
+        ...(shadow === null ? {} : { presence: shadow }),
+      },
     });
   }, [plan]);
 
@@ -1123,15 +1189,16 @@ function Forces({
           {rows.map(([unitId, count]) => (
             <li key={unitId}>
               {/* §A4: the chip says how many. The card behind it says what they are worth *here*,
-                  which is the question a player standing in front of a muster is actually asking. */}
-              <OnThisGround
+                  which is the question a player standing in front of a muster is actually asking.
+                  The chip's own card is the catalogue sheet, and on a battlefield that is the
+                  weaker half of the answer: this one is the same sheet run through the ground. */}
+              <UnitChip
                 unitId={unitId}
-                view={view}
-                loadouts={loadouts}
+                count={count}
                 label={onGroundLabel(unitId)}
-              >
-                <UnitChip unitId={unitId} count={count} data-testid={`force-${unitId}`} />
-              </OnThisGround>
+                card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
+                data-testid={`force-${unitId}`}
+              />
             </li>
           ))}
         </ul>
@@ -1151,19 +1218,14 @@ function Forces({
           <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="battle-walking">
             {road.map(([unitId, count]) => (
               <li key={`road-${unitId}`}>
-                <OnThisGround
+                <UnitChip
                   unitId={unitId}
-                  view={view}
-                  loadouts={loadouts}
+                  count={count}
+                  muted
                   label={onGroundLabel(unitId)}
-                >
-                  <UnitChip
-                    unitId={unitId}
-                    count={count}
-                    muted
-                    data-testid={`battle-walking-${unitId}`}
-                  />
-                </OnThisGround>
+                  card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
+                  data-testid={`battle-walking-${unitId}`}
+                />
               </li>
             ))}
           </ul>
@@ -1177,14 +1239,14 @@ function Forces({
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {ring.map(([unitId, count]) => (
               <li key={unitId}>
-                <OnThisGround
+                <UnitChip
                   unitId={unitId}
-                  view={view}
-                  loadouts={loadouts}
+                  count={count}
+                  muted
                   label={onGroundLabel(unitId)}
-                >
-                  <UnitChip unitId={unitId} count={count} muted data-testid={`ring-${unitId}`} />
-                </OnThisGround>
+                  card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
+                  data-testid={`ring-${unitId}`}
+                />
               </li>
             ))}
           </ul>

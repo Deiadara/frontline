@@ -138,6 +138,26 @@ test('calls the raid inside a breach, with the time the breach has left', async 
   const dialog = page.getByTestId('declare-dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(`a raid on ${NEIGHBOUR_NAME}`);
+  /*
+   * ...with the place in caps and the words around it as written (maintainer, 2026-09-20).
+   *
+   * `uppercase` is a CSS transform, so `textContent` still reads the name in title case and the
+   * assertion above would pass whatever the player is shown. This is the rendered case, which
+   * only a browser can answer: `DeclareDialog.test.tsx` covers the structure that makes it
+   * possible and says so.
+   */
+  const heading = dialog.getByRole('heading', { level: 2 });
+  const cased = await heading.evaluate((node) =>
+    [...node.querySelectorAll('span')].map((part) => ({
+      text: part.textContent ?? '',
+      transform: getComputedStyle(part).textTransform,
+    })),
+  );
+  const place = cased.find((part) => part.text === NEIGHBOUR_NAME);
+  expect(place, `the place is not its own element: ${JSON.stringify(cased)}`).toBeDefined();
+  expect(place!.transform, 'the place is not drawn in caps').toBe('uppercase');
+  // ...and the sentence is not shouted with it.
+  await expect(heading).toContainText('a raid on ');
   await page.screenshot({ path: 'e2e-out/visiting-raid-dialog.png', fullPage: true });
   await page.getByTestId('declare-confirm').click();
   await expect(dialog).toHaveCount(0);

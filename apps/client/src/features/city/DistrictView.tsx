@@ -23,6 +23,7 @@ import { Modal } from '../../components/ui/Modal';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
 import { WeatherBanner } from '../../components/ui/WeatherBanner';
+import { CombineLeaderTag } from './CombineLeader';
 import { ContestedScene, hasPainting } from './ContestedScene';
 import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSheet';
 import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
@@ -227,6 +228,8 @@ export function DistrictView() {
             {/* §A3, and it is public: which ground the Combine keeps its power on is not something
                 a crew has to scout, it is the thing everybody in the city already knows. */}
             {data.district.seatOfPower && <Tag label="Seat of power" tone="hostile" />}
+            {/* Whose ground it is, and it is as public as the seat: he stands in the fog too. */}
+            {data.combineLeader && <CombineLeaderTag leader={data.combineLeader} />}
           </div>
           {/* Who is standing on it. Behind the fog, because that *is* scouting: a district nobody
               has been to says nothing about who is holding it.
@@ -371,11 +374,11 @@ export function DistrictView() {
         {calling && (
           <DeclareDialog
             target={calling}
-            targetName={
+            placeName={
               calling.kind === 'location'
                 ? (data.locations.find((view) => view.location.id === calling.locationId)?.location
                     .name ?? districtDisplayName(data.district, viewer))
-                : `the gate at ${districtDisplayName(data.district, viewer)}`
+                : districtDisplayName(data.district, viewer)
             }
             slots={slots}
             infamy={infamy}
@@ -725,7 +728,7 @@ function VisitedDistrict({
       {calling && (
         <DeclareDialog
           target={calling}
-          targetName={calling.kind === 'gate' ? `the gate at ${name}` : `a raid on ${name}`}
+          placeName={name}
           slots={slots}
           infamy={infamy}
           pending={declare.isPending}
@@ -977,6 +980,10 @@ function ContestedDistrict({
               Seat of power
             </span>
           )}
+          {/* The legendary over this ground, alive or dead, with his card on the hover. Beside the
+              seat rather than behind the toggle: which district is whose is the one fact about the
+              Combine a crew plans a campaign around. */}
+          {data.combineLeader && <CombineLeaderTag leader={data.combineLeader} />}
           {shut && (
             <span className="font-display text-[11px] uppercase tracking-[0.16em] text-oxblood-300">
               The gate is armed
@@ -1015,6 +1022,7 @@ function ContestedDistrict({
         {standing && (
           <GroundBox
             district={data.district}
+            combineLeader={data.combineLeader}
             unified={data.unified}
             at={new Date(data.serverNow)}
             className="pointer-events-auto w-full"
@@ -1064,11 +1072,11 @@ function ContestedDistrict({
       {calling && (
         <DeclareDialog
           target={calling}
-          targetName={
+          placeName={
             calling.kind === 'location'
               ? (data.locations.find((view) => view.location.id === calling.locationId)?.location
                   .name ?? districtDisplayName(data.district, viewer))
-              : `the gate at ${districtDisplayName(data.district, viewer)}`
+              : districtDisplayName(data.district, viewer)
           }
           slots={slots}
           infamy={infamy}

@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import type { TerritoryEffects } from '../city/index.js';
+import type { CombinePower, TerritoryEffects } from '../city/index.js';
 import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
 import { breakOut, type Breakout, type BreakoutSide } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
-import { officerOutcomeOf, simulate, type Simulation } from './engine.js';
+import { officerOutcomeOf, openingJam, simulate, type Simulation } from './engine.js';
 import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
 import {
   BattleFindingSchema,
@@ -72,6 +72,12 @@ export interface SkirmishInput {
    */
   attackerOfficer?: BattleOfficer;
   defenderOfficer?: BattleOfficer;
+  /**
+   * The Combine legendary whose power the defence carries (`city/combine.ts`), when the ground is
+   * the regime's and its leader for that district still lives. Defender-only: the Combine never
+   * attacks. See `SideSetup.presence` in the engine for what each power does.
+   */
+  defenderPresence?: CombinePower;
 }
 
 export const SkirmishOutcomeSchema = z.object({
@@ -83,6 +89,29 @@ export const SkirmishOutcomeSchema = z.object({
   killed: z.record(z.string(), z.number().int().nonnegative()),
   /** What the *winner* paid. Dead outright: a winner does not rout. */
   winnerLosses: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * The attacker's units that changed sides under Directive Xero (`changeOfHeart`), by unit id.
+   *
+   * Not in `killed` and not in `fled`: they are neither, and the settle has to know the
+   * difference. A turned unit is taken off the attacker's books for good and, if it is still
+   * standing when the fight ends and the ground holds, it joins the garrison it fought for.
+   */
+  turned: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /** Units the Executioner finished after an exchange. Already inside `killed`; this is the count. */
+  executed: z.number().int().nonnegative().default(0),
+  /**
+   * The same bodies by unit id, so the settle can keep them out of an Infirmary's recovery.
+   *
+   * `.default({})` rather than a required field: a stub engine writes an outcome by hand and has
+   * no Executioner in it, and an empty force is the truthful answer for every fight he was not
+   * over. Sums to `executed` in every fight the real engine ran.
+   */
+  executedForce: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * Of `turned`, the ones still standing at the end, by unit id. If the defender held, these
+   * stand on the ground as its garrison; if not, they are gone with the rest of his side.
+   */
+  turnedAlive: z.record(z.string(), z.number().int().nonnegative()).default({}),
   /** How many rounds it took. One means it was over before it started. */
   rounds: z.number().int().nonnegative().default(0),
   /** Per-side, per-visibility notes: see `report.ts`. */
@@ -129,6 +158,20 @@ export const SkirmishOutcomeSchema = z.object({
     })
     .default({ attacker: null, defender: null }),
   /**
+   * §E: what each side's jammers laid on the other, as the lines formed (`UnitSpec.jammer`).
+   *
+   * The *opening* figure rather than the closing one, because that is what this crew brought:
+   * the number falls as the jammers are killed, and a feat paid on the end state would pay less
+   * for winning harder. `openingJam` is the one implementation, shared with the report.
+   *
+   * Each key is the jam that side **applied**, so `attacker` is what the attacker's Netrunners
+   * did to the defender. Defaulted, because a stub engine has no stacks to read it off and every
+   * stub in the tree would otherwise have to write two zeroes to say what absent already says.
+   */
+  jam: z
+    .object({ attacker: z.number().min(0).default(0), defender: z.number().min(0).default(0) })
+    .default({ attacker: 0, defender: 0 }),
+  /**
    * The full ledger (`battle/analysis.ts`), when the engine that ran this was the real one.
    *
    * Optional because a stub engine has no simulation behind it to analyse, and a stub is exactly
@@ -158,6 +201,10 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     fled: {},
     killed: {},
     winnerLosses: {},
+    turned: {},
+    executed: 0,
+    executedForce: {},
+    turnedAlive: {},
     rounds: 1,
     findings: [],
     standing: { attacker: [], defender: [] },
@@ -165,6 +212,7 @@ export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): Skirmis
     perimeterLosses: {},
     brokeThrough: true,
     officers: { attacker: null, defender: null },
+    jam: { attacker: 0, defender: 0 },
     ...partial,
   };
 }
@@ -205,6 +253,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
           ? { cohesionPercent: input.defenderCohesionPercent }
           : {}),
         ...(input.defenderOfficer ? { officer: input.defenderOfficer } : {}),
+        ...(input.defenderPresence ? { presence: input.defenderPresence } : {}),
       },
     });
 
@@ -224,8 +273,25 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   // tuning pass would silently change every historical fight's survivors.
   const next = mulberry32(seedFrom(`${input.seed}:rout`));
 
-  const winnerSide = simulation.winner === 'attacker' ? simulation.attacker : simulation.defender;
-  const loserSide = simulation.winner === 'attacker' ? simulation.defender : simulation.attacker;
+  /*
+   * The two sides as the settle sees them: without the turncoats (`Stack.turncoat`).
+   *
+   * A unit that changed sides under Directive Xero is neither side's to rout nor to recover. If
+   * it stood in the losing line it does not walk home to the attacker it left, and it is not a
+   * Combine body for the kill ledger; if it stood in the winning line it is not a loss an
+   * infirmary brings back. What became of the ones still standing is `turnedAlive`, and the
+   * settle stands those on the ground.
+   */
+  const loyal = (side: Simulation['attacker']): Simulation['attacker'] => ({
+    ...side,
+    stacks: side.stacks.filter((stack) => stack.turncoat !== true),
+  });
+  const winnerSide = loyal(
+    simulation.winner === 'attacker' ? simulation.attacker : simulation.defender,
+  );
+  const loserSide = loyal(
+    simulation.winner === 'attacker' ? simulation.defender : simulation.attacker,
+  );
   const lastRound = simulation.rounds.length;
 
   const routContext = {
@@ -291,6 +357,10 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
     fled: gotHome,
     killed: dead,
     winnerLosses,
+    turned: simulation.turned,
+    executed: simulation.executed,
+    executedForce: simulation.executedForce,
+    turnedAlive: simulation.turnedAlive,
     rounds: lastRound,
     findings,
     standing: {
@@ -303,6 +373,12 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
     officers: {
       attacker: officerOutcomeOf(simulation.attacker),
       defender: officerOutcomeOf(simulation.defender),
+    },
+    // What each side's jammers laid on the other as the lines formed. See the schema's note for
+    // why it is the opening figure and not the closing one.
+    jam: {
+      attacker: openingJam(simulation.attacker),
+      defender: openingJam(simulation.defender),
     },
     battlefield: simulation.battlefield,
     analysis: analyseBattle({
@@ -320,6 +396,8 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       perimeterLosses: breakout.ringLosses,
       brokeThrough: breakout.brokeThrough,
       trap: null,
+      // Who the defence stood under, so the report can name them. See `BattleAnalysis.underLeader`.
+      ...(input.defenderPresence ? { underLeader: input.defenderPresence } : {}),
       infamy: { attacker: 0, defender: 0 },
     }),
   };
@@ -396,6 +474,10 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       fled,
       killed,
       winnerLosses: {},
+      turned: {},
+      executed: 0,
+      executedForce: {},
+      turnedAlive: {},
       rounds: 1,
       findings: [],
       standing: { attacker: [], defender: [] },
@@ -405,8 +487,10 @@ export class CoinFlipSkirmishEngine implements SkirmishEngine {
       perimeterCaught: {},
       perimeterLosses: {},
       brokeThrough: true,
-      // The coin flip reads no sheet, so it has no officer to report on either.
+      // The coin flip reads no sheet, so it has no officer to report on either, and nobody
+      // jammed anybody: there were no stacks to read a jam off.
       officers: { attacker: null, defender: null },
+      jam: { attacker: 0, defender: 0 },
     };
   }
 }

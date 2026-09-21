@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { UNIT_CATALOG, type UnitSpec } from '../units/index.js';
+import { PLAYER_UNITS, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, battlefieldFor, type Battlefield } from './battlefield.js';
 import { simulate } from './engine.js';
 
@@ -68,7 +68,9 @@ const GROUNDS: Battlefield[] = [
   ),
 ];
 
-const ROSTER: UnitSpec[] = UNIT_CATALOG.filter((unit) => !unit.unique);
+// The player's roster. A Combine sheet has no gate, so its depth is nothing and the question
+// this file asks (does what a unit cost you to reach predict what it is worth) has no answer for it.
+const ROSTER: UnitSpec[] = PLAYER_UNITS.filter((unit) => !unit.unique);
 
 function beatsGraph(): Map<string, Set<string>> {
   const beats = new Map<string, Set<string>>(ROSTER.map((unit) => [unit.id, new Set<string>()]));
@@ -180,20 +182,46 @@ describe('strength tracks what a unit cost you to be able to field', () => {
   /** How many of the roster each unit beats, from the graph the file already built. */
   const score = new Map(ROSTER.map((unit) => [unit.id, BEATS.get(unit.id)!.size]));
 
+  /**
+   * The units this round robin can actually say anything about.
+   *
+   * Everything below ranks a unit by *what it beats on its own*, and three kinds of sheet have
+   * no answer to that question, because their whole contribution lands on somebody standing
+   * beside them and a one-type-against-one-type graph has nobody standing beside anybody:
+   *
+   * - `mends`, the Stitcher. It has no damage and it never works on itself.
+   * - `combat: false`, the two carriers. The engine will not put them in a line at all.
+   * - `jammer`, the Netrunners (2026-09-18). Offense 20 and a `jamPercent` that takes the other
+   *   side's armour and damage down for *the whole line* they came with. Alone, the jam applies
+   *   to a line of one and then twenty offense loses to everything, so they inverted against
+   *   fourteen units at once and dragged the Spearman figure from 0.82 to 0.58.
+   *
+   * Filtered out of the *ranking* rather than exempted from one assertion, which is the change
+   * from how `mends` used to be handled: a unit the graph cannot measure should not be in the
+   * ranking the graph produces, and leaving it in while excusing it downstream is what let the
+   * Spearman check keep counting it. `battle/engine.test.ts` and `jam.test.ts` measure these
+   * three where their mechanics actually happen.
+   */
+  const measurable = (unit: UnitSpec): boolean =>
+    unit.mends !== true && unit.combat !== false && unit.jammer !== true;
+  const RANKED = ROSTER.filter(measurable);
+
   it('has a spread of gate depths to rank against, so this is not vacuous', () => {
-    const depths = ROSTER.map(gateDepth);
+    const depths = RANKED.map(gateDepth);
     expect(Math.max(...depths) - Math.min(...depths)).toBeGreaterThan(20);
+    // ...and the filter above has not quietly emptied the ranking it feeds.
+    expect(RANKED.length, 'too few units left to rank').toBeGreaterThanOrEqual(ROSTER.length - 4);
   });
 
   it('ranks by campaign roughly the way it ranks by result', () => {
     const rankOf = (by: (unit: UnitSpec) => number) => {
-      const sorted = [...ROSTER].sort((a, b) => by(a) - by(b));
+      const sorted = [...RANKED].sort((a, b) => by(a) - by(b));
       return new Map(sorted.map((unit, index) => [unit.id, index]));
     };
     const byGate = rankOf(gateDepth);
     const byWins = rankOf((unit) => score.get(unit.id)!);
-    const n = ROSTER.length;
-    const d2 = ROSTER.reduce(
+    const n = RANKED.length;
+    const d2 = RANKED.reduce(
       (total, unit) => total + (byGate.get(unit.id)! - byWins.get(unit.id)!) ** 2,
       0,
     );
@@ -202,16 +230,16 @@ describe('strength tracks what a unit cost you to be able to field', () => {
   });
 
   /**
-   * A support unit is exempt, and only a support unit.
+   * A support unit is exempt, and only a support unit: see `measurable` above for which three
+   * kinds those are and why a round robin cannot rank them.
    *
-   * A Stitcher is *supposed* to lose every straight fight: it has no damage and its whole mechanic
-   * (`UnitSpec.mends`) lands on somebody else, so a round robin of one unit type against another
-   * cannot see it at all. `battle/engine.test.ts` measures that one where it happens.
+   * The *shallow* side of each pair is still the whole roster. A support unit beating a deep
+   * fighter is a real inversion and this has to report it; what it must not do is expect the
+   * support unit to win.
    */
   it('does not let a much shallower unit outrank a much deeper one, more than rarely', () => {
     const inversions: string[] = [];
-    for (const deep of ROSTER) {
-      if (deep.mends === true) continue;
+    for (const deep of RANKED) {
       for (const easy of ROSTER) {
         if (gateDepth(deep) < gateDepth(easy) + 10) continue;
         if (score.get(deep.id)! >= score.get(easy.id)!) continue;
@@ -227,7 +255,7 @@ describe('strength tracks what a unit cost you to be able to field', () => {
      * The invariant that matters is the Spearman check above: gate depth still predicts strength
      * across the whole roster at better than 0.65, and that did not move. What moved is which
      * *individual* pairs invert, and it moved in the direction the change intends: the units that
-     * gained are the ones with morale at the ceiling, which are now the ones that cannot be cowed,
+     * gained are the ones with morale at the ceiling, which are now the ones that cannot be intimidated,
      * and The Condemned (morale 100, intimidation 60) now beats three units gated ten rungs deeper.
      * A stat that was inert for the whole life of the roster became live, so the roster's ordering
      * around that stat was never calibrated in the first place.

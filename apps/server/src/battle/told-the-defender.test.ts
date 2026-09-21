@@ -172,12 +172,23 @@ describe('calling a fight on somebody', () => {
     const { app } = await makeApp();
     const raider = await register(app, 'lonely_raider');
 
-    const { CITY_DISTRICTS } = await import('@frontline/shared');
-    // Combine or looter ground, straight off the seed: there is no crew behind it to tell.
+    const { CITY_DISTRICTS, startingHolder } = await import('@frontline/shared');
+    /*
+     * Combine or looter ground, straight off the seed: there is no crew behind it to tell.
+     *
+     * With a seam in it, which the 2026-09-19 re-cut made necessary: the Combine now holds six of
+     * the eight contested districts end to end, and a district held whole is shut, so a location
+     * call on the first one off the catalogue is refused in favour of its gate. The predicate
+     * asks `startingHolder` which district still has an empty plot rather than naming one, and on
+     * today's map that is Chrome Row, whose first location the looters are standing on.
+     */
     const district = CITY_DISTRICTS.find(
-      (entry) => entry.kind === 'contested' && entry.locations.length > 1,
+      (entry) =>
+        entry.kind === 'contested' &&
+        entry.locations.length > 1 &&
+        entry.locations.some((one) => startingHolder(one, entry).kind === 'unoccupied'),
     );
-    if (!district) throw new Error('fixture: no contested district with two locations');
+    if (!district) throw new Error('fixture: no open contested district with two locations');
     const location = district.locations[0];
     if (!location) throw new Error('fixture: no location');
     app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());

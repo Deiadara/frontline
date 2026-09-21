@@ -116,7 +116,7 @@ describe('a glyph is the drawing for that page, not a drawing', () => {
    * is by shrinking: a component that fell back to one default for anything it did not recognise
    * would still pass every rule about documents and still turn the archive into wallpaper.
    */
-  it('draws a hundred and ten different pictures across the two hundred and four sheets', () => {
+  it('draws a hundred and eleven different pictures across the two hundred and four sheets', () => {
     const drawn = new Set<string>();
     for (const blueprint of BLUEPRINTS) {
       drawn.add(composition(coverDrawing(blueprint)));
@@ -127,7 +127,7 @@ describe('a glyph is the drawing for that page, not a drawing', () => {
     // The cover and the page place their drawing differently, so one motif can arrive here as two
     // strings; what matters is that neither number has collapsed.
     expect(drawn.size).toBeGreaterThanOrEqual(BLUEPRINT_MOTIF_IDS.length);
-    expect(BLUEPRINT_MOTIF_IDS.length).toBe(110);
+    expect(BLUEPRINT_MOTIF_IDS.length).toBe(111);
   });
 
   /**

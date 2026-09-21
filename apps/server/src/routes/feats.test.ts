@@ -3,8 +3,10 @@ import {
   FEAT_MEASURE_SPECS,
   ITEM_CATALOG,
   createCommander,
+  earnedInfamy,
   featMeasureKey,
   findFeat,
+  MAX_LOCATION_LEVEL,
   makeAttributes,
   mergeFeatRewards,
   unitSlotsUsed,
@@ -19,7 +21,11 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { chooseOverseer } from '../testing/overseer.js';
+
+/** The one plot in the whole city whose kind pays `infamy_gain` for being held. */
+const GRAVEYARD = 'combine-spire-martyrs';
 
 /**
  * Feats over HTTP: reading the board, and collecting one (maintainer request, 2026-09-13).
@@ -51,6 +57,15 @@ async function makeApp(): Promise<FastifyInstance> {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
+/**
+ * A registered crew with an empty board, which is what every case below was written against.
+ *
+ * Picking a character finishes `overseer_taken` (`feats/tally.ts`), so since 2026-09-18 a crew
+ * arrives with one rung already waiting and five Scavengers behind it. That is the opening
+ * working, and `crew/opening.test.ts` is where it is pinned; here it is noise on every count of
+ * what is ready, so it is collected on the way in and these tests go on being about the
+ * machinery. Two assertions below still see it, and both say so.
+ */
 async function player(app: FastifyInstance, username: string) {
   const registered = await app.inject({
     method: 'POST',
@@ -59,6 +74,8 @@ async function player(app: FastifyInstance, username: string) {
   });
   const token = registered.json<{ token: string }>().token;
   await chooseOverseer(app, token);
+  const opening = await claim(app, token, OPENING);
+  expect(opening.statusCode, opening.body.slice(0, 200)).toBe(200);
   const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
   const body = me.json<{ user: { id: string }; base: { id: string } }>();
   return { token, userId: body.user.id, baseId: body.base.id };
@@ -81,6 +98,17 @@ const claim = (app: FastifyInstance, token: string, featId: string) =>
 /** The feat every crew can finish first: one letter written. Small, and pays plain caps. */
 const LETTER = 'letters_1';
 
+/** The one rung that is finished by the act of starting: picking a character. */
+const OPENING = 'overseer_taken';
+
+/**
+ * Rungs already in the ledger before a test has done anything, because `player` collects them.
+ *
+ * Named rather than written as a bare `+ 1` at each site, so the day a second rung is finished by
+ * the act of starting there is one number to move.
+ */
+const ALREADY_COLLECTED = 1;
+
 /** Moves a tally straight, which is what a whole evening of play would otherwise be needed for. */
 function give(app: FastifyInstance, baseId: string, measure: string, amount: number): void {
   app.repos.feats.bump(baseId, measure, amount);
@@ -96,7 +124,7 @@ describe('GET /feats', () => {
     expect(feats.progress).toHaveLength(FEATS.length);
     expect(new Set(feats.progress.map((row) => row.id)).size).toBe(FEATS.length);
     expect(feats.ready).toBe(0);
-    expect(feats.claimed).toBe(0);
+    expect(feats.claimed).toBe(ALREADY_COLLECTED);
   });
 
   it('shows a brand new crew the head of every ladder and nothing behind it', async () => {
@@ -106,8 +134,12 @@ describe('GET /feats', () => {
     const feats = await board(app, one.token);
     const byId = new Map(feats.progress.map((row) => [row.id, row]));
     for (const spec of FEATS) {
+      // ...with one exception: picking a character is a thing this crew has already done, so the
+      // opening rung is collected rather than open. Everything else is untouched.
+      if (spec.id === OPENING) continue;
       expect(byId.get(spec.id)?.state, spec.id).toBe(spec.after === null ? 'open' : 'locked');
     }
+    expect(byId.get(OPENING)?.state).toBe('claimed');
   });
 
   it('counts what the crew has actually done', async () => {
@@ -151,7 +183,8 @@ describe('GET /feats', () => {
       ],
       base.buildQueue,
     );
-    expect(app.repos.feats.tallies(one.baseId)).toEqual({});
+    // Nothing has been counted but the character this account picked to get here.
+    expect(app.repos.feats.tallies(one.baseId)).toEqual({ [OPENING]: 1 });
 
     // Wind the production clock back a day and read the board. The settle banks the interval and
     // the lifetime counters move with it, with nobody touching the district screen.
@@ -311,7 +344,7 @@ describe('collecting one', () => {
 
     const body = (await claim(app, one.token, LETTER)).json<ClaimFeatResponse>();
     expect(body.feats.progress.find((row) => row.id === LETTER)?.state).toBe('claimed');
-    expect(body.feats.claimed).toBe(1);
+    expect(body.feats.claimed).toBe(1 + ALREADY_COLLECTED);
     expect(body.feats.ready).toBe(0);
   });
 
@@ -464,6 +497,55 @@ describe('collecting one', () => {
       reward * 1.09,
       6,
     );
+  });
+
+  /**
+   * ...and off **held ground**, which is the half the case above cannot see.
+   *
+   * That test grants `legend_builder` to an officer, and a perk is a person, so it is paid by
+   * `crewEffectsFor` and by `standingEffectsFor` alike: it passed for a year while `payFeat` read
+   * the people-only fold. `infamy_gain` has two other sources and neither of them is a person. The
+   * Graveyard pays 15% for holding it (`city/locations.ts`) and a faction card pays more
+   * (`factions/cards.ts`), and territory and the table are exactly what the people-only fold
+   * leaves out. So a crew holding the Graveyard collected the bonus on every raid and every job
+   * and nothing on the one reward they press a button for.
+   *
+   * `missions/resolve.ts` carries a comment recording that this same bug was already found and
+   * fixed once on the job settler, in its own words: "the Graveyard and `sig_name_maker` paid on a
+   * raid and nothing on a job." This is the third faucet.
+   *
+   * The two folds are read directly first, so a change that makes the Graveyard worthless reddens
+   * this as a fixture failure rather than passing it as a clean bill of health.
+   */
+  it('scales a feat’s infamy by held ground, not only by the people', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_infamy_ground');
+    const feat = FEATS.find((spec) => spec.id === 'gates_1')!;
+    const reward = feat.reward.infamy ?? 0;
+
+    const control = app.repos.city.control(GRAVEYARD);
+    if (!control) throw new Error(`fixture: no control row for ${GRAVEYARD}`);
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: one.baseId },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+
+    const base = app.repos.bases.findByOwnerId(one.userId)!;
+    const ground = standingEffectsFor(app.repos, base).infamyGainPercent;
+    const people = crewEffectsFor(app.repos, base).infamyGainPercent;
+    expect(people, 'nobody on the books pays infamy_gain, so the folds must differ').toBe(0);
+    expect(ground, 'the Graveyard stopped paying infamy_gain').toBeGreaterThan(0);
+
+    give(app, one.baseId, featMeasureKey(feat.measure, feat.scope), feat.target);
+    const before = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
+    expect((await claim(app, one.token, feat.id)).statusCode).toBe(200);
+    const paid = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy - before;
+
+    expect(paid, 'the feat was paid the flat catalogue figure').toBeGreaterThan(reward);
+    // Rounded because the store holds whole infamy, which is what the perk case above pins too.
+    expect(paid).toBe(Math.round(earnedInfamy(reward, ground)));
   });
 
   it('pays experience through the one writer of level', async () => {
@@ -746,8 +828,8 @@ describe('the whole board, collected', () => {
     // The ledger agrees with the claim table rather than with the counter above.
     expect(collected).toBeGreaterThan(60);
     const ledger = await board(app, one.token);
-    expect(ledger.claimed).toBe(collected);
-    expect(app.repos.feats.claimed(one.baseId).size).toBe(collected);
+    expect(ledger.claimed).toBe(collected + ALREADY_COLLECTED);
+    expect(app.repos.feats.claimed(one.baseId).size).toBe(collected + ALREADY_COLLECTED);
 
     // And nothing came out of the stockpile sideways on the way through.
     const base = app.repos.bases.findByOwnerId(one.userId)!;
@@ -817,8 +899,8 @@ describe('collecting the whole backlog at once', () => {
     const body = response.json<{ featIds: string[]; feats: FeatsResponse }>();
 
     expect(body.featIds).toHaveLength(waiting);
-    expect(body.feats.claimed).toBe(waiting);
-    expect(app.repos.feats.claimed(one.baseId).size).toBe(waiting);
+    expect(body.feats.claimed).toBe(waiting + ALREADY_COLLECTED);
+    expect(app.repos.feats.claimed(one.baseId).size).toBe(waiting + ALREADY_COLLECTED);
     // Every feat that was waiting is now collected, and none of them is waiting any more.
     for (const id of body.featIds) {
       expect(body.feats.progress.find((row) => row.id === id)?.state, id).toBe('claimed');
@@ -956,7 +1038,7 @@ describe('collecting the whole backlog at once', () => {
         seen.add(id);
       }
     }
-    expect(app.repos.feats.claimed(one.baseId).size).toBe(seen.size);
+    expect(app.repos.feats.claimed(one.baseId).size).toBe(seen.size + ALREADY_COLLECTED);
     expect(app.repos.bases.findByOwnerId(one.userId)!.resources.caps).toBeGreaterThanOrEqual(paid);
   });
 
@@ -1031,8 +1113,8 @@ describe('one crew’s feats are their own', () => {
     expect(claimA.statusCode).toBe(200);
     expect(claimB.statusCode).toBe(200);
 
-    expect(app.repos.feats.claimed(a.baseId)).toEqual(new Set([LETTER]));
-    expect(app.repos.feats.claimed(b.baseId)).toEqual(new Set(['fights_1']));
+    expect(app.repos.feats.claimed(a.baseId)).toEqual(new Set([OPENING, LETTER]));
+    expect(app.repos.feats.claimed(b.baseId)).toEqual(new Set([OPENING, 'fights_1']));
   });
 
   it('refuses one crew the feat another has collected, on its own merits', async () => {

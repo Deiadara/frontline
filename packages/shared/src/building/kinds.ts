@@ -169,7 +169,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Nexus',
     description:
       'A seized ex-transport hub with the maps still on the walls. Everything the district decides, it decides here.',
-    role: 'Authorises every other structure. Each of them has a level it cannot pass until the Nexus is senior enough to sign for it, and new plots open as it grows.',
+    role: 'It unlocks other buildings, and also caps their level. Upgrading the nexus is mandatory in order to upgrade the rest of the district.',
     requires: [],
     baseCost: { caps: 400, scrap: 200, planks: 120, oil: 60 },
     // Plate and bar, once the hub stops being a room with maps in it. The heaviest bill of the
@@ -182,7 +182,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Quarters',
     description:
       'Container stacks, hot bunks and a stove that never goes out. Changing the world requires a place to sleep at night.',
-    role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every soldier, officer and machine takes a slot, so the first number decides how big the army can be and the second how many names you can pay.',
+    role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every soldier, officer and machine take slot units, so upgrading the quarters is required in order to grow in number.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.
@@ -207,8 +207,8 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     name: 'The Generator',
     shortName: 'Generator',
     description:
-      'A turbine block running on whatever burns. It is loud, it is filthy, and every crane in the district turns because of it.',
-    role: "Refines oil around the clock, takes time off every other structure's build by level, and sells a two-hour burn that takes a quarter off the whole queue.",
+      'A turbine block running on whatever burns. It is loud and it is filthy, but everyone in the district prays it never stops, as everything depends on it.',
+    role: "Refines oil around the clock, takes time off every other structure's build by level, and sells a two-hour burn that makes upgrading other buildings faster. How much faster depends on its level.",
     requires: [nexus(1)],
     // Mainly oil (§B4). The turbine is fed rather than built: the plant is a drum, a rotor and a
     // fuel line, and what a bigger one costs is what it swallows getting there.
@@ -222,7 +222,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Scrapyard',
     description:
       "If it's not a resource you can use as is, it ends up here. What comes out depends on the district's creativity.",
-    role: 'Strips salvage into scrap and the occasional length of good metal, and builds the add-ons that bolt onto a structure or a unit.',
+    role: 'Strips components into scraps and HQ metal, and also produces them passively in small amounts. Also serves as the workstation to build modifications and traps.',
     requires: [nexus(3), needs('generator', 1)],
     baseCost: { caps: 200, scrap: 300, planks: 100, oil: 20 },
     // The yard that makes the stuff spends the most of it, after the Nexus.
@@ -259,7 +259,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     description:
       'Clean-ish benches, a wall of borrowed datacores and three arguments running at once. Literally re-inventing the wheel.',
     role: 'Makes research faster and unlocks a number of upgrades and projects.',
-    requires: [nexus(4), needs('apothecary', 2), crew(5)],
+    requires: [nexus(4), needs('generator', 2), crew(5)],
     baseCost: { caps: 400, scrap: 200, planks: 200, oil: 250, highQualityMetal: 25 },
     baseSeconds: 175,
   },
@@ -267,7 +267,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     name: 'The Gauntlet',
     shortName: 'Gauntlet',
     description:
-      'A run of welded obstacles, a mat that has seen better decades, and somebody shouting. People come out of it better than they went in.',
+      'When this was taken over it was obvious what it would be used for. People come out of it better than they went in, although that depends on your definition of better.',
     role: 'Unlocks units as it grows and takes time off training every one of them, including the ones it cannot train itself.',
     requires: [nexus(3), needs('quarters', 2)],
     // Every recruit trained here eats while they do it, and the ground itself is no different.
@@ -283,7 +283,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     // clock any more, so there is no lean week to soften: what it does is get people off the
     // casualty list, which is what `infirmaryRecoveryPercent` has always actually paid out.
     role: 'Looks after the crew. Some of the people a fight would have cost you walk out of here instead. Allows you to deploy stitchers.',
-    requires: [nexus(10), needs('greenhouse', 4), needs('lab', 2), crew(10)],
+    requires: [nexus(10), needs('greenhouse', 5), needs('lab', 5), crew(15)],
     // Medical stores are stores.
     baseCost: {
       caps: 1000,
@@ -299,9 +299,9 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     name: 'The Garage',
     shortName: 'Garage',
     description:
-      'Pits, a gantry crane and a half-built rotor nobody will discuss. Motors first, vehicles after, and eventually something that flies.',
-    role: 'Builds and keeps the machines. Gives nothing on its own: what it is worth is what is parked in it.',
-    requires: [nexus(12), needs('scrapyard', 6), needs('generator', 6), crew(14)],
+      'Anything can be called the garage as long as the goal is the same: motors first, vehicles after, and eventually something that flies.',
+    role: 'Builds and keeps the machines. Upgrading it lowers the construction time of vehicles and allows you to make better ones.',
+    requires: [nexus(12), needs('scrapyard', 7), needs('generator', 7), crew(20)],
     baseCost: { caps: 400, scrap: 2000, planks: 500, oil: 2000, highQualityMetal: 200 },
     baseSeconds: 4300,
   },

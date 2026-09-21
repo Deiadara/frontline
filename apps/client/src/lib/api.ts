@@ -76,6 +76,8 @@ import {
   type FortifyRequest,
   type UpgradeLocationRequest,
   type GarrisonRequest,
+  type PlantSleepersRequest,
+  type RecallSleepersRequest,
   type ScoutRequest,
   type CancelTrainingRequest,
   IncreasePayrollResponseSchema,
@@ -118,7 +120,7 @@ import {
   type CancelGateRaiseRequest,
   type CancelDrillRequest,
 } from '@frontline/shared';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { useSession } from '../store/session';
 
 /** All endpoints live under this prefix (proxied to the API server in dev). */
@@ -250,6 +252,14 @@ export const scoutDistrict = (body: ScoutRequest) =>
 
 export const setGarrison = (body: GarrisonRequest) =>
   apiFetch('/city/garrison', CityMutationResponseSchema, jsonBody(body));
+
+/** §A4: plant a cell of Sleepers on ground this crew does not hold (`sleepers.ts`). */
+export const plantSleepers = (body: PlantSleepersRequest) =>
+  apiFetch('/city/sleepers', CityMutationResponseSchema, jsonBody(body));
+
+/** ...and pull one back out. They walk home the leg they walked out. */
+export const recallSleepers = (body: RecallSleepersRequest) =>
+  apiFetch('/city/sleepers/recall', z.object({ ok: z.literal(true) }), jsonBody(body));
 
 export const fortifyLocation = (body: FortifyRequest) =>
   apiFetch('/city/fortify', CityMutationResponseSchema, jsonBody(body));

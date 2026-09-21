@@ -78,6 +78,7 @@ describe('sections', () => {
       'plate-district-datavault-sigma',
       'plate-district-glasshouse-fields',
       'plate-district-blacksite-7',
+      'plate-district-combine-spire',
     ]);
     // The officer pool is opaque and croppable and lands here too, all of it. Read off the pool
     // rather than typed: the board added ten faces once and has three times since.

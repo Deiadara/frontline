@@ -273,7 +273,7 @@ describe('the send dialog clock', () => {
 
     // And once a column exists the figure is exact, so the hedge goes away with it.
     await waitFor(() => expect(clock).toHaveTextContent(formatDuration(hastened)));
-    expect(within(dialog).getByTestId('round-trip')).toHaveTextContent('There and back');
+    expect(within(dialog).getByTestId('round-trip')).toHaveTextContent('Total roundtrip time');
     expect(within(dialog).getByTestId('round-trip')).not.toHaveTextContent('At most');
     /*
      * ...and the line says which group set that pace, not a percentage.
@@ -282,7 +282,7 @@ describe('the send dialog clock', () => {
      * the column: `columnSpeed` returns the Rotorcraft's own speed and the dialog names it.
      */
     expect(within(dialog).getByTestId('mission-column')).toHaveTextContent(
-      `Held to ${ROTOR_SPEED} by the Rotorcraft`,
+      `Held to ${ROTOR_SPEED} by The Rotorcraft`,
     );
   });
 });

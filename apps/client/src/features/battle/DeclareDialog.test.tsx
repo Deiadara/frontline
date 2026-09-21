@@ -83,7 +83,7 @@ function open(
     <QueryClientProvider client={queryClient}>
       <DeclareDialog
         target={on}
-        targetName="Kessler Press"
+        placeName="Kessler Press"
         slots={offered}
         infamy={infamy}
         pending={false}
@@ -178,5 +178,59 @@ describe('what the call costs on anybody else', () => {
     expect(confirm).toBeDisabled();
     fireEvent.click(confirm);
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The heading, and the place in caps (maintainer, 2026-09-20).
+ *
+ * The sentence was composed at each of the three call sites, so `the gate at ...` was written out
+ * three times and the caps rule would have had to be applied three times and kept in step. The
+ * dialog takes the place bare and writes the sentence, which is why there is one rule to test.
+ *
+ * `uppercase` is a CSS transform, so `textContent` still reads `Kessler Press` and jsdom has no
+ * stylesheet to compute from. What is asserted here is the half that is structural and the half
+ * this file can see: the place is its **own element** carrying the class, which is what makes it
+ * possible to case the name without shouting the sentence. The rendered case is asserted where
+ * there is real CSS to render it, in `e2e/visiting.spec.ts`.
+ */
+describe('the heading names the place in caps', () => {
+  const headingParts = (): { text: string; cased: boolean }[] =>
+    [...screen.getByRole('heading', { level: 2 }).querySelectorAll('span')].map((node) => ({
+      text: node.textContent ?? '',
+      cased: node.className.split(/\s+/).includes('uppercase'),
+    }));
+
+  it('sets the place in caps and leaves the words around it alone', () => {
+    open([EARLY, LATE], RICH, { kind: 'gate', districtId: 'kessler' });
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).toHaveTextContent('the gate at Kessler Press');
+    const place = headingParts().find((part) => part.text === 'Kessler Press');
+    expect(
+      place,
+      'the place is not its own element, so it cannot be cased on its own',
+    ).toBeDefined();
+    expect(place!.cased).toBe(true);
+    // ...and the sentence around it is not shouted: a heading wholly in caps loses the difference
+    // between the thing being named and the words naming it.
+    expect(heading.textContent?.startsWith('the gate at ')).toBe(true);
+  });
+
+  /** The other half of the rule: a name with no sentence around it is not shouted. */
+  it('leaves a location target as written, because there is no sentence to set it apart from', () => {
+    open([EARLY, LATE], RICH, {
+      kind: 'location',
+      districtId: 'kessler',
+      locationId: 'kessler-press',
+    });
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Kessler Press');
+    expect(headingParts()[0]?.cased).toBe(false);
+  });
+
+  it('calls a raid on a district a raid', () => {
+    open([EARLY, LATE], RICH, { kind: 'district', districtId: 'kessler' });
+    const heading = screen.getByRole('heading', { level: 2 });
+    expect(heading).toHaveTextContent('a raid on Kessler Press');
+    expect(headingParts().find((part) => part.text === 'Kessler Press')?.cased).toBe(true);
   });
 });

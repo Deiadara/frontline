@@ -36,6 +36,7 @@ describe('the backdrop stack', () => {
       'plate-district-datavault-sigma',
       'plate-district-glasshouse-fields',
       'plate-district-blacksite-7',
+      'plate-district-combine-spire',
     ];
     for (const key of elsewhere) expect(findAssetSpec(key), key).toBeDefined();
 

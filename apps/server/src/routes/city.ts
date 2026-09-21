@@ -14,8 +14,12 @@ import {
   CancelLocationWorkRequestSchema,
   RecallScoutRequestSchema,
   CancelGateRaiseRequestSchema,
+  PlantSleepersRequestSchema,
+  RecallSleepersRequestSchema,
+  SLEEPER_REFUSAL_TEXT,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { plantSleepers, recallSleepers } from '../city/sleepers.js';
 import {
   cancelFortifying,
   setGarrison,
@@ -339,6 +343,43 @@ export function registerCityRoutes(app: FastifyInstance): void {
       district: projectDistrict(app.repos, outcome.base, district, now),
       base: outcome.base,
     };
+  });
+
+  /**
+   * §A4: plant a cell of Sleepers on ground this crew does not hold.
+   *
+   * The one door in the game that puts units somewhere without a fight or a job to send them to.
+   * See `city/sleepers.ts`; the refusals are its own, because none of `CityRefusal`'s fit.
+   */
+  app.post('/city/sleepers', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const { locationId, army } = parseBody(PlantSleepersRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+
+    const location = findLocation(locationId);
+    const district = location ? findDistrict(location.districtId) : undefined;
+    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
+
+    const outcome = app.db.transaction(() =>
+      plantSleepers(app.repos, { base, locationId, army, now }),
+    )();
+    if (outcome.kind === 'refused') {
+      throw new AppError('PLACE_UNAVAILABLE', SLEEPER_REFUSAL_TEXT[outcome.reason]);
+    }
+    return {
+      district: projectDistrict(app.repos, outcome.base, district, now),
+      base: outcome.base,
+    };
+  });
+
+  /** ...and pull one back out. They walk home the leg they walked out. */
+  app.post('/city/sleepers/recall', { preHandler: app.authenticate }, (request): { ok: true } => {
+    const { cellId } = parseBody(RecallSleepersRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const cell = app.db.transaction(() => recallSleepers(app.repos, base, cellId, now))();
+    if (!cell) throw new AppError('NOT_FOUND', 'No cell of yours is out there');
+    return { ok: true };
   });
 
   /** §A4: dig in one more level. */

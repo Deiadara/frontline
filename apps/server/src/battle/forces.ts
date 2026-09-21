@@ -1,4 +1,12 @@
-import { addToArmy, isCombatUnit, takeFromArmy, type Army } from '@frontline/shared';
+import {
+  addToArmy,
+  bareLineRules,
+  findUnit,
+  standsInLine,
+  takeFromArmy,
+  type Army,
+  type LineRules,
+} from '@frontline/shared';
 
 /**
  * Moving units between the four locations they can stand.
@@ -25,9 +33,20 @@ export function hasForce(army: Army, force: Army): boolean {
  * one place they may never be sent. Checked here rather than at each route because a force is a
  * force wherever it is going, and a door that forgot the rule would put a porter in a rank and
  * quietly kill them for a percentage of an exchange.
+ *
+ * `rules` is the crew's own, because the rule has an exception the crew can buy. `carriers_fight`
+ * (the Chief Quartermaster's track, and the Scrap Cathedral) puts the porters in the line at half
+ * strength, and the engine has honoured it since it was written: `standsInLine` is what every
+ * round asks. The doors did not, so a crew that had paid for the programme still could not send a
+ * porter anywhere a fight was going to happen, and the perk was unreachable outside a home
+ * defence. Defaulted to the bare rules so a caller with no crew in hand gets the strict reading.
  */
-export function isFightingForce(force: Army): boolean {
-  return Object.entries(force).every(([unitId, count]) => count <= 0 || isCombatUnit(unitId));
+export function isFightingForce(force: Army, rules: LineRules = bareLineRules()): boolean {
+  return Object.entries(force).every(([unitId, count]) => {
+    if (count <= 0) return true;
+    const unit = findUnit(unitId);
+    return unit !== undefined && standsInLine(unit, rules);
+  });
 }
 
 export function removeForce(army: Army, force: Army): Army {

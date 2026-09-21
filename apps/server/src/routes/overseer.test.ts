@@ -79,16 +79,22 @@ describe('choosing an overseer', () => {
     });
     const token = registered.json<{ token: string }>().token;
 
-    const first = await chooseOverseer(app, token);
-    expect(first.statusCode, first.body.slice(0, 200)).toBe(201);
-
     /*
-     * The second ask is for somebody this account is *still* offered and nobody has taken, so the
-     * refusal can only be the once-per-account rule. Reaching for a name here would have made it a
+     * The offer is read **before** the first choice, because since 2026-09-18 a settled crew
+     * cannot ask again: `GET /overseer/choices` refuses one with the same code this test is
+     * about, since an offer is a hold and a crew that can never take one must not take four
+     * characters out of the pool by asking.
+     *
+     * The second name is one this account was offered and nobody has taken, so the refusal below
+     * can only be the once-per-account rule. Reaching for an arbitrary name would have made it a
      * §F6 pool refusal instead, which is a different rule with the same status code.
      */
-    const [free] = await offeredOverseers(app, token);
+    const offered = await offeredOverseers(app, token);
+    const free = offered[1];
     if (!free) throw new Error('fixture: the pool ran dry');
+
+    const first = await chooseOverseer(app, token);
+    expect(first.statusCode, first.body.slice(0, 200)).toBe(201);
     const second = await app.inject({
       method: 'POST',
       url: '/api/overseer',

@@ -1,4 +1,6 @@
 import {
+  UNIT_CATALOG,
+  isCombatUnit,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
   UNIT_MODIFIERS,
@@ -47,7 +49,7 @@ function optionFor(spec: UnitSpec): UnitOption {
     modifiers: spec.modifiers.map((id) => ({
       label: UNIT_MODIFIERS[id].label,
       description: UNIT_MODIFIERS[id].description,
-      when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
+      when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context].when,
     })),
     rules: unitRules(spec).map((rule) => ({
       id: rule.id,
@@ -385,5 +387,64 @@ describe('splitResistances', () => {
     expect(split.resistance).toEqual([{ type: 'chemical', points: 85 }]);
     // And the floor at the other end: `MIN_RESISTANCE` is -60, so -80 lands as 60% more.
     expect(split.weakness).toEqual([{ type: 'blade', points: 60 }]);
+  });
+});
+
+/**
+ * §E: a carrier has no fighting numbers until the crew has the programme (maintainer,
+ * 2026-09-19).
+ *
+ * "Have a lock on the carriers' vitality and damage, and have it say that you need to research
+ * the equivalent programme that makes the fighters carry when you hover over it."
+ *
+ * The figures are *replaced* rather than greyed, and that is the point rather than a styling
+ * choice: a dimmed 60 still reads as "sixty, dimmed", and until `carriers_fight` is finished
+ * there is no answer at all. A Scavenger is never put in a line, never draws fire and deals
+ * nothing, so printing hit points and damage is the sheet quoting a fight the unit is not
+ * allowed in.
+ */
+describe('the lock on a carrier’s fighting numbers', () => {
+  const carrier = UNIT_CATALOG.find((one) => !isCombatUnit(one));
+  const fighter = UNIT_CATALOG.find((one) => isCombatUnit(one));
+
+  it('has a carrier and a fighter in the catalogue to compare', () => {
+    expect(carrier, 'no non-combat unit to test the lock on').toBeDefined();
+    expect(fighter).toBeDefined();
+  });
+
+  it('locks both headline figures on a carrier, for a crew without the programme', () => {
+    if (!carrier) throw new Error('no carrier');
+    draw(<UnitCard unit={optionFor(carrier)} garrisoned={0} abroad={0} carriersFight={false} />);
+    // Damage and Hit Points: the two headline figures, both behind the lock.
+    expect(screen.getAllByTestId('carrier-combat-locked')).toHaveLength(2);
+    expect(screen.queryByText(String(carrier.stats.vitality))).toBeNull();
+  });
+
+  it('names the programme that opens them', () => {
+    if (!carrier) throw new Error('no carrier');
+    draw(<UnitCard unit={optionFor(carrier)} garrisoned={0} abroad={0} carriersFight={false} />);
+    // The hover's own label, which is what a reader gets before opening anything.
+    expect(
+      screen.getAllByLabelText(/Everybody Fights/).length,
+      'the lock does not say what would unlock it',
+    ).toBeGreaterThan(0);
+  });
+
+  it('prints them once the crew has it', () => {
+    if (!carrier) throw new Error('no carrier');
+    draw(<UnitCard unit={optionFor(carrier)} garrisoned={0} abroad={0} carriersFight />);
+    expect(screen.queryByTestId('carrier-combat-locked')).toBeNull();
+    expect(screen.getByText(String(carrier.stats.vitality))).toBeInTheDocument();
+  });
+
+  it('never locks a unit that fights, whichever way the flag is set', () => {
+    if (!fighter) throw new Error('no fighter');
+    for (const bought of [false, true]) {
+      const view = draw(
+        <UnitCard unit={optionFor(fighter)} garrisoned={0} abroad={0} carriersFight={bought} />,
+      );
+      expect(screen.queryByTestId('carrier-combat-locked'), `carriersFight=${bought}`).toBeNull();
+      view.unmount();
+    }
   });
 });

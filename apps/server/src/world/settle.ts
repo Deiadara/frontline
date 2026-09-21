@@ -4,6 +4,7 @@ import { settleVendorAuctions } from '../market/auction.js';
 import { settleBlackMarketLots } from '../blackmarket/shelf.js';
 import { settleBattles } from '../battle/resolve.js';
 import { settleMovements } from '../battle/movement.js';
+import { settleSleepers } from '../city/sleepers.js';
 import { settleFortifications } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
 import { settleScouting } from '../scouting/scouting.js';
@@ -58,6 +59,14 @@ export function settleWorld(
 ): number {
   settleFortifications(repos, now);
   const landed = settleMovements(repos, now);
+  /*
+   * §A4: cells going to ground and cells coming home, **before** the fights.
+   *
+   * Order matters for exactly one case and it is the case the mechanic is for: a cell whose walk
+   * lands on the same tick as the fight it was planted for has to be standing there when
+   * `assemble` reads the ground. Settled after, it would arrive to a battle already resolved.
+   */
+  const planted = settleSleepers(repos, now);
   const gates = settleCapturedGates(repos, now);
   const fights = settleBattles(repos, engine, now).length;
   bringCrewsHome?.(repos, now);
@@ -82,7 +91,7 @@ export function settleWorld(
    * saw two different streets for that long. A nudge costs nothing when nobody is connected and
    * is only sent when something actually settled, so a quiet world stays quiet.
    */
-  if (fights > 0 || landed > 0 || gates > 0) liveHub.broadcast('world', now);
+  if (fights > 0 || landed > 0 || planted > 0 || gates > 0) liveHub.broadcast('world', now);
   if (tables > 0) liveHub.broadcast('bar', now);
   if (lots > 0) liveHub.broadcast('market', now);
   return fights;

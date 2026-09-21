@@ -45,7 +45,7 @@ import { settleDistrict } from '../district/settle.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
-import { chooseOverseer } from '../testing/overseer.js';
+import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -122,6 +122,20 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
   const token = registered.json<{ token: string }>().token;
   const chosen = await chooseOverseer(app, token);
   expect(chosen.statusCode, `overseer: ${chosen.statusCode}`).toBe(201);
+  /*
+   * The same character in every world (flake, 2026-09-19).
+   *
+   * Which of the thirty an account is offered is a hash of a UUID minted at registration, so two
+   * `makeWorld` calls draw independently and several presets move a number this file measures.
+   * The Scavenger King is +25% loot capacity, and the haul is bounded by the hold: the Infirmary
+   * test below compares two worlds for an exact equality, and one of them drawing Bram Teague
+   * made it 33kg against 26kg. Measured, by pinning the two worlds to different characters on
+   * purpose: the failure is the one this file used to show about one full-suite run in ten.
+   *
+   * `pinOverseer` exists for exactly this and leaves `preset_id` as the route wrote it, so two
+   * worlds pinning the same person cannot trip migration 0095's unique index.
+   */
+  pinOverseer(app, token);
   const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
   // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
   // call this file makes.
@@ -193,9 +207,18 @@ async function breakIn(world: World): Promise<void> {
   });
 
   const mark = new Date(Date.now() - 60_000);
+  /*
+   * The mark, and the seed with it.
+   *
+   * Every world here is its own database with its own battle, so two runs of the same scenario
+   * draw their haul from two different streams (`plunder` is seeded off `battle.seed`). Any test
+   * that compares one world against another is then comparing a rule *and* a draw. Pinning the
+   * seed makes the draw identical and leaves the rule, which is what turned the Infirmary test
+   * below from "within a fifth, and it fails about one run in ten" into an equality.
+   */
   world.db
-    .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
-    .run(mark.toISOString(), view.battle.id);
+    .prepare('UPDATE scheduled_battles SET scheduled_for = ?, seed = ? WHERE id = ?')
+    .run(mark.toISOString(), 'breakin-fixed-seed', view.battle.id);
   /*
    * And the column arrives.
    *
@@ -440,22 +463,23 @@ describe('one raid on the whole district', () => {
     const withMedics = await weigh(12);
     expect(bare, 'the fixture carried nothing, so this compares two zeroes').toBeGreaterThan(0);
     /*
-     * Within a fifth, not exactly equal, and the tolerance is the honest part.
+     * Exactly equal, which it can be now that both worlds draw from the same stream.
      *
-     * Exact equality was written first and is a knife edge: the two runs are separate worlds with
-     * separate battle ids, the battle id seeds the draw, and a hold whose remainder cannot buy one
-     * more of anything comes home a kilogram or two short in one mix and not the other. It passed
-     * every run in isolation and failed once under full suite load, which is the worst way for a
-     * test to be wrong.
+     * This was `< bare * 1.2` and the tolerance was covering a flake rather than a rule. The two
+     * runs are separate worlds with separate battles, `plunder` was seeded off the battle **id**,
+     * and no two worlds can ever share one: the haul therefore differed by a few kilos at random,
+     * it passed in isolation, and it failed about one full-suite run in ten. Seeding the haul off
+     * `battle.seed` instead (`resolve.ts`) let `breakIn` pin the stream, so the draw is identical
+     * and the only thing left between the two numbers is the rule under test.
      *
-     * A fifth separates the rule from the noise with room to spare. Five of the six raiders fall
-     * and a level 12 Infirmary recovers two of the five, so the wrong answer puts three people on
-     * the carrying party instead of one: a **three times** heavier haul, not a few kilos.
+     * What the rule is worth, if it breaks: five of the six raiders fall and a level 12 Infirmary
+     * recovers two of them, so the wrong answer puts three people on the carrying party instead
+     * of one and the haul comes home three times heavier. There is no tolerance between those.
      */
     expect(
       withMedics,
       `the medics added ${(withMedics - bare).toFixed(1)}kg to a ${bare.toFixed(1)}kg haul`,
-    ).toBeLessThan(bare * 1.2);
+    ).toBe(bare);
   });
 
   /**
@@ -584,6 +608,60 @@ describe('what a raid leaves behind (§A4)', () => {
   const disruptionOf = (world: World, baseId: string) =>
     world.app.repos.bases.findById(baseId)!.economy.disruption;
 
+  /**
+   * ...and the research that buys the other answer, end to end (maintainer, 2026-09-18).
+   *
+   * `tech_carry_both` on the Chief Medic track sets `recoveredCarryLoot`, and the raid reads it to
+   * decide whether the Infirmary's recovered were upright when the bags were filled. Both halves
+   * were tested and neither end was: the research side pinned that the flag reaches
+   * `standingEffectsFor`, the raid side pinned that recovered units do **not** carry by default,
+   * and nothing joined them up. A node whose only consumer never sees it set is a node that pays
+   * out nothing, which is the failure this game has already shipped twice (`buildSeconds` on every
+   * vehicle, `infirmaryRecoveryPercent` on every crew).
+   *
+   * Same fixture as the case above it, with the rung bought: the haul has to be bigger, because
+   * the two the medics bring round are now carrying.
+   */
+  it('lets the researched crew put the recovered back on the carrying party', async () => {
+    const weigh = async (researched: boolean): Promise<number> => {
+      const world = await makeWorld(bloodyWith({ razors: 5 }));
+      fill(world, world.victim.baseId);
+      world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+      const base = world.app.repos.bases.findById(world.raider.baseId)!;
+      world.app.repos.bases.updateDistrict(
+        base.id,
+        [
+          ...base.buildings,
+          { id: 'raider-infirmary', kind: 'infirmary', level: 10, modifications: [] },
+        ],
+        base.buildQueue,
+      );
+      if (researched) {
+        const held = world.app.repos.bases.findById(base.id)!;
+        world.app.repos.bases.updateResearch(base.id, {
+          ...held.research,
+          technologies: [...held.research.technologies, 'tech_carry_both'],
+        });
+      }
+      const before = stockOf(world, world.raider.baseId);
+      await breakIn(world);
+      const after = stockOf(world, world.raider.baseId);
+      return weightOf(
+        Object.fromEntries(RESOURCE_KEYS.map((key) => [key, after[key] - before[key]])),
+      );
+    };
+
+    const without = await weigh(false);
+    const researched = await weigh(true);
+    expect(without, 'the fixture carried nothing, so this compares two zeroes').toBeGreaterThan(0);
+    // Five of six fall and a level 10 Infirmary brings two back, so the carrying party goes from
+    // one to three. A fifth is the same margin the sibling case uses, and the real gap is threefold.
+    expect(
+      researched,
+      `the rung bought nothing: ${researched.toFixed(1)}kg against ${without.toFixed(1)}kg`,
+    ).toBeGreaterThan(without * 1.2);
+  });
+
   it('leaves the district running badly, and leaves the raiders alone', async () => {
     const world = await makeWorld();
     fill(world, world.victim.baseId);
@@ -648,7 +726,7 @@ describe('what a raid leaves behind (§A4)', () => {
      * smallest line in the walk showed it.
      */
     const wrecked = world.app.repos.bases.findById(world.victim.baseId)!.buildings;
-    const wind = (disruption: { until: string | null; percent: number }) => {
+    const wind = (disruption: { until: string | null; since: string | null; percent: number }) => {
       const base = world.app.repos.bases.findById(world.victim.baseId)!;
       world.app.repos.bases.updateDistrict(base.id, wrecked, base.buildQueue);
       world.app.repos.bases.updateResources(
@@ -676,7 +754,7 @@ describe('what a raid leaves behind (§A4)', () => {
 
     wind(raided);
     const limping = accrue();
-    wind({ until: null, percent: 0 });
+    wind({ until: null, since: null, percent: 0 });
     const well = accrue();
 
     // Whatever the district actually makes: measured rather than named, so retuning a structure
@@ -712,9 +790,10 @@ describe('what a raid leaves behind (§A4)', () => {
 
     const victim = world.app.repos.bases.findById(world.victim.baseId)!;
     const longer = new Date(Date.now() + 24 * 3_600_000).toISOString();
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
     world.app.repos.bases.updateEconomy(victim.id, {
       ...victim.economy,
-      disruption: { until: longer, percent: MIN_RAID_DISRUPTION_PERCENT },
+      disruption: { until: longer, since: hourAgo, percent: MIN_RAID_DISRUPTION_PERCENT },
     });
 
     await breakIn(world);
@@ -737,7 +816,11 @@ describe('what a raid leaves behind (§A4)', () => {
     const shorter = new Date(Date.now() + 60_000).toISOString();
     world.app.repos.bases.updateEconomy(victim.id, {
       ...victim.economy,
-      disruption: { until: shorter, percent: MAX_RAID_DISRUPTION_PERCENT },
+      disruption: {
+        until: shorter,
+        since: new Date(Date.now() - 3_600_000).toISOString(),
+        percent: MAX_RAID_DISRUPTION_PERCENT,
+      },
     });
 
     await breakIn(world);

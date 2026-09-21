@@ -30,6 +30,7 @@ const PAINTED = [
   'chrome-row',
   'glasshouse-fields',
   'blacksite-7',
+  'combine-spire',
 ] as const;
 
 function marksOf(district: string): [string, Mark][] {

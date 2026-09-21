@@ -5,6 +5,7 @@ import {
   ITEM_CATALOG,
   MAX_ATTRIBUTE,
   featMeasureKey,
+  findDistrict,
   levelCeilingFor,
   type BuildingKind,
   findOverseerPreset,
@@ -16,6 +17,7 @@ import {
   startingTraining,
   type Base,
   type ItemId,
+  type LocationHolder,
 } from '@frontline/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -317,5 +319,77 @@ describe('the numbers a feat can be measured on', () => {
     const somebody = snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!);
     for (const key of keys) expect(somebody[key], key).toBe(2);
     expect(somebody[featMeasureKey('overseer_best_skill')]).toBe(MAX_ATTRIBUTE);
+  });
+});
+
+/**
+ * The two Combine measures that are read rather than counted (`city/combine.ts`).
+ *
+ * Both come off the control map, and each fixture is built to separate the measure from the one it
+ * could be confused with: a whole district that was never the regime's for `combine_districts_held`,
+ * and a Spire held everywhere except the Chapel for `chapel_held`. A producer wired to
+ * `districts_held_whole`, or to "holds anything in the CCS", passes the existence test above and
+ * fails here.
+ */
+describe('the Combine measures', () => {
+  const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+  /** Rewrites who stands on each location, garrison cleared, everything else as it was. */
+  const give = (locationIds: readonly string[], holder: LocationHolder) => {
+    const controls = repos.city.controls();
+    for (const locationId of locationIds) {
+      const control = controls.get(locationId);
+      if (!control) throw new Error(`fixture: no control row for ${locationId}`);
+      repos.city.put({ ...control, holder, garrison: {} });
+    }
+  };
+  const mine: LocationHolder = { kind: 'crew', baseId: 'base-1' };
+
+  it('counts a whole district only where the regime held it', () => {
+    const docks = findDistrict('neon-docks');
+    const row = findDistrict('chrome-row');
+    if (!docks || !row) throw new Error('fixture: the Docks and Chrome Row are on the map');
+    // The pair the test turns on: one of the six the Combine holds, one it never did.
+    expect(docks.allegiance).toBe('government');
+    expect(row.allegiance).toBe('independent');
+    const plots = (district: typeof docks) => district.locations.map((location) => location.id);
+
+    expect(read('combine_districts_held')).toBe(0);
+
+    give(plots(row), mine);
+    expect(read('districts_held_whole')).toBe(1);
+    expect(read('combine_districts_held'), 'Chrome Row was never the Combine’s').toBe(0);
+
+    // All but one plot of the Docks: a district is held whole or not at all.
+    give(plots(docks).slice(1), mine);
+    expect(read('combine_districts_held'), 'three plots of four is not the district').toBe(0);
+
+    give(plots(docks).slice(0, 1), mine);
+    expect(read('combine_districts_held')).toBe(1);
+    expect(read('districts_held_whole')).toBe(2);
+
+    // And it falls when the regime walks back into one plot, which is what makes it a crew measure.
+    give(plots(docks).slice(0, 1), { kind: 'government' });
+    expect(read('combine_districts_held')).toBe(0);
+  });
+
+  it('reads the Chapel off its own row, whoever holds the rest of the Spire', () => {
+    const spire = findDistrict('combine-spire');
+    if (!spire) throw new Error('fixture: the CCS is on the map');
+    const chapel = 'combine-spire-chapel';
+    const rest = spire.locations.map((location) => location.id).filter((id) => id !== chapel);
+    expect(spire.locations.map((location) => location.id)).toContain(chapel);
+    expect(rest.length, 'the Spire has more than the Chapel on it').toBeGreaterThan(0);
+
+    expect(read('chapel_held')).toBe(0);
+
+    give(rest, mine);
+    expect(read('chapel_held'), 'the rest of the Spire is not the Chapel').toBe(0);
+
+    give([chapel], mine);
+    expect(read('chapel_held')).toBe(1);
+
+    // Somebody else's now: held, and not by this crew.
+    give([chapel], { kind: 'looters' });
+    expect(read('chapel_held')).toBe(0);
   });
 });

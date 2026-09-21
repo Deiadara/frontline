@@ -47,17 +47,32 @@ afterEach(async () => {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-/** The location the looters are actually standing on, so the fight has somebody to have it with. */
+/**
+ * Chrome Row, and the location the looters are actually standing on so the fight has somebody to
+ * have it with.
+ *
+ * The Steelbelt until the 2026-09-19 re-cut, which handed it to the Combine along with five other
+ * contested districts. A district one party holds end to end is **shut**: the only legal target in
+ * it is its gate, and every declaration this file makes was refused. Chrome Row is the one
+ * contested district left with a seam in it, four of its eight plots squatted and four standing
+ * empty, so a location fight can still be called there without breaking a door first.
+ */
+const OPEN_DISTRICT = 'chrome-row';
+
 const SQUATTED: string = (() => {
-  const district = findDistrict('rustyard');
+  const district = findDistrict(OPEN_DISTRICT);
   const held = district?.locations.find(
     (location) => startingHolder(location, district).kind !== 'unoccupied',
   );
-  if (!held) throw new Error('the Rustyard has nobody on it at all');
+  if (!held) throw new Error('Chrome Row has nobody on it at all');
   return held.id;
 })();
 
-const PRESS: BattleTarget = { kind: 'location', districtId: 'rustyard', locationId: SQUATTED };
+const FIGHT_TARGET: BattleTarget = {
+  kind: 'location',
+  districtId: OPEN_DISTRICT,
+  locationId: SQUATTED,
+};
 
 async function makeStack(username: string): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
@@ -82,7 +97,7 @@ async function makeStack(username: string): Promise<Stack> {
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, OPEN_DISTRICT, new Date().toISOString());
   return { app, db, token, baseId };
 }
 
@@ -101,7 +116,10 @@ async function readyFight(stack: Stack): Promise<{ battleId: string; mark: Date 
     method: 'POST',
     url: '/api/battles/declare',
     headers: auth(stack.token),
-    payload: { target: PRESS, scheduledFor: declarationWindow(new Date()).earliest.toISOString() },
+    payload: {
+      target: FIGHT_TARGET,
+      scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
+    },
   });
   const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
   await stack.app.inject({
@@ -180,7 +198,7 @@ describe('a fight lands on its mark', () => {
       url: '/api/battles/declare',
       headers: auth(stack.token),
       payload: {
-        target: PRESS,
+        target: FIGHT_TARGET,
         scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
       },
     });

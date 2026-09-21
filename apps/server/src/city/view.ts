@@ -1,4 +1,8 @@
 import {
+  findUnit,
+  findLocation,
+  combineLeaderOf,
+  combineLeaderAlive,
   capturedGateIntelResistancePercent,
   CITY_DISTRICTS,
   findDistrict,
@@ -382,6 +386,34 @@ function quoteScout(
   return { officerId: officer.id, officerName: officer.name, minutes: plan.minutes };
 }
 
+/**
+ * The legendary whose shadow a district is under, for the district screen (`city/combine.ts`).
+ *
+ * His existence is public and his death is public: which leader runs which district is the
+ * thing everybody in the city already knows, and a crew that took his plot has told everybody.
+ * What is *under* him stays behind the fog with the rest of the garrison.
+ */
+function combineLeaderView(
+  district: District,
+  controls: readonly LocationControl[],
+): DistrictDetailResponse['combineLeader'] {
+  const leader = combineLeaderOf(district.id);
+  if (!leader) return null;
+  const unit = findUnit(leader.unitId);
+  const plot = findLocation(leader.locationId);
+  if (!unit || !plot) return null;
+  return {
+    unitId: leader.unitId,
+    name: unit.name,
+    locationId: leader.locationId,
+    locationName: plot.name,
+    alive: combineLeaderAlive(leader, controls),
+    powerName: leader.powerName,
+    pronoun: leader.pronoun,
+    powerLine: leader.powerLine,
+  };
+}
+
 export function projectDistrict(
   repos: Repositories,
   base: Base,
@@ -428,6 +460,8 @@ export function projectDistrict(
         })
       : [],
     holder: scouted ? districtHolder(district, context.controls) : null,
+    // The Combine legendary over this ground, dead or alive: public, like the seat-of-power tag.
+    combineLeader: combineLeaderView(district, [...context.controls.values()]),
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,
     base: district.kind === 'residential' ? resident : null,
     residentBuildings: district.kind === 'residential' ? residentBuildings : [],

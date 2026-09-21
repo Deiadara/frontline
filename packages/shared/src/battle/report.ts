@@ -3,7 +3,14 @@ import { COMBAT_CONTEXT_LABELS, type UnitModifierId } from '../units/index.js';
 import type { Battlefield } from './battlefield.js';
 import { engagementMultiplier, exchange } from './matchup.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
-import { mendShare, type Simulation, type SideState, type Stack } from './engine.js';
+import {
+  jamPercent,
+  mendShare,
+  openingJam,
+  type Simulation,
+  type SideState,
+  type Stack,
+} from './engine.js';
 
 /**
  * Turning a simulation into something a player reads (GDD §A5).
@@ -160,7 +167,7 @@ function resistanceFindings(
 function groundFindings(battlefield: Battlefield): BattleFinding[] {
   const named = battlefield.contexts
     .filter((context) => context !== 'defending' && context !== 'outnumbered')
-    .map((context) => COMBAT_CONTEXT_LABELS[context]);
+    .map((context) => COMBAT_CONTEXT_LABELS[context].when);
   if (named.length === 0) return [];
   return [
     {
@@ -200,6 +207,66 @@ function supportFindings(simulation: Simulation, side: SideState): BattleFinding
   ];
 }
 
+/**
+ * What the jammers did, and what it felt like on the other end (maintainer, 2026-09-18).
+ *
+ * The same argument `supportFindings` makes for medics, and the jam needed it more: a Netrunner
+ * deals twenty damage, so a player reading a casualty list saw a unit that killed nobody and
+ * concluded it had done nothing, when it may have taken forty per cent off the other side's
+ * armour and their damage for the whole fight.
+ *
+ * Two findings, because a jam is the one mechanic in the report that happens *to* somebody:
+ *
+ * - the jammer's own side gets the number, the way it gets its medics' number;
+ * - the other side gets it `implied`, with no figure at all. That is what `implied` is for, and
+ *   it is the right reading here: a crew that has just been jammed knows their shots landed
+ *   soft, and telling them exactly how soft would hand them the counter-list for free.
+ */
+function jamFindings(simulation: Simulation, side: SideState, enemy: SideState): BattleFinding[] {
+  const opened = openingJam(side);
+  if (opened <= 0) return [];
+
+  const jammers = side.stacks.filter((stack) => stack.unit.jammer === true);
+  const name = jammers[0]?.unit.name ?? 'The jammers';
+  const alive = jammers.reduce((total, stack) => total + stack.alive, 0);
+  const held = jamPercent(side);
+  const figure = Math.round(opened);
+  const took = `${figure}% off their armour and their damage`;
+
+  /*
+   * Four endings, and the difference between two of them is the point.
+   *
+   * A jam stops when `jamPercent` reads zero, and there are two ways to get there that a player
+   * would act on differently: the jammers were killed, or they broke and ran. `alive` separates
+   * them, and the first draft of this did not, so a stack that routed with every one of its
+   * units standing was reported as "the last of them went down".
+   */
+  const ending = (): string => {
+    if (held <= 0 && alive === 0)
+      return `The ${name} were inside them for a while: ${took}, until the last of them went down and it stopped.`;
+    if (held <= 0)
+      return `The ${name} were inside them for a while: ${took}, until they broke and ran and it stopped.`;
+    if (held < opened - 1)
+      return `The ${name} stayed in their systems: ${took} at the start, ${Math.round(held)}% by the end.`;
+    return `The ${name} stayed in their systems the whole way: ${took}.`;
+  };
+
+  return [
+    {
+      side: sideOf(simulation, side),
+      kind: 'support',
+      visibility: 'own',
+      text: ending(),
+    },
+    {
+      side: sideOf(simulation, enemy),
+      kind: 'support',
+      visibility: 'implied',
+      text: 'Something was riding your augmentations. Your plate felt thin and your shots landed soft.',
+    },
+  ];
+}
+
 function moraleFindings(simulation: Simulation, side: SideState): BattleFinding[] {
   const broken = side.stacks.filter((stack) => stack.brokeAt !== null);
   if (broken.length === 0) return [];
@@ -225,6 +292,8 @@ export function findingsFor(simulation: Simulation): BattleFinding[] {
     ...resistanceFindings(simulation, simulation.defender, simulation.attacker),
     ...supportFindings(simulation, simulation.attacker),
     ...supportFindings(simulation, simulation.defender),
+    ...jamFindings(simulation, simulation.attacker, simulation.defender),
+    ...jamFindings(simulation, simulation.defender, simulation.attacker),
     ...moraleFindings(simulation, simulation.attacker),
     ...moraleFindings(simulation, simulation.defender),
   ];

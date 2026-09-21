@@ -14,6 +14,9 @@ vi.mock('../../lib/queries', () => ({
   useCrewStanding: () => ({ data: undefined }),
   // §C3: the send dialog reads the yard off the session snapshot. Empty is a crew with no Garage.
   useMe: () => ({ data: undefined }),
+  // ...and the two crew switches that lift a rule off a unit sheet (`carriers_fight`, `any_ride`)
+  // ride on the roster. Undefined is a crew that has bought neither, which is this fixture.
+  useUnits: () => ({ data: undefined }),
   useLaunchMission: () => ({ mutate: launchMutate, isPending: false, variables: undefined }),
   useRecallMission: () => ({ mutate: vi.fn(), isPending: false, error: null }),
 }));

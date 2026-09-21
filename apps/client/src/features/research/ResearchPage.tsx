@@ -433,8 +433,16 @@ function TracksSection({
         aria-label="Officers"
         className="ink-frame card-paper washed grain flex min-h-0 flex-col rounded-sm shadow-panel"
       >
+        {/*
+         * The title in its own leaf `<span>`, which is not cosmetic.
+         *
+         * `expectNothingClippedVertically` skips any element that has element children, and the
+         * `ink-rule` span is the heading's child: with the words sitting directly in the `h3` a
+         * title sliced by the fold was invisible to the sweep. Text in a leaf, rule as its
+         * sibling. `StructureDialog` carries the same note for the same reason.
+         */}
         <h3 className="relative shrink-0 px-3 pb-2 pt-2.5 font-stamp text-[15px] leading-none text-brass-300">
-          Officers
+          <span>Officers</span>
           <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
         </h3>
         {/* `px-1.5`, not the board's `px-2`: the rail is a fixed 19rem and the longest name on it

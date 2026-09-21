@@ -42,18 +42,39 @@ const BATTLE_ODDS_TONES: Readonly<Record<BattleOdds, ChanceTone>> = {
   very_high: 'blue',
 };
 
-/** The dial, in the SVG's own units. The pivot is the bottom centre of the arc. */
-const PIVOT = { x: 110, y: 118 } as const;
-const R_FACE = 96;
-const R_BEZEL = 100;
-const R_HAIRLINE = 95;
+/**
+ * The dial, in the SVG's own units (redrawn 2026-09-19).
+ *
+ * ## It stands on the floor of its box
+ *
+ * "Have it start from the bottom of its box." The pivot used to sit fourteen units above the
+ * bottom of the viewBox to leave room for a counterweight hanging below it, so the instrument
+ * floated in its panel with a band of dead plate under it. The pivot is on the floor now: the
+ * viewBox ends just past the hub, the counterweight is gone with the gap it needed, and a drawn
+ * baseplate runs along the bottom for the dial to stand on. A gauge is bolted to something.
+ *
+ * ## The radii, outside in
+ *
+ * `R_RIM` is the pen line round the whole instrument. The bands are painted in the channel
+ * between `R_CHANNEL_OUT` and the ticks, and `R_CHANNEL_OUT` is where the inner rule is ruled, so
+ * the colour reads as a wash inside a drawn channel rather than as four arcs floating free.
+ */
+const PIVOT = { x: 110, y: 112 } as const;
+/** The whole drawing, so the geometry and the viewBox cannot drift apart. */
+const BOX = { w: 220, h: 120 } as const;
+const R_FACE = 97;
+const R_RIM = 101;
+const R_CHANNEL_OUT = 94;
 const R_BAND = 86;
-const R_TICK_OUT = 78;
-const R_TICK_IN = 69;
+const R_CHANNEL_IN = 78;
+const R_TICK_OUT = 77;
+const R_TICK_IN = 68;
 /** A minor tick is drawn from the same outer radius and stops short of the major's inner end. */
-const R_TICK_MINOR_IN = 73;
-const R_NEEDLE_TIP = 84;
+const R_TICK_MINOR_IN = 72;
+const R_NEEDLE_TIP = 87;
 const R_NEEDLE_BASE = 50;
+/** The nut the needle turns on, which is also what the instrument stands on. */
+const R_HUB = 5.6;
 
 /** A point on the dial. `at` runs 0 at the left of the arc to 1 at the right. */
 function point(radius: number, at: number): { x: number; y: number } {
@@ -88,15 +109,38 @@ const BASE_Y = PIVOT.y - R_NEEDLE_BASE;
  * It was an isosceles triangle: three points, perfectly symmetric, which is the one shape on the
  * dial that could only have come out of a machine. This is the same blade with a taper down each
  * side and the two sides not quite equal, so it reads as a pointer somebody cut out.
+ *
+ * ## Why it stops short of its own pivot
+ *
+ * It was drawn through the hub to a stub on the far side for one revision, which is what a real
+ * balanced needle does and which broke the instrument: the figure is struck in the well *inside*
+ * the blade's inner end, and a blade that reaches the hub sweeps straight through it. At 50% the
+ * dial read `80%` with a needle skewering both digits. Measured rather than reasoned about, by
+ * driving the CSS angle to each end of the travel and to dead centre and looking at all three.
+ *
+ * So the blade begins at {@link R_NEEDLE_BASE} and the well lives under it. That is the idiom on
+ * any instrument whose face carries a number, and the gap is what the hub's ring is for: it reads
+ * as a pointer turning on a spindle rather than as a wedge glued to one.
  */
 const NEEDLE_BLADE =
+  // Tip, down the left edge with the taper carrying most of the length, a short flat heel that is
+  // not quite square to the blade, and back up the right. Slender on purpose: the first cut
+  // rounded the heel across four and a half units and the needle came out a paddle floating in
+  // the middle of the face rather than a pointer swung from the spindle.
   `M ${PIVOT.x} ${TIP_Y} ` +
-  `C ${PIVOT.x - 1.7} ${TIP_Y + 12}, ${PIVOT.x - 3.6} ${BASE_Y - 12}, ${PIVOT.x - 4.9} ${BASE_Y} ` +
-  `L ${PIVOT.x + 4.6} ${BASE_Y + 0.7} ` +
-  `C ${PIVOT.x + 3.4} ${BASE_Y - 12}, ${PIVOT.x + 1.7} ${TIP_Y + 12}, ${PIVOT.x} ${TIP_Y} Z`;
+  `C ${PIVOT.x - 0.8} ${TIP_Y + 16}, ${PIVOT.x - 2.4} ${BASE_Y - 14}, ${PIVOT.x - 3.1} ${BASE_Y - 0.6} ` +
+  `L ${PIVOT.x + 3.3} ${BASE_Y + 0.8} ` +
+  `C ${PIVOT.x + 2.5} ${BASE_Y - 14}, ${PIVOT.x + 0.8} ${TIP_Y + 16}, ${PIVOT.x} ${TIP_Y} Z`;
 
-/** The counterweight under the pivot. Every real needle has one, and it says which end is which. */
-const NEEDLE_TAIL = `M ${PIVOT.x} ${PIVOT.y} C ${PIVOT.x - 0.3} ${PIVOT.y + 3}, ${PIVOT.x - 0.5} ${PIVOT.y + 5}, ${PIVOT.x - 0.7} ${PIVOT.y + 7.4}`;
+/**
+ * The spindle: a thin arm from the nut out to the heel of the blade.
+ *
+ * Without it the pointer floats, which is what the first two cuts of this looked like. Drawn at
+ * under a unit wide so that at the one angle where it crosses the struck figure it reads as a
+ * hairline behind the digits rather than as a bar through them, and stopping a little short of
+ * the heel so the two are drawn objects rather than one welded shape.
+ */
+const NEEDLE_SPINDLE = `M ${PIVOT.x} ${PIVOT.y - R_HUB - 1} L ${PIVOT.x} ${BASE_Y + 1.5}`;
 
 /** How far the coloured bands are pulled back from each other, so the joins read as joins. */
 const BAND_GAP = 0.004;
@@ -186,16 +230,17 @@ export function MissionGauge({
       role="img"
       aria-label={`${label}: ${figure}`}
     >
-      <svg viewBox="0 0 220 132" className="block h-auto w-full" aria-hidden="true">
+      <svg viewBox={`0 0 ${BOX.w} ${BOX.h}`} className="block h-auto w-full" aria-hidden="true">
         <defs>
           {/*
-           * The wobble, once, for everything ruled on the face.
+           * The wobble, once, for everything on the instrument.
            *
            * The same displaced-stroke grammar as `.ink-disc` and `.ink-chair` in the stylesheet:
            * fractal noise driving a displacement map, which pushes every edge off true by up to
-           * half the scale. It is what the rest of the game's line work is drawn with, and it is
-           * the whole answer to "the graphics do not match the game": the dial was the one object
-           * on the screen with machine-perfect arcs on it.
+           * half the scale. Every part of the dial goes through it now, the needle included. It
+           * used to sit outside, with a CSS `drop-shadow` of its own, and that was most of why
+           * the gauge read as a machined bezel with a cartoon arrow laid on top of it rather than
+           * as one drawn object.
            *
            * The filter region is grown past the default because an arc that has been displaced
            * outward is wider than its own bounding box and would otherwise be cut at the rim.
@@ -216,34 +261,143 @@ export function MissionGauge({
               yChannelSelector="G"
             />
           </filter>
+
+          {/*
+           * Rust: a blotchy alpha, cut out of whatever shape is put through it.
+           *
+           * "Make it a little rusty." Turbulence at a much coarser frequency than the pen's, run
+           * through a component transfer that crushes most of the alpha to nothing and leaves
+           * ragged islands, then composited `in` the source so the islands are the shape of the
+           * thing being rusted. Painting oxide patches by hand would have put them in the same
+           * three places on every dial on the board; this way each arc oxidises along its own
+           * length and no two look stamped from one plate.
+           *
+           * `type="discrete"` on the alpha is what gives it an edge. A linear ramp produces a
+           * soft airbrushed cloud, which reads as bloom; rust has a boundary.
+           */}
+          <filter id={`${pen}-rust`} x="-12%" y="-12%" width="124%" height="124%">
+            {/*
+             * Fine speckle, not clods.
+             *
+             * At 0.12 the noise cells were several units across, which on a stroke three units
+             * wide means one cell covers the whole width: every patch came out as a solid blob
+             * with a hard rim, and the dial looked like it had been dropped in mud rather than
+             * left out in the rain. 0.34 puts several cells across the stroke, so the oxide
+             * breaks up along it.
+             */}
+            <feTurbulence type="fractalNoise" baseFrequency="0.22" numOctaves="2" seed="9" />
+            <feComponentTransfer result="patches">
+              {/*
+               * Mostly nothing, with a soft-edged patch where the noise happens to peak.
+               *
+               * The two numbers that matter are the grain and the *coverage*, and they were got
+               * wrong in opposite directions one after the other. Coarse noise with a hard step
+               * gave clods of mud sitting proud of the rim; fine noise with a full ramp gave a
+               * continuous crust that buried the brass. Five leading zeros is what makes this
+               * patchy: the oxide only appears in the top third of the noise's range, so most of
+               * the rim stays metal and the rest goes off in places.
+               */}
+              <feFuncA type="table" tableValues="0 0 0 0 0 0.25 0.6 0.35 0.1 0" />
+            </feComponentTransfer>
+            <feComposite in="SourceGraphic" in2="patches" operator="in" />
+          </filter>
         </defs>
 
         <g filter={`url(#${pen})`}>
           {/* Smoked glass under the bands, so the instrument has a face rather than being four
               arcs floating on the panel. */}
-          <path d={faceOfTheDial(R_FACE)} fill="#09070f" fillOpacity="0.55" />
+          <path d={faceOfTheDial(R_FACE)} fill="#0b0813" fillOpacity="0.6" />
 
-          {/* The rim, gone round twice and running past both ends, the way a pen does. */}
-          <path d={arc(R_BEZEL, -OVERSHOOT, 1 + OVERSHOOT)} className="gauge-bezel" />
-          <path
-            d={arc(R_BEZEL - 3.4, OVERSHOOT * 1.8, 1 - OVERSHOOT * 0.6)}
+          {/*
+           * The baseplate the whole thing stands on (maintainer, 2026-09-19).
+           *
+           * Drawn past both ends of the arc, twice, with the second pass short and offset: the
+           * same overshoot every other drawn line in this game carries. It is what turns "the
+           * dial is flush with the bottom of its box" from a cropping accident into a bench the
+           * instrument is bolted to.
+           */}
+          <g fill="none" stroke="#8c6a3f" strokeLinecap="round" vectorEffect="non-scaling-stroke">
+            <path d={`M 6 ${PIVOT.y + 0.9} L ${BOX.w - 6} ${PIVOT.y + 0.4}`} strokeWidth="2.1" />
+            <path
+              d={`M 14 ${PIVOT.y + 3} L ${BOX.w * 0.42} ${PIVOT.y + 2.6}`}
+              strokeWidth="1.1"
+              strokeOpacity="0.28"
+            />
+          </g>
+
+          {/*
+           * The rim, once, running past both ends the way a pen does.
+           *
+           * It went round twice: the heavy bezel and a light `#e0b65a` line inside it. The second
+           * pass is gone (maintainer, 2026-09-19: "remove the yellow line going around the
+           * circle, keep it only at the bottom"). The bright line the dial needs is the one along
+           * the baseplate, where it reads as the bench the instrument is bolted to; following the
+           * arc as well, it read as a second rim and was the last thing on the drawing still
+           * looking machined.
+           */}
+          <path d={arc(R_RIM, -OVERSHOOT, 1 + OVERSHOOT)} className="gauge-bezel" />
+
+          {/*
+           * ...and the oxide in it.
+           *
+           * **Narrower than the rim, not wider.** The first cut drew the rust at 5.4 against a
+           * bezel of 5, so every patch the mask left stood a fraction proud of the brass on both
+           * sides, and through the pen's displacement on top of that it came out as clods of mud
+           * stuck to the outside of the instrument rather than as metal going off. Kept inside
+           * the rim at 3.6 and 2.2 it stains the brass instead of replacing it.
+           *
+           * Lighter, too. Oxide on brass is a warm ochre, not the near-black the first pass used:
+           * at 0.85 opacity in `#6d3a1c` the patches read as holes in the rim.
+           */}
+          <g filter={`url(#${pen}-rust)`}>
+            <path
+              d={arc(R_RIM, -OVERSHOOT * 0.5, 1 + OVERSHOOT * 0.5)}
+              fill="none"
+              stroke="#bb7538"
+              strokeOpacity="0.55"
+              strokeWidth="3.6"
+              strokeLinecap="round"
+            />
+            <path
+              d={arc(R_RIM - 1.1, 0.07, 0.92)}
+              fill="none"
+              stroke="#8a4a24"
+              strokeOpacity="0.3"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            {/* A little of it has run down the plate under the left shoulder, along the grain of
+                the baseplate rather than across it. */}
+            <path
+              d={`M 24 ${PIVOT.y - 1.4} L 52 ${PIVOT.y - 0.8}`}
+              fill="none"
+              stroke="#8a4622"
+              strokeOpacity="0.3"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+            />
+          </g>
+
+          {/*
+           * The channel the colour is washed into: one rule outside the bands and one inside.
+           *
+           * This is the change that makes the dial read as drawn rather than assembled. The bands
+           * used to be four saturated arcs with nothing round them, so each one was its own
+           * object; ruled top and bottom they are a wash inside a drawn track, which is how a
+           * painted scale on a real instrument is made and how everything else in this game is
+           * inked.
+           */}
+          <g
             fill="none"
-            stroke="#f0ad4c"
+            stroke="#c8b9a2"
             strokeOpacity="0.3"
-            strokeWidth="1.3"
             strokeLinecap="round"
-          />
-          <path d={arc(R_HAIRLINE, OVERSHOOT, 1 - OVERSHOOT)} className="gauge-hairline" />
-          {/* One cold line on a brass instrument: the game's other accent, and the only part of
-              this that says the dial is wired to something. */}
-          <path
-            d={arc(R_HAIRLINE - 2.8, 0.03, 0.97)}
-            fill="none"
-            stroke="#22d3ee"
-            strokeOpacity="0.24"
             strokeWidth="1"
-            strokeLinecap="round"
-          />
+            vectorEffect="non-scaling-stroke"
+          >
+            <path d={arc(R_CHANNEL_OUT, -OVERSHOOT * 0.6, 1 + OVERSHOOT)} />
+            <path d={arc(R_CHANNEL_IN, OVERSHOOT, 1 - OVERSHOOT * 1.4)} />
+          </g>
 
           {bands.map((band, index) => {
             const d = arc(
@@ -277,6 +431,12 @@ export function MissionGauge({
                   className={cn('gauge-band', BAND_CLASS[band])}
                   opacity={index === lit ? 1 : 0.62}
                 />
+                {/* The wash, oxidising. The same arc in dark oxide, eaten by the rust mask, so
+                    the paint on the scale is weathered rather than freshly laid. Lighter over
+                    the lit band: that one is the reading, and rust must not cost it contrast. */}
+                <g filter={`url(#${pen}-rust)`} opacity={index === lit ? 0.3 : 0.45}>
+                  <path d={d} fill="none" stroke="#5e3417" strokeWidth="12" strokeLinecap="butt" />
+                </g>
               </g>
             );
           })}
@@ -304,39 +464,42 @@ export function MissionGauge({
               />
             );
           })}
-        </g>
 
-        <g className="gauge-needle" style={{ '--gauge-angle': `${angle}deg` } as CSSProperties}>
-          <path d={NEEDLE_BLADE} />
-          {/* The ink line round the blade: brass on brass bands needs an edge to stay a needle. */}
-          <path
-            d={NEEDLE_BLADE}
-            fill="none"
-            stroke="#2b1a04"
-            strokeOpacity="0.55"
-            strokeWidth="0.8"
-            strokeLinejoin="round"
-          />
-          <path
-            d={NEEDLE_TAIL}
-            fill="none"
-            stroke="#f0ad4c"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-          />
-        </g>
+          {/* The needle, inside the pen with everything else, and the nut over it. */}
+          <g className="gauge-needle" style={{ '--gauge-angle': `${angle}deg` } as CSSProperties}>
+            <path
+              d={NEEDLE_SPINDLE}
+              fill="none"
+              stroke="#b98a3e"
+              strokeOpacity="0.75"
+              strokeWidth="0.9"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+            <path d={NEEDLE_BLADE} />
+            {/* The ink line round the blade: brass on brass bands needs an edge to stay a
+                needle. */}
+            <path
+              d={NEEDLE_BLADE}
+              fill="none"
+              stroke="#2b1a04"
+              strokeOpacity="0.6"
+              strokeWidth="0.8"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
 
-        {/* Last, over the blade: the nut the needle turns on. */}
-        <g filter={`url(#${pen})`}>
-          <circle cx={PIVOT.x} cy={PIVOT.y} r={6} className="gauge-hub" />
+          <circle cx={PIVOT.x} cy={PIVOT.y} r={R_HUB} className="gauge-hub" />
           <circle
             cx={PIVOT.x}
             cy={PIVOT.y}
-            r={9.8}
+            r={R_HUB + 3.4}
             fill="none"
-            stroke="#f0ad4c"
-            strokeOpacity="0.3"
-            strokeWidth="1.2"
+            stroke="#c1832a"
+            strokeOpacity="0.4"
+            strokeWidth="1.1"
+            vectorEffect="non-scaling-stroke"
           />
         </g>
       </svg>
@@ -350,7 +513,33 @@ export function MissionGauge({
        * are 49 of the dial's units from the pivot and the blade starts at `R_NEEDLE_BASE`, so no
        * angle puts the needle through the figure.
        */}
-      <span className="absolute inset-x-[35%] top-[62%] flex h-[22%] items-center justify-center">
+      {/*
+       * The well, and it is a different box for each of the two readings.
+       *
+       * The constraint is one line of arithmetic and it is worth writing down, because getting it
+       * wrong puts the needle through the figure and nothing but a screenshot catches it.
+       *
+       * **A chance** can point anywhere, including straight up at fifty, so its box has to sit
+       * inside `R_NEEDLE_BASE` of the pivot at every angle: half the width is 0.135 x 220 = 30
+       * units, the top edge is 112 - 0.648 x 120 = 34 above the pivot, and sqrt(30^2 + 34^2) =
+       * 45.3 against a blade that starts at 50.
+       *
+       * **A battle** parks in the middle of one of four bands and so is only ever at 22.5 or 67.5
+       * degrees off vertical. That buys the width its label needs: at 67.5 the heel of the blade
+       * is at x = 110 + 50 sin 67.5 = 156, and this box stops at 149.6. Which it needs, because
+       * "Very high chance" wraps to three lines in the chance dial's narrow well and the third
+       * line lands on the hub. Two lines here, and the box is tall enough for them.
+       */}
+      <span
+        className={cn(
+          'absolute flex items-center justify-center',
+          reading.kind === 'chance'
+            ? 'inset-x-[36.5%] top-[64.8%] h-[19.5%]'
+            : // Higher as well as wider: two lines of label centred where the one-line figure
+              // sits reach 105.9 down the dial, and the hub's ring starts at 103.
+              'inset-x-[32%] top-[58%] h-[24%]',
+        )}
+      >
         <span
           data-testid="gauge-figure"
           className={cn(

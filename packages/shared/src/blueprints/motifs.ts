@@ -19,7 +19,7 @@
  * ## The rules the catalogue keeps, and `motifs.test.ts` checks
  *
  * - Every document and every page names an id in this set.
- * - **Two documents never share a cover.** Seventy-two covers, seventy-two different drawings,
+ * - **Two documents never share a cover.** Sixty-nine covers, sixty-nine different drawings,
  *   because a cover is the thing a player recognises a document by in a row of them.
  * - **A document's pages never repeat, and never draw their own cover.** Where two pages of one
  *   document are close, they take different views of it: the Colossus draws its hull as a
@@ -27,8 +27,8 @@
  *
  * Two pages of *different* documents may share, and often should: the Heli Porter's Hydraulics and
  * anything else with a hydraulic block are both a `manifold`, and drawing them differently would be
- * a lie about the part. That is the whole reason a hundred and ten ids carry three hundred and
- * forty entries.
+ * a lie about the part. That is the whole reason a hundred and eleven ids carry three hundred
+ * and twenty-seven assignments: 69 covers and 258 pages.
  */
 
 /**
@@ -89,6 +89,7 @@ export const BLUEPRINT_MOTIFS = {
   piston: 'A piston pair at full stroke',
   gear_train: 'Two meshed wheels',
   swashplate: 'A swashplate with its linkages',
+  horn: 'A horn speaker in section, throat to mouth',
   turbine: 'A turbine wheel in its case',
   shaft: 'A shaft on spaced bearings',
   coil: 'Windings on a former',

@@ -10,6 +10,7 @@ import { createCityRepo, type CityRepo } from './city.js';
 import { createMovementRepo, type MovementRepo } from './movements.js';
 import { createBattlesRepo, type BattlesRepo } from './battles.js';
 import { createSiegeRepo, type SiegeRepo } from './sieges.js';
+import { createSleeperRepo, type SleeperRepo } from './sleepers.js';
 import { createMissionsRepo, type MissionsRepo } from './missions.js';
 import { createOverseersRepo, type OverseersRepo } from './overseers.js';
 import { createUsersRepo, type UsersRepo } from './users.js';
@@ -30,6 +31,8 @@ export interface Repositories {
   battles: BattlesRepo;
   /** Declared battles, the forces moved up for them, gates and traps (GDD §A4). */
   sieges: SiegeRepo;
+  /** §A4: Sleepers planted on ground the crew does not hold. See `sleepers.ts`. */
+  sleepers: SleeperRepo;
   missions: MissionsRepo;
   /** The Bar's bids, closed auctions and signing log (GDD §H2, §H7a). */
   bar: BarRepo;
@@ -75,6 +78,7 @@ export function createRepositories(
     bases: createBasesRepo(db),
     battles: createBattlesRepo(db),
     sieges: createSiegeRepo(db),
+    sleepers: createSleeperRepo(db),
     missions: createMissionsRepo(db),
     bar: createBarRepo(db),
     city: createCityRepo(db, options.admin ?? false),

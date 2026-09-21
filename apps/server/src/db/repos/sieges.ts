@@ -39,6 +39,7 @@ interface BattleRow {
   resolved_at: string | null;
   seed: string;
   hold_after_capture: number;
+  woke_sleepers: number;
   analysis_json: string | null;
 }
 
@@ -91,6 +92,7 @@ function rowToBattle(row: BattleRow): ScheduledBattle {
     // sqlite has no boolean: the column is 0/1 and the schema wants a boolean, so the coercion
     // happens here rather than being left for every reader to remember.
     holdAfterCapture: row.hold_after_capture === 1,
+    wokeSleepers: row.woke_sleepers === 1,
   });
 }
 
@@ -162,13 +164,29 @@ export interface SiegeRepo {
 }
 
 export function createSiegeRepo(db: AppDatabase): SiegeRepo {
-  const insertStmt = db.prepare(
-    `INSERT INTO scheduled_battles
+  /*
+   * The insert alone is prepared on first use rather than at construction.
+   *
+   * better-sqlite3 validates SQL when a statement is prepared, so every repo built by
+   * `createRepositories` has to be valid against whatever schema the database is on. That is
+   * not always the newest one: `stockpile-integrity.test.ts` deliberately builds the
+   * repositories at migration 0093 to measure what 0094 does to a save. This statement names
+   * `woke_sleepers`, which arrives in 0103, so eagerly prepared it turned that test into "table
+   * scheduled_battles has no column named woke_sleepers" and said nothing about refits.
+   *
+   * Only this one, because only this one names a column younger than that test's schema. If a
+   * third repo needs the same treatment, the invariant is worth replacing with a lazy `prepare`
+   * for all of them rather than a fourth copy of this comment.
+   */
+  let insert: ReturnType<AppDatabase['prepare']> | undefined;
+  const insertStmt = () =>
+    (insert ??= db.prepare(
+      `INSERT INTO scheduled_battles
        (id, attacker_base_id, target_kind, district_id, location_id,
         defender_json, scheduled_for, declared_at, resolved_at, seed, hold_after_capture,
-        analysis_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL)`,
-  );
+        woke_sleepers, analysis_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, NULL)`,
+    ));
   const findStmt = db.prepare('SELECT * FROM scheduled_battles WHERE id = ?');
   const dueStmt = db.prepare(
     'SELECT * FROM scheduled_battles WHERE resolved_at IS NULL AND scheduled_for <= ? ORDER BY scheduled_for',
@@ -263,7 +281,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   return {
     insert(battle) {
       const target = battle.target;
-      insertStmt.run(
+      insertStmt().run(
         battle.id,
         battle.attackerBaseId,
         target.kind,
@@ -274,6 +292,7 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         battle.declaredAt,
         battle.seed,
         battle.holdAfterCapture ? 1 : 0,
+        battle.wokeSleepers ? 1 : 0,
       );
     },
     find(id) {

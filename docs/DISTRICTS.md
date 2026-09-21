@@ -15,7 +15,7 @@ were asleep. There are four of them and they hold no capturable locations.
 **Contested** districts hold **locations**: a substation, a pawn shop, a war machine graveyard. Each
 is held by somebody, each is takeable on its own, and each pays for as long as you keep it. Take
 every location in a district and the district is yours, which pays again through that district's
-unified bonus. There are eight of them, holding 59 locations between them.
+unified bonus. There are eight of them, holding 60 locations between them.
 
 Every unified bonus is deliberately something _other_ than what its own locations give, so a
 district is worth finishing rather than worth farming its best hold. `city.test.ts` fails the suite
@@ -27,16 +27,21 @@ if a unified bonus repeats an effect kind already present inside its own distric
 frame**, so a lower `y` is further up the city.
 
 The layout is a climb. Water and crews at the bottom (the Docks, Kettle Row, the Steelbelt: the
-cheapest ground in the game), the Directorate at the top, with the Combine Spire looking down the
+cheapest ground in the game), the Combine at the top, with the Combine Spire looking down the
 middle of the frame from the highest point on it. Difficulty rises with height almost monotonically,
 which `city.test.ts` pins as a rank correlation above 0.85, so "further up" and "harder" are the
 same direction and a player can read the next rung off the map without opening anything. Distance
 costs time: `geography.ts` charges 85 minutes per map unit, so the corner-to-corner journey is about
 two hours before any travel bonus.
 
-Allegiance reads across that climb. Independent ground on the flanks and the low ground, the
-Directorate's holdings up the centre and the right, which is why the Blacksite and the Annexes
-bracket the approach to the Spire.
+Allegiance reads across that climb, and since 2026-09-19 it reads as an occupation. The Combine
+holds six of the eight contested districts: the water at the bottom (the Docks and the Steelbelt),
+the fields on the left, and the whole centre-right climb through the Annexes and the Blacksite to
+the Spire. Two are not its: Chrome Row, which is open ground with looters on its best four plots,
+and the Undergrid, which the looters hold outright.
+
+That is the shape of the game now. A crew starts in a city that has already been taken, and almost
+every direction it can walk is Combine ground.
 
 One caution for anyone editing the list: **order is the art seed**. `art/manifest.ts` seeds
 `district-*` off each entry's index in `CITY_DISTRICTS`, so moving an entry renumbers the seed of
@@ -49,32 +54,69 @@ position in the array.
 In catalogue order, which is the order the array is authored in and the order the plot numbers
 are handed out in. It is not map order and not difficulty order.
 
-| District                           | Kind        | Held by                   | Difficulty | Position (x, y) | Holds |
-| ---------------------------------- | ----------- | ------------------------- | ---------- | --------------- | ----- |
-| Neon Docks                         | contested   | independent               | 1          | 0.15, 0.9       | 7     |
-| Player District (`ashen-terraces`) | residential | independent               | 4          | 0.84, 0.62      | none  |
-| Player District (`kettle-row`)     | residential | independent               | 2          | 0.38, 0.82      | none  |
-| Steelbelt                          | contested   | independent               | 2          | 0.63, 0.83      | 7     |
-| Chrome Row                         | contested   | independent               | 4          | 0.3, 0.62       | 8     |
-| The Undergrid                      | contested   | government                | 5          | 0.55, 0.58      | 7     |
-| The Annexes                        | contested   | government                | 6          | 0.76, 0.38      | 7     |
-| Glasshouse Fields                  | contested   | government                | 3          | 0.1, 0.58       | 8     |
-| Blacksite                          | contested   | government, seat of power | 8          | 0.33, 0.3       | 8     |
-| CCS                                | contested   | government, seat of power | 10         | 0.57, 0.13      | 8     |
-| Player District (`upper-roofs`)    | residential | independent               | 2          | 0.91, 0.79      | none  |
-| Player District (`south-quay`)     | residential | independent               | 1          | 0.78, 0.93      | none  |
+`Open` is how many of a district's plots start unoccupied. It is the number that decides whether
+the district's gate is armed: one party holding all of it is what arms a gate, and a gate is the
+only thing a crew can hit on shut ground. Chrome Row and Glasshouse Fields are the two ways in.
+
+| District                           | Kind        | Held by                | Difficulty | Position (x, y) | Holds | Open | Leader          |
+| ---------------------------------- | ----------- | ---------------------- | ---------- | --------------- | ----- | ---- | --------------- |
+| Neon Docks                         | contested   | Combine                | 1          | 0.15, 0.9       | 7     | 0    |                 |
+| Player District (`ashen-terraces`) | residential | independent            | 4          | 0.84, 0.62      | none  |      |                 |
+| Player District (`kettle-row`)     | residential | independent            | 2          | 0.38, 0.82      | none  |      |                 |
+| Steelbelt                          | contested   | Combine                | 2          | 0.63, 0.83      | 7     | 0    |                 |
+| Chrome Row                         | contested   | looters                | 4          | 0.3, 0.62       | 8     | 4    |                 |
+| The Undergrid                      | contested   | looters                | 5          | 0.55, 0.58      | 7     | 0    |                 |
+| The Annexes                        | contested   | Combine                | 6          | 0.76, 0.38      | 7     | 0    | The Syndic      |
+| Glasshouse Fields                  | contested   | Combine                | 3          | 0.1, 0.58       | 8     | 2    |                 |
+| Blacksite                          | contested   | Combine, seat of power | 8          | 0.33, 0.3       | 8     | 0    | The Executioner |
+| CCS                                | contested   | Combine, seat of power | 10         | 0.57, 0.13      | 8     | 0    | Directive Xero  |
+| Player District (`upper-roofs`)    | residential | independent            | 2          | 0.91, 0.79      | none  |      |                 |
+| Player District (`south-quay`)     | residential | independent            | 1          | 0.78, 0.93      | none  |      |                 |
+
+## The Combine
+
+Six districts, one regime, and four units that are never yours: the **Civic Levy** (conscripts with
+surplus blades), the **Greycoats** (government infantry), the **Street Enforcers** (riot plate and
+shock batons) and the **Suppressors** (a belt-fed gun on a tripod). They live in
+`packages/shared/src/units/catalog.ts` behind `UnitSpec.faction`, which is what keeps them off
+every roster, every training bench, the census, the Scrapyard and the balance sheet.
+`units/faction.test.ts` sweeps all 496 feats, every mission and every blueprint to prove no content
+path can put one on a player's books.
+
+Which units stand where is `combineGarrison` in `packages/shared/src/city/combine.ts`, and it steps
+with difficulty: Levy on the Docks, Greycoats behind them, Enforcers from the Annexes, Suppressors
+from the Blacksite, all three in the CCS. How _many_ is `combineSlotBudget`, and it is measured in
+**unit slots** rather than bodies, which matters: a Suppressor is four slots and a Levy is one, so
+counting heads made the Blacksite four times the army the Annexes was at two rungs' difference.
+
+### The three who run it
+
+Each commands a district and stands on exactly one plot in it. His power covers every Combine
+defence in his district while he lives; his body fights only where it stands. Take that plot and he
+is dead for the whole world, and the district fights without them from then on.
+
+| Leader          | District  | Stands on         | What they are worth                                                                                                                                                                        |
+| --------------- | --------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The Syndic      | Annexes   | Annexe Uplink     | Standing Orders: +25 penetration and +25 armour to the Combine's own line in the Annexes. Nothing at all on the sheet of whoever is sent against it. She is the one woman among the three. |
+| The Executioner | Blacksite | Blacksite Armory  | Any attacking unit left under 10% of its vitality after an exchange is finished where it stands.                                                                                           |
+| Directive Xero  | CCS       | The Chosen Chapel | His side fights at 100 morale and cannot be intimidated, and the attackers who would have been intimidated change sides and are his for good.                                              |
+
+Directive Xero is the wall the whole map climbs towards. Measured on 2026-09-20 against a crew mix
+sized in unit slots: the CCS wants about 230 slots to take a plot without him, and more than 400
+with him, because Change of Heart turns the part of your line that §D3 would have silenced into
+part of his.
 
 ## Contested districts
 
 ### Neon Docks
 
-`neon-docks`, called the Docks. Difficulty 1 of 10, independent ground, at 0.15, 0.9 on the map.
+`neon-docks`, called the Docks. Difficulty 1 of 10, Combine ground, at 0.15, 0.9 on the map.
 
 Container stacks and a waterfront the Combine stopped patrolling years ago. Cheap ground, and far enough from the spire that nobody important looks at it.
 
 The starter target. Difficulty 1, seven cheap holds, and close enough to the residential plots that a new crew’s first campaign is a real one rather than a march. It used to be the starter _home_; it was opened up as contested ground so that there would be something a first crew could actually take.
 
-Garrison before anybody takes it: whoever holds the ground and has decided to keep it.
+Garrison before anybody takes it: a thin line of Civic Levy with surplus blades.
 
 **Unified bonus, The Whole Waterfront:** 12% off market prices, for holding every location in the district.
 
@@ -96,7 +138,7 @@ Rolling mills, press houses and a furnace row that has not gone cold in thirty y
 
 Working industry, not a scrapyard: presses on shift, furnaces lit, a pump row selling to the hauliers. The id is still `rustyard` because every location id and every saved control row is keyed on it.
 
-Garrison before anybody takes it: whoever holds the ground and has decided to keep it.
+Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind them.
 
 **Unified bonus, Run of the Belt:** 10% off what training units costs, for holding every location in the district.
 
@@ -135,11 +177,11 @@ Garrison before anybody takes it: whoever holds the ground and has decided to ke
 
 ### The Undergrid
 
-`undergrid`, called the Power Spine. Difficulty 5 of 10, government ground, at 0.55, 0.58 on the map.
+`undergrid`, called the Power Spine. Difficulty 5 of 10, looter ground, at 0.55, 0.58 on the map.
 
 The Combine meters the whole undercity from down here. Bundled conduit running the walls like roots, transformer housings the size of buildings, and older tunnels underneath that are on nobody’s drawings.
 
-The Combine’s metering floor for the whole undercity, and the first government ground on the climb.
+The Combine’s metering floor for the whole undercity, and the first Combine ground on the climb.
 
 Garrison before anybody takes it: an enforcer column with rolling counter-ICE support.
 
@@ -157,13 +199,13 @@ Garrison before anybody takes it: an enforcer column with rolling counter-ICE su
 
 ### The Annexes
 
-`datavault-sigma`, called the Tech District. Difficulty 6 of 10, government ground, at 0.76, 0.38 on the map.
+`datavault-sigma`, called the Tech District. Difficulty 6 of 10, Combine ground, at 0.76, 0.38 on the map.
 
 Faculty buildings the Combine never closed, because it was easier to move in. Everything worth knowing in this city is written down somewhere in here.
 
 The university the Combine moved into instead of closing. Research, optics and signal, plus the only construction crane outside the Spire.
 
-Garrison before anybody takes it: an enforcer column with rolling counter-ICE support.
+Garrison before anybody takes it: Greycoats with Street Enforcers on the corners.
 
 **Unified bonus, The Faculty Answers To You:** +20% unit stealth, for holding every location in the district.
 
@@ -179,13 +221,13 @@ Garrison before anybody takes it: an enforcer column with rolling counter-ICE su
 
 ### Glasshouse Fields
 
-`glasshouse-fields`, called the Green Belt. Difficulty 3 of 10, government ground, at 0.1, 0.58 on the map.
+`glasshouse-fields`, called the Green Belt. Difficulty 3 of 10, Combine ground, at 0.1, 0.58 on the map.
 
 State hydroponics behind a fence. Everything the undercity eats is grown here, and none of it is sold here.
 
 State hydroponics on the western flank. Government ground, but the softest of it: difficulty 3, and the usual way in for a crew that is not ready for the Undergrid.
 
-Garrison before anybody takes it: a Combine enforcer squad behind riot plate.
+Garrison before anybody takes it: Civic Levy with a squad of Greycoats behind them.
 
 **Unified bonus, The Green Belt Is Fed:** training runs 15% faster, for holding every location in the district.
 
@@ -202,13 +244,13 @@ Garrison before anybody takes it: a Combine enforcer squad behind riot plate.
 
 ### Blacksite
 
-`blacksite-7`, called the Military District. Difficulty 8 of 10, government ground and a seat of Directorate power, at 0.33, 0.3 on the map.
+`blacksite-7`, called the Military District. Difficulty 8 of 10, Combine ground and a seat of Combine power, at 0.33, 0.3 on the map.
 
-Hardened ferrocrete, layered berms, and a Directorate rifle company that has never had to leave. The first place anyone learns not to walk into.
+Hardened ferrocrete, layered berms, and a Combine rifle company that has never had to leave. The first place anyone learns not to walk into.
 
-A seat of Directorate power (`seatOfPower: true`), so taking it counts as replacing the Combine rather than robbing it. Difficulty 8 and hard fortification on six of eight holds.
+A seat of Combine power (`seatOfPower: true`), so taking it counts as replacing the Combine rather than robbing it. Difficulty 8 and hard fortification on six of eight holds.
 
-Garrison before anybody takes it: a Directorate rifle company dug into hardened ferrocrete.
+Garrison before anybody takes it: Street Enforcers behind Suppressor positions.
 
 **Unified bonus, The Garrison Is Yours:** +15% unit offense, for holding every location in the district.
 
@@ -225,26 +267,26 @@ Garrison before anybody takes it: a Directorate rifle company dug into hardened 
 
 ### CCS (Civic Command Sector)
 
-`combine-spire`, called the Spire. Difficulty 10 of 10, government ground and a seat of Directorate power, at 0.57, 0.13 on the map.
+`combine-spire`, called the Spire. Difficulty 10 of 10, Combine ground and a seat of Combine power, at 0.57, 0.13 on the map.
 
 The surface spire the government rules from, and the household guard that has never been tested. Taking this is not a raid. It is the end of something.
 
 The last district in the game. The other seat of power, difficulty 10, at the top of the frame.
 
-Garrison before anybody takes it: the Directorate household guard, and whatever the spire can wake.
+Garrison before anybody takes it: Suppressors, Enforcers and Greycoats, and whatever the spire can wake.
 
 **Unified bonus, The Spire Is Taken:** 20% off market prices, for holding every location in the district.
 
-| Location                    | Kind                        | Fortified | What holding it pays                                                                                                      |
-| --------------------------- | --------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Command Uplink              | Satellite Uplink            | hard      | You can see into districts without walking into them first.                                                               |
-| Directorate Armory          | Armory                      | hard      | Cheaper units, and a bench that will fit anything you can find a part for.                                                |
-| The Household Barricade     | Barricade                   | hard      | A harder approach to everything behind it.                                                                                |
-| Command Broadcast           | Broadcast Station           | hard      | Everyone on your books gets better at the half of the job that is talking to people.                                      |
-| The Ascension Clinic        | Gene Clinic                 | hard      | Work can be done on people here that cannot be done anywhere else.                                                        |
-| The Unfinished Wing         | Construction Site           | hard      | Lifting gear nothing else in the city has. Some things can only be assembled standing up.                                 |
-| The Martyrs’ Ground         | Graveyard                   | medium    | Holding this ground says something the city does not forget, and what is buried here was buried with its rings on.        |
-| Statue of the Revolutionist | Statue of the Revolutionist | medium    | Standing under it costs you less with the people who deal in the dark, and taking it is a statement the whole city hears. |
+| Location                | Kind              | Fortified | What holding it pays                                                                                               |
+| ----------------------- | ----------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
+| Command Uplink          | Satellite Uplink  | hard      | You can see into districts without walking into them first.                                                        |
+| Combine Armory          | Armory            | hard      | Cheaper units, and a bench that will fit anything you can find a part for.                                         |
+| The Household Barricade | Barricade         | hard      | A harder approach to everything behind it.                                                                         |
+| Command Broadcast       | Broadcast Station | hard      | Everyone on your books gets better at the half of the job that is talking to people.                               |
+| The Ascension Clinic    | Gene Clinic       | hard      | Work can be done on people here that cannot be done anywhere else.                                                 |
+| The Unfinished Wing     | Construction Site | hard      | Lifting gear nothing else in the city has. Some things can only be assembled standing up.                          |
+| The Martyrs’ Ground     | Graveyard         | medium    | Holding this ground says something the city does not forget, and what is buried here was buried with its rings on. |
+| The Chosen Chapel       | The Chosen Chapel | hard      | Your name walks in ahead of your people, and nobody you send out is frightened of anything that lives here.        |
 
 ## Residential districts
 

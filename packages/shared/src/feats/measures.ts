@@ -7,7 +7,7 @@ import { z } from 'zod';
  * ## Why a closed vocabulary of measures
  *
  * A feat is a threshold on a number. The temptation is to let each feat carry a predicate over the
- * whole game state, which reads well for the first ten and then means two hundred
+ * whole game state, which reads well for the first ten and then means five hundred
  * functions nobody can price, nobody can show a progress bar for, and nobody can test except by
  * playing. Instead every feat names one measure out of the list below and a target, so:
  *
@@ -91,6 +91,9 @@ export const FEAT_MEASURES = [
   'battles_won_overwhelmed',
   'battles_won_flawless',
   'battles_won_lopsided',
+  'battles_won_jamming',
+  'battles_won_planted',
+  'battles_won_loud',
   'districts_raided',
   'raids_repelled',
   'trap_kills',
@@ -98,10 +101,23 @@ export const FEAT_MEASURES = [
   'bodies_deployed',
   'supply_deployed',
   'kills',
+  // The Combine (maintainer, 2026-09-19): a section of its own on the board.
+  'combine_kills',
+  'combine_kills_of',
+  'combine_leaders_slain',
+  'combine_locations_taken',
+  'combine_fights_won',
+  'combine_fights_won_flawless',
+  'combine_fights_won_shadowed',
+  'units_turned',
+  'combine_districts_held',
+  'chapel_held',
   'units_trained',
+  'overseer_taken',
   'buildings_raised',
   'officers_hired',
   'pages_found',
+  'masterpieces_reimagined',
   'vehicles_built',
   'resources_earned',
   'infamy_earned',
@@ -132,7 +148,7 @@ export interface FeatMeasureSpec {
  * Every measure, its source and its unit.
  *
  * The unit is the word after the number on a progress line ("14 / 25 missions"), which is why it
- * is here rather than on each feat: two hundred feats would otherwise repeat twenty
+ * is here rather than on each feat: five hundred feats would otherwise repeat twenty
  * words, and the day one of them is reworded the other five saying the same thing would not be.
  */
 export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> = {
@@ -185,7 +201,7 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   battles_attacked_won: { source: 'tally', scoped: false, unit: 'wins' },
   battles_defended_won: { source: 'tally', scoped: false, unit: 'holds' },
   /**
-   * The four ways a win is worth telling somebody about. See `feats/battle.ts` for what each one
+   * The seven ways a win is worth telling somebody about. See `feats/battle.ts` for what each one
    * asks and why the line is drawn where it is; the counters themselves are ordinary tallies, one
    * per fight that qualified, so a ladder on one of them climbs like any other.
    */
@@ -193,6 +209,9 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   battles_won_overwhelmed: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_flawless: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_lopsided: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_jamming: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_planted: { source: 'tally', scoped: false, unit: 'wins' },
+  battles_won_loud: { source: 'tally', scoped: false, unit: 'wins' },
   /** Break-ins on a lived-in district: one counts for whoever forced it, the other for whoever did not let them. */
   districts_raided: { source: 'tally', scoped: false, unit: 'raids' },
   raids_repelled: { source: 'tally', scoped: false, unit: 'raids' },
@@ -203,10 +222,55 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   bodies_deployed: { source: 'tally', scoped: false, unit: 'units' },
   supply_deployed: { source: 'tally', scoped: false, unit: 'unit slots' },
   kills: { source: 'tally', scoped: false, unit: 'kills' },
+  /**
+   * The Combine's own ledger (maintainer, 2026-09-19). Tallied at the settle of any fight where
+   * the defender was the regime (`apps/server/src/battle/resolve.ts`, `tallyCombineFight`).
+   * `combine_kills_of` is scoped by the Combine unit's id and `combine_leaders_slain` by the
+   * leader's; a leader dies once per world, so that ladder is a set of three standalones.
+   */
+  combine_kills: { source: 'tally', scoped: false, unit: 'kills' },
+  combine_kills_of: { source: 'tally', scoped: true, unit: 'kills' },
+  combine_leaders_slain: { source: 'tally', scoped: true, unit: 'leaders' },
+  combine_locations_taken: { source: 'tally', scoped: false, unit: 'holdings' },
+  combine_fights_won: { source: 'tally', scoped: false, unit: 'wins' },
+  combine_fights_won_flawless: { source: 'tally', scoped: false, unit: 'wins' },
+  /** Won in a district whose Combine legendary was still standing at the time. */
+  combine_fights_won_shadowed: { source: 'tally', scoped: false, unit: 'wins' },
+  /** Units of yours that changed sides under Directive Xero and never came back. */
+  units_turned: { source: 'tally', scoped: false, unit: 'units' },
+  /** Crew measures: districts that were the Combine's held whole, and the Chapel itself. */
+  combine_districts_held: { source: 'crew', scoped: false, unit: 'districts' },
+  chapel_held: { source: 'crew', scoped: false, unit: 'chapels' },
   units_trained: { source: 'tally', scoped: false, unit: 'units' },
+  /**
+   * The moment an account picks the person the district answers to, counted once and for ever.
+   *
+   * Singular where every other tally is plural, because the thing it counts happens exactly once:
+   * `POST /overseer` refuses a second character and migration 0074 puts a unique index under that
+   * refusal, so `overseers_taken` would be a name promising a number that can only ever be one.
+   *
+   * A tally and not a crew measure, although "do you have an Overseer" is plainly a fact about the
+   * crew right now. The crew half of the snapshot is built from the `bases` row alone
+   * (`feats/snapshot.ts`), and the character hangs off the *account*; the only reader that has both
+   * is `feats/project.ts`, which exists to answer questions about the Overseer's skills rather
+   * than about whether there is one. A counter written at the door is one line at the one place
+   * that knows.
+   */
+  overseer_taken: { source: 'tally', scoped: false, unit: 'overseers' },
   buildings_raised: { source: 'tally', scoped: false, unit: 'levels' },
   officers_hired: { source: 'tally', scoped: false, unit: 'officers' },
   pages_found: { source: 'tally', scoped: false, unit: 'pages' },
+  /**
+   * Masterpiece pages that came back off the Reimagining bench, counted where the bench hands
+   * them over.
+   *
+   * Its own counter rather than a slice of `pages_found`, because the two ask different questions:
+   * `pages_found` is how much paper a crew has gathered from anywhere, and this is how often the
+   * one door whose payout the player can steer paid out at the top tier. The odds run from 0.5% on
+   * three Basic sheets to 80% on three Masterpiece ones (`blueprints/reimagine-odds.ts`), so the
+   * number says what a crew has been putting in the sockets as much as what it got out.
+   */
+  masterpieces_reimagined: { source: 'tally', scoped: false, unit: 'masterpieces' },
   vehicles_built: { source: 'tally', scoped: false, unit: 'machines' },
   resources_earned: { source: 'tally', scoped: true, unit: 'earned' },
   infamy_earned: { source: 'tally', scoped: false, unit: 'infamy' },

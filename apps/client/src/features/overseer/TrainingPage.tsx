@@ -13,6 +13,7 @@ import {
   drillCancelWindowMs,
   drillProgressAt,
   drillRemainingMs,
+  trainingGainFor,
   type AttributeGroup,
   type AttributeName,
   type TrainingSession,
@@ -22,7 +23,6 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { HoverCard } from '../../components/ui/HoverCard';
-import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
@@ -31,6 +31,7 @@ import { useCancelDrill, useStartTraining, useTraining } from '../../lib/queries
 import { formatDuration, formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
+import { DrillSigil } from './DrillSigil';
 import { OfficerPortrait } from './OfficerPortrait';
 import { OverseerPortrait } from './OverseerPortrait';
 import { IMPORTANCE_EDGE } from '../../lib/importance';
@@ -84,6 +85,11 @@ function measureFold(sheet: HTMLElement, hint: HTMLElement | null): Fold {
   const frame = sheet.parentElement;
   if (!frame) return WHOLE;
 
+  // Content coordinates rather than viewport ones: the sheet may already be scrolled when a
+  // resize brings this back round.
+  const top = sheet.getBoundingClientRect().top - sheet.scrollTop;
+  const bottoms = rows.map((row) => row.getBoundingClientRect().bottom - top);
+
   /*
    * Whether there is a fold at all is judged against the *whole* frame, and only then is the
    * line's own height taken off what is left.
@@ -93,17 +99,22 @@ function measureFold(sheet: HTMLElement, hint: HTMLElement | null): Fold {
    * the twenty-one pixels it occupies are exactly what keeps the last row under the cut.
    */
   const room = frame.clientHeight;
-  const columns = [...sheet.children] as HTMLElement[];
-  const tallest = Math.max(...columns.map((column) => column.getBoundingClientRect().height));
-  if (tallest <= room + 0.5) return WHOLE;
+  /*
+   * How deep the drills actually go, not how tall the columns are drawn.
+   *
+   * This read the tallest column's box until 2026-09-21, which was the same number while the
+   * columns hugged their rows and stopped being it the moment they were set to fill the sheet:
+   * a stretched column is exactly as tall as the room it is in, so `tallest <= room` was true on
+   * every screen, no fold was ever found, and the browser went back to slicing the last row in
+   * half. The deepest row's bottom edge is the figure that was always meant, and it is right
+   * either way.
+   */
+  const deepest = Math.max(...bottoms);
+  if (deepest <= room + 0.5) return WHOLE;
 
   // The line is drawn inside the frame, so it spends the space it advertises.
   const available = room - (hint?.offsetHeight ?? 0);
 
-  // Content coordinates rather than viewport ones: the sheet may already be scrolled when a
-  // resize brings this back round.
-  const top = sheet.getBoundingClientRect().top - sheet.scrollTop;
-  const bottoms = rows.map((row) => row.getBoundingClientRect().bottom - top);
   const boundaries = [...new Set(bottoms)].sort((a, b) => a - b);
   // A row taller than the frame has nowhere to go but scroll; never collapse to nothing.
   const height = boundaries.filter((bottom) => bottom <= available + 0.5).at(-1) ?? available;
@@ -272,7 +283,7 @@ export function TrainingPage() {
 
         {/* What. */}
         {subject && (
-          <div className="flex min-h-0 min-w-0 flex-col gap-3">
+          <div className="flex min-h-0 min-w-0 flex-col gap-2">
             {/*
              * At the bench: who is up, and what they are doing with the hour.
              *
@@ -280,11 +291,33 @@ export function TrainingPage() {
              * "whose sheet am I looking at", and thirty-three rows below it is a long way for a
              * name at the top to carry on its own.
              */}
-            {/* The banner is fixed furniture, so every pixel it takes is a pixel off the sheet.
-                A 3:4 portrait at `w-16` is 85px tall and the block sits at about a hundred, which
-                is what lets an eleven-row column clear a 900-tall laptop without scrolling. */}
-            <div className="ink-frame ink-frame-brass card-paper washed relative flex shrink-0 items-start gap-3.5 overflow-hidden p-3 shadow-panel">
-              <span className="w-14 shrink-0 sm:w-16">
+            {/*
+             * The banner is fixed furniture, so every pixel it takes is a pixel off the sheet.
+             *
+             * It gave up its own progress bar and the drill's sentence on 2026-09-21, when the
+             * floor strip arrived at the foot of the sheet. Both were duplicates by then: the bar
+             * is down there for this person and for everyone else at once, and the sentence is in
+             * the drill's own dialog, which is where a player who wants to know what the hour is
+             * for goes anyway. What the banner keeps is what nothing else says, which is who is
+             * selected, what they are on, and the way to call it off.
+             *
+             * That is not tidiness. At 1024x768 the sheet had been squeezed down to a single
+             * sliced drill row with thirty-five under the fold, which is the failure the fold was
+             * built to prevent rather than a use of it.
+             */}
+            <div className="ink-frame ink-frame-brass card-paper washed relative flex shrink-0 items-center gap-3 overflow-hidden px-3 py-2 shadow-panel">
+              {/*
+               * And gone altogether on a short screen.
+               *
+               * A height query rather than a width one, because height is what this costs: the
+               * portrait is the tallest thing in the banner, and at 1280x720 the banner was 95px
+               * of standing chrome above a sheet with two drill rows left in it. The rail on the
+               * left already draws this person's face, ringed in brass because they are the one
+               * selected, and the strip at the foot of the sheet draws it again while they are on
+               * an hour. On a tall screen it stays: the room is there, and a face at the top of
+               * the sheet is the answer to "whose numbers are these".
+               */}
+              <span className="w-12 shrink-0 [@media(max-height:820px)]:hidden sm:w-14">
                 {/* The Overseer wears the portrait they chose; an officer wears one off the
                     pool, at that pool's own 4:5 rather than the overseer frame's 3:4. */}
                 {subject.officerRole === null ? (
@@ -303,43 +336,50 @@ export function TrainingPage() {
                 )}
               </span>
 
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <div>
-                  <h2 className="break-words font-stamp text-lg leading-tight text-ink-100">
-                    {subject.name}
-                  </h2>
-                  <p className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
-                    {subject.role}
-                  </p>
-                </div>
-                <span aria-hidden className="ink-rule block w-full" />
+              {/*
+               * One wrapping line rather than a stack (2026-09-21).
+               *
+               * The banner was a card: name, role, a rule, the drill, a bar under it and the
+               * drill's sentence under that. The bar and the sentence went when the floor strip
+               * arrived, which left three stacked lines carrying about a dozen words, and the
+               * sheet under them paying seventy pixels for the arrangement. A title bar says the
+               * same thing in one line and the ruled gap between the name and the drill is doing
+               * the work the stack was: it separates whose sheet this is from what they are on.
+               */}
+              <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="break-words font-stamp text-lg leading-tight text-ink-100">
+                  {subject.name}
+                </h2>
+                <p className="font-display text-[11px] font-bold uppercase tracking-[0.18em] text-brass-300">
+                  {subject.role}
+                </p>
+                {/* Ruled between the two, never under them: the drawn line takes the slack and
+                    stops where the next word starts. */}
+                <span aria-hidden className="ink-rule block min-w-4 flex-1" />
 
                 {subject.session ? (
-                  <div className="flex flex-col gap-1.5" data-testid="training-in-flight">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="min-w-0 font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
-                        {TRAINING_DRILLS[subject.session.attribute].title}
-                      </span>
-                      <span className="shrink-0 font-display text-base font-bold tabular-nums text-brass-300">
-                        {formatRemaining(drillRemainingMs(subject.session, now))}
-                      </span>
-                    </div>
-                    <span className="paint-track block h-2.5 w-full rounded-sm">
-                      <span
-                        className="paint-fill block h-full bg-brass-300"
-                        style={{ width: `${drillProgressAt(subject.session, now) * 100}%` }}
+                  <div
+                    className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+                    data-testid="training-in-flight"
+                  >
+                    <span className="min-w-0 font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
+                      {TRAINING_DRILLS[subject.session.attribute].title}
+                    </span>
+                    <span className="shrink-0 font-display text-base font-bold tabular-nums text-brass-300">
+                      {formatRemaining(drillRemainingMs(subject.session, now))}
+                    </span>
+                    {/* Its own line when it is there at all: the cancel carries a sentence about
+                        how long is left to decide, and that does not belong beside a countdown
+                        saying something different. */}
+                    <span className="w-full">
+                      <DrillCancel
+                        session={subject.session}
+                        now={now}
+                        pending={cancel.isPending}
+                        onCancel={(sessionId) => cancel.mutate({ sessionId })}
+                        error={cancel.error?.message ?? null}
                       />
                     </span>
-                    <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
-                      {TRAINING_DRILLS[subject.session.attribute].detail}
-                    </p>
-                    <DrillCancel
-                      session={subject.session}
-                      now={now}
-                      pending={cancel.isPending}
-                      onCancel={(sessionId) => cancel.mutate({ sessionId })}
-                      error={cancel.error?.message ?? null}
-                    />
                   </div>
                 ) : (
                   <p className="font-body text-[13px] italic leading-relaxed text-ink-300">
@@ -369,35 +409,57 @@ export function TrainingPage() {
              * thing the maintainer's bar rules out outright, and a sliced row with no sign that
              * scrolling recovers it is cut content whatever the overflow rule says.
              */}
-            <div className="relative flex min-h-0 flex-1 flex-col" data-testid="training-sheet">
-              <div
-                ref={sheetRef}
-                className="grid min-h-0 flex-1 items-start gap-3 overflow-y-auto md:grid-cols-2 xl:grid-cols-4"
-                style={fold.height === undefined ? undefined : { maxHeight: fold.height }}
-              >
-                {ATTRIBUTE_GROUPS.map((group) => (
-                  <GroupSheet
-                    key={group}
-                    group={group}
-                    subject={subject}
-                    sessionsLeft={data.sessionsLeft}
-                    gain={data.gainPerSession}
-                    pending={start.isPending}
-                    onOpen={setOpened}
-                  />
-                ))}
-              </div>
-              {fold.hidden > 0 && (
-                <p
-                  ref={hintRef}
-                  // Padding, not margin: `measureFold` budgets for this line by `offsetHeight`.
-                  className="shrink-0 pt-1.5 text-center font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
-                  data-testid="training-fold"
+            {/*
+             * The floor: the four groups and everyone standing on them, in one frame.
+             *
+             * The four columns used to float as four separate framed cards on the page ground,
+             * which read as four documents rather than as one sheet with four columns ruled down
+             * it. Putting them inside a single inked frame is what the maintainer asked for
+             * ("the 4 categories inside a bigger template"), and it buys the thing under them a
+             * place to live: a strip along the foot of the same sheet saying who is on the floor
+             * right now, so the answer is not one officer at a time off the rail on the left.
+             *
+             * The columns inside it lose their own paper and their own shadow. Paper on paper and
+             * a shadow inside a frame both say "this is a separate object", and they are not:
+             * they are columns. What they keep is the coloured hairline, which is the code.
+             */}
+            <section
+              className="ink-frame card-paper washed relative flex min-h-0 flex-1 flex-col gap-1.5 p-1.5 shadow-panel"
+              data-testid="training-floor"
+            >
+              <div className="relative flex min-h-0 flex-1 flex-col" data-testid="training-sheet">
+                <div
+                  ref={sheetRef}
+                  // Four columns only from `xl`. Tried at `lg` on 2026-09-21 to buy the sheet height back at
+                  // 1024x768, and the column headings do not fit: a 165px column clips "Technical"
+                  // under its own sigil, and cut text is the one thing ruled out outright.
+                  className="grid min-h-0 flex-1 items-stretch gap-2 overflow-y-auto md:grid-cols-2 xl:grid-cols-4"
+                  style={fold.height === undefined ? undefined : { maxHeight: fold.height }}
                 >
-                  ▼ Scroll for {fold.hidden} more {fold.hidden === 1 ? 'drill' : 'drills'}
-                </p>
-              )}
-            </div>
+                  {ATTRIBUTE_GROUPS.map((group) => (
+                    <GroupSheet
+                      key={group}
+                      group={group}
+                      subject={subject}
+                      sessionsLeft={data.sessionsLeft}
+                      pending={start.isPending}
+                      onOpen={setOpened}
+                    />
+                  ))}
+                </div>
+                {fold.hidden > 0 && (
+                  <p
+                    ref={hintRef}
+                    // Padding, not margin: `measureFold` budgets for this line by `offsetHeight`.
+                    className="shrink-0 pt-1.5 text-center font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
+                    data-testid="training-fold"
+                  >
+                    ▼ Scroll for {fold.hidden} more {fold.hidden === 1 ? 'drill' : 'drills'}
+                  </p>
+                )}
+              </div>
+              <Underway subjects={data.subjects} now={now} />
+            </section>
           </div>
         )}
       </div>
@@ -406,7 +468,6 @@ export function TrainingPage() {
         <DrillDialog
           name={opened}
           subject={subject}
-          gain={data.gainPerSession}
           seconds={data.sessionSeconds}
           blocker={drillBlocker(opened, subject, data.sessionsLeft)}
           pending={start.isPending}
@@ -420,6 +481,120 @@ export function TrainingPage() {
         />
       )}
     </PageShell>
+  );
+}
+
+/**
+ * The floor: everyone who is on an hour right now, along the foot of the sheet.
+ *
+ * Before this the only way to see a drill running was to click the person on the rail, so a crew
+ * with five hours out had five clicks between a player and the answer to "what is my crew doing".
+ * The banner at the top of the sheet still carries the chosen subject's hour in full, with the
+ * drill's own words and the cancel: this strip is the *other* question, which is everybody at once.
+ *
+ * Bounded by construction, so it never scrolls and never needs to (maintainer, 2026-09-21: "no
+ * need for a scrolable page though"). A crew gets `perDay` hours a day and a running drill holds
+ * one, so at most five of these exist however many officers are on the books, and four fit across
+ * a 1440 sheet. It is also kept deliberately short, because every pixel it takes is a drill row
+ * off the sheet above it: one line per person, and the drill's name on the hover rather than in
+ * the row.
+ *
+ * Idle officers are not here. A list of everybody with "idle" against most of them is the roster
+ * on the left with a worse layout; what belongs at the foot of the sheet is the work.
+ */
+function Underway({ subjects, now }: { subjects: readonly TrainingSubject[]; now: number }) {
+  const working = subjects.filter(
+    (one): one is TrainingSubject & { session: TrainingSession } => one.session !== null,
+  );
+
+  return (
+    <div className="shrink-0" data-testid="training-underway">
+      {/* A ruled line with the heading set into it rather than drawn over it. The rule takes the
+          slack between the two words, so nothing hand-drawn ever crosses a letter. */}
+      <div className="flex items-center gap-2 px-0.5 pb-1">
+        <h3 className="shrink-0 font-display text-[10px] font-bold uppercase tracking-[0.22em] text-brass-300">
+          On the floor
+        </h3>
+        <span aria-hidden className="ink-rule block min-w-4 flex-1" />
+        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.18em] tabular-nums text-ink-400">
+          {working.length === 0 ? 'nobody' : `${working.length} working`}
+        </span>
+      </div>
+
+      {working.length === 0 ? (
+        <p className="px-0.5 font-body text-[12px] italic leading-snug text-ink-400">
+          The floor is empty. Pick a drill off the sheet and somebody will be on it within the hour.
+        </p>
+      ) : (
+        // A grid rather than a wrapping flex row: with one person on the floor, `flex-1` stretched
+        // the single chip across the whole sheet and left a hand's width of nothing between the
+        // name and the bar. Columns keep a lone chip the size a chip is.
+        <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+          {working.map((one) => (
+            <li key={one.id} className="min-w-0">
+              <UnderwayRow subject={one} now={now} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One person on the floor: who, how far in, and how long is left.
+ *
+ * What the drill actually is sits on the hover. Putting it in the row meant either two lines per
+ * person, which costs the sheet above a row of drills, or a title cut off mid-word, which is the
+ * one thing this project's bar rules out outright: "Cipher hou" is worse than no title at all.
+ * The name wraps rather than truncating for the same reason.
+ */
+function UnderwayRow({
+  subject,
+  now,
+}: {
+  subject: TrainingSubject & { session: TrainingSession };
+  now: number;
+}) {
+  const drill = TRAINING_DRILLS[subject.session.attribute];
+  return (
+    <div
+      className="flex items-center gap-2 rounded-sm border border-surface-600/60 bg-surface-900/50 px-1.5 py-1"
+      data-testid={`training-underway-${subject.id}`}
+      data-tip={`${subject.name}: ${drill.title}`}
+    >
+      <span className="w-5 shrink-0">
+        {subject.officerRole === null ? (
+          <OverseerPortrait
+            portraitId={subject.portraitId ?? ''}
+            archetype="enforcer"
+            showTag={false}
+          />
+        ) : (
+          <OfficerPortrait
+            portraitId={subject.portraitId}
+            name={subject.name}
+            injuredUntil={subject.injuredUntil}
+            className="aspect-[4/5] w-full"
+          />
+        )}
+      </span>
+      <span className="min-w-0 break-words font-display text-[10px] font-bold uppercase leading-tight tracking-[0.08em] text-ink-100">
+        {subject.name}
+      </span>
+      {/* The bar takes the slack rather than the name doing it: a short name left a hand's width
+          of nothing in the middle of the chip, and a longer bar is the half of this row that is
+          worth more space. */}
+      <span className="paint-track ml-auto block h-1.5 min-w-12 flex-1 rounded-sm">
+        <span
+          className="paint-fill block h-full bg-brass-300"
+          style={{ width: `${drillProgressAt(subject.session, now) * 100}%` }}
+        />
+      </span>
+      <span className="shrink-0 font-display text-[10px] tabular-nums text-brass-300">
+        {formatRemaining(drillRemainingMs(subject.session, now))}
+      </span>
+    </div>
   );
 }
 
@@ -518,13 +693,12 @@ function SubjectRow({
  * far apart on the wheel rather than four shades of brass: two columns a step apart would be worse
  * than no colour at all, because the eye would try to read a gradient into them.
  */
-const GROUP_STYLE: Readonly<Record<AttributeGroup, { icon: IconName; edge: string; ink: string }>> =
-  {
-    physical: { icon: 'physical', edge: 'border-oxblood-500/50', ink: 'text-oxblood-300' },
-    mental: { icon: 'mental', edge: 'border-iris-300/50', ink: 'text-iris-100' },
-    social: { icon: 'social', edge: 'border-brass-500/50', ink: 'text-brass-300' },
-    technical: { icon: 'technical', edge: 'border-verdigris-300/50', ink: 'text-verdigris-100' },
-  };
+const GROUP_STYLE: Readonly<Record<AttributeGroup, { edge: string; ink: string }>> = {
+  physical: { edge: 'border-oxblood-500/50', ink: 'text-oxblood-300' },
+  mental: { edge: 'border-iris-300/50', ink: 'text-iris-100' },
+  social: { edge: 'border-brass-500/50', ink: 'text-brass-300' },
+  technical: { edge: 'border-verdigris-300/50', ink: 'text-verdigris-100' },
+};
 
 /**
  * One group of the sheet, as a page torn out of a training log.
@@ -537,14 +711,12 @@ function GroupSheet({
   group,
   subject,
   sessionsLeft,
-  gain,
   pending,
   onOpen,
 }: {
   group: AttributeGroup;
   subject: TrainingSubject;
   sessionsLeft: number;
-  gain: number;
   pending: boolean;
   onOpen: (name: AttributeName) => void;
 }) {
@@ -560,22 +732,21 @@ function GroupSheet({
         // Not `ink-frame`: these four carry the attribute groups' colour code on their border
         // (`GROUP_STYLE.edge`), and a drawn frame paints over a border colour. The code is the
         // point of the cards, so they keep the hairline.
-        'card-paper washed edge-lit flex min-w-0 flex-col rounded-sm border shadow-panel',
+        //
+        // No `card-paper` and no `shadow-panel` either, since 2026-09-21: they sit inside the
+        // floor's own sheet now, and paper on paper with a drop shadow between them reads as four
+        // documents lying on a desk rather than as four columns ruled down one page. What is left
+        // is a column tinted a shade off its ground, ruled in its own colour.
+        'washed edge-lit flex min-w-0 flex-col rounded-sm border bg-surface-800/45',
         style.edge,
       )}
       data-testid={`group-${group}`}
     >
       <header className="flex items-center gap-2 px-2.5 pb-1.5 pt-2">
-        <span
-          aria-hidden
-          className={cn(
-            'icon-plate flex h-7 w-7 shrink-0 items-center justify-center rounded-sm',
-            style.ink,
-            '[&_svg]:h-[18px] [&_svg]:w-[18px]',
-          )}
-        >
-          <Icon name={style.icon} />
-        </span>
+        {/* Stamped, not screwed on: see `DrillSigil`. It sits in its own column beside the
+            title and never over it, which is the maintainer's standing rule about the drawn
+            marks (2026-09-21: "no hand drawn is going over text"). */}
+        <DrillSigil group={group} className={cn('h-8 w-8 shrink-0', style.ink)} />
         <h3
           className={cn(
             'min-w-0 flex-1 truncate font-display text-[12px] font-bold uppercase tracking-[0.18em]',
@@ -602,7 +773,6 @@ function GroupSheet({
             name={name}
             subject={subject}
             sessionsLeft={sessionsLeft}
-            gain={gain}
             pending={pending}
             onOpen={() => onOpen(name)}
           />
@@ -636,18 +806,18 @@ function DrillButton({
   name,
   subject,
   sessionsLeft,
-  gain,
   pending,
   onOpen,
 }: {
   name: AttributeName;
   subject: TrainingSubject;
   sessionsLeft: number;
-  gain: number;
   pending: boolean;
   onOpen: () => void;
 }) {
   const rating = subject.attributes[name];
+  // Against this rating, never the crew-wide figure: see the note on `DrillDialog`.
+  const gain = trainingGainFor(rating);
   const drill = TRAINING_DRILLS[name];
   const effect = ATTRIBUTE_EFFECTS[name];
   const blocker = drillBlocker(name, subject, sessionsLeft);
@@ -676,7 +846,8 @@ function DrillButton({
           </p>
           <p className="font-body text-[12px] leading-relaxed text-ink-300">{drill.detail}</p>
           <p className="font-display text-[12px] uppercase tracking-[0.08em] text-ink-300">
-            {blocker ?? `An hour buys ${gain} points. Click to open it.`}
+            {blocker ??
+              `An hour buys ${gain} ${gain === 1 ? 'point' : 'points'}. Click to open it.`}
           </p>
         </div>
       }
@@ -797,11 +968,17 @@ function drillBlocker(
  * Everything the hover card says, with room to breathe, and the one control that spends the hour.
  * The button carries what it costs and what it gives, because "Train" on its own is a word and
  * "One hour, +2 Cryptography" is a decision.
+ *
+ * What it gives is `trainingGainFor(rating)`, not `TrainingResponse.gainPerSession`. That field is
+ * the flat `TRAINING_GAIN`, sent with no attribute in scope, and the back half of a skill is worth
+ * half as much: `applyGain` is the only place a session's value is decided and it decides it
+ * against the sheet in front of it (`crew/training.ts`). Printing the crew-wide figure promised
+ * +2 on every skill at 50 or over, on a button that spends one of five hours a day and cannot be
+ * taken back, and then moved the rating by one with nothing on the screen saying why.
  */
 function DrillDialog({
   name,
   subject,
-  gain,
   seconds,
   blocker,
   pending,
@@ -810,7 +987,6 @@ function DrillDialog({
 }: {
   name: AttributeName;
   subject: TrainingSubject;
-  gain: number;
   seconds: number;
   blocker: string | null;
   pending: boolean;
@@ -820,6 +996,7 @@ function DrillDialog({
   const drill = TRAINING_DRILLS[name];
   const effect = ATTRIBUTE_EFFECTS[name];
   const rating = subject.attributes[name];
+  const gain = trainingGainFor(rating);
 
   return (
     <Modal onClose={onClose} labelledBy="drill-dialog-title" className="border-brass-300/30">

@@ -4,6 +4,7 @@ import { deliveredUrl } from '../../assets/delivered';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
+import { HOLDER_SIGN, holderToneOf, type HolderTone } from './holder';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
 /**
@@ -82,7 +83,7 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
           mark={LOCATION_MARKS[view.location.id]!}
           testId={`site-${view.location.id}`}
           name={view.location.name}
-          held={view.holder.kind === 'crew' && view.holder.baseId === baseId}
+          tone={holderToneOf(view.holder, baseId ?? null)}
           onActivate={() => onPick(view.location.id)}
           card={
             <div className="flex flex-col gap-1.5">
@@ -149,7 +150,9 @@ export function ContestedScene({ district, locations, baseId, gate, onPick }: Co
           mark={gateMark}
           testId={`site-gate-${district.id}`}
           name="District Gate"
-          held={false}
+          // The way in is nobody's ground: it is the door, not a plot, so it wears the neutral
+          // plate rather than borrowing a holder's colour.
+          tone="unoccupied"
           shut={gate.shut}
           onActivate={() => onPick('gate')}
           card={
@@ -182,7 +185,7 @@ function Sign({
   mark,
   testId,
   name,
-  held,
+  tone,
   shut = false,
   card,
   onActivate,
@@ -190,7 +193,8 @@ function Sign({
   mark: Mark;
   testId: string;
   name: string;
-  held: boolean;
+  /** Who holds it, which is what the plate is coloured by. See `city/holder.ts`. */
+  tone: HolderTone;
   shut?: boolean;
   card: ReactNode;
   onActivate: () => void;
@@ -217,6 +221,9 @@ function Sign({
         className="transition-transform duration-150 hover:-translate-y-0.5 active:translate-y-0"
       >
         <span
+          // Who holds it, as an attribute as well as a colour: a gate that reads a computed
+          // colour is a gate that breaks on a palette retune, and colour is not the claim here.
+          data-holder={tone}
           className={cn(
             // One line, always (maintainer request, 2026-09-11). It was `max-w-[9rem]`, so the two
             // longest names in the city wrapped: "The Unfinished Faculty" and "Statue of the
@@ -228,9 +235,10 @@ function Sign({
             // any sign near an edge inward.
             'flex items-center gap-1.5 whitespace-nowrap rounded-sm border px-2 py-0.5 text-left',
             'font-display text-[10px] font-semibold uppercase leading-tight tracking-[0.09em] shadow-lifted',
-            held
-              ? 'border-verdigris-300/70 bg-surface-950/85 text-verdigris-100'
-              : 'border-brass-300/50 bg-surface-950/85 text-brass-100',
+            // Five holders, five colours (`city/holder.ts`). It was two, yours and everything
+            // else, so the looters' pawn shop, the Combine's armoury and a rival crew's yard were
+            // one colour on the one screen where telling them apart decides what to attack.
+            HOLDER_SIGN[tone],
           )}
         >
           {shut && <Icon name="lock" aria-hidden className="h-3 w-3 shrink-0 text-brass-300" />}

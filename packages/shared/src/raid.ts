@@ -7,7 +7,16 @@ import {
   type Resources,
 } from './resources.js';
 import { bareLineRules, markedUnit, type LineRules } from './battle/line.js';
-import { findUnit, fittedFor, upgradedStats, type Army, type UnitLoadouts } from './units/index.js';
+import { packBonusPercent } from './units/collective.js';
+import {
+  findUnit,
+  fittedFor,
+  upgradedStats,
+  type Army,
+  type FittedUpgrades,
+  type UnitLoadouts,
+  type UnitSpec,
+} from './units/index.js';
 
 /**
  * Raiding a home district (GDD §A4).
@@ -77,22 +86,42 @@ export const PLUNDER_PRIORITY: readonly ResourceKey[] = [
 export const MAX_RAID_SHARE = 0.25;
 
 /**
- * Loads a unit with the `picker` mark brings home over and above its sheet (`UnitSpec.picker`).
+ * What one group of one sheet carries, before the crew's own bag is spent on it.
  *
- * Twelve, which is a Sniper's whole carry and a bit over half a Razor's. Sized so that a handful of
- * pickers in a raiding party is worth roughly as much as the +25% carry the deepest `loot_capacity`
- * holdings buy, and no more: the rule is meant to be a reason to bring a few of them, not a second
- * economy that runs beside the one the map already pays for.
+ * ## Collective, on something that does not fight
+ *
+ * `UnitSpec.pack` is one rule with two readings (maintainer, 2026-09-19: "add to Haulers the
+ * Collective tag, but make it work different for carriers: instead of their combat stats, their
+ * loot increases"). A fighter that masses gets offense (`packBonusPercent` in `battle/engine.ts`);
+ * a carrier that masses gets **carry**, off the same curve, so the card's one sentence is true of
+ * both and neither has to read an equation.
+ *
+ * It is the same curve deliberately. Massing a sheet should feel like one idea wherever it turns
+ * up, and a second set of constants for the carriers would be two things to retune and one of
+ * them would be forgotten.
+ *
+ * ## Whole kilograms, rounded up
+ *
+ * Per unit, and rounded **up** rather than to nearest. Loot is counted in whole kilograms
+ * downstream (`plunder` floors every line it takes), so a fractional bag is a bag that quietly
+ * rounds away: ten Haulers at 25.4 kg each is 254 kg on paper and 250 in the hold. Rounding the
+ * per-unit figure up is what makes the bonus "only matter in integers" and makes it matter at
+ * all, and the whole group is then a count of whole bags rather than a total that has to be
+ * rounded again.
  */
-export const PICKER_EXTRA_LOAD = 12;
+function carriedBy(unit: UnitSpec, count: number, fitted: FittedUpgrades): number {
+  const sheet = upgradedStats(unit.stats, fitted).lootCapacity;
+  if (unit.pack !== true || count <= 0) return sheet * count;
+  return Math.ceil(sheet * (1 + packBonusPercent(count) / 100)) * count;
+}
 
 /**
  * How much this force can carry home, in kilograms.
  *
- * The picker's flat load is added **after** the percentage rather than into the base, and that is
- * the whole difference between this mark and a bigger `lootCapacity`. A percentage on the base
- * pays the crews that already carry well the most; a flat load per unit is worth the same to
- * everybody, which is what the sheet promises.
+ * The sheet times the count, times whatever the crew's holdings add. Nothing else: the flat
+ * per-body load the `picker` mark used to add on top of the percentage was removed on
+ * 2026-09-19 at the maintainer's request, along with the mark itself. What a unit carries is
+ * what its `lootCapacity` says it carries.
  *
  * The sheet is the **fitted** one when the crew's `unitLoadouts` are passed: a Counterweight
  * Harness on the Haulers is a bigger bag on a raid as well as on a job, or the roster is quoting a
@@ -103,24 +132,29 @@ export function lootCapacityOf(
   bonusPercent = 0,
   loadouts: UnitLoadouts = {},
   /**
-   * The marks this crew has been granted (`unit_mark` in `research/tracks.ts`).
+   * The marks this crew has been granted (`unit_mark`), read through `markedUnit`, which is the
+   * same helper the engine builds a stack with.
    *
-   * Read through `markedUnit`, the same helper the engine builds a stack with, because `picker` can
-   * be granted as well as printed: Haul Rigging grants it to the Haulers, and reading the raw sheet
-   * here made that research rung a cost and a wait for nothing at all.
+   * This said "Haul Rigging grants `picker` to the Haulers", which contradicted the note six lines
+   * above it: `picker` and its flat per-body load were both removed on 2026-09-19. Haul Rigging
+   * pays `carry`, not a mark, and no rung in the game grants one. The two `unit_mark` grants that
+   * do exist are a held location's `stalwart` on the Ironsides and a perk's `strikes_first` on the
+   * Cyber Dogs, and neither changes what anybody carries.
+   *
+   * So this argument moves no number today, and it is still the right shape: it is the one place a
+   * granted carrying mark would have to be read, and a caller passing the raw sheet instead is the
+   * bug the removed mark used to cause. `battle/resolve.ts` and `missions/resolve.ts` both pass it.
    */
   rules: LineRules = bareLineRules(),
 ): number {
   let base = 0;
-  let extra = 0;
   for (const [unitId, count] of Object.entries(army)) {
     const found = findUnit(unitId);
     if (!found) continue;
     const unit = markedUnit(found, rules);
-    base += upgradedStats(unit.stats, fittedFor(loadouts, unitId)).lootCapacity * count;
-    if (unit.picker === true) extra += PICKER_EXTRA_LOAD * count;
+    base += carriedBy(unit, count, fittedFor(loadouts, unitId));
   }
-  return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100) + Math.max(0, extra);
+  return Math.max(0, base) * (1 + Math.max(0, bonusPercent) / 100);
 }
 
 /**
@@ -267,19 +301,35 @@ export function raidDisruptionPercent(defenderLossShare: number): number {
 export const DisruptionSchema = z.object({
   /** When the district stops running at reduced effectiveness. Null when it is not. */
   until: z.string().datetime().nullable(),
+  /**
+   * ...and when it started, which the window needs as much as its end (maintainer, 2026-09-18).
+   *
+   * Production is settled lazily, so the window a settle prices is "everything since you last
+   * looked", which can be days. `disruptionPercentAt` is a step function of time and the walk cut
+   * that window at the expiry but not at the **start**, so the step was read as though it had
+   * always been on: a crew raided one hour ago and settling twelve hours of absence lost half of
+   * all twelve. Measured before this: 50% charged against a fair 4.2% at twelve hours, and a 23x
+   * over-charge at twenty four. It only ever hit players who were away, which is every player who
+   * gets raided.
+   *
+   * Nullable because a row written before this field existed has no start to read, and the honest
+   * reading of that is the old one: unbounded backwards.
+   */
+  since: z.string().datetime().nullable().default(null),
   /** Percentage points off production and build speed while it lasts. */
   percent: z.number().min(0).max(100),
 });
 export type Disruption = z.infer<typeof DisruptionSchema>;
 
 export function noDisruption(): Disruption {
-  return { until: null, percent: 0 };
+  return { until: null, since: null, percent: 0 };
 }
 
 /** A fresh raid's worth of disruption, starting now, priced off how badly the defence lost. */
 export function disruptionFrom(now: Date, defenderLossShare: number): Disruption {
   return {
     until: new Date(now.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
+    since: now.toISOString(),
     percent: raidDisruptionPercent(defenderLossShare),
   };
 }
@@ -292,7 +342,11 @@ export function disruptionFrom(now: Date, defenderLossShare: number): Disruption
  */
 export function disruptionPercentAt(disruption: Disruption, now: Date): number {
   if (disruption.until === null) return 0;
-  return now.getTime() < Date.parse(disruption.until) ? disruption.percent : 0;
+  const at = now.getTime();
+  // Before the raid landed is not disrupted. See `since`: without this the step reads as though it
+  // had always been on, and a lazily settled window is charged for hours that happened first.
+  if (disruption.since !== null && at < Date.parse(disruption.since)) return 0;
+  return at < Date.parse(disruption.until) ? disruption.percent : 0;
 }
 
 /**
@@ -308,10 +362,28 @@ export function disruptionPercentAt(disruption: Disruption, now: Date): number {
 export function refreshDisruption(current: Disruption, next: Disruption): Disruption {
   if (current.until === null) return next;
   if (next.until === null) return current;
-  return {
-    until: Date.parse(next.until) > Date.parse(current.until) ? next.until : current.until,
-    percent: Math.max(current.percent, next.percent),
-  };
+  /*
+   * `since` travels with the *percent*, not with the expiry, because those two fields are what a
+   * settle reads together: the record says "cut by `percent` from `since` until `until`". Pairing
+   * the start with the expiry instead would hand the surviving percentage a start that belongs to
+   * the other raid, and a crew who raided at 10% yesterday, followed by one who raided at 50%
+   * just now, would see yesterday's quiet hours charged at 50%. On a tie the earlier start wins,
+   * which is exact: the rate is the same across both.
+   */
+  const until = Date.parse(next.until) > Date.parse(current.until) ? next.until : current.until;
+  const harsher =
+    next.percent > current.percent
+      ? next
+      : next.percent < current.percent
+        ? current
+        : earlierStart(current, next);
+  return { until, since: harsher.since, percent: harsher.percent };
+}
+
+/** Of two records at the same rate, the one that has been running longer. A null start is oldest. */
+function earlierStart(a: Disruption, b: Disruption): Disruption {
+  if (a.since === null || b.since === null) return a.since === null ? a : b;
+  return Date.parse(a.since) <= Date.parse(b.since) ? a : b;
 }
 
 /**

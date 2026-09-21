@@ -81,7 +81,16 @@ const S = {
   fill: 'none',
 } as const;
 
-const PATHS: Record<IconName, ReactNode> = {
+/**
+ * The glyphs themselves, on the 24 grid, without the `<svg>` around them.
+ *
+ * Exported so a caller that needs the drawing inside a frame of its own can have it: the training
+ * sheet stamps the four attribute-group glyphs into an inked roundel (`overseer/DrillSigil.tsx`)
+ * and would otherwise have to redraw four shapes that are already drawn here, at a second weight,
+ * which is the exact thing this file exists to stop. Use {@link Icon} for an icon; reach for this
+ * only when the glyph is going somewhere an `<svg>` element cannot.
+ */
+export const ICON_GLYPHS: Record<IconName, ReactNode> = {
   /**
    * The city: three blocks of different heights, not one house (maintainer request, 2026-09-14).
    *
@@ -586,7 +595,7 @@ export function Icon({ name, className, label }: IconProps) {
       aria-label={label}
       aria-hidden={label === undefined ? true : undefined}
     >
-      {PATHS[name]}
+      {ICON_GLYPHS[name]}
     </svg>
   );
 }

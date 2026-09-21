@@ -100,10 +100,20 @@ export function targetName(target: BattleTarget, resident?: Base): string {
   switch (target.kind) {
     case 'location':
       return findLocation(target.locationId)?.name ?? 'somewhere';
+    /*
+     * The place in caps and the words around it as written (maintainer, 2026-09-20).
+     *
+     * Cased here rather than by a class on the client, which is what `DeclareDialog` does, because
+     * this one is a **composed sentence on the wire**: the fights list, the fight's own header,
+     * the faction feed and a movement row all print the string this function returns, and the
+     * client cannot case the place inside it without being told where the place starts. Either
+     * every one of those grows a second field, or the sentence arrives the way it is meant to
+     * read. It is already player-facing copy written here; the case is part of the copy.
+     */
     case 'gate':
-      return `the gate at ${districtLabel(target.districtId, resident)}`;
+      return `the gate at ${districtLabel(target.districtId, resident).toUpperCase()}`;
     case 'district':
-      return `a raid on ${districtLabel(target.districtId, resident)}`;
+      return `a raid on ${districtLabel(target.districtId, resident).toUpperCase()}`;
   }
 }
 

@@ -4,7 +4,8 @@ import {
   RESOURCE_KEYS,
   storageCapacity,
   storageCapacityFor,
-  UNIT_IDS,
+  capLegendaries,
+  PLAYER_UNITS,
   type Army,
   type Building,
   type ResourceKey,
@@ -79,9 +80,17 @@ export function unlockedResources(buildings: readonly Building[]): Resources {
   return Object.fromEntries(RESOURCE_KEYS.map((key) => [key, near(key)])) as Resources;
 }
 
-/** A dozen of every unit, so every roster card renders and the slot count reads like a real army. */
+/**
+ * A dozen of every unit, so every roster card renders and the slot count reads like a real army.
+ *
+ * ...except the legendaries, which are one each (maintainer, 2026-09-19: "you can have up to 1 of
+ * each legendary unit, no more, and remove any excess that the console gives you"). This was the
+ * one door in the game that broke the rule: `trainUnits` has refused a second unique since they
+ * existed, and this handed out twelve of all seven.
+ */
 export function fullArmy(): Army {
-  return Object.fromEntries(UNIT_IDS.map((id) => [id, 12]));
+  // ...and never the Combine's sheets, which no console may grant (`UnitSpec.faction`).
+  return capLegendaries(Object.fromEntries(PLAYER_UNITS.map((unit) => [unit.id, 12])));
 }
 
 export interface SandboxSummary {

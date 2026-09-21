@@ -64,10 +64,14 @@ describe('the e2e fixtures still describe what the server sends', () => {
    * a unit no gate has ever drawn. This is the check that would have caught the roster fixture
    * being three units behind the catalogue.
    */
-  it('offers every unit in the catalogue on the roster fixture', () => {
+  it('offers every player unit in the catalogue on the roster fixture, and no Combine unit', () => {
     const offered = new Set(F.unitsResponse.units.map((unit) => unit.id));
-    const missing = S.UNIT_CATALOG.filter((unit) => !offered.has(unit.id)).map((unit) => unit.id);
+    const missing = S.PLAYER_UNITS.filter((unit) => !offered.has(unit.id)).map((unit) => unit.id);
     expect(missing, 'units in the catalogue that no e2e screen has ever drawn').toEqual([]);
+    // The server's roster leaves the Combine's sheets out (`PLAYER_UNITS`), and so must the
+    // fixture: a screen that drew a Syndic off it would be measuring a card no player will see.
+    const combine = S.COMBINE_UNITS.filter((unit) => offered.has(unit.id)).map((unit) => unit.id);
+    expect(combine, 'Combine units on the roster fixture').toEqual([]);
   });
 
   it('names every district in the city fixture', () => {

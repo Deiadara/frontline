@@ -10,7 +10,7 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 import { launchMission } from '../missions/launch.js';
-import { areasOffering, missionBoardDay } from '@frontline/shared';
+import { areasOffering } from '@frontline/shared';
 import { settleDistrict } from '../district/settle.js';
 import { acceptOffer, postOffer } from '../market/board.js';
 import {
@@ -96,7 +96,7 @@ describe('a run coming home', () => {
         id: `mission-${seed}`,
         base,
         template,
-        areaId: areasOffering(template.id, missionBoardDay(T0))[0] ?? MISC_AREA_ID,
+        areaId: areasOffering(template.id, T0)[0] ?? MISC_AREA_ID,
         force: { haulers: 40 },
         now: T0,
         seed,

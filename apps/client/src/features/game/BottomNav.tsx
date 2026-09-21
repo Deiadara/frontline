@@ -1,10 +1,11 @@
-import { areaUnlockLevel, badgeCount, type GatedArea } from '@frontline/shared';
+import { areaLockCaption, badgeCount, isAreaUnlocked, type GatedArea } from '@frontline/shared';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { FeatsDoorGlyph } from '../feats/marks';
 import { cn } from '../../lib/cn';
 import { useAdmin, useMe } from '../../lib/queries';
+import { useUnlockFacts } from '../../lib/unlocks';
 
 /**
  * The scenery switcher, along the bottom of the frame.
@@ -41,11 +42,11 @@ export interface NavDestination {
    */
   glyph?: ReactNode;
   /**
-   * §I3: the screen this door leads to, when a level opens it.
+   * §I3: the screen this door leads to, when something has to be done to open it.
    *
    * The door is still drawn, still labelled and still clickable when it is shut: the screen behind
-   * it says which level opens it, which is the whole point of gating rather than hiding. What
-   * changes here is only that it reads as locked, so a player is not surprised on arrival.
+   * it says what opens it, which is the whole point of gating rather than hiding. What changes
+   * here is only that it reads as locked, so a player is not surprised on arrival.
    */
   area?: GatedArea;
 }
@@ -72,7 +73,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
   { label: 'Units', title: 'The roster', to: '/game/units', icon: 'units' },
   { label: 'Missions', title: 'Missions', to: '/game/missions', icon: 'missions' },
   { label: 'The Bar', title: 'The bar', to: '/game/bar', icon: 'bar', area: 'bar' },
-  { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew' },
+  { label: 'Crew', title: 'Crew', to: '/game/crew', icon: 'crew', area: 'crew' },
   // §I1b: a door again. It was reachable only from the Lab's own window, which is the right place
   // to stand when you decide to research something and the wrong place to have to walk to when you
   // are collecting blueprint pages, and both live behind this door now.
@@ -83,7 +84,13 @@ export const DESTINATIONS: readonly NavDestination[] = [
     icon: 'research',
     area: 'research',
   },
-  { label: 'Faction', title: 'The people you fight beside', to: '/game/faction', icon: 'faction' },
+  {
+    label: 'Faction',
+    title: 'The people you fight beside',
+    to: '/game/faction',
+    icon: 'faction',
+    area: 'faction',
+  },
   {
     label: 'Training',
     title: 'Drills and reading',
@@ -103,6 +110,7 @@ export const DESTINATIONS: readonly NavDestination[] = [
     title: 'Building and unit modifications, and traps',
     to: '/game/scrapyard',
     icon: 'workshop',
+    area: 'scrapyard',
   },
 ];
 
@@ -160,9 +168,9 @@ const testId = (label: string): string => `nav-${label.toLowerCase().replace(/\s
 /**
  * One door. Active is lit and raised; the rest are unlit metal that lifts when pointed at.
  *
- * A door behind a level (§I3) still links. It reads as shut: dimmed, with a padlock over the
- * glyph and the level it opens at under the label, and clicking it goes to the screen that
- * explains itself. Disabling it would leave a player with a grey square and no way to find out
+ * A door behind a condition (§I3) still links. It reads as shut: dimmed, with a padlock over the
+ * glyph and a word or two about what opens it under the label, and clicking it goes to the screen
+ * that explains itself in full. Disabling it would leave a player with a grey square and no way to find out
  * anything about it, which is precisely the failure the maintainer asked to avoid.
  */
 function Destination({
@@ -171,7 +179,14 @@ function Destination({
   badge = 0,
 }: {
   destination: NavDestination;
-  locked: number | null;
+  /**
+   * The caption under a shut door (`Lv 5`, `Build it`, `Rank 3`), or `null` when it is open.
+   *
+   * A string rather than the level it used to be, because five of the nine doors are not opened
+   * by a level and `Lv 0` under the Scrapyard is worse than nothing: it points at a number that
+   * will never move the door.
+   */
+  locked: string | null;
   /**
    * How many things behind this door are waiting. Zero draws nothing at all: an empty badge is a
    * dot that means "no news". Same rule, same shape and same colour as the standing bar's two
@@ -266,7 +281,7 @@ function Destination({
       </span>
       {locked !== null && (
         <span className="-mt-1.5 font-display text-[10px] uppercase tracking-[0.12em] text-brass-300">
-          Lv {locked}
+          {locked}
         </span>
       )}
     </>
@@ -377,18 +392,30 @@ export function BottomNav() {
   const admin = useAdmin();
   const me = useMe();
   const destinations = admin.data ? [...DESTINATIONS, CONSOLE] : DESTINATIONS;
-  // §I3: read once for the row. `useMe` is already resolved by every screen behind `/game`, so
-  // this is a cache read rather than a request.
-  const level = me.data?.base?.level ?? 1;
-  const lockedAt = (destination: NavDestination): number | null => {
+  // §I3: read once for the row, off the same helper the route guards use, so a door cannot be
+  // shut in the bar and open on the page behind it.
+  const facts = useUnlockFacts();
+  const lockedAt = (destination: NavDestination): string | null => {
     if (destination.area === undefined) return null;
-    const opensAt = areaUnlockLevel(destination.area);
-    return level < opensAt ? opensAt : null;
+    // No padlocks while `/me` is in flight: a row of eleven locks on every hard refresh, gone a
+    // frame later, reads as a bug rather than as progression.
+    if (facts === null) return null;
+    return isAreaUnlocked(destination.area, facts) ? null : areaLockCaption(destination.area);
   };
 
   return (
     <nav
       aria-label="Places"
+      /*
+       * Whether the gates have been decided yet (§I3).
+       *
+       * `loading` is the frame before `/me` lands, when every door is drawn open because a row of
+       * padlocks that vanishes a frame later reads as a bug rather than as progression. It is
+       * marked rather than merely allowed, because a test that asserts "this door is open" cannot
+       * otherwise tell an open door from a door whose answer has not arrived, and would pass on a
+       * build where every gate was shut.
+       */
+      data-gates={facts === null ? 'loading' : 'ready'}
       // `flex-wrap`. Fourteen doors (twelve places, Settings, and the Console in an admin build) do
       // not fit one 1024px row, and without it the row does not
       // spill: it *shrinks*, squeezing each door to 65px until "Workshop" wraps onto two lines

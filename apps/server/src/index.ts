@@ -4,9 +4,11 @@ import { BACKUP_INTERVAL_MS, startBackupSchedule } from './db/backup.js';
 import { openDatabase, runMigrations } from './db/index.js';
 import { WORLD_TICK_MS, startWorldClock } from './live/clock.js';
 import { backfillPortraits } from './crew/faces.js';
+import { trimLegendaries } from './units/legendaries.js';
 import { seedMvpWorld } from './seed/index.js';
 import { MVP_PLAYER } from './seed/constants.js';
 import { applyUnlockedSandbox } from './seed/sandbox.js';
+import { watchForOrphaning } from './orphan.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -31,6 +33,12 @@ async function main(): Promise<void> {
   const faced = backfillPortraits(app.repos);
   if (faced > 0)
     app.log.info({ faced }, 'gave a face to officers written before faces were stored');
+
+  // §A5: one of each legendary, on rosters written before the console was capped. Silent on a
+  // world that was never raised, which is every real one.
+  const trimmed = trimLegendaries(app.repos);
+  if (trimmed.removed > 0)
+    app.log.warn(trimmed, 'took legendaries over the cap of one off the rosters holding them');
 
   // Announced loudly, because a server that has quietly maxed an account is a server whose
   // numbers mean nothing, and the one thing worse than not having a sandbox switch is not
@@ -124,6 +132,27 @@ async function main(): Promise<void> {
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
+
+  /*
+   * ...and stop anyway if whoever started this is gone (`orphan.ts`).
+   *
+   * Ctrl+C on an e2e run does not reach here at all: Playwright starts its `webServer` detached,
+   * in a process group of its own, so the signal goes to Playwright and killing this is left to a
+   * teardown that an interrupt is exactly the path for skipping. Measured on 2026-09-20 by
+   * interrupting a real run: this process outlived it on port 4010 with its parent reassigned to
+   * launchd, and the next run then refused to start on a port that was "already used".
+   *
+   * `SIGTERM` rather than calling `shutdown` directly, so an orphaned stop takes the same route as
+   * every other stop: one shutdown path, and the handler above is `once`, so a real signal
+   * arriving first leaves this to do nothing.
+   */
+  const stopOrphanWatch = watchForOrphaning({
+    onOrphaned: () => {
+      app.log.warn('the process that started this server is gone: shutting down');
+      process.kill(process.pid, 'SIGTERM');
+    },
+  });
+  process.once('exit', stopOrphanWatch);
 
   await app.listen({ port: config.port, host: config.host });
 }

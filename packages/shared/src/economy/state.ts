@@ -52,7 +52,7 @@ export const EconomyStateSchema = z.object({
    *
    * Defaulted so a base written before raiding existed parses as undisrupted.
    */
-  disruption: DisruptionSchema.default({ until: null, percent: 0 }),
+  disruption: DisruptionSchema.default({ until: null, since: null, percent: 0 }),
   /**
    * What the district has made but not yet banked: fractions of a unit, per resource.
    *

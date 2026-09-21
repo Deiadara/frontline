@@ -22,11 +22,19 @@ export function payrollPercent(ledger: PayrollLedger): number {
   return ledger.capacity > 0 ? Math.min(100, (ledger.committed / ledger.capacity) * 100) : 0;
 }
 
-/** The bar. Red at capacity, because a full book is a refusal waiting to happen. */
-export function PayrollMeter({ ledger }: { ledger: PayrollLedger }) {
+/**
+ * The bar. Red at capacity, because a full book is a refusal waiting to happen.
+ *
+ * `className` is for the track, and it exists because the track is the one part of this that is
+ * about the panel rather than about the book. `bg-surface-950` reads as a groove on the Bar's
+ * painted tin; on the Nexus panel's paper it is within a couple of values of the sheet, so an
+ * empty book drew nothing at all and the meter looked like a gap somebody had left. The caller
+ * that sits on paper rings it; nothing else has to know.
+ */
+export function PayrollMeter({ ledger, className }: { ledger: PayrollLedger; className?: string }) {
   const pct = payrollPercent(ledger);
   return (
-    <span className="block h-2 w-full overflow-hidden rounded-sm bg-surface-950">
+    <span className={cn('block h-2 w-full overflow-hidden rounded-sm bg-surface-950', className)}>
       <span
         className={cn('block h-full rounded-sm', pct >= 100 ? 'bg-oxblood-300' : 'bg-brass-300')}
         style={{ width: `${pct}%` }}

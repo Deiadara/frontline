@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EnvLabelSchema, WeatherKindSchema } from '../city/index.js';
-import { UnitTierSchema, type Army } from '../units/index.js';
+import { COMBINE_LEADERS, type CombinePower } from '../city/combine.js';
+import { findUnit, UnitTierSchema, type Army } from '../units/index.js';
 import { officerOutcomeOf, type Simulation, type SideState } from './engine.js';
 import { moraleState, MORALE_STATE_LABELS } from './morale.js';
 import { BattleFindingSchema, findingsFor, narrate, type BattleFinding } from './report.js';
@@ -78,7 +79,7 @@ export const SideAnalysisSchema = z.object({
    */
   perimeterLost: z.number().int().nonnegative().default(0),
   /**
-   * §D3: units on this side too cowed to fire, settled before the first shot.
+   * §D3: units on this side too intimidated to fire, settled before the first shot.
    *
    * The engine has reported this on {@link Simulation} since intimidation landed, with a doc saying
    * in as many words that a mechanic the player cannot see reads as a bug. It then stopped here: the
@@ -86,7 +87,7 @@ export const SideAnalysisSchema = z.object({
    * with every unit still standing looked exactly like a broken engine. This is the rest of that
    * sentence.
    */
-  cowed: z.number().int().nonnegative().default(0),
+  intimidated: z.number().int().nonnegative().default(0),
   /** Infamy this side banked for what it killed (§D7). */
   infamy: z.number().int().nonnegative(),
   units: z.array(UnitPerformanceSchema),
@@ -122,6 +123,50 @@ export const BattleAnalysisSchema = z.object({
   trap: z.object({ name: z.string(), killed: z.number().int().nonnegative() }).nullable(),
   /** One line per legendary unit that was there, whatever happened to it. */
   legends: z.array(z.string()),
+  /**
+   * The Combine legendary whose shadow this fight was under, or null.
+   *
+   * A mechanic the player cannot see reads as a bug, and this was the last one that could not be
+   * seen. The Executioner and Directive Xero each leave a toll the report already prints
+   * (`executed`, `turned`), so a reader could at least tell something had happened to them. The
+   * Syndic leaves none: her power is points on the Combine's sheets, so a crew walked into a much
+   * harder fight in the Annexes, lost it, and read an aftermath that never mentioned her. Since
+   * her 2026-09-20 retune that is the difference between holding 3 of 80 seeds and 75 of 80, which
+   * is the whole fight and no part of the report.
+   *
+   * `.default(null)` because this is written into `scheduled_battles.analysis_json` and read back
+   * for ever: a report settled before this field existed parses as a fight under nobody, which is
+   * the right answer for one.
+   */
+  /**
+   * The Combine legendary whose ground this was, and the power every defender carried.
+   *
+   * The two tolls below are the only trace the regime's leaders used to leave on a report, and
+   * they only cover two of the three: the Syndic's power is points on her units' sheets, so a
+   * crew could walk into a fight that was 25 penetration and 25 armour harder than the numbers
+   * they read, lose it, and find nothing in the aftermath about why. That is the same failure the
+   * intimidation figure was added for.
+   *
+   * `.default(null)` rather than a migration, and the difference matters: the `cowed` rename had
+   * the old value sitting in the row under a stale key, and this never had one at all. A report
+   * settled before 2026-09-21 does not know who it was fought under and no sweep can tell it, so
+   * it reads as nobody, which is the only honest thing left to say about it.
+   */
+  underLeader: z
+    .object({ name: z.string().min(1), powerName: z.string().min(1) })
+    .nullable()
+    .default(null),
+  /**
+   * The Combine's two tolls, when one of its leaders was over the ground (`city/combine.ts`).
+   *
+   * `turned` is the attacker's units that changed sides under Directive Xero, by unit id, and is
+   * empty in every fight he was not over. `executed` is how many the Executioner finished after
+   * an exchange. On the analysis rather than only on the `SkirmishOutcome` because the report is
+   * what a player reads afterwards, and both of these are things that need explaining: units that
+   * are neither home nor in the casualty list, and deaths the damage numbers do not account for.
+   */
+  turned: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  executed: z.number().int().nonnegative().default(0),
   /** The one sentence at the top. Everything else is detail under it. */
   headline: z.string(),
   /**
@@ -155,6 +200,8 @@ export interface AnalysisInput {
   fled: Army;
   /** What the winning side paid, dead outright. */
   winnerLosses: Army;
+  /** The legendary whose power the defence carried, when one did. See `city/combine.ts`. */
+  underLeader?: CombinePower | undefined;
   /** Each side's ring, which never entered the fight. */
   perimeter: Record<BattleSide, Army>;
   /** Enemy runners the winner's ring stopped. Empty when nobody set one. */
@@ -246,7 +293,18 @@ interface SideAnalysisInput {
   perimeter: Army;
   perimeterCaught: number;
   perimeterLost: number;
-  cowed: number;
+  intimidated: number;
+  /**
+   * Units of this side's that changed sides under Directive Xero (`changeOfHeart`), by unit id.
+   *
+   * Added back into `committed` below and nowhere else. The engine takes the turncoats off their
+   * stack's `started` on purpose, because `started - alive` is how `routSurvivors` and
+   * `winnerCasualties` count the dead and a man who walked away is not a casualty. But `committed`
+   * means "what I sent", and what a player sent includes the ones who did not come back because
+   * they are his now. Without this the report told a crew that marched twenty Razors into the CCS
+   * that it had committed five.
+   */
+  turned: Army;
   infamy: number;
   officer: SideAnalysis['officer'];
 }
@@ -255,14 +313,14 @@ function sideAnalysis(input: SideAnalysisInput): SideAnalysis {
   const { units } = input;
   return {
     name: input.name,
-    committed: units.reduce((sum, unit) => sum + unit.started, 0),
+    committed: units.reduce((sum, unit) => sum + unit.started, 0) + total(input.turned),
     lost: units.reduce((sum, unit) => sum + unit.lost, 0),
     survived: units.reduce((sum, unit) => sum + unit.survived, 0),
     fled: units.reduce((sum, unit) => sum + unit.fled, 0),
     perimeter: total(input.perimeter),
     perimeterCaught: input.perimeterCaught,
     perimeterLost: input.perimeterLost,
-    cowed: input.cowed,
+    intimidated: input.intimidated,
     infamy: input.infamy,
     units: [...units],
     officer: input.officer,
@@ -279,6 +337,21 @@ function sideAnalysis(input: SideAnalysisInput): SideAnalysis {
 function officerReportFor(side: SideState): SideAnalysis['officer'] {
   const outcome = officerOutcomeOf(side);
   return outcome === null ? null : { ...outcome, injured: false };
+}
+
+/**
+ * Who the defence was standing under, by name, for the report.
+ *
+ * Derived from the power rather than passed alongside it, because `CombinePower.kind` *is* the
+ * leader's unit id and a second field would be a second thing to keep in step. Null for a fight
+ * nobody commanded, and null for a power naming somebody the catalogue has never heard of, which
+ * is a fight the report should describe as nobody's rather than as a blank name's.
+ */
+function leaderBehind(power: CombinePower | undefined): BattleAnalysis['underLeader'] {
+  if (!power) return null;
+  const leader = COMBINE_LEADERS.find((one) => one.unitId === power.kind);
+  const sheet = leader ? findUnit(leader.unitId) : undefined;
+  return leader && sheet ? { name: sheet.name, powerName: leader.powerName } : null;
 }
 
 /**
@@ -348,7 +421,9 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     perimeter: input.perimeter.attacker,
     perimeterCaught: attackerWon ? stopped : 0,
     perimeterLost: attackerWon ? ringPaid : 0,
-    cowed: simulation.cowed.attacker,
+    intimidated: simulation.intimidated.attacker,
+    // Only the attacker can lose units to Change of Heart: the Combine never attacks.
+    turned: simulation.turned,
     infamy: input.infamy.attacker,
     officer: officerReportFor(simulation.attacker),
   });
@@ -358,7 +433,8 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     perimeter: input.perimeter.defender,
     perimeterCaught: attackerWon ? 0 : stopped,
     perimeterLost: attackerWon ? 0 : ringPaid,
-    cowed: simulation.cowed.defender,
+    intimidated: simulation.intimidated.defender,
+    turned: {},
     infamy: input.infamy.defender,
     officer: officerReportFor(simulation.defender),
   });
@@ -377,6 +453,9 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     findings,
     trap: input.trap,
     legends: legendLines([attacker, defender]),
+    underLeader: leaderBehind(input.underLeader),
+    turned: simulation.turned,
+    executed: simulation.executed,
     headline: headlineFor(simulation, attacker, defender),
     brokeThrough: input.brokeThrough ?? true,
     // Copied off the battlefield the engine actually fought on, so the card and the fight cannot

@@ -68,13 +68,27 @@ async function makeStack(): Promise<{ app: FastifyInstance; token: string; baseI
   const base = app.repos.bases.findById(baseId);
   if (!base) throw new Error('no base');
   // Everything the Lab actually asks for, so the refusal under test is the price and not a gate in
-  // front of it: a Nexus senior enough to authorise it, the Apothecary it wants, and the crew level.
-  app.repos.bases.updateBuildings(baseId, [
-    ...base.buildings.map((building) =>
-      building.kind === 'nexus' ? { ...building, level: 10 } : building,
-    ),
-    { id: 'b-apothecary', kind: 'apothecary', level: 4, modifications: [] },
-  ]);
+  // front of it: a Nexus senior enough to authorise it, the Generator it wants, and the crew level.
+  // The second clause moved from the Apothecary to the Generator on 2026-09-18.
+  // The starting district already stands a Generator, so this raises that one rather than
+  // appending a second: `buildingLevel` reads the first of a kind, and a duplicate row left the
+  // level-1 original answering for the pair.
+  const standing = base.buildings.map((building) =>
+    building.kind === 'nexus'
+      ? { ...building, level: 10 }
+      : building.kind === 'generator'
+        ? { ...building, level: 4 }
+        : building,
+  );
+  app.repos.bases.updateBuildings(
+    baseId,
+    standing.some((building) => building.kind === 'generator')
+      ? standing
+      : [
+          ...standing,
+          { id: 'b-generator', kind: 'generator' as const, level: 4, modifications: [] },
+        ],
+  );
   app.repos.bases.updateProgression(baseId, 9, base.progression);
   app.repos.bases.updateCommanders(baseId, [
     createCommander('off-1', 'Vasso', null, {}, [SPONSOR]),

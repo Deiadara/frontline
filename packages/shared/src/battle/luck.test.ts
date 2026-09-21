@@ -166,6 +166,8 @@ describe('luck makes a losing side likelier to get away', () => {
       started: 10,
       suppressed: 0,
       dealt: 0,
+      sheet: spec.stats,
+      loudTier: 0,
     };
   };
   const context = { pursuit: 55, lastRound: 6, away: false };

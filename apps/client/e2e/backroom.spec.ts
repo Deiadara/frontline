@@ -1,6 +1,6 @@
 import { BUILDING_KINDS, CITY_DISTRICTS } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { adminGame, lateGame, me } from './fixtures';
+import { adminGame, lateGame } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -353,6 +353,12 @@ test.describe('the console', () => {
             return (
               id !== undefined &&
               !id.endsWith('-badge') &&
+              // The padlock a shut door wears (§I3) is drawn *inside* its tile and its test id
+              // starts with `nav-` like a door's, so a single locked door used to read as a
+              // twelfth place and redden the centring below. Which doors are shut depends on the
+              // fixture's level, rank, officers and district, so this count has to be about the
+              // row of places and nothing drawn on top of one.
+              !id.startsWith('nav-locked-') &&
               id !== 'nav-feats' &&
               id !== 'nav-settings'
             );
@@ -517,7 +523,10 @@ test.describe('a write whose response shape the fixture has to get right', () =>
   });
 
   test('building a scrapyard add-on lands instead of erroring', async ({ page }) => {
-    await installApi(page, me);
+    // §I3 opens this screen on the Scrapyard being built (2026-09-19), which the starting crew has
+    // not done. `lateGame` has one standing, and the harness answers `/api/scrapyard` off its own
+    // fixture either way, so only the door changes.
+    await installApi(page, lateGame);
     await page.goto('/game/scrapyard');
     await expect(page.getByTestId('scrapyard-nexus')).toBeVisible();
 

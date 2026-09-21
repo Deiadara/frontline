@@ -12,6 +12,7 @@ import {
   scaledSuccessChance,
   CITY_DISTRICTS,
   isHeldBy,
+  missionBoardKey,
   missionOffers,
   missionRewards,
   payoutSlots,
@@ -158,8 +159,15 @@ export function projectAreas(
   active: readonly StoredMission[],
   /** The crew reading it: what its level does to the pay and the odds. */
   level: number,
-  /** The game day the boards are generated from. They turn over at midnight, Athens. */
-  day: string,
+  /**
+   * When the boards are being read, which is what each one's key is derived from.
+   *
+   * A `Date` rather than the day string it used to be, because the two boards no longer turn
+   * over together: a district's key is still its game day (midnight, Athens) and `misc` carries
+   * a slot within that day as well (`missionBoardKey`). Passing the day here would have made
+   * that impossible to express without a second parameter nobody would remember to pass.
+   */
+  now: Date,
   /**
    * What this crew's standing is worth on a run, so the card quotes what the launch will freeze.
    *
@@ -184,12 +192,13 @@ export function projectAreas(
       payPercent,
       offers:
         activeMissionId === null
-          ? missionOffers(id, day).map((template) =>
-              offerFor(template, payPercent, level, standing.speedPercent ?? 0, {
-                areaId: id,
-                day,
-              }),
-            )
+          ? ((key) =>
+              missionOffers(id, key).map((template) =>
+                offerFor(template, payPercent, level, standing.speedPercent ?? 0, {
+                  areaId: id,
+                  day: key,
+                }),
+              ))(missionBoardKey(id, now))
           : [],
       activeMissionId,
     };

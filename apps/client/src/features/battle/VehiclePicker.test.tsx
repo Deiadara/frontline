@@ -98,6 +98,7 @@ const view: BattleView = {
     defender: { kind: 'looters' },
     scheduledFor: MARK,
     holdAfterCapture: false,
+    wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
     seed: 'press-seed',
@@ -218,7 +219,7 @@ describe('the machines panel', () => {
     const note = picker.getByText(/unit slots ·/);
     // Eight Razors and 90 slots: nobody walks, so the machine under them is the slowest group.
     expect(note).toHaveTextContent(
-      `${SEATS} unit slots · Held to ${AT_HOME} by the Cheese Wagon · ${formatDuration((ROAD ?? 0) * 60)} at most`,
+      `${SEATS} unit slots · Held to ${AT_HOME} by The Cheese Wagon · ${formatDuration((ROAD ?? 0) * 60)} at most`,
     );
     // The pace the standing muster would produce, and the phrase that promised a column.
     expect(note).not.toHaveTextContent(`Held to ${AT_MUSTER}`);

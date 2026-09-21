@@ -228,3 +228,95 @@ test('quotes the discounted price and clock, not the catalogue ones', async ({ p
   await expect(line).toContainText(String(three.caps));
   await expect(card).toContainText(formatDuration(trainingSeconds(spec, 3, speed)));
 });
+
+/**
+ * One colour for a damage type, wherever it is printed (maintainer, 2026-09-18).
+ *
+ * "Have the Explosive damage all be golden, and generally the X Damage text should all have the
+ * same colour in units." The card already set every type in brass; the two tables behind the
+ * Weaknesses and Resistances hovers set the very same words in `text-ink-100`, so "Explosive" was
+ * gold on the card and off-white two inches under it, reading as two different kinds of fact.
+ *
+ * Read back as **computed colour** rather than as a class string, which is the point of running
+ * it in a browser: a class list review cannot tell you that two rules resolve to one paint, and
+ * this defect was two components agreeing on a word and disagreeing on a token.
+ */
+test('a damage type is the same colour on the card as it is in its tables', async ({ page }) => {
+  await openRoster(page, 'specialist');
+
+  const colourOf = (locator: ReturnType<Page['locator']>): Promise<string> =>
+    locator.evaluate((el) => getComputedStyle(el).color);
+
+  // The Demolishers, because they are the explosive sheet the maintainer named and their table
+  // carries Explosive on the resistance side, so the same word is printed twice on one screen.
+  const onTheCard = await colourOf(
+    page.getByTestId('damage-type-demolishers').getByText('Explosive', { exact: true }),
+  );
+  // Golden, named rather than merely "consistent": two components agreeing on grey would pass a
+  // test that only compared them to each other.
+  expect(onTheCard, 'the damage type on the card is not brass').toBe('rgb(240, 173, 76)');
+
+  for (const side of ['weaknesses', 'resistances'] as const) {
+    await page.getByTestId(`${side}-demolishers`).hover();
+    const sheet = page.getByTestId(`${side}-sheet-demolishers`);
+    await expect(sheet).toBeVisible();
+
+    const names = await sheet.locator('li > span:first-child').all();
+    expect(names.length, `the ${side} table is empty, so it proves nothing`).toBeGreaterThan(0);
+    for (const name of names) {
+      expect(
+        await colourOf(name),
+        `"${await name.textContent()}" in the ${side} table is not the card's colour`,
+      ).toBe(onTheCard);
+    }
+    await page.mouse.move(0, 0);
+  }
+});
+
+/**
+ * A rule between the keywords and the matchup (maintainer, 2026-09-18).
+ *
+ * "Another line that separates the tags from the types of damage and weakness." They were two
+ * rows of small caps a couple of pixels apart, so a card with one row of marks read as a single
+ * run-on paragraph: `Armour Piercing Last Stand Ballistic damage Weaknesses Resistances`.
+ *
+ * Asserted as a drawn border between the two rows rather than as a class, and with the geometry
+ * as well: a rule that resolved to `0px` or landed above the marks would satisfy a class check
+ * and change nothing on the screen.
+ */
+test('a drawn line separates a unit tag from what the unit hits with', async ({ page }) => {
+  await openRoster(page, 'heavy');
+  // `page.evaluate` does not auto-wait the way a locator does, and `openRoster` settles the fonts
+  // before the tier's own cards have necessarily rendered. Without this the read below raced the
+  // tab switch and found no damage line at all, which failed only on a warm dev server: the test
+  // passed alone and failed as the seventh in the file.
+  await expect(page.getByTestId('damage-line-juggernauts')).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const damage = document.querySelector('[data-testid="damage-line-juggernauts"]');
+    const rule = damage?.previousElementSibling as HTMLElement | null;
+    const marks = rule?.previousElementSibling as HTMLElement | null;
+    if (!damage || !rule || !marks) return null;
+    const style = getComputedStyle(rule);
+    return {
+      width: Math.round(rule.getBoundingClientRect().width),
+      border: style.borderTopWidth,
+      colour: style.borderTopColor,
+      marksBottom: Math.round(marks.getBoundingClientRect().bottom),
+      ruleTop: Math.round(rule.getBoundingClientRect().top),
+      damageTop: Math.round(damage.getBoundingClientRect().top),
+      marksText: marks.textContent?.trim().slice(0, 20) ?? '',
+    };
+  });
+
+  expect(geometry, 'the damage line has nothing before it').not.toBeNull();
+  // It is the keywords above it, not some other row that happened to be there.
+  expect(geometry?.marksText).toContain('Armour Piercing');
+  // Drawn, and drawn at a width somebody can see.
+  expect(geometry?.border).not.toBe('0px');
+  expect(geometry?.colour).not.toBe('rgba(0, 0, 0, 0)');
+  expect(geometry?.width ?? 0, 'the rule is a hairline with no length').toBeGreaterThan(100);
+  // ...and between the two, rather than over or under both.
+  expect(geometry?.ruleTop ?? 0).toBeGreaterThanOrEqual(geometry?.marksBottom ?? 0);
+  expect(geometry?.ruleTop ?? 0).toBeLessThanOrEqual(geometry?.damageTop ?? 0);
+});

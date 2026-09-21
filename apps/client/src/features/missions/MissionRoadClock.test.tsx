@@ -100,6 +100,10 @@ function renderBoard() {
       loadouts={{}}
       bagPercent={0}
       marks={{}}
+      carriersFight={false}
+      anyRide={false}
+      // The card a unit's name opens comes off the roster; these fixtures draw names bare.
+      roster={undefined}
       leaders={[officer]}
       unledRule="free"
       level={10}

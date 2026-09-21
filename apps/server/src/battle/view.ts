@@ -13,7 +13,10 @@ import {
   gateIsBroken,
   deploymentIsOpen,
   deployedSize,
+  CITY_LOCATIONS,
   findDistrict,
+  findLocation,
+  isHeldBy,
   findUnit,
   fittedFor,
   upgradedStats,
@@ -545,6 +548,50 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
       };
     }),
     scoutingRun: scoutingRunView(repos, base),
+    /*
+     * §A4: the cells this crew has planted (`city/sleepers.ts`).
+     *
+     * Named rather than sent as ids: the Monitor is a page a player reads, and "rustyard-press"
+     * is not a place anybody has heard of.
+     */
+    sleepers: repos.sleepers.forBase(base.id).map((cell) => {
+      const location = findLocation(cell.locationId);
+      return {
+        cellId: cell.id,
+        locationId: cell.locationId,
+        locationName: location?.name ?? cell.locationId,
+        districtName: location ? named(location.districtId) : 'somewhere',
+        army: cell.army,
+        phase: cell.phase,
+        arrivesAt: cell.arrivesAt,
+      };
+    }),
+    /*
+     * ...and the people posted on ground this crew already holds.
+     *
+     * They are not *doing* anything, which is exactly why no other screen shows them, and this
+     * page's question is "where is everybody right now". A crew with its whole army in garrisons
+     * was told nobody was out at all.
+     *
+     * Empty postings are dropped: a control row keeps its `garrison` key whether or not anybody
+     * is standing on it, and a list of empty places is a list of noise.
+     */
+    stationed: (() => {
+      const controls = repos.city.controls();
+      return CITY_LOCATIONS.flatMap((location) => {
+        const control = controls.get(location.id);
+        if (!control || !isHeldBy(control, base.id)) return [];
+        if (Object.values(control.garrison).every((count) => count <= 0)) return [];
+        return [
+          {
+            locationId: location.id,
+            locationName: location.name,
+            districtName: named(location.districtId),
+            army: control.garrison,
+          },
+        ];
+      });
+    })(),
     serverNow: now.toISOString(),
   };
 }

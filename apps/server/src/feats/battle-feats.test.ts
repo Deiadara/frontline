@@ -1,5 +1,6 @@
 import {
   DECLARE_INFAMY_COST,
+  JAMMING_AT,
   declarationWindow,
   featMeasureKey,
   skirmishOutcome,
@@ -60,6 +61,8 @@ const SHAPES: readonly FeatMeasure[] = [
   'battles_won_overwhelmed',
   'battles_won_flawless',
   'battles_won_lopsided',
+  'battles_won_jamming',
+  'battles_won_planted',
 ];
 
 interface Crew {
@@ -84,6 +87,17 @@ const attackerTakesIt = (winnerLosses: Army = {}, perimeterCaught: Army = {}): S
       killed: input.defending,
       winnerLosses,
       perimeterCaught,
+    }),
+});
+
+/** The attacker takes it, with their jammers reported as having been this deep in the enemy. */
+const attackerJams = (jam: number): SkirmishEngine => ({
+  resolve: (input) =>
+    skirmishOutcome({
+      winner: 'attacker',
+      log: ['nothing they brought worked'],
+      killed: input.defending,
+      jam: { attacker: jam, defender: 0 },
     }),
 });
 
@@ -261,6 +275,179 @@ describe('the four counters that ask what a fight looked like', () => {
 
     expect(unitSlotsUsed(holding)).toBeGreaterThanOrEqual(unitSlotsUsed(sending) * 4);
     expect(counted(world, world.raider.baseId, 'battles_won_overwhelmed')).toBe(1);
+  });
+
+  /**
+   * ...and only the slots that will be *in* the line, which is the other half of the same note.
+   *
+   * A crew defends its home with its whole roster (`assemble`), porters included, and nobody
+   * chooses that. `unitSlotsUsed` counted them, so the size of a warehouse was the size of a
+   * defence: beating four Razors standing in front of sixty porters paid out as a win against
+   * eight-to-one odds. The engine has skipped them when it counts its own sides since the day the
+   * rule was written; this is the feats board asking the same question the fight did.
+   *
+   * The two holdings below are **the same 84 unit slots**, and that is the point of the pair: the
+   * old reading could not tell them apart, so a control that only asserted the refusal would pass
+   * on a hook that had simply stopped paying the counter at all.
+   */
+  it('does not count porters as a defence, and still counts real numbers', async () => {
+    const PADDED: Army = { razors: 4, scavengers: 40, haulers: 20 };
+    const REAL: Army = { razors: 84 };
+    expect(unitSlotsUsed(PADDED), 'the pair is only a pair while the raw totals match').toBe(
+      unitSlotsUsed(REAL),
+    );
+
+    const behindPorters = await makeWorld(attackerTakesIt());
+    await raid(behindPorters, { razors: 10 }, PADDED);
+    expect(counted(behindPorters, behindPorters.raider.baseId, 'battles_won_outnumbered')).toBe(0);
+    expect(counted(behindPorters, behindPorters.raider.baseId, 'battles_won_overwhelmed')).toBe(0);
+
+    /*
+     * And a district with *nobody* in it who can fight is a walkover rather than a flawless win.
+     *
+     * `battles_won_flawless` asks for a real enemy and the raw slot count called sixty porters
+     * one, so walking into an undefended warehouse paid out the same as holding a line against
+     * one. The three force-driven counters are named rather than asserting the whole set:
+     * `battles_won_lopsided` reads kill counts, and this file's stub kills whatever it is handed,
+     * porters included, which the engine's own line would never have put in front of anybody.
+     */
+    const empty = await makeWorld(attackerTakesIt());
+    await raid(empty, { razors: 10 }, { scavengers: 40, haulers: 20 });
+    for (const measure of [
+      'battles_won_outnumbered',
+      'battles_won_overwhelmed',
+      'battles_won_flawless',
+    ] as const) {
+      expect(counted(empty, empty.raider.baseId, measure), measure).toBe(0);
+    }
+
+    const behindFighters = await makeWorld(attackerTakesIt());
+    await raid(behindFighters, { razors: 10 }, REAL);
+    expect(counted(behindFighters, behindFighters.raider.baseId, 'battles_won_outnumbered')).toBe(
+      1,
+    );
+    expect(counted(behindFighters, behindFighters.raider.baseId, 'battles_won_overwhelmed')).toBe(
+      1,
+    );
+  });
+
+  /**
+   * The half that is easy to miss: the padding was on the defender's *own* force too.
+   *
+   * Ten Razors holding out against forty is four to one, and the crew that did it could never be
+   * paid for it, because the thirty Scavengers and twenty five Haulers asleep in the same district
+   * made their own line read as ninety slots. The one side that was genuinely outnumbered was the
+   * one the counter refused.
+   */
+  it('pays a defender who really was outnumbered, past the porters in their own district', async () => {
+    const world = await makeWorld(defenderHolds());
+    const holding: Army = { razors: 10, scavengers: 30, haulers: 25 };
+    await raid(world, { razors: 40 }, holding);
+
+    // The raw reading made the defence the *bigger* side, which is why it paid nothing.
+    expect(unitSlotsUsed(holding)).toBeGreaterThan(unitSlotsUsed({ razors: 40 }));
+    expect(counted(world, world.victim.baseId, 'battles_won_outnumbered')).toBe(1);
+    expect(counted(world, world.victim.baseId, 'battles_won_overwhelmed')).toBe(1);
+  });
+});
+
+/**
+ * §E: the jam counter, at the seam where it is written (maintainer, 2026-09-18).
+ *
+ * `feats/battle.test.ts` holds the threshold. What it cannot hold is that the number reaching
+ * the rule is the one the engine produced: `outcome.jam` is a new field on the skirmish outcome
+ * and the settle site has to read the right half of it for each crew. A hook that passed zero,
+ * or that crossed the two sides over, leaves every test in the tree green while the board never
+ * pays a Netrunner crew for the fight they won.
+ */
+describe('the counter for a fight the jammers decided', () => {
+  it('pays a win where the jam was deep enough, and nothing where it was not', async () => {
+    const deep = await makeWorld(attackerJams(JAMMING_AT));
+    await raid(deep, { razors: 20 }, { razors: 10 });
+    expect(counted(deep, deep.raider.baseId, 'battles_won_jamming')).toBe(1);
+
+    const shallow = await makeWorld(attackerJams(JAMMING_AT - 1));
+    await raid(shallow, { razors: 20 }, { razors: 10 });
+    expect(counted(shallow, shallow.raider.baseId, 'battles_won_jamming')).toBe(0);
+  });
+
+  /**
+   * The crossover, and it has to be set up carefully to mean anything.
+   *
+   * `outcome.jam` has a key per side and the settler reads one for each crew, so handing the
+   * attacker's figure to the defender is a one-word mistake nothing else sees. The obvious test
+   * is vacuous: a defender who *loses* earns nothing whatever the jam says, because
+   * `battleFeatsEarned` returns early on `won: false`, and the first version of this passed with
+   * the two sides crossed over. So the defender has to win, while the jam belongs to the
+   * attacker: the only thing that can pay the defender here is reading the wrong key.
+   */
+  it('does not pay the crew the jam was laid on, even when they win', async () => {
+    const world = await makeWorld({
+      resolve: (input) =>
+        skirmishOutcome({
+          winner: 'defender',
+          log: ['they held, and it was not the hacking that did it'],
+          killed: input.attacking,
+          jam: { attacker: JAMMING_AT * 2, defender: 0 },
+        }),
+    });
+    await raid(world, { razors: 20 }, { razors: 10 });
+
+    expect(counted(world, world.victim.baseId, 'battles_won_jamming')).toBe(0);
+    // The premise: the defender really did win, so the early return is not what is passing this.
+    expect(counted(world, world.victim.baseId, 'battles_won')).toBe(1);
+  });
+
+  /** And a fight nobody jammed pays nobody, which the default stub is already the case for. */
+  it('pays nothing when nobody brought one', async () => {
+    const world = await makeWorld(attackerTakesIt());
+    await raid(world, { razors: 20 }, { razors: 10 });
+    expect(counted(world, world.raider.baseId, 'battles_won_jamming')).toBe(0);
+  });
+});
+
+/**
+ * §A4: the counter for a fight that was set up before it was called.
+ *
+ * `city/sleepers.test.ts` holds the declaration end, where `wokeSleepers` is written. This is
+ * the other end, where the settler reads it: a hook that passed a flat `false`, or read the
+ * field for the wrong crew, leaves every test in the tree green while the board never pays a
+ * crew for the one thing a cell is for.
+ *
+ * The flag is set on the row directly rather than by planting, because planting needs a location
+ * target and this file's world is a break-in. What is measured is the settler reading it.
+ */
+describe('the counter for a fight the Sleepers were already standing in', () => {
+  const raidWith = async (woke: boolean): Promise<World> => {
+    const world = await makeWorld(attackerTakesIt());
+    world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 10 }, []);
+    const battleId = await declareRaid(world, { razors: 20 });
+    world.db
+      .prepare('UPDATE scheduled_battles SET woke_sleepers = ? WHERE id = ?')
+      .run(woke ? 1 : 0, battleId);
+    settle(world, battleId);
+    return world;
+  };
+
+  it('pays the crew whose cell was waiting, and nobody otherwise', async () => {
+    const planted = await raidWith(true);
+    expect(counted(planted, planted.raider.baseId, 'battles_won_planted')).toBe(1);
+
+    const marched = await raidWith(false);
+    expect(counted(marched, marched.raider.baseId, 'battles_won_planted')).toBe(0);
+  });
+
+  /** A defender never plants: a cell goes on ground its crew does **not** hold. */
+  it('never pays the crew that was attacked', async () => {
+    const world = await makeWorld(defenderHolds());
+    world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 40 }, []);
+    const battleId = await declareRaid(world, { razors: 5 });
+    world.db.prepare('UPDATE scheduled_battles SET woke_sleepers = 1 WHERE id = ?').run(battleId);
+    settle(world, battleId);
+
+    expect(counted(world, world.victim.baseId, 'battles_won_planted')).toBe(0);
+    // The premise: they really did win, so the early return is not what is passing this.
+    expect(counted(world, world.victim.baseId, 'battles_won')).toBe(1);
   });
 });
 

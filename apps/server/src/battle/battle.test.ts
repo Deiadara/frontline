@@ -721,9 +721,15 @@ describe('resolving it (§A4)', () => {
   });
 
   it('leaves the ground alone on a loss and sends home only whoever ran', async () => {
+    /*
+     * `winnerLosses` names a Civic Levy because the winner here is the *defence*, and since the
+     * 2026-09-19 re-cut the defence of the Steelbelt is the Combine: Levy and Greycoats, no
+     * Razors. Two Razors off a garrison that has none came off nothing, which is what left the
+     * count below two bodies high.
+     */
     const stack = await makeStack(
       'loser',
-      decided('defender', { fled: { razors: 1 }, winnerLosses: { razors: 2 } }),
+      decided('defender', { fled: { razors: 1 }, winnerLosses: { civic_levy: 2 } }),
     );
     const { battle } = await readyFight(stack);
     const before = stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
@@ -732,7 +738,9 @@ describe('resolving it (§A4)', () => {
 
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
 
-    expect(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!.holder.kind).toBe('looters');
+    // `government`, not `looters`: the 2026-09-19 re-cut made the Steelbelt Combine ground, so the
+    // party a failed raid leaves standing on the press is the regime.
+    expect(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!.holder.kind).toBe('government');
     expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before + 1);
     // A successful defence rewrites the garrison: whoever came up for the fight is standing on the
     // location now, less whatever the defence cost. Leaving the old garrison there would quietly make
@@ -756,9 +764,15 @@ describe('resolving it (§A4)', () => {
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
 
     const after = stack.repos.bases.findById(stack.baseId)!.economy.infamy;
-    // The Rustyard is independent ground, so the only ground bonus is the flat one for taking it.
+    /*
+     * 71, and every term of it is named rather than pasted: six Razors at one unit slot each is
+     * 6 (`INFAMY_PER_UNIT_SLOT` is 1 and a Razor eats one slot), plus `INFAMY_PER_RAID_WON`'s
+     * flat 25 for taking any ground by force, plus `INFAMY_PER_GOVERNMENT_SITE`'s 40 because the
+     * Steelbelt is the Combine's since the 2026-09-19 re-cut. It is not a seat of the regime's
+     * power, so the third term is 0.
+     */
     expect(after - before).toBe(
-      6 * infamyForKill('razors') + infamyForRaidWon({ fromTheState: false, seatOfPower: false }),
+      6 * infamyForKill('razors') + infamyForRaidWon({ fromTheState: true, seatOfPower: false }),
     );
   });
 

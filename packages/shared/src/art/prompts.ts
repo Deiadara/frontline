@@ -139,13 +139,13 @@ export const FRAMING = {
 /**
  * ART-PROMPTS §1b: the officer pool, keyed by `OFFICER_PORTRAIT_IDS`.
  *
- * A hundred and thirty-nine faces the crew's officers are drawn from. Written as descriptions of
+ * A hundred and sixty-four faces the crew's officers are drawn from. Written as descriptions of
  * paintings that already exist rather than as directions for ones that do not: the maintainer delivered
  * these, and what these lines are for is the record of *which* painting each key is, so a re-encode
  * or a re-order can be checked against something.
  *
  * One shared instruction runs under all of them (`FRAMING.officer`); each line here is only what
- * makes that face different from the other hundred and thirty-eight.
+ * makes that face different from the other hundred and sixty-three.
  *
  * `34` to `43` were delivered later, off the ten administrative portraits sitting unused in the
  * inbox. Appended rather than filed among the others: `officerPortraitId` indexes
@@ -1145,6 +1145,19 @@ export const PLATE_SUBJECTS = {
     lower left. Sodium lamps on wet concrete, the searchlight the only cold note. Painted signage is
     part of the street; nothing that reads as a label for a game object.
   `),
+  'plate-district-combine-spire': block(`
+    The CCS from above and slightly forward, the same camera as the other contested plates and
+    **no sky**: the Combine's civic spire at night, a walled cathedral precinct of grey stone and
+    gold-lit windows on a rock above the rest of the city. Eight places a player can stand, each
+    recognisable at a glance: a huge satellite dish on a stone hall at upper left, a gothic chapel
+    with a lit rose window and a spire at top centre, a green glass dome on a colonnaded clinic at
+    upper right of centre, a red-lit broadcast mast at the far upper right, a bronze statue on a
+    plinth in a paved plaza at the centre, a squat armoury block behind the walls at lower right, a
+    yellow crane over an unfinished wing at the far right, and a barricaded gatehouse in the outer
+    wall at the bottom centre. Warm gold light in every window against cold blue stone, smoke over
+    the city beyond. Painted signage is part of the street; nothing that reads as a label for a
+    game object.
+  `),
   'plate-district-rustyard': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
     houses and furnace rows closing on all four sides, a hoarding fence along the lower left, and
@@ -1596,6 +1609,10 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
     A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one
     grow-lamp inside reading warm #f59e0b.
   `),
+  combine_chapel: block(`
+    A steel-and-glass chapel at the top of a tower seen three-quarter from above, a long table
+    under a vaulted roof where the pews would be, one cold #22d3ee light down the length of it.
+  `),
 };
 
 /**
@@ -1782,5 +1799,45 @@ export const UNIT_SUBJECTS: Readonly<Record<string, string>> = {
     low and lit violet along its edge. Tracer rounds streak past above and behind, missing, one
     shooter half in silhouette firing from the far dark. Cold purple key from the blade, warm
     muzzle spark opposite, wet ground taking both.
+  `),
+  // --- the Combine (2026-09-19): the regime's own units, never the player's. Same ladder as the
+  // roster above: the Levy improvising, the Greycoats issued one thing each, the Enforcers
+  // defined by their kit, the Suppressor no longer a human silhouette, and the three legendaries
+  // each breaking the frame their own way.
+  civic_levy: block(`
+    A conscript in a civilian coat with a Combine armband stitched on crooked, a surplus machete
+    held wrong in both hands, a paper number pinned to the chest. Thin, young, badly fed, looking
+    somewhere off frame as if for orders. No armour of any kind.
+  `),
+  greycoat: block(`
+    A government infantryman in a long grey wool greatcoat buttoned to the throat, a pressed-steel
+    helmet with a unit number stencilled on the front, a bolt rifle held at port arms. Face set,
+    eyes on the viewer, the coat's shoulders damp from standing in the rain a long time.
+  `),
+  street_enforcers: block(`
+    A riot officer in matt-black plate over a grey uniform, a full visored helmet with a single
+    horizontal #22d3ee visor slit, a shock baton crackling faintly in one gauntlet and a transparent
+    riot shield in the other. Stance square, feet planted, more machine than man in the outline.
+  `),
+  suppressor: block(`
+    A two-man heavy weapons crew behind a belt-fed automatic gun on a tripod, sandbags and a
+    stack of ammunition cans, both men in grey with helmets and hearing protection, one feeding
+    the belt and one on the grips. Spent brass on the ground. The gun is the subject.
+  `),
+  syndic: block(`
+    A middle-aged government liaison in an immaculate charcoal suit and a Combine lapel pin,
+    standing in a factory yard with a clipboard under one arm and a holstered sidearm on the belt,
+    two private guards blurred behind him. Calm, well fed, faintly amused. The only clean thing in
+    the frame.
+  `),
+  executioner: block(`
+    A tall figure in black tactical armour with no insignia, a heavy hooked blade held low in one
+    hand, the face hidden behind a blank matt-black mask with no eye slits. Standing over the
+    edge of the frame as if the viewer is on the ground. Blood on the blade, none on the armour.
+  `),
+  directive_xero: block(`
+    An old man in a plain grey high-collared uniform seated at the head of a long steel table
+    under a vaulted glass roof, hands folded, a single #22d3ee light from above. No weapon visible.
+    Everything in the room is arranged around him, and he is looking straight at the viewer.
   `),
 };

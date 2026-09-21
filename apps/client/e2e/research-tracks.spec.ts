@@ -12,6 +12,7 @@ import { OFFICER_ROLES, RESEARCH_TRACK_STEPS } from '@frontline/shared';
 import { lateGame, research } from './fixtures';
 import {
   expectNoImagesClipped,
+  expectNothingClippedVertically,
   growPastTheFold,
   expectNothingOverflowsTheScreen,
   installApi,
@@ -167,6 +168,14 @@ for (const size of VIEWPORTS) {
     await growPastTheFold(page);
     await expectNoImagesClipped(page, '[data-testid="tech-track-head_of_growth"]');
     await expectNoImagesClipped(page, '[data-testid="research-tracks"]');
+    /*
+     * ...and nothing on the rail sliced by its own fold, once the window is past it.
+     *
+     * Scoped to the rail rather than swept over the page: a whole-page vertical sweep is a knife
+     * edge, and any height change anywhere reddens screens that have nothing to do with it. The
+     * rail is the frame whose head sits over a scroller, which is the shape the slice happens in.
+     */
+    await expectNothingClippedVertically(page, 'nav[aria-label="Officers"]');
   });
 }
 
@@ -193,7 +202,9 @@ test('draws a track nobody is standing on as shut rather than as empty', async (
   await page.getByTestId('research-track-field_commander').click();
   const panel = page.getByTestId('tech-track-field_commander');
   await expect(panel).toContainText('Nothing on this track moves until somebody is in the chair.');
-  await expect(panel.getByTestId('tech-tech_order_of_march')).toContainText(
+  // `tech_everybody_fights`, the track's first rung since 2026-09-19: it replaced Order of March,
+  // which this spec went on naming and which no longer exists.
+  await expect(panel.getByTestId('tech-tech_everybody_fights')).toContainText(
     'Needs a Field Commander',
   );
   await settleFonts(page);

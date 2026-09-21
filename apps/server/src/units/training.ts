@@ -6,6 +6,7 @@ import {
   MAX_TRAINING_QUEUE,
   VEHICLES,
   buildingLevel,
+  vehicleBuildSeconds,
   clampLevel,
   homeTrainingBonus,
   trainingSuppliesReduction,
@@ -403,7 +404,12 @@ export function queueVehicle(
     // Behind whatever is already on the bench, which is what makes it one bench rather than a
     // second queue that happens to be drawn in the same list.
     startedAt: trainingStartsAt(base.trainingQueue, now).toISOString(),
-    durationSeconds: adminSeconds(vehicle.buildSeconds, admin),
+    // §B6: the yard's own level takes time off the build (`vehicleBuildSeconds`). The Gauntlet's
+    // training cut deliberately does not reach a machine: it is built, not trained.
+    durationSeconds: adminSeconds(
+      vehicleBuildSeconds(vehicle, buildingLevel(base.buildings, 'garage')),
+      admin,
+    ),
     paid: charged,
   };
 

@@ -203,20 +203,26 @@ describe('the live channel over the wire', () => {
     const chosen = await chooseOverseer(stack.app, stack.token);
     const moverId = chosen.json<{ base: { id: string } }>().base.id;
     // Scouting is a journey; the fixture wants the state, so the intel is written directly.
-    stack.app.repos.city.markScouted(moverId, 'rustyard', new Date().toISOString());
+    stack.app.repos.city.markScouted(moverId, 'chrome-row', new Date().toISOString());
     // §D7: calling a fight costs infamy and nobody starts with any. Fixture money for the one call.
     const purse = stack.app.repos.bases.findById(moverId)!.economy;
     stack.app.repos.bases.updateEconomy(moverId, { ...purse, infamy: DECLARE_INFAMY_COST });
-    const rustyard = findDistrict('rustyard')!;
-    const squatted = rustyard.locations.find(
-      (location) => startingHolder(location, rustyard).kind !== 'unoccupied',
+    /*
+     * Chrome Row rather than the Steelbelt, which the 2026-09-19 re-cut handed to the Combine. A
+     * district one party holds end to end is shut and admits nothing but a gate fight, and this
+     * test is about a location declaration reaching a second tab. Chrome Row is the one contested
+     * district still split, so the looters' half is ground a call can be made on.
+     */
+    const openGround = findDistrict('chrome-row')!;
+    const squatted = openGround.locations.find(
+      (location) => startingHolder(location, openGround).kind !== 'unoccupied',
     )!;
     const declared = await stack.app.inject({
       method: 'POST',
       url: '/api/battles/declare',
       headers: { authorization: `Bearer ${stack.token}` },
       payload: {
-        target: { kind: 'location', districtId: 'rustyard', locationId: squatted.id },
+        target: { kind: 'location', districtId: 'chrome-row', locationId: squatted.id },
         scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
       },
     });

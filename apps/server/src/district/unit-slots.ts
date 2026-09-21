@@ -78,6 +78,20 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
   for (const stored of repos.missions.listActiveByBaseId(base.id)) {
     total = mergeArmies(total, stored.mission.force);
   }
+  /*
+   * §A4: and the Sleepers planted on somebody else's ground (`city/sleepers.ts`).
+   *
+   * The same sentence again, and the same hole it closes. A cell leaves `base.army` the moment it
+   * is sent and does not come back until it is recalled or woken into a fight, so without this it
+   * was counted nowhere at all: plant the army, watch `unitSlotsUsed` fall, train a second one
+   * into the room, and be over the §A1 cap the day the first lot walks home.
+   *
+   * Every phase, not only `waiting`: a cell on the road out and a cell on the road home are both
+   * people this crew feeds, exactly as a marching column is.
+   */
+  for (const cell of repos.sleepers.forBase(base.id)) {
+    total = mergeArmies(total, cell.army);
+  }
   return total;
 }
 

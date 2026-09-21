@@ -116,7 +116,13 @@ const BROKE = { caps: 0, supplies: 0, oil: 0, scrap: 0, highQualityMetal: 0, pla
 /** `GET /overseer/me`: the crew's effect channels, which is where the payroll step discount lives. */
 const crewStanding = (effects: Record<string, number>): CrewStandingResponse => {
   const { presetId: _presetId, ...preset } = OVERSEER_PRESETS[0]!;
-  return { overseer: { ...preset, id: 'ov-1' }, crewSheet: makeAttributes(15), effects, marks: {} };
+  return {
+    overseer: { ...preset, id: 'ov-1' },
+    crewSheet: makeAttributes(15),
+    effects,
+    marks: {},
+    haulPercent: 0,
+  };
 };
 
 const fetchMock = vi.fn();
@@ -250,8 +256,8 @@ describe('§A1: the district is a place, not a list', () => {
      */
     expect(plot('The Garage')).toHaveAccessibleName(/locked, needs/);
     expect(plot('The Garage')).toHaveAccessibleName(/The Nexus at 12/);
-    expect(plot('The Garage')).toHaveAccessibleName(/The Scrapyard at 6/);
-    expect(plot('The Garage')).toHaveAccessibleName(/District level 14/);
+    expect(plot('The Garage')).toHaveAccessibleName(/The Scrapyard at 7/);
+    expect(plot('The Garage')).toHaveAccessibleName(/District level 20/);
   });
 
   it('opens the plot dialog on click, and closes it again', async () => {
@@ -738,8 +744,11 @@ describe("a neighbour's district (§A4)", () => {
         damage: 0,
       },
       {
+        // The Lab's second clause moved from the Apothecary to the Generator on 2026-09-18. The
+        // fixture stands whatever the Lab actually waits on, so the one rung short below is the
+        // Nexus and nothing else.
         id: 'n2',
-        kind: 'apothecary' as const,
+        kind: 'generator' as const,
         level: 3,
         modifications: [],
         damage: 0,
@@ -756,7 +765,7 @@ describe("a neighbour's district (§A4)", () => {
         />,
       );
 
-    // The Lab wants the Nexus at 4 and an Apothecary at 2. One rung short, it is locked.
+    // The Lab wants the Nexus at 4 and a Generator at 2. One rung short, it is locked.
     const shut = draw([]);
     expect(shut.getByTestId('plot-lab')).toHaveAccessibleName(/locked/);
     shut.unmount();
@@ -792,7 +801,7 @@ describe("a neighbour's district (§A4)", () => {
     fireEvent.mouseEnter(garage);
     await waitFor(() => expect(screen.getByText('Not yet. You need:')).toBeInTheDocument());
     expect(screen.getByText('The Nexus at 12')).toBeInTheDocument();
-    expect(screen.getByText('District level 14')).toBeInTheDocument();
+    expect(screen.getByText('District level 20')).toBeInTheDocument();
   });
 
   it('still opens the dialog on your own district, which is the control case', () => {

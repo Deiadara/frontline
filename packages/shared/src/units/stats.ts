@@ -21,7 +21,23 @@ import { z } from 'zod';
  * resisting a damage type no attacker in the game could deal: a lever the design was paying
  * attention to and the engine could never reach.
  */
-export const DAMAGE_TYPES = ['ballistic', 'blade', 'explosive', 'energy', 'chemical'] as const;
+export const DAMAGE_TYPES = [
+  'ballistic',
+  'blade',
+  'explosive',
+  'energy',
+  'chemical',
+  /**
+   * Blunt force: a length of pipe, a shield rim, a ram, a boot (maintainer, 2026-09-19).
+   *
+   * The axis the roster was missing. Eight sheets were filed under `ballistic` or `blade` for
+   * want of anywhere better: a Scavenger swinging whatever was to hand, a Warden behind a riot
+   * shield, an Ironside putting its whole weight into a shield rim. None of them is shooting
+   * anybody and none is carrying an edge. Plate answers it and anything soft dreads it, which is
+   * what makes it a real axis rather than a sixth word for the same damage.
+   */
+  'blunt',
+] as const;
 export const DamageTypeSchema = z.enum(DAMAGE_TYPES);
 export type DamageType = z.infer<typeof DamageTypeSchema>;
 
@@ -31,6 +47,7 @@ export const DAMAGE_TYPE_LABELS: Record<DamageType, string> = {
   explosive: 'Explosive',
   energy: 'Energy',
   chemical: 'Chemical',
+  blunt: 'Blunt',
 };
 
 /**
@@ -53,18 +70,31 @@ export const COMBAT_CONTEXTS = [
 export const CombatContextSchema = z.enum(COMBAT_CONTEXTS);
 export type CombatContext = z.infer<typeof CombatContextSchema>;
 
-export const COMBAT_CONTEXT_LABELS: Record<CombatContext, string> = {
-  urban: 'in built-up ground',
-  dark: 'on unlit ground',
-  indoor: 'inside a structure',
-  open_ground: 'in the open',
-  underground: 'below street level',
-  vs_structure: 'against fortifications',
-  vs_armor: 'against armour',
-  vs_evasive: 'against something that will not hold still',
-  vs_low_morale: 'against a shaken enemy',
-  outnumbered: 'when outnumbered',
-  defending: 'when holding ground',
+/**
+ * What each context is called, in the two forms the game needs.
+ *
+ * `name` is the word on a tag: one or two words, capitalised, the thing a location's sheet stamps
+ * on itself so a player can see at a glance that Urban Bonus will fire there. `when` is the
+ * clause that goes in a sentence, which is what a modifier's hover says ("Counts in urban
+ * ground.") and what a battle report says it fought in.
+ *
+ * One table of pairs rather than two tables, because they are two spellings of one fact and a
+ * context renamed in one of them and not the other is a tag that disagrees with its own hover.
+ * `urban` said "built-up ground" in both until 2026-09-18, and the maintainer's note was exactly
+ * that: the sheet, the hover and the ground should all say the same word.
+ */
+export const COMBAT_CONTEXT_LABELS: Record<CombatContext, { name: string; when: string }> = {
+  urban: { name: 'Urban', when: 'in urban ground' },
+  dark: { name: 'Unlit', when: 'on unlit ground' },
+  indoor: { name: 'Indoor', when: 'inside a structure' },
+  open_ground: { name: 'Open ground', when: 'in the open' },
+  underground: { name: 'Underground', when: 'below street level' },
+  vs_structure: { name: 'Fortified', when: 'against fortifications' },
+  vs_armor: { name: 'Armoured enemy', when: 'against armour' },
+  vs_evasive: { name: 'Evasive enemy', when: 'against something that will not hold still' },
+  vs_low_morale: { name: 'Shaken enemy', when: 'against a shaken enemy' },
+  outnumbered: { name: 'Outnumbered', when: 'when outnumbered' },
+  defending: { name: 'Holding ground', when: 'when holding ground' },
 };
 
 export interface UnitModifierSpec {
@@ -82,6 +112,17 @@ export interface UnitModifierSpec {
    * while the context holds, which is a different number in a different place, so it says which.
    */
   affects?: 'offense' | 'toughness';
+  /**
+   * The clause the card prints after "Counts", when the context's own is not the whole truth.
+   *
+   * Defaulted to {@link COMBAT_CONTEXT_LABELS}`[context].when`, which is right for every entry
+   * whose only effect is the percentage. One is not: `ambush` also drives an opening exchange in
+   * `battle/engine.ts` that fires on any ground at all, so a card reading "Counts in urban
+   * ground" under a description about that exchange gave the wrong condition for half of what
+   * the tag does. An override rather than prose in the description, so the tag's condition stays
+   * a field the wire carries and not a sentence a reader has to reconcile.
+   */
+  when?: string;
 }
 
 /**
@@ -181,11 +222,25 @@ export const UNIT_MODIFIERS = {
     // Toughness rather than damage: this is on the sheet that has almost no damage to raise.
     affects: 'toughness',
   },
+  /*
+   * Two things off one tag, and the card has to say both (bug pass, 2026-09-19).
+   *
+   * The percentage below is an ordinary urban bonus and is what `when` describes. The *other*
+   * half is `ambushShare` in `battle/engine.ts`: an opening exchange before the defender is in
+   * position, which fires on any ground at all, only for the attacker, and in proportion to how
+   * far this side out-stealths the people it is walking into.
+   *
+   * The description used to name only that second half while the card printed "Counts in urban
+   * ground" under it, so the one sentence a player reads gave the wrong condition for the
+   * mechanic it described and no condition at all for the number. Both are named now.
+   */
   ambush: {
     label: 'Ambush',
-    description: 'The first exchange is decided before the enemy knows there is one.',
+    description:
+      'Better in these streets than out of them. Attacking, they also get an exchange away before the other side is in position: that half is bought with stealth, so it is worth most against people who never saw them coming and nothing at all against people who did.',
     context: 'urban',
     percent: 25,
+    when: 'in urban ground, and on any ground at all for the opening exchange',
   },
   rooftop: {
     label: 'Rooftop',

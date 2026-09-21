@@ -8,7 +8,7 @@ import { BLUEPRINTS, type BlueprintSpec } from './catalog.js';
 import { blueprintForUnitUpgrade, blueprintGateMet } from './requirements.js';
 
 /**
- * The twenty-seven drawings behind the unit modification cards.
+ * The twenty-eight drawings behind the unit modification cards.
  *
  * `units/modifications.ts` says which cards want a document and cannot say which document: it sits
  * below `blueprints/` in the import graph and takes the answer as a predicate. So the catalogue
@@ -47,9 +47,9 @@ describe('the unit modification documents (§D12g, second model)', () => {
    * Pinned so the rest of this file cannot pass on an empty catalogue. Every other test here is a
    * loop over `GATED` or `OPEN`, and a loop over nothing asserts nothing.
    */
-  it('has twenty-seven gated cards and three open ones to check', () => {
-    expect(UNIT_MODIFICATIONS).toHaveLength(30);
-    expect(GATED).toHaveLength(27);
+  it('has twenty-eight gated cards and three open ones to check', () => {
+    expect(UNIT_MODIFICATIONS).toHaveLength(31);
+    expect(GATED).toHaveLength(28);
     expect(OPEN.map((spec) => spec.id)).toEqual(['taped_grips', 'scrap_vest', 'broken_in_boots']);
   });
 
@@ -82,7 +82,7 @@ describe('the unit modification documents (§D12g, second model)', () => {
   });
 
   /**
-   * The hole itself. Before the documents existed this answered true for all twenty-seven, which
+   * The hole itself. Before the documents existed this answered true for all of them, which
    * is `blueprintGateMet` doing what it says: nothing named the id, so nothing gated it.
    */
   it('shuts the gate on every gated card until its document is unlocked, and leaves the open ones open', () => {

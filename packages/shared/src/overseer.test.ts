@@ -50,6 +50,43 @@ describe('what a new account is offered', () => {
     }
     expect(seen.size, 'some characters can never be offered to anybody').toBe(OVERSEER_POOL_SIZE);
   });
+
+  /**
+   * ...and the **batches** vary, not merely the characters in them.
+   *
+   * The test above passed while the draw could produce only 29 distinct quartets out of the 27,405
+   * that exist, because all thirty characters were still reachable *somewhere* across those 29.
+   * Reachability of a character and variety of a batch are two different properties and only one
+   * of them was ever pinned.
+   *
+   * The draw was `(hash + step * stride) % pool.length` with `stride` also derived from
+   * `hash % pool.length`, so the whole batch came off a single residue. What it cost the game: a
+   * lapsed hold was supposed to redraw a *different* four, and came back with the same four 3.55%
+   * of the time, which is the intermittent failure `overseer-holds.test.ts` was showing.
+   *
+   * The bound is deliberately far below the 27,384 a correct draw actually reaches at this sample
+   * size, so an ordinary change to the hash does not redden it; anything that collapses the draw
+   * back onto one modulus lands two orders of magnitude under it.
+   */
+  it('draws many different quartets, not many different characters', () => {
+    const batches = new Set<string>();
+    for (let index = 0; index < 5000; index += 1) {
+      batches.add(ids(overseerOffer([], `batch-${index}`)).join(','));
+    }
+    expect(batches.size, 'the draw collapses onto a handful of quartets').toBeGreaterThan(4000);
+  });
+
+  /** The consequence a player meets: a fresh seed is a fresh four, near enough always. */
+  it('replaces a lapsed batch with a different one', () => {
+    let identical = 0;
+    for (let index = 0; index < 2000; index += 1) {
+      const before = ids(overseerOffer([], `lapse-${index}-first`)).join(',');
+      const after = ids(overseerOffer([], `lapse-${index}-second`)).join(',');
+      if (before === after) identical += 1;
+    }
+    // Chance alone gives 2000 / 27405, well under one. The broken walk gave about 71.
+    expect(identical, 'a redraw keeps landing on the batch it just replaced').toBeLessThan(5);
+  });
 });
 
 /**

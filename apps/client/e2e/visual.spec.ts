@@ -22,6 +22,7 @@ import {
   activeResearch,
   districtWithAddons,
   hudExtremes,
+  factionNone,
   lateGame,
   market,
   me,
@@ -66,11 +67,13 @@ const VIEWPORTS: readonly Size[] = [
  * exemption covered whole subtrees and would have hidden the bug that prompted it, which was a
  * building's plot hanging 58px off the left edge where nobody could click it.
  */
-async function expectNothingClippedHorizontally(page: Page): Promise<void> {
+async function expectNothingClippedHorizontally(page: Page, root = 'body'): Promise<void> {
   await settleFonts(page);
-  const offenders = await page.evaluate<string[]>(() => {
+  const offenders = await page.evaluate<string[], string>((selector) => {
     const bad: string[] = [];
-    for (const el of Array.from(document.body.querySelectorAll<HTMLElement>('*'))) {
+    const within = document.querySelector<HTMLElement>(selector);
+    if (!within) throw new Error(`${selector} is not on the page`);
+    for (const el of Array.from(within.querySelectorAll<HTMLElement>('*'))) {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) continue;
       const style = getComputedStyle(el);
@@ -81,7 +84,7 @@ async function expectNothingClippedHorizontally(page: Page): Promise<void> {
       }
     }
     return bad.slice(0, 5);
-  });
+  }, root);
   expect(offenders, `elements outside the viewport: ${offenders.join(' | ')}`).toEqual([]);
 }
 
@@ -731,12 +734,15 @@ for (const size of VIEWPORTS) {
       await grantValue('Recruit slots').scrollIntoViewIfNeeded();
       await settleFonts(page);
 
-      await expect(page.getByText('Level 12 → 13')).toBeInViewport({ ratio: 1 });
-      await expect(page.getByText('7799 / 7800 XP')).toBeInViewport({ ratio: 1 });
+      // Fifteen since 2026-09-19: the Market opens at 15 and the back room at notoriety 3, so the
+      // late-game fixture was raised past every door it is meant to be able to walk through. The
+      // readout is wider for it, which is what this case exists to catch: five digits either side
+      // of the slash rather than four.
+      await expect(page.getByText('Level 15 → 16')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByText('11999 / 12000 XP')).toBeInViewport({ ratio: 1 });
 
-      // §I2 grants at level 12: §H8 slots 2+11. The two assignee rows that used to sit above this
-      // one went with the pool, which is why the panel is one row now.
-      await expect(grantValue('Recruit slots')).toHaveText('13');
+      // §I2 grants at level 15: §H8 slots 2+14.
+      await expect(grantValue('Recruit slots')).toHaveText('16');
 
       await expectNothingClippedHorizontally(page);
       await page.screenshot({ path: `screenshots/visual/progression-${tag}.png` });
@@ -1470,6 +1476,32 @@ for (const size of VIEWPORTS) {
       );
 
       /*
+       * 2b. The four columns and the floor under them are one frame, not two things stacked.
+       *
+       * The maintainer's request on 2026-09-21: "have the 4 categories inside a bigger template
+       * that also includes that progress at the bottom". So the claim is containment and order,
+       * measured rather than asserted from the markup: the sheet sits inside the floor's box, the
+       * strip sits inside it too and below the sheet, and there is no gap between them wide
+       * enough to read as two separate panels.
+       */
+      const floorFrame = await box('training-floor');
+      const underway = await box('training-underway');
+      expect(sheet.y, 'the sheet is not inside the floor frame').toBeGreaterThanOrEqual(
+        floorFrame.y - 1,
+      );
+      expect(
+        underway.y + underway.height,
+        'the strip is not inside the floor frame',
+      ).toBeLessThanOrEqual(floorFrame.y + floorFrame.height + 1);
+      expect(underway.y, 'the strip belongs under the sheet').toBeGreaterThanOrEqual(
+        sheet.y + sheet.height - 1,
+      );
+      expect(
+        underway.y - (sheet.y + sheet.height),
+        'the sheet and the strip read as two panels rather than one',
+      ).toBeLessThan(16);
+
+      /*
        * 3. The frame fills the screen, and the rail's last block is pinned to the foot of it.
        *
        * This is the assertion that catches the fixed frame being taken out. Without it the page
@@ -1485,9 +1517,13 @@ for (const size of VIEWPORTS) {
       expect(floor - (day.y + day.height), 'the day is not at the foot of the rail').toBeLessThan(
         48,
       );
-      expect(floor - (sheet.y + sheet.height), 'the sheet does not reach the floor').toBeLessThan(
-        48,
-      );
+      // Measured on the floor frame rather than on the sheet inside it, since 2026-09-21: the
+      // sheet now stops where the strip under it starts, and the thing that has to reach the
+      // bottom of the screen is the frame the two of them share.
+      expect(
+        floor - (floorFrame.y + floorFrame.height),
+        'the floor frame does not reach the bottom of the screen',
+      ).toBeLessThan(48);
 
       // 4. The page itself does not scroll, and the roster is a scrolling region.
       const shape = await page.evaluate(() => ({
@@ -1500,6 +1536,76 @@ for (const size of VIEWPORTS) {
       }));
       expect(shape.page, 'the training page itself scrolled').toBe(false);
       expect(shape.roster, 'the roster is not a scrolling region').toBe('auto');
+    });
+
+    /**
+     * §F2: the strip along the foot of the sheet, with the gym full.
+     *
+     * The maintainer's request on 2026-09-21: "have the officers currently being trained show up
+     * in a progress bar at the bottom (no need for a scrolable page though)". The "no scroll" half
+     * is the one worth measuring, because it is the half that fails quietly: a crew can have up to
+     * `TRAININGS_PER_DAY` hours out at once, and a strip that wrapped to a third line would eat a
+     * row of drills off the sheet above it on every screen in the game rather than only on this
+     * fixture.
+     *
+     * So: everyone who is on an hour is drawn, nobody who is idle is, each one has a bar with
+     * pigment in it, none of them is cut, and the whole strip still fits inside the frame.
+     */
+    test(`the training floor holds a full gym at ${tag}`, async ({ page }) => {
+      await installApi(page, lateGame, { underWay: { floor: 4 } });
+      await page.goto('/game/training');
+      const strip = page.getByTestId('training-underway');
+      await expect(strip).toBeVisible();
+      await settleFonts(page);
+
+      // One row per person on an hour, and none for the one who is not.
+      const rows = strip.locator('[data-testid^="training-underway-"]');
+      await expect(rows).toHaveCount(4);
+      await expect(strip.getByText('Ada Vasquez')).toHaveCount(0);
+
+      const bars = await strip.evaluate((el: HTMLElement) => {
+        const frame = el.closest('[data-testid="training-floor"]') as HTMLElement;
+        return {
+          spills: el.getBoundingClientRect().bottom - frame.getBoundingClientRect().bottom,
+          scrolls: el.scrollHeight > el.clientHeight + 1,
+          fills: [...el.querySelectorAll<HTMLElement>('.paint-fill')].map((fill) => {
+            const track = fill.parentElement as HTMLElement;
+            return {
+              fill: fill.getBoundingClientRect().width,
+              track: track.getBoundingClientRect().width,
+            };
+          }),
+        };
+      });
+      expect(bars.spills, 'the strip hangs out of the frame it lives in').toBeLessThan(1);
+      expect(bars.scrolls, 'the strip scrolls, which is the one thing it must not do').toBe(false);
+      expect(bars.fills.length, 'no bars in the strip').toBe(4);
+      for (const bar of bars.fills) {
+        expect(bar.track, 'a bar collapsed to its content').toBeGreaterThan(24);
+        // Pigment in every one, and never the whole track: the fixture staggers the hours, so a
+        // full bar would mean the progress is not being read at all.
+        expect(bar.fill).toBeGreaterThan(0);
+        expect(bar.fill).toBeLessThan(bar.track);
+      }
+      // And the four are not all drawn at one length, which a bar wired to a constant would be.
+      expect(new Set(bars.fills.map((bar) => Math.round(bar.fill))).size).toBeGreaterThan(2);
+
+      /*
+       * Scoped to the frame, and the scope is the point.
+       *
+       * This fixture puts five people on the rail against the two the standard one has, and at
+       * 1024x768 that rail is a scrolling region with its last entry half above the fold, which
+       * is what a scrolling region is *for*. A page-wide sweep reads that as cut text and reds on
+       * the roster working correctly. What this test is about is the floor, and the floor does not
+       * scroll: inside that frame a cut letter is a real fault with nowhere to hide.
+       *
+       * The page-wide sweeps stay where they are, on `training at ${tag}` with the fixture whose
+       * roster fits.
+       */
+      await expectNothingClippedHorizontally(page, '[data-testid="training-floor"]');
+      await expectNothingClippedVertically(page, '[data-testid="training-floor"]');
+      await expectNothingOverflowsTheScreen(page);
+      await page.screenshot({ path: `screenshots/visual/training-floor-${tag}.png` });
     });
 
     /** The Overseer's own file, reached by clicking the identity in the HUD. */
@@ -1933,7 +2039,27 @@ for (const size of VIEWPORTS) {
       await expect(page.getByTestId('vehicle-catalogue')).toBeVisible();
       await settleFonts(page);
 
-      await expect(page.getByTestId('vehicle-motorcycle')).toContainText('in the yard');
+      // The count is the roster's chip now rather than a sentence in the header (maintainer,
+      // 2026-09-18): held and out, with the total in front of the slash. The words are on the
+      // hover, which is what this asserts as well, so a chip that lost its tip is a failure.
+      const held = page.getByTestId('vehicle-count-motorcycle');
+      await expect(held).toHaveText('3 / 1');
+      await expect(held).toHaveAttribute('data-tip', /in the yard/);
+      /*
+       * ...and it is actually on top of the picture, which `toBeVisible` does not answer.
+       *
+       * `.painted > *` in `index.css` raises every direct child of a painted box to `z-index: 1`,
+       * and the glyph's frame is `relative` with no z-index of its own, so it opens no stacking
+       * context and the machine's painting lands at 1 in the card's context. The chip is a
+       * sibling at `auto`. It was rendered, laid out 41x19 in the picture's corner, and painted
+       * under it: visible to Playwright, invisible to a player, and caught by nothing.
+       */
+      const onTop = await held.evaluate((chip) => {
+        const box = chip.getBoundingClientRect();
+        const at = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return chip.contains(at) ? 'the chip' : (at?.tagName ?? 'nothing');
+      });
+      expect(onTop, 'the count chip is buried under the machine').toBe('the chip');
       await expect(page.getByTestId('vehicle-rotorcraft')).toContainText('Needs the');
 
       await expectNothingOverflowsTheScreen(page);
@@ -1951,7 +2077,17 @@ for (const size of VIEWPORTS) {
      * fixed, which is what this matrix is for.
      */
     test(`joining or founding a faction at ${tag}`, async ({ page }) => {
-      await installApi(page, me);
+      await installApi(page, lateGame);
+      // §I3 gates this screen at level 10 (2026-09-19), and the harness answers `/api/factions`
+      // with the empty state only for a level-1 crew. The two rules now contradict each other, so
+      // the case says which payload it wants rather than inferring it from a level.
+      await page.route('**/api/factions', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(factionNone),
+        }),
+      );
       await page.goto('/game/faction');
       await expect(page.getByTestId('faction-none')).toBeVisible();
       await settleFonts(page);
@@ -1969,7 +2105,18 @@ for (const size of VIEWPORTS) {
     });
 
     test(`the badge builder at ${tag}`, async ({ page }) => {
-      await installApi(page, me);
+      await installApi(page, lateGame);
+      // §I3 gates this screen at level 10 (2026-09-19), and the harness answers `/api/factions`
+      // with the empty state only for a level-1 crew. The two rules now contradict each other, so
+      // the case says which payload it wants rather than inferring it from a level.
+      await page.route('**/api/factions', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(factionNone),
+        }),
+      );
+
       await page.goto('/game/faction');
       await page.getByTestId('start-faction').click();
       await expect(page.getByTestId('create-sheet')).toBeVisible();

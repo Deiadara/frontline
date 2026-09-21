@@ -61,12 +61,20 @@ describe('settling the world from a city page', () => {
     const app = await makeApp();
     const attacker = await register(app, 'the_attacker');
     app.repos.bases.updateArmy(attacker.baseId, { razors: 40 }, []);
-    app.repos.city.markScouted(attacker.baseId, 'rustyard', new Date().toISOString());
+    /*
+     * Chrome Row, the one contested district still split between the looters and nobody.
+     *
+     * This was the Steelbelt until the 2026-09-19 re-cut made it Combine ground, and a district
+     * one party holds end to end is shut: the only target in it is its gate. What this test needs
+     * is any location fight to hang a column off, so it moves to ground that still has one. The
+     * Exchange is in the squatted half, so there is a garrison to turn up for it.
+     */
+    app.repos.city.markScouted(attacker.baseId, 'chrome-row', new Date().toISOString());
 
     const target: BattleTarget = {
       kind: 'location',
-      districtId: 'rustyard',
-      locationId: 'rustyard-press',
+      districtId: 'chrome-row',
+      locationId: 'chrome-row-exchange',
     };
     const declared = await app.inject({
       method: 'POST',
@@ -91,7 +99,7 @@ describe('settling the world from a city page', () => {
       battleId: battle.id,
       side: 'attacker',
       fromDistrictId: 'kettle-row',
-      toDistrictId: 'rustyard',
+      toDistrictId: 'chrome-row',
       army: { razors: 30 },
       perimeter: {},
       departedAt: new Date(mark.getTime() - 3_600_000).toISOString(),

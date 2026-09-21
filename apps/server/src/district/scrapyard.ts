@@ -35,7 +35,7 @@ import {
   withModificationFitted,
   BUILDING_KINDS,
   BUILDING_CATALOG,
-  UNIT_CATALOG,
+  PLAYER_UNITS,
   OFFICER_ROLE_LABELS,
   modificationGateMet,
   modificationPrice,
@@ -188,7 +188,7 @@ function boltInMessage(
   spec: ModificationSpec,
   kind: BuildingKind,
 ): string {
-  const requirement = modificationRequirement(spec);
+  const requirement = modificationRequirement(spec, kind);
   const named = {
     requirement,
     buildingName: BUILDING_CATALOG[kind].name,
@@ -323,7 +323,7 @@ function upgradeTargets(
   markFor: (role: OfficerRole) => OfficerMark | null,
   trainable: ReadonlySet<string>,
 ): ScrapyardEntry['targets'] {
-  return UNIT_CATALOG.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => {
+  return PLAYER_UNITS.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => {
     const slots = slotsFor(base.unitLoadouts, unit.id);
     const refusal = boltOntoUnitRefusal({
       id: spec.id,
@@ -373,7 +373,7 @@ export function projectScrapyard(
 
   const modifications: ScrapyardEntry[] = MODIFICATIONS.map((spec) => {
     const targets = modificationTargets(base, spec, markFor);
-    const requirement = modificationRequirement(spec);
+    const requirement = modificationRequirement(spec, spec.building);
     return {
       id: spec.id,
       kind: 'modification' as const,

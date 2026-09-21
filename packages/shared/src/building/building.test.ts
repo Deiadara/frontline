@@ -227,13 +227,13 @@ describe('level caps and unlocks (§A1)', () => {
     // Everything standing, crew too green: the level clause alone is unmet.
     const green = unmetRequirements('garage', maxed, 1);
     expect(green).toHaveLength(1);
-    expect(green[0]).toEqual({ kind: 'player_level', level: 14 });
+    expect(green[0]).toEqual({ kind: 'player_level', level: 20 });
 
     // Veteran crew, no Scrapyard: the building clause alone is unmet.
     const noYard = maxed.filter((building) => building.kind !== 'scrapyard');
     const missing = unmetRequirements('garage', noYard, 99);
     expect(missing).toHaveLength(1);
-    expect(missing[0]).toEqual({ kind: 'building', building: 'scrapyard', level: 6 });
+    expect(missing[0]).toEqual({ kind: 'building', building: 'scrapyard', level: 7 });
 
     // And both at once, which is the case the ladder is built out of.
     expect(unmetRequirements('garage', noYard, 1)).toHaveLength(2);

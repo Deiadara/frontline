@@ -76,7 +76,7 @@ export interface Effective {
  * The percentage a unit's own modifiers are worth here.
  *
  * Summed, not multiplied: see the module note. Contexts that do not hold contribute nothing at
- * all rather than a fraction: a sheet that says "in built-up ground" is a promise about built-up
+ * all rather than a fraction: a sheet that says "in urban ground" is a promise about urban
  * ground, and partial credit for fighting *near* some would make it unreadable.
  */
 export function contextBonusPercent(
@@ -230,7 +230,7 @@ export function effectiveStats(
      *
      * `intimidationFlat` has always been summed out of the hold bonuses and never reached an
      * engine, so the Broadcast Tower, whose *only* bonus is intimidation, was worth exactly nothing
-     * to hold. It has a consumer now: `cow` in the engine spends a side's total intimidation
+     * to hold. It has a consumer now: `intimidate` in the engine spends a side's total intimidation
      * against the enemy's total morale before the first shot. Clamped like morale beside it, and
      * for the same reason: no stack of bonuses may put a unit past the sheet's own ceiling.
      */

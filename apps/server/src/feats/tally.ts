@@ -3,6 +3,9 @@ import {
   RESOURCE_KEYS,
   battleFeatsEarned,
   featMeasureKey,
+  isCombineUnit,
+  rarityOfPage,
+  type Army,
   type BattleFeatFacts,
   type FeatMeasure,
   type ItemCost,
@@ -113,6 +116,22 @@ export function tallyPagesIn(repos: Repositories, baseId: string, items: ItemCos
       0,
     ),
   );
+}
+
+/**
+ * What the Reimagining bench handed back, counted only when it is a Masterpiece.
+ *
+ * Called for every trade rather than only the good ones, so the route says what happened and this
+ * file decides what it is worth counting, which is the rule the whole module is built on.
+ *
+ * `rarityOfPage` is the shared lookup the bench itself draws with (`blueprints/state.ts`), and
+ * reading it here is deliberate: the tier of a sheet is the sheet's own rarity where it was
+ * authored one and its document's otherwise, and a second copy of that rule living in the server
+ * would be a counter that disagrees with the draw it is counting.
+ */
+export function tallyPageReimagined(repos: Repositories, baseId: string, pageId: string): void {
+  if (rarityOfPage(pageId) !== 'masterpiece') return;
+  record(repos, baseId, [one('masterpieces_reimagined')]);
 }
 
 /** Infamy banked, gross. Spending it on the ladder or the back room does not take it back. */
@@ -232,6 +251,23 @@ export function tallyUnitsTrained(repos: Repositories, baseId: string, units: nu
   record(repos, baseId, [by('units_trained', units)]);
 }
 
+/**
+ * The character an account picked, counted the once.
+ *
+ * Bumped inside the same transaction that seats them, so the feat is already finished by the time
+ * the picker hands the player to the district: the first thing a new crew sees on the feats board
+ * is a rung waiting to be collected, and what it pays is the five Scavengers the opening needs to
+ * run a job at all.
+ *
+ * Not conditional on anything. `POST /overseer` refuses a second character and the schema has a
+ * unique index behind that refusal, so the only way here twice is a Clean slate, which leaves the
+ * counter where it was and the feat collected. That is the right outcome: a reset crew keeps the
+ * carriers it was paid.
+ */
+export function tallyOverseerTaken(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('overseer_taken')]);
+}
+
 /** One building level finished. Levels, not buildings: raising a Nexus to ten is ten of these. */
 export function tallyBuildingRaised(repos: Repositories, baseId: string, levels = 1): void {
   if (levels <= 0) return;
@@ -278,4 +314,55 @@ export function tallyAddonBuilt(repos: Repositories, baseId: string, isTrap: boo
 
 export function tallyMessageSent(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('messages_sent')]);
+}
+
+/**
+ * What a fight against the Combine is worth on the board (maintainer, 2026-09-19).
+ *
+ * Everything in it, so a player who takes the Combine on has a whole section of feats moving at
+ * once rather than one. Called only when the defender was the regime; a fight against looters or
+ * another crew tallies none of this, and the settle site decides that, not this function.
+ */
+export interface CombineFightFacts {
+  won: boolean;
+  /** Won without losing a body. The same rule as `battles_won_flawless`, on the Combine alone. */
+  flawless: boolean;
+  /**
+   * Won in a district whose Combine legendary was still standing **when the fight settled**.
+   *
+   * Read off the control rows at the settle, not off anything recorded at the declaration: see
+   * `combinePresenceOver` in `battle/resolve.ts`. A crew that kills him after calling a fight in
+   * his district fights it without him, and does not collect this.
+   */
+  underLeader: boolean;
+  /** The Combine units that fell, by id, including any leader among them. */
+  killed: Army;
+  /** The attacker's own units that changed sides under Directive Xero and did not come back. */
+  turned: number;
+  /** A location changed hands from the Combine to this crew. */
+  locationTaken: boolean;
+}
+
+export function tallyCombineFight(
+  repos: Repositories,
+  baseId: string,
+  facts: CombineFightFacts,
+): void {
+  const fallen = Object.entries(facts.killed).filter(
+    ([unitId, count]) => count > 0 && isCombineUnit(unitId),
+  );
+  const kills = fallen.reduce((total, [, count]) => total + count, 0);
+  const leaders = fallen
+    .map(([unitId]) => unitId)
+    .filter((unitId) => ['syndic', 'executioner', 'directive_xero'].includes(unitId));
+  record(repos, baseId, [
+    ...(kills > 0 ? [by('combine_kills', kills)] : []),
+    ...fallen.map(([unitId, count]) => by('combine_kills_of', count, unitId)),
+    ...leaders.map((unitId) => one('combine_leaders_slain', unitId)),
+    ...(facts.locationTaken ? [one('combine_locations_taken')] : []),
+    ...(facts.won ? [one('combine_fights_won')] : []),
+    ...(facts.won && facts.flawless ? [one('combine_fights_won_flawless')] : []),
+    ...(facts.won && facts.underLeader ? [one('combine_fights_won_shadowed')] : []),
+    ...(facts.turned > 0 ? [by('units_turned', facts.turned)] : []),
+  ]);
 }

@@ -19,7 +19,7 @@ import { MAX_NOTORIETY, NOTORIETY_TIERS, type NotorietyTier } from './notoriety.
  * Every rank pays something now, and what it pays is the fiction stated as arithmetic: a crew the
  * city is frightened of hits harder, holds longer and is *believed*. Intimidation is the spine of
  * it, because intimidation is the one stat that is literally "how much your name is worth in the
- * room": `cow` spends a side's menace against the other's nerve before a shot is fired, so a rank
+ * room": `intimidate` spends a side's menace against the other's nerve before a shot is fired, so a rank
  * bought at the Nightmare end silences part of the enemy line by arriving.
  *
  * ## Why these are `HoldBonus` values

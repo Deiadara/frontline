@@ -3,8 +3,10 @@ import {
   dayInZone,
   findUnit,
   formatClock,
+  standsInLine,
   type AllyBattle,
   type Army,
+  type LineRules,
 } from '@frontline/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
@@ -47,10 +49,19 @@ export function FightWindow({
 }) {
   const units = useUnits();
   const army: Army = units.data?.army ?? {};
-  // Carriers hold ground rather than take it, so they are not a thing to send to somebody else's.
+  /*
+   * Who this crew may actually send, asked the way the engine asks it.
+   *
+   * It was `tier !== 'carrier'`, a flat rule that was right until the doors stopped agreeing with
+   * it: `adjustDeployment` accepts porters from a crew holding `carriers_fight` (Yard Discipline,
+   * or the Scrap Cathedral), so a crew that had paid for the programme could send its Scavengers
+   * to its own fight and not to an ally's. `standsInLine` is the predicate the round loop and
+   * both server doors use, so this list is now the same list they are.
+   */
+  const rules: LineRules = { carriersFight: units.data?.carriersFight ?? false, unitMarks: {} };
   const fieldable = Object.entries(army).filter(([unitId, count]) => {
     const unit = findUnit(unitId);
-    return count > 0 && unit !== undefined && unit.tier !== 'carrier';
+    return count > 0 && unit !== undefined && standsInLine(unit, rules);
   });
   const shown =
     only === null ? fightOrder(battles) : battles.filter((battle) => battle.battleId === only);

@@ -6,6 +6,7 @@ import {
   CancelTrainingRequestSchema,
   TrainUnitsRequestSchema,
   findUnit,
+  isPlayerUnit,
   type Base,
   type TrainUnitsResponse,
   type UnitsResponse,
@@ -69,8 +70,20 @@ export function registerUnitRoutes(app: FastifyInstance): void {
     const now = new Date();
     const base = settled(request.currentUser.id, now);
 
+    /*
+     * The Combine's sheets are in the catalogue and are not units anybody can order.
+     *
+     * `findUnit` resolves an enemy's id as readily as your own, which is what the engine and the
+     * garrisons need of it, so the door has to say the fact rather than lean on the gate below.
+     * `queueTraining`'s gate is `isUnitUnlocked`, which does refuse a Combine sheet, and its
+     * refusal is `locked`, which is on `WAIVED_REFUSALS`: in admin mode, on by default outside
+     * the test runner, `POST /units/train {"unitId":"directive_xero"}` answered 200 and put one
+     * of the regime's legendaries on the bench for nothing. Stated here because this is where
+     * `TRAINING_REFUSALS` says an id that names nothing a player can field is answered, and
+     * because `admin/mode.ts` waives rules about progress and never facts about what exists.
+     */
     const unit = findUnit(unitId);
-    if (!unit) throw new AppError('NOT_FOUND', 'No such unit');
+    if (!unit || !isPlayerUnit(unit)) throw new AppError('NOT_FOUND', 'No such unit');
 
     const result = app.db.transaction(() =>
       queueTraining(app.repos, { base, unit, count, now, admin: app.config.admin }),

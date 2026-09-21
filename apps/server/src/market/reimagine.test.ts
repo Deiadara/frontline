@@ -25,6 +25,7 @@ import {
   REIMAGINING_RESEARCH_ID,
   createCommander,
   featMeasureKey,
+  pageRarity,
   type ItemId,
   type ReimagineResponse,
 } from '@frontline/shared';
@@ -112,6 +113,28 @@ const post = (stack: Stack, pages: unknown) =>
 const PAID: ItemId = ALL_PAGES[0] as ItemId;
 const STACK: Partial<Record<ItemId, number>> = { [PAID]: REIMAGINING_PAGES_SPENT + 1 };
 const THREE = [PAID, PAID, PAID];
+
+/**
+ * Every page split by the tier the bench draws on, and one cheap sheet to pay with.
+ *
+ * `pageRarity` is the same lookup the trade uses, so a sheet authored a tier of its own lands on
+ * the right side of the split here exactly as it does in the draw.
+ */
+const PAGES_BY_TIER = BLUEPRINTS.flatMap((spec) =>
+  spec.pages.map((page) => ({ id: page.id, tier: pageRarity(spec, page) })),
+);
+const MASTERPIECE_PAGES: ItemId[] = PAGES_BY_TIER.filter((page) => page.tier === 'masterpiece').map(
+  (page) => page.id,
+);
+const LESSER_PAGES: ItemId[] = PAGES_BY_TIER.filter((page) => page.tier !== 'masterpiece').map(
+  (page) => page.id,
+);
+const CHEAP: ItemId = LESSER_PAGES[0] as ItemId;
+
+const masterpiecesReimagined = (stack: Stack): number => {
+  const base = stack.app.repos.bases.findById(stack.baseId)!;
+  return snapshotFor(stack.app.repos, base)[featMeasureKey('masterpieces_reimagined')] ?? 0;
+};
 
 describe('the Reimagining trade (§G2, §G3)', () => {
   it('takes the three the request named and hands back a page the crew has never held', async () => {
@@ -257,6 +280,57 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     expect(heldBy(stack)[body.gained] ?? 0).toBe(1);
     // One page found. Not the three that were spent, and not the four the crew is now holding.
     expect(read() - before).toBe(1);
+  });
+
+  /**
+   * The Masterpiece counter, driven by making the pool leave the roll no choice.
+   *
+   * The route seeds its two draws off the base id and the wall clock, so a test cannot name the
+   * page that comes back. It does not have to. `payoutRarity` falls back to the nearest tier the
+   * shelf still has, so a crew holding every page under Masterpiece has an unseen pool made of
+   * nothing but Masterpiece sheets, and whatever the tier draw says, the sheet it hands over is
+   * one of the thirty eight. The mirror fixture below leaves no Masterpiece unseen at all and the
+   * counter must not move for it: together they say the hook reads the page's tier rather than
+   * firing on every trade.
+   *
+   * Paid for with three copies of a cheap sheet either way, so the input never touches the answer.
+   */
+  it('counts a Masterpiece the bench handed back', async () => {
+    const stack = await crew();
+    openTheLab(stack);
+    hold(stack, {
+      ...Object.fromEntries(LESSER_PAGES.map((id) => [id, 1])),
+      [CHEAP]: REIMAGINING_PAGES_SPENT + 1,
+    });
+
+    const read = () => masterpiecesReimagined(stack);
+    expect(read(), 'the fixture arrived with a Masterpiece already counted').toBe(0);
+
+    const res = await post(stack, [CHEAP, CHEAP, CHEAP]);
+    expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+    const body = res.json<ReimagineResponse>();
+
+    // The fixture really did force the tier, or the counter below is measuring luck.
+    expect(MASTERPIECE_PAGES, `the bench paid ${body.gained}`).toContain(body.gained);
+    expect(read()).toBe(1);
+  });
+
+  it('leaves the counter alone when the bench pays under a Masterpiece', async () => {
+    const stack = await crew();
+    openTheLab(stack);
+    hold(stack, {
+      ...Object.fromEntries(MASTERPIECE_PAGES.map((id) => [id, 1])),
+      [CHEAP]: REIMAGINING_PAGES_SPENT + 1,
+    });
+
+    const res = await post(stack, [CHEAP, CHEAP, CHEAP]);
+    expect(res.statusCode, res.body.slice(0, 300)).toBe(200);
+    const body = res.json<ReimagineResponse>();
+
+    expect(MASTERPIECE_PAGES, `the bench paid ${body.gained}`).not.toContain(body.gained);
+    expect(masterpiecesReimagined(stack)).toBe(0);
+    // The trade happened, so a zero above is the tier check and not a refused request.
+    expect(heldBy(stack)[body.gained] ?? 0).toBe(1);
   });
 
   it('says the Lab is open on the board once both halves are met', async () => {

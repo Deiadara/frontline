@@ -360,6 +360,7 @@ async function seedAlly(db: AppDatabase, repos: Repositories): Promise<boolean> 
         resolvedAt: null,
         seed: randomUUID(),
         holdAfterCapture: false,
+        wokeSleepers: false,
       });
     }
     return true;

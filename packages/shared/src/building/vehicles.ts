@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PartialResources } from '../resources.js';
 import { effectiveSpeed } from '../time/speed.js';
+import { MAX_EFFECT_REDUCTION, withReduction } from './effects.js';
 
 /**
  * What the Garage builds (GDD §C, buildings-and-combat patch).
@@ -144,7 +145,7 @@ const SPECS: readonly VehicleSpec[] = [
     id: 'scrap_car',
     // The id stays `scrap_car`: it keys every stored fleet and every art asset, and renaming it is a
     // migration for a label change. What players read is this.
-    name: 'Scar',
+    name: 'The Scar',
     class: 'car',
     description:
       'Three donor bodies and one working engine. Everybody fits and nobody is comfortable.',
@@ -175,7 +176,7 @@ const SPECS: readonly VehicleSpec[] = [
     // saloon with a school bus in plate: a truck by the numbers, slower than either car and the
     // only machine on the ground that moves most of a crew in one go.
     id: 'armoured_car',
-    name: 'Cheese Wagon',
+    name: 'The Cheese Wagon',
     class: 'truck',
     description:
       'A school bus with plate riveted over every window and a plough where the bumper was. Thirty in the seats, and it has never once stopped for anybody.',
@@ -187,7 +188,7 @@ const SPECS: readonly VehicleSpec[] = [
   },
   {
     id: 'gas_balloon',
-    name: 'Gas Balloon',
+    name: 'The Gas Balloon',
     class: 'flying',
     description:
       'Lifting gas nobody will say the source of, and a basket. Silent, and over the wall rather than through it.',
@@ -199,7 +200,7 @@ const SPECS: readonly VehicleSpec[] = [
   },
   {
     id: 'rotorcraft',
-    name: 'Rotorcraft',
+    name: 'The Rotorcraft',
     class: 'flying',
     description:
       'Somebody built a helicopter in a yard out of two other helicopters. It flies, it is quick, and it comes apart on days the Heli Porter walks away from.',
@@ -217,7 +218,7 @@ const SPECS: readonly VehicleSpec[] = [
     // in the air is quicker, and only three legendaries and a pack of Cyberhounds keep up with it
     // on foot. Deliberately the last thing a Garage lets out and the dearest thing in it.
     id: 'heli_porter',
-    name: 'Heli Porter',
+    name: 'The Heli Porter',
     class: 'flying',
     description:
       'A real transport helicopter, kept flying by people who understand it. Thirty in the cabin, over everything in the way, and it lands where it was told to.',
@@ -229,9 +230,55 @@ const SPECS: readonly VehicleSpec[] = [
   },
 ];
 
+/**
+ * A machine's name with its article taken off, for a sentence that supplies its own.
+ *
+ * Every machine is `The Something` since 2026-09-20 (maintainer: "make all the vehicle titles
+ * start with THE"), and several lines in the game already put a word where the article goes: a
+ * count on a receipt, `One more ...` on a stepper, `How many ...` on a field. Those read as
+ * `2 The Scrappy` and `One more The Scrappy` unless the name gives its article up.
+ *
+ * One function rather than a `slice(4)` at each site, because the rule is about names and the next
+ * name may not start with `The `. The repo has been here before: `units/unlocks.ts` records a
+ * template that produced "hold a The Doghouse" and the same resolution.
+ */
+export function vehicleNoun(name: string): string {
+  return name.startsWith('The ') ? name.slice(4) : name;
+}
+
 export const VEHICLES: readonly VehicleSpec[] = SPECS;
 
 const BY_ID = new Map<string, VehicleSpec>(SPECS.map((spec) => [spec.id, spec]));
+
+/**
+ * Points off a machine's clock per Garage level (maintainer, 2026-09-18).
+ *
+ * Five, so a maxed Garage at its ceiling of ten halves the build. The same shape and roughly the
+ * same top as the Generator's cut on structures (2.5 a level over twenty), which is deliberate: a
+ * player who has learned what one deep structure is worth should not have to learn a second rule
+ * for the yard.
+ *
+ * The Garage's own role line promises this in as many words, and until now it did not happen: a
+ * vehicle's `buildSeconds` was a flat number and the yard's level changed nothing about it. The
+ * Gauntlet's training cut deliberately does **not** reach here, which is the maintainer's rule:
+ * machines are built, not trained, and the two clocks answer to different structures.
+ */
+export const GARAGE_TIME_DISCOUNT_PER_LEVEL = 5;
+
+/**
+ * How long this machine takes in a yard of this size, in seconds.
+ *
+ * One function, so the Garage screen quotes the figure the queue actually charges. Quoting the
+ * catalogue while charging something else is the defect this game has already shipped once, on
+ * the unit price box.
+ */
+export function vehicleBuildSeconds(spec: VehicleSpec, garageLevel: number): number {
+  const off = Math.min(
+    MAX_EFFECT_REDUCTION,
+    Math.max(0, garageLevel) * GARAGE_TIME_DISCOUNT_PER_LEVEL,
+  );
+  return Math.max(1, Math.round(withReduction(spec.buildSeconds, off)));
+}
 
 export function findVehicle(id: string): VehicleSpec | undefined {
   return BY_ID.get(id);

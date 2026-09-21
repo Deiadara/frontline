@@ -4,6 +4,7 @@ import {
   blueprintForVehicle,
   blueprintGateMet,
   buildingLevel,
+  vehicleBuildSeconds,
   canAfford,
   describeBlueprintGate,
   discounted,
@@ -144,7 +145,9 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
       out: out[spec.id] ?? 0,
       // Quoted with the crew's own discount on it, because the door charges that number.
       cost: price(app, base, spec.cost),
-      buildSeconds: spec.buildSeconds,
+      // The yard's own level off it, because the queue charges that number and a screen quoting
+      // the catalogue while the route charges something else is a price box that lies.
+      buildSeconds: vehicleBuildSeconds(spec, buildingLevel(base.buildings, 'garage')),
       capacity: spec.capacity,
       speed: spec.speed,
       // Deprecated duplicate, one release only: see `GarageVehicleSchema.speedPercent`.

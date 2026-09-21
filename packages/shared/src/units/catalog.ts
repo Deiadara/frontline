@@ -171,20 +171,73 @@ export interface UnitSpec {
    *
    * The one bonus a player buys by *massing a single sheet*, which is a decision the roster had no
    * way to reward: combat width punishes stacking, tier bonuses reward fielding a class, and
-   * nothing at all rewarded fielding forty of one thing. Per unit of the same unit, capped at
-   * {@link MAX_PACK_BONUS}, so it is a reason to commit and never a reason to bring everything.
+   * nothing at all rewarded fielding forty of one thing.
+   *
+   * Per other unit of the same unit, on a curve that converges rather than a line that stops:
+   * see {@link packBonusPercent}. Every extra body is worth something and each is worth less
+   * than the last, so it is a reason to commit and never a reason to bring literally everything.
    */
   pack?: boolean;
   /**
-   * Whether this unit comes back with more than its hands full.
+   * Whether this unit makes the ground it fights on unbearable to be next to (maintainer,
+   * 2026-09-19).
    *
-   * A flat {@link PICKER_EXTRA_LOAD} per unit on top of the sheet's `lootCapacity`, and flat is the
-   * whole point: `lootCapacity` is multiplied by every carry percentage in the game, so raising it
-   * makes the crews that already carry well carry better. This is worth the same to everybody, which
-   * is what makes it a reason to bring a few of these along rather than a bigger number on a sheet
-   * that already had one.
+   * The Anodics, and the one sheet in the game whose *environment* is the weapon. They already
+   * fight better in a racket (`affinities.noisy: 11`); this is the other half, which is that
+   * they bring one. See {@link loudGround}: the enemy's stacks are built against a copy of the
+   * battlefield with `noisy` on it, so what the din costs is decided by each enemy sheet's own
+   * armour, morale and affinities rather than by a flat number here.
+   *
+   * Scoped to the fight and to the other side. Nothing is written to the location, and the loud
+   * side reads the ground unchanged.
    */
-  picker?: boolean;
+  loud?: boolean;
+  /**
+   * Whether this stack spends the fight inside the other side's augmentations (maintainer,
+   * 2026-09-18).
+   *
+   * The first sheet whose contribution is **not damage**. A Netrunner used to be a 460-offense
+   * energy gun with Armour Piercing bolted on, which made it a Sniper with a different picture:
+   * the blurb said "hijack enemy augmentations mid-fight" and the numbers said "shoots people".
+   * It does 20 now, and what it is worth is this.
+   *
+   * Read **per round**, off the stacks still standing, and applied before anybody fires: the
+   * enemy line's armour and its damage both come off by {@link jamPercent}. That is two effects
+   * from one rule on purpose, and it is what makes a jammer worth a slot beside a line rather
+   * than instead of one: it is worth nothing on its own (nobody to make more dangerous, nobody to
+   * protect) and it makes everything standing next to it hit harder and take less.
+   *
+   * Killing them turns it off, which is the counterplay. There is no saving throw and no armour
+   * against it, which is why the ceiling is low.
+   */
+  jammer?: boolean;
+  /**
+   * Whether this unit can be planted on ground the crew does not hold (maintainer, 2026-09-18).
+   *
+   * The Sleepers, and the rule their blurb has promised since the roster was written: "Planted
+   * long ago, and useful exactly once. They are already inside." See `sleepers.ts` for what a
+   * cell is, and why it is the only way in the game to have force somewhere before you have said
+   * you want it.
+   *
+   * A flag rather than an id checked at the doors, for the reason every other rule on this
+   * interface is one: the door that forgets is the one that ships.
+   */
+  sleeper?: boolean;
+  /**
+   * Who fields this sheet, when it is not the player (maintainer, 2026-09-19).
+   *
+   * The Combine's own units: the conscripts, the grey infantry, the enforcers, the suppressors
+   * and the three people who run the city from behind them. They are met, never held. No door in
+   * the game trains one, no roster lists one, no console grants one, and the balance sheet does
+   * not price one, which is what {@link PLAYER_UNITS} and {@link isPlayerUnit} exist to say in
+   * one place. `cost`, `requires` and `trainSeconds` are still on the sheet because the type is
+   * shared with the roster, and they are the empty values: a Combine sheet with a price on it
+   * would be a promise somebody could try to collect.
+   *
+   * Absent on everything a player can train. A second faction is a second literal here and a
+   * second garrison table in `city/control.ts`; nothing else in the game reads the word.
+   */
+  faction?: 'combine';
   requires: readonly UnitRequirement[];
   cost: PartialResources;
   trainSeconds: number;
@@ -281,12 +334,18 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     trainedAt: 'gauntlet',
     unique: false,
     /**
-     * Nothing at all: the only unit in the game with no requirement.
+     * The Gauntlet at its first level, and nothing else: the cheapest gate on any fighter.
      *
-     * A crew that has not built a Gauntlet yet must still be able to put *somebody* on the street,
-     * or the first session has no move in it: the opening district holds a Nexus and a Generator,
-     * and a roster that was entirely locked behind a barracks would make the whole city
-     * unreachable until one was standing.
+     * This doc block said "nothing at all: the only unit in the game with no requirement" until
+     * 2026-09-18, and the clause under it said `gauntlet(1)`. The two had disagreed since the
+     * Gauntlet moved behind Nexus 3 and Quarters 2 on 2026-09-01, which turned the sentence into
+     * a promise the opening did not keep: a new crew could train nothing at all, and the eight
+     * Razors it is handed were the only bodies it would see for hours.
+     *
+     * What actually keeps the first session moving is the carrier bench at the bottom of this
+     * file. Scavengers answer to the Nexus a new district already has, so there is always
+     * somebody to put on the street, and the Razor stays what it reads as: the first thing the
+     * barracks gives you for building one.
      */
     requires: [gauntlet(1)],
     cost: { caps: 40, supplies: 10 },
@@ -317,6 +376,12 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Overqualified, over-medicated and unaccountably hard to put down. Somebody who read every book in the district, shaved most of it off, and came down here with a bottle of speed and a plan.',
     trainedAt: 'gauntlet',
     unique: false,
+    /*
+     * They are the noise. `loud` puts `noisy` on the ground the other side is standing on, which
+     * is the same label their own `affinities.noisy: 11` already rewards them for: this sheet
+     * wants a room it cannot hear itself think in, so it brings one.
+     */
+    loud: true,
     requires: [structure('scrapyard', 2)],
     /**
      * The cheapest thing in the game that can take a hit.
@@ -348,7 +413,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 66,
       armor: 15,
       resistances: { chemical: 30, ballistic: -30 },
-      damageType: 'blade',
+      damageType: 'blunt',
       penetration: 10,
       range: 12,
       offense: 190,
@@ -379,6 +444,15 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Young recruits with jury-rigged weapons. Hit hard once, then hope.',
     trainedAt: 'gauntlet',
     unique: false,
+    /*
+     * They are only dangerous in a crowd, which is the whole sheet (maintainer, 2026-09-19).
+     *
+     * A Spark is one big hit and 55 hit points: on its own it is the most fragile thing anybody
+     * fields, and the blurb already says so. `pack` is what makes that a shape rather than a
+     * weakness, and it moved here off the Condemned, who are three unit slots of heavy rabble
+     * and did not need a fourth reason to be good.
+     */
+    pack: true,
     requires: [structure('generator', 2)],
     cost: { caps: 45, supplies: 5, scrap: 20 },
     trainSeconds: 50,
@@ -388,7 +462,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 55,
       morale: 30,
       armor: 3,
-      resistances: { energy: 15, explosive: -40 },
+      damageType: 'blunt',
+      // Fifty-five hit points and no plate at all.
+      resistances: { energy: 15, explosive: -40, blunt: -25 },
       penetration: 18,
       range: 45,
       offense: 280,
@@ -446,7 +522,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 60,
       armor: 24,
       resistances: { explosive: 35, energy: -25 },
-      damageType: 'explosive',
+      damageType: 'blade',
       penetration: 12,
       range: 15,
       offense: 225,
@@ -475,6 +551,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 168,
       morale: 70,
       armor: 40,
+      damageType: 'blunt',
       resistances: { blade: 25, explosive: -20 },
       penetration: 6,
       range: 40,
@@ -502,7 +579,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 115,
       morale: 55,
       armor: 15,
-      resistances: { energy: 20, ballistic: -25 },
+      // Built to not be where the swing lands, and ruined when it is.
+      resistances: { energy: 20, ballistic: -25, blunt: -20 },
       damageType: 'blade',
       penetration: 25,
       range: 15,
@@ -531,6 +609,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 115,
       morale: 55,
       armor: 18,
+      damageType: 'ballistic',
       resistances: { blade: 35, explosive: -25 },
       penetration: 14,
       range: 35,
@@ -542,7 +621,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     }),
     modifiers: ['open_field', 'urban_bonus'],
     // Motorcycles. Wet, snow and a corridor are all the same answer.
-    affinities: { wet: -6, snowy: -7, crammed: -7, open: 6 },
+    // They are the noise. Somewhere already loud is somewhere nobody hears them coming until
+    // the engines are the only thing anybody can hear.
+    affinities: { wet: -6, snowy: -7, crammed: -7, open: 6, noisy: 8 },
   },
   /**
    * The wall, and the only unit in the game that is not trying to win the fight.
@@ -576,8 +657,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 470,
       morale: 85,
       armor: 64,
-      damageType: 'blade',
-      resistances: { ballistic: 35, blade: 35, explosive: -30 },
+      damageType: 'blunt',
+      // A shield wall is the answer to being hit with things.
+      resistances: { ballistic: 35, blade: 35, explosive: -30, blunt: 35 },
       penetration: 5,
       range: 10,
       offense: 45,
@@ -602,8 +684,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Chem-suited troops who go where the air is wrong and come back out of it.',
     trainedAt: 'gauntlet',
     unique: false,
-    // Lived off the ash belt long before you hired them, and it shows in what they carry out.
-    picker: true,
     requires: [gauntlet(6), structure('greenhouse', 5)],
     cost: { caps: 190, supplies: 30, scrap: 70, oil: 40 },
     trainSeconds: 220,
@@ -614,7 +694,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 65,
       armor: 42,
       damageType: 'chemical',
-      resistances: { chemical: 90, blade: -25 },
+      /*
+       * A sealed suit is not armour (maintainer, 2026-09-19).
+       *
+       * They lost `picker` and what replaced it is the honest reading of what they are wearing.
+       * Chem gear is a barrier against *air*: it stops what the ash belt does to lungs and it
+       * does nothing whatever about a blade, a bullet or a blast. The three ordinary lethal
+       * types all get through it, which is what "weaknesses in more stuff that could affect
+       * people with no armour at all" means on this sheet: the forty-two points of armour on the
+       * line above are the plate, and none of it is on the suit.
+       */
+      resistances: { chemical: 90, blade: -25, ballistic: -20, explosive: -25 },
       penetration: 8,
       range: 25,
       offense: 275,
@@ -623,11 +713,17 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 30,
       intimidation: 25,
     }),
-    modifiers: ['tunnel_rat'],
+    // `urban_bonus` on a sheet that also carries `tunnel_rat`: below the street and on it are
+    // the two places these people know, which is the same claim their blurb already makes.
+    modifiers: ['tunnel_rat', 'urban_bonus'],
     // Chem suits. The whole unit exists for the air being wrong, so the one label that
     // decides most of a chemical plant does not touch them.
     immuneTo: ['toxic'],
-    affinities: { hot: -4 },
+    // ...and the one place the suit is a liability rather than a shield: a visor, a filter and
+    // your own breathing in your ears is no way to be somewhere that is already wrong.
+    // A visor and a filter is no way to hear anything coming: the suit that makes the air
+    // survivable is the reason a racket is worse for them than for anybody else.
+    affinities: { hot: -4, noisy: -8 },
   },
 
   // ------------------------------------------------------------ specialists
@@ -649,6 +745,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 85,
       morale: 60,
       armor: 8,
+      damageType: 'ballistic',
       resistances: { explosive: 15, chemical: -35 },
       penetration: 60,
       range: 95,
@@ -715,7 +812,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 120,
       morale: 70,
       armor: 20,
-      resistances: { chemical: 50, blade: -30 },
+      // A medic is the softest thing on the field and everybody knows it.
+      resistances: { chemical: 50, blade: -30, blunt: -30 },
       damageType: 'blade',
       penetration: 2,
       range: 10,
@@ -810,13 +908,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       damageType: 'energy',
       penetration: 35,
       range: 55,
-      offense: 460,
+      // Twenty, and the blurb is finally the sheet (maintainer, 2026-09-18). They were a
+      // 460-offense energy gun with Armour Piercing on it, which is a Sniper wearing a hacker's
+      // description. What they are worth is `jammer`, below: they barely shoot.
+      offense: 20,
       evasion: 20,
       stealth: 55,
       lootCapacity: 10,
       intimidation: 20,
     }),
-    modifiers: ['night_operations', 'armor_piercing', 'tracking'],
+    // `armor_piercing` is gone with the damage that made it mean anything: 30% more of twenty is
+    // six.
+    modifiers: ['night_operations', 'tracking'],
+    jammer: true,
     // They work off other people's augmentations, and a wet street does nothing to that.
     affinities: { crammed: 5, eerie: -4 },
   },
@@ -847,6 +951,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 10,
     }),
     modifiers: ['ambush', 'urban_bonus'],
+    // §A4: the one sheet that can be somewhere before you have said you want it.
+    sleeper: true,
   },
   {
     id: 'cyber_dogs',
@@ -879,7 +985,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 72,
       armor: 8,
       resistances: { explosive: 15, chemical: -45 },
-      damageType: 'blade',
+      damageType: 'energy',
       penetration: 30,
       range: 4,
       offense: 290,
@@ -894,7 +1000,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
      * What stops them is noise, a press hall is a dog with no ears, and anything that makes the
      * handler's job harder makes theirs impossible.
      */
-    affinities: { dark: 7, foggy: 9, noisy: -7, eerie: -4 },
+    affinities: { dark: 7, foggy: 9, noisy: -7 },
   },
   {
     id: 'juggernauts',
@@ -913,7 +1019,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 365,
       morale: 85,
       armor: 68,
-      resistances: { ballistic: 40, blade: 50, energy: -35 },
+      damageType: 'explosive',
+      // Ninety-five points of plate does not care about a pipe.
+      resistances: { ballistic: 40, blade: 50, energy: -35, blunt: 25 },
       penetration: 18,
       range: 45,
       offense: 355,
@@ -945,7 +1053,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 225,
       morale: 100,
       armor: 45,
-      damageType: 'blade',
+      damageType: 'blunt',
       resistances: { chemical: 35, energy: -45 },
       penetration: 30,
       range: 15,
@@ -966,8 +1074,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'Death row, handed one last chance and a blade. Nothing left to threaten them with.',
     trainedAt: 'gauntlet',
     unique: false,
-    // Nobody in this crowd is brave. A crowd of them is a different problem.
-    pack: true,
     requires: [structure('quarters', 12), holds('fight_pit')],
     cost: { caps: 300, supplies: 120 },
     trainSeconds: 600,
@@ -1094,7 +1200,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 95,
       armor: 95,
       damageType: 'explosive',
-      resistances: { ballistic: 70, blade: 80, explosive: 40, energy: -30 },
+      // You may hit it with whatever you have brought.
+      resistances: { ballistic: 70, blade: 80, explosive: 40, energy: -30, blunt: 40 },
       penetration: 25,
       range: 60,
       offense: 490,
@@ -1128,7 +1235,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       morale: 100,
       armor: 30,
       resistances: { blade: 45, chemical: -25 },
-      damageType: 'blade',
+      damageType: 'blunt',
       penetration: 20,
       range: 20,
       offense: 275,
@@ -1155,6 +1262,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 270,
       morale: 90,
       armor: 28,
+      damageType: 'ballistic',
       resistances: { explosive: 40, blade: -20 },
       penetration: 15,
       range: 35,
@@ -1219,7 +1327,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 190,
       morale: 100,
       armor: 38,
-      damageType: 'blade',
+      damageType: 'chemical',
       resistances: { ballistic: 25, blade: 20, energy: -25 },
       penetration: 18,
       range: 10,
@@ -1257,10 +1365,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'They know which floors still hold weight and which pipes still have copper in them. Hand them a bag and point at a building.',
     trainedAt: 'nexus',
     unique: false,
-    // This is the job. They come back with pockets nobody issued.
-    picker: true,
     combat: false,
-    requires: [gauntlet(1)],
+    /**
+     * The Nexus a new district is already standing, which makes this the one unit a crew has on
+     * its first second (maintainer, 2026-09-18).
+     *
+     * It was `gauntlet(1)`, and that was the whole of the opening problem. The Gauntlet needs
+     * Nexus 3 and Quarters 2, the Nexus needs 512 caps to reach level 2, and nothing a new
+     * district produces is caps: a crew arrived with eight Razors, no way to replace one, and the
+     * only faucet that would have paid for the barracks was missions, which need bodies. The
+     * carrier bench is what breaks that circle, so it cannot be behind the building the circle is
+     * about.
+     */
+    requires: [structure('nexus', 1)],
     cost: { caps: 25, supplies: 15 },
     trainSeconds: 30,
     unitSlots: 1,
@@ -1271,7 +1388,15 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 60,
       morale: 45,
       armor: 0,
-      resistances: { chemical: 20, ballistic: -25 },
+      damageType: 'blunt',
+      /*
+       * Nothing on at all, and the sheet says so in more than one place now (2026-09-19).
+       *
+       * Zero armour above, and everything ordinary gets through: a bullet, a blade and a blast
+       * all land harder on somebody in work clothes with a bag. The rag over the face is the
+       * only thing they have and it is the only resistance left.
+       */
+      resistances: { chemical: 20, ballistic: -25, blade: -20, explosive: -30 },
       penetration: 0,
       range: 0,
       // Not zero, because a zero would divide badly in more than one place downstream, and not
@@ -1283,7 +1408,19 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 10,
       intimidation: 0,
     }),
-    modifiers: [],
+    /*
+     * `urban_bonus` on a sheet that cannot fight, and it is deliberate rather than an oversight.
+     *
+     * It is worth nothing to most crews: a modifier is percentage points of offense, a Scavenger
+     * carries five of those, and `combat: false` keeps them out of the line entirely. It comes
+     * live for a crew that has bought `carriers_fight` (`standsInLine`), which is the one case
+     * where these people are standing in a street with something in their hands, and in that
+     * case knowing the street is exactly what they have over a soldier.
+     */
+    modifiers: ['urban_bonus'],
+    // The same street sense, from the other side: somewhere that feels wrong is somewhere they
+    // have the sense to be slow in, and they are not paid enough for it.
+    affinities: { eerie: -9 },
   },
   {
     id: 'haulers',
@@ -1293,8 +1430,28 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Barrow, harness and a back that has done this for twenty years. Slow, patient, and they never come home light.',
     trainedAt: 'nexus',
     unique: false,
+    /*
+     * §A5: the carrier's reading of Collective (maintainer, 2026-09-19).
+     *
+     * Not offense: a Hauler cannot fight and the rule pays them in the only currency they have,
+     * which is how much comes back on the truck (`carriedBy` in `raid.ts`). It is the same curve
+     * a massing fighter gets, so the card's one sentence is true of both.
+     *
+     * It also replaces what `Haul Rigging` used to buy them. That rung granted the Haulers the
+     * old `picker` mark and had to be repointed when the mark was removed; this puts the "more
+     * of them is worth more" idea back on the sheet, where a player can see it.
+     */
+    pack: true,
     combat: false,
-    requires: [gauntlet(4), structure('nexus', 4)],
+    /**
+     * Nexus 15, and the Nexus alone: the deep end of the same bench (maintainer, 2026-09-18).
+     *
+     * Both carriers answer to the building that signs them and to nothing else, which is what
+     * makes the pair read as one line of progress rather than two unrelated gates. Fifteen is the
+     * maintainer's figure and it is a long way up: a crew running barrows instead of bags has a
+     * district behind it, and by then thirty loot slots for two beds is worth the wait.
+     */
+    requires: [structure('nexus', 15)],
     cost: { caps: 60, supplies: 20, planks: 30 },
     trainSeconds: 90,
     unitSlots: 2,
@@ -1303,6 +1460,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       vitality: 75,
       morale: 50,
       armor: 2,
+      damageType: 'blunt',
       resistances: { energy: 20, explosive: -30 },
       penetration: 0,
       range: 0,
@@ -1455,6 +1613,263 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     // Room to move is the whole sheet. Shoulder to shoulder, evasion is worth nothing.
     affinities: { open: 8, crammed: -10 },
   },
+
+  // ------------------------------------------------------------------ the Combine (2026-09-19)
+  //
+  // The regime's own units, after the carriers for the same reason the carriers are after the
+  // legendaries: the art manifest seeds off the index in this array, so anything new goes last.
+  // None of these is trainable: see `UnitSpec.faction`. Their sheets are written against the
+  // player's roster they are meant to be met by, and the ladder runs up the districts they hold:
+  // the Levy on the Docks, the Greycoats behind them, the Enforcers in the Annexes, the
+  // Suppressors on the Blacksite, and the three legendaries where `city/combine.ts` puts them.
+  {
+    id: 'civic_levy',
+    name: 'Civic Levy',
+    tier: 'rabble',
+    blurb:
+      'Conscripts with a fortnight of drill and a surplus blade each. They are the Combine on every street corner because there are so many of them, and no other reason.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 1,
+    stats: sheet({
+      speed: 40,
+      vitality: 68,
+      morale: 30,
+      armor: 4,
+      damageType: 'blade',
+      resistances: { energy: 10, explosive: -30 },
+      penetration: 6,
+      range: 5,
+      offense: 132,
+      evasion: 8,
+      stealth: 10,
+      intimidation: 6,
+    }),
+    modifiers: ['urban_bonus'],
+    /*
+     * A fortnight of drill and no kit. Everything that makes a street hard to stand in makes it
+     * harder for them than for anybody who was trained for it: the dark, the noise, the cold and
+     * the wet all come off a conscript first. The one thing they are used to is the street itself,
+     * which is where they were conscripted from.
+     */
+    affinities: { dark: -8, noisy: -6, cold: -5, wet: -4, eerie: -7 },
+  },
+  {
+    id: 'greycoat',
+    name: 'Greycoat',
+    tier: 'rabble',
+    blurb:
+      'Low-ranking government infantry, named for the coat. A rifle, a helmet, a number, and orders to hold whatever they were stood on.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 1,
+    stats: sheet({
+      speed: 38,
+      vitality: 80,
+      morale: 45,
+      armor: 12,
+      damageType: 'ballistic',
+      resistances: { blade: 10, chemical: -20 },
+      penetration: 12,
+      range: 40,
+      offense: 122,
+      evasion: 8,
+      stealth: 12,
+      intimidation: 12,
+    }),
+    modifiers: ['dug_in'],
+    /*
+     * Issued one good coat and told to stand there, which is exactly what they are worth: the
+     * wool is the best thing about them in the cold and the worst in the heat, and a line trained
+     * to hold a position does not like being unable to see the position.
+     */
+    affinities: { cold: 6, wet: 4, hot: -6, foggy: -5, dark: -4 },
+  },
+  {
+    id: 'street_enforcers',
+    name: 'Street Enforcers',
+    tier: 'specialist',
+    blurb:
+      'Police infantry with more plate than the Greycoats and less patience. Used for raids and for standing on streets, and the shock batons are not for show.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 2,
+    stats: sheet({
+      speed: 42,
+      vitality: 126,
+      morale: 60,
+      armor: 30,
+      damageType: 'energy',
+      resistances: { ballistic: 20, blade: 20, chemical: -25, energy: -15 },
+      penetration: 30,
+      range: 25,
+      offense: 262,
+      evasion: 10,
+      stealth: 10,
+      intimidation: 30,
+    }),
+    modifiers: ['urban_bonus', 'close_quarters'],
+    /*
+     * Sealed plate and a full visor: they work in a crammed doorway and in a toxic room where
+     * anybody without a mask cannot, and the same suit is an oven in the heat and a liability on
+     * open ground where the thing coming at them has range.
+     */
+    affinities: { crammed: 7, toxic: 8, noisy: 4, hot: -8, open: -6 },
+  },
+  {
+    id: 'suppressor',
+    name: 'Suppressor',
+    tier: 'heavy',
+    blurb:
+      'Automatic weapons on a tripod and a crew that has been told the street is closed. Area denial: nothing crosses the ground in front of one and lives.',
+    trainedAt: 'gauntlet',
+    unique: false,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 4,
+    stats: sheet({
+      speed: 24,
+      vitality: 245,
+      morale: 75,
+      armor: 45,
+      damageType: 'ballistic',
+      resistances: { blade: 30, energy: 10, explosive: -15 },
+      penetration: 35,
+      range: 60,
+      offense: 372,
+      evasion: 3,
+      stealth: 4,
+      intimidation: 45,
+    }),
+    modifiers: ['open_field', 'dug_in'],
+    /*
+     * A belt-fed gun on a tripod owns whatever it can see, and that is the whole of it: fog, dark
+     * and a crammed room take its range away and leave a crew of two standing behind a heavy
+     * object. Elevated ground is what a position like this is chosen for.
+     */
+    affinities: { open: 9, elevated: 8, foggy: -9, dark: -7, crammed: -8 },
+  },
+  {
+    id: 'syndic',
+    name: 'Syndic',
+    tier: 'legendary',
+    blurb:
+      'The government liaison embedded with the industrial facilities and the private troops that guard them. Knows every yard in the Annexes and everybody who works in one, and the people around her are paid better and shoot straighter for it.',
+    trainedAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 5,
+    stats: sheet({
+      speed: 35,
+      vitality: 240,
+      morale: 90,
+      armor: 35,
+      damageType: 'ballistic',
+      resistances: { blade: 20, chemical: -20 },
+      penetration: 40,
+      range: 45,
+      offense: 220,
+      evasion: 15,
+      stealth: 30,
+      intimidation: 50,
+    }),
+    modifiers: ['dug_in', 'last_stand'],
+    /*
+     * Somebody who has never been shot at and has never needed to be. She is worth what she knows,
+     * and what she knows is the yards: inside one she is at home, and anywhere the work is done in
+     * the dark by people she has not met she is a suit in a field.
+     */
+    affinities: { crammed: 5, toxic: 4, dark: -6, eerie: -8, wet: -4 },
+  },
+  {
+    id: 'executioner',
+    name: 'Executioner',
+    tier: 'legendary',
+    blurb:
+      'The anti-personnel specialist the Blacksite sends when arrests are no longer required. Works up close, and finishes what anybody else on the field has started.',
+    trainedAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 6,
+    stats: sheet({
+      speed: 44,
+      vitality: 320,
+      morale: 95,
+      armor: 42,
+      damageType: 'blade',
+      resistances: { ballistic: 25, energy: -20 },
+      penetration: 45,
+      range: 5,
+      offense: 380,
+      evasion: 20,
+      stealth: 25,
+      intimidation: 70,
+    }),
+    modifiers: ['close_quarters', 'terror'],
+    /*
+     * Sent where arrests have stopped being required, which is indoors, at night, in places
+     * people would rather not be. Open ground is the one shape that does not suit him: it gives
+     * whatever he is walking towards time to see him coming.
+     */
+    affinities: { dark: 9, eerie: 8, crammed: 7, open: -7, foggy: -3 },
+  },
+  {
+    id: 'directive_xero',
+    name: 'Directive Xero',
+    tier: 'legendary',
+    blurb:
+      'The Combine, in one person, in the Chosen Chapel at the top of the city. Nobody who stands with him is frightened of anything, and some of the people who came for him stay.',
+    trainedAt: 'gauntlet',
+    unique: true,
+    faction: 'combine',
+    // Nobody runs while he is in the room, and he does not stop until they carry him out.
+    stalwart: true,
+    requires: [],
+    cost: {},
+    trainSeconds: 0,
+    unitSlots: 10,
+    stats: sheet({
+      speed: 30,
+      vitality: 520,
+      morale: 100,
+      armor: 60,
+      damageType: 'energy',
+      resistances: { ballistic: 35, blade: 35, chemical: 20, explosive: -15 },
+      penetration: 50,
+      range: 40,
+      offense: 400,
+      evasion: 10,
+      stealth: 15,
+      intimidation: 90,
+    }),
+    modifiers: ['last_stand', 'dug_in'],
+    /*
+     * He does not go anywhere. Everything he is worth is in the room he is standing in, which is
+     * a lit hall at the top of a tower: elevated, indoors, and never dark. Weather he has never
+     * been out in is weather he is no good in.
+     */
+    affinities: { elevated: 8, crammed: 5, snowy: -6, wet: -5, windy: -4 },
+  },
 ];
 
 const BY_ID = new Map(UNIT_CATALOG.map((unit) => [unit.id, unit]));
@@ -1574,8 +1989,37 @@ export const UNIT_IDS: readonly string[] = UNIT_CATALOG.map((unit) => unit.id);
 /** Validated against the catalogue rather than declared as an enum of literals: one list. */
 export const UnitIdSchema = z.string().refine(isUnitId, { message: 'unknown unit' });
 
+/** A sheet the Combine fields and nobody trains. See `UnitSpec.faction`. */
+export function isCombineUnit(unit: UnitSpec | string | undefined): boolean {
+  const spec = typeof unit === 'string' ? findUnit(unit) : unit;
+  return spec?.faction === 'combine';
+}
+
+/** ...and its complement: a sheet a player can hold. */
+export function isPlayerUnit(unit: UnitSpec | string | undefined): boolean {
+  const spec = typeof unit === 'string' ? findUnit(unit) : unit;
+  return spec !== undefined && spec.faction === undefined;
+}
+
+/**
+ * The roster a player can hold, which is the catalogue less the Combine's own sheets.
+ *
+ * Every screen that lists units to a player reads this one and not {@link UNIT_CATALOG}: the
+ * roster, the training bench, the census, the Scrapyard's rail, the sandbox seed and the balance
+ * sheet. The full catalogue is for the things that meet a Combine unit rather than offer one, the
+ * engine and the garrisons, and for `findUnit`, which has to resolve an enemy's id as readily as
+ * your own.
+ */
+export const PLAYER_UNITS: readonly UnitSpec[] = UNIT_CATALOG.filter((unit) => isPlayerUnit(unit));
+
+/** The Combine's own sheets, in catalogue order. */
+export const COMBINE_UNITS: readonly UnitSpec[] = UNIT_CATALOG.filter((unit) =>
+  isCombineUnit(unit),
+);
+
+/** The player's units in a tier. A Combine sheet is never in a tier a screen draws. */
 export function unitsInTier(tier: UnitTier): UnitSpec[] {
-  return UNIT_CATALOG.filter((unit) => unit.tier === tier);
+  return PLAYER_UNITS.filter((unit) => unit.tier === tier);
 }
 
 /** Which units holding a location of this kind would open up: read back off the requirements. */
@@ -1600,16 +2044,18 @@ export function locationsTraining(unit: UnitSpec): LocationKind[] {
 }
 
 /**
- * §B6: the twelve the Gauntlet unlocks, and nothing else.
+ * §B6: the ten the Gauntlet unlocks, and nothing else.
  *
  * The maintainer named these by hand, so the list is transcribed by hand and then *asserted* against the
  * catalogue at module load. The alternative, deriving the list from the requirements, would make
  * the assertion tautological: it would agree with whatever the catalogue happened to say, which is
  * exactly the mistake it exists to catch. Two independent statements, checked against each other.
+ *
+ * It was twelve until 2026-09-18, when the two carriers came off it and were re-gated on the
+ * Nexus that signs them. Neither one fights, so neither belongs to a barracks, and the Gauntlet
+ * clause on the cheap one was the reason a new crew could train nothing at all.
  */
 export const GAUNTLET_UNLOCKED_UNITS: readonly string[] = [
-  'scavengers',
-  'haulers',
   'razors',
   'scrapers',
   'ash_walkers',
@@ -1676,10 +2122,17 @@ for (const unit of UNIT_CATALOG) {
       throw new Error(`${unit.id} is immune to ${id}, which is not an environment label`);
     }
   }
-  if (unit.requires.length === 0 && unit.id !== 'razors') {
+  if (unit.requires.length === 0 && unit.id !== 'razors' && unit.faction === undefined) {
     // §B6: no unit may end up with no gate at all. Razors are the exception the opening move
-    // depends on and they still carry one, so in practice this is a blanket rule.
+    // depends on and they still carry one, so in practice this is a blanket rule. The Combine's
+    // sheets are the other way round: no gate because no door, and the same check demands they
+    // carry nothing that could ever read as one.
     throw new Error(`${unit.id} has no requirement at all`);
+  }
+  if (unit.faction !== undefined) {
+    if (unit.requires.length > 0 || Object.keys(unit.cost).length > 0 || unit.trainSeconds > 0) {
+      throw new Error(`${unit.id} is the Combine's and must carry no gate, price or clock`);
+    }
   }
   for (const need of unit.requires) {
     if (need.kind === 'vehicle' && !findVehicle(need.vehicleId)) {
@@ -1693,7 +2146,7 @@ for (const unit of UNIT_CATALOG) {
 if (BY_ID.size !== UNIT_CATALOG.length) throw new Error('two units share an id');
 
 /**
- * §B6, both halves: the Gauntlet gates exactly the twelve the maintainer named, and every one of them
+ * §B6, both halves: the Gauntlet gates exactly the ten the maintainer named, and every one of them
  * carries a level.
  *
  * The second half is the one worth spelling out. "Unlocked by the Gauntlet" is meaningless without

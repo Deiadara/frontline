@@ -58,8 +58,16 @@ export const NO_RIDE_RULE: string = 'no_ride';
  * Asked of the catalogue rather than of a `UnitOption`, so the deploy dialog and the mission
  * board's picker can ask it about a row they only have an id for. False for every unit on a shared
  * package that does not carry the rule yet, which is the same answer those screens gave before.
+ *
+ * `anyRide` is the crew's waiver (`UnitsResponse.anyRide`), and leaving it out of this call was a
+ * bug rather than a simplification: the rule is on the sheet, the waiver is on the crew, and the
+ * server reads both everywhere it spends a seat. A window that read only the sheet told a crew
+ * holding the waiver that its Colossus walked, charged it nothing against the yard, and then had
+ * the confirm refused `no_seats`. Defaulted false so a caller that genuinely has no crew in hand
+ * gets the catalogue's answer, which is the strict one.
  */
-export function walksAlways(unitId: string): boolean {
+export function walksAlways(unitId: string, anyRide = false): boolean {
+  if (anyRide) return false;
   const spec = findUnit(unitId);
   return spec !== undefined && unitRules(spec).some((rule) => rule.id === NO_RIDE_RULE);
 }

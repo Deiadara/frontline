@@ -318,8 +318,12 @@ export interface Reimagined {
  * `pageRarity` is the one copy of the rule (the sheet's own rarity if it was authored one, else
  * its document's) and `items/catalog.ts`, the Blueprints screen and the mission page draw all read
  * it. This is only the lookup that turns an id back into the pair it wants.
+ *
+ * Exported because the server counts a Masterpiece coming off the bench
+ * (`masterpieces_reimagined`) and has nothing but the page id to go on. A second copy of the
+ * lookup there would be a second place the sheet-over-document rule could drift.
  */
-function rarityOfPage(pageId: string): ItemRarity | undefined {
+export function rarityOfPage(pageId: string): ItemRarity | undefined {
   const blueprint = blueprintOfPage(pageId);
   const page = findBlueprintPage(pageId);
   return blueprint && page ? pageRarity(blueprint, page) : undefined;

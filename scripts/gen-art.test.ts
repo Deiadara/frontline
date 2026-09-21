@@ -274,6 +274,7 @@ describe('backend selection', () => {
     'plate-district-datavault-sigma',
     'plate-district-glasshouse-fields',
     'plate-district-blacksite-7',
+    'plate-district-combine-spire',
   ];
 
   /**

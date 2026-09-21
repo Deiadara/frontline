@@ -26,7 +26,15 @@ import { useBattles } from '../../lib/queries';
 
 interface DeclareDialogProps {
   target: BattleTarget;
-  targetName: string;
+  /**
+   * The **place**, bare: `Chrome Row`, `Annexe Uplink`. Not a sentence.
+   *
+   * The sentence around it is written here (maintainer, 2026-09-20: put the place in caps, "same
+   * for all other such instances"). It used to be composed at each of the three call sites, so
+   * `the gate at ...` was written out three times and the caps rule would have had to be applied
+   * three times and kept in step for ever. One place name in, one heading out.
+   */
+  placeName: string;
   slots: readonly string[];
   /** What the crew's name is worth right now, which is what the call is paid out of (§D7). */
   infamy: number;
@@ -44,7 +52,7 @@ const timeLabel = (iso: string): string =>
 
 export function DeclareDialog({
   target,
-  targetName,
+  placeName,
   slots,
   infamy,
   pending,
@@ -100,11 +108,27 @@ export function DeclareDialog({
         <p className="font-display text-[10px] uppercase tracking-[0.22em] text-oxblood-300">
           {target.kind === 'gate' ? 'Break the way in' : 'Call a fight'}
         </p>
+        {/* The place in caps and the words around it as written: a heading set wholly in caps
+            loses the difference between the thing being named and the sentence naming it, and one
+            set wholly in title case buries the name in the middle of a line. */}
         <h2
           id="declare-title"
           className="font-display text-lg font-bold tracking-[0.1em] text-ink-100"
         >
-          {targetName}
+          {target.kind === 'gate' ? (
+            <>
+              the gate at <span className="uppercase">{placeName}</span>
+            </>
+          ) : target.kind === 'location' ? (
+            // A location target is the heading and nothing else, so there is no sentence to set
+            // it apart from and nothing to gain by shouting it. The rule is the place inside a
+            // sentence, which is the pair either side of this.
+            <span>{placeName}</span>
+          ) : (
+            <>
+              a raid on <span className="uppercase">{placeName}</span>
+            </>
+          )}
         </h2>
         <p className="font-body text-xs leading-relaxed text-ink-300">
           Everybody sees it coming. The soonest you may call it is {MIN_DECLARE_LEAD_HOURS} hours

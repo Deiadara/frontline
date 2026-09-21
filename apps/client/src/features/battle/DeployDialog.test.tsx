@@ -42,6 +42,7 @@ const view: BattleView = {
     defender: { kind: 'looters' },
     scheduledFor: MARK,
     holdAfterCapture: false,
+    wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
     seed: 'press-seed',

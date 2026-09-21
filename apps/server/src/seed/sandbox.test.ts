@@ -1,7 +1,8 @@
 import {
   BUILDING_KINDS,
   levelCeilingFor,
-  UNIT_IDS,
+  PLAYER_UNITS,
+  isCombineUnit,
   isBuildingUnlocked,
   startingEconomy,
   startingProgression,
@@ -115,7 +116,12 @@ describe('UNLOCKED: the end-game sandbox', () => {
     applyUnlockedSandbox(repos, 'Nikos');
 
     const after = repos.bases.findById('b1');
-    expect(Object.keys(after?.army ?? {}).sort()).toEqual([...UNIT_IDS].sort());
+    // The player's roster, not the catalogue: the Combine's sheets are met, never held, and no
+    // console grants one (`UnitSpec.faction`, 2026-09-19).
+    expect(Object.keys(after?.army ?? {}).sort()).toEqual(
+      PLAYER_UNITS.map((unit) => unit.id).sort(),
+    );
+    expect(Object.keys(after?.army ?? {}).some((id) => isCombineUnit(id))).toBe(false);
     expect(after?.level).toBe(UNLOCKED_LEVEL);
 
     /*

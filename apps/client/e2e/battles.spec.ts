@@ -7,7 +7,7 @@ import {
   noTerritoryEffects,
   type StatKey,
 } from '@frontline/shared';
-import { battles, lateGame } from './fixtures';
+import { battles, districtDetailFor, lateGame } from './fixtures';
 import {
   growPastTheFold,
   expectNoImagesClipped,
@@ -365,7 +365,7 @@ test('a report reads as a document, and a silent one says so instead of showing 
    *
    * Each row used to be written `{side.infamy > 0 && <Row/>}`, one condition per side, so the two
    * columns grew different rows and stopped lining up exactly where a reader wants to compare them.
-   * On this fixture only the attacker banked infamy, took anybody on the ring or was cowed, so under
+   * On this fixture only the attacker banked infamy, took anybody on the ring or was intimidated, so under
    * the old rule this assertion fails on three separate rows.
    */
   const dialog = page.getByRole('dialog');
@@ -375,7 +375,7 @@ test('a report reads as a document, and a silent one says so instead of showing 
   expect(mine, 'the ledger lost its rows').toContain('Caught by the ring');
   expect(mine).toContain('Infamy earned');
   // §D3: intimidation is settled before the first shot and was never drawn anywhere at all.
-  expect(mine, 'the cowed are still invisible').toContain('Too cowed to fire');
+  expect(mine, 'the intimidated are still invisible').toContain('Too intimidated to fire');
   // A ring is a fight now, so what it paid is a number the report has to carry.
   expect(mine).toContain('Lost holding the ring');
   expect(await labelsOf('theirs'), 'the two ledgers do not line up').toEqual(mine);
@@ -558,4 +558,87 @@ test('a quiet day draws no mark', async ({ page }) => {
   await page.goto('/game/units');
   await expect(page.getByTestId('nav-units')).toBeVisible();
   await expect(page.getByTestId('nav-fights')).toHaveCount(0);
+});
+
+/**
+ * The legendary over the ground is in the forecast (maintainer, 2026-09-20).
+ *
+ * He was not, and of everything the estimate leaves out this is the one that reverses the answer
+ * rather than shading it. The engine reads a leader through `SideSetup.presence`, and the page
+ * built both sides without one, so a fight in his district was forecast as a fight nobody
+ * commands. `battle/combine.test.ts` measures the Syndic at 20 Greycoats holding 3 of 80 seeds
+ * bare against 75 of 80 under her, at 24 Razors.
+ *
+ * Not fog of war: the district header names him, his card is public and his power is the first
+ * chip on it. The only thing missing was the sum.
+ *
+ * Asserted as the swing rather than as two pinned percentages, so a retune of her power moves the
+ * measurement with it instead of turning this red. Measured on this fixture, 60 Razors against a
+ * count of 6: **67% without her and 0% under her**.
+ */
+test('the forecast counts the Combine legendary standing over the ground', async ({ page }) => {
+  const leaderDistrict = 'datavault-sigma';
+  const fight = battles.coming[0]!;
+  // A fight against the regime, on his ground, with a force big enough for his power to decide it.
+  const against = {
+    ...battles,
+    coming: [
+      {
+        ...fight,
+        battle: {
+          ...fight.battle,
+          target: { kind: 'location' as const, districtId: leaderDistrict, locationId: 'uplink' },
+          defender: { kind: 'government' as const },
+        },
+        role: 'attacker' as const,
+        side: 'attacker' as const,
+        muster: { army: { razors: 60 }, perimeter: {}, size: 60 },
+        enemySize: 6,
+      },
+      ...battles.coming.slice(1),
+    ],
+  };
+
+  /** Whatever the board is showing as the crew's chance, right now. */
+  const chance = async (): Promise<number | null> => {
+    const text = (await page.getByTestId('battle-odds').textContent()) ?? '';
+    const found = /(\d+)%/.exec(text);
+    return found ? Number(found[1]) : null;
+  };
+
+  const open = async (alive: boolean): Promise<void> => {
+    await installApi(page, lateGame);
+    await page.route('**/api/battles', (route) => route.fulfill({ json: against }));
+    await page.route(`**/api/city/${leaderDistrict}`, (route) => {
+      const detail = districtDetailFor(leaderDistrict);
+      const leader = detail.combineLeader;
+      return route.fulfill({
+        json: { ...detail, combineLeader: leader ? { ...leader, alive } : null },
+      });
+    });
+    await page.goto('/game/battles');
+    await expect(page.getByTestId('battle-odds')).toBeVisible();
+  };
+
+  /*
+   * The dead reading first, and it is the one that holds still: with nobody standing there is no
+   * presence before the district answers and none after, so there is nothing to wait for.
+   */
+  await open(false);
+  const dead = (await chance())!;
+  // The precondition. With him dead this has to be a fight the crew would take, or the assertion
+  // below could be satisfied by a forecast that was hopeless either way.
+  expect(dead, 'the fixture must be a fight worth calling').toBeGreaterThan(40);
+
+  /*
+   * ...and the live one, polled rather than read once: the leader lands one request after the
+   * board, so the first paint of this screen is the leaderless number in both cases. That is also
+   * why the presence is part of the forecast's memo key.
+   */
+  await open(true);
+  await expect
+    .poll(chance, {
+      message: `the Syndic must cost a real share of the fight, against ${dead}% without her`,
+    })
+    .toBeLessThanOrEqual(dead - 25);
 });

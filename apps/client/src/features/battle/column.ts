@@ -125,10 +125,21 @@ function seat(
  * `loadouts` is the crew's brackets (`Base.unitLoadouts`), required rather than defaulted: every
  * screen that quotes a column has a base on it, and a default would let the next caller quote the
  * printed sheet without noticing that the armour line moves it.
+ *
+ * `anyRide` is the crew's waiver on `no_ride` (`UnitsResponse.anyRide`). It is the one input that
+ * can make the quote **too slow** rather than too fast, which is the direction the note above says
+ * these quotes may not be wrong in: a Colossus holds a column to fifteen, and a crew that has
+ * bought the waiver puts it in a truck. The server has read the waiver at every seat it spends
+ * since it existed; this did not, so the board quoted a road the crew then beat by hours.
  */
-export function readColumn(fleet: Fleet, force: Army, loadouts: UnitLoadouts): ColumnRead {
+export function readColumn(
+  fleet: Fleet,
+  force: Army,
+  loadouts: UnitLoadouts,
+  anyRide = false,
+): ColumnRead {
   const speedOf = (unitId: string): ColumnUnit =>
-    unitColumnSpeed(unitId, { fitted: fittedFor(loadouts, unitId) });
+    unitColumnSpeed(unitId, { fitted: fittedFor(loadouts, unitId), anyRide });
   const groups: ColumnGroup[] = Object.entries(force)
     .filter(([, count]) => count > 0)
     .map(([unitId, count]) => ({
@@ -148,7 +159,13 @@ export function readColumn(fleet: Fleet, force: Army, loadouts: UnitLoadouts): C
   // machines that actually took anybody are candidates: one parked at home, or one every rider
   // declined, is not what the column is waiting for.
   const machine = carrying.find((spec) => spec.speed === speed);
-  return { speed, heldBy: machine === undefined ? null : `the ${machine.name}` };
+  /*
+   * No article in front of it: every machine's name carries its own now (maintainer, 2026-09-20,
+   * "make all the vehicle titles start with THE"), and this line used to supply one, so the
+   * Cheese Wagon read as `Held to 48 by the The Cheese Wagon`. The walking half above needs no
+   * such care, because a count goes where the article would: `12 Scavengers walking`.
+   */
+  return { speed, heldBy: machine === undefined ? null : machine.name };
 }
 
 /** `Held to 45 by 12 Scavengers walking`, or the pace alone when nothing can be named. */

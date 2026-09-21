@@ -127,26 +127,25 @@ export function DamageLine({ unit }: { unit: UnitOption }) {
       className="flex min-h-4 flex-wrap items-center gap-x-2 font-display text-[10px] uppercase tracking-[0.08em]"
       data-testid={`damage-line-${unit.id}`}
     >
-      <HoverCard
-        label={`${unit.name} deal ${dealt.toLowerCase()} damage`}
+      {/*
+       * The damage type says itself, so it opens nothing (maintainer, 2026-09-20).
+       *
+       * It carried a card explaining that a defender resists the type rather than the unit. The
+       * two triggers beside it are that same fact as a list of who: Weaknesses and Resistances
+       * name the sheets this lands harder and softer on, which is the half a player is actually
+       * reading the line for. A pointer that stops on `Blade damage` and is told in a paragraph
+       * what the next two words are about to show is a pointer interrupted for nothing.
+       *
+       * The dashed underline goes with the card. It is the game's mark for "there is more here",
+       * and leaving it on something that no longer opens is a promise the line cannot keep.
+       */}
+      <span
+        className="flex h-4 items-center gap-1 whitespace-nowrap"
         data-testid={`damage-type-${unit.id}`}
-        card={
-          <div className="flex flex-col gap-1.5">
-            <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
-              {dealt} damage
-            </p>
-            <p className="font-body text-[13px] leading-relaxed text-ink-100">
-              What {unit.name} hit with. A defender resists the type rather than the unit, so the
-              same stack lands harder on some of the roster than on the rest.
-            </p>
-          </div>
-        }
       >
-        <span className="flex h-4 items-center gap-1 whitespace-nowrap border-b border-dashed border-brass-500/60">
-          <span className="font-bold text-brass-300">{dealt}</span>
-          <span className="text-ink-300">damage</span>
-        </span>
-      </HoverCard>
+        <span className="font-bold text-brass-300">{dealt}</span>
+        <span className="text-ink-300">damage</span>
+      </span>
 
       {(['weakness', 'resistance'] as const).map((side) => (
         <SideTrigger key={side} unit={unit} side={side} lines={split[side]} />
@@ -231,7 +230,15 @@ function ResistanceSheet({
         <ul className="flex flex-col gap-0.5">
           {lines.map((line) => (
             <li key={line.type} className="flex items-baseline gap-2">
-              <span className="min-w-0 flex-1 font-stamp text-[13px] leading-tight text-ink-100">
+              {/*
+               * Brass, because a damage type is brass everywhere else on this screen (maintainer,
+               * 2026-09-18). It was `text-ink-100` here and `text-brass-300` on the card, so the
+               * word "Explosive" was off-white in the table and gold two inches above it, reading
+               * as two different kinds of fact. One colour for the type, whichever type it is and
+               * wherever it is printed; the coloured half of the row is the figure beside it,
+               * which is the part that differs between the two tables.
+               */}
+              <span className="min-w-0 flex-1 font-stamp text-[13px] leading-tight text-brass-300">
                 {DAMAGE_TYPE_LABELS[line.type]}
               </span>
               <span

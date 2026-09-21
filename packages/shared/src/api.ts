@@ -366,8 +366,42 @@ export const ScoutingRunViewSchema = z.object({
 });
 export type ScoutingRunView = z.infer<typeof ScoutingRunViewSchema>;
 
+/**
+ * The Combine legendary over a district, for the district screen (maintainer, 2026-09-19).
+ *
+ * Public, like the seat-of-power tag: which leader shadows which district is the thing everybody
+ * in the city already knows. `alive` is derived from the world (`city/combine.ts`), and the
+ * sentence is the leader's own `powerLine`, so the screen and the engine cannot disagree about
+ * what he does. The card the hover draws is the unit's catalogue sheet, which the client already
+ * has; only the facts about *this* world ride on the wire.
+ */
+export const CombineLeaderViewSchema = z.object({
+  unitId: z.string().min(1),
+  name: z.string().min(1),
+  locationId: z.string().min(1),
+  locationName: z.string().min(1),
+  alive: z.boolean(),
+  /** The power's name, for the chip on their card. See `CombineLeader.powerName`. */
+  powerName: z.string().min(1),
+  /**
+   * How the screen speaks about this one. See `CombineLeader.pronoun`.
+   *
+   * On the wire because the lines that need it are written once for all three and one of the three
+   * is a woman, so a screen picking a pronoun for itself would be wrong about a third of the cast.
+   */
+  pronoun: z.object({ subject: z.string(), object: z.string(), possessive: z.string() }),
+  powerLine: z.string().min(1),
+});
+export type CombineLeaderView = z.infer<typeof CombineLeaderViewSchema>;
+
 export const DistrictDetailResponseSchema = z.object({
   district: DistrictSchema,
+  /**
+   * The Combine legendary whose power covers this district, dead or alive, or `null` on ground
+   * no legendary commands. Present on a scouted *and* an unscouted district: his existence is
+   * public, what he has under him is not.
+   */
+  combineLeader: CombineLeaderViewSchema.nullable().default(null),
   scouted: z.boolean(),
   travelMinutes: z.number().int().nonnegative(),
   /** Empty when the district has not been scouted: the fog is enforced server-side. */
@@ -625,6 +659,18 @@ export const BuiltUpgradeSchema = z.object({
 });
 export type BuiltUpgrade = z.infer<typeof BuiltUpgradeSchema>;
 
+/** §A4: plant a cell on a location this crew does not hold. See `sleepers.ts`. */
+export const PlantSleepersRequestSchema = z.object({
+  locationId: IdSchema,
+  /** Unit ids to counts. Every one has to be a sheet that goes to ground. */
+  army: ArmySchema,
+});
+export type PlantSleepersRequest = z.infer<typeof PlantSleepersRequestSchema>;
+
+/** ...and turn one round. The walk home is as long as the walk out was. */
+export const RecallSleepersRequestSchema = z.object({ cellId: IdSchema });
+export type RecallSleepersRequest = z.infer<typeof RecallSleepersRequestSchema>;
+
 export const UnitsResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
   units: z.array(UnitOptionSchema),
@@ -683,6 +729,45 @@ export const UnitsResponseSchema = z.object({
    * here", and a screen that has to go and ask cannot answer it while the menu is opening.
    */
   built: z.array(BuiltUpgradeSchema),
+  /**
+   * Whether this crew's porters may stand in a line (`carriers_fight`, 2026-09-18).
+   *
+   * The one thing that lifts the hardest rule on a unit sheet, and no payload carried it, so no
+   * screen could ask. `features/faction/Fights.tsx` filtered carriers out of the ally
+   * reinforcement picker on `tier === 'carrier'`, which was right until the doors started
+   * accepting them: a crew holding Yard Discipline could send its Scavengers to its own fight
+   * and not to an ally's, with nothing on screen saying why.
+   *
+   * Optional out of the parser for the same reason `trainingSuppliesReduction` is: the server
+   * always sends it, and making it required would mean writing `false` into every roster fixture
+   * in the tree to say what absent already says. Read it as `?? false`, which is the strict
+   * reading and the one every crew without the programme gets.
+   */
+  carriersFight: z.boolean().optional(),
+  /**
+   * Whether this crew's machines seat anything at all (`any_ride`, bug pass 2026-09-19).
+   *
+   * The sibling of `carriersFight` above, and it was missing for the same reason: `no_ride` is a
+   * fact about a sheet, `any_ride` waives it for a *crew*, and no payload said which crews. Three
+   * things grant it (a location bonus, a research rung and a perk) and the server reads it at both
+   * doors that spend seats, `ridingUnitSlots` in `battle/deploy.ts` and `ridingGroups` in the
+   * settle. The two screens that quote seats asked the catalogue instead, so a crew holding the
+   * waiver was told its Colossus walked, was charged no seat for it, and had the batch refused
+   * `no_seats` on confirm.
+   *
+   * Optional out of the parser for the reason the two above it are: the server always sends it,
+   * and `?? false` is the reading every crew without the waiver gets.
+   */
+  anyRide: z.boolean().optional(),
+  /**
+   * §A4: the Sleepers this crew has planted on ground it does not hold (`sleepers.ts`).
+   *
+   * A **subset of `abroad`**, not a fourth place beside it: `unitsAbroad` folds cells in with
+   * the fights and the jobs so the unit-slot ceiling counts them, and without this field the
+   * Total Units page could only say "somewhere else" about people whose whole point is that you
+   * know exactly where they are. Optional out of the parser, like the two above it.
+   */
+  sleeping: ArmySchema.optional(),
 });
 export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
 
@@ -1417,6 +1502,24 @@ export const CrewStandingResponseSchema = z.object({
    * smaller bag than the settle paid for a crew that had finished Haul Rigging.
    */
   marks: z.record(z.string(), z.array(z.string()).readonly()).default({}),
+  /**
+   * What a haul is **actually** multiplied by, which `effects` above cannot say.
+   *
+   * `effects` is the people-only fold (`crewEffectsFor`), and that is correct for what it is for:
+   * `CrewEffectsPage` calls itself "a ledger of what nineteen people between them are worth", and
+   * folding the ground into it would credit the officers with the district's work.
+   *
+   * `lootCapacityPercent` is the one channel on that struct where the difference is not cosmetic.
+   * A held Pawn Shop pays it through `territoryEffectsFor`, and Salvage Drones, the Sally Port and
+   * Haulage Rigs pay it through `raidLootBonus`; both live in `standingEffectsFor` and neither is
+   * in the people fold. The settle reads the standing fold (`missions/resolve.ts`), so a board
+   * quoting off `effects` promised a smaller bag than the job brought home. That is the same
+   * failure the note on `marks` above records, one channel along.
+   *
+   * Beside the struct rather than folded into it, for the reason `marks` is: the two numbers mean
+   * different things and one screen needs each.
+   */
+  haulPercent: z.number().default(0),
 });
 export type CrewStandingResponse = z.infer<typeof CrewStandingResponseSchema>;
 

@@ -63,19 +63,27 @@ async function makeBase(): Promise<{ app: FastifyInstance; base: Base }> {
   return { app, base };
 }
 
-/** Settles a ten-hour window with the given disruption and answers with what was produced. */
+/**
+ * Settles a ten-hour window with a raid that ran over the given stretch of it, in hours relative
+ * to `now`: `[-8, -4]` is a raid that landed eight hours ago and wore off four hours ago. `null`
+ * is a window with no raid in it at all.
+ */
 function tenHoursWith(
   app: FastifyInstance,
   base: Base,
   now: Date,
-  until: string | null,
+  window: [number, number] | null,
 ): Record<string, number> {
+  const at = (hours: number): string => new Date(now.getTime() + hours * HOUR).toISOString();
   const fixture: Base = {
     ...base,
     economy: {
       ...base.economy,
-      productionSettledAt: new Date(now.getTime() - 10 * HOUR).toISOString(),
-      disruption: { until, percent: until === null ? 0 : MAX_RAID_DISRUPTION_PERCENT },
+      productionSettledAt: at(-10),
+      disruption:
+        window === null
+          ? { until: null, since: null, percent: 0 }
+          : { since: at(window[0]), until: at(window[1]), percent: MAX_RAID_DISRUPTION_PERCENT },
     },
   };
   const after = settleDistrict(app.repos, fixture, now).base;
@@ -92,32 +100,37 @@ describe('what a raid takes off a district while it lasts', () => {
     const { app, base } = await makeBase();
     const now = new Date();
 
-    // Three windows over the same ten hours: no raid at all, a raid whose six hours ran out four
-    // hours before the crew logged in, and a raid still running.
+    // Four windows over the same ten hours: no raid at all, a raid that ran out four hours before
+    // the crew logged in, a raid landed an hour ago that is still running, and one that covered
+    // the whole window.
     const undisturbed = tenHoursWith(app, base, now, null);
-    const expiredMidWindow = tenHoursWith(
-      app,
-      base,
-      now,
-      new Date(now.getTime() - 4 * HOUR).toISOString(),
-    );
-    const stillRunning = tenHoursWith(app, base, now, new Date(now.getTime() + HOUR).toISOString());
+    const expiredMidWindow = tenHoursWith(app, base, now, [-10, -4]);
+    const landedAnHourAgo = tenHoursWith(app, base, now, [-1, 5]);
+    const ranThroughout = tenHoursWith(app, base, now, [-12, 5]);
 
     const measurable = Object.keys(undisturbed).filter((key) => (undisturbed[key] ?? 0) > 40);
     expect(measurable.length, 'nothing produced enough in ten hours to measure').toBeGreaterThan(0);
 
+    // The cut is charged against the hours it covers, so each case is priced by how many of the
+    // ten hours the raid overlapped. Derived from the constant rather than typed out, because the
+    // percentage moved with the defeat when it stopped being a flat quarter.
+    const worth = (disruptedHours: number): number =>
+      (disruptedHours * (1 - MAX_RAID_DISRUPTION_PERCENT / 100) + (10 - disruptedHours)) / 10;
+    const cases: [string, Record<string, number>, number][] = [
+      ['expired four hours ago', expiredMidWindow, worth(6)],
+      // The over-charge the `since` field was added for. Before it the walk read the cut as
+      // though it had always been on and charged half of ten hours for a raid that had taken one.
+      ['landed an hour ago', landedAnHourAgo, worth(1)],
+      ['ran the whole window', ranThroughout, worth(10)],
+    ];
+
     for (const key of measurable) {
       const full = undisturbed[key] ?? 0;
-      // Six of the ten hours were disrupted, so the window is worth six hours at the cut rate
-      // plus four at the full one. Derived from the constant rather than typed out, because the
-      // percentage moved with the defeat when it stopped being a flat quarter.
-      const worked = 6 * (1 - MAX_RAID_DISRUPTION_PERCENT / 100) + 4;
-      const expected = (full * worked) / 10;
-      expect(expiredMidWindow[key] ?? 0, key).toBeGreaterThan(expected * 0.97);
-      expect(expiredMidWindow[key] ?? 0, key).toBeLessThan(expected * 1.03);
-      // And a raid that has not run out yet costs the whole window, which is the case the old
-      // whole-window reading happened to get right: it is here so the fix cannot have broken it.
-      expect(stillRunning[key] ?? 0, key).toBeLessThan(full);
+      for (const [name, produced, share] of cases) {
+        const expected = full * share;
+        expect(produced[key] ?? 0, `${key}, raid ${name}`).toBeGreaterThan(expected * 0.97);
+        expect(produced[key] ?? 0, `${key}, raid ${name}`).toBeLessThan(expected * 1.03);
+      }
     }
   });
 });

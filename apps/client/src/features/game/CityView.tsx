@@ -49,9 +49,18 @@ export const DISTRICT_MARKS: Readonly<Record<string, OnPlateAt>> = {
   // Lifted clear of the parapet below it: the tag's lower edge was sitting exactly on the wall's
   // coping, which reads as a label stuck to the wall rather than one lying on the roofs it names.
   rustyard: { x: 0.387, y: 0.346 },
-  // Off the cathedral itself and down to its left, at the foot of the tower rather than across it.
-  // Board's placement: the Command Sector's tag belongs beside the building, not over it.
-  'combine-spire': { x: 0.772, y: 0.345 },
+  /*
+   * Off the cathedral itself and at the foot of the tower rather than across it. The board's
+   * placement: the Command Sector's tag belongs beside the building, not over it.
+   *
+   * Moved up and to the right on 2026-09-20, from `0.772, 0.345`, to sit between where it was and
+   * the cathedral's lowest point rather than out on the roofs to its left. Measured at 1440x900,
+   * where the painting is 1440x686 and the mark is the tag's anchor: it was at (1112, 352) and the
+   * spire comes down to about (1225, 275), so this is a little under halfway along that line.
+   * Deliberately short of the midpoint, because the ask was "not too much": the tag has to stay
+   * clear of the building it names, which is the whole reason it is not on it.
+   */
+  'combine-spire': { x: 0.8, y: 0.3 },
   // The terraced sprawl climbing the right-hand slope.
   'ashen-terraces': { x: 0.655, y: 0.215 },
   // Packed roofs out on the far right, and carried down the slope from where it used to sit.

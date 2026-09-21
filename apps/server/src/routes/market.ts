@@ -37,7 +37,7 @@ import { AppError, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
-import { tallyPagesIn } from '../feats/tally.js';
+import { tallyPageReimagined, tallyPagesIn } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
 
 /**
@@ -197,6 +197,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
          * the other direction from counting the scrap servos in a mission haul.
          */
         tallyPagesIn(app.repos, base.id, { [traded.gained as ItemId]: 1 });
+        /*
+         * ...and separately, whether it was a Masterpiece.
+         *
+         * The bench is the one door whose payout a player can steer: three Basic sheets pay a
+         * Masterpiece once in two hundred and three Masterpiece sheets pay one four times in five
+         * (`blueprints/reimagine-odds.ts`). `pages_found` cannot see that spread, because a page
+         * is a page to it, so the top of the ladder gets a counter of its own.
+         */
+        tallyPageReimagined(app.repos, base.id, traded.gained);
         // §G3: the one that came back, not the three that went in. The response says the same
         // thing to whoever pressed the button; the bell is for the list they read later.
         tellPagesFound(app.repos, {

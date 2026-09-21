@@ -456,6 +456,51 @@ export interface UnderWay {
   gate?: { since: string; until: string; paid: PartialResources };
   /** Re-times the first subject's running drill to this start. */
   drill?: { startedAt: string };
+  /**
+   * A crowded gym: this many subjects on the floor at once, at staggered points in their hours.
+   *
+   * The training fixture has two people and one drill, which is right for the screen it was made
+   * for and says nothing about the strip along the foot of the sheet. That strip has to hold up
+   * to `TRAININGS_PER_DAY` rows at once, and the failures it can have are all plural: a chip that
+   * stretches when it is alone, rows that wrap into a second line and take a drill row off the
+   * sheet, a name that collides with the bar beside it. Subjects past the fixture's two are
+   * synthesised here rather than added to `trainingResponse`, which would change the roster,
+   * the day's tally and the crew sheet for every other spec that reads it.
+   */
+  floor?: number;
+}
+
+/**
+ * The training fixture with `wanted` people on the floor at once.
+ *
+ * Built by cloning the fixture's own officer rather than by writing a new subject from scratch,
+ * so the synthesised ones carry whatever shape the real response has and cannot drift from it
+ * when a field is added. Their names are deliberately long and short by turns: a chip has to hold
+ * "Bartholomew Achterberg-Vance" and "Ox" in the same row of the same grid.
+ *
+ * The hours are staggered by four minutes each, so the bars are at visibly different lengths and
+ * a strip that drew one width for all of them would be obvious rather than plausible.
+ */
+function crowdTheFloor(training: TrainingResponse, wanted: number): TrainingResponse {
+  const [first, officer] = training.subjects;
+  if (!first?.session || !officer) throw new Error('the training fixture lost its shape');
+
+  const names = ['Ox', 'Bartholomew Achterberg-Vance', 'Isolde Ferrier', 'Kit'];
+  const extra = names.slice(0, Math.max(0, wanted - 1)).map((name, index) => ({
+    ...officer,
+    id: `floor-${index}`,
+    name,
+    injuredUntil: null,
+    session: {
+      ...first.session!,
+      id: `floor-drill-${index}`,
+      subjectId: `floor-${index}`,
+      startedAt: new Date(
+        Date.parse(first.session!.startedAt) - (index + 1) * 4 * 60 * 1000,
+      ).toISOString(),
+    },
+  }));
+  return { ...training, subjects: [...training.subjects, ...extra] };
 }
 
 export async function installApi(
@@ -603,6 +648,7 @@ export async function installApi(
         : subject,
     );
   }
+  if (underWay.floor !== undefined) training = crowdTheFloor(training, underWay.floor);
   /*
    * The feats board, per install and mutable for the reason tonight's tables are.
    *

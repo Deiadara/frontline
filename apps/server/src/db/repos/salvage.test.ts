@@ -149,6 +149,7 @@ describe('an item or a vehicle the catalogue no longer carries', () => {
       resolvedAt: null,
       seed: 'seed-1',
       holdAfterCapture: false,
+      wokeSleepers: false,
     };
     repos.sieges.insert(battle);
     repos.sieges.putDeployment({
@@ -331,6 +332,7 @@ describe('the machines the Garage no longer builds', () => {
       resolvedAt: null,
       seed: 'seed-1',
       holdAfterCapture: false,
+      wokeSleepers: false,
     };
     repos.sieges.insert(battle);
     repos.sieges.putDeployment(emptyDeployment(battle.id, base, 'attacker', now.toISOString()));

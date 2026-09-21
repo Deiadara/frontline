@@ -91,6 +91,9 @@ function openStack(): Repositories {
 
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
+/** A plot whose kind pays `loot_capacity`, which no officer and no perk does. */
+const PAWN_SHOP = 'rustyard-pawn';
+
 async function signIn(app: FastifyInstance): Promise<string> {
   const registered = await app.inject({
     method: 'POST',
@@ -312,6 +315,56 @@ describe('the Training tab over HTTP', () => {
     expect(res.statusCode).toBe(200);
     const effects = res.json<{ effects: Record<string, number> }>().effects;
     expect(effects.payrollStepDiscountPercent).toBeGreaterThan(0);
+  });
+
+  /**
+   * `haulPercent` is the bag the **settle** pays, which `effects` beside it deliberately is not.
+   *
+   * `effects` is `crewEffectsFor`, the people-only fold, and that is right for what reads it:
+   * `CrewEffectsPage` calls itself a ledger of what the people are worth, so folding the district
+   * into it would credit nineteen officers with the Pawn Shop.
+   *
+   * But the board and the deployment screen quote a haul, and `missions/resolve.ts` pays that
+   * haul off `standingEffectsFor`. A held Pawn Shop is 15% of bag through `territoryEffectsFor`,
+   * and Salvage Drones, the Sally Port and Haulage Rigs are more through `raidLootBonus`: none of
+   * it is in the people fold, so both screens promised a smaller bag than the job brought home.
+   * `MissionBoard.tsx` carries a comment forbidding exactly that, one channel along, about the
+   * granted `picker` marks that had the same bug and got the `marks` field to fix it.
+   *
+   * The people figure is asserted to be unchanged in the same breath, because a fix that simply
+   * pointed the whole response at the standing fold would pass a test that only looked at the bag
+   * and would silently rewrite the ledger page.
+   */
+  it('quotes the haul off held ground, and leaves the people ledger alone', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('driller')?.id ?? '');
+    if (!base) throw new Error('no base');
+
+    const read = async (): Promise<{ effects: Record<string, number>; haulPercent: number }> => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/overseer/me',
+        headers: auth(token),
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json<{ effects: Record<string, number>; haulPercent: number }>();
+    };
+
+    const before = await read();
+    // The Pawn Shop: the one location kind whose bonus is `loot_capacity` (`city/locations.ts`).
+    const control = app.repos.city.control(PAWN_SHOP);
+    if (!control) throw new Error(`fixture: no control row for ${PAWN_SHOP}`);
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: base.id }, garrison: {} });
+    const after = await read();
+
+    expect(after.haulPercent, 'the Pawn Shop paid nothing into the quoted bag').toBeGreaterThan(
+      before.haulPercent,
+    );
+    expect(
+      after.effects.lootCapacityPercent,
+      'the people ledger moved when a plot changed hands',
+    ).toBe(before.effects.lootCapacityPercent ?? 0);
   });
 
   it('trains an officer, not only the Overseer', async () => {

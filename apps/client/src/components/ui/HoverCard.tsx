@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../../lib/cn';
+import { topDialog, watchDialogs } from './Modal';
 
 /**
  * A small explanation that appears under the thing it explains.
@@ -103,6 +104,29 @@ interface Placement {
   left: number;
 }
 
+/**
+ * Whether the window on top has `trigger` underneath it.
+ *
+ * A trigger inside that window is on top with it and keeps its card; anything else is behind the
+ * backdrop, where a card is a panel floating over a window nobody opened it from.
+ */
+function buriedByADialog(trigger: Element | null): boolean {
+  const top = topDialog();
+  return top !== null && !top.contains(trigger);
+}
+
+/**
+ * The nearest x that puts a card of this width next to the trigger rather than across it, or the
+ * clamped x it already had when the frame has room for neither side.
+ */
+function beside(at: DOMRect, width: number, clamped: number): number {
+  const toTheRight = at.right + GAP;
+  const toTheLeft = at.left - GAP - width;
+  if (toTheRight + width <= window.innerWidth - EDGE) return toTheRight;
+  if (toTheLeft >= EDGE) return toTheLeft;
+  return clamped;
+}
+
 export function HoverCard({
   card,
   children,
@@ -117,6 +141,7 @@ export function HoverCard({
   'data-testid': testId,
 }: HoverCardProps) {
   const [open, setOpen] = useState(false);
+  const [buried, setBuried] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -149,6 +174,24 @@ export function HoverCard({
   }, [cancelClose, interactive]);
 
   useEffect(() => cancelClose, [cancelClose]);
+
+  /*
+   * A card goes out while a dialog stands over its trigger, and comes back when the dialog goes.
+   *
+   * The trigger that *opened* the dialog is the case this exists for: a press leaves the pointer
+   * on it and a keyboard leaves the focus on it, so nothing ever fired the leave that would have
+   * closed the card, and the card outranks the window (`z-[200]` against `z-[100]`). A player
+   * pressing a unit chip got the same card twice, the top one over the dialog it had just opened.
+   *
+   * State rather than a read at render time, because the DOM this asks about changes in another
+   * component: `Modal` says when.
+   */
+  useEffect(() => {
+    const look = () => setBuried(buriedByADialog(triggerRef.current));
+    look();
+    return watchDialogs(look);
+  }, []);
+  const showing = open && !buried;
 
   /**
    * Measured after paint, not guessed.
@@ -184,19 +227,30 @@ export function HoverCard({
       EDGE,
       Math.min(fitsWanted || !fitsOther ? wanted : other, window.innerHeight - size.height - EDGE),
     );
-    setPlacement({ top, left });
+    /*
+     * A tall card over a short trigger fits neither above nor below, so the clamp on the line above
+     * has just laid it *over* the thing it explains. A unit chip is the case that found it: the
+     * sheet is taller than the room under a chip halfway down a 768px screen, and the card it
+     * opened covered the chip, its count and its neighbours. Step it sideways when the frame has
+     * room, right first because that is where reading leaves the eye.
+     *
+     * Only ever in that case. When the card is already clear above or below the trigger, this is
+     * false and nothing moves, so no placement that was right becomes something else.
+     */
+    const lyingOnTrigger = top < at.bottom && top + size.height > at.top;
+    setPlacement({ top, left: lyingOnTrigger ? beside(at, size.width, left) : left });
   }, [side]);
 
   useLayoutEffect(() => {
-    if (!open) {
+    if (!showing) {
       setPlacement(null);
       return;
     }
     place();
-  }, [open, place]);
+  }, [showing, place]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!showing) return;
     // The world behind the card scrolls and resizes under it. Capture phase, because the scroll
     // that matters is usually on an inner panel rather than on the window.
     window.addEventListener('scroll', place, true);
@@ -205,7 +259,7 @@ export function HoverCard({
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
-  }, [open, place]);
+  }, [showing, place]);
 
   return (
     <>
@@ -236,8 +290,8 @@ export function HoverCard({
          * pill on top of its own window. The label stays on `aria-label`, which is what it was
          * for.
          */
-        aria-describedby={open ? id : undefined}
-        aria-expanded={open}
+        aria-describedby={showing ? id : undefined}
+        aria-expanded={showing}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
@@ -247,7 +301,7 @@ export function HoverCard({
         {children}
       </button>
 
-      {open &&
+      {showing &&
         createPortal(
           <div
             ref={cardRef}

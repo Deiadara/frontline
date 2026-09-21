@@ -58,7 +58,11 @@ test('a crew short of the price is told how far short, and cannot buy', async ({
 
   await page.getByTestId('infamy-hover').hover();
   const next = page.getByTestId('notoriety-next');
-  const short = notorietyUpgradeCost(0)! - lateGame.base!.economy.infamy;
+  // Read the crew's own rank rather than assuming it is nought. The fixture was given rank 3 on
+  // 2026-09-19 so it could reach the back room, which §I3 opens at rank 3, and a hardcoded 0 here
+  // priced the wrong rung: it is 8,000 short of rank 4, not 200 short of rank 1.
+  const rank = lateGame.base!.economy.notoriety;
+  const short = notorietyUpgradeCost(rank)! - lateGame.base!.economy.infamy;
   await expect(next).toContainText(`${short.toLocaleString()} short`);
   await expect(page.getByTestId('upgrade-tier')).toBeDisabled();
 });

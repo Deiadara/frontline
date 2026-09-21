@@ -36,6 +36,21 @@ import type { ModificationRarity as UnitModificationRarity } from '../modificati
  * Costs climb with the band too, and the same test holds it: no card in one band costs less scrap
  * than the dearest card in the band below, and high-quality metal starts at INTRICATE.
  *
+ * ## What a sheet is sold, and why the Netrunners are not sold a scope
+ *
+ * A card's `fits` list is a claim that the card is worth buying for that unit. That stopped being
+ * true for the Netrunners on 2026-09-18, when their offense went to twenty and `UnitSpec.jammer`
+ * became the whole of what they are: the yard was selling them three gunsights (+12, +48 and +72
+ * offense) whose entire effect was on a number that no longer decides anything, which is the
+ * failure the Scrapyard has had once before. They are off that line now and on `bone_lattice`
+ * instead, and the rest of what they can fit is armour, evasion and morale.
+ *
+ * That is not a consolation prize: `jamPercent` reads the stacks **still standing and still in
+ * the line**, so a jammer's output is time on the field. Hit points, a harder unit to hit and a
+ * morale figure that keeps them from routing each add rounds of jam directly, and a scope adds
+ * none. `modifications.test.ts` holds the rule so a card added tomorrow cannot quietly put a
+ * gunsight back on a sheet that does not shoot.
+ *
  * ## Three are open, twenty-seven are drawings
  *
  * Taped Grips, Scrap Vest and Broken-In Boots are tape, offcuts and second-hand boots. A crew that
@@ -129,6 +144,17 @@ export interface UnitModificationSpec {
   cost: PartialResources;
   /** Components, consumed on build. */
   parts: ItemCost;
+  /**
+   * §A5: the tier of `noisy` this card makes a **loud** unit put on the people it is fighting.
+   *
+   * A ceiling rather than an amount added, so two of them on one sheet is the deeper of the two
+   * and not the sum: see `loudTierFor`. Absent on every card but the Stereo Rig, and worth
+   * nothing at all on a unit without `UnitSpec.loud`, because there is no racket to deepen.
+   *
+   * Outside `effect`, which is `Partial<UnitStats>` and rightly so: this is not a number on the
+   * sheet. It is a parameter of a rule, and the first of its kind on this interface.
+   */
+  noiseTier?: number;
   /**
    * Every unit this will go on. Absent means all of them.
    *
@@ -309,6 +335,34 @@ const SPECS: readonly UnitModificationSpec[] = [
 
   // -------------------------------------------------------------- INTRICATE
   {
+    id: 'stereo_rig',
+    name: 'Stereo Rig',
+    description:
+      'Salvaged horn speakers bolted to the shoulders and a power pack nobody will explain. Takes the racket they already make from bad to unsurvivable.',
+    /*
+     * §A5: the one card in the yard that tunes a *rule* rather than a number.
+     *
+     * The Anodics carry `loud`, which lays Noisy II on whoever they are fighting. This takes
+     * that to Noisy IV, which on the label's curve is roughly double: see `noiseTier` and
+     * `loudTierFor`. It fits nothing else, because on a sheet without `loud` there is no racket
+     * to deepen and the card would be a blank.
+     *
+     * The stat half is real and has to be, because the rarity bands are scored on stats alone
+     * (`unitModificationPower`) and cannot see a rule parameter: a card whose whole value was
+     * `noiseTier` would sit at 5 points and claim to be INTRICATE, which the band test rightly
+     * refuses. So it carries what a PA rig would actually be worth. It is terrifying to stand in
+     * front of, it puts some fire into the people wearing it, and it is heavy: 12 + 8 - 4 = 16,
+     * inside the 12..19 the band declares, with no single move past the band's ceiling of 12.
+     */
+    effect: { intimidation: 12, morale: 8, speed: -4 },
+    noiseTier: 4,
+    fits: ['anodics'],
+    rarity: 'intricate',
+    requiresBlueprint: true,
+    cost: { scrap: 2400, highQualityMetal: 110 },
+    parts: { scrap_servo: 2 },
+  },
+  {
     id: 'ablative_layers',
     name: 'Ablative Layers',
     description:
@@ -373,16 +427,7 @@ const SPECS: readonly UnitModificationSpec[] = [
     requiresBlueprint: true,
     cost: { scrap: 3500, highQualityMetal: 180 },
     parts: { optic_cluster: 3 },
-    fits: [
-      'sparks',
-      'wardens',
-      'snipers',
-      'road_reavers',
-      'kite_crews',
-      'netrunners',
-      'juggernauts',
-      'sluggers',
-    ],
+    fits: ['sparks', 'wardens', 'snipers', 'road_reavers', 'kite_crews', 'juggernauts', 'sluggers'],
   },
   {
     id: 'counterweight_harness',
@@ -405,7 +450,9 @@ const SPECS: readonly UnitModificationSpec[] = [
     requiresBlueprint: true,
     cost: { scrap: 3900, highQualityMetal: 210 },
     parts: { ceramic_plate: 4, hydraulic_ram: 2 },
-    fits: ['breakers', 'wardens', 'ironsides', 'juggernauts', 'sluggers'],
+    // The Netrunners are on this list and not on the marksman line (maintainer, 2026-09-18):
+    // see the note on `UnitSpec.jammer`. Staying upright *is* their damage.
+    fits: ['breakers', 'wardens', 'ironsides', 'juggernauts', 'sluggers', 'netrunners'],
   },
   {
     id: 'trophy_rack',
@@ -441,16 +488,7 @@ const SPECS: readonly UnitModificationSpec[] = [
     requiresBlueprint: true,
     cost: { scrap: 6600, highQualityMetal: 460 },
     parts: { optic_cluster: 4, targeting_core: 1 },
-    fits: [
-      'sparks',
-      'wardens',
-      'snipers',
-      'road_reavers',
-      'kite_crews',
-      'netrunners',
-      'juggernauts',
-      'sluggers',
-    ],
+    fits: ['sparks', 'wardens', 'snipers', 'road_reavers', 'kite_crews', 'juggernauts', 'sluggers'],
   },
   {
     id: 'dry_joints',
@@ -556,16 +594,7 @@ const SPECS: readonly UnitModificationSpec[] = [
     requiresBlueprint: true,
     cost: { scrap: 15000, highQualityMetal: 1180 },
     parts: { targeting_core: 3, optic_cluster: 6 },
-    fits: [
-      'sparks',
-      'wardens',
-      'snipers',
-      'road_reavers',
-      'kite_crews',
-      'netrunners',
-      'juggernauts',
-      'sluggers',
-    ],
+    fits: ['sparks', 'wardens', 'snipers', 'road_reavers', 'kite_crews', 'juggernauts', 'sluggers'],
   },
   {
     id: 'ghost_protocol',
@@ -607,21 +636,51 @@ export function unitModificationsOfRarity(
   return SPECS.filter((spec) => spec.rarity === rarity);
 }
 
+/** The three figures a gun card moves, and nothing a jammer's contribution is made of. */
+const GUN_ONLY_KEYS: readonly (keyof UnitStats)[] = ['offense', 'penetration', 'range'];
+
+/**
+ * Whether every figure this card moves is part of shooting somebody.
+ *
+ * `Filed Sights` and `Recoil Dampers` are the two that matter, because they carry no `fits` list
+ * and therefore reach the whole roster.
+ */
+function isGunOnly(spec: UnitModificationSpec): boolean {
+  const moved = Object.keys(spec.effect);
+  return moved.length > 0 && moved.every((key) => GUN_ONLY_KEYS.includes(key as keyof UnitStats));
+}
+
 /**
  * Whether this card may be fitted to this unit.
  *
- * Three answers in one, and the order matters only for readability: an id nothing answers to is
- * refused, a legendary is refused whatever the card says, and everything else is the card's own
- * `fits` list or the absence of one.
+ * Four answers in one, and the order matters only for readability: an id nothing answers to is
+ * refused, a legendary is refused whatever the card says, a gunsight is refused to a sheet that
+ * does not shoot, and everything else is the card's own `fits` list or the absence of one.
  *
- * The legendary rule is here rather than on a screen because the screen is not the only caller:
- * the server will validate a fit request, the Scrapyard will price a bench, and a rule that lives
- * in a component is a rule that holds until somebody writes the second component.
+ * The rules are here rather than on a screen because the screen is not the only caller: the
+ * server validates a fit request, the Scrapyard prices a bench, and a rule that lives in a
+ * component is a rule that holds until somebody writes the second component.
+ *
+ * ## Why a jammer is refused a scope (maintainer, 2026-09-18)
+ *
+ * A `jammer`'s offense is twenty and `UnitSpec.jammer` is the whole of what it contributes, so a
+ * card whose every figure is offense, penetration or range is a card that does nothing for it.
+ * The yard was selling the Netrunners five of them: three on the marksman line's `fits` list,
+ * which is a list and could simply be edited, and two with no list at all, which could not. So
+ * the rule is a predicate rather than thirty ids typed into two cards, and it holds for the next
+ * jammer and the next open gun card without either of them remembering it.
+ *
+ * It is deliberately **not** "every support sheet". A Stitcher carries 60 offense and Recoil
+ * Dampers is a 47% boost to it, which is a perfectly good thing to sell a medic; a jammer's 20
+ * is the lowest figure on a roster whose median is 280, and it is low on purpose.
  */
 export function modificationFitsUnit(spec: UnitModificationSpec, unitId: string): boolean {
   const unit = findUnit(unitId);
   if (!unit) return false;
   if (unit.tier === 'legendary') return false;
+  // The Combine's sheets never see the inside of a Scrapyard (`UnitSpec.faction`).
+  if (unit.faction !== undefined) return false;
+  if (unit.jammer === true && isGunOnly(spec)) return false;
   return spec.fits === undefined || spec.fits.includes(unitId);
 }
 

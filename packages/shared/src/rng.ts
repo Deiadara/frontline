@@ -57,10 +57,28 @@ export function seededRoll(seed: string): number {
  * draw in `blueprints/prize.ts` and the rarity draw the Reimagining bench takes, and a second copy
  * of this loop is a second place for the scaling trick below to be "tidied" into a float.
  *
- * Weights may be integers (the page pool) or fractions summing to one (the odds ladder): the hash
- * is an integer of arbitrary size, so taking it modulo a scaled total and dividing back is what
- * turns it into a point in [0, total) without ever going through a float. Returns null on an empty
- * pool or one whose weights are all zero, which is a question with no answer rather than a default.
+ * Weights may be integers (the page pool) or fractions summing to one (the odds ladder), so what
+ * this needs is a uniform point in [0, total). It takes one off the `mulberry32` stream rather
+ * than by a modulus, and that is a repair rather than a preference.
+ *
+ * It used to read `seedFrom(seed) % Math.round(total * SCALE)` with `SCALE` a million. `seedFrom`
+ * returns a uint32, so the modulus only partitions `2^32` evenly when it divides it, and none of
+ * the real pools do. On the `upgrade` page pool the weights total 585, so the modulus is
+ * 585,000,000 and `2^32 = 7 x 585,000,000 + 199,967,296`: every residue below that remainder has
+ * eight preimages and the rest have seven. Measured over 400,000 draws per pool, the first 34.2%
+ * of the cumulative range came out about 10% over and the remaining 65.8% about 4% under, with
+ * the crossover exactly where that arithmetic puts it. Pages sit in the pool in catalogue order
+ * and rarity does not track that order, so the effect was invisible to `prize.test.ts`, which
+ * measures per-rarity rates: what it actually did was make pages early in the catalogue likelier
+ * to drop than pages late in it, on top of the rarity ladder that is supposed to be the only
+ * thing separating them.
+ *
+ * The bench's rarity draw took the same path with a modulus of 1,000,000, where the same
+ * arithmetic gives a 0.02% skew, so that one was never the problem and is not changed in kind.
+ *
+ * Returns null on an empty pool or one whose weights are all zero, which is a question with no
+ * answer rather than a default. The walk still falls back to the last entry, which is what keeps
+ * a fractional ladder whose weights do not quite sum to one from having an unreachable tail.
  */
 export function drawWeighted<T>(
   pool: readonly { id: T; weight: number }[],
@@ -68,8 +86,7 @@ export function drawWeighted<T>(
 ): T | null {
   const total = pool.reduce((sum, entry) => sum + entry.weight, 0);
   if (pool.length === 0 || total <= 0) return null;
-  const SCALE = 1_000_000;
-  let at = (seedFrom(seed) % Math.round(total * SCALE)) / SCALE;
+  let at = mulberry32(seedFrom(seed))() * total;
   for (const entry of pool) {
     at -= entry.weight;
     if (at < 0) return entry.id;

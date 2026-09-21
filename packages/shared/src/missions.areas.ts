@@ -104,16 +104,84 @@ function takeFrom(
   return chosen;
 }
 
-/** Every board this job is on offer at today, `misc` first and then the districts in map order. */
-export function areasOffering(templateId: string, day = ''): string[] {
+/**
+ * Every board this job is on offer at right now, `misc` first and then the districts in map order.
+ *
+ * Takes the moment rather than a day string, because the two kinds of board no longer share a
+ * key: a district's is its game day and `misc` carries an hourly slot inside it. Asking each area
+ * for its own key through `missionBoardKey` is the only reading that cannot go stale for one of
+ * them while staying right for the other.
+ */
+export function areasOffering(
+  templateId: string,
+  now: Date,
+  zone: string = GAME_TIMEZONE,
+): string[] {
   return [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)].filter((areaId) =>
-    missionOffers(areaId, day).some((template) => template.id === templateId),
+    missionOffers(areaId, missionBoardKey(areaId, now, zone)).some(
+      (template) => template.id === templateId,
+    ),
   );
 }
 
 /** The game date a board is generated from, `YYYY-MM-DD`: the same grammar the Bar's roster uses. */
 export function missionBoardDay(now: Date, zone: string = GAME_TIMEZONE): string {
   return dayInZone(now, zone);
+}
+
+/**
+ * How often the `misc` board turns over, in minutes (maintainer, 2026-09-19).
+ *
+ * "Make the misc missions be a big pool, not the same over and over, and different ones are
+ * chosen each time."
+ *
+ * The districts keep the day. A district's board is a fact about *ground*, and a player who
+ * scouts the Rustyard and comes back an hour later to take the job they saw is entitled to find
+ * it there. `misc` is the opposite by construction: it is the board with no address, always open
+ * before anything has been scouted, and its whole job is to be the thing there is always
+ * something to do on. Turning over hourly is what stops it being the same three cards every time
+ * a player opens the page.
+ *
+ * An hour rather than minutes, because the board is still a shared fact: two players looking at
+ * `misc` at the same moment see the same three, and `pagePrize` and the launch's own check read
+ * the same key. See {@link missionBoardKey}.
+ */
+export const MISC_BOARD_ROTATION_MINUTES = 60;
+
+/**
+ * The key a board is generated from: the day, plus a slot within it for `misc`.
+ *
+ * One function for both, so the screen, the launch's "is this still on offer" check and the page
+ * prize cannot disagree about which board they are talking about. A district's key is its day
+ * unchanged, which is exactly what every one of those three read before this existed.
+ */
+export function missionBoardKey(areaId: string, now: Date, zone: string = GAME_TIMEZONE): string {
+  const day = missionBoardDay(now, zone);
+  if (areaId !== MISC_AREA_ID) return day;
+  const slot = Math.floor(now.getTime() / (MISC_BOARD_ROTATION_MINUTES * 60_000));
+  return `${day}#${slot}`;
+}
+
+/**
+ * The keys a job may honestly be launched from: this board, and the one before it.
+ *
+ * The seam a faster turnover opens. A player who opens the send window at the end of a slot and
+ * presses the button after it has rolled would be told "that job is not on offer there" about a
+ * card that was on the wall when they read it. One slot of grace closes that, and closes nothing
+ * else: a job two slots old is genuinely gone.
+ *
+ * A district has one key, because a day-old board is a day out of date rather than a second out.
+ */
+export function launchableBoardKeys(
+  areaId: string,
+  now: Date,
+  zone: string = GAME_TIMEZONE,
+): string[] {
+  const current = missionBoardKey(areaId, now, zone);
+  if (areaId !== MISC_AREA_ID) return [current];
+  const before = new Date(now.getTime() - MISC_BOARD_ROTATION_MINUTES * 60_000);
+  const previous = missionBoardKey(areaId, before, zone);
+  return previous === current ? [current] : [current, previous];
 }
 
 /**

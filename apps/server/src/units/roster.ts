@@ -3,7 +3,7 @@ import {
   fittedOn,
   CITY_LOCATIONS,
   COMBAT_CONTEXT_LABELS,
-  UNIT_CATALOG,
+  PLAYER_UNITS,
   UNIT_MODIFIERS,
   unitRules,
   markedUnit,
@@ -19,6 +19,7 @@ import {
   upgradedStats,
   type FittedSlot,
   type UnitModificationSpec,
+  type UnitModifierSpec,
   fittedFor,
   findUnitModification,
   modificationsForUnit,
@@ -27,11 +28,13 @@ import {
   slotsFor,
   ENV_LABEL_CATALOG,
   ENV_LABEL_IDS,
+  type TerritoryEffects,
   type UnitSpec,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { trainingBreakdownFor } from './breakdown.js';
 import { trainingRatesFor, unlockContextFor } from './training.js';
+import { mergeArmies } from '../battle/forces.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
 
@@ -71,14 +74,50 @@ function groundAffinities(unit: UnitSpec): UnitOption['affinities'] {
     const immune = unit.immuneTo?.includes(id) ?? false;
     const per = unit.affinities?.[id] ?? 0;
     if (!immune && per === 0) continue;
+    /*
+     * Both halves, when a sheet carries both (bug pass, 2026-09-19).
+     *
+     * `UnitSpec.immuneTo` says in as many words that the two compose: "Labels whose baseline
+     * simply does not apply. The affinity, if any, still does." This read them as alternatives,
+     * so a sheet with an immunity *and* an affinity to the same label dropped the word "Immune"
+     * and, worse, drew the row in the green reserved for something the unit is good at while the
+     * figure in it was negative: a chip that says a unit likes ground it is measurably worse on.
+     *
+     * No sheet carries both today, which is exactly why it is worth fixing rather than noting: a
+     * defect nothing in the catalogue can reach is one nobody finds when a sheet finally reaches
+     * it. `groundAffinities.test.ts` puts a sheet in that state to prove the row.
+     */
+    const rate = `${per > 0 ? '+' : ''}${per}% per tier`;
     rows.push({
       id,
       label: ENV_LABEL_CATALOG[id].name,
-      note: immune && per === 0 ? 'Immune' : `${per > 0 ? '+' : ''}${per}% per tier`,
-      good: immune || per > 0,
+      note: per === 0 ? 'Immune' : immune ? `Immune, ${rate}` : rate,
+      // The affinity decides the colour whenever there is one: a unit that shrugs off the
+      // baseline and is still worse for being there has not been handed a good place to stand.
+      good: per === 0 ? immune : per > 0,
     });
   }
   return rows;
+}
+
+/**
+ * The marks this crew's sheet actually carries: granted ones in, waived ones out.
+ *
+ * `markedUnit` only ever *adds* (`unit_mark`), which was the whole story until `any_ride`: that
+ * holding takes a rule **off** a sheet, and there is no channel for a revoked mark because the
+ * engine has no use for one. `no_ride` is a travel rule rather than a battle rule, so the two
+ * readers that care take the flag as an argument (`ridingGroups`, `unitColumnSpeed`) and
+ * `markedUnit` never sees it.
+ *
+ * The card did not, so a crew that had spent a location, a research rung or a perk on getting
+ * the Colossus into a truck was still shown "Too big to ride: there is no seat in this city that
+ * takes one" on the sheet of a unit that now rides. That is the defect this function's neighbour
+ * already argues against in as many words: a card showing a rule the engine is not using is
+ * worse than showing neither.
+ */
+function rulesThisCrewCarries(unit: UnitSpec, effects: TerritoryEffects): UnitOption['rules'] {
+  const rules = unitRules(markedUnit(unit, effects));
+  return effects.anyRide ? rules.filter((rule) => rule.id !== 'no_ride') : rules;
 }
 
 /** One bracket, as the card draws it: what is in it, or the fact that nothing is. */
@@ -104,7 +143,8 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   const abroad = unitsAbroad(repos, base);
   const slots = districtUnitSlots(repos, base, garrisoned);
 
-  const units: UnitOption[] = UNIT_CATALOG.map((unit) => {
+  // The player's roster: the Combine's sheets are met, never offered (`UnitSpec.faction`).
+  const units: UnitOption[] = PLAYER_UNITS.map((unit) => {
     // §A4: what the ground that trains this one takes off it, on top of the crew-wide figures.
     const home = homeTrainingSource(unit, rates.locationLevels);
     return {
@@ -123,7 +163,11 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       modifiers: unit.modifiers.map((id) => ({
         label: UNIT_MODIFIERS[id].label,
         description: UNIT_MODIFIERS[id].description,
-        when: COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context],
+        // The context's clause unless the entry overrides it: one modifier does two things and
+        // the context only describes one of them. See `UnitModifierSpec.when`.
+        when:
+          (UNIT_MODIFIERS[id] as UnitModifierSpec).when ??
+          COMBAT_CONTEXT_LABELS[UNIT_MODIFIERS[id].context].when,
       })),
       /*
        * The marks this crew's sheet actually carries, granted ones included (`unit_mark`).
@@ -133,7 +177,7 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
        * printed only the catalogue's marks would be showing a rule the engine is not using and
        * hiding one it is, which is worse than showing neither.
        */
-      rules: unitRules(markedUnit(unit, effects)),
+      rules: rulesThisCrewCarries(unit, effects),
       affinities: groundAffinities(unit),
       cost: unit.cost,
       trainSeconds: unit.trainSeconds,
@@ -183,6 +227,16 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     garrisoned,
     abroad,
     /*
+     * The slice of `abroad` that is planted rather than committed.
+     *
+     * Read off the cells rather than subtracted from anything: the two are built from the same
+     * repo call one line apart, and a subtraction would go wrong the first time a crew had the
+     * same sheet both planted and at a fight.
+     */
+    sleeping: repos.sleepers
+      .forBase(base.id)
+      .reduce<Army>((total, cell) => mergeArmies(total, cell.army), {}),
+    /*
      * The two figures behind the roster's unit-slot chip, and behind **Max**.
      *
      * `used` is the whole draw, not the army alone: the garrisons, the bench, the officers and the
@@ -218,6 +272,11 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
         };
       }),
     trainingSpeedBonus: rates.speedPercent,
+    // §A5's one exception, so a screen can ask whether this crew's porters may be sent.
+    carriersFight: effects.carriersFight,
+    // ...and the other switch that lifts a rule off a unit sheet (`any_ride`). Both doors that
+    // spend seats already read it; until now no screen that quotes seats could.
+    anyRide: effects.anyRide,
     // The same three figures again, as the lines that make them up, for the chips' hover pages.
     trainingBreakdown: trainingBreakdownFor(repos, base, now),
   };

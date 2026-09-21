@@ -3,6 +3,7 @@ import { blueprintForVehicle, blueprintGateMet } from '../blueprints/index.js';
 import { UNIT_CATALOG, findUnit } from '../units/index.js';
 import {
   MAX_PER_VEHICLE,
+  vehicleBuildSeconds,
   VEHICLES,
   VEHICLE_CLASSES,
   buildableVehicleIds,
@@ -19,6 +20,7 @@ import {
   wrecked,
   type ColumnUnit,
 } from './vehicles.js';
+import { levelCeilingFor } from './kinds.js';
 
 const YES = () => true;
 const NO = () => false;
@@ -572,5 +574,73 @@ describe('building one', () => {
     expect(buildableVehicleIds(1, NO).has('motorcycle')).toBe(false);
     expect(buildableVehicleIds(99, NO).has('rotorcraft')).toBe(false);
     expect(buildableVehicleIds(99, YES).has('rotorcraft')).toBe(true);
+  });
+});
+
+/**
+ * §B6: the yard's level is what takes time off a machine, and the Gauntlet is not (maintainer,
+ * 2026-09-18).
+ *
+ * The Garage's role line has promised "upgrading it lowers the construction time of vehicles"
+ * since the catalogue was rewritten, and until this landed it did nothing at all: `buildSeconds`
+ * was a flat figure per spec and the yard's level changed neither the queue nor the screen.
+ *
+ * The second half is the maintainer's rule and is worth its own assertion: a machine is **built,
+ * not trained**, so the Gauntlet's training cut must never reach it. That one is a property of the
+ * server's two code paths rather than of this module, and it is asserted where they are.
+ */
+describe('what a yard takes off a build', () => {
+  const heaviest = VEHICLES.reduce((worst, spec) =>
+    spec.buildSeconds > worst.buildSeconds ? spec : worst,
+  );
+
+  it('charges the catalogue figure in a yard that has only just opened', () => {
+    expect(vehicleBuildSeconds(heaviest, 0)).toBe(heaviest.buildSeconds);
+  });
+
+  it('takes more off the deeper the yard is', () => {
+    const ladder = [0, 2, 5, 8, 10].map((level) => vehicleBuildSeconds(heaviest, level));
+    for (let step = 1; step < ladder.length; step += 1) {
+      expect(ladder[step]!, ladder.join(' -> ')).toBeLessThan(ladder[step - 1]!);
+    }
+  });
+
+  it('halves the build at the Garage’s own ceiling, and never goes below a second', () => {
+    // Ten levels at five points apiece: the number a player can hold in their head.
+    expect(vehicleBuildSeconds(heaviest, levelCeilingFor('garage'))).toBe(
+      Math.round(heaviest.buildSeconds / 2),
+    );
+    expect(vehicleBuildSeconds({ ...heaviest, buildSeconds: 1 }, 10)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * Every machine is spoken of as a machine (maintainer, 2026-09-20).
+ *
+ * "Make all the vehicle titles start with THE." Four of the seven already did and three did not,
+ * so a column read `Held to 48 by the Cheese Wagon` next to `Held to 45 by The Scrappy`: the same
+ * sentence with the article in two different places, which is the sort of thing a player notices
+ * without being able to say what is wrong.
+ *
+ * The rule belongs on the name rather than on the copy, and the copy had to give its own article
+ * up for it: `column.ts` used to write `the ${machine.name}` and the change turned that into
+ * `the The Cheese Wagon`. That is the half this test cannot see, so it is pinned next door in
+ * `apps/client/src/features/battle/column.test.ts`.
+ */
+describe('what a machine is called', () => {
+  it('names every one of them with the article', () => {
+    const wrong = VEHICLES.filter((vehicle) => !vehicle.name.startsWith('The '));
+    expect(wrong.map((vehicle) => vehicle.name)).toEqual([]);
+  });
+
+  it('is a precondition that there are machines to check', () => {
+    expect(VEHICLES.length).toBeGreaterThan(3);
+  });
+
+  /** ...and the article is not the whole name: `The` on its own names nothing. */
+  it('leaves something after the article', () => {
+    for (const vehicle of VEHICLES) {
+      expect(vehicle.name.slice(4).trim().length, vehicle.id).toBeGreaterThan(0);
+    }
   });
 });

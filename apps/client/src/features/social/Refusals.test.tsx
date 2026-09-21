@@ -63,6 +63,8 @@ afterEach(() => vi.unstubAllGlobals());
 /** One column on the road, still inside its recall window as the server saw it. */
 const onTheRoad: ActionsResponse = {
   serverNow: NOW,
+  sleepers: [],
+  stationed: [],
   scoutingRun: null,
   movements: [
     {

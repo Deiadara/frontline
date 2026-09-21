@@ -94,12 +94,12 @@ describe('the switches are permissions, not amounts', () => {
     const marks = fold(
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
-      { kind: 'unit_mark', unitId: 'ironsides', mark: 'picker' },
+      { kind: 'unit_mark', unitId: 'ironsides', mark: 'sapper' },
       { kind: 'unit_mark', unitId: 'razors', mark: 'pack' },
     ).unitMarks;
     // Deduplicated: two holdings granting the same mark grant one mark, not a list with a repeat
     // in it that a consumer counting entries would read as two.
-    expect(marks['ironsides']).toEqual(['stalwart', 'picker']);
+    expect(marks['ironsides']).toEqual(['stalwart', 'sapper']);
     expect(marks['razors']).toEqual(['pack']);
   });
 });
@@ -235,11 +235,11 @@ describe('the two folds agree about a switch', () => {
     const ground = { ...noTerritoryEffects(), unitMarks: { ironsides: ['stalwart'] as const } };
     const lab = {
       ...noCrewEffects(),
-      unitMarks: { ironsides: ['picker'] as const, razors: ['pack'] as const },
+      unitMarks: { ironsides: ['sapper'] as const, razors: ['pack'] as const },
     };
-    expect(combineEffects(ground, lab).unitMarks['ironsides']).toEqual(['picker', 'stalwart']);
+    expect(combineEffects(ground, lab).unitMarks['ironsides']).toEqual(['sapper', 'stalwart']);
     expect(mergeCrewEffects({ ...noCrewEffects(), ...ground }, lab).unitMarks).toEqual({
-      ironsides: ['stalwart', 'picker'],
+      ironsides: ['stalwart', 'sapper'],
       razors: ['pack'],
     });
   });

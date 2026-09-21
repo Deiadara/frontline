@@ -152,6 +152,10 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       // Beside the numbers rather than inside them: the screens that quote a haul need to know
       // which sheets have been granted `picker`, and a record of arrays cannot ride on `effects`.
       marks: effects.unitMarks,
+      // ...and the bag the settle actually pays, off the standing fold. See the note on the
+      // schema: `effects` is people-only on purpose, and a held Pawn Shop and the three raid
+      // modifications are worth up to 83 points that a board reading `effects` never quoted.
+      haulPercent: standingEffectsFor(app.repos, settled.base, new Date(now)).lootCapacityPercent,
     };
   });
 }

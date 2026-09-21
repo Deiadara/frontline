@@ -50,7 +50,17 @@ const units: UnitsResponse = {
   built: [],
 };
 
+/** The same crew with porters on the roster, for the two cases below. */
+const withPorters = (carriersFight: boolean): UnitsResponse => ({
+  ...units,
+  army: { ...units.army, scavengers: 12 },
+  carriersFight,
+});
+
 const fetchMock = vi.fn();
+
+/** The roster the stubbed `/units` answers with. A test that cares about it reassigns it. */
+let roster: UnitsResponse = units;
 
 const reply = (body: unknown, delay = 0) =>
   new Promise<Response>((resolve) =>
@@ -95,12 +105,13 @@ async function renderFaction() {
 }
 
 beforeEach(() => {
+  roster = units;
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
   fetchMock.mockImplementation((path: string) => {
     if (path.endsWith('/factions/reinforce')) return reply({ faction: F.factionScreen });
     // The roster lands after the page has already rendered once, which is the real order.
-    if (path.endsWith('/units')) return reply(units, 150);
+    if (path.endsWith('/units')) return reply(roster, 150);
     if (path.endsWith('/factions')) return reply(F.factionScreen);
     // The table panel's Talk door reads the mailbox, and it is the door that opens first.
     if (path.endsWith('/messages')) return reply(F.messagesScreen);
@@ -157,5 +168,39 @@ describe('sending help to an ally', () => {
 
     fireEvent.click(screen.getByTestId(`reinforce-${BATTLE.battleId}`));
     await waitFor(() => expect(sentBody().army).toEqual({ snipers: 2 }));
+  });
+
+  /**
+   * §A5 and its one exception, at the ally door (bug pass, 2026-09-18).
+   *
+   * This picker filtered on `tier === 'carrier'`, which was a true statement about the game
+   * until `adjustDeployment` started accepting porters from a crew holding `carriers_fight`
+   * (Yard Discipline, or the Scrap Cathedral). After that, a crew that had paid for the
+   * programme could send its Scavengers to its own fight and not to an ally's, with nothing on
+   * the screen saying why. It asks `standsInLine` now, the same predicate the round loop and
+   * both server doors use, off the `carriersFight` flag the roster payload carries.
+   *
+   * Both directions, because a filter that lets everything through would pass the first half.
+   */
+  const porterOption = async (): Promise<HTMLElement[]> => {
+    await renderFaction();
+    const picker = await screen.findByTestId<HTMLButtonElement>(
+      `reinforce-unit-${BATTLE.battleId}`,
+    );
+    await waitFor(() => expect(picker).not.toHaveTextContent('Choose'));
+    fireEvent.click(picker);
+    // The fighters are there either way, so an empty menu cannot pass this.
+    expect(await screen.findByRole('option', { name: /Razors/ })).toBeInTheDocument();
+    return screen.queryAllByRole('option', { name: /Scavengers/ });
+  };
+
+  it('keeps porters out of an ally fight for a crew without the programme', async () => {
+    roster = withPorters(false);
+    expect(await porterOption()).toHaveLength(0);
+  });
+
+  it('offers them to a crew that has bought them a place in the line', async () => {
+    roster = withPorters(true);
+    expect(await porterOption()).not.toHaveLength(0);
   });
 });

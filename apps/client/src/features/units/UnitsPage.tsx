@@ -14,8 +14,9 @@ import {
   trainingCost,
 } from '@frontline/shared';
 import { useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { CancelMark } from '../../components/ui/CancelMark';
+import { DrawnFace } from '../../components/ui/DrawnMarks';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
@@ -29,6 +30,7 @@ import {
   useTrainUnits,
   useUnits,
 } from '../../lib/queries';
+import { HomeMark } from '../actions/CensusMarks';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { BonusBreakdown } from './BonusBreakdown';
@@ -134,10 +136,21 @@ export function UnitsPage() {
    * trained and a unit vanishing marched out or died. Above the early return below, because a hook
    * cannot be called conditionally; `useDeltaMarks` announces nothing until it has two readings,
    * so a page that has not loaded yet costs it nothing.
+   *
+   * **`undefined` while the roster is loading, never `{}`** (maintainer, 2026-09-20: "when you
+   * change between pages in units etc make sure the +12 etc doesn't show up, only when you get a
+   * NEW unit"). `?? []` made the loading frame a perfectly good *first* reading of a crew that
+   * owns nothing, so the reading that followed it was a crew that had just trained its entire
+   * roster: opening the tab threw a green `+12` off every card on it. The hook already refuses to
+   * announce its first reading; what it cannot know is that the caller handed it a placeholder.
+   * `undefined` is the one value it treats as "no reading yet", which is what this is.
    */
   const owned = useMemo(
-    () => Object.fromEntries((data?.units ?? []).map((unit) => [unit.id, unit.owned])),
-    [data?.units],
+    () =>
+      data === undefined
+        ? undefined
+        : Object.fromEntries(data.units.map((unit) => [unit.id, unit.owned])),
+    [data],
   );
   const mustered = useDeltaMarks(owned);
 
@@ -156,7 +169,36 @@ export function UnitsPage() {
   const overSupply = data.unitSlotsUsed >= data.unitSlotsCap;
 
   return (
-    <PageShell quote="It's the suffering that brings us together." wide>
+    <PageShell
+      quote="It's the suffering that brings us together."
+      /* §A4: the census, on the quotation's line (maintainer, 2026-09-18). `PageShell` puts an
+         action there when a page has a quote and no title, which is exactly this page. */
+      action={
+        /*
+         * The door to the census, drawn and about twice the plate it was (maintainer, 2026-09-19).
+         *
+         * It was a 25px brass-bordered chip at 10px type: correct as a chip and wrong as the only
+         * way into a whole page, and the one control on this screen still struck out of metal
+         * while the sheet under it is paper. `DrawnFace` is the box the archive's tabs and the
+         * yard's benches wear, the roof mark is the census's own (`CensusMarks`), and the height
+         * and padding roughly double the area it covers so it reads as a door rather than a tag.
+         *
+         * It points into the Monitor now, which is where the census lives. `PageShell` puts an
+         * action on the quotation's line when a page has a quote and no title, which is this one.
+         */
+        <Link
+          to="/game/actions/units"
+          data-testid="total-units"
+          data-sound="click"
+          className="group/door relative flex h-[38px] shrink-0 items-center gap-2 px-3.5 font-display text-[12px] font-bold uppercase tracking-[0.14em] leading-none text-brass-100 transition-all duration-150 hover:-translate-y-px active:translate-y-px"
+        >
+          <DrawnFace face="fill-brass-500/25 transition-all duration-150 group-hover/door:fill-brass-500/40" />
+          <HomeMark className="relative h-4 w-4 shrink-0 text-brass-300" />
+          <span className="relative">Total Units</span>
+        </Link>
+      }
+      wide
+    >
       {/* The standing rule about unit slots used to be a paragraph pinned above the roster, read once
           and then in the way forever. It is on the figure it describes now: the number is the thing
           a player looks at, and the explanation belongs where they are already looking. */}
@@ -336,6 +378,7 @@ export function UnitsPage() {
                 unit={unit}
                 garrisoned={data.garrisoned[unit.id] ?? 0}
                 abroad={data.abroad[unit.id] ?? 0}
+                carriersFight={data.carriersFight ?? false}
                 deltas={mustered[unit.id] ?? []}
                 // The crew-wide half of the Bonuses chip. The unit's own half rides on the row.
                 {...(data.trainingBreakdown === undefined

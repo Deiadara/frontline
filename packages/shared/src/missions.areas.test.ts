@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BASE_CONCURRENT_MISSIONS,
   MISC_AREA_ID,
+  MISC_BOARD_ROTATION_MINUTES,
   MISSIONS_PER_AREA,
   FAILED_MISSION_XP_SHARE,
   MIN_SCALED_SUCCESS,
@@ -10,11 +11,13 @@ import {
   areaPayPercent,
   carriedHome,
   concurrentMissionSlots,
+  launchableBoardKeys,
   levelPayPercent,
   missionCarry,
   missionXp,
   missionForceRefusal,
   missionBoardDay,
+  missionBoardKey,
   missionOffers,
   openAreas,
   payoutSlots,
@@ -191,7 +194,7 @@ describe('finding a board a job is on', () => {
   });
 
   it('says nothing at all for a job that is not in the catalogue', () => {
-    expect(areasOffering('a-job-that-was-retired')).toEqual([]);
+    expect(areasOffering('a-job-that-was-retired', new Date())).toEqual([]);
   });
 });
 
@@ -308,13 +311,21 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
     expect(missionForceRefusal({ ...porters, razors: 1 }, roster, 'battle')).toBeNull();
   });
 
-  it('adds up what a crew can carry, and pays a Scavenger for being a Scavenger', () => {
+  it('adds up what a crew can carry, off the same sheets a raid reads', () => {
     expect(missionCarry({})).toBe(0);
-    // Ten off the sheet plus the picker's flat load, which is what "for being a Scavenger" means
-    // and what this figure was missing until 2026-09-16: it read 30 for three of them while the
-    // raid path read 66 off the same sheets.
+    /*
+     * The sheet, and the two doors agreeing on it.
+     *
+     * This used to assert the Scavengers carried *more* than their printed ten, because the
+     * `picker` mark put a flat load on top. The mark was removed on 2026-09-19 and a Scavenger
+     * now carries exactly what its sheet says. What the test is still for is the seam the 2026-09-16
+     * bug was in: the job path read 30 for three of them while the raid path read 66 off the
+     * same sheets, and the fix was to make one function answer both.
+     */
     expect(missionCarry({ scavengers: 3 })).toBe(lootCapacityOf({ scavengers: 3 }));
-    expect(missionCarry({ scavengers: 3 })).toBeGreaterThan(30);
+    expect(missionCarry({ scavengers: 3 })).toBe(
+      3 * (findUnit('scavengers')?.stats.lootCapacity ?? 0),
+    );
     expect(missionCarry({ scavengers: 1 })).toBeLessThan(missionCarry({ haulers: 1 }));
   });
 
@@ -343,28 +354,25 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
   /**
    * The job and the raid carry the same bag, which is what this function's own doc always claimed.
    *
-   * It was a second arithmetic: `picker` was ignored, granted marks were ignored, and the crew's
-   * `lootCapacityPercent` (the Pawn Shop, the raid modifications, `sig_scavenger_king`) was ignored.
-   * A Scavenger carried 22 on a raid and 10 on a job off the same sheet, the research rung that
-   * grants Haulers `picker` was a slot and a wait for nothing, and the Pawn Shop was worth nothing
-   * to a crew that ran jobs.
+   * It was a second arithmetic: the fitted sheet was ignored and the crew's `lootCapacityPercent`
+   * (the Pawn Shop, the raid modifications, `sig_scavenger_king`) was ignored, so a Scavenger
+   * carried one figure on a raid and another on a job off the same sheet and the Pawn Shop was
+   * worth nothing at all to a crew that ran jobs.
+   *
+   * The `picker` mark was the third thing it used to miss. It was removed from the game on
+   * 2026-09-19, so what is left to agree on is the sheet, the refits and the crew's bag.
    */
-  it('carries exactly what a raid carries, marks and crew bag included', () => {
+  it('carries exactly what a raid carries, refits and crew bag included', () => {
     const force = { scavengers: 3, haulers: 2 };
     expect(missionCarry(force)).toBe(lootCapacityOf(force));
 
-    // The picker load, printed on the sheet.
-    expect(findUnit('scavengers')?.picker, 'the premise: a Scavenger picks').toBe(true);
-    expect(missionCarry({ scavengers: 3 })).toBeGreaterThan(
+    // The sheet and nothing but: no flat load rides on top of it any more.
+    expect(missionCarry({ scavengers: 3 })).toBe(
       3 * (findUnit('scavengers')?.stats.lootCapacity ?? 0),
     );
 
-    // ...and granted, which is what the research rung buys.
-    const granted = { carriersFight: false, unitMarks: { haulers: ['picker'] } } as const;
-    expect(findUnit('haulers')?.picker, 'the premise: a Hauler is not born a picker').not.toBe(
-      true,
-    );
-    expect(missionCarry({ haulers: 2 }, {}, 0, granted)).toBeGreaterThan(
+    // ...the workshop's bag, which both doors read off the fitted sheet.
+    expect(missionCarry({ haulers: 2 }, { haulers: ['counterweight_harness'] })).toBeGreaterThan(
       missionCarry({ haulers: 2 }),
     );
 
@@ -458,5 +466,68 @@ describe('who goes, and what they can carry (§A5, §E)', () => {
         expect(couldStillFit, `${template.id} at ${room} slots left ${spare} spare`).toBe(false);
       }
     }
+  });
+});
+
+/**
+ * §E4: the misc board turns over hourly, and the districts do not (maintainer, 2026-09-19).
+ *
+ * "Make the misc missions be a big pool, not the same over and over, and different ones are
+ * chosen each time."
+ *
+ * The pool was never small: thirty-eight templates, and the pick already walked it from a seeded
+ * start. What made it feel like the same three every time is that the key was the *day*, so a
+ * player who opened the page five times in an evening saw one board five times. The districts
+ * keep that on purpose, because a district's board is a fact about ground somebody scouted and
+ * came back for; `misc` is the board with no address, always open, and its whole job is to be
+ * the thing there is always something new on.
+ */
+describe('how often a board turns over', () => {
+  const at = (iso: string) => new Date(iso);
+
+  it('gives misc a fresh key every hour and a district the same key all day', () => {
+    const morning = at('2026-09-19T08:00:00.000Z');
+    const later = at('2026-09-19T11:00:00.000Z');
+    const district = CITY_DISTRICTS[0]?.id;
+    if (!district) throw new Error('the map has no districts');
+
+    expect(missionBoardKey(MISC_AREA_ID, morning)).not.toBe(missionBoardKey(MISC_AREA_ID, later));
+    expect(missionBoardKey(district, morning)).toBe(missionBoardKey(district, later));
+    // ...and a district's key is still exactly the day it always was, so nothing that reads one
+    // has quietly changed meaning.
+    expect(missionBoardKey(district, morning)).toBe(missionBoardDay(morning));
+  });
+
+  it('is stable inside one slot, so two players see the same three', () => {
+    const early = at('2026-09-19T08:00:10.000Z');
+    const late = at('2026-09-19T08:59:50.000Z');
+    expect(missionBoardKey(MISC_AREA_ID, early)).toBe(missionBoardKey(MISC_AREA_ID, late));
+  });
+
+  it('actually puts different jobs up, rather than a new key on one board', () => {
+    const start = at('2026-09-19T00:00:00.000Z').getTime();
+    const boards = Array.from({ length: 12 }, (_, hour) => {
+      const when = new Date(start + hour * 60 * 60 * 1000);
+      return missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, when))
+        .map((offer) => offer.id)
+        .join(',');
+    });
+    // Not a claim that every hour differs from the last, which a hash cannot promise: a claim
+    // that half a day is not one board over and over, which is what was being complained about.
+    expect(new Set(boards).size).toBeGreaterThan(8);
+  });
+
+  it('lets a job be launched one slot after it was read, and not two', () => {
+    const now = at('2026-09-19T08:30:00.000Z');
+    const keys = launchableBoardKeys(MISC_AREA_ID, now);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(missionBoardKey(MISC_AREA_ID, now));
+    expect(keys[1]).toBe(
+      missionBoardKey(MISC_AREA_ID, new Date(now.getTime() - MISC_BOARD_ROTATION_MINUTES * 60_000)),
+    );
+    // A district has one board and one key: a day-old card is a day out of date.
+    const district = CITY_DISTRICTS[0]?.id;
+    if (!district) throw new Error('the map has no districts');
+    expect(launchableBoardKeys(district, now)).toEqual([missionBoardKey(district, now)]);
   });
 });

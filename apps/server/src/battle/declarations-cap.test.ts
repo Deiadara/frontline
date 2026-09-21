@@ -1,6 +1,7 @@
 import {
   CITY_DISTRICTS,
   declarationWindow,
+  startingHolder,
   DECLARE_INFAMY_COST,
   type BattleTarget,
   type Base,
@@ -54,13 +55,23 @@ describe('how many fights may be called at once', () => {
       infamy: DECLARE_INFAMY_COST * 8,
     });
 
-    // Enough ground to call against: a scouted contested district with more locations than the
-    // cap, none of them held by anybody.
+    /*
+     * Enough ground to call against: a scouted contested district with more locations than the
+     * cap, and a seam in it.
+     *
+     * The seam is the part the 2026-09-19 re-cut made load-bearing. Six of the eight contested
+     * districts are now held end to end by the Combine, and a district held whole is shut: the
+     * only legal target in one is its gate, so every call below was refused. `startingHolder` is
+     * what decides which plots start empty, so the predicate asks it rather than naming a
+     * district, and on today's map it answers with Chrome Row.
+     */
     const district = CITY_DISTRICTS.find(
       (entry) =>
-        entry.kind === 'contested' && entry.locations.length > MAX_PENDING_DECLARATIONS + 1,
+        entry.kind === 'contested' &&
+        entry.locations.length > MAX_PENDING_DECLARATIONS + 1 &&
+        entry.locations.some((one) => startingHolder(one, entry).kind === 'unoccupied'),
     );
-    if (!district) throw new Error('fixture: no contested district wide enough');
+    if (!district) throw new Error('fixture: no open contested district wide enough');
     app.repos.city.markScouted(base.id, district.id, new Date().toISOString());
     app.repos.bases.updateArmy(base.id, { razors: 40 }, []);
 

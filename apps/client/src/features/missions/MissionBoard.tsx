@@ -16,6 +16,7 @@ import {
   enemyStrength,
   fieldStrength,
   findUnit,
+  fleetCapacity,
   formatDuration,
   hastenedMinutes,
   hastenedRoadMinutes,
@@ -24,6 +25,8 @@ import {
   missionCarry,
   missionOdds,
   missionTimings,
+  ridingUnitSlots,
+  standsInLine,
   UNIT_RULE_IDS,
   type Army,
   type BlueprintCategory,
@@ -31,12 +34,15 @@ import {
   type UnitRuleId,
   type AttributeImportance,
   type AttributeName,
+  type LineRules,
   type MissionKind,
   type MissionLeaning,
   type MissionLeader,
   type MissionOffer,
   type UnitLoadouts,
+  type UnitsResponse,
   type UnledRule,
+  vehicleNoun,
 } from '@frontline/shared';
 import { useMemo, useState } from 'react';
 import { RewardLine } from '../../components/Resources';
@@ -50,6 +56,7 @@ import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
 import { walksAlways } from '../units/rules';
 import { readColumn } from '../battle/column';
+import { UnitCard } from '../units/UnitCard';
 import { MissionGauge, type GaugeReading } from './MissionGauge';
 
 /**
@@ -170,7 +177,7 @@ function RoundTrip({ minutes, going }: { minutes: number; going: number }) {
   return (
     <div className="mt-auto flex flex-col items-end pt-2" data-testid="round-trip">
       <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-        {picked ? 'There and back' : 'At most, with nobody picked'}
+        {picked ? 'Total roundtrip time' : 'At most, with nobody picked'}
       </span>
       <span
         className={cn(
@@ -211,7 +218,10 @@ function JobChip({ label, leaning, hot }: JobChipSpec & { hot: boolean }) {
   const chip = (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center rounded-sm border px-1.5 py-0.5 font-display text-[9px] uppercase tracking-[0.12em]',
+        // Bigger than they were (maintainer, 2026-09-19): at 9px in a 1.5/0.5 box, A HAUL and
+        // SALVAGE were the smallest type on a window whose whole left column is about what kind
+        // of job this is.
+        'inline-flex shrink-0 items-center rounded-sm border px-2 py-1 font-display text-[10px] uppercase tracking-[0.12em]',
         hot ? 'border-oxblood-500/50 text-oxblood-300' : 'border-surface-600 text-ink-300',
       )}
     >
@@ -326,6 +336,26 @@ export interface MissionBoardProps {
    */
   bagPercent: number;
   marks: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The two crew switches that lift a hard rule off a unit sheet (`UnitsResponse`).
+   *
+   * Neither can ride on `effects`, which is a record of numbers, and the picker was drawing both
+   * of them wrong off the catalogue: `carriersFight` is `carriers_fight`, which puts this crew's
+   * porters in a line, and `anyRide` is `any_ride`, which gets a `no_ride` sheet into a truck.
+   * The settle reads both (`missions/resolve.ts` passes the crew's whole fold), so a board that
+   * read neither said "cannot fight" beside a unit that fights and quoted a road hours too long.
+   */
+  carriersFight: boolean;
+  anyRide: boolean;
+  /**
+   * The roster, for the card a unit's name opens in the send window.
+   *
+   * A prop rather than a `useUnits()` inside the dialog, and the reason is testability: the
+   * picker is a pure component that four test files render on their own, and reaching for a
+   * query inside it made every one of them need a `QueryClientProvider` to draw a name. The
+   * page above already reads `/units` for the two crew switches, so this costs nothing.
+   */
+  roster: UnitsResponse | undefined;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
   pendingTemplateId: string | null;
@@ -383,6 +413,9 @@ export function MissionBoard({
   now,
   bagPercent,
   marks,
+  carriersFight,
+  anyRide,
+  roster,
   atCapacity,
   pendingTemplateId,
   refusal,
@@ -505,6 +538,9 @@ export function MissionBoard({
           now={now}
           bagPercent={bagPercent}
           marks={marks}
+          carriersFight={carriersFight}
+          anyRide={anyRide}
+          roster={roster}
           onClose={() => setSending(null)}
           onSend={(force, leaderId, vehicles) => {
             onLaunch(area.id, sending.templateId, force, leaderId, vehicles);
@@ -713,6 +749,9 @@ function SendDialog({
   now,
   bagPercent,
   marks,
+  carriersFight,
+  anyRide,
+  roster,
   onClose,
   onSend,
 }: {
@@ -732,6 +771,12 @@ function SendDialog({
   bagPercent: number;
   /** ...and the marks they have been granted, which can add `picker` to a sheet that lacks it. */
   marks: Readonly<Record<string, readonly string[]>>;
+  /** §E: this crew's porters stand in a line (`carriers_fight`), so "cannot fight" is not true. */
+  carriersFight: boolean;
+  /** §C3: this crew's machines seat anything (`any_ride`), so a Colossus does not walk. */
+  anyRide: boolean;
+  /** §A5: the sheets, for the card a unit's name opens. Undefined draws the name bare. */
+  roster: UnitsResponse | undefined;
   onClose: () => void;
   onSend: (force: Army, leaderId?: string, vehicles?: Fleet) => void;
 }) {
@@ -747,13 +792,16 @@ function SendDialog({
     .sort((a, b) => a.unit.name.localeCompare(b.unit.name));
 
   const going = Object.values(force).reduce((total, count) => total + count, 0);
-  // With the crew's brackets, as the settle pays it (`missions/resolve.ts` passes the same map):
-  // a Counterweight Harness on the Haulers was being quoted a smaller bag than the job paid.
-  // ...and with the crew's own bag on top of them. `lootCapacityPercent` (the Pawn Shop, the raid
-  // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
-  // that read the printed sheet quoted a smaller haul than the job brought home.
-  const carry = missionCarry(force, loadouts, bagPercent, {
-    carriersFight: false,
+  /*
+   * This crew's own reading of a unit sheet, which is what the settle uses.
+   *
+   * One object rather than a copy per reader: the haul asks it whether a granted `picker` is on
+   * the Haulers, and the roster row asks it whether a porter stands in the line. They were two
+   * literals and the second one did not exist, which is how `carriers_fight` ended up labelled
+   * "cannot fight" on the one screen that decides who goes.
+   */
+  const lineRules: LineRules = {
+    carriersFight,
     // Narrowed against the catalogue rather than asserted: the payload is a record of strings, and
     // a mark this build has never heard of is one the arithmetic must not pretend to understand.
     unitMarks: Object.fromEntries(
@@ -764,9 +812,49 @@ function SendDialog({
         ),
       ]),
     ),
-  });
+  };
+  // With the crew's brackets, as the settle pays it (`missions/resolve.ts` passes the same map):
+  // a Counterweight Harness on the Haulers was being quoted a smaller bag than the job paid.
+  // ...and with the crew's own bag on top of them. `lootCapacityPercent` (the Pawn Shop, the raid
+  // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
+  // that read the printed sheet quoted a smaller haul than the job brought home.
+  const carry = missionCarry(force, loadouts, bagPercent, lineRules);
+  /*
+   * §C3: the machines actually being driven, with the zeros taken out.
+   *
+   * `setRiding` writes `{...held, [id]: value}` and a stepper taken back to nothing leaves the
+   * key behind with a zero in it. `FleetSchema` is a partial record of **positive** integers, so
+   * that payload came back from the launch as `Too small: expected number to be >0 at
+   * vehicles.motorcycle`: a refusal with a zod path in it, for a crew that had simply changed its
+   * mind about a bike. Cleaned once, here, and everything below reads the clean one.
+   */
+  const fleetOut: Fleet = Object.fromEntries(
+    Object.entries(riding).filter(([, count]) => (count ?? 0) > 0),
+  );
   /** §C3: whether anything is being driven at all, which is what makes "walks" worth saying. */
-  const anyRiding = Object.values(riding).some((count) => (count ?? 0) > 0);
+  const anyRiding = Object.keys(fleetOut).length > 0;
+
+  /*
+   * §C3: the seats are the ceiling, on this board as well as in the deploy window.
+   *
+   * The rule the maintainer asked for on 2026-09-19 has two halves and they pull in opposite
+   * directions, which is why both are written here rather than left to one clamp:
+   *
+   * - **Going up, the stepper stops at what fits.** A crew that has picked a truck cannot then
+   *   pick more people than it seats.
+   * - **Going the other way, nothing is taken back.** Adding a machine *after* the people are
+   *   picked must not silently drop anybody: "it doesn't change the units, you have to do that
+   *   yourself until the button is clickable". So an overloaded column is a refusal with a
+   *   sentence on it, not a quiet edit.
+   *
+   * Priced through `fleetCapacity` and `ridingUnitSlots`, the same two functions the launch and
+   * the settle spend, so the window cannot stop a batch the server would take or take one it
+   * would refuse.
+   */
+  const seats = fleetCapacity(fleetOut);
+  const aboard = ridingUnitSlots(force, anyRide);
+  const capped = seats > 0;
+  const overloaded = capped && aboard > seats;
   /*
    * §C3: what this crew travels at, which is the pace of its slowest group.
    *
@@ -776,7 +864,7 @@ function SendDialog({
    * filled: two bikes in front of forty walkers made all forty measurably faster, and they do not.
    * They arrive first and wait.
    */
-  const column = readColumn(riding, force, loadouts);
+  const column = readColumn(fleetOut, force, loadouts, anyRide);
   const fighters = Object.entries(force).some(
     ([unitId, count]) => count > 0 && isCombatUnit(unitId),
   );
@@ -864,6 +952,22 @@ function SendDialog({
       : { kind: 'chance', chance: odds.chance };
   const gaugeLabel = reading.kind === 'battle' ? 'How the fight looks' : 'Chance it comes off';
 
+  /*
+   * What the seats leave for one sheet, on top of what is at home.
+   *
+   * The other rows' claim is `aboard` less this row's own, so raising a row never counts itself
+   * twice, and a sheet that will not ride (`no_ride` without the waiver) is never measured
+   * against the seats at all. Returns `atHome` untouched when nothing is loaded, which is the
+   * walk and has no ceiling.
+   */
+  const ceilingFor = (unitId: string, atHome: number): number => {
+    if (!capped) return atHome;
+    const slots = Math.max(1, findUnit(unitId)?.unitSlots ?? 1);
+    if (ridingUnitSlots({ [unitId]: 1 }, anyRide) === 0) return atHome;
+    const others = aboard - (force[unitId] ?? 0) * slots;
+    return Math.min(atHome, Math.max(0, Math.floor((seats - others) / slots)));
+  };
+
   const set = (unitId: string, value: number, max: number) => {
     const clamped = Math.max(0, Math.min(max, Math.trunc(value)));
     setForce((current) => {
@@ -875,7 +979,7 @@ function SendDialog({
   };
 
   return (
-    <Modal onClose={onClose} size="wide" labelledBy="send-crew-title">
+    <Modal onClose={onClose} size="broad" labelledBy="send-crew-title">
       {/*
        * Header, unit, footer, and only the unit scrolls.
        *
@@ -894,9 +998,7 @@ function SendDialog({
             >
               {offer.name}
             </h2>
-            <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-              {areaName}. Pick who goes.
-            </p>
+            <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">{areaName}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-y border-surface-700 py-2">
@@ -910,236 +1012,275 @@ function SendDialog({
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-1">
-          {/*
-           * The odds, and the one decision that moves them.
-           *
-           * Side by side because they are one thought: the dial answers "how does this look" and
-           * the picker beside it is the only control on this screen that changes the answer
-           * without changing who goes. The chips under the dial are why a given name fits.
-           */}
-          <div className="grid gap-4 sm:grid-cols-[13.75rem_minmax(0,1fr)]">
-            <div className="flex min-w-0 flex-col items-center gap-2">
-              <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-                {gaugeLabel}
-              </span>
-              <MissionGauge reading={reading} label={gaugeLabel} />
-              <ul className="flex flex-wrap justify-center gap-1" data-testid="job-leanings">
-                {jobChips(offer).map((chip) => (
-                  <li key={chip.label}>
-                    <JobChip
-                      label={chip.label}
-                      leaning={chip.leaning}
-                      hot={offer.kind === 'battle'}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
+        {/*
+         * The whole of the middle scrolls, inside a frame (maintainer, 2026-09-19).
+         *
+         * Two things were wrong and they were one thing. The unit list carried its own
+         * `max-h-[18rem] overflow-y-auto` *inside* this scroller, so the window had a scroller
+         * within a scroller and a wheel over the roster moved whichever one the pointer happened
+         * to be on. And this box ran edge to edge under the header with nothing drawn at its top,
+         * so content scrolling up "disappeared into nowhere" rather than under a visible edge.
+         *
+         * One scroller now, bounded by a ruled box with its own inset, so the top and the bottom
+         * of what moves are both drawn.
+         */}
+        <div className="min-h-0 flex-1 px-4 pb-1">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-sm border border-surface-600/70 bg-surface-950/30">
+            <div
+              className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
+              data-testid="send-scroll"
+            >
+              {/*
+               * The odds, and the one decision that moves them.
+               *
+               * Side by side because they are one thought: the dial answers "how does this look" and
+               * the picker beside it is the only control on this screen that changes the answer
+               * without changing who goes. The chips under the dial are why a given name fits.
+               */}
+              <div className="grid gap-4 sm:grid-cols-[13.75rem_minmax(0,1fr)]">
+                <div className="flex min-w-0 flex-col items-center gap-2">
+                  <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+                    {gaugeLabel}
+                  </span>
+                  <MissionGauge reading={reading} label={gaugeLabel} />
+                  <ul className="flex flex-wrap justify-center gap-1" data-testid="job-leanings">
+                    {jobChips(offer).map((chip) => (
+                      <li key={chip.label}>
+                        <JobChip
+                          label={chip.label}
+                          leaning={chip.leaning}
+                          hot={offer.kind === 'battle'}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-            <div className="flex min-w-0 flex-col gap-2">
-              <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
-                Leading
-              </span>
-              {leaders.length === 0 ? (
-                <p className="font-body text-[13px] text-ink-300" data-testid="roster-state">
-                  Nobody on your books. Hire one at the Bar.
+                <div className="flex min-w-0 flex-col gap-2">
+                  <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+                    Leading
+                  </span>
+                  {leaders.length === 0 ? (
+                    <p className="font-body text-[13px] text-ink-300" data-testid="roster-state">
+                      Nobody on your books. Hire one at the Bar.
+                    </p>
+                  ) : (
+                    <>
+                      <Dropdown
+                        label={`Who leads ${offer.name}`}
+                        value={leader?.id ?? ''}
+                        onChange={setPickedId}
+                        placeholder="Nobody yet"
+                        options={[
+                          ...(unledRule === 'forbidden'
+                            ? []
+                            : [{ value: '', label: 'Nobody: send them alone' }]),
+                          ...leaders.map((one) => ({
+                            value: one.id,
+                            label: one.name,
+                            // The kind, and what they are worth *on this job*: a raid boss and a
+                            // navigator are different people on a long road, and the percentage is
+                            // the only place that difference is a number before the crew leaves.
+                            hint:
+                              one.held !== null
+                                ? `${LEADER_KIND_LABEL[one.kind]} · ${holdHint(one, now)}`
+                                : `${LEADER_KIND_LABEL[one.kind]} · fits this job ${percent(
+                                    leaderFit(one.attributes, profile).fit,
+                                  )}`,
+                            disabled: one.held !== null,
+                          })),
+                        ]}
+                        data-testid="send-leader"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={best === null}
+                        onClick={() => best && setPickedId(best.id)}
+                        data-testid="best-leader"
+                      >
+                        Use the most suitable leader for this job
+                      </Button>
+                    </>
+                  )}
+                  {leader !== null && (
+                    <p
+                      className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
+                      data-testid="leader-fit"
+                    >
+                      {LEADER_KIND_LABEL[leader.kind]} · fits this job{' '}
+                      <span className="tabular-nums text-brass-300">
+                        {percent(leaderFit(leader.attributes, profile).fit)}
+                      </span>
+                    </p>
+                  )}
+                  {/*
+                   * What going unled costs, in the three states the research leaves it in. Free says
+                   * nothing at all: a rule the crew has bought out of is not news on every job.
+                   */}
+                  {leader === null && unledRule === 'forbidden' && (
+                    <p
+                      role="alert"
+                      className="font-body text-[12px] leading-snug text-oxblood-300"
+                      data-testid="unled-note"
+                    >
+                      Nobody leads this. Research unled runs, or send somebody.
+                    </p>
+                  )}
+                  {leader === null && unledRule === 'penalised' && (
+                    <p
+                      className="font-body text-[12px] leading-snug text-warning"
+                      data-testid="unled-note"
+                    >
+                      Nobody leading them, which is{' '}
+                      <span className="tabular-nums">{Math.round(UNLED_PENALTY * 100)}</span> points
+                      off the odds.
+                    </p>
+                  )}
+                  <RoundTrip minutes={clockMinutes} going={going} />
+                </div>
+              </div>
+
+              {available.length === 0 ? (
+                <p className="py-6 text-center font-body text-[13px] text-ink-300">
+                  Nobody is at home. Train somebody first.
                 </p>
               ) : (
-                <>
-                  <Dropdown
-                    label={`Who leads ${offer.name}`}
-                    value={leader?.id ?? ''}
-                    onChange={setPickedId}
-                    placeholder="Nobody yet"
-                    options={[
-                      ...(unledRule === 'forbidden'
-                        ? []
-                        : [{ value: '', label: 'Nobody: send them alone' }]),
-                      ...leaders.map((one) => ({
-                        value: one.id,
-                        label: one.name,
-                        // The kind, and what they are worth *on this job*: a raid boss and a
-                        // navigator are different people on a long road, and the percentage is
-                        // the only place that difference is a number before the crew leaves.
-                        hint:
-                          one.held !== null
-                            ? `${LEADER_KIND_LABEL[one.kind]} · ${holdHint(one, now)}`
-                            : `${LEADER_KIND_LABEL[one.kind]} · fits this job ${percent(
-                                leaderFit(one.attributes, profile).fit,
-                              )}`,
-                        disabled: one.held !== null,
-                      })),
-                    ]}
-                    data-testid="send-leader"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={best === null}
-                    onClick={() => best && setPickedId(best.id)}
-                    data-testid="best-leader"
-                  >
-                    Use the most suitable leader for this job
-                  </Button>
-                </>
-              )}
-              {leader !== null && (
-                <p
-                  className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
-                  data-testid="leader-fit"
-                >
-                  {LEADER_KIND_LABEL[leader.kind]} · fits this job{' '}
-                  <span className="tabular-nums text-brass-300">
-                    {percent(leaderFit(leader.attributes, profile).fit)}
-                  </span>
-                </p>
-              )}
-              {/*
-               * What going unled costs, in the three states the research leaves it in. Free says
-               * nothing at all: a rule the crew has bought out of is not news on every job.
-               */}
-              {leader === null && unledRule === 'forbidden' && (
-                <p
-                  role="alert"
-                  className="font-body text-[12px] leading-snug text-oxblood-300"
-                  data-testid="unled-note"
-                >
-                  Nobody leads this. Research unled runs, or send somebody.
-                </p>
-              )}
-              {leader === null && unledRule === 'penalised' && (
-                <p
-                  className="font-body text-[12px] leading-snug text-warning"
-                  data-testid="unled-note"
-                >
-                  Nobody leading them, which is{' '}
-                  <span className="tabular-nums">{Math.round(UNLED_PENALTY * 100)}</span> points off
-                  the odds.
-                </p>
-              )}
-              <RoundTrip minutes={clockMinutes} going={going} />
-            </div>
-          </div>
-
-          {available.length === 0 ? (
-            <p className="py-6 text-center font-body text-[13px] text-ink-300">
-              Nobody is at home. Train somebody first.
-            </p>
-          ) : (
-            <ul className="flex max-h-[18rem] flex-col gap-1 overflow-y-auto">
-              {available.map(({ unit, count }) => (
-                <li
-                  key={unit.id}
-                  className="flex items-center gap-3 rounded-sm border border-surface-700 bg-surface-950/40 px-3 py-1.5"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-100">
-                      {unit.name}
+                <div className="flex flex-col gap-1.5" data-testid="mission-units">
+                  {/* Titled like the Vehicles block under it, because they are the same kind of
+                  decision and only one of them used to say what it was. */}
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
+                      Units
                     </span>
-                    <span className="block font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-                      {count} at home · carries {unit.stats.lootCapacity} loot slots
-                      {isCombatUnit(unit) ? '' : ' · cannot fight'}
-                      {/* §C3: this one is not getting on the truck, so the column waits for it.
+                    <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                      <span className="tabular-nums text-brass-300">{going}</span> going
+                    </span>
+                  </div>
+                  <ul className="flex flex-col gap-1">
+                    {available.map(({ unit, count }) => (
+                      <li
+                        key={unit.id}
+                        className="flex items-center gap-3 rounded-sm border border-surface-700 bg-surface-950/40 px-3 py-1.5"
+                      >
+                        <span className="min-w-0 flex-1">
+                          {/* §A5: the sheet, on hover, the way the deploy window and the roster
+                              already offer it. Deciding who goes is exactly the moment a player
+                              wants to read a unit's numbers, and this was the one picker in the
+                              game where the name was just a name. */}
+                          <UnitName unitId={unit.id} name={unit.name} roster={roster} />
+                          <span className="block font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
+                            {count} at home · carries {unit.stats.lootCapacity} loot slots
+                            {/* §E: the sheet says a porter cannot fight and `carriers_fight` says this
+                          crew's can. The settle reads the crew (`standsInLine`), so the row does
+                          too: a Scavenger that is going to stand in the line must not be labelled
+                          as one that will not. */}
+                            {standsInLine(unit, lineRules) ? '' : ' · cannot fight'}
+                            {/* §C3: this one is not getting on the truck, so the column waits for it.
                           Only worth saying once something is loaded: with nothing picked everybody
                           walks and the note is noise on every row. */}
-                      {anyRiding && walksAlways(unit.id) && (
-                        <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
-                          {' · '}walks
+                            {anyRiding && walksAlways(unit.id, anyRide) && (
+                              <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
+                                {' · '}walks
+                              </span>
+                            )}
+                          </span>
                         </span>
-                      )}
-                    </span>
-                  </span>
-                  {/* Half and Max beside the field.
+                        {/* Half and Max beside the field.
                       Sending everybody, or half of them, are the two amounts a player actually
                       picks on a carrier row, and stepping to them one arrow-press at a time on a
                       stack of forty scavengers is not a decision, it is typing. The field itself
                       still takes a typed number and still has its steppers. */}
-                  <span className="flex shrink-0 items-center gap-1">
-                    <Quick
-                      label="Half"
-                      disabled={count < 2}
-                      testId={`half-${unit.id}`}
-                      onClick={() => set(unit.id, Math.floor(count / 2), count)}
-                    />
-                    <Quick
-                      label="Max"
-                      disabled={count < 1}
-                      testId={`max-${unit.id}`}
-                      onClick={() => set(unit.id, count, count)}
-                    />
-                    <NumberField
-                      label={`How many ${unit.name}`}
-                      value={force[unit.id] ?? 0}
-                      min={0}
-                      max={count}
-                      onChange={(value) => set(unit.id, value, count)}
-                    />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+                        <span className="flex shrink-0 items-center gap-1">
+                          <Quick
+                            label="Half"
+                            disabled={count < 2}
+                            testId={`half-${unit.id}`}
+                            onClick={() =>
+                              set(unit.id, Math.floor(count / 2), ceilingFor(unit.id, count))
+                            }
+                          />
+                          <Quick
+                            label="Max"
+                            disabled={count < 1}
+                            testId={`max-${unit.id}`}
+                            onClick={() => set(unit.id, count, ceilingFor(unit.id, count))}
+                          />
+                          <NumberField
+                            label={`How many ${unit.name}`}
+                            value={force[unit.id] ?? 0}
+                            min={0}
+                            max={ceilingFor(unit.id, count)}
+                            onChange={(value) => set(unit.id, value, ceilingFor(unit.id, count))}
+                          />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-          {/*
-           * §C3: what carries them there.
-           *
-           * Under the crew rather than beside it, because it is a decision made *after* the one
-           * above: how many seats you need is a fact about how many people you are sending. Drawn
-           * only when the yard has something in it, so a crew without a Garage sees the dialog it
-           * has always seen.
-           *
-           * The saving is quoted live and against the force actually picked, because an empty seat
-           * buys nothing: sending two people in a thirty-seat bus is a run mostly full of air, and
-           * the number says so before the crew leaves rather than in the report afterwards.
-           */}
-          {Object.values(fleet).some((count) => (count ?? 0) > 0) && (
-            <div className="flex flex-col gap-1.5" data-testid="mission-vehicles">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
-                  What carries them
-                </span>
-                <span
-                  className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
-                  data-testid="mission-column"
-                >
-                  {column.speed > 0 ? (
-                    <>
-                      {column.heldBy === null ? 'Rides at' : 'Held to'}{' '}
-                      <span className="tabular-nums text-brass-300">{column.speed}</span>
-                      {column.heldBy !== null && <> by {column.heldBy}</>}
-                      {' · '}
-                      {formatDuration(oneWayMinutes)} on the road
-                    </>
-                  ) : (
-                    'Nobody picked yet'
-                  )}
-                </span>
-              </div>
-              <ul className="flex flex-col gap-1">
-                {VEHICLES.filter((spec) => (fleet[spec.id] ?? 0) > 0).map((spec) => (
-                  <li
-                    key={spec.id}
-                    className="flex items-center justify-between gap-2 rounded-sm border border-surface-600/70 px-2.5 py-1.5"
-                  >
-                    <span className="min-w-0 font-display text-[12px] text-ink-200">
-                      {spec.name}
-                      <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
-                        {spec.capacity} unit slots
-                      </span>
+              {/*
+               * §C3: what carries them there.
+               *
+               * Under the crew rather than beside it, because it is a decision made *after* the one
+               * above: how many seats you need is a fact about how many people you are sending. Drawn
+               * only when the yard has something in it, so a crew without a Garage sees the dialog it
+               * has always seen.
+               *
+               * The saving is quoted live and against the force actually picked, because an empty seat
+               * buys nothing: sending two people in a thirty-seat bus is a run mostly full of air, and
+               * the number says so before the crew leaves rather than in the report afterwards.
+               */}
+              {Object.values(fleet).some((count) => (count ?? 0) > 0) && (
+                <div className="flex flex-col gap-1.5" data-testid="mission-vehicles">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-display text-[11px] uppercase tracking-[0.18em] text-brass-300">
+                      Vehicles
                     </span>
-                    <NumberField
-                      label={`How many ${spec.name}`}
-                      value={riding[spec.id] ?? 0}
-                      min={0}
-                      max={fleet[spec.id] ?? 0}
-                      onChange={(value) => setRiding((held) => ({ ...held, [spec.id]: value }))}
-                    />
-                  </li>
-                ))}
-              </ul>
+                    <span
+                      className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
+                      data-testid="mission-column"
+                    >
+                      {column.speed > 0 ? (
+                        <>
+                          {column.heldBy === null ? 'Rides at' : 'Held to'}{' '}
+                          <span className="tabular-nums text-brass-300">{column.speed}</span>
+                          {column.heldBy !== null && <> by {column.heldBy}</>}
+                          {' · '}
+                          {formatDuration(oneWayMinutes)} on the road
+                        </>
+                      ) : (
+                        'Nobody picked yet'
+                      )}
+                    </span>
+                  </div>
+                  <ul className="flex flex-col gap-1">
+                    {VEHICLES.filter((spec) => (fleet[spec.id] ?? 0) > 0).map((spec) => (
+                      <li
+                        key={spec.id}
+                        className="flex items-center justify-between gap-2 rounded-sm border border-surface-600/70 px-2.5 py-1.5"
+                      >
+                        <span className="min-w-0 font-display text-[12px] text-ink-200">
+                          {spec.name}
+                          <span className="ml-1.5 text-[10px] uppercase tracking-[0.12em] text-ink-400">
+                            {spec.capacity} unit slots
+                          </span>
+                        </span>
+                        <NumberField
+                          label={`How many ${vehicleNoun(spec.name)}`}
+                          value={riding[spec.id] ?? 0}
+                          min={0}
+                          max={fleet[spec.id] ?? 0}
+                          onChange={(value) => setRiding((held) => ({ ...held, [spec.id]: value }))}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-2 border-t border-surface-700 px-4 pb-4 pt-3">
@@ -1148,14 +1289,27 @@ function SendDialog({
               Somebody there has to be able to fight. Porters do not go in alone.
             </p>
           )}
+          {/* §C3: picked the people first and the truck second. Said rather than fixed: the
+              maintainer's rule is that the window does not quietly put anybody back. */}
+          {overloaded && (
+            <p
+              role="alert"
+              className="font-body text-[12px] text-oxblood-300"
+              data-testid="mission-overloaded"
+            >
+              They do not all fit. <span className="tabular-nums">{aboard}</span> unit slots picked
+              and <span className="tabular-nums">{seats}</span> seats loaded: take somebody off, or
+              bring another machine.
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>
               Not yet
             </Button>
             <Button
               variant={offer.kind === 'battle' ? 'danger' : 'primary'}
-              disabled={going === 0 || !odds.allowed || needsFighters}
-              onClick={() => onSend(force, leader?.id, riding)}
+              disabled={going === 0 || !odds.allowed || needsFighters || overloaded}
+              onClick={() => onSend(force, leader?.id, fleetOut)}
               data-testid="confirm-send"
             >
               Send them
@@ -1164,6 +1318,48 @@ function SendDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * A unit's name, opening its card.
+ *
+ * Keyed off the id rather than handed a `UnitOption`, because the picker's own list is built from
+ * the catalogue and the roster is a separate read that may not have landed yet. No option, no
+ * card, and the name renders exactly as it always did.
+ */
+function UnitName({
+  unitId,
+  name,
+  roster,
+}: {
+  unitId: string;
+  name: string;
+  roster: UnitsResponse | undefined;
+}) {
+  const label = (
+    <span className="block truncate font-display text-[12px] font-semibold uppercase tracking-[0.1em] text-ink-100">
+      {name}
+    </span>
+  );
+  const option = roster?.units.find((one) => one.id === unitId);
+  if (!option || !roster) return label;
+  return (
+    <HoverCard
+      label={name}
+      size="card"
+      className="w-full min-w-0"
+      card={
+        <UnitCard
+          unit={option}
+          garrisoned={roster.garrisoned[unitId] ?? 0}
+          abroad={roster.abroad[unitId] ?? 0}
+          carriersFight={roster.carriersFight ?? false}
+        />
+      }
+    >
+      {label}
+    </HoverCard>
   );
 }
 

@@ -13,6 +13,7 @@ import { LevelUpSchema, ScoutingRunViewSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
+import { SleeperPhaseSchema } from './sleepers.js';
 
 /**
  * The REST contract for declared battles, deployments, reports and the infamy sinks.
@@ -283,6 +284,29 @@ export const MovementViewSchema = z.object({
 });
 export type MovementView = z.infer<typeof MovementViewSchema>;
 
+/** One cell on the Monitor: who, where, and which of the three things they are doing. */
+export const SleeperCellViewSchema = z.object({
+  cellId: IdSchema,
+  locationId: IdSchema,
+  /** What the place is called, so the row does not print an id at a player. */
+  locationName: z.string().min(1),
+  districtName: z.string().min(1),
+  army: ArmySchema,
+  phase: SleeperPhaseSchema,
+  /** The mark this phase runs to, or when they went to ground if they are `waiting`. */
+  arrivesAt: IsoDateTimeSchema,
+});
+export type SleeperCellView = z.infer<typeof SleeperCellViewSchema>;
+
+/** One posting on the Monitor: units standing on a place this crew holds. */
+export const StationedForceSchema = z.object({
+  locationId: IdSchema,
+  locationName: z.string().min(1),
+  districtName: z.string().min(1),
+  army: ArmySchema,
+});
+export type StationedForce = z.infer<typeof StationedForceSchema>;
+
 export const ActionsResponseSchema = z.object({
   /** Everything this crew has walking, soonest to arrive first. */
   movements: z.array(MovementViewSchema),
@@ -292,6 +316,26 @@ export const ActionsResponseSchema = z.object({
    * still parses.
    */
   scoutingRun: ScoutingRunViewSchema.nullable().default(null),
+  /**
+   * §A4: the Sleeper cells this crew has out (`sleepers.ts`).
+   *
+   * Every phase, because the Monitor's question is "where is everybody right now" and a cell on
+   * the road, a cell in place and a cell walking home are three answers to it. The ones in
+   * place have no countdown at all, which is the point of them: the row says how long they have
+   * been there instead.
+   *
+   * Defaulted so a build of the client older than the mechanic still parses the payload.
+   */
+  sleepers: z.array(SleeperCellViewSchema).default([]),
+  /**
+   * §A4: what this crew has standing on ground it holds, one row per place.
+   *
+   * The Monitor listed columns, crews on jobs and the scout, and said nothing at all about the
+   * people posted on held ground: a crew whose whole army was in garrisons was told nobody was
+   * out. They are not *doing* anything, which is exactly why no other screen was going to show
+   * them, and "where is everybody" is the one question this page exists to answer.
+   */
+  stationed: z.array(StationedForceSchema).default([]),
   serverNow: IsoDateTimeSchema,
 });
 export type ActionsResponse = z.infer<typeof ActionsResponseSchema>;

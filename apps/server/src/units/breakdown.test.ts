@@ -308,6 +308,7 @@ describe('where a training percentage comes from', () => {
         ...raided.economy,
         disruption: {
           until: new Date(NOW.getTime() + RAID_DISRUPTION_HOURS * 3_600_000).toISOString(),
+          since: NOW.toISOString(),
           percent: MAX_RAID_DISRUPTION_PERCENT,
         },
       },

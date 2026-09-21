@@ -9,8 +9,8 @@ import {
   FAILED_MISSION_XP_SHARE,
   areaPayPercent,
   areasOffering,
-  missionBoardDay,
   levelPayPercent,
+  missionBoardKey,
   missionOffers,
   missionXp,
   scaledSpoils,
@@ -81,12 +81,21 @@ import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
  * bag. `aBattleJobToday` is what asks for the other property.
  */
 function aJobToday(): { template: MissionTemplate; areaId: string } {
-  const day = missionBoardDay(new Date());
+  /*
+   * Each area asked for its own key, not one day for the lot.
+   *
+   * `misc` turns over hourly now (`MISC_BOARD_ROTATION_MINUTES`) and the districts still turn
+   * over at midnight, so a fixture keyed on the day picked misc jobs off a board the route was
+   * no longer offering and every launch came back `That job is not on offer there`.
+   */
+  const now = new Date();
   for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const template = missionOffers(areaId, day).find((entry) => entry.kind === 'standard');
+    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
+      (entry) => entry.kind === 'standard',
+    );
     if (template) return { template, areaId };
   }
-  throw new Error(`no standard job on any board on ${day}`);
+  throw new Error(`no standard job on any board at ${now.toISOString()}`);
 }
 
 /**
@@ -100,12 +109,14 @@ function aJobToday(): { template: MissionTemplate; areaId: string } {
  * filtered: what a job asks of a crew has nothing to do with how long the road to it is.
  */
 function theFurthestJobToday(): { template: MissionTemplate; areaId: string } {
-  const day = missionBoardDay(new Date());
+  const now = new Date();
   for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const template = missionOffers(areaId, day).find((entry) => entry.travelBand === 'furthest');
+    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
+      (entry) => entry.travelBand === 'furthest',
+    );
     if (template) return { template, areaId };
   }
-  throw new Error(`no long job on any board on ${day}`);
+  throw new Error(`no long job on any board at ${now.toISOString()}`);
 }
 
 /** `aJobToday` as a launch payload. */
@@ -125,7 +136,7 @@ function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
   const boards = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)];
   const areaId = boards[nth];
   if (areaId === undefined) throw new Error(`no board number ${nth}`);
-  const offer = missionOffers(areaId, missionBoardDay(new Date()))[0];
+  const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()))[0];
   if (!offer) throw new Error(`board ${areaId} offers nothing`);
   return { templateId: offer.id, areaId, force: { razors: 1 }, ...extra };
 }
@@ -142,15 +153,15 @@ function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
  * fires and the assertion cannot see it. A job of any real length has room for it to show.
  */
 function anEasyJobToday(): { template: MissionTemplate; areaId: string } {
-  const day = missionBoardDay(new Date());
+  const now = new Date();
   const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
-    .map((template) => ({ template, areaId: areasOffering(template.id, day)[0] }))
+    .map((template) => ({ template, areaId: areasOffering(template.id, now)[0] }))
     .filter(
       (entry): entry is { template: MissionTemplate; areaId: string } => entry.areaId !== undefined,
     )
     .sort((a, b) => b.template.durationMinutes - a.template.durationMinutes);
   const longest = offered[0];
-  if (!longest) throw new Error(`no easy job on any board on ${day}`);
+  if (!longest) throw new Error(`no easy job on any board at ${now.toISOString()}`);
   return longest;
 }
 
@@ -297,7 +308,7 @@ function planted(
     id: `mission-${seed}-${template.id}`,
     base: stack.base,
     template,
-    areaId: areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+    areaId: areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID,
     force,
     now: startedAt,
     seed,
@@ -319,7 +330,7 @@ function planted(
  * pricing that can drift from it.
  */
 function paidFor(template: MissionTemplate, stack: Stack) {
-  const areaId = areasOffering(template.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID;
+  const areaId = areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID;
   return scaledSpoils(
     missionRewards(template, 'success'),
     areaPayPercent(areaId) + levelPayPercent(stack.base.level),
@@ -1059,7 +1070,7 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
       id: 'mission-supply',
       base: freshBase(stack),
       template: scrapRun,
-      areaId: areasOffering(scrapRun.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+      areaId: areasOffering(scrapRun.id, new Date())[0] ?? MISC_AREA_ID,
       force,
       now: T0,
       seed: ALWAYS_SUCCEEDS,
@@ -1073,7 +1084,7 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
         id: 'mission-supply',
         base: sent,
         template: scrapRun,
-        areaId: areasOffering(scrapRun.id, missionBoardDay(new Date()))[0] ?? MISC_AREA_ID,
+        areaId: areasOffering(scrapRun.id, new Date())[0] ?? MISC_AREA_ID,
         force,
         now: T0,
         seed: ALWAYS_SUCCEEDS,
@@ -1960,7 +1971,7 @@ describe('the board a recall answers with', () => {
       areaStatesFor(stack.repos, stack.base),
       [],
       stack.base.level,
-      missionBoardDay(new Date()),
+      new Date(),
     );
     expect(after).not.toEqual(bare);
   });
@@ -2022,9 +2033,9 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
    * always asked for and it costs nothing to keep: both crews here name a leader.
    */
   function anEasyRoadToday(): { template: MissionTemplate; areaId: string } {
-    const day = missionBoardDay(new Date());
+    const now = new Date();
     const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
-      .map((template) => ({ template, areaId: areasOffering(template.id, day)[0] }))
+      .map((template) => ({ template, areaId: areasOffering(template.id, now)[0] }))
       .filter(
         (entry): entry is { template: MissionTemplate; areaId: string } =>
           entry.areaId !== undefined,
@@ -2034,7 +2045,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
           TRAVEL_BAND_MINUTES[b.template.travelBand] - TRAVEL_BAND_MINUTES[a.template.travelBand],
       );
     const longest = offered[0];
-    if (!longest) throw new Error(`no easy job on any board on ${day}`);
+    if (!longest) throw new Error(`no easy job on any board at ${now.toISOString()}`);
     return longest;
   }
 

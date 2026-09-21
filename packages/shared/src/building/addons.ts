@@ -445,7 +445,7 @@ export function boltInRefusal(input: {
   if (yardLevel < scrapyardLevelForModification(spec)) return 'yard_too_low';
   if (!blueprintUnlocked(spec)) return 'needs_blueprint';
 
-  const requirement = modificationRequirement(spec);
+  const requirement = modificationRequirement(spec, kind);
   const missing = requirementRefusal({
     requirement,
     buildingLevel: standing.level,

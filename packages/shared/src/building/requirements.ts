@@ -1,4 +1,5 @@
 import { markAtLeast, type OfficerMark } from '../crew/marks.js';
+import { levelCeilingFor, type BuildingKind } from './kinds.js';
 import { notorietyTier } from '../economy/notoriety.js';
 import type { OfficerRole } from '../roles.js';
 import type { ModificationEffect } from './modifications.js';
@@ -65,6 +66,10 @@ export interface ModificationRequirement {
  * horizon, so the four rows are roughly "tonight", "this week", "once you have a real crew" and
  * "the end of the game". The marks are the same shape: `D` is an ordinary hire off the Bar, `C+` is
  * somebody you went looking for, `B+` is the best person in the district.
+ *
+ * `buildingLevel` here is the number for a twenty-rung structure. What a *particular* structure
+ * asks for goes through {@link levelWithinReach}, which never asks a plot for a rung it does not
+ * have.
  */
 export const MODIFICATION_REQUIREMENT_BANDS: Readonly<
   Record<
@@ -94,6 +99,29 @@ export const MODIFICATION_REQUIREMENT_BANDS: Readonly<
 };
 
 /**
+ * The level a band asks of a structure that cannot climb that far (maintainer call, 2026-09-18).
+ *
+ * The bands above are written against a twenty-rung structure and two structures stop at ten
+ * (`BUILDING_LEVEL_CEILINGS` in `kinds.ts`). Read literally that made ADVANCED and MASTERPIECE
+ * dead in the Garage and the Infirmary: twenty-eight card and structure pairs asked for level 12
+ * or 17 on a plot whose last rung is 10, four of them on the Garage's own bench and three on the
+ * Infirmary's. Nothing refused them at authoring time, so the bench listed all seven and printed
+ * "The Garage has to reach level 12" under a structure that stops at 10.
+ *
+ * The rule is the ceiling rather than the two ids, so the next structure to get a ceiling is
+ * handled the day it gets one and a ceiling that moves takes its bands with it. On a ten-rung
+ * structure the top two bands both land on 10: a player gets the early bands on the way up and
+ * then both of the top two when the structure maxes, which is the maintainer's shape. The band
+ * below is untouched, because its number was already within reach.
+ *
+ * A per-card `requires.buildingLevel` override goes through this too. An override past the host's
+ * ceiling is the same dead pair written by hand.
+ */
+function levelWithinReach(asked: number, kind: BuildingKind): number {
+  return Math.min(asked, levelCeilingFor(kind));
+}
+
+/**
  * Which chair a card's trade belongs to, read off the channel it pays into.
  *
  * The maintainer's ruling was "the trade's own officer", and the trade is the effect rather than
@@ -120,16 +148,26 @@ export const OFFICER_FOR_EFFECT: Readonly<Record<ModificationEffect, OfficerRole
   training_supplies_reduction: 'wetware_chief',
 };
 
-/** What this card asks for, before the structure it is going into is even known. */
-export function modificationRequirement(spec: {
-  rarity: ModificationRarity;
-  effect: ModificationEffect;
-  requires?: Partial<ModificationRequirement>;
-}): ModificationRequirement {
+/**
+ * What this card asks for in `kind`, the structure it is going into.
+ *
+ * The host is a parameter rather than the card's own `building`, because a card fits more than one
+ * structure (`ModificationSpec.fits`) and the structures do not all reach the same level: see
+ * {@link levelWithinReach}. A caller that means the card's home says `spec.building`, which is a
+ * sentence rather than a default nobody notices is the wrong one.
+ */
+export function modificationRequirement(
+  spec: {
+    rarity: ModificationRarity;
+    effect: ModificationEffect;
+    requires?: Partial<ModificationRequirement>;
+  },
+  kind: BuildingKind,
+): ModificationRequirement {
   const band = MODIFICATION_REQUIREMENT_BANDS[spec.rarity];
   const mark = spec.requires?.officer?.mark ?? band.mark;
   return {
-    buildingLevel: spec.requires?.buildingLevel ?? band.buildingLevel,
+    buildingLevel: levelWithinReach(spec.requires?.buildingLevel ?? band.buildingLevel, kind),
     crewLevel: spec.requires?.crewLevel ?? band.crewLevel,
     notoriety: spec.requires?.notoriety ?? band.notoriety,
     officer:
@@ -164,12 +202,18 @@ export const OFFICER_FOR_UNIT_STAT: Readonly<Record<string, OfficerRole>> = {
 /** The default chair for a unit card whose stats name nothing in the table above. */
 export const OFFICER_FOR_UNIT_FALLBACK: OfficerRole = 'fabricator';
 
+/** The structure a unit card's `buildingLevel` is read against, named once for both readers. */
+export const UNIT_MODIFICATION_HOST: BuildingKind = 'gauntlet';
+
 /**
  * What a unit card asks for, in the same four gates a structure card asks.
  *
  * `buildingLevel` is read against the **Gauntlet**, which is the structure a unit's kit belongs to
  * the way a production card belongs to the Greenhouse. Everything else is the same ladder, so a
  * MASTERPIECE plate and a MASTERPIECE pump are the same distance away.
+ *
+ * Against {@link UNIT_MODIFICATION_HOST}'s ceiling like any other host, so a Gauntlet that is one
+ * day given a short ladder does not strand the top of the unit bench.
  */
 export function unitModificationRequirement(spec: {
   rarity: ModificationRarity;
@@ -182,7 +226,10 @@ export function unitModificationRequirement(spec: {
     .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
   return {
-    buildingLevel: spec.requires?.buildingLevel ?? band.buildingLevel,
+    buildingLevel: levelWithinReach(
+      spec.requires?.buildingLevel ?? band.buildingLevel,
+      UNIT_MODIFICATION_HOST,
+    ),
     crewLevel: spec.requires?.crewLevel ?? band.crewLevel,
     notoriety: spec.requires?.notoriety ?? band.notoriety,
     officer:

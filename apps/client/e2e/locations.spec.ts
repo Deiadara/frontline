@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { MAX_LOCATION_LEVEL, findDistrict } from '@frontline/shared';
-import { districtDetail, me } from './fixtures';
+import { districtDetail, districtDetailFor, me } from './fixtures';
 import {
   growPastTheFold,
   expectNoImagesClipped,
@@ -120,6 +120,46 @@ test.describe('a district full of locations', () => {
     expect(signatures.size, 'every location reads the same').toBeGreaterThan(1);
   });
 
+  /**
+   * What the ground *counts as*, beside what it is like (maintainer, 2026-09-18).
+   *
+   * "Have the tag/label of that location also say urban." A `CombatContext` is, in
+   * `battlefield.ts`'s own words, a promise that a modifier on a unit sheet will fire, and the
+   * promise was kept nowhere a player could read it: the only way to learn that a market is
+   * Urban was to send somebody and read the report. The Characteristics row above says what the
+   * place is like; this one says what it counts as, which is the half that decides who to bring.
+   */
+  test('says what each piece of ground counts as in a fight', async ({ page }) => {
+    await openDistrict(page);
+
+    const seen = new Set<string>();
+    for (const location of RUSTYARD.locations) {
+      await openLocation(page, location.id);
+      const row = page.getByTestId(`fights-as-${location.id}`);
+      await expect(row, location.id).toBeVisible();
+      const tags = row.locator('li');
+      await expect(tags, location.id).not.toHaveCount(0);
+      for (const tag of await tags.all()) {
+        const text = (await tag.innerText()).trim();
+        seen.add(text);
+        // Every tag says what it turns on, because a word on its own is not a promise.
+        await expect(tag, `${location.id}: ${text}`).toHaveAttribute(
+          'data-tip',
+          /This ground counts/,
+        );
+      }
+    }
+
+    // The word the maintainer asked for, in the tag rather than in a sentence about built-up
+    // ground. Five of the Rustyard's seven are urban ground (the press, the pawn shop, the
+    // pumps, the kennels and the bone market), so it has to appear. Compared on `innerText`,
+    // which is what a player reads: the chip is `uppercase` in CSS, so the string on the screen
+    // is URBAN and the one in the table is Urban.
+    expect([...seen], 'no ground in the Rustyard counts as Urban').toContain('URBAN');
+    expect([...seen].join(' '), 'the old wording is still on the screen').not.toMatch(/built/i);
+    expect(seen.size, 'every location counts as the same thing').toBeGreaterThan(1);
+  });
+
   test('shows how far each location has been worked up', async ({ page }) => {
     await openDistrict(page);
     await openLocation(page, MINE.id);
@@ -222,4 +262,86 @@ test.describe('the weather over the city', () => {
     await expectNothingClippedVertically(page);
     await expectNoImagesClipped(page);
   });
+});
+
+/**
+ * Who holds a plot, as a colour on the sign (maintainer, 2026-09-20).
+ *
+ * "Make it more obvious who is holding something: if it's occupied by Looters make the tag be
+ * yellow, if it's Combine make it be orange and if it's another player make it be red."
+ *
+ * The signs used to answer one question, *is this mine*, in two colours. So a player scanning a
+ * district could not tell the looters' pawn shop from the Combine's armoury from a rival crew's
+ * yard, which is the one thing that decides whether a fight is worth calling and what it costs.
+ *
+ * Asserted on `data-holder` **and** on the computed colour. The attribute alone would pass on a
+ * board where every sign is the same colour; the colour alone would be a gate that breaks the day
+ * somebody retunes the palette, and the claim here is that the five differ, not what they are.
+ */
+test('a sign says who holds it, in its own colour', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await installApi(page, me);
+  await page.route('**/api/city/datavault-sigma', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(districtDetailFor('datavault-sigma')),
+    }),
+  );
+  /*
+   * The Spire, scouted and Combine-held end to end.
+   *
+   * `districtDetailFor` returns it in the fog with no locations at all, which is the fixture
+   * working as intended: the CCS is the city's unscouted district. It is also the only ground the
+   * Combine holds, so it is the only place the orange can be seen, and a scouted copy has to be
+   * built here rather than the fog fixture bent into one.
+   */
+  const spire = findDistrict('combine-spire')!;
+  const held = districtDetailFor('datavault-sigma').locations[0]!;
+  await page.route('**/api/city/combine-spire', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...districtDetailFor('combine-spire'),
+        scouted: true,
+        locations: spire.locations.map((location) => ({
+          ...held,
+          location,
+          holder: { kind: 'government' },
+          holderName: 'The Combine',
+          holderPlayer: null,
+          level: 1,
+        })),
+      }),
+    }),
+  );
+
+  const readSigns = async (districtId: string): Promise<{ tone: string; colour: string }[]> => {
+    await page.goto(`/game/city/${districtId}`);
+    await expect(page.getByTestId(`district-painting-${districtId}`)).toBeVisible();
+    await settleFonts(page);
+    return page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="site-"] span[data-holder]')].map((node) => ({
+        tone: node.getAttribute('data-holder') ?? '',
+        colour: getComputedStyle(node).color,
+      })),
+    );
+  };
+
+  const seen = new Map<string, string>();
+  for (const districtId of ['datavault-sigma', 'combine-spire']) {
+    for (const sign of await readSigns(districtId)) seen.set(sign.tone, sign.colour);
+  }
+
+  // The Annexes carry a plot of yours, a rival crew's and the looters'; the Spire is the Combine's
+  // end to end. Between them that is four of the five, which is every one a painted board draws.
+  expect([...seen.keys()].sort(), `only saw ${[...seen.keys()].join(', ')}`).toEqual([
+    'crew',
+    'government',
+    'looters',
+    'mine',
+  ]);
+  // Four holders, four different colours. This is the whole of the request.
+  expect(new Set(seen.values()).size, 'two holders share a colour').toBe(seen.size);
 });

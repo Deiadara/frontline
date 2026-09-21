@@ -7,10 +7,10 @@ import { noTerritoryEffects } from '../city/index.js';
 import { EVASIVE_THRESHOLD, exchange, targetBonusPercent } from './matchup.js';
 import {
   nerve,
-  cow,
+  intimidate,
   allocate,
   MAX_MEND_SHARE,
-  MAX_COWED_SHARE,
+  MAX_INTIMIDATED_SHARE,
   mendShare,
   outnumberedBy,
   pursue,
@@ -277,6 +277,8 @@ describe('regressions', () => {
       started: 10,
       suppressed: 0,
       dealt: 0,
+      sheet: razors.stats,
+      loudTier: 0,
     };
     const before = {
       alive: wounded.alive,
@@ -338,6 +340,8 @@ describe('a taunting stack takes the fire off the line behind it', () => {
       started: alive,
       suppressed: 0,
       dealt: 0,
+      sheet: spec.stats,
+      loudTier: 0,
     };
   };
   const shareOf = (split: { target: Stack; share: number }[], id: string): number =>
@@ -661,9 +665,9 @@ describe('a tracking sheet answers an evasive one', () => {
  * silencing units cheapest-first. A silenced unit still stands in the line and still takes fire;
  * it just does not shoot.
  */
-describe('who is too cowed to fight (§D3)', () => {
+describe('who is too intimidated to fight (§D3)', () => {
   /** A stack of `alive` units with the morale and intimidation dictated, everything else inert. */
-  const cowStack = (alive: number, morale: number, intimidation: number): Stack => {
+  const intimidatedStack = (alive: number, morale: number, intimidation: number): Stack => {
     const spec = findUnit('razors');
     if (!spec) throw new Error('fixture: no razors in the catalogue');
     const effective = effectiveStats(
@@ -682,6 +686,8 @@ describe('who is too cowed to fight (§D3)', () => {
       started: alive,
       suppressed: 0,
       dealt: 0,
+      sheet: spec.stats,
+      loudTier: 0,
     };
   };
 
@@ -695,40 +701,40 @@ describe('who is too cowed to fight (§D3)', () => {
    * of 60. The excess is 20, which buys exactly the two units at 10. The unit at 20 fights.
    */
   it('silences exactly what the excess pays for, cheapest nerve first', () => {
-    const weak = cowStack(2, 10, 0);
-    const steady = cowStack(1, 20, 0);
+    const weak = intimidatedStack(2, 10, 0);
+    const steady = intimidatedStack(1, 20, 0);
     const side = sideOf([steady, weak]);
 
     expect(nerve(side)).toBe(40);
-    expect(cow(side, 60)).toBe(2);
+    expect(intimidate(side, 60)).toBe(2);
     expect(weak.suppressed, 'the two shaky units should be silenced').toBe(2);
     expect(steady.suppressed, 'the steady unit should still fight').toBe(0);
   });
 
   it('silences nobody when the menace does not clear the nerve', () => {
-    const weak = cowStack(2, 10, 0);
+    const weak = intimidatedStack(2, 10, 0);
     const side = sideOf([weak]);
     // Nerve 20, menace 20: equal is not greater, so nothing is bought.
-    expect(cow(side, 20)).toBe(0);
+    expect(intimidate(side, 20)).toBe(0);
     expect(weak.suppressed).toBe(0);
   });
 
   it('sums both quantities over units, so a big army is proportionally braver', () => {
-    const small = sideOf([cowStack(2, 50, 0)]);
-    const large = sideOf([cowStack(20, 50, 0)]);
-    // One terrifying unit cannot cow a legion: the same menace that breaks the small side is
+    const small = sideOf([intimidatedStack(2, 50, 0)]);
+    const large = sideOf([intimidatedStack(20, 50, 0)]);
+    // One terrifying unit cannot intimidate a legion: the same menace that breaks the small side is
     // nothing against the large one.
-    expect(cow(small, 150)).toBeGreaterThan(0);
-    expect(cow(large, 150)).toBe(0);
+    expect(intimidate(small, 150)).toBeGreaterThan(0);
+    expect(intimidate(large, 150)).toBe(0);
   });
 
   it('takes free units first and cannot stall on them', () => {
-    const free = cowStack(4, 0, 0);
-    const paid = cowStack(4, 10, 0);
+    const free = intimidatedStack(4, 0, 0);
+    const paid = intimidatedStack(4, 10, 0);
     const side = sideOf([paid, free]);
     // Nerve 40. A menace of 60 leaves 20, which takes all four zero-morale units and then two
     // more at 10. Eight units standing, so the ceiling is six and does not bind.
-    expect(cow(side, 60)).toBe(6);
+    expect(intimidate(side, 60)).toBe(6);
     expect(free.suppressed).toBe(4);
     expect(paid.suppressed).toBe(2);
   });
@@ -743,10 +749,10 @@ describe('who is too cowed to fight (§D3)', () => {
    * opening rosters with nothing the loser could do about it.
    */
   it('never silences the whole line, however loud the other side is', () => {
-    const line = cowStack(20, 10, 0);
+    const line = intimidatedStack(20, 10, 0);
     const side = sideOf([line]);
     // A menace far past anything the sheets can produce, so only the ceiling can be what binds.
-    expect(cow(side, 1_000_000)).toBe(Math.floor(20 * MAX_COWED_SHARE));
+    expect(intimidate(side, 1_000_000)).toBe(Math.floor(20 * MAX_INTIMIDATED_SHARE));
     expect(
       Math.max(0, line.alive - line.suppressed),
       'a quarter of the line has to be left shooting',
@@ -755,8 +761,8 @@ describe('who is too cowed to fight (§D3)', () => {
 
   /** The whole point: silenced units are alive, present, and useless. */
   it('leaves the silenced standing rather than killing them', () => {
-    const weak = cowStack(8, 10, 0);
-    const silenced = cow(sideOf([weak]), 1000);
+    const weak = intimidatedStack(8, 10, 0);
+    const silenced = intimidate(sideOf([weak]), 1000);
     expect(silenced, 'the fixture has to silence somebody').toBeGreaterThan(0);
     expect(weak.suppressed).toBe(silenced);
     expect(weak.alive, 'suppression is not a casualty').toBe(8);
@@ -764,18 +770,18 @@ describe('who is too cowed to fight (§D3)', () => {
   });
 
   /**
-   * And it reaches the fight: a side that is entirely cowed deals nothing.
+   * And it reaches the fight: a side that is entirely intimidated deals nothing.
    *
-   * Measured through `simulate` rather than through `cow` alone, because the field exists only to
+   * Measured through `simulate` rather than through `intimidate` alone, because the field exists only to
    * be read by `fireRound`, and a mechanic that sets a number nothing consumes is the exact class
    * of bug that made `intimidation` worth fixing in the first place.
    */
   it('takes the silenced out of the firing line', () => {
-    const timid = cowStack(8, 0, 0);
+    const timid = intimidatedStack(8, 0, 0);
     const side = sideOf([timid]);
-    const silenced = cow(side, 1);
+    const silenced = intimidate(side, 1);
     // Free to silence, so the ceiling is the only thing deciding how many.
-    expect(silenced).toBe(Math.floor(8 * MAX_COWED_SHARE));
+    expect(silenced).toBe(Math.floor(8 * MAX_INTIMIDATED_SHARE));
     expect(timid.suppressed).toBe(silenced);
     expect(
       Math.max(0, timid.alive - timid.suppressed),
@@ -787,27 +793,27 @@ describe('who is too cowed to fight (§D3)', () => {
 /**
  * And the count reaches the report.
  *
- * `cow` returning a number that `simulate` threw away was the first version of this, and it is the
+ * `intimidate` returning a number that `simulate` threw away was the first version of this, and it is the
  * same class of defect the whole review has been finding: a value computed correctly and consumed
  * by nobody. A player whose line did a third of its damage with every unit still standing needs the
  * fight to say why.
  */
-describe('a fight reports who was cowed', () => {
+describe('a fight reports who was intimidated', () => {
   it('carries the count out of the simulation', () => {
     const simulation = fight(army({ razors: 6 }), army({ razors: 6 }));
-    expect(Number.isFinite(simulation.cowed.attacker)).toBe(true);
-    expect(Number.isFinite(simulation.cowed.defender)).toBe(true);
-    expect(simulation.cowed.attacker).toBeGreaterThanOrEqual(0);
-    expect(simulation.cowed.defender).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(simulation.intimidated.attacker)).toBe(true);
+    expect(Number.isFinite(simulation.intimidated.defender)).toBe(true);
+    expect(simulation.intimidated.attacker).toBeGreaterThanOrEqual(0);
+    expect(simulation.intimidated.defender).toBeGreaterThanOrEqual(0);
   });
 });
 
 /**
  * Two ways the line was miscounted, both found by running the engine a few thousand times.
  *
- * The cowed stood in the line and took fire, and the count of them never moved: as units fell
+ * The intimidated stood in the line and took fire, and the count of them never moved: as units fell
  * the silenced number ate the shooters, so a stack that lost half its men had nobody left firing
- * even though three of the five who fell should have been the cowed ones. And the "outnumbered"
+ * even though three of the five who fell should have been the intimidated ones. And the "outnumbered"
  * reading counted porters, so forty Scavengers behind twenty Razors handed every Warden and
  * Juggernaut sent against them a last stand it had not earned.
  */
@@ -819,11 +825,11 @@ describe('counting the line honestly', () => {
     [army({ juggernauts: 40 }), army({ sparks: 10 })],
   ];
 
-  it('lets the cowed fall with the rest of the line, never leaving more silenced than standing', () => {
-    let cowedSomewhere = 0;
+  it('lets the intimidated fall with the rest of the line, never leaving more silenced than standing', () => {
+    let intimidatedSomewhere = 0;
     for (const [attacking, defending] of matchups) {
-      const simulation = fight(attacking, defending, 'cowed');
-      cowedSomewhere += simulation.cowed.defender;
+      const simulation = fight(attacking, defending, 'intimidated');
+      intimidatedSomewhere += simulation.intimidated.defender;
       for (const stack of simulation.defender.stacks) {
         expect(stack.suppressed, `${stack.unit.id}: silenced past the living`).toBeLessThanOrEqual(
           stack.alive,
@@ -831,8 +837,8 @@ describe('counting the line honestly', () => {
       }
     }
     expect(
-      cowedSomewhere,
-      'the matchups have to cow somebody or this proves nothing',
+      intimidatedSomewhere,
+      'the matchups have to intimidate somebody or this proves nothing',
     ).toBeGreaterThan(0);
   });
 

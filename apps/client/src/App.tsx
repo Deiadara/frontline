@@ -41,7 +41,7 @@ import { LEVEL_LADDER_ROUTE, NOTORIETY_LADDER_ROUTE } from './components/Meters'
 import {
   RequireAuth,
   RequireGuest,
-  RequireLevel,
+  RequireUnlock,
   RequireNoOverseer,
   RequireOverseer,
 } from './routes/guards';
@@ -121,21 +121,34 @@ export default function App() {
           <Route path="base" element={<BasePanel />} />
           <Route path="city/:districtId" element={<DistrictView />} />
           <Route path="actions" element={<ActionsPage />} />
+          {/* §A4: the census is the Monitor's second page (maintainer, 2026-09-19). Its own route
+              rather than a piece of state, so the roster's Total Units door, a bookmark and the
+              browser's Back button all land on the same tab. `ActionsPage` reads the section off
+              the path, which is how the archive's three tabs already work. */}
+          <Route path="actions/units" element={<ActionsPage />} />
           <Route path="leaderboard" element={<LeaderboardPage />} />
           <Route path="battles" element={<BattlePage />} />
-          <Route path="faction" element={<FactionPage />} />
+          <Route
+            path="faction"
+            element={
+              <RequireUnlock area="faction">
+                <FactionPage />
+              </RequireUnlock>
+            }
+          />
           <Route path="messages" element={<MessagesPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="units" element={<UnitsPage />} />
           <Route path="missions" element={<MissionsPage />} />
-          {/* §I3: four screens open on a level. `RequireLevel` draws the door rather than
-              redirecting, so a player who arrives early is told what opens it. */}
+          {/* §I3: nine screens open on a condition, and five of those conditions are not a level
+              (maintainer, 2026-09-19). `RequireUnlock` draws the door rather than redirecting, so
+              a player who arrives early is told what opens it and where they stand against it. */}
           <Route
             path="bar"
             element={
-              <RequireLevel area="bar">
+              <RequireUnlock area="bar">
                 <BarPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
           {/* §I1d: all three tabs of the archive are the same screen. The section follows the
@@ -143,35 +156,49 @@ export default function App() {
           <Route
             path="research"
             element={
-              <RequireLevel area="research">
+              <RequireUnlock area="research">
                 <ResearchPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
           <Route
             path="research/blueprints"
             element={
-              <RequireLevel area="research">
+              <RequireUnlock area="research">
                 <ResearchPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
           <Route
             path="research/reimagining"
             element={
-              <RequireLevel area="research">
+              <RequireUnlock area="research">
                 <ResearchPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
-          <Route path="crew" element={<CrewPage />} />
-          <Route path="crew/effects" element={<CrewEffectsPage />} />
+          <Route
+            path="crew"
+            element={
+              <RequireUnlock area="crew">
+                <CrewPage />
+              </RequireUnlock>
+            }
+          />
+          <Route
+            path="crew/effects"
+            element={
+              <RequireUnlock area="crew">
+                <CrewEffectsPage />
+              </RequireUnlock>
+            }
+          />
           <Route
             path="training"
             element={
-              <RequireLevel area="training">
+              <RequireUnlock area="training">
                 <TrainingPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
           <Route path="overseer" element={<OverseerProfilePage />} />
@@ -183,25 +210,33 @@ export default function App() {
           <Route
             path="market"
             element={
-              <RequireLevel area="market">
+              <RequireUnlock area="market">
                 <MarketPage />
-              </RequireLevel>
+              </RequireUnlock>
             }
           />
+          {/* The Market's other two tabs are gated twice, and deliberately: the Market itself is
+              the level, and then each of these wants its own thing on top of it. Nested rather
+              than combined into one condition, so the sign a player lands on names the *nearest*
+              thing standing between them and the screen rather than the outermost. */}
           <Route
             path="market/offers"
             element={
-              <RequireLevel area="market">
-                <OffersPage />
-              </RequireLevel>
+              <RequireUnlock area="market">
+                <RequireUnlock area="offers">
+                  <OffersPage />
+                </RequireUnlock>
+              </RequireUnlock>
             }
           />
           <Route
             path="market/black"
             element={
-              <RequireLevel area="market">
-                <BlackMarketPage />
-              </RequireLevel>
+              <RequireUnlock area="market">
+                <RequireUnlock area="black_market">
+                  <BlackMarketPage />
+                </RequireUnlock>
+              </RequireUnlock>
             }
           />
           <Route path="settings" element={<SettingsPage />} />
@@ -215,8 +250,17 @@ export default function App() {
           {/* The Workshop folded into the Scrapyard (maintainer request, 2026-09-10). The old path is
               in bookmarks and in old notifications, so it redirects rather than 404s. */}
           <Route path="workshop" element={<Navigate to="/game/scrapyard" replace />} />
-          {/* §B9: the Scrapyard's own page: the nav's door, and the plot's dialog. */}
-          <Route path="scrapyard" element={<ScrapyardPage />} />
+          {/* §B9: the Scrapyard's own page: the nav's door, and the plot's dialog. Behind the
+              structure itself (maintainer, 2026-09-19), which is the one gate that needs no
+              explaining: the screen is what the building does. */}
+          <Route
+            path="scrapyard"
+            element={
+              <RequireUnlock area="scrapyard">
+                <ScrapyardPage />
+              </RequireUnlock>
+            }
+          />
           {/* §B11: the Garage has a page rather than a dialog, because its whole value is a list. */}
           {/* Feats (maintainer request, 2026-09-13). No `RequireLevel`: the board is the one screen
               that is meant to be readable from the first minute, because half of what is on it is

@@ -54,7 +54,7 @@ import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
  *   * the Watchtower's intel bonus reached neither reader, because both asked the crew-only fold
  *     and the channel lives on territory;
  *   * the Downtown Market quoted the catalogue price and charged the discounted one;
- *   * the Statue's capture infamy was authored and read by nothing.
+ *   * the capture infamy on the CCS's one-off location was authored and read by nothing.
  */
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
@@ -140,6 +140,22 @@ function give(stack: Stack, locationId: string, level = MAX_LOCATION_LEVEL): voi
   });
 }
 
+/**
+ * Takes one plot out of the holder's hands, so the district's gate is not armed.
+ *
+ * A district one party holds end to end is **shut**, and the only thing a crew may declare on is
+ * its gate. The 2026-09-19 re-cut made the Steelbelt Combine ground, so it is now held whole and
+ * every location fight this file calls there was refused. These cases are about what a *hold
+ * bonus* pays, not about breaking a door, so the fixture opens a seam the way `battle.test.ts`'s
+ * does. `give` opens one as a side effect; this is for the cases that must not hand the crew any
+ * ground at all.
+ */
+function vacate(stack: Stack, locationId: string): void {
+  const control = stack.app.repos.city.control(locationId);
+  if (!control) throw new Error(`no control row for ${locationId}`);
+  stack.app.repos.city.put({ ...control, holder: { kind: 'unoccupied' }, garrison: {} });
+}
+
 /** Declares, deploys and settles one fight, and answers with the caps it moved. */
 async function fight(stack: Stack, target: BattleTarget, sent: Record<string, number>) {
   const before = stack.app.repos.bases.findById(stack.baseId);
@@ -199,6 +215,9 @@ describe('the Bone Market pays for what a fight cost', () => {
   it('pays nothing to a crew that does not hold it', async () => {
     const stack = await makeStack();
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
+    // The case above opens the Belt by *holding* the Bone Market. This one must hold nothing, so
+    // the seam is opened on a plot nobody is given: the Slag Bowl goes back to standing empty.
+    vacate(stack, 'rustyard-ramp');
 
     const target: BattleTarget = {
       kind: 'location',
@@ -210,11 +229,17 @@ describe('the Bone Market pays for what a fight cost', () => {
   });
 });
 
-describe('the Statue of the Revolutionist', () => {
+/**
+ * The Statue of the Revolutionist until the 2026-09-19 re-cut, which took it off the CCS plot and
+ * put the Chosen Chapel there. The `revolutionist_statue` kind still exists and Verge City still
+ * uses it, but nothing in Ashfall does, and the Chapel is the only location on this map carrying a
+ * `captureInfamy` at all. So the clause is the same clause and the ground under it moved.
+ */
+describe('the Chosen Chapel', () => {
   it('pays its infamy the moment it changes hands, and only then', async () => {
-    const statue = findLocation('combine-spire-statue');
-    expect(statue, 'the Statue is not on the map').toBeDefined();
-    expect(LOCATION_CATALOG[statue!.kind].captureInfamy ?? 0).toBeGreaterThan(0);
+    const chapel = findLocation('combine-spire-chapel');
+    expect(chapel, 'the Chapel is not on the map').toBeDefined();
+    expect(LOCATION_CATALOG[chapel!.kind].captureInfamy ?? 0).toBeGreaterThan(0);
 
     // Nobody dies, so the only infamy either fight pays is what the *ground* is worth, which is
     // the whole claim, and is otherwise buried under a kill count that varies by garrison size.
@@ -236,12 +261,12 @@ describe('the Statue of the Revolutionist', () => {
       },
       { razors: 6 },
     );
-    const withStatue = await fight(
+    const withChapel = await fight(
       stack,
       {
         kind: 'location',
         districtId: 'combine-spire',
-        locationId: 'combine-spire-statue',
+        locationId: 'combine-spire-chapel',
       },
       { razors: 6 },
     );
@@ -249,11 +274,11 @@ describe('the Statue of the Revolutionist', () => {
     /*
      * Both captures pay §D8's flat "took ground off the Combine at a seat of its power" infamy, and
      * with nobody killed that is *all* an ordinary one pays, so the whole difference between the
-     * two is the Statue's own clause, and it is asserted to the number rather than to a direction.
+     * two is the Chapel's own clause, and it is asserted to the number rather than to a direction.
      */
     expect(plain.infamy).toBeGreaterThan(0);
-    expect(withStatue.infamy - plain.infamy, 'the Statue paid nothing for changing hands').toBe(
-      LOCATION_CATALOG[statue!.kind].captureInfamy,
+    expect(withChapel.infamy - plain.infamy, 'the Chapel paid nothing for changing hands').toBe(
+      LOCATION_CATALOG[chapel!.kind].captureInfamy,
     );
   });
 });
@@ -429,6 +454,9 @@ describe('the sky a fight happens under', () => {
 
     const stack = await makeStack(bloodless);
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
+    // The Belt is Combine ground and therefore shut. Which sky a fight is decided under has
+    // nothing to do with gates, so the fixture opens a seam and calls an ordinary location fight.
+    vacate(stack, 'rustyard-ramp');
 
     const declared = await stack.app.inject({
       method: 'POST',

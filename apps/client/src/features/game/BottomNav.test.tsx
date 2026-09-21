@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createCommander } from '@frontline/shared';
 import * as F from '../../../e2e/fixtures';
 import { BottomNav, DESTINATIONS } from './BottomNav';
 import { useSession } from '../../store/session';
@@ -127,5 +128,134 @@ describe('the feats door', () => {
     const fights = await screen.findByTestId('nav-fights');
     expect(feats?.className).toContain('left-4');
     expect(fights.className).toContain('left-[94px]');
+  });
+});
+
+/**
+ * §I3: which doors are shut, and what each shut one says (maintainer, 2026-09-19).
+ *
+ * Rendered rather than asserted about as data, because the bug this is here to catch lives in the
+ * markup and not in the catalogue. The nav and the route guard are two separate readings of the
+ * same facts (`lib/unlocks.ts`), and the failure they can have is a door drawn open in the bar
+ * onto a screen that draws a locked sign, or the reverse: a padlock over a screen a player can
+ * reach by typing the URL. Both look fine in the catalogue.
+ *
+ * The four doors of the opening loop are asserted **shut-proof** rather than merely open. A door
+ * added to `GATED_AREAS` by mistake would gate one of them, and nothing else in the suite would
+ * notice: the game would simply start smaller than it is meant to.
+ */
+describe('§I3: the doors, and what shuts them', () => {
+  /** A crew with the given facts. Starts from `lateGame`, which has a full district. */
+  const crewWith = (base: Partial<NonNullable<typeof F.lateGame.base>>) => ({
+    ...F.lateGame,
+    base: { ...F.lateGame.base!, ...base },
+  });
+
+  /**
+   * Draw the bar and wait until it has actually decided its gates.
+   *
+   * The wait is the whole point and it is not boilerplate. Before `/me` lands the bar draws every
+   * door open on purpose, so an assertion made on the first frame reads "open" for every door in
+   * the row: the first version of these tests passed the all-open case on a build where every
+   * single gate was shut, because it measured the loading frame. `data-gates` is what separates
+   * "this door is open" from "nobody has answered yet".
+   */
+  async function drawSettledBar(me: unknown) {
+    cleanup();
+    await drawBar(me);
+    await waitFor(() => {
+      expect(screen.getByRole('navigation').dataset['gates']).toBe('ready');
+    });
+  }
+
+  /** The line under a door's name: `Lv 5`, `Build it`, and so on. `null` when the door is open. */
+  const captionUnder = (label: string): string | null => {
+    const door = screen.getByTestId(`nav-${label.toLowerCase().replace(/\s+/g, '-')}`);
+    const caption = (door.textContent ?? '').slice(label.length).trim();
+    return caption === '' ? null : caption;
+  };
+
+  const lockOver = (area: string) => screen.queryByTestId(`nav-locked-${area}`);
+
+  it('leaves the opening loop open on a brand-new crew', async () => {
+    await drawSettledBar(
+      crewWith({
+        level: 1,
+        buildings: [],
+        commanders: [],
+        research: { active: null, technologies: [] },
+        economy: { ...F.lateGame.base!.economy, notoriety: 0 },
+      }),
+    );
+    for (const label of ['City', 'District', 'Units', 'Missions']) {
+      expect(captionUnder(label), `${label} was gated`).toBeNull();
+    }
+    // ...and the doors that are meant to be shut on this crew are, so the case above is a
+    // measurement of the loop rather than of a bar that gates nothing at all.
+    expect(captionUnder('Market')).toBe('Lv 15');
+    expect(lockOver('market')).not.toBeNull();
+  });
+
+  it('shuts the level doors on a level-1 crew, and names the level on each', async () => {
+    await drawSettledBar(crewWith({ level: 1 }));
+    expect(captionUnder('Training')).toBe('Lv 3');
+    expect(captionUnder('The Bar')).toBe('Lv 5');
+    expect(captionUnder('Crew')).toBe('Lv 5');
+    expect(captionUnder('Faction')).toBe('Lv 10');
+    expect(captionUnder('Market')).toBe('Lv 15');
+  });
+
+  it('opens each level door at its own level and not one before it', async () => {
+    await drawSettledBar(crewWith({ level: 5 }));
+    // Three and five are behind this crew; ten and fifteen are not.
+    expect(captionUnder('Training')).toBeNull();
+    expect(captionUnder('The Bar')).toBeNull();
+    expect(captionUnder('Crew')).toBeNull();
+    expect(captionUnder('Faction')).toBe('Lv 10');
+    expect(captionUnder('Market')).toBe('Lv 15');
+  });
+
+  /**
+   * The Scrapyard, whose gate is the structure itself.
+   *
+   * Both halves are at level 40 with the same district, so a level reading of this door would
+   * open it in both and the assertion would pass while measuring nothing. The only thing that
+   * differs is whether a scrapyard is standing.
+   */
+  it('shuts the Scrapyard until one is standing, whatever the level', async () => {
+    const yard = { id: 'b-yard', kind: 'scrapyard' as const, level: 1, modifications: [] };
+    const without = F.lateGame.base!.buildings.filter((b) => b.kind !== 'scrapyard');
+    await drawSettledBar(crewWith({ level: 40, buildings: without }));
+    expect(captionUnder('Scrapyard')).toBe('Build it');
+    expect(lockOver('scrapyard')).not.toBeNull();
+
+    await drawSettledBar(crewWith({ level: 40, buildings: [...without, yard] }));
+    expect(captionUnder('Scrapyard')).toBeNull();
+    expect(lockOver('scrapyard')).toBeNull();
+  });
+
+  /**
+   * The Archive, whose gate is a person rather than a number.
+   *
+   * The benched case is the one worth having: an officer on the books with `role: null` is signed
+   * and paid and doing no job, and the Lab already refuses to work for them
+   * (`no_head_of_research`). A door that counted them would open a screen that cannot be used.
+   */
+  it('shuts the Archive until somebody is sitting in the chair', async () => {
+    const person = createCommander(
+      'c-archivist',
+      'Vela Roshan',
+      'head_of_research',
+      { logic: 44, signals: 31, stealth: 20 },
+      [],
+      300,
+    );
+    await drawSettledBar(crewWith({ level: 40, commanders: [{ ...person, role: null }] }));
+    expect(captionUnder('Research')).toBe('Hire one');
+
+    await drawSettledBar(
+      crewWith({ level: 40, commanders: [{ ...person, role: 'head_of_research' }] }),
+    );
+    expect(captionUnder('Research')).toBeNull();
   });
 });

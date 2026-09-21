@@ -58,7 +58,7 @@ export const DistrictSchema = z.object({
    * which is almost everywhere: a formal name that merely repeats `name` is noise on both screens.
    *
    * Deliberately not `nickname`. That field is what the street calls a place, and this is the
-   * opposite of that: it is what the Directorate calls it on the paperwork.
+   * opposite of that: it is what the Combine calls it on the paperwork.
    */
   formalName: z.string().min(1).nullable().default(null),
   kind: DistrictKindSchema,
@@ -392,12 +392,12 @@ function locationsIn(districtId: string, rows: readonly LocationRow[]): Location
  * they were in the world from where they were on it.
  *
  * It is a **climb** now. The water and the crews are at the bottom: the Docks, Kettle Row and the
- * Steelbelt, the three cheapest locations in the game, and the Directorate is at the top, with the
+ * Steelbelt, the three cheapest locations in the game, and the Combine is at the top, with the
  * Combine Spire looking down the middle of the frame from the highest point on it. Difficulty rises
  * with height almost monotonically, so "further up" and "harder" are the same direction, and a
  * player who has taken the low ground can see what the next rung is without opening anything.
  *
- * Allegiance reads left-to-right within that: independent ground on the flanks, the Directorate's
+ * Allegiance reads left-to-right within that: independent ground on the flanks, the Combine's
  * holdings up the centre and the right, which is why the Blacksite and the Annexes bracket the
  * approach to the Spire. `city.test.ts` pins the gradient and the spacing so a future district
  * cannot be dropped in on top of another one.
@@ -432,7 +432,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     nickname: 'the Docks',
     formalName: null,
     kind: 'contested',
-    allegiance: 'independent',
+    allegiance: 'government',
     seatOfPower: false,
     position: { x: 0.15, y: 0.9 },
     difficulty: 1,
@@ -499,7 +499,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     nickname: 'the Belt',
     formalName: null,
     kind: 'contested',
-    allegiance: 'independent',
+    allegiance: 'government',
     seatOfPower: false,
     position: { x: 0.63, y: 0.83 },
     difficulty: 2,
@@ -547,7 +547,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     nickname: 'the Power Spine',
     formalName: null,
     kind: 'contested',
-    allegiance: 'government',
+    allegiance: 'independent',
     seatOfPower: false,
     position: { x: 0.55, y: 0.58 },
     difficulty: 5,
@@ -615,7 +615,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
         'The Glasshouses',
         'glasshouse',
         'medium',
-        'The row of glass houses along the top of the fields, lamps lit inside and windmills pumping the beds. Everything under that glass is on a Directorate manifest before it is picked.',
+        'The row of glass houses along the top of the fields, lamps lit inside and windmills pumping the beds. Everything under that glass is on a Combine manifest before it is picked.',
       ],
     ]),
   },
@@ -630,7 +630,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     position: { x: 0.33, y: 0.3 },
     difficulty: 8,
     blurb:
-      'Hardened ferrocrete, layered berms, and a Directorate rifle company that has never had to leave. The first place anyone learns not to walk into.',
+      'Hardened ferrocrete, layered berms, and a Combine rifle company that has never had to leave. The first place anyone learns not to walk into.',
     /*
      * Every location here carries its own blurb, written to where it stands in the delivered
      * painting (`art-src/plate-district-blacksite-7.png`, 2026-09-15), so the sheet describes the
@@ -687,14 +687,14 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
         'Psychic Ward',
         'black_clinic',
         'hard',
-        'The cyan-lit room set into the high wall on the right, glass on the yard side. The Directorate takes minds apart in there and puts them back the way it wants them; what walks out remembers the wall and very little else.',
+        'The cyan-lit room set into the high wall on the right, glass on the yard side. The Combine takes minds apart in there and puts them back the way it wants them; what walks out remembers the wall and very little else.',
       ],
       [
         'pile',
         'The Pile',
         'nuclear_plant',
         'hard',
-        'Reactor drums and a cooling tower in the far bottom-right corner, steaming. The Directorate never shut it down; it only stopped saying what it was for.',
+        'Reactor drums and a cooling tower in the far bottom-right corner, steaming. The Combine never shut it down; it only stopped saying what it was for.',
       ],
     ]),
   },
@@ -712,13 +712,13 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
       'The surface spire the government rules from, and the household guard that has never been tested. Taking this is not a raid. It is the end of something.',
     locations: locationsIn('combine-spire', [
       ['uplink', 'Command Uplink', 'satellite_uplink', 'hard'],
-      ['armory', 'Directorate Armory', 'armory', 'hard'],
+      ['armory', 'Combine Armory', 'armory', 'hard'],
       ['household', 'The Household Barricade', 'barricade', 'hard'],
       ['broadcast', 'Command Broadcast', 'broadcast_station', 'hard'],
       ['ascension', 'The Ascension Clinic', 'gene_clinic', 'hard'],
       ['scaffold', 'The Unfinished Wing', 'construction_site', 'hard'],
       ['martyrs', 'The Martyrs’ Ground', 'graveyard', 'medium'],
-      ['statue', 'Statue of the Revolutionist', 'revolutionist_statue', 'medium'],
+      ['chapel', 'The Chosen Chapel', 'combine_chapel', 'hard'],
     ]),
   },
   {

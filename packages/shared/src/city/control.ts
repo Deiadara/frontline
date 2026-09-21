@@ -1,3 +1,4 @@
+import { combineGarrison, combineLeaderAt, combineSlotBudget, looterGarrison } from './combine.js';
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
@@ -231,13 +232,21 @@ export function startingGarrison(
   );
 
   if (holder.kind === 'government') {
-    // Combine ground: a line, not a mob. Two thirds shields, one third guns.
-    const wardens = Math.max(1, Math.round(strength * 0.65));
-    return { wardens, snipers: Math.max(1, strength - wardens) };
+    /*
+     * Combine ground: the regime's own units, by the district's difficulty (`city/combine.ts`),
+     * and the district's leader standing on his one plot. He is a body in the garrison like any
+     * other, which is what makes his death a fact the world can read rather than a flag somebody
+     * has to remember to flip: take the plot and he is gone.
+     */
+    const line = combineGarrison(
+      district.difficulty,
+      combineSlotBudget(district.difficulty, LOCATION_CATALOG[location.kind].baseDefense),
+    );
+    const leader = combineLeaderAt(location.id);
+    return leader ? { ...line, [leader.unitId]: 1 } : line;
   }
   // Looters: numbers and knives.
-  const razors = Math.max(1, Math.round(strength * 0.7));
-  return { razors, scrapers: Math.max(1, strength - razors) };
+  return looterGarrison(strength);
 }
 
 /** A fresh, untouched location: whoever nominally garrisons the district, and who they left on it. */
@@ -257,15 +266,42 @@ export function startingControl(location: Location, district: District): Locatio
 /**
  * How many locations the squatters hold in a district nobody has locked down.
  *
- * Two, and it is the number that decides what the opening hour of the game is like. Every location in
- * the city used to start held, which meant every district in it was **shut**: one party holding
- * all of it is exactly what arms a gate, so a new crew's only legal move anywhere was to break
- * down a door. That is the endgame move, offered on the first screen.
+ * The default, and the number that decides what the opening hour of the game is like. Every
+ * location in the city used to start held, which meant every district in it was **shut**: one
+ * party holding all of it is exactly what arms a gate, so a new crew's only legal move anywhere
+ * was to break down a door. That is the endgame move, offered on the first screen.
  *
  * Two squatted locations leaves open ground to walk onto, keeps a fight worth having in every
- * district, and still leaves somebody to take the district off later.
+ * district, and still leaves somebody to take the district off later. {@link SQUATTED_PLACES}
+ * names the districts that are not the default.
  */
 export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
+
+/**
+ * The districts the squatters hold more of than the default (maintainer, 2026-09-19).
+ *
+ * The Undergrid is theirs outright: every plot held and the gate shut, the one district in the
+ * city a crew has to break into that the Combine does not own. Chrome Row is open, with half of
+ * its eight plots squatted, so it is a fight for the good ground rather than a walk.
+ */
+export const SQUATTED_PLACES: Readonly<Record<string, number>> = {
+  undergrid: Number.POSITIVE_INFINITY,
+  'chrome-row': 4,
+};
+
+/**
+ * Combine ground that starts *unoccupied* (maintainer, 2026-09-19).
+ *
+ * The regime holds every plot of every district it owns, which is what arms the gate and makes
+ * a Combine district an event to enter. The Glasshouse Fields are the one exception: the Fence
+ * Camp and the market beside it are where the fields' people actually are, and the Combine has
+ * not bothered to stand anybody on them. Two empty plots is what leaves the district's gate down,
+ * so the cheapest Combine ground in the game can be walked onto before it has to be broken into.
+ */
+export const COMBINE_UNOCCUPIED: ReadonlySet<string> = new Set([
+  'glasshouse-fields-fence',
+  'glasshouse-fields-fieldgate',
+]);
 
 /**
  * Who is standing on a location before anybody has been to it (§A3, §A4).
@@ -274,10 +310,13 @@ export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
  *
  *   * **Combine ground is shut.** Every location in it is garrisoned, which arms its gate, and the
  *     only way in is through the front, which is what the Combine being the Combine should feel
- *     like, and what makes taking one of its districts an event.
- *   * **Independent ground is open, and squatted.** Looters hold the
- *     {@link SQUATTED_PLACES_PER_OPEN_DISTRICT} most defensible spots and the rest is standing
- *     empty. A crew can walk onto the open ground and then has a real fight for the good ones.
+ *     like, and what makes taking one of its districts an event. The Glasshouse Fields are the
+ *     one exception ({@link COMBINE_UNOCCUPIED}), and the Docks are shut but lightly held: the
+ *     garrison scales with the district, so the first Combine gate a crew meets is a thin one.
+ *   * **Independent ground is open, and squatted.** Looters hold the most defensible spots and the
+ *     rest is standing empty. A crew can walk onto the open ground and then has a real fight for
+ *     the good ones. How many spots is {@link SQUATTED_PLACES_PER_OPEN_DISTRICT}, except where
+ *     {@link SQUATTED_PLACES} says otherwise: the Undergrid is theirs whole.
  *
  * Which spots the squatters take is *derived*: the highest `baseDefense` in the district, ties
  * broken by id: rather than authored, so a location added to the catalogue tomorrow sorts itself into
@@ -286,7 +325,9 @@ export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
  * rather than sample it.
  */
 export function startingHolder(location: Location, district: District): LocationHolder {
-  if (district.allegiance === 'government') return { kind: 'government' };
+  if (district.allegiance === 'government') {
+    return COMBINE_UNOCCUPIED.has(location.id) ? { kind: 'unoccupied' } : { kind: 'government' };
+  }
   return squattedIn(district).includes(location.id) ? { kind: 'looters' } : { kind: 'unoccupied' };
 }
 
@@ -297,6 +338,6 @@ function squattedIn(district: District): readonly string[] {
       const byDefense = LOCATION_CATALOG[b.kind].baseDefense - LOCATION_CATALOG[a.kind].baseDefense;
       return byDefense !== 0 ? byDefense : a.id.localeCompare(b.id);
     })
-    .slice(0, SQUATTED_PLACES_PER_OPEN_DISTRICT)
+    .slice(0, SQUATTED_PLACES[district.id] ?? SQUATTED_PLACES_PER_OPEN_DISTRICT)
     .map((candidate) => candidate.id);
 }

@@ -7,10 +7,11 @@ import {
   findModification,
   findVehicle,
   type Building,
+  vehicleNoun,
 } from '../building/index.js';
 import { LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
 import type { Inventory } from '../items/inventory.js';
-import { UNIT_CATALOG, type UnitRequirement, type UnitSpec } from './catalog.js';
+import { PLAYER_UNITS, isCombineUnit, type UnitRequirement, type UnitSpec } from './catalog.js';
 
 /**
  * Whether a crew can field a unit (GDD §A5, §D12a).
@@ -107,11 +108,15 @@ export function missingRequirements(unit: UnitSpec, context: UnlockContext): Uni
 }
 
 export function isUnitUnlocked(unit: UnitSpec, context: UnlockContext): boolean {
+  // A Combine sheet has no clauses to meet, and "every clause met" of an empty list is true. It
+  // is refused here by name rather than given an impossible requirement, so nothing can ever
+  // describe to a player what would unlock one: nothing would.
+  if (isCombineUnit(unit)) return false;
   return unitUnlockClauses(unit).every((need) => requirementMet(need, context));
 }
 
 export function unlockedUnits(context: UnlockContext): UnitSpec[] {
-  return UNIT_CATALOG.filter((unit) => isUnitUnlocked(unit, context));
+  return PLAYER_UNITS.filter((unit) => isUnitUnlocked(unit, context));
 }
 
 /** One clause in the player's words. */
@@ -124,7 +129,15 @@ export function describeRequirement(need: UnitUnlockClause): string {
     case 'location':
       return `Hold ${theLocation(need.locationKind)}`;
     case 'vehicle':
-      return `${findVehicle(need.vehicleId)?.name ?? need.vehicleId}s buildable in the Garage`;
+      /*
+       * "A Scrappy buildable in the Garage", not "The Scrappys".
+       *
+       * Every machine's name carries its own article since 2026-09-20, so the trailing `s` this
+       * used to add landed on the end of a title: `The Scrappys buildable in the Garage`. A name
+       * with an article in it cannot be pluralised by a letter, and this line does not need to be:
+       * the requirement is one machine, so the indefinite article says it better than a plural did.
+       */
+      return `A ${vehicleNoun(findVehicle(need.vehicleId)?.name ?? need.vehicleId)} buildable in the Garage`;
     case 'blueprint':
       return `The ${findBlueprint(need.blueprintId)?.name ?? need.blueprintId}`;
   }

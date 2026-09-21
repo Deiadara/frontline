@@ -3,6 +3,7 @@ import {
   BUILDING_KINDS,
   BUILDING_MAX_LEVEL,
   MAX_MODIFICATION_SLOTS,
+  MODIFICATION_SET_SIZE,
   levelCeilingFor,
   modificationSlotsAt,
   modificationsFittingIn,
@@ -19,10 +20,11 @@ import { RESEARCH_ITEMS } from '../research/tracks.js';
 import { SEAT_SLOT_ORDER } from '../factions/cards.js';
 import { ATTRIBUTE_NAMES, MAX_ATTRIBUTE } from '../attributes.js';
 import { OFFICER_ROLES } from '../roles.js';
-import { UNIT_IDS } from '../units/catalog.js';
+import { COMBINE_UNITS, UNIT_IDS } from '../units/catalog.js';
 import { UNIT_UPGRADE_SLOTS } from '../units/loadout.js';
 import { BUILDING_PART_GATES } from '../building/parts.js';
 import { UNIT_MODIFICATIONS } from '../units/modifications.js';
+import { COMBINE_LEADERS } from '../city/combine.js';
 import { CITY_DISTRICTS, CITY_LOCATIONS } from '../city/districts.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
@@ -30,6 +32,8 @@ import { BLACK_MARKET_GOOD_IDS } from '../market/blackmarket.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { findUnit } from '../units/index.js';
+import { isUnitUnlocked } from '../units/unlocks.js';
+import type { LocationKind } from '../city/locations.js';
 import { FEATS, findFeat } from './catalog.js';
 import { FEAT_MEASURES, FEAT_MEASURE_SPECS, type FeatMeasure } from './measures.js';
 import { FEAT_ERAS, featRewardBand, featRewardValue } from './rewards.js';
@@ -410,6 +414,20 @@ describe('measures and scopes', () => {
         case 'resources_earned':
           expect(RESOURCE_KEYS, feat.id).toContain(scope);
           break;
+        case 'combine_kills_of':
+          // A unit the regime fields. A player unit here would be a ladder nothing can climb,
+          // because `tallyCombineFight` only counts the dead that `isCombineUnit` says are theirs.
+          expect(
+            COMBINE_UNITS.map((unit) => unit.id),
+            `${feat.id} scopes ${scope}`,
+          ).toContain(scope);
+          break;
+        case 'combine_leaders_slain':
+          expect(
+            COMBINE_LEADERS.map((leader) => leader.unitId),
+            `${feat.id} scopes ${scope}`,
+          ).toContain(scope);
+          break;
         case 'overseer_skills_at':
           // A threshold, so it has to read back as a number a sheet could reach.
           expect(Number.isFinite(Number(scope)), feat.id).toBe(true);
@@ -524,6 +542,16 @@ describe('measures and scopes', () => {
         (total, kind) => total + modificationSlotsAt(levelCeilingFor(kind)),
         0,
       ),
+      /*
+       * A set is three cards of one family in one structure (`MODIFICATION_SET_SIZE`), so a
+       * structure that never opens a third bracket can never hold one. The third opens at level 20
+       * and the Garage and the Infirmary stop at 10, which puts the real maximum at nine sets
+       * rather than eleven. An upper bound: a structure also needs three cards of one family that
+       * fit it, which is a question about the deck rather than about the ladder.
+       */
+      modification_sets: BUILDING_KINDS.filter(
+        (kind) => modificationSlotsAt(levelCeilingFor(kind)) >= MODIFICATION_SET_SIZE,
+      ).length,
       unit_modifications_fitted: UNIT_IDS.length * UNIT_UPGRADE_SLOTS,
       unit_kinds_held: UNIT_IDS.length,
       officer_best_mark: OFFICER_MARKS.length - 1,
@@ -535,9 +563,32 @@ describe('measures and scopes', () => {
       blueprints_unlocked: BLUEPRINTS.length,
       fleet_size: MAX_PER_VEHICLE * VEHICLE_IDS.length,
       districts_held_whole: holdableDistricts,
+      /*
+       * One short of the map, because a crew cannot scout the district it lives in.
+       *
+       * `sendScout` refuses `own_district` and no other path writes a `district_intel` row for
+       * home, so the measure tops out at eleven of twelve. The last rung of `scouted` asked for
+       * twelve and sat at 11/12 for ever, which is the failure the note above this test describes.
+       */
+      districts_scouted: CITY_DISTRICTS.length - 1,
+      // The regime's ground, whole: six districts today, and the last rung of `annexed` asks for
+      // exactly that many. The Chapel is one building, so a target past one is a feat for nobody.
+      combine_districts_held: CITY_DISTRICTS.filter(
+        (district) => district.allegiance === 'government' && district.locations.length > 0,
+      ).length,
+      chapel_held: CITY_LOCATIONS.filter((location) => location.kind === 'combine_chapel').length,
       locations_held: CITY_LOCATIONS.length,
       faction_seats: SEAT_SLOT_ORDER.length,
     };
+
+    // The one figure here that is not read off the game, for the reason the ladder test above
+    // gives: two of the eleven structures never open a third bracket, so a table that quietly
+    // stopped covering `modification_sets` would leave the deepest deck feat unmeasured.
+    expect(CEILINGS.modification_sets, 'structures that can hold a full set').toBe(9);
+    // Likewise pinned by hand: a map that quietly lost a Combine district, or gained a second
+    // chapel, would move the ceiling and the ladder with it and leave this green.
+    expect(CEILINGS.combine_districts_held, 'the Combine holds six districts').toBe(6);
+    expect(CEILINGS.chapel_held, 'there is one Chosen Chapel').toBe(1);
 
     const over: string[] = [];
     let checked = 0;
@@ -658,5 +709,258 @@ describe('the shape of the set', () => {
         expect(rungs[step]?.chain, district.id).toBe(rungs[0]?.chain);
       }
     }
+  });
+});
+
+/**
+ * The first hour, which is the one stretch of the game a player can walk out of.
+ *
+ * A new crew stands a Nexus and a Generator, holds 600 caps, produces no caps at all and needs
+ * 512 of them for the second Nexus level. Until 2026-09-18 it also could not train a single unit,
+ * because every unit answered to a Gauntlet that answers to Nexus 3 and Quarters 2. The board's
+ * opening feats are what pays for the way out of that, so what they pay is pinned here rather
+ * than left to the band check, which cannot tell caps from scrap or a Scavenger from a Hauler.
+ */
+describe('the opening', () => {
+  /** A district five levels into every tree and nothing else: no ground held, no documents. */
+  const EARLY_DISTRICT = {
+    buildings: BUILDING_KINDS.map((kind) => ({
+      id: `b-${kind}`,
+      kind,
+      level: 5,
+      modifications: [],
+    })),
+    heldPlaceKinds: new Set<LocationKind>(),
+    buildableVehicles: new Set<string>(),
+    inventory: {},
+  };
+
+  it('pays the very first feat in carriers a bare district can train', () => {
+    const first = findFeat('overseer_taken');
+    expect(first?.measure).toBe('overseer_taken');
+    expect(first?.target).toBe(1);
+    // Standalone, because the measure can never reach two: a second character is refused.
+    expect(first?.chain).toBeNull();
+    expect(first?.after).toBeNull();
+    expect(first?.era).toBe('early');
+
+    const paid = Object.entries(first?.reward.units ?? {});
+    expect(paid.length, 'the opening feat has to pay units').toBeGreaterThan(0);
+    const opening = {
+      ...EARLY_DISTRICT,
+      buildings: [{ id: 'b-nexus', kind: 'nexus' as const, level: 1, modifications: [] }],
+    };
+    for (const [id, count] of paid) {
+      const unit = findUnit(id);
+      // Trainable by a crew at its first second, or the reward teaches nothing: the point of it
+      // is that the player can go and buy more of what just landed.
+      expect(isUnitUnlocked(unit!, opening), id).toBe(true);
+      expect(count ?? 0, id).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it('pays a second lot of carriers for the first few jobs', () => {
+    const second = findFeat('first_jobs');
+    expect(second?.measure).toBe('missions_of_kind');
+    expect(second?.scope).toBe('standard');
+    // Ten minutes of play, not an evening: the Scrap Run is three minutes long.
+    expect(second?.target).toBeLessThanOrEqual(5);
+    expect(second?.era).toBe('early');
+    expect(Object.keys(second?.reward.units ?? {}).length).toBeGreaterThan(0);
+    // ...and caps, which is the resource nothing in a new district produces.
+    expect(second?.reward.resources?.caps ?? 0).toBeGreaterThan(0);
+    // The head of the haulage ladder, so the board draws it as the first rung of that card and
+    // not as a second card with the same title. Nothing is in front of it.
+    expect(second?.chain).toBe('hauls');
+    expect(second?.after).toBeNull();
+    expect(findFeat('hauls_1')?.after).toBe('first_jobs');
+  });
+
+  /**
+   * An early feat never pays a unit an early crew could not have trained.
+   *
+   * `recruits('early', …)` paid four Haulers at `medium` and eight at `large`, and on the day the
+   * carriers were re-gated on the Nexus that became a reward handing a beginner a unit they
+   * cannot replace until Nexus 15. The band check saw nothing: a Hauler is worth 156 caps
+   * whichever building signs it. Five is a generous reading of "early", and the point is the
+   * order of magnitude rather than the exact level.
+   */
+  it('never pays an early feat in units an early crew cannot train', () => {
+    const over: string[] = [];
+    for (const feat of FEATS.filter((one) => one.era === 'early')) {
+      for (const id of Object.keys(feat.reward.units ?? {})) {
+        const unit = findUnit(id);
+        if (unit && !isUnitUnlocked(unit, EARLY_DISTRICT)) {
+          over.push(`${feat.id} pays ${id}, which a district five levels in cannot train`);
+        }
+      }
+    }
+    expect(over, over.join('\n')).toEqual([]);
+    // A guard on the guard: a fixture that unlocked everything would make the above vacuous.
+    expect(isUnitUnlocked(findUnit('haulers')!, EARLY_DISTRICT)).toBe(false);
+  });
+
+  /**
+   * The early purse leads with caps and carries what the first evening runs out of.
+   *
+   * Caps have no producer at all, so a bundle of scrap is a bundle of the one thing a new crew is
+   * not short of. Read off the feats rather than off the helper, because the helper is private
+   * and what a player receives is the feat.
+   */
+  it('pays the early rungs in what the opening actually runs out of', () => {
+    const paid = FEATS.filter(
+      (feat) => feat.era === 'early' && feat.reward.resources?.caps !== undefined,
+    );
+    expect(paid.length, 'no early feat pays caps').toBeGreaterThan(10);
+    for (const feat of paid) {
+      const resources = feat.reward.resources ?? {};
+      const caps = resources.caps ?? 0;
+      const rest = RESOURCE_KEYS.filter((key) => key !== 'caps').reduce(
+        (total, key) => total + (resources[key] ?? 0),
+        0,
+      );
+      expect(caps, `${feat.id} pays more of everything else than it pays caps`).toBeGreaterThan(
+        rest,
+      );
+    }
+    // The small rung carries planks and oil as well, which are what runs out after caps.
+    const small = findFeat('runs_1')?.reward.resources ?? {};
+    expect(small.planks ?? 0).toBeGreaterThan(0);
+    expect(small.oil ?? 0).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The Combine's card (maintainer, 2026-09-19).
+ *
+ * The section is data like the rest and the generic gates above hold it to the same rules, so what
+ * is pinned here is only its shape: the things a reader of `city/combine.ts` would expect to find
+ * on the board and that no generic rule can ask for. A section that lost its Suppressor ladder, or
+ * that locked the Executioner behind the Syndic, would pass every test above.
+ */
+describe('the Combine', () => {
+  it('gives every common Combine unit a ladder of its own, and only those', () => {
+    const ladders = new Map<string, typeof FEATS>();
+    for (const feat of FEATS) {
+      if (feat.measure !== 'combine_kills_of' || feat.scope === undefined) continue;
+      ladders.set(feat.scope, [...(ladders.get(feat.scope) ?? []), feat]);
+    }
+    const common = COMBINE_UNITS.filter((unit) => !unit.unique).map((unit) => unit.id);
+    expect(common, 'the four the regime fields in numbers').toEqual([
+      'civic_levy',
+      'greycoat',
+      'street_enforcers',
+      'suppressor',
+    ]);
+    expect([...ladders.keys()].sort()).toEqual([...common].sort());
+    for (const [unitId, rungs] of ladders) {
+      // A real ladder: at least three rungs, one chain, the first one open.
+      expect(rungs.length, unitId).toBeGreaterThanOrEqual(3);
+      expect(new Set(rungs.map((feat) => feat.chain)).size, unitId).toBe(1);
+      expect(rungs[0]?.after, unitId).toBeNull();
+    }
+  });
+
+  /**
+   * A leader dies once per world, so each one is a standalone with a target of one, and the
+   * board's rule that a standalone is never locked means all three are open from the first
+   * evening: a crew can go for Directive Xero before it has met the Syndic, if it likes.
+   */
+  it('stands one open feat per leader, at a target of one', () => {
+    const slain = FEATS.filter((feat) => feat.measure === 'combine_leaders_slain');
+    expect(slain.map((feat) => feat.scope).sort()).toEqual(
+      COMBINE_LEADERS.map((leader) => leader.unitId).sort(),
+    );
+    for (const feat of slain) {
+      expect(feat.chain, feat.id).toBeNull();
+      expect(feat.after, feat.id).toBeNull();
+      expect(feat.target, feat.id).toBe(1);
+      // The end of a district, paid like one.
+      expect(feat.era, feat.id).toBe('late');
+      expect(feat.size, feat.id).toBe('large');
+    }
+  });
+
+  /**
+   * The copy against the power, not against the copy (maintainer, 2026-09-20).
+   *
+   * A feat's blurb is the only place a player is told what a legendary's power is worth, and it is
+   * the one part of a mechanic that no gate moves when the mechanic moves. The Syndic's retune
+   * proved it: the opening power was +20 penetration, +20 morale and 20 armour off the attacker,
+   * and when the morale and the subtraction were dropped two blurbs went on selling both, on a
+   * screen whose whole job is to tell a crew what there is to go and do.
+   *
+   * The permitted words are derived from `leader.power` itself rather than listed here, so a
+   * leader who is given a stat back gets the word back with it and nothing has to be remembered.
+   */
+  const SHEET_WORDS: Readonly<Record<string, readonly string[]>> = {
+    morale: ['morale'],
+    penetration: ['penetration'],
+    armor: ['armour', 'armor'],
+    vitality: ['vitality'],
+    speed: ['speed'],
+    evasion: ['evasion'],
+    range: ['range'],
+    stealth: ['stealth'],
+    intimidation: ['intimidation'],
+  };
+
+  /** Every feat whose own copy names this leader, by the name the roster gives him. */
+  const naming = (unitId: string) => {
+    const name = findUnit(unitId)?.name;
+    if (name === undefined) throw new Error(`no sheet for ${unitId}`);
+    return FEATS.filter((feat) => `${feat.name} ${feat.blurb}`.includes(name));
+  };
+
+  it('names no sheet stat in a leader’s copy that the leader’s power does not carry', () => {
+    for (const leader of COMBINE_LEADERS) {
+      const carried = new Set(Object.keys(leader.power));
+      const forbidden = Object.entries(SHEET_WORDS)
+        .filter(([stat]) => !carried.has(stat))
+        .flatMap(([, words]) => words);
+      const feats = naming(leader.unitId);
+      // A leader nothing names would make the loop below vacuous.
+      expect(feats.length, `nothing names ${leader.unitId}`).toBeGreaterThan(0);
+      for (const feat of feats) {
+        for (const word of forbidden) {
+          expect(
+            new RegExp(`\\b${word}\\b`, 'i').test(`${feat.name} ${feat.blurb}`),
+            `${feat.id} sells ${leader.unitId}'s power on ${word}, which it does not have`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  /**
+   * ...and none of them says a power reaches across the line.
+   *
+   * Every `CombinePower` is points on the Combine's own units or a rule about what an exchange
+   * leaves behind; not one of them names the attacker, and `battle/combine.test.ts` measures that
+   * in the engine ("changes nothing on the sheet of whoever is sent against her"). Copy that says
+   * a leader takes something off the player's sheet is describing a mechanic the game does not
+   * have, and it is the half of the retune most likely to survive in prose.
+   */
+  it('claims no leader takes anything off the player’s own sheet', () => {
+    const reaching = /\b(?:off|from)\s+(?:your|the attacker.s)\b/i;
+    for (const feat of FEATS) {
+      const text = `${feat.name} ${feat.blurb}`;
+      const names = COMBINE_LEADERS.some((leader) => text.includes(findUnit(leader.unitId)!.name));
+      if (!names) continue;
+      expect(reaching.test(text), `${feat.id} takes points off the player's sheet`).toBe(false);
+    }
+  });
+
+  it('asks for the Chapel once, held, and never locks it', () => {
+    const chapel = FEATS.filter((feat) => feat.measure === 'chapel_held');
+    expect(chapel.length).toBe(1);
+    expect(chapel[0]?.target).toBe(1);
+    expect(chapel[0]?.chain).toBeNull();
+    expect(chapel[0]?.after).toBeNull();
+  });
+
+  it('ends the held-districts ladder on the whole of the regime’s ground', () => {
+    const rungs = FEATS.filter((feat) => feat.measure === 'combine_districts_held');
+    expect(rungs.map((feat) => feat.target)).toEqual([1, 3, 6]);
   });
 });

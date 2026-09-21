@@ -1,20 +1,36 @@
-import { noTerritoryEffects, type TerritoryEffects } from '../city/index.js';
 import {
+  envLabel,
+  labelEffectPercent,
+  labelText,
+  noTerritoryEffects,
+  type CombinePower,
+  type TerritoryEffects,
+} from '../city/index.js';
+import {
+  capRating,
   findUnit,
+  findUnitModification,
   isCombatUnit,
   fittedFor,
+  upgradedStats,
   UNIT_RULES,
   type Army,
+  type FittedUpgrades,
   type UnitLoadouts,
   type UnitSpec,
+  type UnitStats,
 } from '../units/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
-import { bareLineRules, markedUnit, standsInLine, type LineRules } from './line.js';
+import { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules } from './line.js';
+import { packBonusPercent } from '../units/collective.js';
 import { effectiveStats, OUTNUMBERED_RATIO, type Effective } from './effects.js';
 // Kept exported from here because every caller in the game imports the engine's own names for
 // these, and they are the engine's rules: the module split is about the import graph, not about
 // where they belong.
-export { bareLineRules, markedUnit, standsInLine, type LineRules };
+export { bareLineRules, fightingSlots, markedUnit, standsInLine, type LineRules };
+// Collective moved to a leaf so `raid.ts` can spend the same curve on carry without a cycle.
+// Re-exported here because every caller of the offense half already imports it from the engine.
+export { MAX_PACK_BONUS, PACK_HALF, packBonusPercent } from '../units/collective.js';
 import { exchange, threatWeight } from './matchup.js';
 import {
   moraleDelta,
@@ -96,11 +112,10 @@ export const MAX_CONCENTRATION = 1.6;
  * and the side goes on firing at the width of the ground. Measured on open ground (frontage 48),
  * 300 Razors against 60 won every seed and walked away with 287 of them.
  *
- * Which was the problem. Depth was already staying power, so "bring five times as many" was not
- * merely allowed, it was free: the cap held a deep side's *output* at the width of the ground
- * while its pool went on growing without limit. {@link overstackPenalty} is the price, and the
- * two together are the mechanic: bring more and you last longer, bring far more and every body
- * you added is also in the way of the ones doing the shooting.
+ * Which is worth knowing when tuning: depth is already staying power, so "bring five times as
+ * many" is free. The cap holds a deep side's *output* at the width of the ground while its pool
+ * goes on growing without limit. An attempt to price that was tried and reverted; the note below
+ * this one says what happened and why the fire is the wrong lever.
  */
 export function engagedUnits(side: SideState, frontage: number): number {
   return Math.min(fighting(side), Math.max(1, effectiveFrontage(side, frontage)));
@@ -121,45 +136,33 @@ export function effectiveFrontage(side: SideState, frontage: number): number {
 }
 
 /**
- * What a force too big for the ground loses for being in its own way (maintainer, 2026-09-18).
+ * An overstack penalty was tried here and reverted (maintainer, 2026-09-18). Do not re-add it
+ * without reading this.
  *
- * Combat width on its own only caps output, and a cap is not a price: a side over the width fires
- * at the width, so the thousandth body costs nothing and adds a body's worth of soaking. The
- * measurement that prompted this, on open ground against 60 defenders: 60 attackers won 28 seeds
- * in 60 and left 21 standing, 120 won every seed and left 102, and 300 won every seed and left
- * 287. There was no number at which bringing more stopped being the answer.
+ * The idea was Hearts of Iron IV's: combat width caps output, so add a price for exceeding it.
+ * What shipped took a share of the attacker's fire, 15 points per frontage-worth of excess to a
+ * ceiling of 45, charged to the attacker alone so that a choke point would favour whoever held it.
+ * Measured afterwards, it failed in both directions at once.
  *
- * So crowding costs output, which is the half of Hearts of Iron IV's combat width this engine did
- * not have. It is deliberately a penalty on *fire* and not on toughness: a crowded street does not
- * make a person easier to kill, it makes them harder to shoot past, and putting it on toughness
- * would cancel the staying power that is the whole reason to bring depth.
+ * **It did not make depth cost anything.** 300 attackers against 60 on open ground won all 60
+ * seeds either way, losing 5.9 men with the penalty and 13 without. At 3000 against 60 the penalty
+ * cost 1.4 men. Soak scales with the pool and has no ceiling, the fire cut has one, and a fight
+ * ends on a morale cascade in two or three rounds before a fire cut can compound.
  *
- * Linear in the excess and capped, because the shape a player has to be able to predict is "twice
- * the ground is a fifth off, and it stops getting worse somewhere". The cap matters more than the
- * slope: without it a big enough force silences itself, which would replace one degenerate answer
- * with another.
+ * **And it made even fights unwinnable.** Identical armies on identical ground, attacker wins out
+ * of 60: 48 v 48 went 30, 96 v 96 went 9, and **150 v 150 and 300 v 300 both went 0**. On ground
+ * narrower than the roster, no unit could win an even attack at all. Cohesion, the advertised
+ * counter, does not reach it: past four times the width the penalty is pinned at its ceiling and
+ * widening the ground by half cannot bring it back under.
  *
- * Cohesion is the counter, and it is already priced: it widens {@link effectiveFrontage}, so a
- * crew that hires the organiser pays a real cost to bring more people to bear, which is what that
- * stat is for.
+ * A symmetric version was measured too and is not the answer either: it restores fairness
+ * (150 v 150 back to 14 of 60) and leaves depth exactly as free, while giving up the one thing the
+ * attacker-only version bought, since a choke stops favouring its holder (40 v 40 in a corridor
+ * went from 0 of 60 to 32).
+ *
+ * If depth is to cost something, the lever is not the fire. It is the soak, or a cap that grows
+ * with the excess rather than stopping at a constant.
  */
-export const OVERSTACK_PENALTY_PER_EXCESS = 0.15;
-
-/** ...and the most crowding can ever take off, however deep the column behind the front rank. */
-export const MAX_OVERSTACK_PENALTY = 0.45;
-
-/**
- * The fraction of its fire a side loses to crowding, 0 when it fits on the ground it chose.
- *
- * Measured against the frontage this side can actually use, so cohesion is worth exactly as much
- * here as it is worth to deployment, and a side at or under the width is never touched.
- */
-export function overstackPenalty(side: SideState, frontage: number): number {
-  if (side.defending) return 0;
-  const usable = Math.max(1, effectiveFrontage(side, frontage));
-  const excess = Math.max(0, fighting(side) / usable - 1);
-  return Math.min(MAX_OVERSTACK_PENALTY, excess * OVERSTACK_PENALTY_PER_EXCESS);
-}
 
 /**
  * How much a side's fire is worth this round, as a fraction of what its whole strength would be.
@@ -223,18 +226,55 @@ export const SAPPER_FULL_SHARE = 0.25;
  */
 export const MAX_SAPPER_CUT = 40;
 
-/** Percentage points of offense per other unit of the same unit in the line (`UnitSpec.pack`). */
-export const PACK_STEP = 0.6;
+/**
+ * The share of a line that has to be jammers before the jam is as deep as it goes
+ * (`UnitSpec.jammer`).
+ *
+ * A quarter, which is {@link SAPPER_FULL_SHARE}'s ratio and {@link MEND_FULL_COVER}'s, and for
+ * the same reason: what a speciality is worth depends on the size of the line it is working for.
+ * Four Netrunners in a party of sixteen jam the other side as hard as they are going to; four in
+ * a party of a hundred manage a sixth of it.
+ */
+export const JAM_FULL_SHARE = 0.25;
 
 /**
- * The most massing one sheet can be worth, in percentage points of offense.
+ * The most a jamming line takes off the other side, in percentage points of armour and of damage.
  *
- * Reached at 42 units, which is a real commitment on a roster this size, and capped under the
- * biggest context modifier in the table (`tracking`, 45) because that one is conditional on the
- * enemy and this one is not. Combat width still charges for the units, so a pack that is over the
- * frontage is paying in silenced rank for the bonus it is drawing.
+ * **Measured, not reasoned to.** The first draft was 25, chosen against {@link MAX_SAPPER_CUT}
+ * on the argument that a jam buys two things at once (the enemy's armour *and* their damage) so
+ * a point of it should be worth about two of a sapper's. That argument was wrong, and the way it
+ * was wrong is worth keeping: 25 made a Netrunner a bad trade at every size. Equal slots a side,
+ * one army spending some of them on Netrunners and the other spending all of them on the line,
+ * over 200 seeds each way round, against a mirror baseline that sits at 49/51:
+ *
+ * | jam | 2 Netrunners in 60 slots of Snipers | 2 in 80 slots of Breakers |
+ * | --- | --- | --- |
+ * | 25 | 22% / 17% | 40% / 47% |
+ * | 40 | **50% / 49%** | **56% / 59%** |
+ * | 50 | 76% / 73% | 68% / 71% |
+ * | 70 | 99% / 99% | 85% / 88% |
+ *
+ * Forty, where a small detachment pays for the slots it takes off the line and nothing more.
+ * Over-investing still loses: four of them read 40/42 and six read 9/14, which is the shape this
+ * should have. A jammer is somebody you bring a couple of, beside a line, and never the line.
+ *
+ * There is no counter to it on any sheet: no armour, no resistance, no saving roll. The only
+ * answer is to kill them, and {@link jamPercent} is read fresh every round so killing them works
+ * on the next one.
  */
-export const MAX_PACK_BONUS = 25;
+export const MAX_JAM = 40;
+
+/**
+ * The hard ceiling on a jam once the ground has had its say.
+ *
+ * {@link MAX_JAM} is what a full jamming line is worth *in nominal conditions*. The ground moves
+ * it (see {@link jamCondition}), and a Netrunner in a crammed unlit basement with the Lab's
+ * programmes behind it can be worth half again what the sheet says. This is the stop on that: the
+ * jam answers to no stat on the receiving sheet, so an uncapped multiplier would eventually be a
+ * unit that turns the other side's armour off. Sixty, which is half again the nominal maximum: a
+ * speciality is allowed to be the answer to something and never allowed to be the end of it.
+ */
+export const MAX_JAM_CEILING = 60;
 
 /** Per-round swing, the Grepolis "luck" idea at a tighter spread so it averages out over a fight. */
 export const ROUND_LUCK = 0.12;
@@ -255,9 +295,40 @@ export interface Stack {
   /** Units that started the fight: the denominator for every casualty figure. */
   started: number;
   /**
-   * Units too cowed to fight, set once before the first shot and never revisited (§D3).
+   * This stack's offense on its own sheet, refits folded in and the ground left out.
    *
-   * See {@link cow}. They are still *present*: they stand in the line, they take their share of
+   * The denominator {@link jamPercent} measures a situation against: `effective.offense` over
+   * this is exactly what the ground, the weather and the crew's percentages did to the unit, and
+   * nothing else. Stored rather than recomputed because the fitted list is only in hand while
+   * the stack is being built.
+   *
+   * It has to be the *upgraded* sheet, not the catalogue's, and that is the whole reason this
+   * field exists. The workshop's refits are flat points of offense (Guided Rounds is +72), which
+   * is a rounding error on a Sniper's 350 and a **4.6x multiplier** on a Netrunner's 20. Read
+   * against the catalogue figure, the cheapest scope in the game took a jamming line from 40% to
+   * the hard ceiling on its own, and the three refits that fit the sheet were indistinguishable
+   * from one another. Read against the upgraded sheet the refit cancels, which is the honest
+   * answer: a better gunsight makes a unit shoot better, and how well it is *jamming* is a
+   * question about where it is standing.
+   *
+   * The whole sheet rather than the one figure, because `noiseOnEnemy` needs the rest of it:
+   * what a racket costs a unit is decided by its armour and its morale as well
+   * (`labelEffectPercent`), and those have to be the fitted numbers for the same reason the
+   * offense does.
+   */
+  sheet: UnitStats;
+  /**
+   * How many tiers of `noisy` this stack puts on the enemies it is fighting, or 0 (`UnitSpec.loud`).
+   *
+   * On the stack rather than read off the unit, because a refit can deepen it: the Stereo Rig
+   * takes the Anodics from Noisy II to Noisy IV, and a refit is a fact about *these* Anodics
+   * rather than about the sheet. See {@link noiseOnEnemy}.
+   */
+  loudTier: number;
+  /**
+   * Units too intimidated to fight, set once before the first shot and never revisited (§D3).
+   *
+   * See {@link intimidate}. They are still *present*: they stand in the line, they take their share of
    * incoming fire, they count for frontage and for the roster that walks home. What they do not do
    * is shoot. That is the whole of the mechanic, and it is deliberately not a morale penalty or a
    * damage multiplier: those already exist and this is meant to read as men who would not advance.
@@ -281,6 +352,13 @@ export interface Stack {
    * means injured rather than dead (§D4, settled by `officerInjured`).
    */
   officer?: BattleOfficer;
+  /**
+   * A stack of the *attacker's* units fighting for the defender under Directive Xero
+   * (`changeOfHeart`). Three rules follow from the flag: it is not the winner's to recover, it is
+   * not the loser's to rout, and whatever is left of it at the end is reported in
+   * `Simulation.turnedAlive` for the settle to stand on the ground it fought for.
+   */
+  turncoat?: boolean;
 }
 
 export interface SideSetup {
@@ -304,6 +382,21 @@ export interface SideSetup {
    * the only place a sheet is ever turned into combat numbers.
    */
   officer?: BattleOfficer;
+  /**
+   * The Combine legendary this side fights under (`city/combine.ts`, maintainer 2026-09-19).
+   *
+   * The leader's *power*, not the leader: he is a unit in `army` on the one plot he stands on,
+   * and this is the shadow he casts over every Combine defence in his district while he lives.
+   * Three powers, and each is applied at the one place in the fight it belongs to:
+   *
+   *   * `syndic` in {@link applyPresence}, as flat points on the Combine's own sheets and nothing
+   *     on the attacker's, because it is a fact about the units as they stand on this ground.
+   *   * `executioner` after every {@link applyDamage} on the enemy, because it is a fact about
+   *     what an exchange leaves behind ({@link execute}).
+   *   * `directive_xero` where §D3 settles who is intimidated, because it *is* §D3 with the sign turned
+   *     round ({@link changeOfHeart}).
+   */
+  presence?: CombinePower;
 }
 
 export interface SideState {
@@ -416,9 +509,9 @@ function intimidation(side: SideState): number {
  *
  *   * Not a *rate*. Both quantities are sums over units, so a big army has proportionally more
  *     nerve and a big army projects proportionally more menace. Averaging either would make one
- *     terrifying unit cow a legion.
+ *     terrifying unit intimidate a legion.
  *   * Not per round. It is settled once, from the opening rosters, so it cannot spiral: a side
- *     that loses units does not become progressively easier to cow by the same enemy.
+ *     that loses units does not become progressively easier to intimidate by the same enemy.
  *   * Not symmetric-in-sequence. Both sides are measured against the *starting* numbers before
  *     either is silenced, so the order the two are computed in cannot change the answer.
  *
@@ -432,7 +525,7 @@ export function nerve(side: SideState): number {
   );
 }
 
-/** The menace a side projects: the intimidation of every unit in it. See {@link cow}. */
+/** The menace a side projects: the intimidation of every unit in it. See {@link intimidate}. */
 export function menace(side: SideState): number {
   return side.stacks.reduce(
     (total, stack) => total + stack.alive * Math.max(0, stack.effective.intimidation),
@@ -454,11 +547,20 @@ export function menace(side: SideState): number {
  * own illustration impossible. At 0.75 that example still lands and a quarter of every line always
  * shoots back, which is what "the steadiest troops hold" has to mean to be worth writing down.
  */
-export const MAX_COWED_SHARE = 0.75;
+export const MAX_INTIMIDATED_SHARE = 0.75;
 
-export function cow(side: SideState, against: number): number {
+/**
+ * Who §D3 silences on `side` against this much menace, and how many of each, before it is done.
+ *
+ * The plan and the doing are split because two callers want the plan and only one wants the
+ * doing: {@link intimidate} silences the units it names, and {@link changeOfHeart} moves them across the
+ * line instead. Both read the same ceiling and the same cheapest-first order, so what Directive
+ * Xero takes is exactly what any other menace would have silenced, no more.
+ */
+function intimidatePlan(side: SideState, against: number): Map<Stack, number> {
+  const plan = new Map<Stack, number>();
   let budget = against - nerve(side);
-  if (budget <= 0) return 0;
+  if (budget <= 0) return plan;
 
   // Cheapest nerve first. A unit with no morale at all costs nothing to silence, so it is taken
   // before anything that has to be paid for, and the loop cannot stall on it.
@@ -485,23 +587,177 @@ export function cow(side: SideState, against: number): number {
    * cannot change how much of it can be silenced.
    */
   const ceiling = Math.floor(
-    order.reduce((total, stack) => total + stack.alive, 0) * MAX_COWED_SHARE,
+    order.reduce((total, stack) => total + stack.alive, 0) * MAX_INTIMIDATED_SHARE,
   );
 
   let silenced = 0;
   for (const stack of order) {
-    const room = ceiling - silenced;
-    if (room <= 0) break;
+    if (budget <= 0 || silenced >= ceiling) break;
     const each = Math.max(0, stack.effective.morale);
-    // How many of this stack's units the remaining budget covers.
     const affordable = each === 0 ? stack.alive : Math.floor(budget / each);
-    const take = Math.min(stack.alive, affordable, room);
-    if (take <= 0) break;
+    const take = Math.min(stack.alive, affordable, ceiling - silenced);
+    if (take <= 0) continue;
+    plan.set(stack, take);
+    budget -= take * each;
+    silenced += take;
+  }
+  return plan;
+}
+
+export function intimidate(side: SideState, against: number): number {
+  let silenced = 0;
+  for (const [stack, take] of intimidatePlan(side, against)) {
     stack.suppressed = take;
     silenced += take;
-    budget -= take * each;
   }
   return silenced;
+}
+
+/**
+ * Directive Xero's Change of Heart (`city/combine.ts`, maintainer 2026-09-19).
+ *
+ * The units §D3 would have intimidated on `side` do not stand in their own line with their heads down.
+ * They walk across it. Each is taken off its stack (alive, started and pool alike, so nothing
+ * downstream counts it as a casualty of the side it left) and stood on `to` as a stack of its own,
+ * flagged `turncoat`, at the morale ceiling he gives everybody else. It keeps its own sheet: the
+ * Syndic's points are not his to give, and a turned Razor is still a Razor.
+ *
+ * Returns how many crossed, which is the figure the report prints where it would have printed
+ * the intimidated. `ledger` is the by-unit count the settle takes them off the attacker's books with;
+ * they are his for good, whichever way the fight goes.
+ */
+function changeOfHeart(
+  side: SideState,
+  to: SideState,
+  against: number,
+  morale: number,
+  ledger: Army,
+): number {
+  let turned = 0;
+  // Held inside the bar here rather than trusted from the caller, for the reason `applyPresence`
+  // gives: this figure comes off the power's own field and a turncoat's morale is a 0..100 rating
+  // like everybody else's.
+  const standAt = capRating(morale);
+  for (const [stack, take] of intimidatePlan(side, against)) {
+    if (stack.officer) continue; // §D1: an officer is one person, and not one who changes sides.
+    const vitality = stack.effective.vitality;
+    // The whole bodies leave first; the wounded one at the front stays with its own side.
+    const whole = Math.min(take, Math.max(0, Math.floor(stack.pool / vitality)));
+    if (whole <= 0) continue;
+    stack.alive -= whole;
+    stack.started -= whole;
+    stack.pool -= whole * vitality;
+    to.stacks.push({
+      ...stack,
+      effective: {
+        ...stack.effective,
+        morale: standAt,
+        reasons: [...stack.effective.reasons, 'Changed sides'],
+      },
+      alive: whole,
+      started: whole,
+      pool: whole * vitality,
+      morale: standAt,
+      brokeAt: null,
+      suppressed: 0,
+      dealt: 0,
+      turncoat: true,
+    });
+    ledger[stack.unit.id] = (ledger[stack.unit.id] ?? 0) + whole;
+    turned += whole;
+  }
+  return turned;
+}
+
+/**
+ * The leader's power on the **defence's** sheets (`SideSetup.presence`), applied once, before §D3.
+ *
+ * Syndic: flat points on the Combine's own penetration and armour, and nothing at all on the
+ * attacker's sheet (maintainer, 2026-09-20). The opening power also carried +20 morale and took 20
+ * armour off everything sent against the ground; both are gone, and the second is why this takes
+ * one side rather than two. Directive Xero: the Combine's line at the morale ceiling.
+ * The Executioner changes no sheet; he is applied per exchange in {@link execute}. A reason is
+ * pushed on every sheet touched, so the report can say why a Greycoat held where a Greycoat
+ * would not have.
+ *
+ * `capRating` rather than a local `Math.min(100, ...)`: the maintainer's rule of 2026-09-15 is a
+ * hard 100 on every rating whatever adds to it, and `units/stats.ts` is the one place that rule
+ * is written down.
+ */
+function applyPresence(defender: SideState, presence: CombinePower | undefined): void {
+  if (!presence) return;
+  if (presence.kind === 'syndic') {
+    for (const stack of defender.stacks) {
+      stack.effective.penetration = capRating(stack.effective.penetration + presence.penetration);
+      stack.effective.armor = capRating(stack.effective.armor + presence.armor);
+      stack.effective.reasons = [...stack.effective.reasons, 'The Syndic'];
+    }
+  }
+  if (presence.kind === 'directive_xero') {
+    // Through `capRating` like the Syndic's two lines above, and for the same rule. His figure is
+    // an assignment rather than a sum, which is exactly why the ceiling is easy to leave off it:
+    // a power written at 140 would have stood a line 40 points past the end of the morale bar,
+    // and §D3, `moraleState` and the report all read that number as a 0..100 rating.
+    const morale = capRating(presence.morale);
+    for (const stack of defender.stacks) {
+      stack.effective.morale = morale;
+      stack.effective.reasons = [...stack.effective.reasons, 'Directive Xero'];
+      stack.morale = morale;
+    }
+  }
+}
+
+/**
+ * The Executioner (`city/combine.ts`): what an exchange leaves under his threshold does not live.
+ *
+ * A stack is whole bodies plus one wounded unit at the front (`pool` against `vitality`). After
+ * every exchange on `side`, a wounded front unit under `threshold` of a life is finished: the
+ * pool loses the remainder and the stack loses the body. At most one per stack per exchange, on
+ * the wounded unit only, which is what "falls below the line from an attack" means in a model
+ * that has no second wounded unit to look at. Global: every stack opposite him, whether or not it
+ * is trading shots with the stack he stands in, because he is a rule about the field and not a
+ * matchup.
+ *
+ * Returns the loss fraction per stack the way {@link applyDamage} does, so the round folds it
+ * into the same morale reading as the fire that did the wounding. `count` takes the bodies for
+ * the report, **by unit id**: who he finished matters as much as how many, because a body he
+ * finished is not one an Infirmary gets to hand back (`Simulation.executedForce`).
+ */
+export function execute(
+  side: SideState,
+  presence: CombinePower | undefined,
+  count: (unitId: string, finished: number) => void,
+): Map<Stack, number> {
+  const lost = new Map<Stack, number>();
+  if (presence?.kind !== 'executioner') return lost;
+  for (const stack of side.stacks) {
+    if (stack.alive <= 0 || stack.officer) continue; // §D4: an officer falls injured, not finished.
+    const vitality = stack.effective.vitality;
+    const wounded = stack.pool - (stack.alive - 1) * vitality;
+    if (wounded <= 0 || wounded >= vitality * presence.threshold) continue;
+    const before = stack.alive;
+    stack.pool -= wounded;
+    stack.alive -= 1;
+    if (stack.suppressed > 0) {
+      stack.suppressed = Math.min(
+        stack.alive,
+        Math.round((stack.suppressed * stack.alive) / before),
+      );
+    }
+    count(stack.unit.id, 1);
+    lost.set(stack, 1 / before);
+  }
+  return lost;
+}
+
+/** Of the turncoats on `side`, what is still standing, by unit id (`Simulation.turnedAlive`). */
+function turncoatsStanding(side: SideState): Army {
+  const standing: Army = {};
+  for (const stack of side.stacks) {
+    if (stack.turncoat !== true || stack.alive <= 0) continue;
+    standing[stack.unit.id] = (standing[stack.unit.id] ?? 0) + stack.alive;
+  }
+  return standing;
 }
 
 /**
@@ -513,16 +769,6 @@ export function cow(side: SideState, against: number): number {
  * units on the ground rather than a second army.
  */
 export const CARRIER_STRENGTH = 0.5;
-
-/**
- * What massing this many units of one packing unit is worth, in percentage points of offense.
- *
- * Linear in the *other* units, so one on its own is worth nothing at all and the sheet is honest:
- * the rule says "for every other one of itself in the line". Capped at {@link MAX_PACK_BONUS}.
- */
-export function packBonusPercent(units: number): number {
-  return Math.min(MAX_PACK_BONUS, Math.max(0, units - 1) * PACK_STEP);
-}
 
 /**
  * How much of the defender's fortification this attacking force takes down, as a percentage of it.
@@ -546,7 +792,245 @@ export function sapperCutPercent(army: Army, rules: LineRules = bareLineRules())
   return MAX_SAPPER_CUT * Math.min(1, sappers / (line * SAPPER_FULL_SHARE));
 }
 
-/** The ground as the defender actually finds it, once the attacker's sappers have been at it. */
+/**
+ * How hard this side is jamming the other **this round**, in percentage points.
+ *
+ * Read off the stacks still standing rather than off the roster, which is the whole difference
+ * between this and {@link sapperCutPercent}: a wall stays down once it is down, and a hijacked
+ * augmentation comes back the moment the person holding it is dead. A side that has lost its
+ * Netrunners is jamming nobody by the next round, and a side whose Netrunners have broken and run
+ * (`brokeAt`) is not jamming either, because they are not there.
+ *
+ * The share is of the line, not of the roster: the units standing in this fight. Suppressed units
+ * still count, on both sides of the ratio, because a intimidated jammer is still inside the enemy's
+ * systems even if it is not shooting, and `suppressed` is about fire.
+ */
+export function jamPercent(side: SideState): number {
+  let jammers = 0;
+  let condition = 0;
+  let line = 0;
+  for (const stack of side.stacks) {
+    if (stack.brokeAt !== null || stack.alive <= 0) continue;
+    line += stack.alive;
+    if (stack.unit.jammer !== true) continue;
+    jammers += stack.alive;
+    condition += stack.alive * jamCondition(stack);
+  }
+  if (jammers <= 0 || line <= 0) return 0;
+  const share = Math.min(1, jammers / (line * JAM_FULL_SHARE));
+  // The mean across the jamming stacks, weighted by how many of each are standing, so two
+  // different jamming sheets on one side average rather than the last one read winning.
+  return Math.min(MAX_JAM_CEILING, MAX_JAM * share * (condition / jammers));
+}
+
+/**
+ * The jam as it stood when the lines formed, before anybody had been shot off it.
+ *
+ * `jamPercent` reads the stacks *now*, which is what a round wants and the wrong question for a
+ * report or a feat: both are asking what this crew brought, not what was left of it at the end.
+ * Built by handing `jamPercent` a copy of the side with everybody back on their feet rather than
+ * by keeping a second copy of the arithmetic, so the figure a player is shown and the figure a
+ * feat is paid on are the one the rounds were actually fought at.
+ */
+export function openingJam(side: SideState): number {
+  return jamPercent({
+    ...side,
+    stacks: side.stacks.map((stack) => ({ ...stack, alive: stack.started, brokeAt: null })),
+  });
+}
+
+/**
+ * How well this jamming stack is doing where it is standing, as a multiplier on its jam
+ * (maintainer, 2026-09-18).
+ *
+ * "Make sure the eerie and crammed bonuses apply to the Netrunners' tag too, not just their
+ * attack and defence, as this is their main form of hitting the enemy."
+ *
+ * A jammer's offense is twenty. Every percentage the game spends on making a unit hit harder was
+ * therefore landing on a number that does not matter, which would have made a Netrunner the one
+ * sheet in the roster that a crammed room, an unlit night or a finished Lab programme did
+ * nothing for. So the jam is scaled by exactly the factor those things moved its offense by:
+ * `effective.offense` over {@link Stack.sheetOffense}, which is one ratio carrying the ground's
+ * labels, this unit's affinities to them (`crammed: 5`, `eerie: -4`), the weather, its Night
+ * Operations and the crew's percentage channels. Nothing has to be listed here, and nothing
+ * added to any of those tables tomorrow will be forgotten.
+ *
+ * Two things are deliberately **not** in it. `tracking` and the other `vs_` modifiers are
+ * decided against a particular target inside `matchup.ts`, and a jam is laid on the whole enemy
+ * line at once, so there is no one target to read them against. The workshop's refits are
+ * excluded by the denominator rather than by a rule here: see {@link Stack.sheetOffense} for the
+ * measurement that made that necessary.
+ */
+function jamCondition(stack: Stack): number {
+  // A sheet with no offense at all has no ratio to take. Nominal is the honest reading of that,
+  // and no jammer in the catalogue is in that position today.
+  const sheet = stack.sheet.offense;
+  return sheet > 0 ? Math.max(0, stack.effective.offense / sheet) : 1;
+}
+
+/**
+ * How loud a side with the Anodics in it makes the round, in tiers of `noisy`.
+ *
+ * Two, which is what a stormy sky puts on every location in the city (`WEATHER_LABELS.stormy`
+ * carries `noisy 2`). The right size for a comparison: the Anodics turn the fight around them
+ * into the sort of racket the weather manages on a bad day, and the label's own machinery decides
+ * what that is worth to each sheet on the other side.
+ */
+export const LOUD_NOISE_TIER = 2;
+
+/**
+ * A per-round effect one side lays on the enemy stacks it is **actually fighting**.
+ *
+ * The general mechanic, and it is general on purpose (maintainer, 2026-09-19: "make it so that
+ * the engine can apply effects for a round only if certain units participate, because I want to
+ * make this a mechanic for other units too"). `loud` is the first user of it and is not meant to
+ * be the last, so what follows is written as machinery rather than as the Anodics' rule.
+ *
+ * ## What "actually fighting" means here
+ *
+ * Every stack spreads its fire across every live enemy stack (`allocate`), weighted by threat, so
+ * there is no binary "these two are engaged" in this engine and inventing one would be a second
+ * targeting model running beside the first. What there *is* is a share: how much of a stack's
+ * attention lands on each enemy.
+ *
+ * So exposure is the fraction of the fire coming at an enemy stack that is coming from the units
+ * producing the effect. A stack the Anodics are pouring everything into is deep in the noise; a
+ * stack off fighting the rest of the line barely hears it; a stack nobody is shooting at, or one
+ * facing a side whose Anodics are dead, suppressed or broken, hears nothing at all. That is the
+ * scoping the maintainer asked for, expressed in the terms the engine already has.
+ *
+ * ## Why it is not the battlefield
+ *
+ * It used to be: the label went onto the copy of the battlefield the enemy's stacks were built
+ * against, once, for the whole fight. That is wrong in exactly the way the maintainer named. It
+ * reached a stack that never traded a shot with an Anodic, it went on reaching it after every
+ * Anodic was dead, and it could not vary round to round as the fight moved.
+ */
+export interface FieldEffect {
+  /** Percentage points off the stack's offense, for this round only. */
+  readonly percent: number;
+  /** What did it, for the report and for anybody debugging a number. */
+  readonly reason: string;
+}
+
+/**
+ * How many tiers of `noisy` a loud unit puts out with these refits fitted.
+ *
+ * The base is {@link LOUD_NOISE_TIER} and a card may raise it: `UnitModificationSpec.noiseTier`
+ * is the ceiling that card sets, not an amount added, so fitting two of them is the deeper of the
+ * two rather than the sum. That matches how the tier reads on the field (see `loudestTier`): two
+ * sets of speakers in one room is one loud room.
+ */
+export function loudTierFor(fitted: FittedUpgrades): number {
+  return fitted.reduce(
+    (tier, card) => Math.max(tier, findUnitModification(card)?.noiseTier ?? 0),
+    LOUD_NOISE_TIER,
+  );
+}
+
+/**
+ * Whether a stack is in the fight this round at all: alive, unbroken, and not wholly intimidated.
+ *
+ * One predicate, used by everything in this section, and that is deliberate rather than tidy.
+ * The liveness test was written twice for a while, once in `fieldExposure` and once in the walk
+ * that takes the tier, and the two covered each other so completely that deleting either one
+ * changed no behaviour and broke no test. A rule nothing can be shown to depend on is a rule
+ * nobody can be sure is still there.
+ */
+function inTheFight(stack: Stack): boolean {
+  if (stack.brokeAt !== null || stack.alive <= 0) return false;
+  return Math.max(0, stack.alive - stack.suppressed) > 0;
+}
+
+/** What one stack of a producing unit is worth as a round effect, or 0 if it produces none. */
+function fieldTierOf(stack: Stack): number {
+  return stack.unit.loud === true ? stack.loudTier : 0;
+}
+
+/**
+ * How much of the fire landing on each enemy stack comes from units producing a field effect.
+ *
+ * Returns the *exposure* (0..1) per enemy stack, keyed the way `fireRound` keys its own maps. The
+ * weights are the same ones the damage loop spends (`firing x share`), so a stack's exposure and
+ * the damage it is taking come out of one model rather than two that agree by inspection.
+ */
+export function fieldExposure(side: SideState, enemy: SideState): Map<Stack, number> {
+  const from = new Map<Stack, number>();
+  const all = new Map<Stack, number>();
+  let producing = false;
+
+  for (const stack of side.stacks) {
+    if (!inTheFight(stack)) continue;
+    const firing = Math.max(0, stack.alive - stack.suppressed);
+    const tier = fieldTierOf(stack);
+    if (tier > 0) producing = true;
+    for (const { target, share } of allocate(stack, enemy.stacks)) {
+      const weight = firing * share;
+      all.set(target, (all.get(target) ?? 0) + weight);
+      if (tier > 0) from.set(target, (from.get(target) ?? 0) + weight);
+    }
+  }
+
+  const exposure = new Map<Stack, number>();
+  // Nothing on this side is producing, which is almost every fight: no allocation, no map walk.
+  if (!producing) return exposure;
+  for (const [target, total] of all) {
+    if (total <= 0) continue;
+    const mine = from.get(target) ?? 0;
+    if (mine <= 0) continue;
+    exposure.set(target, Math.min(1, mine / total));
+  }
+  return exposure;
+}
+
+/**
+ * The deepest racket any *live* producing stack on this side is making, in tiers.
+ *
+ * The maximum rather than a sum: two stacks of Anodics in one line are not twice as loud as one,
+ * they are the same room. What a refit buys is depth (`Stack.loudTier`), and the loudest thing
+ * on the field is what everybody hears.
+ */
+function loudestTier(side: SideState): number {
+  let tier = 0;
+  for (const stack of side.stacks) {
+    if (!inTheFight(stack)) continue;
+    tier = Math.max(tier, fieldTierOf(stack));
+  }
+  return tier;
+}
+
+/**
+ * This round's noise, as percentage points off each enemy stack's offense.
+ *
+ * Two readings multiplied: what `noisy` at this tier is worth to *that sheet*
+ * (`labelEffectPercent`, so a Cyber Dog on -7 a tier suffers and a Colossus barely notices), and
+ * how much of the fight that sheet is having with the units making the noise.
+ *
+ * Only the negative half is taken. A sheet that *likes* noise, which is the Anodics' own
+ * `affinities.noisy: 11`, must not be handed a bonus by an enemy turning up with speakers: a
+ * field effect is something done *to* the other side, and one that healed half the roster would
+ * be a weapon nobody would bring.
+ */
+export function noiseOnEnemy(side: SideState, enemy: SideState): Map<Stack, FieldEffect> {
+  const tier = loudestTier(side);
+  const out = new Map<Stack, FieldEffect>();
+  if (tier <= 0) return out;
+  const label = envLabel('noisy', tier);
+  for (const [target, exposure] of fieldExposure(side, enemy)) {
+    const worth = labelEffectPercent(target.sheet, target.unit, label);
+    if (worth >= 0) continue;
+    // `-worth` rather than `Math.abs(worth)`: the guard above has already established the sign,
+    // and an abs here would quietly turn a *liked* label into a penalty of the same size if that
+    // guard ever went. Measured: the Anodics read +26 at Noisy II, so the masking version would
+    // have hit an enemy Anodic for 26 points for enjoying itself.
+    const percent = -worth * exposure;
+    if (percent <= 0) continue;
+    out.set(target, { percent, reason: `${labelText(label)} (${Math.round(exposure * 100)}%)` });
+  }
+  return out;
+}
+
+/** The ground as the defender actually finds it, once the attacker's sappers have been at it. */ /** The ground as the defender actually finds it, once the attacker's sappers have been at it. */
 export function sappedGround(
   battlefield: Battlefield,
   attacking: Army,
@@ -599,13 +1083,9 @@ function buildStacks(
      */
     if (!found || count <= 0 || !standsInLine(found, territory)) continue;
     const unit = markedUnit(found, territory);
-    const bare = effectiveStats(
-      unit,
-      battlefield,
-      { defending, outnumbered },
-      territory,
-      fittedFor(upgrades, unitId),
-    );
+    const fitted = fittedFor(upgrades, unitId);
+    const fittedSheet = upgradedStats(unit.stats, fitted);
+    const bare = effectiveStats(unit, battlefield, { defending, outnumbered }, territory, fitted);
     /*
      * `pack` is the one bonus that cannot be worked out from a sheet (`UnitSpec.pack`).
      *
@@ -614,7 +1094,15 @@ function buildStacks(
      * folded here, where the roster row is, and it lands on the same `Effective` struct as
      * everything else so the report can name it beside the terrain reasons.
      */
-    const packed = unit.pack === true ? packBonusPercent(count) : 0;
+    /*
+     * §A5: the *fighter's* reading of Collective, and only a fighter's.
+     *
+     * A carrier with the mark spends it on carry instead (`carriedBy` in `raid.ts`), which is
+     * the maintainer's rule: "instead of their combat stats, their loot increases". Without this
+     * clause a crew holding `carriers_fight` would collect both halves off one tag, which is a
+     * rule that reads as one thing on the card and pays twice in the fight.
+     */
+    const packed = unit.pack === true && isCombatUnit(unit) ? packBonusPercent(count) : 0;
     // A porter turned out under `carriers_fight` fights at half of what it is. Applied to the two
     // figures the exchange reads, and after the pack bonus, so the halving is of the finished
     // number rather than of the sheet: there is no order of these two that is not this one.
@@ -642,6 +1130,10 @@ function buildStacks(
       started: count,
       suppressed: 0,
       dealt: 0,
+      // The sheet as the workshop left it, before the ground is read: see `Stack.sheet`.
+      sheet: fittedSheet,
+      // §A5: how loud this particular stack is, refits included (`UnitSpec.loud`).
+      loudTier: unit.loud === true ? loudTierFor(fitted) : 0,
     });
   }
 
@@ -666,6 +1158,10 @@ function buildStacks(
       started: 1,
       suppressed: 0,
       dealt: 0,
+      // Nothing is bolted to a person, so an officer's sheet is its own (see the note above).
+      sheet: unit.stats,
+      // An officer is a person, not a PA system.
+      loudTier: 0,
       officer,
     });
   }
@@ -869,17 +1365,55 @@ function fireRound(
   swing: number,
   frontage: number,
   only?: (stack: Stack) => boolean,
+  /**
+   * §E: this round's electronic warfare, in percentage points (`UnitSpec.jammer`).
+   *
+   * Two numbers because a jam cuts two things and the two land on opposite sides of this call:
+   * `onShooter` is what the *enemy's* jammers are doing to the people firing here, and comes off
+   * their offense; `onTarget` is what this side's jammers are doing to the people being fired at,
+   * and comes off their armour. Passed in rather than read from the sides, because `jamPercent`
+   * has to be taken once per round from a snapshot: read inside the loop it would fall as this
+   * round's casualties landed, and both sides have to fire into the same moment.
+   */
+  jam: { onShooter: number; onTarget: number } = { onShooter: 0, onTarget: 0 },
+  /**
+   * §A5: what the *other* side's field effects are doing to the people firing here, per stack.
+   *
+   * Keyed by shooter rather than a single figure, which is the whole difference between this and
+   * the jam above it: a jam is laid on the enemy line at once and this is laid only on the
+   * stacks actually fighting whatever is producing it (`noiseOnEnemy`). A stack with no entry is
+   * a stack that is not in it, and pays nothing.
+   */
+  field: ReadonlyMap<Stack, FieldEffect> = new Map(),
 ): Map<Stack, number> {
   const incoming = new Map<Stack, number>();
-  // Width decides how many can shoot; crowding decides what their shooting is worth. Multiplied
-  // rather than folded into `frontageShare`, because the two answer different questions and the
-  // report prints them apart.
-  const deployed = frontageShare(side, frontage) * (1 - overstackPenalty(side, frontage));
+  const deployed = frontageShare(side, frontage);
+  /*
+   * The jam, folded onto copies of the two sheets rather than onto the stacks.
+   *
+   * Nothing is mutated: `stack.effective` is what the unit is, and a jam is what is being done to
+   * it this round. Writing it onto the stack would carry into the next round, into the morale
+   * phase and into the report, and it would have to be undone, which is a thing to forget.
+   *
+   * `allocate` below still picks targets off the *unjammed* sheets. That is deliberate and it is
+   * not a rounding error hidden in a comment: the jam is the same percentage against every stack
+   * on the enemy side, so it scales every candidate's attractiveness by the same factor and
+   * cannot change their order. Targeting would answer the same question either way, and threading
+   * a second set of sheets through it would be work for no difference.
+   */
+  const jammed = (effective: Effective, armorOff: number, offenseOff: number): Effective =>
+    armorOff <= 0 && offenseOff <= 0
+      ? effective
+      : {
+          ...effective,
+          armor: effective.armor * (1 - armorOff / 100),
+          offense: effective.offense * (1 - offenseOff / 100),
+        };
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
     if (only && !only(stack)) continue;
     /*
-     * §D3: the cowed do not shoot, but they are still here.
+     * §D3: the intimidated do not shoot, but they are still here.
      *
      * Taken off the *firing* count only. They keep their place in `frontageShare`, they soak their
      * share of what is incoming, and they walk home if the side wins. Removing them from `alive`
@@ -889,9 +1423,11 @@ function fireRound(
     if (firing <= 0) continue;
     for (const { target, share } of allocate(stack, enemy.stacks)) {
       const { perBody } = exchange(
-        stack.effective,
+        // The jam and the field effect are both percentage points off this shooter's damage, so
+        // they compose the way two reductions compose everywhere else in this engine.
+        jammed(stack.effective, 0, jam.onShooter + (field.get(stack)?.percent ?? 0)),
         stack.unit.modifiers,
-        target.effective,
+        jammed(target.effective, jam.onTarget, 0),
         target.morale,
         side.luck,
       );
@@ -913,10 +1449,10 @@ function applyDamage(side: SideState, incoming: Map<Stack, number>): Map<Stack, 
     const before = stack.alive;
     stack.pool = Math.max(0, stack.pool - damage);
     stack.alive = Math.min(before, Math.ceil(stack.pool / stack.effective.vitality));
-    // §D3: the cowed stand in the line and take their share of what lands on it, so the men who
+    // §D3: the intimidated stand in the line and take their share of what lands on it, so the men who
     // fall come from the whole stack rather than from the shooters first. Held constant, the
-    // silenced count ate the firing count as the stack thinned: ten units with six cowed lost
-    // five and had nobody left shooting, when three of the five who fell should have been cowed.
+    // silenced count ate the firing count as the stack thinned: ten units with six intimidated lost
+    // five and had nobody left shooting, when three of the five who fell should have been intimidated.
     if (stack.suppressed > 0) {
       stack.suppressed = Math.min(
         stack.alive,
@@ -1009,7 +1545,7 @@ export function pursue(broke: readonly Stack[]): void {
     const after = Math.max(0, Math.round(before * (1 - PURSUIT_LOSS)));
     stack.pool = stack.pool * (after / before);
     stack.alive = after;
-    // The run-down takes the cowed with the rest, the same way `applyDamage` does.
+    // The run-down takes the intimidated with the rest, the same way `applyDamage` does.
     if (stack.suppressed > 0) {
       stack.suppressed = Math.min(after, Math.round((stack.suppressed * after) / before));
     }
@@ -1041,17 +1577,36 @@ export interface Simulation {
   settledBy: 'standing' | 'cap' | 'collapse';
   /** What the attacker's opening strike was worth, as a share of a round. 0 when there was none. */
   openingStrike: number;
+  /**
+   * The attacker's units that changed sides under Directive Xero, by unit id (`changeOfHeart`).
+   * Empty in every fight he is not over. They fought on the defender's side from the first round
+   * and whatever is left of them is in the defender's stacks, not the attacker's.
+   */
+  turned: Army;
+  /** Units the Executioner finished after an exchange ({@link execute}). Zero without him. */
+  executed: number;
+  /**
+   * The same bodies, by unit id, so the settle can tell them apart from the rest of the dead.
+   *
+   * His card says they were finished where they stood, and an Infirmary that hands them back
+   * makes that false: `recoverCasualties` works off the winner's losses, an attacker who wins
+   * carries every executed body inside those losses, and 129 of 447 winner losses across 400
+   * winning attacks on the Blacksite were his (measured 2026-09-21). Sums to {@link executed}.
+   */
+  executedForce: Army;
+  /** Of `turned`, the ones still standing when the fight ended, by unit id. */
+  turnedAlive: Army;
   /** The day's luck each side drew, −5.0 … +5.0. */
   luck: { attacker: number; defender: number };
   /**
-   * §D3: units on each side too cowed to fire, settled before the first shot. See {@link cow}.
+   * §D3: units on each side too intimidated to fire, settled before the first shot. See {@link intimidate}.
    *
    * Reported rather than kept private, because a mechanic the player cannot see reads as a bug: a
    * line that did a third of the damage it should have, with every unit still standing and no
    * casualties to explain it, is indistinguishable from a broken engine. The report is what turns
    * it into a thing that happened.
    */
-  cowed: { attacker: number; defender: number };
+  intimidated: { attacker: number; defender: number };
   battlefield: Battlefield;
 }
 
@@ -1120,6 +1675,15 @@ export function simulate(input: SimulateInput): Simulation {
     ),
   });
 
+  /*
+   * §A5: the racket is **not** folded in here (`UnitSpec.loud`).
+   *
+   * It was, for one revision, as a label on the copy of the battlefield each side was built
+   * against. That is wrong in three ways the maintainer named on 2026-09-19: it reached a stack
+   * that never traded a shot with an Anodic, it went on reaching it after every Anodic was dead,
+   * and being baked into `effective` at build time it could not vary as the fight moved. It is a
+   * per-round effect on whoever is actually fighting them now: see `noiseOnEnemy`.
+   */
   const attacker = build(input.attacker, defenderCount, attackerCount, battlefield);
   const defender = build(input.defender, attackerCount, defenderCount, defenderGround);
 
@@ -1130,7 +1694,27 @@ export function simulate(input: SimulateInput): Simulation {
   const rounds: RoundRecord[] = [];
 
   /*
-   * §D3: who is too cowed to fight, settled before anything is fired.
+   * The Combine's leader, on the sheets (`SideSetup.presence`, `city/combine.ts`).
+   *
+   * Applied after both forces are built and before anything reads them: the Syndic's points and
+   * Directive Xero's morale both have to be in `effective` before §D3 measures nerve. It reaches
+   * the defence and nothing else, twice over: the Combine never attacks, so `SkirmishInput` only
+   * carries a presence for the defence, and no power of the three touches the other side's sheet.
+   */
+  const presence = input.defender.presence;
+  applyPresence(defender, presence);
+  // The Combine's two ledgers. Filled in by `changeOfHeart` and `execute` below.
+  const turnedUnits: Army = {};
+  const executedForce: Army = {};
+  let executedUnits = 0;
+  /** One place both of the Executioner's ledgers are written, so they cannot drift apart. */
+  const finish = (unitId: string, bodies: number): void => {
+    executedForce[unitId] = (executedForce[unitId] ?? 0) + bodies;
+    executedUnits += bodies;
+  };
+
+  /*
+   * §D3: who is too intimidated to fight, settled before anything is fired.
    *
    * Both budgets are computed before either is spent, so the two sides are measured against each
    * other's *opening* rosters. Doing it in sequence would let the first side's silencing shrink the
@@ -1139,8 +1723,28 @@ export function simulate(input: SimulateInput): Simulation {
    */
   const onAttacker = menace(defender);
   const onDefender = menace(attacker);
-  const attackerCowed = cow(attacker, onAttacker);
-  const defenderCowed = cow(defender, onDefender);
+  /*
+   * Directive Xero (`changeOfHeart`): §D3 with the sign turned round.
+   *
+   * His side is not intimidated at all: its sheets are at the morale ceiling (`applyPresence`), and the
+   * budget is not spent against it even so, because "immune" has to mean immune and not merely
+   * expensive. The attackers §D3 *would* have silenced are not silenced either. They cross the
+   * line. Both are decided from the same opening rosters as the ordinary case, so the order the
+   * two sides are looked at in still cannot change the answer.
+   */
+  const zero = presence?.kind === 'directive_xero' ? presence : undefined;
+  /*
+   * Under Directive Xero the attacker's intimidated count is **zero**, not the number who crossed.
+   *
+   * They are the same men either way, and the report draws both figures: a "Too intimidated to fire"
+   * row off `intimidated` and a "changed sides" line off `turned`. Counting the crossing under
+   * `intimidated` as well told a player that thirty of their twenty units were affected, and the first
+   * of those rows was the false one: nobody put their head down, they picked up their weapons and
+   * walked. `changeOfHeart` still returns the count, which is what `turnedUnits` carries out.
+   */
+  if (zero) changeOfHeart(attacker, defender, onAttacker, zero.morale, turnedUnits);
+  const attackerIntimidated = zero ? 0 : intimidate(attacker, onAttacker);
+  const defenderIntimidated = zero ? 0 : intimidate(defender, onDefender);
 
   // The opening strike, before either side is in position. Only the attacker can take one: an
   // ambush is something you set, and the side standing on the ground it already holds is not
@@ -1189,7 +1793,9 @@ export function simulate(input: SimulateInput): Simulation {
       )
     : new Map<Stack, number>();
   const openedDefender = applyDamage(defender, openingOnDefender);
-  const openedAttacker = applyDamage(attacker, openingOnAttacker);
+  // The Executioner reads the opening volley like any other exchange: see `execute`.
+  const openedByVolley = applyDamage(attacker, openingOnAttacker);
+  const openedAttacker = mergeLosses(execute(attacker, presence, finish), openedByVolley);
 
   let attackerCascade = 0;
   let defenderCascade = 0;
@@ -1209,13 +1815,52 @@ export function simulate(input: SimulateInput): Simulation {
     // Each side's own medics take their share off what is landing on them, before it lands: see
     // `mend`. Wrapped here rather than inside `fireRound` because it is the *receiving* side's
     // sheet that decides it, and `fireRound` only knows who is shooting.
+    /*
+     * §E: the jam, taken once, before either side fires (`UnitSpec.jammer`).
+     *
+     * Here rather than inside `fireRound` because both calls below read the same moment: a
+     * Netrunner that dies to the attacker's volley was still jamming when the defender's went
+     * out. Read fresh each round off the stacks still standing, so killing them turns it off on
+     * the next one, which is the whole of the counterplay.
+     */
+    const jamOnDefender = jamPercent(attacker);
+    const jamOnAttacker = jamPercent(defender);
+
+    /*
+     * §A5: this round's field effects, taken from the same snapshot as the jam.
+     *
+     * `noiseOnDefender` is what the attacker's loud units are doing to the defenders they are
+     * fighting, so it comes off the *defenders'* damage when they fire, which is why it is
+     * passed to the second call below and not the first.
+     */
+    const noiseOnDefender = noiseOnEnemy(attacker, defender);
+    const noiseOnAttacker = noiseOnEnemy(defender, attacker);
+
     const ontoDefender = mend(
       defender,
-      fireRound(attacker, defender, attackerConcentration, attackerSwing, battlefield.frontage),
+      fireRound(
+        attacker,
+        defender,
+        attackerConcentration,
+        attackerSwing,
+        battlefield.frontage,
+        undefined,
+        { onShooter: jamOnAttacker, onTarget: jamOnDefender },
+        noiseOnAttacker,
+      ),
     );
     const ontoAttacker = mend(
       attacker,
-      fireRound(defender, attacker, defenderConcentration, defenderSwing, battlefield.frontage),
+      fireRound(
+        defender,
+        attacker,
+        defenderConcentration,
+        defenderSwing,
+        battlefield.frontage,
+        undefined,
+        { onShooter: jamOnDefender, onTarget: jamOnAttacker },
+        noiseOnDefender,
+      ),
     );
     // Round one carries whatever happened before it: the ambush and either side's opening volley.
     // `mergeLosses` composes fractions of different starting numbers, so chaining is exact.
@@ -1223,8 +1868,13 @@ export function simulate(input: SimulateInput): Simulation {
       mergeLosses(applyDamage(defender, ontoDefender), round === 1 ? ambushed : undefined),
       round === 1 ? openedDefender : undefined,
     );
+    // The Executioner, after the exchange has landed (`execute`): what the round left at the
+    // front of every attacking stack, and whether it is still standing.
+    // In its own statement, before `execute` is called: what he reads has to be what the
+    // exchange left, and a call inside the argument list would run before the damage landed.
+    const hitAttacker = applyDamage(attacker, ontoAttacker);
     const attackerLost = mergeLosses(
-      applyDamage(attacker, ontoAttacker),
+      mergeLosses(execute(attacker, presence, finish), hitAttacker),
       round === 1 ? openedAttacker : undefined,
     );
 
@@ -1301,8 +1951,12 @@ export function simulate(input: SimulateInput): Simulation {
     settledBy,
     battlefield,
     openingStrike: ambush,
+    turned: turnedUnits,
+    executed: executedUnits,
+    executedForce,
+    turnedAlive: turncoatsStanding(defender),
     luck: { attacker: attacker.luck, defender: defender.luck },
-    cowed: { attacker: attackerCowed, defender: defenderCowed },
+    intimidated: { attacker: attackerIntimidated, defender: defenderIntimidated },
   };
 }
 

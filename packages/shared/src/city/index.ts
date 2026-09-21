@@ -8,4 +8,5 @@ export * from './access.js';
 export * from './geography.js';
 export * from './fortification.js';
 export * from './control.js';
+export * from './combine.js';
 export * from './gates.js';

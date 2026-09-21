@@ -13,10 +13,14 @@ import {
   type MissionPhase,
   type MovementView,
   type ScoutingRunView,
+  type SleeperCellView,
   type Fleet,
 } from '@frontline/shared';
 import type { ReactNode } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
+import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
+import { DrawnFace } from '../../components/ui/DrawnMarks';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { ProgressBar } from '../../components/ui/ProgressBar';
@@ -28,12 +32,15 @@ import {
   useRecallColumn,
   useRecallMission,
   useRecallScout,
+  useRecallSleepers,
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { PageShell } from '../game/PageShell';
 import { FileSection } from '../overseer/FileSection';
 import { UnitChip } from '../units/UnitChip';
+import { Census } from './Census';
+import { HomeMark, OutMark } from './CensusMarks';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './road';
 
 /**
@@ -50,6 +57,101 @@ import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './roa
  * roster: they have not reached anybody's ring, so unlike a withdrawal from ground already held,
  * nothing is owed for leaving. A crew on a job and the scout walk home the distance covered.
  */
+/**
+ * The two pages the Monitor is, and the drawn strip that switches between them (maintainer,
+ * 2026-09-19).
+ *
+ * "Make the total units page be a second page in the Monitor section. Still keep the two pages in
+ * monitor with nice graphiced buttons to switch between them on top."
+ *
+ * The section follows the URL rather than a piece of state, which is the archive's pattern
+ * (`ResearchPage`) and is what makes a bookmark, the browser's Back button and the roster's own
+ * Total Units door all land where they say they will. `/game/actions` is the road and
+ * `/game/actions/units` is the census.
+ */
+const MONITOR_PAGES = [
+  {
+    id: 'road' as const,
+    path: '/game/actions',
+    label: 'On the road',
+    /** Everybody who is somewhere they did not start. */
+    Mark: OutMark,
+  },
+  {
+    id: 'census' as const,
+    path: '/game/actions/units',
+    label: 'Total units',
+    /** ...and how many of them there are in the first place. */
+    Mark: HomeMark,
+  },
+];
+
+type MonitorPage = (typeof MONITOR_PAGES)[number]['id'];
+
+/**
+ * How many things the road tab is listing, for the badge on it.
+ *
+ * Rows rather than `roadCounts().unitSlots`: the badge sits beside the word "on the road", and a
+ * player reads it as "how many entries am I about to look at". The slot figure is the header's
+ * job on the page itself, where it has the room to say which currency it is in.
+ */
+function roadRows(road: Road): number {
+  const counts = roadCounts(road);
+  return (
+    counts.columns + counts.jobs + counts.fights + counts.scouts + counts.cells + counts.stationed
+  );
+}
+
+/**
+ * One tab, drawn rather than struck.
+ *
+ * The same `DrawnFace` box the archive's sections and the yard's benches wear, so the three
+ * tabbed screens in the game are visibly one idea. The mark inside it is the page's own
+ * (`CensusMarks`): a boot print for the people who are out, a roof for the count of everybody.
+ */
+function MonitorTab({
+  page,
+  active,
+  count,
+}: {
+  page: (typeof MONITOR_PAGES)[number];
+  active: boolean;
+  /** What the tab badges, or null for a page with no one number to put on it. */
+  count: number | null;
+}) {
+  return (
+    <NavLink
+      to={page.path}
+      end
+      data-testid={`monitor-tab-${page.id}`}
+      data-sound="click"
+      className={cn(
+        'group/tab relative flex items-center gap-2 px-4 py-2 transition-all duration-150',
+        'font-display text-[12px] font-bold uppercase tracking-[0.16em]',
+        'hover:-translate-y-px active:translate-y-px',
+        active ? 'text-brass-100' : 'text-ink-300 hover:text-brass-100',
+      )}
+    >
+      <DrawnFace
+        face={cn(
+          'transition-all duration-150',
+          active
+            ? 'fill-brass-500/30 group-hover/tab:fill-brass-500/40'
+            : 'fill-surface-900/50 group-hover/tab:fill-brass-500/15',
+        )}
+      />
+      <page.Mark
+        className={cn(
+          'relative h-4 w-4 shrink-0 transition-colors duration-150',
+          active ? 'text-brass-300' : 'text-ink-400 group-hover/tab:text-brass-300',
+        )}
+      />
+      <span className="relative">{page.label}</span>
+      {count !== null && <span className="relative tabular-nums opacity-80">{count}</span>}
+    </NavLink>
+  );
+}
+
 export function ActionsPage() {
   const query = useActions();
   const missions = useMissions();
@@ -60,6 +162,9 @@ export function ActionsPage() {
   const data = query.data;
   const road = onTheRoad(data, missions.data, battles.data);
   const recallScout = useRecallScout(road.scout?.districtId);
+  const recallCell = useRecallSleepers();
+  const { pathname } = useLocation();
+  const page: MonitorPage = pathname.endsWith('/units') ? 'census' : 'road';
 
   return (
     /*
@@ -72,13 +177,38 @@ export function ActionsPage() {
      * which is what a live board of things in flight wants (maintainer request, 2026-09-14).
      */
     <PageShell
-      title="On the road"
+      title="The Monitor"
       icon="actions"
-      action={data ? <Counts road={road} /> : null}
+      action={page === 'road' && data ? <Counts road={road} /> : null}
       wide
       fills
     >
-      {!data ? (
+      {/*
+       * The strip, over both pages and outside either one's scroller.
+       *
+       * Outside on purpose: a switch that scrolled away with the list under it is a switch a
+       * player has to go back up for, and the whole reason these two are one section is that
+       * moving between them should cost nothing.
+       */}
+      <div
+        className="flex shrink-0 flex-wrap items-center gap-2"
+        role="tablist"
+        aria-label="The Monitor"
+        data-testid="monitor-tabs"
+      >
+        {MONITOR_PAGES.map((entry) => (
+          <MonitorTab
+            key={entry.id}
+            page={entry}
+            active={page === entry.id}
+            count={entry.id === 'road' && data ? roadRows(road) : null}
+          />
+        ))}
+      </div>
+
+      {page === 'census' ? (
+        <Census />
+      ) : !data ? (
         <ScreenLoad
           what="The road"
           loading="Counting heads…"
@@ -109,7 +239,7 @@ export function ActionsPage() {
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
               decide" beside a live button. `DeclareDialog` renders this same mutation's error. */}
-          {[recall, recallJob, recallScout].map(
+          {[recall, recallJob, recallScout, recallCell].map(
             (write, index) =>
               write.error && (
                 <p key={index} role="alert" className="font-body text-[13px] text-oxblood-300">
@@ -134,6 +264,52 @@ export function ActionsPage() {
                     pending={recall.isPending}
                     onRecall={() => recall.mutate({ movementId: movement.id })}
                   />
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {road.cells.length > 0 && (
+            <Section
+              icon="eye"
+              title="Gone to ground"
+              note="Sleepers planted on ground you do not hold. Nothing finds them. Call a fight on that place and they are already standing in it."
+              count={road.cells.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="cells">
+                {road.cells.map((cell) => (
+                  <Cell
+                    key={cell.cellId}
+                    cell={cell}
+                    now={now}
+                    pending={recallCell.isPending}
+                    onRecall={() => recallCell.mutate({ cellId: cell.cellId })}
+                  />
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {road.stationed.length > 0 && (
+            <Section
+              icon="shield"
+              title="Standing on your ground"
+              note="Posted on places you hold. They are not going anywhere, and they defend where they stand."
+              count={road.stationed.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="stationed">
+                {road.stationed.map((post) => (
+                  <Row
+                    key={post.locationId}
+                    testId={`stationed-${post.locationId}`}
+                    name={post.locationName}
+                    status="Posted"
+                  >
+                    <p className="font-display text-[11px] uppercase tracking-[0.12em] text-ink-400">
+                      {post.districtName}
+                    </p>
+                    <Force army={post.army} testPrefix={`stationed-${post.locationId}`} />
+                  </Row>
                 ))}
               </ul>
             </Section>
@@ -205,6 +381,9 @@ function Counts({ road }: { road: Road }) {
     counts.fights > 0 && `${counts.fights} at a fight`,
     counts.jobs > 0 && `${counts.jobs} on a job`,
     counts.scouts > 0 && 'a scout out',
+    // §A4: the two the header used to leave out, so the summary adds up to the page under it.
+    counts.cells > 0 && `${counts.cells} planted`,
+    counts.stationed > 0 && `${counts.stationed} posted`,
   ].filter((part): part is string => typeof part === 'string');
   return (
     <span
@@ -263,6 +442,64 @@ function Section({
  * right, the route and its clock, the bar, and the units. A row that is about to change (a
  * column still inside its recall window, a fight settling) says so in colour on that plate.
  */
+/**
+ * §A4: one Sleeper cell, in whichever of its three states it is in (`sleepers.ts`).
+ *
+ * The one row on this page with **no countdown in the middle state**, and that is the mechanic
+ * rather than a gap: a planted cell has no clock on it at all. It says how long it has been
+ * there instead, because "planted two days ago" is the fact a player is deciding on.
+ *
+ * Recall is a plain button rather than a `CancelMark`, which is the control for calling
+ * something off inside a short window. Pulling a cell out is allowed at any time and costs the
+ * walk home, so it is an ordinary decision and not a last chance.
+ */
+function Cell({
+  cell,
+  now,
+  pending,
+  onRecall,
+}: {
+  cell: SleeperCellView;
+  now: Date;
+  pending: boolean;
+  onRecall: () => void;
+}) {
+  const mark = Date.parse(cell.arrivesAt);
+  const waiting = cell.phase === 'waiting';
+  const left = Math.max(0, mark - now.getTime());
+
+  return (
+    <Row
+      testId={`cell-${cell.cellId}`}
+      name={cell.locationName}
+      status={waiting ? 'In place' : cell.phase === 'outbound' ? 'Walking in' : 'Coming home'}
+      tone={waiting ? 'done' : 'plain'}
+    >
+      <p className="font-display text-[11px] uppercase tracking-[0.12em] text-ink-400">
+        {cell.districtName}
+        {' · '}
+        {waiting
+          ? `in place for ${formatRemaining(Math.max(0, now.getTime() - mark))}`
+          : `${formatRemaining(left)} to go`}
+      </p>
+      <Force army={cell.army} testPrefix={`cell-${cell.cellId}`} />
+      {cell.phase !== 'returning' && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={onRecall}
+            data-testid={`recall-cell-${cell.cellId}`}
+          >
+            Pull them out
+          </Button>
+        </div>
+      )}
+    </Row>
+  );
+}
+
 function Row({
   testId,
   name,

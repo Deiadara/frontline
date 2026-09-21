@@ -85,7 +85,7 @@ export function pagePrizeFor(
 /**
  * How often a page of each rarity turns up, as a ratio (maintainer, 2026-09-17).
  *
- * Every page used to be equally likely. Rarity was authored on all 255 of them, read by the
+ * Every page used to be equally likely. Rarity was authored on all 258 of them, read by the
  * Scrapyard for gating and pricing, and ignored by both draws that hand one out, so a Masterpiece
  * page was exactly as common as a Basic one. In the unit category that put the scale *backwards*:
  * six Basic pages against nine Masterpiece ones meant the cheap end was the rare end.

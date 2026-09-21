@@ -306,6 +306,15 @@ export const ScheduledBattleSchema = z.object({
    * fights actually were.
    */
   holdAfterCapture: z.boolean().default(false),
+  /**
+   * §A4: whether a Sleeper cell woke into this fight when it was called (`city/sleepers.ts`).
+   *
+   * Recorded at the declaration because it cannot be recovered afterwards: the cell is poured
+   * into the attacking deployment and its row is deleted, and from the settler's side a woken
+   * Sleeper is indistinguishable from one somebody marched in. The `planted` feat ladder is
+   * about plans that came off rather than about owning the sheet, so it needs the difference.
+   */
+  wokeSleepers: z.boolean().default(false),
 });
 export type ScheduledBattle = z.infer<typeof ScheduledBattleSchema>;
 

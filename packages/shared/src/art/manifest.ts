@@ -65,7 +65,7 @@ export type AssetClass = z.infer<typeof AssetClassSchema>;
  * room at its own shape rather than at 21:10, so it is carried at that shape rather than cropped
  * or stretched to join the other two. The label is the master's own ratio, not a chosen one.
  *
- * That this enum has to change at all is the point of it. The twelve building sites are positions
+ * That this enum has to change at all is the point of it. The eleven building sites are positions
  * on the district painting, so its shape changing is a layout change and not a detail: every
  * outline had to be re-traced against the new art, and the enum is where that gets noticed.
  */
@@ -422,7 +422,7 @@ function subjectFor(table: Readonly<Record<string, string>>, id: string, label: 
 }
 
 /**
- * The officer pool (§C): a hundred and thirty-nine faces, all one class, all one framing.
+ * The officer pool (§C): a hundred and sixty-four faces, all one class, all one framing.
  *
  * Ordered by `OFFICER_PORTRAIT_IDS`, which is also what `officerPortraitId` indexes into, so a face
  * added to the end of the pool cannot renumber the seeds of the ones before it.
@@ -538,8 +538,8 @@ const OPAQUE_PLANE_SOURCE: AssetSource = { width: 2048, height: 1152, alpha: fal
  * The district plate ships at the size it was painted, not at the plate class's 2048×1152.
  *
  * Every other plate is a backdrop that a layout crops to taste, so one class size is right for
- * them. This one is a *map*: twelve building sites are positioned against features in the painting,
- * and a crop or an upscale moves the ground out from under all twelve at once. The class size would
+ * them. This one is a *map*: eleven building sites are positioned against features in the painting,
+ * and a crop or an upscale moves the ground out from under all eleven at once. The class size would
  * have forced exactly that, so the key overrides it and the district scene takes its aspect from
  * here.
  */
@@ -687,6 +687,16 @@ const ANNEXES_PLATE_DELIVERY = {
  * arrived named 3780x1800 and measuring 1817x866. Its own entry for the reason the others give:
  * seven signs and a gate are fractions of this exact image (`features/city/marks.ts`).
  */
+/**
+ * The CCS, delivered at 1817x866 like the Annexes (maintainer, 2026-09-20): the portrait arrived
+ * at that size and is the sharpest copy there is, so it ships as it came rather than upscaled.
+ */
+const CCS_PLATE_DELIVERY = {
+  width: 1817,
+  height: 866,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
 const GLASSHOUSE_PLATE_DELIVERY = {
   width: 3780,
   height: 1800,
@@ -737,6 +747,7 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-district-datavault-sigma': ANNEXES_PLATE_DELIVERY,
   'plate-district-glasshouse-fields': GLASSHOUSE_PLATE_DELIVERY,
   'plate-district-blacksite-7': BLACKSITE_PLATE_DELIVERY,
+  'plate-district-combine-spire': CCS_PLATE_DELIVERY,
 };
 
 /**
@@ -789,6 +800,8 @@ const plateDrafts = (
     // Appended, again: the seed is the index.
     ['plate-district-glasshouse-fields', 'plate'],
     ['plate-district-blacksite-7', 'plate'],
+    // The CCS, appended last (2026-09-20): the seed is the index.
+    ['plate-district-combine-spire', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -814,6 +827,7 @@ const plateDrafts = (
     ...(key === 'plate-district-datavault-sigma' ? ANNEXES_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-glasshouse-fields' ? GLASSHOUSE_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-blacksite-7' ? BLACKSITE_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-combine-spire' ? CCS_PLATE_DELIVERY : {}),
   }),
 );
 

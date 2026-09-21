@@ -212,26 +212,42 @@ describe('the page draw is a replay', () => {
       ]),
     );
     expect(drawn).toEqual({
+      /*
+       * Re-recorded on 2026-09-20, deliberately, and this is the note the test above asks for.
+       *
+       * **All three categories moved at once, and that is the tell.** The 2026-09-19 re-record
+       * below moved `upgrade` alone because a document had been added to that pool. This time the
+       * pools are untouched and every seed lands somewhere else in all three, because what
+       * changed is the draw: `drawWeighted` in `rng.ts` took its point in the range by a modulus
+       * of the hash, and `2^32` is not a multiple of any of these pools' scaled totals, so the
+       * first 34.2% of the cumulative range was drawn about 10% too often and the rest about 4%
+       * too little. It now takes the point off the `mulberry32` stream, which is uniform.
+       *
+       * Nothing a player already holds changes. `pageWonFrom` runs once at settlement and the
+       * page is written into the inventory, so this decides future drops and re-reads nothing.
+       */
       unit: [
-        'pg_juggernauts_coolant_loop',
-        'pg_hollow_men_voice_box',
-        'pg_the_specter_silent_boots',
-        'pg_juggernauts_power_spine',
-        'pg_kite_crews_sail_cutting',
+        'pg_the_twins_paired_harness',
+        'pg_kite_crews_spar_frames',
+        'pg_heli_porter_main_gearbox',
+        'pg_rotorcraft_fuel_governor',
+        'pg_the_specter_scent_null',
       ],
       upgrade: [
-        'pg_mod_bone_lattice_pin_sites',
-        'pg_mod_trophy_rack_mounting_frame',
-        'pg_mod_composite_carapace_layup_schedule',
-        'pg_mod_counterweight_harness_balance_points',
-        'pg_mod_recoil_dampers_gas_port_drilling',
+        'pg_mod_ablative_layers_replacement_count',
+        'pg_mod_hook_and_line_throwing_lines',
+        'pg_infirmary_ward_layout',
+        'pg_gauntlet_pit_drainage',
+        'pg_mod_composite_carapace_weight_budget',
       ],
+      /* Two seeds drawing the same page is not a fault: duplicates are allowed (§F1d), and with
+         5 seeds over a 133-weight pool a collision is ordinary rather than surprising. */
       consumable: [
-        'pg_razor_wire_picket_lines',
-        'pg_flooded_cellar_sluice_gates',
-        'pg_overnight_plating_weld_sequence',
-        'pg_prepared_collapse_fall_line',
         'pg_shaped_charges_tamping_notes',
+        'pg_overnight_plating_weld_sequence',
+        'pg_flooded_cellar_sluice_gates',
+        'pg_flooded_cellar_sluice_gates',
+        'pg_refined_accelerant_burn_rate',
       ],
     });
   });

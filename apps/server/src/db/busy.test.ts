@@ -16,6 +16,15 @@
  * Reproduced with a real second connection rather than a stubbed error, because the thing worth
  * pinning is the interleaving: a fake `SqliteError` would pass against a handler that never sees
  * the real one.
+ *
+ * The contended call is a **registration**, and that matters. It was `POST /units/train` until
+ * 2026-09-18, on the argument that an authenticated write reads before it writes and is therefore
+ * refused the lock instantly. That stopped being reliable the day the per-structure damage system
+ * was retired: the settle walk it leaned on no longer writes when nothing has finished building,
+ * so the request reached the unit gate and came back `UNIT_LOCKED` without ever touching the
+ * database, and the test was measuring a refusal that had nothing to do with locks. A registration
+ * writes unconditionally and has no gate in front of it, so the only thing that can refuse it here
+ * is the lock.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -78,16 +87,15 @@ async function hosted(): Promise<{ app: FastifyInstance; other: AppDatabase; tok
 
 describe('a write that could not get the lock', () => {
   it('is refused as busy rather than reported as a fault', async () => {
-    const { app, other, token } = await hosted();
+    const { app, other } = await hosted();
 
     // The other connection takes the write lock and keeps it for the whole request.
     other.exec('BEGIN IMMEDIATE');
     other.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run('held-by-somebody-else');
     const tried = await app.inject({
       method: 'POST',
-      url: '/api/units/train',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { unitId: 'razors', count: 1 },
+      url: '/api/auth/register',
+      payload: { username: 'unlucky', password: 'hunter2pass' },
     });
     other.exec('ROLLBACK');
 
@@ -96,12 +104,11 @@ describe('a write that could not get the lock', () => {
   });
 
   it('hands the request back to the game once the lock is let go', async () => {
-    const { app, other, token } = await hosted();
+    const { app, other } = await hosted();
     const order = {
       method: 'POST' as const,
-      url: '/api/units/train',
-      headers: { authorization: `Bearer ${token}` },
-      payload: { unitId: 'razors', count: 1 },
+      url: '/api/auth/register',
+      payload: { username: 'unlucky', password: 'hunter2pass' },
     };
     other.exec('BEGIN IMMEDIATE');
     other.prepare('INSERT INTO schema_migrations (name) VALUES (?)').run('held-by-somebody-else');
@@ -110,15 +117,14 @@ describe('a write that could not get the lock', () => {
     other.exec('ROLLBACK');
 
     /*
-     * The same order again, now answered by the game's own rules rather than by the lock.
+     * The same request again, now answered by the game rather than by the lock.
      *
-     * A fresh crew cannot field razors, so 409 `UNIT_LOCKED` is the right answer and the one worth
-     * asserting: it says the request reached the rule that refuses it. What must not come back is
-     * another 503, which would mean the refusal was sticky, or a 500, which would mean the first
-     * attempt left something half-written for this one to trip over.
+     * A 201 is the proof that the refusal left nothing half-written: the username is free, so the
+     * account it could not create the first time is created now. What must not come back is
+     * another 503, which would mean the refusal was sticky, or a 409 `USERNAME_TAKEN`, which would
+     * mean the first attempt wrote a row on its way to failing.
      */
     const again = await app.inject(order);
-    expect(again.statusCode, again.body.slice(0, 200)).toBe(409);
-    expect(again.json<{ error: { code: string } }>().error.code).toBe('UNIT_LOCKED');
+    expect(again.statusCode, again.body.slice(0, 200)).toBe(201);
   });
 });

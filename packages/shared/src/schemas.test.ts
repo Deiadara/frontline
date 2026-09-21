@@ -114,11 +114,13 @@ describe('who holds the map (§A3)', () => {
       allegiance: 'government',
       isSeatOfPower: true,
     });
-    expect(raidTargetOf(district('undergrid'))).toEqual({
+    // A Combine holding that is not a seat: the Steelbelt, since the Undergrid went to the
+    // looters (maintainer, 2026-09-19).
+    expect(raidTargetOf(district('rustyard'))).toEqual({
       allegiance: 'government',
       isSeatOfPower: false,
     });
-    expect(raidTargetOf(district('rustyard'))).toEqual({
+    expect(raidTargetOf(district('chrome-row'))).toEqual({
       allegiance: 'independent',
       isSeatOfPower: false,
     });
@@ -129,10 +131,15 @@ describe('who holds the map (§A3)', () => {
       garrisonOf(district('combine-spire')),
     );
     for (const combineHeld of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
-      expect(garrisonOf(combineHeld), combineHeld.id).toMatch(/Combine|Directorate|enforcer/);
+      expect(garrisonOf(combineHeld), combineHeld.id).toMatch(
+        /Combine|Levy|Greycoat|Enforcer|Suppressor/,
+      );
     }
     // Independent ground must not be narrated as the government's.
-    expect(garrisonOf(district('rustyard'))).not.toMatch(/Combine|Directorate/);
+    // Chrome Row: the Steelbelt is the Combine's now (maintainer, 2026-09-19).
+    expect(garrisonOf(district('chrome-row'))).not.toMatch(
+      /Combine|Levy|Greycoat|Enforcer|Suppressor/,
+    );
   });
 
   it('scales the garrison ladder monotonically over the whole difficulty range', () => {

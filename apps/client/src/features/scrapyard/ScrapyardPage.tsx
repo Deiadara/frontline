@@ -13,7 +13,7 @@ import {
   UNIT_STAT_LABELS,
   findBuilding,
   findModification,
-  UNIT_CATALOG,
+  PLAYER_UNITS,
   UNIT_UPGRADE_SLOTS,
   findUnitModification,
   modificationSlots,
@@ -365,7 +365,7 @@ export function ScrapyardPage() {
    * *whether* a card may go on (`cannot_train` is one of its refusals), so the rail shows the unit
    * either way and the card says why.
    */
-  const unitRail = UNIT_CATALOG.filter((one) =>
+  const unitRail = PLAYER_UNITS.filter((one) =>
     entriesOf('upgrade').some((entry) => entry.targets.some((target) => target.id === one.id)),
   );
   const openUnit = unitRail.some((one) => one.id === unit) ? unit : (unitRail[0]?.id ?? null);
@@ -1069,6 +1069,8 @@ function UnitBench({
       option,
       garrisoned: roster.data?.garrisoned[id] ?? 0,
       abroad: roster.data?.abroad[id] ?? 0,
+      // §E: the card locks a carrier's combat figures until the crew has the programme.
+      carriersFight: roster.data?.carriersFight ?? false,
     };
   };
 
@@ -1154,7 +1156,12 @@ function UnitDoor({
    * crew's own numbers after everything territory, research and the officers are doing to them.
    * Null while that read is in flight, and then the door is a door with no card behind it.
    */
-  sheet: { option: UnitOption; garrisoned: number; abroad: number } | null;
+  sheet: {
+    option: UnitOption;
+    garrisoned: number;
+    abroad: number;
+    carriersFight: boolean;
+  } | null;
   ready: number;
   total: number;
   /** Brackets on this sheet already wearing something, out of the three it has. */
@@ -1223,7 +1230,14 @@ function UnitDoor({
       onActivate={onSelect}
       pressed={selected}
       data-testid={`scrapyard-unit-${unit.id}`}
-      card={<UnitCard unit={sheet.option} garrisoned={sheet.garrisoned} abroad={sheet.abroad} />}
+      card={
+        <UnitCard
+          unit={sheet.option}
+          garrisoned={sheet.garrisoned}
+          abroad={sheet.abroad}
+          carriersFight={sheet.carriersFight}
+        />
+      }
     >
       {row}
     </HoverCard>

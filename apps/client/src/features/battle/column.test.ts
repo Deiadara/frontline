@@ -49,7 +49,7 @@ describe('readColumn', () => {
   it('names the machine when everybody has a seat', () => {
     const read = readColumn({ armoured_car: 3 }, { razors: 8 }, {});
     expect(read.speed).toEqual(WAGON?.speed);
-    expect(read.heldBy).toEqual(`the ${WAGON?.name}`);
+    expect(read.heldBy).toEqual(`${WAGON?.name}`);
   });
 
   it('names the walkers, and how many, once the seats run out', () => {
@@ -68,6 +68,26 @@ describe('readColumn', () => {
     expect(COLOSSUS?.stats.speed).toBeLessThan(WAGON?.speed ?? 0);
     expect(read.speed).toEqual(COLOSSUS?.stats.speed);
     expect(read.heldBy).toEqual(`1 ${COLOSSUS?.name} walking`);
+  });
+
+  /*
+   * ...unless the crew has bought the waiver (`any_ride`, bug pass 2026-09-19).
+   *
+   * The one input that can make this quote **too slow**, which is the direction the module note
+   * says it may not be wrong in. `unitColumnSpeed` has taken `anyRide` since the holding existed
+   * and `missions/launch.ts` passes it; this reader did not, so a crew that had spent a location,
+   * a research rung or a perk on getting the Colossus off its feet was still shown fifteen and a
+   * road hours longer than the one it actually walked.
+   */
+  it('puts a sheet that will not board in a truck for a crew that holds the waiver', () => {
+    const force = { the_colossus: 1, razors: 4 };
+    const walking = readColumn({ armoured_car: 3 }, force, {});
+    const riding = readColumn({ armoured_car: 3 }, force, {}, true);
+    expect(walking.speed).toEqual(COLOSSUS?.stats.speed);
+    // Everybody is aboard, so the column travels at the slowest machine carrying somebody.
+    expect(riding.speed).toEqual(WAGON?.speed);
+    expect(riding.heldBy).toEqual(`${WAGON?.name}`);
+    expect(riding.speed).toBeGreaterThan(walking.speed);
   });
 
   /*
@@ -106,7 +126,7 @@ describe('readColumn', () => {
     // so none of this passes against a reader that has stopped seating anybody at all.
     const slower = readColumn({ motorcycle: 1 }, { razors: 2 }, {});
     expect(slower.speed).toEqual(bike?.speed);
-    expect(slower.heldBy).toEqual(`the ${bike?.name}`);
+    expect(slower.heldBy).toEqual(`${bike?.name}`);
   });
 
   /*
@@ -130,7 +150,7 @@ describe('readColumn', () => {
     const fits = Math.floor(seats / cost);
     const full = readColumn({ armoured_car: 1 }, { ironsides: fits }, {});
     expect(full.speed).toEqual(wagon?.speed);
-    expect(full.heldBy).toEqual(`the ${wagon?.name}`);
+    expect(full.heldBy).toEqual(`${wagon?.name}`);
 
     // One more than the slots hold walks, and holds the column at its own pace. A reader still
     // counting heads seats all of them, because `fits + 1` is far below the bus's seat count.
@@ -232,6 +252,6 @@ describe('readColumn', () => {
       { road_reavers: ['hardshell_exoframe'] },
     );
     expect(rigged.speed).toEqual(bike?.speed);
-    expect(rigged.heldBy).toEqual(`the ${bike?.name}`);
+    expect(rigged.heldBy).toEqual(`${bike?.name}`);
   });
 });

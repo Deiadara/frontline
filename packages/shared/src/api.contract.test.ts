@@ -18,6 +18,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import * as api from './api.js';
+import { AdminKnobsRequestSchema } from './api.accounts.js';
+import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 
 /** Every line of client source, concatenated. Built once: it is read for every key. */
 const CLIENT = (() => {
@@ -63,5 +65,29 @@ describe('the client sends what the server requires', () => {
       }
     }
     expect(missing, 'the server requires these and the client never sends them').toEqual([]);
+  });
+});
+
+/**
+ * The admin bench has to be able to set every stage the game authors.
+ *
+ * The knob's own doc says it exists because "a crew at rank 0 and a crew at rank 8 are two
+ * different points in the game". The same is true of levels, and the level bound was a hand-typed
+ * 60 while §I3 authored milestones at 70 and 80, so the two deepest stages in the game could not
+ * be reached from the one tool for reaching stages.
+ */
+describe('the admin level knob reaches every authored stage', () => {
+  it('accepts the deepest level any unlock is authored at', () => {
+    const deepest = Math.max(...PLAYER_LEVEL_UNLOCKS.map((unlock) => unlock.level));
+    expect(PLAYER_LEVEL_UNLOCKS.length).toBeGreaterThan(5);
+    expect(
+      AdminKnobsRequestSchema.safeParse({ playerLevel: deepest }).success,
+      `level ${deepest} is authored in PLAYER_LEVEL_UNLOCKS and the bench refuses it`,
+    ).toBe(true);
+  });
+
+  it('refuses a level the game authors nothing at', () => {
+    const deepest = Math.max(...PLAYER_LEVEL_UNLOCKS.map((unlock) => unlock.level));
+    expect(AdminKnobsRequestSchema.safeParse({ playerLevel: deepest + 1 }).success).toBe(false);
   });
 });

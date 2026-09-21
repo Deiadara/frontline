@@ -1,6 +1,7 @@
 import {
   BLUEPRINTS,
   BUILDING_KINDS,
+  CITY_DISTRICTS,
   CITY_LOCATIONS,
   isBlueprintUnlocked,
   levelCeilingFor,
@@ -9,6 +10,7 @@ import {
   completedSet,
   featMeasureKey,
   findUnitModification,
+  isHeldBy,
   markFromPoints,
   markIndex,
   unitSlotsUsed,
@@ -156,7 +158,29 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
       return holder?.kind === 'crew' && holder.baseId === base.id;
     }).length,
   );
-  put('districts_held_whole', districtsHeldWhole(repos, base.id).length);
+  const heldWhole = districtsHeldWhole(repos, base.id);
+  put('districts_held_whole', heldWhole.length);
+  /*
+   * The Combine's ground, read off the same walk (`city/combine.ts`).
+   *
+   * A district that was the regime's is one whose allegiance is `government` in the city table,
+   * whoever stands on it today: the measure asks what a crew has taken off the Combine, and a
+   * district it took off looters is not that. The Chapel is the one location of its kind, so
+   * "held" is a lookup on the control row rather than a walk; it is read here rather than off
+   * `combineLeaderAlive` because holding the plot is the question, and a plot can be held with
+   * Directive Xero dead on it or lost with him still standing.
+   */
+  put(
+    'combine_districts_held',
+    heldWhole.filter((districtId) => COMBINE_GROUND.has(districtId)).length,
+  );
+  put(
+    'chapel_held',
+    CHAPELS.filter((location) => {
+      const control = controls.get(location.id);
+      return control !== undefined && isHeldBy(control, base.id);
+    }).length,
+  );
   put('districts_scouted', repos.city.scouted(base.id).size);
 
   // --- the table ---
@@ -185,6 +209,16 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
 
   return snapshot;
 }
+
+/** The districts the regime holds by allegiance, which is the set `combine_districts_held` counts over. */
+const COMBINE_GROUND: ReadonlySet<string> = new Set(
+  CITY_DISTRICTS.filter((district) => district.allegiance === 'government').map(
+    (district) => district.id,
+  ),
+);
+
+/** The Chosen Chapel: one location today, and `chapel_held` counts however many wear the kind. */
+const CHAPELS = CITY_LOCATIONS.filter((location) => location.kind === 'combine_chapel');
 
 /**
  * How many of the Overseer's skills are at or above a threshold.

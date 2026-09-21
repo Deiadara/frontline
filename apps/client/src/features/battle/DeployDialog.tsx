@@ -16,6 +16,7 @@ import {
   type UnitOption,
   type UnitsResponse,
   type VehicleId,
+  vehicleNoun,
 } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
@@ -59,7 +60,9 @@ import { formatDuration } from '../base/format';
  * - **Seats are {@link fleetCapacity}** over the machines this crew has committed to this fight.
  * - **A sheet that will not ride needs no seat.** `no_ride` (`units/rules.ts`, `walksAlways`) keeps
  *   a unit off every machine, so it is off this number in both directions: it never eats a seat
- *   and the ceiling never stops it going.
+ *   and the ceiling never stops it going. Unless this crew holds the waiver: `any_ride` lifts the
+ *   rule, and the server spends the seat either way (`ridingUnitSlots(muster, effects.anyRide)`),
+ *   so the window reads `UnitsResponse.anyRide` rather than the catalogue alone.
  *
  * **Nothing loaded is no ceiling.** An empty yard is the walk every column was before the Garage,
  * and `columnSpeed` still costs it honestly, so a crew with no machines sends what it always could.
@@ -152,6 +155,15 @@ export function DeployDialog({
    */
   const roster = useUnits();
   const options = new Map((roster.data?.units ?? []).map((option) => [option.id, option]));
+  /*
+   * §C3: whether this crew's machines seat anything at all (`any_ride`).
+   *
+   * Off the roster because that is where the other switch of its kind already rides
+   * (`carriersFight`), and read here rather than at each of the four call sites below so the
+   * window has one answer. `?? false` is the catalogue's reading, which is what a crew without
+   * the waiver gets and what a payload from an older build says.
+   */
+  const anyRide = roster.data?.anyRide ?? false;
 
   /*
    * §C3: loading a machine is its own write, and an absolute one (`TakeVehiclesRequestSchema`).
@@ -182,7 +194,7 @@ export function DeployDialog({
    * ever shortens a road.
    */
   const sending: Army = Object.fromEntries(Object.entries(deltas).filter(([, delta]) => delta > 0));
-  const column = readColumn(view.vehicles, sending, loadouts);
+  const column = readColumn(view.vehicles, sending, loadouts, anyRide);
   const road =
     homeDistrictId === null
       ? null
@@ -213,7 +225,7 @@ export function DeployDialog({
   const loadedFleet = view.vehicles;
   const ownedFleet = mergeFleets(view.yard, view.vehicles);
   const seats = fleetCapacity(loadedFleet);
-  const aboard = ridingUnitSlots(sending);
+  const aboard = ridingUnitSlots(sending, anyRide);
   /** Nothing loaded is the walk, and the walk has no ceiling. See the note at the top. */
   const capped = seats > 0;
   const overloaded = capped && aboard > seats;
@@ -279,7 +291,7 @@ export function DeployDialog({
                * seats at all. Withdrawals are untouched: `min` is what is already on the ground,
                * and bringing people home needs no seat.
                */
-              const rides = !walksAlways(unit.id);
+              const rides = !walksAlways(unit.id, anyRide);
               const claimed = rides ? aboard - Math.max(0, value) * unit.unitSlots : aboard;
               const ceiling =
                 capped && rides
@@ -305,7 +317,7 @@ export function DeployDialog({
                         : `${atHome} at home · ${alreadyThere[unit.id] ?? 0} ${copy.where}`}
                       {/* §C3: this one is not getting on the truck. Only worth saying once there is
                           a truck: with nothing loaded every unit walks and the note is noise. */}
-                      {!locked && riding && walksAlways(unit.id) && (
+                      {!locked && riding && walksAlways(unit.id, anyRide) && (
                         <span className="text-oxblood-300" data-testid={`walks-${unit.id}`}>
                           {' · '}walks
                         </span>
@@ -405,6 +417,28 @@ export function DeployDialog({
             })
           }
         />
+
+        {/*
+         * §C3: picked the people first and the machines second (maintainer, 2026-09-19).
+         *
+         * The confirm has been disabled on `overloaded` since the seats became the ceiling, and
+         * the seats readout turns oxblood, but neither of those is a sentence: a player who
+         * loaded a bike under a column already picked got a dead button and a red number and no
+         * statement of what to do about it. Said here, and deliberately *only* said: the window
+         * does not put anybody back on its own, which is the maintainer's rule for this and for
+         * the mission board's own picker.
+         */}
+        {overloaded && (
+          <p
+            role="alert"
+            className="font-body text-xs leading-relaxed text-oxblood-300"
+            data-testid="deploy-overloaded"
+          >
+            They do not all fit. <span className="tabular-nums">{aboard}</span> unit slots picked
+            and <span className="tabular-nums">{seats}</span> seats loaded: take somebody off, or
+            put another machine on.
+          </p>
+        )}
 
         {takeVehicles.error !== null && (
           <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
@@ -514,6 +548,7 @@ function UnitName({
           unit={option}
           garrisoned={roster.garrisoned[option.id] ?? 0}
           abroad={roster.abroad[option.id] ?? 0}
+          carriersFight={roster.carriersFight ?? false}
         />
       }
     >
@@ -603,7 +638,7 @@ function VehicleRows({
                     data-tip={
                       taking > 0 && !spare
                         ? 'Those seats are carrying somebody. Send fewer units first'
-                        : `One fewer ${spec.name}`
+                        : `One fewer ${vehicleNoun(spec.name)}`
                     }
                   >
                     −
@@ -617,7 +652,7 @@ function VehicleRows({
                     disabled={shut || pending || taking >= held}
                     onClick={() => onTake(spec.id, taking + 1)}
                     data-testid={`deploy-take-more-${spec.id}`}
-                    data-tip={`One more ${spec.name}: ${spec.capacity} more unit slots`}
+                    data-tip={`One more ${vehicleNoun(spec.name)}: ${spec.capacity} more unit slots`}
                   >
                     +
                   </Button>

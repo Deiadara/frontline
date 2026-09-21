@@ -59,7 +59,8 @@ function ratingAboveAverage(attributes: Attributes): number {
  * more than a slightly better sheet carrying something that pays on one unit, which is the trade.
  *
  * Sized against the **payroll book**, which is the ceiling that matters: `basePayrollCapacity` runs
- * from 225 at the start to about 1300 at the end. At twelve, an officer carrying two of the best
+ * from 225 at the start to 2230 at the end (a Nexus at 20 with `PAYROLL_STEPS_MAX` bought). This
+ * read "about 1300" until 2026-09-20, which was the ceiling before the steps were extended. At twelve, an officer carrying two of the best
  * tags asked 1448 a week, more than a finished crew's entire book for one person, and the Bar
  * started refusing hires it had just offered. With `MAX_PERK_WORTH` capping a single tag, the
  * dearest two-tag hire in the game now lands under 900: expensive, and holdable.

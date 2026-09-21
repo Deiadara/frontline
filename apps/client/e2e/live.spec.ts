@@ -338,9 +338,10 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    * §B6: on day one the fighting tier is locked, and the card says what would open it.
    *
    * This asserted that Razors could be trained immediately, on the grounds that they "need nothing
-   * at all". That stopped being true when the Gauntlet became the gate for the twelve units it
-   * trains: a new crew now runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
-   * Razor. That is a real change to the opening and it is the maintainer's to keep or revert.
+   * at all". That stopped being true when the Gauntlet became the gate for the ten units it
+   * trains: a new crew runs Quarters, then the Nexus to 2, then a Gauntlet, before its first
+   * Razor. What it can train in the meantime is the carrier bench, which answers to the Nexus it
+   * already has (maintainer, 2026-09-18), so the opening has a move in it either way.
    *
    * The assertion is kept pointed at the same card, because what it is really guarding is that the
    * roster renders against the live backend and explains itself. A locked unit that says nothing

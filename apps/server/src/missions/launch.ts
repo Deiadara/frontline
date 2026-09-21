@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
-  missionBoardDay,
+  missionBoardKey,
   pagePrizeFor,
   columnSpeed,
   fittedFor,
@@ -145,6 +145,17 @@ export function launchMission(args: {
   missionSpoilsPercent?: number;
   /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
   areaId: string;
+  /**
+   * The board key the card was read off, which is not always the key of the moment.
+   *
+   * `misc` turns over every `MISC_BOARD_ROTATION_MINUTES` and the route allows one slot of grace
+   * (`launchableBoardKeys`), so a card read at 10:59 and launched at 11:00 came off the previous
+   * key. Passed in rather than derived, because the route is what matched the template to a board
+   * and it is the only place that knows which one it was.
+   *
+   * Defaulted to the key of the moment for the callers that have no board in hand.
+   */
+  boardKey?: string;
   /** §A5: the units going. They leave `base.army` in the same transaction that writes this row. */
   force: Army;
 }): StoredMission {
@@ -165,6 +176,7 @@ export function launchMission(args: {
     force,
     vehicles = {},
     seed = randomInt(0, 2 ** 32),
+    boardKey = missionBoardKey(areaId, now),
   } = args;
 
   // §E5/§I: the crew's own level makes the same job harder, at the same rate it makes it pay
@@ -260,11 +272,19 @@ export function launchMission(args: {
       /*
        * §F1b: the page category frozen with everything else the card promised.
        *
-       * Read off the board this run was taken from, at the day it was taken on, rather than at the
-       * day it comes home: boards turn over at midnight and a crew that is out overnight must keep
-       * the terms it left under. Which page it turns out to be is decided on arrival (§F1c).
+       * Read off the board this run was taken from, at the key it was taken on, rather than at the
+       * day it comes home: boards turn over and a crew that is out overnight must keep the terms
+       * it left under. Which page it turns out to be is decided on arrival (§F1c).
+       *
+       * The **key**, not `missionBoardDay`. `misc` grew an hourly slot on 2026-09-19 and
+       * `missions/board.ts` draws its cards off `missionBoardKey`, so from that day every misc
+       * card quoted a prize from `<day>#<slot>` while this froze one from `<day>`: two
+       * independent rolls of the same seeded draw. Across a fortnight that is 105 misc cards
+       * whose advertised page is not the page on the row, in both directions, a card promising a
+       * Unit page that stores nothing and a card promising nothing that stores an Upgrade page.
+       * The districts were never affected: their key *is* their day.
        */
-      pagePrize: pagePrizeFor(areaId, missionBoardDay(now), template.id, template.difficulty),
+      pagePrize: pagePrizeFor(areaId, boardKey, template.id, template.difficulty),
       pageWon: null,
       found: {},
     },

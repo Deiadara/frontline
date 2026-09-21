@@ -7,6 +7,7 @@ import {
   UNIT_STAT_LABELS,
   UNIT_TIER_LABELS,
   findUnit,
+  isCombatUnit,
   maxTrainable,
   trainingCost,
   trainingSeconds,
@@ -14,7 +15,7 @@ import {
   type TrainingBreakdown,
   type UnitOption,
 } from '@frontline/shared';
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { DeltaFloat } from '../../components/ui/Delta';
@@ -26,7 +27,8 @@ import { cn } from '../../lib/cn';
 import type { DeltaMark } from '../../lib/deltas';
 import { RATING_FILL, RATING_TEXT, ratingBand, ratingPercent } from '../../lib/rating';
 import { formatDuration } from '../base/format';
-import { RULE_CHIP, RULE_INK, ruleTone } from './rules';
+import { RULE_INK, ruleTone } from './rules';
+import { AffinityTag, ModifierTag, RuleTag } from './tags';
 import { UnitBonuses } from './UnitBonuses';
 import { DamageLine } from './UnitDamage';
 import { UnitPortrait } from './UnitPortrait';
@@ -54,6 +56,18 @@ export interface UnitCardProps {
    */
   training?: UnitCardTraining;
   /**
+   * §E: whether this crew's porters may stand in a line (`carriers_fight`).
+   *
+   * The card locks a carrier's Damage and Hit Points until the crew has researched it, because
+   * until then those two figures describe something that cannot happen: a Scavenger with 60 hit
+   * points and 5 damage never takes a hit or deals one, so printing them is the sheet quoting
+   * numbers from a fight the unit is not allowed in.
+   *
+   * Defaulted false, which is the strict reading and the one every other consumer of this flag
+   * takes (`roster.carriersFight ?? false`). Every call site passes it.
+   */
+  carriersFight?: boolean;
+  /**
    * What this count just did: a batch landing off the bench, or units leaving for a fight.
    *
    * From the page's one `useDeltaMarks`, for the reason the standing bar's chips take theirs from
@@ -68,6 +82,21 @@ export interface UnitCardProps {
    * different question in the wrong window. The roster passes it.
    */
   bonuses?: TrainingBreakdown;
+  /**
+   * A sheet the player meets but can never hold (maintainer, 2026-09-20).
+   *
+   * The Combine's legendaries. The frame, the portrait, the sheet, the marks band and the damage
+   * line are **the same card**, deliberately: a player comparing Directive Xero against their own
+   * Colossus is comparing two sheets, and two layouts would make them do the conversion in their
+   * head. What comes off is only the three things that are claims about ownership, each of which
+   * would be a lie rather than a blank: the count over the portrait (nobody holds one), the three
+   * brackets (`modificationsForUnit` is empty for a legendary and always will be), and the
+   * building in the tier line, which becomes the faction he fights for.
+   *
+   * `training` is already optional and stays unset here, so the price box is gone for the same
+   * reason the Scrapyard's rail and the deploy dialog have none.
+   */
+  enemy?: boolean;
 }
 
 /** Everything the price box needs, and nothing anything above it does. */
@@ -127,7 +156,27 @@ export interface UnitCardTraining {
  * on the name and on each chip, which is where a player looks for detail once they have already
  * decided which unit they are reading.
  */
-export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }: UnitCardProps) {
+export function UnitCard({
+  unit,
+  garrisoned,
+  abroad,
+  training,
+  deltas,
+  bonuses,
+  carriersFight = false,
+  enemy = false,
+}: UnitCardProps) {
+  /*
+   * §E: a carrier's fighting numbers are behind a programme (maintainer, 2026-09-19).
+   *
+   * "Have a lock on the carriers' vitality and damage and have it say that you need to research
+   * the equivalent programme that makes the fighters carry when you hover over it."
+   *
+   * `isCombatUnit` is the same predicate the engine and all three doors read, so a sheet that is
+   * locked here is exactly a sheet that cannot be put in a line, and a crew that has finished
+   * the programme sees the figures because at that point they are true.
+   */
+  const combatLocked = !isCombatUnit(unit.id) && !carriersFight;
   return (
     <section
       data-testid={`unit-${unit.id}`}
@@ -174,15 +223,27 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
         // either way) and 12 off the gaps between the four rating rows, which were 4px apart
         // and are now ranged solid like the table they are.
         //
-        // What is left: 3px of headroom in the band under the marks. A row added there next
-        // has to find its own 20 somewhere, and there is no obvious next 20.
+        // **The 20 was found by growing the card (maintainer, 2026-09-18):** "make the unit card
+        // slightly bigger so that there is a little more spacing and another line that separates
+        // the tags from the types of damage and weakness". One rem, and the size of it is not a
+        // taste call: a 3:4 picture that follows the frame gets *wider*, and `visual.spec.ts`
+        // fails a portrait past 45% of the card. Measured at 1440 two-up, where the card is
+        // narrowest (675px) and the share is therefore highest: 42.4% at 412px of frame, and
+        // 45.5% at 440, which the gate refused. 16px is 44.2%, which is the most this frame can
+        // take while the picture still fills it. The room goes where it was asked for: the rule
+        // between the marks and the damage line, and `gap-1.5` with `pt-2` in the band around it
+        // in place of `gap-0.5` and `pt-1`.
+        //
+        // The next row here has nowhere to come from. Growing the frame again means capping the
+        // portrait's width instead, which buys any height at the price of a mat over and under
+        // the picture: a real trade, not a smaller version of this one.
         // A `min-h` does
         // not work instead: the marks are a `flex-wrap` row, and a wrapping row's contribution
         // to an auto grid track is measured as though it never wrapped, so the frame would
         // squash the price box rather than grow. The roster sweep in `visual.spec.ts` walks every
         // tier looking for a chip or a box pushed out, which is why the price box below is
         // `shrink-0`: left shrinkable it absorbs an overflow silently instead.
-        training ? 'h-[25.75rem]' : 'h-[21.5rem]',
+        training ? 'h-[26.75rem]' : 'h-[22.5rem]',
         // And a ceiling on the width while it is one to a row, so a single card does not become a
         // 1200px band with a stat table stretched across it. 52rem is about what two of them
         // measure at 1440, so a card is the same object at every width: it just stops sharing.
@@ -209,12 +270,28 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
         sake. The frame is sized to the column rather than the picture capped inside the frame,
         so there is no strip of card under it.
       */}
-      <div className="relative h-full shrink-0">
+      {/*
+       * `max-w-[42%]`, which is what stops a taller frame from being a wider picture.
+       *
+       * The portrait is `h-full` at its own 3:4, so every pixel of frame is three quarters of a
+       * pixel of width taken off the sheet beside it. The sheet has none to give: at 1440 two-up
+       * the card is 675px, the tier line has to fit a tier, a building and a slot count on one
+       * line, and 12px off it drew `CARRIERS · THE NEXUS · 2 SLOT…` on the Haulers. That is not
+       * a clip, so the roster's cut-text sweep says nothing about it, which is exactly why the
+       * cap is here rather than left to a gate to catch.
+       *
+       * 42% because the picture measured 42.4% of the card at the frame this replaced, so the
+       * cap holds the width where it already was rather than choosing a new one. It binds at
+       * 1440 two-up and nowhere else: at every other width the card is 800px or wider, the
+       * height is what runs out first, and this is slack. The cost is a 13px mat over and under
+       * the picture at that one width, which is the trade for the row the band gained.
+       */}
+      <div className="relative flex h-full max-w-[42%] shrink-0 items-center">
         <UnitPortrait
           unitId={unit.id}
           tier={unit.tier}
           fill
-          className="h-full w-auto rounded-sm border-2 border-surface-600/80 shadow-lifted"
+          className="h-full max-h-full w-auto max-w-full rounded-sm border-2 border-surface-600/80 shadow-lifted object-contain"
         />
         {/*
           Owned, over the picture's corner, where a strategy game puts a count.
@@ -237,7 +314,10 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
           six of your twelve are at a fight, so the total is what goes in front of the slash and
           the six is a slice of it.
         */}
+        {/* No count on a sheet nobody holds: `0` over the portrait is a number about the player
+            rather than about him, and it is the one figure on this card that would be false. */}
         <span
+          hidden={enemy}
           className="absolute right-1.5 top-1.5 rounded-sm border border-surface-600 bg-surface-950/85 px-2 py-0.5 font-display text-[13px] font-bold leading-none tabular-nums text-ink-100"
           data-testid={`unit-count-${unit.id}`}
         >
@@ -273,7 +353,8 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
                 {unit.name}
               </span>
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-                {UNIT_TIER_LABELS[unit.tier]} · {BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
+                {UNIT_TIER_LABELS[unit.tier]} ·{' '}
+                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
                 {/* The housing budget is called Unit Slots everywhere now (maintainer request,
                     2026-09-15), so the cost a unit puts on it is a slot, not a "pop". */}
                 {unit.unitSlots} {unit.unitSlots === 1 ? 'slot' : 'slots'}
@@ -297,7 +378,15 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
               data-testid={`bonuses-${unit.id}`}
               card={<UnitBonuses unit={unit} crew={bonuses} />}
             >
-              <span className="flex items-center rounded-sm border border-brass-500/60 bg-brass-500/15 px-2 py-1 font-display text-[10px] font-bold uppercase tracking-[0.1em] leading-none text-brass-100">
+              {/* `h-[25px]`, and the same figure on the loot chip beside it (maintainer,
+                  2026-09-18). They were 20 and 30: the Bonuses plate is a 10px word between two
+                  4px paddings, the loot chip is a 16px icon between the same two, and nothing
+                  made them agree, so two neighbouring controls on one baseline drew two
+                  different heights. 25 is the average of the pair, which is the size the
+                  maintainer asked for, and it clears both contents (10px of text, 18px of icon
+                  and border). The padding goes, because a box with a definite height and padding
+                  as well is two rules fighting over the same pixels. */}
+              <span className="flex h-[25px] items-center rounded-sm border border-brass-500/60 bg-brass-500/15 px-2 font-display text-[10px] font-bold uppercase tracking-[0.1em] leading-none text-brass-100">
                 Bonuses
               </span>
             </HoverCard>
@@ -305,7 +394,7 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
           {/* The name is on the hover rather than printed: at this size a word beside the figure
               costs more room than the figure itself, and `Loot` is one word nobody needs twice. */}
           <span
-            className="flex shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2 py-1"
+            className="flex h-[25px] shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2"
             data-tip="Loot slots: what one of them carries home"
           >
             <Icon name="loot" className="h-4 w-4 text-ink-300" />
@@ -353,8 +442,14 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
                 <dt className="min-w-0 flex-1">
                   <StatLabel statKey={key} />
                 </dt>
-                <dd className="shrink-0 font-display text-[19px] font-bold leading-none tabular-nums text-brass-300">
-                  {unit.stats[key]}
+                <dd className="shrink-0">
+                  {combatLocked ? (
+                    <LockedFigure />
+                  ) : (
+                    <span className="font-display text-[19px] font-bold leading-none tabular-nums text-brass-300">
+                      {unit.stats[key]}
+                    </span>
+                  )}
                 </dd>
               </div>
             ))}
@@ -410,8 +505,42 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
               band is the one part of the column that is sized by what is left over: a line of
               its own between the band and the brackets would push the price box off the
               picture's bottom edge on every card in the game. */}
-          <div className="mt-1 flex flex-1 flex-col justify-center gap-0.5 border-t border-surface-700/70 pt-1">
+          {/*
+           * `mt-1` and not `mt-1.5`, which is the two pixels that make the frame's promise true.
+           *
+           * The note on the frame above says the column is "budgeted to the pixel for the tallest
+           * card in the game". Measured at 1440 two-up it was one pixel short of that. A two-row
+           * marks band needs `pt-2` 8 + marks 44 + `gap-1.5` 6 + the damage line 24 = 82, and the
+           * sheet's `flex-1` share leaves 81: the column's other four rows are fixed, so the share
+           * is 402 - 187 = 215 and no arrangement of this band changes it.
+           *
+           * A `flex-1` item in a column will not shrink below its content (`min-height: auto`), so
+           * the band did not clip, it **grew**, and everything under it went with it. Snipers is
+           * the only sheet in the game whose marks wrap at this width, so its Train button sat at
+           * 324 where the other five specialists sat at 323, one pixel outside its own column.
+           * `visual.spec.ts` calls that "the action box moves between cards".
+           *
+           * Two pixels off this gap rather than off `pt-2` or `gap-1.5`: those two are the spacing
+           * the maintainer asked for on 2026-09-18 and the frame's note records buying, and this
+           * is the gap above the rule rather than either of the gaps around the damage line. The
+           * frame itself cannot give them, for the reason the note sets out: it is 3:4 of the
+           * picture, so height here is width there, and the portrait gate refuses past 45%.
+           */}
+          <div className="mt-1 flex flex-1 flex-col justify-center gap-1.5 border-t border-surface-700/70 pt-2">
             <Marks unit={unit} />
+            {/*
+             * A rule between the keywords and the matchup (maintainer, 2026-09-18).
+             *
+             * They are two different kinds of fact and they were only a 2px gap apart, so a card
+             * with one row of marks read as a single paragraph of small caps: `Picks the field
+             * Ballistic damage Weaknesses Resistances`. A mark is a keyword this unit carries
+             * into every fight; the line under it is a matchup against somebody else's sheet.
+             *
+             * Fainter than the band's own top rule (`/40` against `/70`), because it divides
+             * two rows inside one band rather than closing the band: at the same weight the eye
+             * reads three bands where the card has two.
+             */}
+            <span aria-hidden className="block border-t border-surface-700/40" />
             <DamageLine unit={unit} />
           </div>
         </div>
@@ -419,9 +548,11 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
         {/* The three brackets (§A5). Under the sheet rather than in it, because what is bolted on
             is a decision the player makes and everything above is a number they read. `mt-1` on
             top of the column's gap: 12px, and the price box keeps the same 12px under them. */}
-        <div className="mt-1">
-          <UpgradeSlots unit={unit} />
-        </div>
+        {!enemy && (
+          <div className="mt-1">
+            <UpgradeSlots unit={unit} />
+          </div>
+        )}
 
         {/* Row 4, and a *fixed* height, which is the last thing standing between this grid and the
             cards it used to be. A price line wraps to two lines for a unit that costs three
@@ -485,6 +616,50 @@ export function UnitCard({ unit, garrisoned, abroad, training, deltas, bonuses }
  * Its own component because the count is state: the card renders this box only where there is a
  * roster behind it to train from, and a hook cannot sit behind that condition.
  */
+/**
+ * A figure a carrier does not have yet: a drawn lock and the one sentence that explains it.
+ *
+ * The number is replaced rather than greyed, because a greyed 60 still reads as "sixty, dimmed"
+ * and the point is that there is no answer until the programme is finished. The hover names the
+ * rung, the track and its position, so it is something a player can act on rather than a
+ * refusal.
+ */
+function LockedFigure() {
+  return (
+    <HoverCard
+      label="Locked until Everybody Fights is researched"
+      size="window"
+      card={
+        <InfoWindow
+          eyebrow="The Lab"
+          title="Everybody Fights"
+          tone="oxblood"
+          icon={<Icon name="research" className="h-full w-full text-oxblood-300" />}
+        >
+          <p className="font-body text-[13px] leading-relaxed text-ink-200">
+            Carriers cannot fight. They are never put in a line, they never draw fire and they deal
+            nothing, so a sheet of combat numbers would be describing something that cannot happen.
+          </p>
+          <p className="mt-2 font-body text-[13px] leading-relaxed text-ink-200">
+            <span className="font-bold text-brass-300">Everybody Fights</span>, the first programme
+            on the <span className="font-bold text-brass-300">Field Commander</span> track, is what
+            changes that: after it your porters take a place in the line at half strength, and these
+            two figures start meaning something.
+          </p>
+        </InfoWindow>
+      }
+    >
+      <span
+        data-testid="carrier-combat-locked"
+        className="flex h-[19px] items-center gap-1 border-b border-dashed border-oxblood-500/60 font-display text-[11px] font-bold uppercase tracking-[0.12em] text-oxblood-300"
+      >
+        <Icon name="lock" aria-hidden className="h-3.5 w-3.5" />
+        Locked
+      </span>
+    </HoverCard>
+  );
+}
+
 function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTraining }) {
   const { resources, spare, discountPercent, suppliesPercent, speedPercent, pending, onTrain } =
     training;
@@ -613,33 +788,7 @@ function Marks({ unit }: { unit: UnitOption }) {
       ))}
       {affinities.map((affinity) => (
         <li key={affinity.id} className="min-w-0">
-          <HoverCard
-            label={`${affinity.label}: ${affinity.note}`}
-            card={
-              <div className="flex flex-col gap-1">
-                <p className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-brass-300">
-                  {affinity.label}
-                </p>
-                <p className="font-body text-[13px] leading-relaxed text-ink-100">
-                  {affinity.good
-                    ? `${unit.name} fight better where this holds: ${affinity.note}.`
-                    : `${unit.name} suffer where this holds: ${affinity.note}.`}
-                </p>
-              </div>
-            }
-          >
-            <span
-              className={cn(
-                'flex h-5 items-center truncate rounded-sm border px-1.5',
-                'font-display text-[10px] uppercase tracking-[0.08em]',
-                affinity.good
-                  ? 'border-verdigris-500/60 bg-verdigris-700/25 text-verdigris-100'
-                  : 'border-oxblood-500/60 bg-oxblood-500/15 text-oxblood-300',
-              )}
-            >
-              {affinity.label}
-            </span>
-          </HoverCard>
+          <AffinityTag affinity={affinity} unitName={unit.name} />
         </li>
       ))}
     </ul>
@@ -764,91 +913,9 @@ function UnitDossier({ unit }: { unit: UnitOption }) {
  * Same hover contract as everything else: `HoverCard` at `size="window"`, with the frame drawn by
  * `InfoWindow` rather than by the card.
  */
-/**
- * What a tag says when you point at it (maintainer request, 2026-09-14).
- *
- * A torn scrap with a name on it and one line of what the thing does. It was an `InfoWindow`: an
- * eyebrow with the unit's name, a stamped icon, a tone-coloured header bar and the answer filed
- * under a heading reading "What it does". That is a panel, and a panel is what you open; this is a
- * label you brushed past with a pointer, and it has to be readable in the time it takes to move on.
- *
- * The name is kept because a tag can be pointed at from a row of six and the card has to say which
- * one answered. Everything else went: the eyebrow repeated the unit whose card the pointer is
- * already inside, and the section heading announced the sentence underneath it instead of being it.
- *
- * The tone stays on the *name* rather than on a frame. A rule that takes something away (§ the
- * Colossus, which cannot ride) has to keep reading as a cost, and the red word does that without
- * a coloured bar that made a two-line hover look like a dialog.
+/*
+ * `TagScrap`, `RuleTag`, `ModifierTag` and the characteristic chip moved to `units/tags.tsx` on
+ * 2026-09-20, unchanged. A second card draws this same band now: `UnitSheet`, the dossier for a
+ * unit nobody can hold, whose chips were dead until the Combine leaders' card began opening on a
+ * click. One copy, so a rule's wording cannot differ between the roster and a legendary's sheet.
  */
-function TagScrap({ title, ink, children }: { title: string; ink: string; children: ReactNode }) {
-  return (
-    <>
-      <h4 className={cn('font-stamp text-[14px] leading-none', ink)}>{title}</h4>
-      <span aria-hidden className="ink-rule mt-2 block" />
-      <p className="mt-2 font-body text-[13px] leading-relaxed text-ink-200">{children}</p>
-    </>
-  );
-}
-
-/**
- * A rule, which is not a modifier and must not look like one.
- *
- * `taunts` and `mends` change what *happens* rather than what a number is, and a player who reads
- * `SHIELD LINE` in the same verdigris chip as `CLOSE QUARTERS` will file it as another +25%. Brass,
- * which is the chrome the interface already uses for "this is a mechanism", and always first in the
- * row: a rule outranks a percentage.
- *
- * A rule can also take something away, and then it is oxblood (maintainer request, 2026-09-08): the
- * Colossus is too big to ride, and a red chip is the difference between reading that as a perk and
- * reading it as the reason the column is walking. Same red as the locked box and the missing
- * clauses, so the card has one colour for "this is against you".
- */
-function RuleTag({ rule }: { rule: UnitOption['rules'][number] }) {
-  const tone = ruleTone(rule);
-  return (
-    <HoverCard
-      label={rule.label}
-      card={
-        <TagScrap title={rule.label} ink={RULE_INK[tone]}>
-          {rule.description}
-        </TagScrap>
-      }
-    >
-      <span
-        className={cn(
-          'flex h-5 items-center whitespace-nowrap rounded-sm border px-1.5',
-          'font-display text-[10px] font-semibold uppercase tracking-[0.08em]',
-          RULE_CHIP[tone],
-        )}
-      >
-        {rule.label}
-      </span>
-    </HoverCard>
-  );
-}
-
-function ModifierTag({ modifier }: { modifier: UnitOption['modifiers'][number] }) {
-  return (
-    <HoverCard
-      label={modifier.label}
-      card={
-        <TagScrap title={modifier.label} ink="text-verdigris-100">
-          {modifier.description}{' '}
-          {/*
-           * The condition, folded into the sentence rather than filed under its own heading.
-           *
-           * It had one ("When it happens"), and the heading was longer than the answer: `when` is a
-           * clause, "in the city" or "when holding ground", never a sentence. Dropping it outright
-           * would have been the easy reading of the ask and the wrong one, because Ambush without
-           * "in the city" is a flat +25% and the whole point of the modifier is that it is not.
-           */}
-          <span className="text-ink-400">Counts {modifier.when}.</span>
-        </TagScrap>
-      }
-    >
-      <span className="flex h-5 items-center whitespace-nowrap rounded-sm border border-verdigris-500/60 bg-verdigris-700/25 px-1.5 font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-verdigris-100">
-        {modifier.label}
-      </span>
-    </HoverCard>
-  );
-}

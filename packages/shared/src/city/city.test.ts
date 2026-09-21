@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findUnit } from '../units/index.js';
+import { COMBINE_LEADERS, combineSlotBudget } from './combine.js';
 import { RESOURCE_KEYS } from '../resources.js';
 import {
   CITY_DISTRICTS,
@@ -16,6 +17,7 @@ import {
   UNIFIED_BONUSES,
   findDistrict,
   findLocation,
+  garrisonOf,
   isDistrictRaidable,
   isSeatOfGovernmentPower,
   raidTargetOf,
@@ -58,7 +60,8 @@ import {
   sameHolder,
   startingControl,
   startingHolder,
-  SQUATTED_PLACES_PER_OPEN_DISTRICT,
+  COMBINE_UNOCCUPIED,
+  SQUATTED_PLACES,
   territoryEffectsFor,
   type LocationControl,
 } from './control.js';
@@ -125,7 +128,8 @@ describe('the map (§A4)', () => {
       allegiance: 'government',
       isSeatOfPower: true,
     });
-    expect(raidTargetOf(findDistrict('rustyard')!)).toEqual({
+    // Chrome Row: the Steelbelt is the Combine's since 2026-09-19.
+    expect(raidTargetOf(findDistrict('chrome-row')!)).toEqual({
       allegiance: 'independent',
       isSeatOfPower: false,
     });
@@ -364,8 +368,8 @@ describe('who holds what (§A4)', () => {
    * ground is squatted rather than owned.
    */
   it('shuts Combine ground and leaves independent ground open but squatted', () => {
-    const combine = findDistrict('undergrid');
-    const open = findDistrict('rustyard');
+    const combine = findDistrict('datavault-sigma');
+    const open = findDistrict('chrome-row');
     expect(combine).toBeDefined();
     expect(open).toBeDefined();
     if (!combine || !open) return;
@@ -381,7 +385,9 @@ describe('who holds what (§A4)', () => {
     const empty = open.locations.filter(
       (location) => startingHolder(location, open).kind === 'unoccupied',
     );
-    expect(held).toHaveLength(SQUATTED_PLACES_PER_OPEN_DISTRICT);
+    // Chrome Row is the one open district the squatters hold *half* of (maintainer, 2026-09-19).
+    expect(held).toHaveLength(SQUATTED_PLACES['chrome-row'] ?? 0);
+    expect(held).toHaveLength(open.locations.length / 2);
     // ...and there is genuinely somewhere to walk onto, which is the whole point.
     expect(empty.length).toBeGreaterThan(0);
 
@@ -392,6 +398,58 @@ describe('who holds what (§A4)', () => {
     expect(Math.min(...held.map(defenseOf))).toBeGreaterThanOrEqual(
       Math.max(...empty.map(defenseOf)),
     );
+  });
+
+  /**
+   * The three exceptions the maintainer wrote into the map on 2026-09-19, each a different
+   * shape of ground and each pinned by name so a retune of the default cannot move it.
+   */
+  it('hands the Undergrid to the looters whole, with its gate shut', () => {
+    const undergrid = findDistrict('undergrid');
+    if (!undergrid) throw new Error('no undergrid');
+    expect(undergrid.allegiance).toBe('independent');
+    for (const location of undergrid.locations) {
+      expect(startingHolder(location, undergrid), location.id).toEqual({ kind: 'looters' });
+      expect(
+        Object.keys(startingGarrison(location, undergrid)).length,
+        location.id,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it('leaves the Fence Camp and its market empty, so the Glasshouse gate is down', () => {
+    const fields = findDistrict('glasshouse-fields');
+    if (!fields) throw new Error('no glasshouse');
+    expect(fields.allegiance).toBe('government');
+    const holders = Object.fromEntries(
+      fields.locations.map((location) => [location.id, startingHolder(location, fields).kind]),
+    );
+    expect(holders['glasshouse-fields-fence']).toBe('unoccupied');
+    expect(holders['glasshouse-fields-fieldgate']).toBe('unoccupied');
+    // ...and the other six are the Combine's, or the district would be nobody's.
+    expect(Object.values(holders).filter((kind) => kind === 'government')).toHaveLength(
+      fields.locations.length - 2,
+    );
+    for (const id of COMBINE_UNOCCUPIED) {
+      expect(startingGarrison(findLocation(id)!, fields)).toEqual({});
+    }
+  });
+
+  it('is the Combine on six districts and the looters on two', () => {
+    const contested = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
+    const combine = contested.filter((d) => d.allegiance === 'government').map((d) => d.id);
+    const independent = contested.filter((d) => d.allegiance !== 'government').map((d) => d.id);
+    expect(combine.sort()).toEqual(
+      [
+        'neon-docks',
+        'rustyard',
+        'glasshouse-fields',
+        'datavault-sigma',
+        'blacksite-7',
+        'combine-spire',
+      ].sort(),
+    );
+    expect(independent.sort()).toEqual(['chrome-row', 'undergrid'].sort());
   });
 
   it('gives an unoccupied location nobody to fight', () => {
@@ -539,6 +597,20 @@ describe('NPC garrisons (§A3, §A4)', () => {
     }
   });
 
+  /**
+   * The ladder `combineSlotBudget`'s own doc quotes, measured (bug pass, 2026-09-20).
+   *
+   * The comment on that constant is where a reader goes to find out how thin the Docks' gate is
+   * before opening the game, and four of its six figures were a retune out of date: it said 6, 12,
+   * 19 and 53 against the 10, 15, 22 and 54 the function returns, so the first Combine gate a new
+   * crew meets was described as two thirds of what it is. Pinned here rather than left as prose,
+   * because prose cannot fail.
+   */
+  it('stands the Combine on the ladder its own doc quotes', () => {
+    const at = (difficulty: number) => combineSlotBudget(difficulty, 5);
+    expect([1, 2, 3, 6, 8, 10].map(at)).toEqual([10, 15, 22, 54, 83, 118]);
+  });
+
   it('garrisons every location with units that actually exist', () => {
     for (const district of CITY_DISTRICTS) {
       for (const location of district.locations) {
@@ -549,29 +621,100 @@ describe('NPC garrisons (§A3, §A4)', () => {
     }
   });
 
-  it('puts regulars on Combine ground and rabble on everything else', () => {
+  it('puts the Combine on Combine ground and the player roster on everything else', () => {
     const withPlaces = CITY_DISTRICTS.filter((district) => district.locations.length > 0);
-    const combine = withPlaces.find((district) => district.allegiance === 'government');
-    const independent = withPlaces.find((district) => district.allegiance !== 'government');
-    expect(combine && independent).toBeTruthy();
-    if (!combine || !independent) return;
+    const combine = withPlaces.filter((district) => district.allegiance === 'government');
+    const independent = withPlaces.filter((district) => district.allegiance !== 'government');
+    expect(combine.length).toBeGreaterThan(0);
+    expect(independent.length).toBeGreaterThan(0);
 
     /*
      * Every *garrisoned* location in the district, not the first one in the list.
      *
      * Only the best few locations in an open district are squatted at all (`squattedIn`), so
      * `locations[0]` is very often empty ground, and asserting on it made this test a statement
-     * about the authoring order of one array. Adding two locations to the Rustyard was enough to
-     * turn it green-to-red without a single rule changing.
+     * about the authoring order of one array.
      */
-    const tiers = (district: typeof combine) =>
+    const units = (district: (typeof combine)[number]) =>
       district.locations
         .flatMap((location) => Object.keys(startingGarrison(location, district)))
-        .map((id) => findUnit(id)?.tier);
-    expect(tiers(combine).length).toBeGreaterThan(0);
-    expect(tiers(independent).length).toBeGreaterThan(0);
-    expect(tiers(combine).every((tier) => tier !== 'rabble')).toBe(true);
-    expect(tiers(independent).some((tier) => tier === 'rabble')).toBe(true);
+        .map((id) => findUnit(id));
+    for (const district of combine) {
+      const standing = units(district);
+      expect(standing.length, district.id).toBeGreaterThan(0);
+      // The regime fields its own people and nobody else's (`UnitSpec.faction`).
+      expect(
+        standing.every((unit) => unit?.faction === 'combine'),
+        district.id,
+      ).toBe(true);
+    }
+    for (const district of independent) {
+      const standing = units(district);
+      expect(standing.length, district.id).toBeGreaterThan(0);
+      expect(
+        standing.every((unit) => unit !== undefined && unit.faction === undefined),
+        district.id,
+      ).toBe(true);
+      expect(
+        standing.some((unit) => unit?.tier === 'rabble'),
+        district.id,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * The ladder the maintainer set (2026-09-19): Levy on the cheapest ground, Greycoats behind
+   * them, Enforcers from the Annexes, Suppressors from the Blacksite, all of it in the CCS. Pinned
+   * by district rather than by difficulty band, so a retune of a district's difficulty that moved
+   * its garrison up a rung is noticed.
+   */
+  it('steps the Combine garrison up the districts the maintainer named', () => {
+    const faces = (id: string): string[] => {
+      const district = findDistrict(id);
+      if (!district) throw new Error(id);
+      return [
+        ...new Set(
+          district.locations.flatMap((location) =>
+            Object.keys(startingGarrison(location, district)),
+          ),
+        ),
+      ].sort();
+    };
+    // The Docks: conscripts only, and the lightest gate in the game.
+    expect(faces('neon-docks')).toEqual(['civic_levy']);
+    expect(faces('rustyard')).toEqual(['civic_levy', 'greycoat']);
+    expect(faces('glasshouse-fields')).toEqual(['civic_levy', 'greycoat']);
+    expect(faces('datavault-sigma')).toEqual(['greycoat', 'street_enforcers', 'syndic']);
+    expect(faces('blacksite-7')).toEqual(['executioner', 'street_enforcers', 'suppressor']);
+    expect(faces('combine-spire')).toEqual([
+      'directive_xero',
+      'greycoat',
+      'street_enforcers',
+      'suppressor',
+    ]);
+  });
+
+  it('stands each leader on his own plot, once, and nowhere else', () => {
+    for (const leader of COMBINE_LEADERS) {
+      const district = findDistrict(leader.districtId);
+      const plot = findLocation(leader.locationId);
+      if (!district || !plot) throw new Error(leader.unitId);
+      expect(plot.districtId).toBe(leader.districtId);
+      expect(startingGarrison(plot, district)[leader.unitId]).toBe(1);
+      for (const other of district.locations.filter((one) => one.id !== plot.id)) {
+        expect(startingGarrison(other, district)[leader.unitId], other.id).toBeUndefined();
+      }
+    }
+    // ...and the sentence on the district screen names the units that actually stand there.
+    for (const district of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
+      const words = garrisonOf(district);
+      const standing = new Set(
+        district.locations.flatMap((location) => Object.keys(startingGarrison(location, district))),
+      );
+      if (standing.has('suppressor')) expect(words, district.id).toMatch(/Suppressor/);
+      if (standing.has('street_enforcers')) expect(words, district.id).toMatch(/Enforcer/);
+      if (standing.has('civic_levy')) expect(words, district.id).toMatch(/Levy/);
+    }
   });
 
   it('garrisons hard ground more heavily than easy ground', () => {
@@ -654,7 +797,7 @@ describe("the city's geography", () => {
     }
   });
 
-  /** The seat of the Directorate looks down the middle of the frame. */
+  /** The seat of the Combine looks down the middle of the frame. */
   it('puts the Combine Spire at the top, centred', () => {
     const spire = byId('combine-spire');
     expect(spire.position.y).toBe(Math.min(...CITY_DISTRICTS.map((d) => d.position.y)));

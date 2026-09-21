@@ -35,7 +35,7 @@ function tally(rarities: readonly ItemRarity[]): Record<ItemRarity, number> {
 }
 
 describe('every page says what is on it', () => {
-  it('gives all two hundred and fifty-five a description', () => {
+  it('gives all two hundred and fifty-eight a description', () => {
     for (const { blueprint, page } of ALL_PAGES) {
       expect(
         page.description.length,
@@ -43,7 +43,7 @@ describe('every page says what is on it', () => {
       ).toBeGreaterThan(20);
       expect(page.description.trim(), `${page.id} is padded`).toBe(page.description);
     }
-    expect(ALL_PAGES.length).toBe(255);
+    expect(ALL_PAGES.length).toBe(258);
   });
 
   /**
@@ -61,7 +61,16 @@ describe('every page says what is on it', () => {
     }
   });
 
-  it('never writes the same name on two pages', () => {
+  /**
+   * Named for what it checks, which is not what it used to claim.
+   *
+   * The title was "never writes the same name on two pages" while the key was
+   * `${blueprint.id}:${page.name}`, so two documents were always free to share a page name and
+   * two of them do. See the note on `BlueprintPage.name`: within one document is the real rule,
+   * and the player-facing name that has to be unique across the catalogue is the *item* name,
+   * which carries the blueprint in front of it.
+   */
+  it('never writes the same name on two pages of one document', () => {
     const names = ALL_PAGES.map(({ blueprint, page }) => `${blueprint.id}:${page.name}`);
     expect(new Set(names).size).toBe(names.length);
   });

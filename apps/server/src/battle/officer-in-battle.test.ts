@@ -630,7 +630,7 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
       perimeter: 0,
       perimeterCaught: 0,
       perimeterLost: 0,
-      cowed: 0,
+      intimidated: 0,
       infamy: 0,
       officer: null,
       units: [
@@ -665,6 +665,10 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
             rounds: 3,
             decidedOnPower: false,
             settledBy: 'standing' as const,
+            // No Combine leader over this ground, so no name on it and neither toll was taken.
+            underLeader: null,
+            turned: {},
+            executed: 0,
             attacker: side('Your crew', SENT, FELL),
             defender: side('The looters', 5, 5),
             log: ['decided'],

@@ -7,7 +7,6 @@ import {
   ridingUnitSlots,
   upgradedStats,
   unitSlotsUsed,
-  isCombatUnit,
   deploymentIsOpen,
   emptyDeployment,
   mulberry32,
@@ -19,10 +18,11 @@ import {
   type BattleSide,
   type Base,
   type Movement,
+  type LineRules,
   type ScheduledBattle,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
-import { forceSize, mergeArmies, removeForce } from './forces.js';
+import { forceSize, isFightingForce, mergeArmies, removeForce } from './forces.js';
 import { tallyDeployed } from '../feats/tally.js';
 import { defendingBaseOf } from './ground.js';
 import { sideForce } from './side.js';
@@ -125,6 +125,16 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     return { kind: 'refused', reason: 'needs_infamy' };
   }
 
+  /*
+   * Read once, here, rather than three times further down.
+   *
+   * The seat check and the ring's toll each opened their own read of the same crew, and the
+   * fighting-force gate below needs a third: `carriers_fight` is a crew effect, so whether a
+   * porter may be sent at all is a question about this crew and not about the catalogue.
+   */
+  const effects = standingEffectsFor(repos, base, now);
+  const lineRules: LineRules = { carriersFight: effects.carriersFight, unitMarks: {} };
+
   let army = base.army;
   let onTheGround = { ...existing.army };
   let ring = { ...existing.perimeter };
@@ -155,8 +165,11 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
        * catch `NaN`, and the roster took a `NaN` count. `DeployRequestSchema` now keys on the unit
        * id so nothing like that arrives, and this is the second lock: a handler that reads a key
        * off an object should be the one deciding which keys it will read.
+       *
+       * Asked through `isFightingForce` rather than `isCombatUnit` so this door reads the same
+       * rule the engine's rounds do: a crew holding `carriers_fight` may send its porters.
        */
-      if (!isCombatUnit(unitId)) return 'not_a_fighting_force';
+      if (!isFightingForce({ [unitId]: 1 }, lineRules)) return 'not_a_fighting_force';
       if (delta > 0) {
         if ((army[unitId] ?? 0) < delta) return 'not_enough_units';
         army = removeForce(army, { [unitId]: delta });
@@ -195,7 +208,7 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   if (seats > 0) {
     const aboard = ridingUnitSlots(
       mergeArmies(mergeArmies(onTheGround, ring), mergeArmies(departing.army, departing.perimeter)),
-      standingEffectsFor(repos, base, now).anyRide,
+      effects.anyRide,
     );
     if (aboard > seats) return { kind: 'refused', reason: 'no_seats' };
   }
@@ -213,7 +226,6 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
      * getting away from a lost fight and nothing at all for the same units walking out of the
      * deployment a day earlier.
      */
-    const effects = standingEffectsFor(repos, base, now);
     const { caught, escaped } = perimeterToll(
       pulled,
       enemyRing(repos, battle, side),
