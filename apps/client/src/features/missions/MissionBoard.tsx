@@ -455,7 +455,10 @@ export function MissionBoard({
   return (
     <div className="flex flex-col xl:min-h-0 xl:flex-1" data-testid="mission-board">
       {/* Where you are, and the way out either side of it. */}
-      <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-3">
+      {/* `py-2.5`, and the board count on this line rather than a row of its own (maintainer,
+          2026-09-21): the page gained the crews-out line above the board, and a 34px row holding
+          five words of small capitals was the cheapest thing on the screen to give back. */}
+      <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-1.5">
         <StepArrow
           direction="back"
           label="Previous area"
@@ -471,10 +474,20 @@ export function MissionBoard({
           >
             {area.name}
           </h3>
-          <p className="mt-0.5 truncate font-body text-[12px] leading-snug text-ink-300">
-            {area.blurb}
-          </p>
+          <p className="truncate font-body text-[12px] leading-snug text-ink-300">{area.blurb}</p>
         </div>
+        {/*
+         * The area's pay premium used to sit under the header ("Ground pays +18%", or "Standing
+         * rate" on the misc board). Removed at the maintainer's request (2026-09-10): the figure
+         * is still folded into every haul on the cards below, so the header was saying the same
+         * number a third time. `area.payPercent` stays on the wire for the cards and the launch
+         * freeze. What is left of that row is the board count, here beside the arrow it belongs
+         * to.
+         */}
+        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+          Board <span className="tabular-nums text-ink-200">{at + 1}</span> of{' '}
+          <span className="tabular-nums text-ink-200">{areas.length}</span>
+        </span>
         <StepArrow
           direction="on"
           label="Next area"
@@ -485,19 +498,6 @@ export function MissionBoard({
         />
       </header>
 
-      <div className="flex items-center gap-3 border-b border-surface-700 px-4 py-2">
-        {/*
-         * The area's pay premium used to be quoted here ("Ground pays +18%", or "Standing rate"
-         * on the misc board). Removed at the maintainer's request (2026-09-10): the figure is still
-         * folded into every haul on the cards below, so the header was saying the same number a
-         * third time. `area.payPercent` stays on the wire for the cards and the launch freeze.
-         */}
-        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          Board <span className="tabular-nums text-ink-200">{at + 1}</span> of{' '}
-          <span className="tabular-nums text-ink-200">{areas.length}</span>
-        </span>
-      </div>
-
       {area.offers.length === 0 ? (
         <p
           className="px-4 py-10 text-center font-body text-[13px] leading-relaxed text-ink-300"
@@ -506,7 +506,7 @@ export function MissionBoard({
           One of your crews is working this area. Nothing else here is on offer until they are home.
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-3 p-4 xl:min-h-0 xl:flex-1 xl:gap-4">
+        <div className="grid grid-cols-3 gap-3 p-2 xl:min-h-0 xl:flex-1">
           {/*
            * The grid takes the slack the header leaves, so the cards finish on the same line as the
            * crews beside them. `items-stretch` is the grid default and is what carries it into the
@@ -576,14 +576,23 @@ function OfferCard({
 }) {
   return (
     <article
-      className="card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border border-surface-700 p-3"
+      className="card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border border-surface-700 p-2.5"
       data-testid={`offer-${offer.templateId}`}
     >
+      {/* Some of these bands gave up a few pixels on 2026-09-21, when the crews-out line arrived
+          above the board: the brief's floor is a three-line brief, and the rows under it are one
+          line of their own face plus their padding.
+
+          The title is **not** one of them, and the 4px it was going to give were put back the
+          same day. Measured, the longest name the catalogue can deal ("Checkpoint Shakedown" and
+          "Reservoir Expedition", both 20 characters) wraps to two lines and fills exactly 32px of
+          a 32px box at every width the game is drawn at: an `h-8` here is not a band with a tight
+          fit, it is a band with none, and the first name a character longer sits on the brief. */}
       <h4 className="h-9 min-w-0 break-words font-display text-[13px] font-semibold uppercase leading-tight tracking-[0.12em] text-ink-100 xl:text-[14px]">
         {offer.name}
       </h4>
 
-      <p className="h-16 min-w-0 overflow-hidden break-words font-body text-[12px] leading-snug text-ink-300 xl:h-auto xl:min-h-[4rem] xl:flex-1 xl:text-[13px]">
+      <p className="h-16 min-w-0 overflow-hidden break-words font-body text-[12px] leading-snug text-ink-300 xl:h-auto xl:min-h-[3.5rem] xl:flex-1 xl:text-[13px]">
         {offer.brief}
       </p>
 
@@ -592,7 +601,7 @@ function OfferCard({
         <Cell label="Travel" value={formatDuration(offer.travelMinutes)} hint="each way, ×2" />
         <Cell label="On site" value={formatDuration(offer.durationMinutes)} hint="the job" />
       </dl>
-      <div className="flex h-7 items-center justify-between gap-2">
+      <div className="flex h-6 items-center justify-between gap-2">
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
           Round trip
         </span>
@@ -617,17 +626,22 @@ function OfferCard({
           past the fold. Below `xl` the board has the whole width and the old height still fits: at
           1024x768 the extra rem pushed the card's own bottom tags under the fold of the screen.
           Fixed either way, for the same reason as before: three cards, one line of buttons. */}
-      <div className="flex h-28 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-32">
-        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          Expected haul
+      {/* A line shorter than it was (2026-09-21): the loot-slot count sits on the label's own
+          line, right of it, rather than on a line of its own under the chips. That is 20px off
+          the band in every case, the six-resource worst case included, so the fixed heights come
+          down by the same: 6rem and 6.75rem where they were 7 and 8. */}
+      <div className="flex h-24 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-[6.75rem]">
+        <span className="flex items-baseline justify-between gap-2 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+          <span>Expected haul</span>
+          <span
+            className="shrink-0 tracking-[0.14em]"
+            data-tip="Loot slots. Send enough bags or you leave some of it on the floor"
+          >
+            <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> loot slots to
+            carry
+          </span>
         </span>
         <RewardLine rewards={offer.rewards} />
-        <span
-          className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300"
-          data-tip="Loot slots. Send enough bags or you leave some of it on the floor"
-        >
-          <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> loot slots to carry
-        </span>
         {/* §F1b: the category, and never the page. Which sheet it turns out to be is not decided
             until the crew is home, so a card that named it would turn a run into a shopping trip
             and the anticipation is most of what the reward is. */}
@@ -646,7 +660,7 @@ function OfferCard({
           screen at all. Both figures, because a run that comes home empty still pays a fifth and
           a player choosing between a safe job and a risky one is choosing between those two. */}
       <div
-        className="flex h-7 items-center justify-between gap-2 border-t border-surface-700/70 pt-1.5"
+        className="flex h-6 items-center justify-between gap-2 border-t border-surface-700/70 pt-1.5"
         data-tip={`${offer.failedXp.toLocaleString()} XP even if it goes wrong`}
       >
         <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">

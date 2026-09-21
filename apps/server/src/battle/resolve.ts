@@ -1340,11 +1340,17 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   /*
    * The Executioner's bodies come off before the medics see the list, and go back on after.
    *
-   * His card says an attacker left under a tenth of a life is finished where it stands, and an
+   * His card says an attacker brought to his line is finished where it stands, and an
    * Infirmary that walks those home makes it false. The winner's losses are the only list the
-   * medics work from, and a *winning attacker* carries every executed body inside them: measured
-   * on 2026-09-21 over 400 winning attacks on the Blacksite, he finished 129 bodies and all 129
-   * sat in the 447 winner losses this line recovers a share of.
+   * medics work from, and a *winning attacker* carries every executed body inside them.
+   *
+   * Re-measured on 2026-09-21 after the damage walk became a per-body ledger, because the first
+   * figure here was taken before it and badly understated the scale: over 1400 Blacksite fights,
+   * 565 of them winning attacks, **1341 of 1481** winning-attacker losses were executed, which is
+   * 90.5%. Under his line nearly everything the fire kills is finished rather than wounded, so on
+   * his ground the Infirmary is close to switched off rather than shaved. That is the card doing
+   * what it says; it is recorded here so the next reader does not size the exemption off a
+   * number that was already wrong by a factor of ten.
    *
    * `removeForce` here rather than a smaller recovery percentage, because the two are not the same
    * claim: a percentage would still hand some of them back, just fewer, and what is wanted is that

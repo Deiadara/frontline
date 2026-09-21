@@ -11,7 +11,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
 import { useSession } from '../../store/session';
-import { leaderGroundLine, leaderTagLine, spokenName } from './CombineLeader';
+import { leaderGroundLine, leaderOption, leaderTagLine, spokenName } from './CombineLeader';
 import { DistrictView } from './DistrictView';
 
 /**
@@ -206,6 +206,24 @@ describe('the leader on the district screen', () => {
     expect(screen.getByTestId('combine-leader-ground')).toHaveTextContent(
       detail.combineLeader!.powerLine,
     );
+  });
+
+  /**
+   * The power mark says what the power does, dead or alive (maintainer, 2026-09-21).
+   *
+   * It used to open `While she stood:` once the leader was gone, which turned the one line that
+   * explains the ability into a line about the leader's health. Whether he still stands is the
+   * district tag's job, and the ground line under the garrison already says it in full.
+   */
+  it('keeps the power mark on what the power does once the leader is dead', () => {
+    const detail = F.districtDetailFor('combine-spire');
+    const leader = detail.combineLeader!;
+    const sheet = findUnit(leader.unitId)!;
+    const dead = leaderOption(sheet, { ...leader, alive: false });
+    const alive = leaderOption(sheet, { ...leader, alive: true });
+    expect(dead.rules[0]!.description).toBe(leader.powerLine);
+    expect(dead.rules[0]!.description).toBe(alive.rules[0]!.description);
+    expect(dead.rules[0]!.description).not.toMatch(/stood/i);
   });
 
   /**

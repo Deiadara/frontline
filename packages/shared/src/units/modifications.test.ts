@@ -18,7 +18,7 @@ import {
   unitModificationsOfRarity,
   type UnitModificationRarity,
 } from './modifications.js';
-import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
+import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type StatKey, type UnitStats } from './stats.js';
 
 /** The maintainer's figure, written here rather than read off the array it is checking. */
 const CATALOGUE_SIZE = 31;
@@ -205,7 +205,9 @@ describe('rarity is a claim about the numbers', () => {
     for (const key of UNIT_STAT_KEYS) {
       const delta = effect[key];
       if (delta === undefined) continue;
-      total += UNIT_RATING_KEYS.includes(key) ? delta : delta * OPEN_FIGURE_WEIGHT;
+      total += (UNIT_RATING_KEYS as readonly StatKey[]).includes(key)
+        ? delta
+        : delta * OPEN_FIGURE_WEIGHT;
     }
     return total;
   };

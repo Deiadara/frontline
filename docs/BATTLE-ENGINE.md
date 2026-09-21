@@ -33,8 +33,15 @@ first a free volley against a stack that is already dead.
    `OFFICER_TARGET_SHARE` of what an equal threat would.
 3. **Medics.** The _receiving_ side's own medics take a share off what is landing, before it lands
    (`mend`), capped at `MAX_MEND_SHARE`.
-4. **Damage.** Applied to a health pool; units fall out of the pool. Overkill on a stack is lost
-   rather than spilling onto the next one.
+4. **Damage.** Walked down the stack's bodies, front to back (`takeDamage`). A stack keeps one
+   health value per standing body (`Stack.bodies`): the front body is the only one ever part-hurt,
+   everything behind it is whole, and `pool` and `alive` are its sum and its length. The front body
+   absorbs what it can and dies at zero, the remainder passes to the next, and whatever is left
+   when the last body falls is lost rather than spilling onto another stack. The Executioner is a
+   line inside this walk: on the Blacksite a body sent against him is finished the moment it is
+   brought to `EXECUTIONER_THRESHOLD` of a life, and what it had left below the line is forfeited,
+   neither spent on that body nor carried to the next. An officer's body is never on the line
+   (§D4).
 5. **Morale.** Every stack tests: see below. Stacks that break stop firing.
 6. **Pursuit.** A stack that broke this round is run down for `PURSUIT_LOSS` of itself while it
    disengages.
@@ -48,9 +55,14 @@ round it is settled on `residualPower`, which counts broken stacks at `BROKEN_WE
   compared with the other side's total menace. Where the pressure is greater the excess buys
   silence, cheapest first: the shakiest units do not fire this fight. They still stand in the line
   and still take casualties, so intimidation is not a way of killing anybody.
-- **The ambush** (`ambushShare`). Only the attacker can take one, and only with units built for it
-  and enough stealth to beat what the enemy can see. Worth a fraction of a round, never a whole one:
-  a free round is a coin flip decided before the fight starts.
+- **The ambush** (`ambushShare`). Only the attacker can take one, and only with enough stealth to
+  beat what the enemy can see. Worth a fraction of a round, never a whole one: a free round is a
+  coin flip decided before the fight starts. Three terms multiply: how far the side's stealth
+  beats the enemy's, how much of the force is actually hidden, and `AMBUSH_ROUND_SHARE`. The
+  middle one is where the `ambush` mark is paid for, since a marked body hides whole and an
+  unmarked one at `STEALTH_UNTAGGED_SHARE`. It was missing until 2026-09-21, and without it the
+  mark was worth exactly nothing: the stealth term is a weighted mean, so for a force whose
+  stacks are marked alike the weight cancelled and the mark bought no share at all.
 
 ## Morale
 
@@ -59,8 +71,13 @@ that morale runs out _faster the lower it already is_ (`fragility`). Four states
 wavering, broken. Breaking is a one-way door inside a fight.
 
 Each round a stack takes shock from what it lost, what the enemy's intimidation is worth, being
-outnumbered, and any ally that broke beside it (`ROUT_CASCADE`, which is what turns a bad round
-into a collapse). `WINNING_RELIEF` subtracts most of the enemy's casualties from its own: losing a
+outnumbered, and how much of the line broke beside it (`ROUT_CASCADE`, which is what turns a bad
+round into a collapse). The cascade is charged on the **share of the side's bodies** that ran,
+not on the number of stacks: as a count it charged the same ten points whether two men bolted or
+half the army did, and that made a force strictly worse for containing anything fragile. Measured
+on 2026-09-21, sixty-two Razors beat a Combine line 45% of the time and the same sixty-two with
+three Sparks added won none of six hundred; with twenty Sparks they won 86%, so it was a pit and
+not a slope. `composition.test.ts` sweeps that shape now. `WINNING_RELIEF` subtracts most of the enemy's casualties from its own: losing a
 tenth while the other side loses a fifth is a victory, and a model that charged morale for it made
 every even fight end in mutual collapse.
 
@@ -68,6 +85,93 @@ A round where the stack lost nothing it did not give back, nobody broke beside i
 outnumbered is a **quiet round**, and it steadies by `MORALE_RECOVERY` less whatever the enemy is
 worth in ambient fear. Because `WINNING_RELIEF` already zeroes the casualty term for a stack that is
 winning its exchange, the side that is ahead is the side that recovers.
+
+Each rung of the ladder costs fire (`moraleFireShare`): a steady stack fires in full, a shaken one
+at `SHAKEN_FIRE`, a wavering one at `WAVERING_FIRE`. Until 2026-09-21 the ladder had no consequence
+before `routed`, so morale decided how long the losing side lasted and never who lost; see "The
+eight ratings" below for why that changed and how the casualty term is netted now.
+
+## The eight ratings
+
+The maintainer's rule (2026-09-21) for the eight bounded ratings on a sheet: speed, stealth,
+range, armour, penetration, morale, evasion and intimidation. Damage and vitality are not in it;
+they are unbounded and are the dials a unit is finished with after these are set.
+
+**Each rating has its own use, and their overall power sits on a fixed ladder around the average.**
+Speed and stealth are a fifth under the average rating, because speed also moves units between
+locations and stealth also does the spying. Range is a tenth under. Armour and penetration are the
+average. Morale is a tenth over. Evasion and intimidation are a fifth over. The ladder is symmetric,
+and it means two sheets with the same total points are not equal: the one that put its points into
+evasion rather than range should generally be the stronger unit.
+
+| rating       | target |
+| ------------ | ------ |
+| speed        | -20%   |
+| stealth      | -20%   |
+| range        | -10%   |
+| armour       | 0      |
+| penetration  | 0      |
+| morale       | +10%   |
+| evasion      | +20%   |
+| intimidation | +20%   |
+
+"Power" has a definition, and it is what `ratings.test.ts` measures. A Razors mirror is stood up
+with `SideSetup.flat` setting every rating on both sides to 50, except the two offensive ratings,
+penetration and intimidation, at 25, which is where the roster sits against armour and morale
+(on the kink, where the sums are equal, a rating measures as the whole of its mechanic rather than
+the margin). The field is 24 wide so combat width is in play. One rating is then raised by 25 on
+the defender and, separately, on the attacker, and two things are read: the extra army the other
+side now needs to win half its fights, and how many more of the raised side's bodies come home,
+rout included. Power is the average of those four numbers, and the ladder is read relative to
+the mean **of the seven that are on rungs**. Stealth is out of the divisor because it is the one
+rating the ladder already excuses: leaving it in made every other rung's reading move whenever
+stealth did, and a scale whose zero point drifts with a rating nobody is asserting is not a
+scale. Measured both ways across the 2026-09-21 ambush change, the seven read identically under
+the mean of seven and moved by up to three points under the mean of eight, on absolute powers
+that had not moved. A second protocol, everything at 20 and one rating raised to 80, is the extreme case
+and is printed for reading rather than pinned, because at 20 morale every line is a round from
+breaking and the numbers are about that cliff.
+
+Measured on 2026-09-21 at 60 seeds after the ambush weighting landed, the harness reads speed 24,
+stealth 8, range 26, armour 28, penetration 27, morale 30, evasion 32, intimidation 36. Against
+the mean of the seven rungs (28.9) that is -16, -9, -2, -8, +3, +10 and +23 per cent, which is
+the ladder to within its own noise on all seven. Stealth is the one that cannot get there: its whole combat value is
+the rout roll (`STEALTH_ESCAPE_WEIGHT`, clamped at `MAX_FLEE_CHANCE`) and the opening strike
+(`AMBUSH_ROUND_SHARE`, now open to unmarked units at `STEALTH_UNTAGGED_SHARE`), and both saturate
+before it reaches a fifth under the average. It is pinned as the lowest of the eight rather than
+at a number.
+
+What the retune changed, so that each rating has a use of its own:
+
+- **Evasion** scales with the enemy's engagement edges (`exchange`): fire that arrives from reach
+  is dodged more (`EVASION_VS_REACH`), an attacker with a closing edge has caught the target and
+  is dodged less (`EVASION_VS_CLOSING`), and `MAX_MISS` caps the whole thing. It was a flat miss
+  chance that interacted with nothing.
+- **Range** fires from the second rank (`SECOND_RANK_FIRE`): bodies queued behind the frontage
+  still contribute in proportion to their range, so range is worth the most on narrow ground.
+  Reach is also a duel now, bounded by the target's range as well as its speed, so two Sniper
+  lines no longer both collect it against each other.
+- **Morale** has a fire cost on every rung (`moraleFireShare`): steady lines fire in full, shaken
+  at nine tenths, wavering at three quarters. Until then the ladder had no consequence before
+  `routed`, and since `WINNING_RELIEF` zeroes the casualty shock for whichever side is winning the
+  exchange, morale decided how long the loser lasted and never who lost.
+- **Intimidation** is mostly its per-round pressure (`INTIMIDATION_PRESSURE`, down from 14 to 6)
+  and `CASUALTY_SHOCK` went up from 14 to 35 in the same pass, so a line now breaks mainly from
+  what it loses rather than from a clock the enemy's sheet sets.
+- **Stealth** counts towards the opening strike on unmarked units at `STEALTH_UNTAGGED_SHARE`.
+- **Casualties** are what a line breaks from. `CASUALTY_SHOCK` went from 14 to 35, and two things
+  had to change with it because the retune made them audible. The enemy's loss share is now
+  weighted by bodies (`meanLoss`): one Sniper dying beside twenty Razors is a twentieth, not half.
+  And the shock is charged on the _increase in a stack's cumulative net deficit_ (its own losses so
+  far less `WINNING_RELIEF` of the enemy's, `Stack.charged`) rather than on each round's losses
+  netted against each round's. Netted round by round, whether your body fell in the same round as
+  theirs was a coin flip worth a full shock, and in a six-body skirmish +15% vitality _lost_
+  twelve points of win rate for moving one death from round three to round four. Charged on the
+  cumulative deficit, the same skirmish is monotone in every channel.
+
+Tune against the harness, not against a feeling: change a constant, run the test, read the
+ladder. The roster's own pins (`balance.test.ts`, the Combine ladders) are a separate question
+and are re-statted on top of this, not the other way round.
 
 ## After the fight
 

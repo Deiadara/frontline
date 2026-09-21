@@ -11,6 +11,7 @@ import {
   maxTrainable,
   trainingCost,
   trainingSeconds,
+  type RatingKey,
   type StatKey,
   type TrainingBreakdown,
   type UnitOption,
@@ -347,17 +348,19 @@ export function UnitCard({
               label={unit.name}
               size="window"
               className="w-full"
-              card={<UnitDossier unit={unit} />}
+              card={<UnitDossier unit={unit} enemy={enemy} />}
             >
               <span className="block truncate text-left font-display text-lg font-bold leading-tight tracking-[0.06em] text-ink-100">
                 {unit.name}
               </span>
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                 {UNIT_TIER_LABELS[unit.tier]} ·{' '}
-                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.trainedAt].name} ·{' '}
+                {enemy ? 'The Combine' : BUILDING_CATALOG[unit.trainedAt].name}
                 {/* The housing budget is called Unit Slots everywhere now (maintainer request,
-                    2026-09-15), so the cost a unit puts on it is a slot, not a "pop". */}
-                {unit.unitSlots} {unit.unitSlots === 1 ? 'slot' : 'slots'}
+                    2026-09-15), so the cost a unit puts on it is a slot, not a "pop". Not on a
+                    Combine sheet: nothing of theirs sleeps in the player's beds (maintainer,
+                    2026-09-21). */}
+                {!enemy && ` · ${unit.unitSlots} ${unit.unitSlots === 1 ? 'slot' : 'slots'}`}
               </span>
             </HoverCard>
           </span>
@@ -392,16 +395,20 @@ export function UnitCard({
             </HoverCard>
           )}
           {/* The name is on the hover rather than printed: at this size a word beside the figure
-              costs more room than the figure itself, and `Loot` is one word nobody needs twice. */}
-          <span
-            className="flex h-[25px] shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2"
-            data-tip="Loot slots: what one of them carries home"
-          >
-            <Icon name="loot" className="h-4 w-4 text-ink-300" />
-            <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
-              {unit.stats.lootCapacity}
+              costs more room than the figure itself, and `Loot` is one word nobody needs twice.
+              Not on a Combine sheet: what one of theirs could carry home is nobody's business
+              (maintainer, 2026-09-21). */}
+          {!enemy && (
+            <span
+              className="flex h-[25px] shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2"
+              data-tip="Loot slots: what one of them carries home"
+            >
+              <Icon name="loot" className="h-4 w-4 text-ink-300" />
+              <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+                {unit.stats.lootCapacity}
+              </span>
             </span>
-          </span>
+          )}
         </header>
 
         {/*
@@ -440,7 +447,10 @@ export function UnitCard({
                 className="flex items-baseline justify-between gap-2 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2.5 py-1.5"
               >
                 <dt className="min-w-0 flex-1">
-                  <StatLabel statKey={key} />
+                  {/* No hover on the two figures (maintainer, 2026-09-21): a damage or hit-point
+                      count is self-explanatory, and a card where everything is a question is a
+                      card nobody hovers. */}
+                  <StatName statKey={key} />
                 </dt>
                 <dd className="shrink-0">
                   {combatLocked ? (
@@ -722,8 +732,21 @@ function TrainBox({ unit, training }: { unit: UnitOption; training: UnitCardTrai
   );
 }
 
-/** A stat's name, with its explainer one hover away. Shared by the figures and the bars. */
-function StatLabel({ statKey }: { statKey: StatKey }) {
+/** A stat's name as the sheet prints it. */
+function StatName({ statKey }: { statKey: StatKey }) {
+  return (
+    /* `block`, and it is not decoration: `truncate` is `overflow:hidden` plus `nowrap`, and an
+       inline span ignores overflow entirely. Without it the word is drawn at its full width
+       whatever the column is, which is how `Penetration` came to be printed across its own
+       bar in a 115px column. */
+    <span className="block truncate font-display text-[11px] uppercase tracking-[0.08em] text-ink-300">
+      {UNIT_STAT_LABELS[statKey]}
+    </span>
+  );
+}
+
+/** A rating's name, with its explainer one hover away. */
+function StatLabel({ statKey }: { statKey: RatingKey }) {
   return (
     <HoverCard
       label={UNIT_STAT_LABELS[statKey]}
@@ -744,13 +767,7 @@ function StatLabel({ statKey }: { statKey: StatKey }) {
         </div>
       }
     >
-      {/* `block`, and it is not decoration: `truncate` is `overflow:hidden` plus `nowrap`, and an
-          inline span ignores overflow entirely. Without it the word is drawn at its full width
-          whatever the column is, which is how `Penetration` came to be printed across its own
-          bar in a 115px column. */}
-      <span className="block truncate font-display text-[11px] uppercase tracking-[0.08em] text-ink-300">
-        {UNIT_STAT_LABELS[statKey]}
-      </span>
+      <StatName statKey={statKey} />
     </HoverCard>
   );
 }
@@ -802,10 +819,16 @@ function Marks({ unit }: { unit: UnitOption }) {
  * clause still in the way. All of it used to be printed on the card, which is what made the cards
  * different heights and the roster impossible to scan.
  */
-function UnitDossier({ unit }: { unit: UnitOption }) {
+function UnitDossier({ unit, enemy = false }: { unit: UnitOption; enemy?: boolean }) {
   return (
     <InfoWindow
-      eyebrow={`${UNIT_TIER_LABELS[unit.tier]} · ${unit.unitSlots} ${unit.unitSlots === 1 ? 'unit slot' : 'unit slots'}`}
+      // The slots a unit costs are only a fact about a unit the player can house. See the card's
+      // own header for why a Combine sheet leaves them off.
+      eyebrow={
+        enemy
+          ? UNIT_TIER_LABELS[unit.tier]
+          : `${UNIT_TIER_LABELS[unit.tier]} · ${unit.unitSlots} ${unit.unitSlots === 1 ? 'unit slot' : 'unit slots'}`
+      }
       title={unit.name}
       tone={unit.unlocked ? 'brass' : 'oxblood'}
       // `plate="none"`: the portrait is a painting, not a glyph, so it keeps its own frame and

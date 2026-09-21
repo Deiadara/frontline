@@ -1470,6 +1470,8 @@ export const TrainingResponseSchema = z.object({
   /** Sessions still available today, and the daily allowance they come out of. */
   sessionsLeft: z.number().int().nonnegative(),
   perDay: z.number().int().positive(),
+  /** How many people may be on the floor at once: `TRAINING_BENCHES` plus the Professor's rung. */
+  benches: z.number().int().positive(),
   gainPerSession: z.number().int().positive(),
   sessionSeconds: z.number().int().positive(),
   subjects: z.array(TrainingSubjectSchema),

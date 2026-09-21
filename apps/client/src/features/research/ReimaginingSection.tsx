@@ -152,11 +152,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
 
   return (
     <div className="flex min-h-0 flex-col gap-3 lg:h-full" data-testid="reimagining-section">
-      <p className="max-w-prose font-body text-[14px] leading-relaxed text-ink-200">
-        If you look at {REIMAGINING_PAGES_SPENT} random pages hard enough, you are guaranteed to
-        come up with some new research. That&rsquo;s how it usually works anyway.
-      </p>
-
+      {/* The sentence about how it works is on the quotation's line now (`ResearchPage`). */}
       {/*
        * The bench on the left, the inventory on the right, once there is width for both.
        *

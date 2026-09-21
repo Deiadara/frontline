@@ -22,7 +22,7 @@ import { OUTNUMBERED_RATIO } from './effects.js';
 import type { BattleOfficer } from './officer.js';
 import {
   MAX_INTIMIDATED_SHARE,
-  execute,
+  applyDamage,
   mend,
   mendShare,
   simulate,
@@ -127,8 +127,10 @@ describe('1. when the power lands, against everything that reads a sheet', () =>
    * one a refactor would make, since the two blocks look independent.
    */
   it('has the Syndic on the defence before the opening ambush is fired', () => {
-    const line = { ghosts: 20 };
-    const held = { street_enforcers: 1 };
+    // Forty Ghosts against three, since the 2026-09-21 armour retune: the case has to sit on the
+    // edge where the ambush alone kills the line bare and her armour keeps one standing.
+    const line = { ghosts: 40 };
+    const held = { street_enforcers: 3 };
     for (const seed of ['ambush-0', 'ambush-1', 'ambush-2']) {
       const bare = fight(line, held, undefined, seed);
       const backed = fight(line, held, SYNDIC, seed);
@@ -314,19 +316,18 @@ describe('3. stacking with buildings, which are the attacker’s in every Combin
    * one), so they stand in the **attacking** line, and what they undo never reaches the
    * Executioner's line.
    *
-   * The order is `mend` -> `applyDamage` -> `execute`, and this measures it on a hand-built side
-   * so no seed is involved. Ten Razors at 75 hit points each with four Stitchers behind them is
-   * full cover (`MAX_MEND_SHARE`). The front Razor is stood at 20% of a life and a round takes
-   * 15% of one off it:
-   *
-   *   * unmended it is left at 5%, under the tenth the Executioner works to, and he finishes it;
-   *   * mended the round is 6.19 rather than 11.25 and it is left at 11.75%, and he does not.
+   * The order is `mend` -> `applyDamage`, and his line runs inside the second, so this measures
+   * it on a hand-built side with no seed involved. Ten Razors with four Stitchers behind them is
+   * full cover (`MAX_MEND_SHARE`). The front Razor stands 15% of a life above his line and a round
+   * takes 15% of one off it: unmended it is brought to the line and finished, mended the round is
+   * 0.55 of that and it is left standing above it.
    */
   it("keeps a wounded attacker above his line when the attacker's medics got to it first", () => {
     const sim = fight({ razors: 10, stitchers: 4 }, { greycoat: 10 }, undefined, 'medics');
     const side = sim.attacker;
     // Stood back up, because the assertion is about one exchange rather than about this fight.
     for (const stack of side.stacks) {
+      stack.bodies = new Array<number>(stack.started).fill(stack.effective.vitality);
       stack.alive = stack.started;
       stack.pool = stack.started * stack.effective.vitality;
       stack.brokeAt = null;
@@ -334,27 +335,35 @@ describe('3. stacking with buildings, which are the attacker’s in every Combin
     }
     const razors = side.stacks.find((one) => one.unit.id === 'razors')!;
     const vitality = razors.effective.vitality;
-    const standing = 9 * vitality + 0.2 * vitality;
+    const front = (EXECUTIONER_THRESHOLD + 0.15) * vitality;
     const raw = 0.15 * vitality;
+    const stand = () => {
+      razors.bodies = [front, ...new Array<number>(9).fill(vitality)];
+      razors.alive = 10;
+      razors.pool = front + 9 * vitality;
+    };
+    let finished = 0;
+    const line = {
+      floor: EXECUTIONER_THRESHOLD,
+      count: (_unitId: string, n: number) => (finished += n),
+    };
 
     expect(mendShare(side), 'the hospital is doing everything it can').toBeCloseTo(0.45, 6);
     const cut = mend(side, new Map([[razors, raw]])).get(razors)!;
     expect(cut).toBeCloseTo(raw * 0.55, 6);
 
     // The control: the same exchange with nobody to treat it is a body on the floor.
-    razors.pool = standing - raw;
-    let finished = 0;
-    execute(side, EXECUTIONER, (_unitId, count) => (finished += count));
+    stand();
+    applyDamage(side, new Map([[razors, raw]]), line);
     expect(finished).toBe(1);
     expect(razors.alive).toBe(9);
 
-    razors.alive = 10;
-    razors.pool = standing - cut;
-    let afterMending = 0;
-    execute(side, EXECUTIONER, (_unitId, count) => (afterMending += count));
-    expect(afterMending).toBe(0);
+    stand();
+    finished = 0;
+    applyDamage(side, new Map([[razors, cut]]), line);
+    expect(finished).toBe(0);
     expect(razors.alive).toBe(10);
-    expect((razors.pool - 9 * vitality) / vitality).toBeGreaterThan(EXECUTIONER_THRESHOLD);
+    expect(razors.bodies[0]! / vitality).toBeGreaterThan(EXECUTIONER_THRESHOLD);
   });
 
   /**
@@ -429,25 +438,36 @@ describe('4. stacking with officers', () => {
   it('never finishes an officer, however far under the line they are', () => {
     const sim = fight({ razors: 10 }, { greycoat: 10 }, undefined, 'officer-exec');
     const side = sim.attacker;
+    const vitality = sheetOf(sim, 'attacker', 'razors').effective.vitality;
     side.stacks.push({
       ...sheetOf(sim, 'attacker', 'razors'),
       officer: OFFICER,
       alive: 1,
       started: 1,
-      pool: 0.05 * sheetOf(sim, 'attacker', 'razors').effective.vitality,
+      charged: 0,
+      pool: 0.3 * vitality,
+      bodies: [0.3 * vitality],
       brokeAt: null,
       suppressed: 0,
       dealt: 0,
     });
     const led = side.stacks[side.stacks.length - 1]!;
     let finished = 0;
-    execute(side, EXECUTIONER, (_unitId, count) => (finished += count));
+    const line = {
+      floor: EXECUTIONER_THRESHOLD,
+      count: (_unitId: string, n: number) => (finished += n),
+    };
+    // A blow that takes anybody else through his line: the officer takes it and is still standing.
+    applyDamage(side, new Map([[led, 0.25 * vitality]]), line);
     expect(finished).toBe(0);
     expect(led.alive).toBe(1);
 
     // The control: the same stack without the officer on it is finished where it stands.
     delete led.officer;
-    execute(side, EXECUTIONER, (_unitId, count) => (finished += count));
+    led.bodies = [0.3 * vitality];
+    led.alive = 1;
+    led.pool = 0.3 * vitality;
+    applyDamage(side, new Map([[led, 0.25 * vitality]]), line);
     expect(finished).toBe(1);
     expect(led.alive).toBe(0);
   });

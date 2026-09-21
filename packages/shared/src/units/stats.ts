@@ -307,17 +307,24 @@ export const UnitStatsSchema = z.object({
 });
 export type UnitStats = z.infer<typeof UnitStatsSchema>;
 
-/** The stat keys in display order, so a sheet cannot silently drop one. */
+/**
+ * The stat keys in display order, so a sheet cannot silently drop one.
+ *
+ * The card draws the ratings two to a row, so this order is also the pairing: speed beside
+ * stealth (how they move and whether they are seen doing it), armour beside penetration, range
+ * beside evasion, and morale beside intimidation on the last row, which are the two ends of the
+ * same mechanic (maintainer, 2026-09-21).
+ */
 export const UNIT_STAT_KEYS = [
   'speed',
   'vitality',
-  'morale',
+  'stealth',
   'armor',
   'penetration',
   'range',
   'offense',
   'evasion',
-  'stealth',
+  'morale',
   'lootCapacity',
   'intimidation',
 ] as const satisfies readonly (keyof UnitStats)[];
@@ -351,9 +358,12 @@ export const UNIT_FIGURE_KEYS = [
  * Everything genuinely scored 0..100, in display order. These are the ones a bar can tell the
  * truth about, because the track *is* the maximum.
  */
-export const UNIT_RATING_KEYS: readonly StatKey[] = UNIT_STAT_KEYS.filter(
-  (key) => !UNIT_FIGURE_KEYS.includes(key as (typeof UNIT_FIGURE_KEYS)[number]),
+export const UNIT_RATING_KEYS: readonly RatingKey[] = UNIT_STAT_KEYS.filter(
+  (key): key is RatingKey => !UNIT_FIGURE_KEYS.includes(key as (typeof UNIT_FIGURE_KEYS)[number]),
 );
+
+/** A rating's key: a stat that is scored 0..100 and drawn as a bar. */
+export type RatingKey = Exclude<StatKey, (typeof UNIT_FIGURE_KEYS)[number]>;
 
 /** The top of every rating's track. */
 export const MAX_RATING = 100;
@@ -390,25 +400,20 @@ export const UNIT_STAT_LABELS: Record<(typeof UNIT_STAT_KEYS)[number], string> =
 };
 
 /**
- * What each stat actually decides, in the player's words.
+ * What each rating actually decides, in the player's words (maintainer's copy, 2026-09-21).
  *
- * Eleven numbers on a card with nothing but a one-word label each is a spec sheet, not a decision:
- * a player comparing Razors to Scrapers can see that one has more Evasion without knowing whether
- * Evasion is worth anything. These are read off what the battle engine does with each number, and
- * they are the copy behind the hover on every stat row.
+ * Eight bars on a card with nothing but a one-word label each is a spec sheet, not a decision: a
+ * player comparing Razors to Scrapers can see that one has more Evasion without knowing whether
+ * Evasion is worth anything. This is the copy behind the hover on every rating row. The open
+ * figures (damage, vitality, loot) have none: a hit-point count explains itself.
  */
-export const UNIT_STAT_EXPLAINERS: Record<(typeof UNIT_STAT_KEYS)[number], string> = {
-  speed:
-    'How fast they cross the city, and who gets a shot away before the other side has decided anything. A column moves at its slowest unit, and a machine lends its riders its own.',
-  vitality: 'How much punishment one of them absorbs before they are out of the fight.',
-  morale: 'How far it has to go badly before they break and run rather than hold the line.',
-  armor: 'Taken off every hit that lands. Cheap weapons stop mattering against enough of it.',
-  penetration:
-    'How much of a target’s armour this gets through. Worth exactly as much as the target is wearing, and nothing at all against something in rags.',
-  range: 'How long they get to shoot before the fight closes and range stops counting.',
-  offense: 'What you feel when they land a hit.',
-  evasion: 'How often the other side misses. Worth most against many small attacks.',
-  stealth: 'Whether a raid is noticed on the way in, and whether anyone comes looking after.',
-  lootCapacity: 'How much comes back on the truck when the ground is taken.',
-  intimidation: 'Sometimes you do not even need to land a hit.',
+export const UNIT_STAT_EXPLAINERS: Record<RatingKey, string> = {
+  speed: 'How fast they move both in and out of battles.',
+  stealth: 'How easy they are to notice, both before and during a battle.',
+  armor: 'How durable they are against enemy attacks.',
+  penetration: 'How effective their attacks are against armor.',
+  range: 'How far they can attack from.',
+  evasion: 'How often they can dodge enemy attacks.',
+  morale: 'How hard it is to break them and make them run away.',
+  intimidation: 'How likely they are to make the enemy run away.',
 };

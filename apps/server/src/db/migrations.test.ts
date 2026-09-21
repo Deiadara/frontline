@@ -8,6 +8,7 @@ import {
   BUILDING_KINDS,
   BadgeSchema,
   DEFAULT_BADGE,
+  RESEARCH_ITEMS,
   ResearchStateSchema,
   SideAnalysisSchema,
   startingEconomy,
@@ -494,6 +495,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0104_directive_xero.sql',
     '0105_intimidated.sql',
     '0106_intimidated_again.sql',
+    '0107_second_chair.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -1798,6 +1800,85 @@ describe('0106: the save that already ran the broken sweep', () => {
     };
     expect(analysis.attacker.intimidated).toBe(7);
     expect(analysis.defender.intimidated).toBe(2);
+    db.close();
+  });
+});
+
+/**
+ * 0107: the Professor's retired fourth rung leaves no ghost in a save.
+ *
+ * "Working Papers" became "Second Chair" (maintainer, 2026-09-21) and a rung's id comes off its
+ * name, so `working_papers` is an id the catalogue no longer has. Nothing throws over it: the
+ * research column is an array of bare strings and `researchEffects` skips what it cannot find.
+ * What goes wrong is a number. `feats/snapshot.ts` reads `research_done` as the raw array length,
+ * so a crew that finished the old rung is counted one programme ahead of what it holds for ever,
+ * while the Lab's own progress bar, which matches against the catalogue, reads one lower. The
+ * migration deletes the id rather than renaming it: a crew that paid for a research discount did
+ * not pay for a training bench.
+ */
+describe('0107, the retired Professor rung', () => {
+  const THEN = '0106_intimidated_again.sql';
+
+  const legacy = (rows: readonly string[][]): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    rows.forEach((technologies, index) => {
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run(`u107-${index}`, `legacy107-${index}`, 'x', NOW);
+      insert(db, 'bases', {
+        id: `b107-${index}`,
+        owner_id: `u107-${index}`,
+        name: `Legacy ${index}`,
+        district_id: 'rustyard',
+        created_at: NOW,
+        research_json: JSON.stringify({ active: null, technologies }),
+      });
+    });
+    return db;
+  };
+
+  const known = (db: AppDatabase, index: number): string[] => {
+    const row = db.prepare('SELECT research_json FROM bases WHERE id = ?').get(`b107-${index}`) as {
+      research_json: string;
+    };
+    return (JSON.parse(row.research_json) as { technologies: string[] }).technologies;
+  };
+
+  const ROWS = [
+    ['tech_reading_lists', 'tech_working_papers', 'tech_seminar'],
+    ['tech_reading_lists', 'tech_seminar'],
+    [],
+    ['tech_working_papers'],
+  ];
+
+  it('drops the retired id and leaves every other rung where it was', () => {
+    const db = legacy(ROWS);
+    // The id carries the `tech_` prefix `idOf` puts on every rung. Asserted here as well as used
+    // above, because a migration that filtered the bare name would be a silent no-op on every
+    // save in existence and every other line of this test would still pass.
+    expect(RESEARCH_ITEMS.map((item) => item.id)).not.toContain('tech_working_papers');
+    expect(RESEARCH_ITEMS.map((item) => item.id)).toContain('tech_second_chair');
+    expect(known(db, 0), 'the fixture does not carry the retired rung').toContain(
+      'tech_working_papers',
+    );
+    runMigrations(db);
+
+    // Dropped, and the survivors keep their order: a rung list is read in track order elsewhere.
+    expect(known(db, 0)).toEqual(['tech_reading_lists', 'tech_seminar']);
+    expect(known(db, 3)).toEqual([]);
+    // A save that never finished it is untouched, empty array included.
+    expect(known(db, 1)).toEqual(['tech_reading_lists', 'tech_seminar']);
+    expect(known(db, 2)).toEqual([]);
+    db.close();
+  });
+
+  it('changes nothing on a second run', () => {
+    const db = legacy(ROWS);
+    runMigrations(db);
+    const after = ROWS.map((_row, index) => known(db, index));
+    runMigrations(db);
+    expect(ROWS.map((_row, index) => known(db, index))).toEqual(after);
     db.close();
   });
 });

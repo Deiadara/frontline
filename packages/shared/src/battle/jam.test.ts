@@ -55,9 +55,11 @@ function stackOf(
     effective,
     alive,
     pool: alive * effective.vitality,
+    bodies: new Array<number>(alive).fill(effective.vitality),
     morale: effective.morale,
     brokeAt: null,
     started: alive,
+    charged: 0,
     suppressed: 0,
     dealt: 0,
     // What `buildStacks` puts here: the sheet with the workshop's refits on and the ground off.
@@ -99,7 +101,7 @@ describe('what a jamming line takes off the other side', () => {
 
   it('stops the moment the last of them is down, or has run', () => {
     const line = stackOf(RAZORS, 30);
-    const dead = { ...stackOf(NETRUNNERS, 10), alive: 0 };
+    const dead = { ...stackOf(NETRUNNERS, 10), alive: 0, pool: 0, bodies: [] };
     const routed = { ...stackOf(NETRUNNERS, 10), brokeAt: 2 };
     expect(jamPercent(sideOf([dead, line]))).toBe(0);
     expect(jamPercent(sideOf([routed, line]))).toBe(0);
@@ -329,15 +331,36 @@ describe('the jam, in a fight', () => {
       return jammed / alone;
     };
 
-    const armoured = gainAgainst({ juggernauts: 12 });
+    /*
+     * Twenty-four Juggernauts since 2026-09-21. Armour is worth less per point now, so the gap is
+     * smaller, and on this field six hundred Razors kill every smaller armoured line to the last
+     * body in round one, jam or no jam, which reads as a ratio of exactly one and proves nothing.
+     *
+     * The bar has come down twice, and each time against a freshly measured control rather than
+     * against the shipped number alone, because a floor that drifts up to meet the code is a test
+     * that has stopped asking anything:
+     *
+     * | | ratio, as shipped | ratio, armour half deleted | bar |
+     * | --- | --- | --- | --- |
+     * | before 2026-09-21 | 2.05 | 1.37 | 1.7 |
+     * | after the armour retune | 1.47 | ~1.2 | 1.4 |
+     * | after the ambush weighting | **1.387** | **1.134** | **1.25** |
+     *
+     * The last row moved because the opening volley is now scaled by how much of the force is
+     * hidden (`ambushShare`): two hundred Netrunners carry the `ambush` mark and six hundred
+     * Razors do not, so the jammed line and the bare line no longer open with the same share of a
+     * round. The mechanic is untouched, and the control says so: delete the armour half and the
+     * reading falls to 1.134, a fifth of the way from the bar to nothing.
+     */
+    const armoured = gainAgainst({ juggernauts: 24 });
     const unarmoured = gainAgainst({ razors: 200 });
     expect(armoured, 'the jam did nothing extra to an armoured enemy').toBeGreaterThan(
-      unarmoured * 1.7,
+      unarmoured * 1.25,
     );
   });
 
   it('kills more of an armoured enemy over the whole fight', () => {
-    const enemy = { juggernauts: 12 };
+    const enemy = { juggernauts: 24 };
     expect(fight({ razors: 600, netrunners: 200 }, enemy).theirDead).toBeGreaterThan(
       fight({ razors: 600 }, enemy).theirDead,
     );

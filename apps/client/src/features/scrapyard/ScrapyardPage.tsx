@@ -500,27 +500,51 @@ export function ScrapyardPage() {
          * next to the discount, which is the other fact on this screen about what a crew can
          * afford right now.
          */}
-        <div className="ml-auto flex items-stretch gap-2" data-testid="scrapyard-head-boxes">
-          {BUILDS.has(view) && (
-            <button
-              type="button"
-              onClick={() => setReadyOnly(!readyOnly)}
-              aria-pressed={readyOnly}
-              data-testid="scrapyard-ready-only"
-              className={cn(
-                'brushed relative flex shrink-0 items-center gap-2 rounded-md border px-3',
-                'font-display text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
-                readyOnly
-                  ? 'border-bile-300/70 bg-bile-300/10 text-bile-300'
-                  : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-bile-300/50 hover:text-bile-300',
-              )}
-            >
-              <Icon name="check" className="h-3.5 w-3.5" />
-              Ready to build
-              <span className="tabular-nums opacity-80">{ready}</span>
-            </button>
-          )}
-          <YardInfoBox data={data} />
+        {/*
+          The line every other screen's head carries now (maintainer, 2026-09-21), running from
+          the last bench to whatever the right-hand group starts with. On the Components tab,
+          where Ready to build is not drawn at all, it simply runs on to the yard's own box
+          instead of stopping short of a gap.
+
+          The rule and the boxes share a wrapper, and that is structural rather than tidy. The
+          rule takes the slack with `flex-1`; the boxes were held against the right edge by
+          `ml-auto`, and the two cannot sit in one flex line together, because an auto margin
+          absorbs the free space *before* `flex-grow` is applied and the line would collapse to
+          nothing. Dropping the auto margin instead is what broke `visual.spec.ts`: at 1024x768
+          the benches want 719px and the boxes 447 of a 950px head, so the boxes have always
+          wrapped to a second line there, and `ml-auto` is what kept them on its right edge. The
+          wrapper is that second line: it wraps as one, keeps `justify-end` inside it, and the
+          rule fills whatever is left of it on either arrangement.
+
+          No `min-w-0` on the wrapper, deliberately, though every other rule in this pass carries
+          one. Its default `min-width: auto` is what makes its minimum the boxes' own width, so
+          the head wraps it whole; with `min-w-0` it shrank under the `shrink-0` boxes inside it
+          and they were drawn straight across the benches, overlapping them by 216px.
+        */}
+        <div className="flex flex-1 items-stretch justify-end gap-2">
+          <span aria-hidden className="ink-rule my-auto block min-w-0 flex-1" />
+          <div className="flex shrink-0 items-stretch gap-2" data-testid="scrapyard-head-boxes">
+            {BUILDS.has(view) && (
+              <button
+                type="button"
+                onClick={() => setReadyOnly(!readyOnly)}
+                aria-pressed={readyOnly}
+                data-testid="scrapyard-ready-only"
+                className={cn(
+                  'brushed relative flex shrink-0 items-center gap-2 rounded-md border px-3',
+                  'font-display text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                  readyOnly
+                    ? 'border-bile-300/70 bg-bile-300/10 text-bile-300'
+                    : 'border-surface-600 bg-surface-800/60 text-ink-300 hover:border-bile-300/50 hover:text-bile-300',
+                )}
+              >
+                <Icon name="check" className="h-3.5 w-3.5" />
+                Ready to build
+                <span className="tabular-nums opacity-80">{ready}</span>
+              </button>
+            )}
+            <YardInfoBox data={data} />
+          </div>
         </div>
       </div>
 

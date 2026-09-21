@@ -1,4 +1,5 @@
 import {
+  REIMAGINING_PAGES_SPENT,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
   RESEARCH_TRACK_BLURBS,
@@ -25,7 +26,7 @@ import { cn } from '../../lib/cn';
 import { DrawnDisc, DrawnFace } from '../../components/ui/DrawnMarks';
 import { useCancelResearch, useMe, useResearch, useStartTech } from '../../lib/queries';
 import { announceWaived } from '../../lib/deltas';
-import { PageShell } from '../game/PageShell';
+import { InfoNote, PageShell } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { MarkStamp } from '../../components/ui/MarkStamp';
 import { TrackSigil } from './TrackSigil';
@@ -606,7 +607,22 @@ export function ResearchPage() {
     id === 'programmes' ? `${finished}/${technologies.length}` : null;
 
   return (
-    <PageShell quote="Research is finding out which bastard lied." wide fills>
+    <PageShell
+      quote="Research is finding out which bastard lied."
+      // How the bench works, top right on the quotation's line while the bench is open
+      // (maintainer, 2026-09-21). It was a paragraph over the bench, read once and in the way of
+      // the sockets after that.
+      action={
+        section === 'reimagining' ? (
+          <InfoNote label="How Reimagining Works" drawn>
+            If you look at {REIMAGINING_PAGES_SPENT} random pages hard enough, you are guaranteed to
+            come up with some new research. That&rsquo;s how it usually works anyway.
+          </InfoNote>
+        ) : undefined
+      }
+      wide
+      fills
+    >
       {/*
        * A fixed frame, a strip of tabs, and one workspace under them, which is the market's shape.
        * Stacked in a scrolling column, the tracks and the documents are each tall enough to push
@@ -623,6 +639,8 @@ export function ResearchPage() {
               active={section === entry.id}
             />
           ))}
+          {/* The crew screen's line, running on from the last tab (maintainer, 2026-09-21). */}
+          <span aria-hidden className="ink-rule block min-w-0 flex-1" />
         </div>
 
         {/* The bench in flight, over whichever tab is open: a programme running is a fact about

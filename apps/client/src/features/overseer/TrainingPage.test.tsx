@@ -5,7 +5,7 @@ import {
   type TrainingResponse,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as F from '../../../e2e/fixtures';
@@ -177,6 +177,33 @@ describe('the floor at the foot of the training sheet', () => {
     expect(fresh, 'a bar five minutes in is empty').toBeGreaterThan(0);
     expect(deep, 'a bar forty-five minutes in is full').toBeLessThan(100);
     expect(deep, 'the older hour is not drawn further along').toBeGreaterThan(fresh + 10);
+  });
+
+  /**
+   * One bench until the Professor's Second Chair (maintainer, 2026-09-21). The line under the
+   * quotation says how many are in use, and every drill on an idle sheet reads the server's own
+   * refusal while the floor is full, so the dialog behind it cannot offer an hour the route would
+   * refuse.
+   */
+  it('dims every drill while the floor is full, and opens them with a second bench', () => {
+    board.current = { ...F.trainingResponse, benches: 1, subjects: [IDLE, WORKING] };
+    drawSheet();
+    expect(screen.getByTestId('training-floor-line')).toHaveTextContent('1 of 1 bench in use');
+    // The sheet opens on the Overseer, who is the one on the hour: the idle officer's sheet is
+    // where the floor is the only thing in the way.
+    fireEvent.click(within(screen.getByTestId('training-subjects')).getByText(IDLE.name));
+    fireEvent.focus(screen.getByTestId(`drill-${UNDER}`));
+    expect(screen.getByText('The floor is taken')).toBeInTheDocument();
+  });
+
+  it('keeps the drills open while a bench is free', () => {
+    board.current = { ...F.trainingResponse, benches: 2, subjects: [IDLE, WORKING] };
+    drawSheet();
+    expect(screen.getByTestId('training-floor-line')).toHaveTextContent('1 of 2 benches in use');
+    fireEvent.click(within(screen.getByTestId('training-subjects')).getByText(IDLE.name));
+    fireEvent.focus(screen.getByTestId(`drill-${UNDER}`));
+    expect(screen.queryByText('The floor is taken')).toBeNull();
+    expect(screen.getByText(/An hour buys/)).toBeInTheDocument();
   });
 
   it('says so plainly when nobody is on the floor', () => {

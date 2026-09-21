@@ -4,12 +4,14 @@ import {
   askingWage,
   assessJoin,
   buildingLevel,
+  cancelDrill,
   dismissalFee,
   officerPortraitId,
   payrollBonusPercent,
   payrollFits,
   payrollLedger,
   playerLevelGrants,
+  sessionFor,
   type Base,
   type Commander,
   type JoinBlocker,
@@ -334,16 +336,45 @@ export function releaseOfficer(
   const commitments = { ...base.economy.payroll.commitments };
   delete commitments[officerId];
 
+  /*
+   * Somebody let go mid-drill takes their hour with them (MOU, 2026-09-21).
+   *
+   * A session is keyed by `subjectId`, and nothing outside `base.commanders` ever removes one:
+   * this path dropped the officer and left the drill standing on the board. Before the floor had
+   * a bench limit that was invisible, because a stranded session only blocked the person who no
+   * longer existed. Now `trainingBlocker` counts `sessions.length` against `TRAINING_BENCHES`, so
+   * one of these jams the *whole floor* for the rest of the hour: every drill on every sheet
+   * answers "The floor is taken" while the screen, which counts the floor off the subjects it can
+   * see, reads "0 of 1 bench in use" and prints "The floor is empty". There is no way out from
+   * the client either, because the only source of session ids on that screen is the subject list
+   * the officer has just left.
+   *
+   * `cancelDrill` rather than a bare filter: it is the one function that knows what taking a
+   * drill off the board involves, which is the day's session handed back and the no-repeat memory
+   * put back to what it read before the hour started. Nothing was learned, so nothing is charged.
+   */
+  const held = sessionFor(base.training, officerId);
+  const training =
+    held === undefined
+      ? base.training
+      : cancelDrill(base.training, held.id, new Date().toISOString());
+
   const released: Base = {
     ...base,
     resources: { ...base.resources, caps: base.resources.caps - adminCaps(fee, admin) },
     economy: { ...base.economy, payroll: { ...base.economy.payroll, commitments } },
-    commanders: base.commanders.filter((held) => held.id !== officerId),
+    commanders: base.commanders.filter((officer) => officer.id !== officerId),
+    training,
   };
 
   repos.bases.updateResources(released.id, released.resources);
   repos.bases.updateEconomy(released.id, released.economy);
   repos.bases.updateCommanders(released.id, released.commanders);
+  // After the commanders write: `updateTraining` takes the roster too, and handing it the list
+  // the officer is still on would put them straight back on the books.
+  if (held !== undefined) {
+    repos.bases.updateTraining(released.id, released.training, released.commanders);
+  }
 
   return {
     kind: 'released',

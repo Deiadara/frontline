@@ -2204,6 +2204,10 @@ export const trainingResponse: TrainingResponse = {
   serverNow: NOW,
   sessionsLeft: 3,
   perDay: TRAININGS_PER_DAY,
+  // Two benches (the Professor's Second Chair): with the one the game starts on, the idle
+  // officer's every drill would read "The floor is taken" while the Overseer's hour runs, and
+  // the free half of the screen would be a sheet of dimmed rows.
+  benches: 2,
   gainPerSession: TRAINING_GAIN,
   sessionSeconds: TRAINING_SECONDS,
   subjects: [

@@ -34,10 +34,12 @@ export { MAX_PACK_BONUS, PACK_HALF, packBonusPercent } from '../units/collective
 import { exchange, threatWeight } from './matchup.js';
 import {
   moraleDelta,
+  moraleFireShare,
   moraleState,
   PURSUIT_LOSS,
   type MoraleShock,
   type MoraleState,
+  WINNING_RELIEF,
 } from './morale.js';
 import { drawLuck } from './luck.js';
 import {
@@ -117,6 +119,17 @@ export const MAX_CONCENTRATION = 1.6;
  * goes on growing without limit. An attempt to price that was tried and reverted; the note below
  * this one says what happened and why the fire is the wrong lever.
  */
+/**
+ * How much of a queued body's fire still lands, per point of its range (maintainer, 2026-09-21).
+ *
+ * Combat width says a force past the frontage is queuing, not fighting. That was true of every
+ * unit alike, so range bought nothing on narrow ground, which is backwards: a rifle line's second
+ * rank shoots over the first. A stack with range 100 now fires `SECOND_RANK_FIRE` of its queued
+ * share on top of its engaged share; a stack with range 0 fires none of it. This is the use range
+ * has that no other rating does, and it is what the frontage mechanic always implied.
+ */
+export const SECOND_RANK_FIRE = 0.8;
+
 export function engagedUnits(side: SideState, frontage: number): number {
   return Math.min(fighting(side), Math.max(1, effectiveFrontage(side, frontage)));
 }
@@ -181,14 +194,27 @@ export function frontageShare(side: SideState, frontage: number): number {
  *
  * The `ambush` sheet was, until now, a second `urban_bonus` with a different name: same context,
  * same arithmetic, no reason to prefer one over the other. This is what it was always supposed to
- * mean, and it is the only combat use `stealth` has: a stack gets its opening strike in proportion
- * to how much of the force can hide and how badly the other side can see.
+ * mean, and with the rout roll it is the combat use `stealth` has: a stack gets its opening strike
+ * in proportion to how much of the force can hide and how badly the other side can see.
  *
- * Deliberately a *fraction* of a round rather than a whole one. A free round is a coin flip decided
- * before the fight starts, which is the thing every design note on first-strike mechanics warns
- * about.
+ * Still a *fraction* of a round: the share is scaled by the stealth edge, which is never more than
+ * one and in practice a quarter or less. A free round is a coin flip decided before the fight
+ * starts, which is the thing every design note on first-strike mechanics warns about. One, from
+ * 0.6, on 2026-09-21, as far as the eight-ratings ladder could push stealth (see
+ * `STEALTH_UNTAGGED_SHARE` and `docs/BATTLE-ENGINE.md`, "The eight ratings").
  */
-export const AMBUSH_ROUND_SHARE = 0.6;
+export const AMBUSH_ROUND_SHARE = 1;
+
+/**
+ * How much a stack without the `ambush` mark still counts towards the opening strike, per body.
+ *
+ * Stealth was a rating that did nothing in a fight unless the sheet also carried the mark: every
+ * other unit's stealth was read only on the way out (`rout.ts`). The maintainer's 2026-09-21 rule
+ * that the eight ratings sit at set strengths against each other needs stealth to be worth
+ * something to a line that has it, so an unmarked stack now hides at this share of a marked one.
+ * Zero would be the old behaviour exactly.
+ */
+export const STEALTH_UNTAGGED_SHARE = 0.6;
 
 /**
  * What an Opening Volley is worth, as a share of one round's fire (`UnitSpec.strikes_first`).
@@ -287,13 +313,39 @@ export interface Stack {
   effective: Effective;
   /** Units still standing. */
   alive: number;
-  /** Health pool, `alive × vitality` at full strength. */
+  /** Health pool, `alive × vitality` at full strength. The sum of {@link Stack.bodies}. */
   pool: number;
+  /**
+   * The same health, one entry per standing body, front to back.
+   *
+   * This is the ledger the damage walk runs on (`takeDamage`) and the one any per-body rule reads.
+   * The first entry is the body taking fire now and the only one that is ever part-hurt; every
+   * body behind it is whole. `alive` is this array's length and `pool` is its sum, and both are
+   * rebuilt from it by `settle` after every write, so nothing writes to either directly.
+   *
+   * Introduced 2026-09-21 for the Executioner, whose rule is about a body's own health rather than
+   * a stack's total, and kept as the model for anything else that wants to be: a unit that hits
+   * harder when it is low, a medic that treats the worst-hurt first, a report that says who came
+   * home carrying a wound.
+   */
+  bodies: number[];
   morale: number;
   /** The round it broke, or null while it is still fighting. */
   brokeAt: number | null;
   /** Units that started the fight: the denominator for every casualty figure. */
   started: number;
+  /**
+   * The net casualty deficit this stack has already been charged morale for (`moralePhase`).
+   *
+   * The casualty shock is charged on the *increase* in a stack's cumulative net deficit (its own
+   * losses so far less `WINNING_RELIEF` of the enemy's), not on each round's losses netted
+   * against each round's. Netting round by round made the shock depend on whether your body fell
+   * in the same round as theirs, which for a six-body stack is a coin flip: measured 2026-09-21,
+   * +15% vitality on the attacker of a small skirmish lost twelve points of win rate because it
+   * moved one death from round three to round four. This ledger is what makes the charge
+   * path-independent.
+   */
+  charged: number;
   /**
    * This stack's offense on its own sheet, refits folded in and the ground left out.
    *
@@ -361,11 +413,27 @@ export interface Stack {
   turncoat?: boolean;
 }
 
+/**
+ * Flat points added to every unit's ratings on one side, after the sheet and the ground are read.
+ *
+ * The balance harness's hook (`docs/BATTLE-ENGINE.md`, "The eight ratings"): it is how a test
+ * builds a unit with every rating at 50 and raises one of them, without a roster entry for it.
+ * Negative values are allowed and every result goes through `capRating`. Not a game bonus and
+ * not reachable from anything a player does; nothing in `apps/` sets it.
+ */
+export type RatingFlats = Partial<
+  Record<
+    'speed' | 'stealth' | 'range' | 'armor' | 'penetration' | 'morale' | 'evasion' | 'intimidation',
+    number
+  >
+>;
+
 export interface SideSetup {
   name: string;
   army: Army;
   defending: boolean;
   territory?: TerritoryEffects;
+  flat?: RatingFlats;
   /**
    * What this side has bolted to each unit, three slots apiece (`units/loadout.ts`).
    *
@@ -644,9 +712,10 @@ function changeOfHeart(
     // The whole bodies leave first; the wounded one at the front stays with its own side.
     const whole = Math.min(take, Math.max(0, Math.floor(stack.pool / vitality)));
     if (whole <= 0) continue;
-    stack.alive -= whole;
+    // The whole bodies stand at the back of the ledger; the wounded one at the front stays.
+    const crossing = stack.bodies.splice(stack.bodies.length - whole, whole);
     stack.started -= whole;
-    stack.pool -= whole * vitality;
+    settle(stack);
     to.stacks.push({
       ...stack,
       effective: {
@@ -657,7 +726,9 @@ function changeOfHeart(
       alive: whole,
       started: whole,
       pool: whole * vitality,
+      bodies: crossing,
       morale: standAt,
+      charged: 0,
       brokeAt: null,
       suppressed: 0,
       dealt: 0,
@@ -707,47 +778,82 @@ function applyPresence(defender: SideState, presence: CombinePower | undefined):
   }
 }
 
+/** Rebuilds the two summaries from the ledger. Every write to a stack's health ends here. */
+function settle(stack: Stack): void {
+  stack.alive = stack.bodies.length;
+  stack.pool = stack.bodies.reduce((total, hp) => total + hp, 0);
+}
+
 /**
- * The Executioner (`city/combine.ts`): what an exchange leaves under his threshold does not live.
+ * A ledger cut from a pool: the remainder at the front, whole bodies behind it.
  *
- * A stack is whole bodies plus one wounded unit at the front (`pool` against `vitality`). After
- * every exchange on `side`, a wounded front unit under `threshold` of a life is finished: the
- * pool loses the remainder and the stack loses the body. At most one per stack per exchange, on
- * the wounded unit only, which is what "falls below the line from an attack" means in a model
- * that has no second wounded unit to look at. Global: every stack opposite him, whether or not it
- * is trading shots with the stack he stands in, because he is a rule about the field and not a
- * matchup.
- *
- * Returns the loss fraction per stack the way {@link applyDamage} does, so the round folds it
- * into the same morale reading as the fire that did the wounding. `count` takes the bodies for
- * the report, **by unit id**: who he finished matters as much as how many, because a body he
- * finished is not one an Infirmary gets to hand back (`Simulation.executedForce`).
+ * A pool the engine produced always has at least `(alive - 1) × vitality` in it, so the cut is
+ * exact. A pool that does not (a hand-built stack of ten bodies all at 40%, say) has no front and
+ * back to speak of, and is spread evenly instead, which keeps the one thing such a stack can
+ * still be asked about, its health per body, where it was.
  */
-export function execute(
-  side: SideState,
-  presence: CombinePower | undefined,
-  count: (unitId: string, finished: number) => void,
-): Map<Stack, number> {
-  const lost = new Map<Stack, number>();
-  if (presence?.kind !== 'executioner') return lost;
-  for (const stack of side.stacks) {
-    if (stack.alive <= 0 || stack.officer) continue; // §D4: an officer falls injured, not finished.
-    const vitality = stack.effective.vitality;
-    const wounded = stack.pool - (stack.alive - 1) * vitality;
-    if (wounded <= 0 || wounded >= vitality * presence.threshold) continue;
-    const before = stack.alive;
-    stack.pool -= wounded;
-    stack.alive -= 1;
-    if (stack.suppressed > 0) {
-      stack.suppressed = Math.min(
-        stack.alive,
-        Math.round((stack.suppressed * stack.alive) / before),
-      );
+function bodiesFromPool(alive: number, pool: number, vitality: number): number[] {
+  if (alive <= 0 || pool <= 0) return [];
+  const remainder = pool - (alive - 1) * vitality;
+  if (remainder <= 0) return new Array<number>(alive).fill(pool / alive);
+  const bodies = new Array<number>(alive).fill(vitality);
+  bodies[0] = Math.min(vitality, remainder);
+  return bodies;
+}
+
+/**
+ * The Executioner's line, as `takeDamage` needs it: where a body dies, and who to tell.
+ *
+ * `floor` is the share of a life at which a body under him is finished (`EXECUTIONER_THRESHOLD`),
+ * and `count` takes the bodies for the report and the settle (`Simulation.executedForce`).
+ */
+export interface Execution {
+  floor: number;
+  count: (unitId: string, finished: number) => void;
+}
+
+/**
+ * Walks one round's damage down a stack's bodies, front to back, and takes the dead off it.
+ *
+ * Without a line, this is the arithmetic the engine has always done, written body by body: the
+ * front body absorbs what it can, dies at zero, the remainder passes to the next, and whatever is
+ * left when the last body falls is lost. Overkill on a stack is not carried anywhere.
+ *
+ * With a line, which is the Executioner (`city/combine.ts`), a body is finished the moment it
+ * would fall *to* the line rather than to zero, and what it had left below the line is forfeited:
+ * neither spent on that body nor carried to the next. The maintainer's worked example, 2026-09-21:
+ * ten bodies of 10 hp, a line at 20%, 20 damage. The first dies after 8 (it reaches 2), the
+ * second after another 8, and the last 4 leave the third at 6. The stack has 76 left, not 80, and
+ * two bodies have been finished. So under him every body is worth the top four fifths of itself.
+ *
+ * Returns how many bodies fell and how many of those fell on the line. Under him that is all of
+ * them, which is what No Survivors means: nobody in his fights dies at zero.
+ */
+export function takeDamage(
+  bodies: number[],
+  damage: number,
+  vitality: number,
+  floor = 0,
+): { fell: number; executed: number } {
+  const line = vitality * floor;
+  let left = damage;
+  let fell = 0;
+  let executed = 0;
+  while (left > 0 && bodies.length > 0) {
+    const toKill = bodies[0]! - line;
+    // A hair of tolerance, so a body brought exactly to the line by floating-point arithmetic
+    // is on it rather than a rounding error above it.
+    if (left + 1e-9 >= toKill) {
+      left -= Math.max(0, toKill);
+      bodies.shift();
+      fell += 1;
+      if (line > 0) executed += 1;
+    } else {
+      bodies[0] = bodies[0]! - left;
+      left = 0;
     }
-    count(stack.unit.id, 1);
-    lost.set(stack, 1 / before);
   }
-  return lost;
+  return { fell, executed };
 }
 
 /** Of the turncoats on `side`, what is still standing, by unit id (`Simulation.turnedAlive`). */
@@ -1053,6 +1159,15 @@ export function opensFire(side: SideState): boolean {
   );
 }
 
+/** A sheet with {@link RatingFlats} added, each rating held inside 0..100 by `capRating`. */
+function withFlats(effective: Effective, flat: RatingFlats): Effective {
+  const keys = Object.keys(flat) as (keyof RatingFlats)[];
+  if (keys.length === 0) return effective;
+  const out = { ...effective };
+  for (const key of keys) out[key] = capRating(effective[key] + (flat[key] ?? 0));
+  return out;
+}
+
 function buildStacks(
   army: Army,
   battlefield: Battlefield,
@@ -1062,6 +1177,7 @@ function buildStacks(
   upgrades: UnitLoadouts,
   /** §D1: the officer leading, appended as a one-unit stack after the roster. */
   officer?: BattleOfficer,
+  flat: RatingFlats = {},
 ): Stack[] {
   const stacks: Stack[] = [];
   for (const [unitId, count] of Object.entries(army)) {
@@ -1085,7 +1201,10 @@ function buildStacks(
     const unit = markedUnit(found, territory);
     const fitted = fittedFor(upgrades, unitId);
     const fittedSheet = upgradedStats(unit.stats, fitted);
-    const bare = effectiveStats(unit, battlefield, { defending, outnumbered }, territory, fitted);
+    const bare = withFlats(
+      effectiveStats(unit, battlefield, { defending, outnumbered }, territory, fitted),
+      flat,
+    );
     /*
      * `pack` is the one bonus that cannot be worked out from a sheet (`UnitSpec.pack`).
      *
@@ -1125,9 +1244,11 @@ function buildStacks(
       effective,
       alive: count,
       pool: count * effective.vitality,
+      bodies: new Array<number>(count).fill(effective.vitality),
       morale: effective.morale,
       brokeAt: null,
       started: count,
+      charged: 0,
       suppressed: 0,
       dealt: 0,
       // The sheet as the workshop left it, before the ground is read: see `Stack.sheet`.
@@ -1147,15 +1268,20 @@ function buildStacks(
    */
   if (officer) {
     const unit = officerUnit(officer);
-    const effective = effectiveStats(unit, battlefield, { defending, outnumbered }, territory);
+    const effective = withFlats(
+      effectiveStats(unit, battlefield, { defending, outnumbered }, territory),
+      flat,
+    );
     stacks.push({
       unit,
       effective,
       alive: 1,
       pool: effective.vitality,
+      bodies: [effective.vitality],
       morale: effective.morale,
       brokeAt: null,
       started: 1,
+      charged: 0,
       suppressed: 0,
       dealt: 0,
       // Nothing is bolted to a person, so an officer's sheet is its own (see the note above).
@@ -1431,8 +1557,19 @@ function fireRound(
         target.morale,
         side.luck,
       );
+      // Range fires from the second rank: the bodies this stack has queued behind the frontage
+      // still contribute, at `SECOND_RANK_FIRE` of their output scaled by how far they can shoot.
+      const engaged = deployed + (1 - deployed) * SECOND_RANK_FIRE * (stack.effective.range / 100);
       const damage =
-        perBody * firing * deployed * share * ROUND_DAMAGE_SCALE * concentration * swing;
+        perBody *
+        firing *
+        engaged *
+        share *
+        // The rung of the ladder the shooters are on: see `moraleFireShare`.
+        moraleFireShare(stack.morale) *
+        ROUND_DAMAGE_SCALE *
+        concentration *
+        swing;
       incoming.set(target, (incoming.get(target) ?? 0) + damage);
       stack.dealt += damage;
     }
@@ -1440,15 +1577,28 @@ function fireRound(
   return incoming;
 }
 
-/** Applies a round's damage and reports what each stack lost, as a fraction of what it had. */
-function applyDamage(side: SideState, incoming: Map<Stack, number>): Map<Stack, number> {
+/**
+ * Applies a round's damage and reports what each stack lost, as a fraction of what it had.
+ *
+ * `execution` is the Executioner's line, present only on the side he is fighting against: it is
+ * applied inside the walk (`takeDamage`), in the same pass as the damage, because his rule is
+ * about the moment a body reaches the line and not about what is left after the exchange.
+ */
+export function applyDamage(
+  side: SideState,
+  incoming: Map<Stack, number>,
+  execution?: Execution,
+): Map<Stack, number> {
   const lost = new Map<Stack, number>();
   for (const stack of side.stacks) {
     const damage = incoming.get(stack) ?? 0;
     if (damage <= 0 || stack.alive <= 0) continue;
     const before = stack.alive;
-    stack.pool = Math.max(0, stack.pool - damage);
-    stack.alive = Math.min(before, Math.ceil(stack.pool / stack.effective.vitality));
+    // §D4: the worst that happens to an officer is an injury, so the line is not drawn for them.
+    const floor = execution !== undefined && stack.officer === undefined ? execution.floor : 0;
+    const { executed } = takeDamage(stack.bodies, damage, stack.effective.vitality, floor);
+    settle(stack);
+    if (executed > 0) execution?.count(stack.unit.id, executed);
     // §D3: the intimidated stand in the line and take their share of what lands on it, so the men who
     // fall come from the whole stack rather than from the shooters first. Held constant, the
     // silenced count ate the firing count as the stack thinned: ten units with six intimidated lost
@@ -1489,17 +1639,44 @@ export function outnumberedBy(side: SideState, enemy: SideState): number {
   return fighting(enemy) / Math.max(1, fighting(side));
 }
 
+/**
+ * How much of a side just ran, as a share of the bodies standing on it: the cascade's size.
+ *
+ * Bodies rather than stacks (2026-09-21). `MoraleShock.alliesBroken` carries the reasoning and
+ * the measurement; the short version is that counting stacks charged a line the same panic for
+ * losing two men as for losing half of itself, and that made adding a small fragile unit to an
+ * army a way to lose fights it had been winning.
+ *
+ * The broken stacks are still in `side.stacks` and still count towards the denominator: they are
+ * bodies on the field running away, which is exactly what the rest of the line can see.
+ */
+export function brokenShare(side: SideState, broke: readonly Stack[]): number {
+  if (broke.length === 0) return 0;
+  const standing = side.stacks.reduce((total, stack) => total + stack.alive, 0);
+  if (standing <= 0) return 0;
+  const ran = broke.reduce((total, stack) => total + stack.alive, 0);
+  return Math.min(1, ran / standing);
+}
+
 function moralePhase(
   side: SideState,
   enemy: SideState,
-  lost: Map<Stack, number>,
-  enemyLost: number,
   battlefield: Battlefield,
   round: number,
   cascadeFrom: number,
 ): Stack[] {
   const shockBase: Omit<MoraleShock, 'casualtyFraction'> = {
-    enemyCasualtyFraction: enemyLost,
+    /*
+     * Always zero, and the field stays on {@link MoraleShock} for `moraleDelta`'s own tests.
+     *
+     * The netting moved inside `casualtyFraction` below when the charge became cumulative: what
+     * the enemy has lost is already subtracted there, at `WINNING_RELIEF`, over the whole fight
+     * rather than over one round. This used to be handed the round's figure as well and then
+     * overridden with zero at the one call, which is two ways of saying the same thing with only
+     * one of them switched on. The round's own loss maps went with it: `moralePhase` never read
+     * them (2026-09-21).
+     */
+    enemyCasualtyFraction: 0,
     enemyIntimidation: intimidation(enemy),
     outnumberedRatio: outnumberedBy(side, enemy),
     // `steady_nerve` cuts exactly this term and nothing else: the line still breaks from its own
@@ -1509,12 +1686,30 @@ function moralePhase(
     resolvePercent: side.defending ? battlefield.fortifyPercent : 0,
   };
 
+  /*
+   * The casualty term, netted on the whole fight so far rather than on this round.
+   *
+   * What the enemy has lost is read off its bodies (every stack, broken ones included: a routed
+   * body is still alive), and what this stack has lost off its own. The shock is charged on the
+   * increase in `own − WINNING_RELIEF × enemy` since the last time it was charged, floored at
+   * zero, so a body that falls a round late costs exactly what it would have cost on time. See
+   * `Stack.charged`.
+   */
+  const enemyStarted = enemy.stacks.reduce((n, stack) => n + stack.started, 0);
+  const enemyAlive = enemy.stacks.reduce((n, stack) => n + stack.alive, 0);
+  const enemyLostSoFar = enemyStarted === 0 ? 0 : 1 - enemyAlive / enemyStarted;
+
   const broke: Stack[] = [];
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
+    const ownLostSoFar = stack.started === 0 ? 0 : 1 - stack.alive / stack.started;
+    const deficit = Math.max(0, ownLostSoFar - WINNING_RELIEF * enemyLostSoFar);
+    const casualtyFraction = Math.max(0, deficit - stack.charged);
+    stack.charged = Math.max(stack.charged, deficit);
+    // `enemyCasualtyFraction` is already inside `casualtyFraction`; passed as zero so
+    // `moraleDelta` does not net it a second time.
     stack.morale = clamp(
-      stack.morale +
-        moraleDelta({ ...shockBase, casualtyFraction: lost.get(stack) ?? 0 }, stack.morale),
+      stack.morale + moraleDelta({ ...shockBase, casualtyFraction }, stack.morale),
       0,
       100,
     );
@@ -1543,8 +1738,8 @@ export function pursue(broke: readonly Stack[]): void {
     const before = stack.alive;
     if (before <= 0) continue;
     const after = Math.max(0, Math.round(before * (1 - PURSUIT_LOSS)));
-    stack.pool = stack.pool * (after / before);
-    stack.alive = after;
+    stack.bodies = bodiesFromPool(after, stack.pool * (after / before), stack.effective.vitality);
+    settle(stack);
     // The run-down takes the intimidated with the rest, the same way `applyDamage` does.
     if (stack.suppressed > 0) {
       stack.suppressed = Math.min(after, Math.round((stack.suppressed * after) / before));
@@ -1672,6 +1867,7 @@ export function simulate(input: SimulateInput): Simulation {
       setup.territory ?? noTerritoryEffects(),
       setup.upgrades ?? {},
       setup.officer,
+      setup.flat ?? {},
     ),
   });
 
@@ -1703,7 +1899,7 @@ export function simulate(input: SimulateInput): Simulation {
    */
   const presence = input.defender.presence;
   applyPresence(defender, presence);
-  // The Combine's two ledgers. Filled in by `changeOfHeart` and `execute` below.
+  // The Combine's two ledgers. Filled in by `changeOfHeart` and by `takeDamage` under his line.
   const turnedUnits: Army = {};
   const executedForce: Army = {};
   let executedUnits = 0;
@@ -1712,6 +1908,10 @@ export function simulate(input: SimulateInput): Simulation {
     executedForce[unitId] = (executedForce[unitId] ?? 0) + bodies;
     executedUnits += bodies;
   };
+  // His line, for every application of damage to the attacker and to nothing else: the Combine
+  // never attacks, so there is no other side for him to stand against.
+  const execution: Execution | undefined =
+    presence?.kind === 'executioner' ? { floor: presence.threshold, count: finish } : undefined;
 
   /*
    * §D3: who is too intimidated to fight, settled before anything is fired.
@@ -1757,9 +1957,11 @@ export function simulate(input: SimulateInput): Simulation {
     ambush > 0
       ? applyDamage(
           defender,
-          fireRound(attacker, defender, 1, ambush, battlefield.frontage, (stack) =>
-            stack.unit.modifiers.includes('ambush'),
-          ),
+          // Everyone who hid fires, and how much of the force that is has already been paid for
+          // in `ambushShare`. No `only` filter: the one that was here read
+          // `marked || STEALTH_UNTAGGED_SHARE > 0`, which is a constant `true` at any share above
+          // zero, so it selected the whole force while reading as though it selected a part of it.
+          fireRound(attacker, defender, 1, ambush, battlefield.frontage),
         )
       : new Map<Stack, number>();
 
@@ -1793,9 +1995,8 @@ export function simulate(input: SimulateInput): Simulation {
       )
     : new Map<Stack, number>();
   const openedDefender = applyDamage(defender, openingOnDefender);
-  // The Executioner reads the opening volley like any other exchange: see `execute`.
-  const openedByVolley = applyDamage(attacker, openingOnAttacker);
-  const openedAttacker = mergeLosses(execute(attacker, presence, finish), openedByVolley);
+  // The Executioner's line runs through the opening volley like any other damage: see `takeDamage`.
+  const openedAttacker = applyDamage(attacker, openingOnAttacker, execution);
 
   let attackerCascade = 0;
   let defenderCascade = 0;
@@ -1868,47 +2069,27 @@ export function simulate(input: SimulateInput): Simulation {
       mergeLosses(applyDamage(defender, ontoDefender), round === 1 ? ambushed : undefined),
       round === 1 ? openedDefender : undefined,
     );
-    // The Executioner, after the exchange has landed (`execute`): what the round left at the
-    // front of every attacking stack, and whether it is still standing.
-    // In its own statement, before `execute` is called: what he reads has to be what the
-    // exchange left, and a call inside the argument list would run before the damage landed.
-    const hitAttacker = applyDamage(attacker, ontoAttacker);
     const attackerLost = mergeLosses(
-      mergeLosses(execute(attacker, presence, finish), hitAttacker),
+      applyDamage(attacker, ontoAttacker, execution),
       round === 1 ? openedAttacker : undefined,
     );
 
-    // Averaged over the stacks that took anything, so "how the other side is doing" is a figure
-    // about the enemy force rather than about whichever of its stacks happened to be focused.
-    const attackerLossShare = meanLoss(attackerLost);
-    const defenderLossShare = meanLoss(defenderLost);
-    const brokeAttacker = moralePhase(
-      attacker,
-      defender,
-      attackerLost,
-      defenderLossShare,
-      battlefield,
-      round,
-      attackerCascade,
-    );
-    const brokeDefender = moralePhase(
-      defender,
-      attacker,
-      defenderLost,
-      attackerLossShare,
-      defenderGround,
-      round,
-      defenderCascade,
-    );
+    const brokeAttacker = moralePhase(attacker, defender, battlefield, round, attackerCascade);
+    const brokeDefender = moralePhase(defender, attacker, defenderGround, round, defenderCascade);
     pursue(brokeAttacker);
     pursue(brokeDefender);
-    attackerCascade = brokeAttacker.length;
-    defenderCascade = brokeDefender.length;
+    attackerCascade = brokenShare(attacker, brokeAttacker);
+    defenderCascade = brokenShare(defender, brokeDefender);
 
     rounds.push({
       round,
-      attackerLost: [...attackerLost.values()].reduce((a, b) => a + b, 0),
-      defenderLost: [...defenderLost.values()].reduce((a, b) => a + b, 0),
+      // A share of the side, not a sum of per-stack fractions. Added up, three stacks each losing
+      // half of themselves reported 1.5, which is not a figure a field called `attackerLost` can
+      // hold: `integration.test.ts` asserts it stays inside 0..1 and passed only because its own
+      // case is single-stack. `meanLoss` weighs each stack by what it marched with, so this is
+      // the same number `winnerLosses` is a count of (2026-09-21).
+      attackerLost: meanLoss(attackerLost),
+      defenderLost: meanLoss(defenderLost),
       attackerBroke: brokeAttacker.map((stack) => stack.unit.name),
       defenderBroke: brokeDefender.map((stack) => stack.unit.name),
     });
@@ -1972,15 +2153,18 @@ export function simulate(input: SimulateInput): Simulation {
  * no draw to the stream.
  */
 export function ambushShare(side: SideState, enemy: SideState): number {
+  let bodies = 0;
   let hidden = 0;
   let stealth = 0;
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
-    if (!stack.unit.modifiers.includes('ambush')) continue;
-    hidden += stack.alive;
-    stealth += stack.alive * stack.effective.stealth;
+    bodies += stack.alive;
+    const weight = stack.unit.modifiers.includes('ambush') ? 1 : STEALTH_UNTAGGED_SHARE;
+    if (weight <= 0) continue;
+    hidden += stack.alive * weight;
+    stealth += stack.alive * weight * stack.effective.stealth;
   }
-  if (hidden <= 0) return 0;
+  if (hidden <= 0 || bodies <= 0) return 0;
 
   /*
    * How big a share of the force can hide is **not** a term here (2026-09-17 consistency pass).
@@ -1998,7 +2182,25 @@ export function ambushShare(side: SideState, enemy: SideState): number {
    */
   const spotted = watchfulness(enemy);
   const edge = clamp(stealth / hidden - spotted, 0, 100) / 100;
-  return AMBUSH_ROUND_SHARE * edge;
+  /*
+   * ...and how much of the force is actually hidden, which is the term the note above says is not
+   * here and, until 2026-09-21, genuinely was not (MOU bugpass).
+   *
+   * The note's reasoning was that `fireRound`'s `only` filter already restricts the volley to the
+   * stacks carrying the sheet, so scaling by the hidden share would count it twice. That stopped
+   * being true the day an unmarked stack started hiding at {@link STEALTH_UNTAGGED_SHARE}: the
+   * predicate became `marked || 0.35 > 0`, a constant `true`, so the filter selects the whole
+   * force and there is nothing to double-count. The visible consequence was that the `ambush`
+   * mark bought **nothing**: `stealth / hidden` is a weighted mean, so for a force whose stacks
+   * are all marked the same way the weight cancels exactly, and Scrapers (marked, stealth 40) got
+   * `(40 - 10) / 100` against Razors' (unmarked, stealth 30) `(30 - 10) / 100`, which is the bare
+   * difference in the rating and not a penny for the sheet.
+   *
+   * With the share here the weight bites once, in the place the note's own sentence puts it:
+   * everyone who hid fires, the marked at full weight and the rest at a third. A line built to
+   * set an ambush opens at nearly three times what a line that merely happens to be quiet does.
+   */
+  return AMBUSH_ROUND_SHARE * edge * (hidden / bodies);
 }
 
 /** How hard a side is to sneak up on: its own stealth is what it knows to look for. */
@@ -2032,12 +2234,25 @@ export function mergeLosses(
   return merged;
 }
 
-/** The mean loss across the stacks that took any, 0 when none did. */
+/**
+ * The share of a side's bodies lost this round, weighted by what each stack marched with.
+ *
+ * The round log's figure, and nothing else reads it: the morale phase nets its own losses over
+ * the whole fight off `Stack.charged` rather than round by round. It briefly fed morale as well,
+ * as an unweighted mean, where one Sniper dying beside twenty Razors that lost one read as "the
+ * enemy lost 52%" and handed the other side `WINNING_RELIEF` for a victory it had not had. The
+ * weighting is kept because the log is a report a reader divides by nothing: a stack's weight is
+ * what it started with rather than what it has now, so a stack ground down does not stop counting
+ * as it shrinks.
+ */
 function meanLoss(lost: Map<Stack, number>): number {
-  if (lost.size === 0) return 0;
-  let total = 0;
-  for (const fraction of lost.values()) total += fraction;
-  return total / lost.size;
+  let bodies = 0;
+  let fallen = 0;
+  for (const [stack, fraction] of lost) {
+    bodies += stack.started;
+    fallen += fraction * stack.started;
+  }
+  return bodies === 0 ? 0 : fallen / bodies;
 }
 
 /**

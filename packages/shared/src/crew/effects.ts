@@ -196,6 +196,8 @@ export interface CrewOnlyEffects {
   declarationsFlat: number;
   /** §D7: names a crew may burn on one fight, on top of the one everybody gets. */
   battleBoostsFlat: number;
+  /** Benches on the training floor, on top of `TRAINING_BENCHES` (`crew/training.ts`). */
+  trainingBenchesFlat: number;
 }
 
 /**
@@ -336,6 +338,7 @@ export function noCrewEffects(): CrewEffects {
     recruitSlotsFlat: 0,
     declarationsFlat: 0,
     battleBoostsFlat: 0,
+    trainingBenchesFlat: 0,
     officerAttributeAtLeast: {},
     leadOffensePercent: 0,
     leadEvasionFlat: 0,

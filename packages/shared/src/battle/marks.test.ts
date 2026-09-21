@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { noTerritoryEffects } from '../city/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { findUnit, UNIT_RULES, type Army, type UnitSpec } from '../units/index.js';
 import {
@@ -239,11 +240,33 @@ describe('Opening Volley: a shot away before the lines form', () => {
    * rule is a second ambush with a different name.
    */
   it('works for the defender, which an ambush never does', () => {
-    const armed = fight({ razors: 40 }, { snipers: 20 }, 'first-2');
-    const quiet = withoutMark('snipers', 'strikes_first', () =>
-      fight({ razors: 40 }, { snipers: 20 }, 'first-2'),
+    // Summed over eight seeds rather than read off one (2026-09-21): a single seed is one draw
+    // of the round luck, and the volley is worth about a body a fight, which one draw can hide.
+    const seeds = [
+      'first-1',
+      'first-2',
+      'first-3',
+      'first-4',
+      'first-5',
+      'first-6',
+      'first-7',
+      'first-8',
+    ];
+    const armed = seeds.reduce(
+      (n, seed) => n + lost(fight({ razors: 40 }, { snipers: 20 }, seed).attacker),
+      0,
     );
-    expect(lost(armed.attacker)).toBeGreaterThan(lost(quiet.attacker));
+    const quiet = seeds.reduce(
+      (n, seed) =>
+        n +
+        lost(
+          withoutMark('snipers', 'strikes_first', () =>
+            fight({ razors: 40 }, { snipers: 20 }, seed),
+          ).attacker,
+        ),
+      0,
+    );
+    expect(armed).toBeGreaterThan(quiet);
   });
 });
 
@@ -261,10 +284,23 @@ describe('Holds the Line: it does not run while over half of it stands', () => {
    * actually changes is the only way this test can fail when the engine stops reading the flag.
    */
   it('holds a stack the same fight breaks without the mark', () => {
-    const held = fight({ hollow_men: 20, razors: 40 }, { wardens: 60 }, 'stalwart-1');
-    const broken = withoutMark('wardens', 'stalwart', () =>
-      fight({ hollow_men: 20, razors: 40 }, { wardens: 60 }, 'stalwart-1'),
-    );
+    // Found again on 2026-09-21, after the morale retune: a line now breaks from what it has
+    // lost rather than from a clock, so Wardens at their own morale no longer rout with half of
+    // them standing. Started 25 points down, they do, and the mark is what keeps them there.
+    const shaken = (): Simulation =>
+      simulate({
+        seed: 'stalwart-1',
+        battlefield: bareBattlefield(),
+        attacker: { name: 'A', army: { razors: 120 }, defending: false },
+        defender: {
+          name: 'D',
+          army: { wardens: 40 },
+          defending: true,
+          territory: { ...noTerritoryEffects(), unitMoraleFlat: -25 },
+        },
+      });
+    const held = shaken();
+    const broken = withoutMark('wardens', 'stalwart', shaken);
     expect(stackOf(broken.defender, 'wardens').brokeAt).not.toBeNull();
     expect(stackOf(held.defender, 'wardens').brokeAt).toBeNull();
     // ...and it is holding for the stated reason, not because nothing was shooting at it.

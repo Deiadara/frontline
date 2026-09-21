@@ -406,6 +406,23 @@ export function MissionsPage() {
       wide
       fills
     >
+      {/* The crew screen's line (maintainer, 2026-09-21). The crews-out count moved here from the
+          In flight panel's head: the same number a second time on one screen, and this is the
+          line that is meant to carry it. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
+        <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
+          <span className="tabular-nums text-ink-200">{active.length}</span>
+          {limit > 0 ? (
+            <>
+              {' '}
+              of <span className="tabular-nums text-ink-200">{limit}</span>
+            </>
+          ) : null}{' '}
+          crews out
+        </span>
+        <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+      </div>
+
       {levelUp && (
         <div className="flex flex-col gap-2">
           <LevelUpBanner levelUp={levelUp} />
@@ -451,12 +468,6 @@ export function MissionsPage() {
               // and the one below, which is the separation the maintainer asked to see at a glance.
               tone="paper"
               className="flex flex-col xl:max-h-[50%] xl:shrink-0"
-              action={
-                <span className="shrink-0 font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-                  <span className="tabular-nums text-ink-200">{active.length}</span>
-                  {limit > 0 ? <span className="tabular-nums"> / {limit}</span> : null} crews out
-                </span>
-              }
             >
               {missionsQuery.isLoading ? (
                 <EmptyRow text="Reading the board…" />

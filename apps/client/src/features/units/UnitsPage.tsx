@@ -269,6 +269,8 @@ export function UnitsPage() {
             total={data.trainingSpeedBonus}
           />
         )}
+        {/* The crew screen's line, running on from the last chip (maintainer, 2026-09-21). */}
+        <span aria-hidden className="ink-rule block min-w-0 flex-1" />
       </div>
 
       {/* The bench, across the top, under a rule of its own.

@@ -28,10 +28,13 @@ import type { Effective } from './effects.js';
  *
  * 0 A.D.'s idea, but **not** 0 A.D.'s number. Its armour values run 0-10 and ours run 0-100, and
  * carrying its per-point falloff across meant the Colossus took 1.6% of incoming damage and the
- * heavy tier could not be hurt by anything at all. Calibrated for this scale instead: armour 5
- * takes 94%, armour 45 takes 55%, and the heaviest sheet in the game at 95 still takes 28%.
+ * heavy tier could not be hurt by anything at all. Calibrated for this scale instead, and then
+ * retuned on 2026-09-21 against the eight-ratings ladder (`docs/BATTLE-ENGINE.md`, "The eight
+ * ratings"; pinned by `ratings.test.ts`): armour 5 takes 97%, armour 45 takes 73%, and the
+ * heaviest sheet in the game at 95 still takes 51%. It was 0.9868, which made +25 armour worth
+ * a third more than +25 penetration at the same point of the same mechanic.
  */
-export const ARMOR_FALLOFF = 0.9868;
+export const ARMOR_FALLOFF = 0.993;
 
 /** A resistance may not make a unit immune. 85% is "almost", which is the design brief. */
 export const MAX_RESISTANCE = 85;
@@ -39,11 +42,17 @@ export const MAX_RESISTANCE = 85;
 /** ...and a vulnerability may not double damage outright. */
 export const MIN_RESISTANCE = -60;
 
-/** How much a full reach advantage is worth: the volley you land before they arrive. */
-export const REACH_WEIGHT = 0.45;
+/**
+ * How much a full reach advantage is worth: the volley you land before they arrive.
+ *
+ * Both weights were retuned on 2026-09-21 against the eight-ratings ladder, which puts range a
+ * tenth under the average rating and speed a fifth under (`docs/BATTLE-ENGINE.md`, "The eight
+ * ratings"; pinned by `ratings.test.ts`). They were 0.45 and 0.6.
+ */
+export const REACH_WEIGHT = 0.9;
 
 /** ...and a full closing advantage, against something that wanted to stay at range. */
-export const CLOSING_WEIGHT = 0.6;
+export const CLOSING_WEIGHT = 1;
 
 /**
  * Points of armour one point of penetration cancels.
@@ -137,7 +146,11 @@ export function engagementEdge(
   defender: Effective,
 ): { reach: number; closing: number } {
   return {
-    reach: clamp(attacker.range - defender.speed, 0, 100) / 100,
+    // Bounded by the target's range as well as its speed (2026-09-21): out-ranging is a duel, and
+    // two Sniper lines facing each other used to both collect the full reach bonus against each
+    // other, which was a wash dressed up as an edge. Against anything shorter-ranged and slower
+    // than you it is exactly what it was.
+    reach: clamp(attacker.range - Math.max(defender.speed, defender.range), 0, 100) / 100,
     closing: (clamp(attacker.speed - defender.speed, 0, 100) / 100) * (defender.range / 100),
   };
 }
@@ -204,10 +217,12 @@ export interface Exchange {
 /**
  * Points of evasion per point of miss chance.
  *
- * Evasion halved is the chance a hit does not land: 60 evasion means three shots in ten go past.
- * Two, because evasion is a 0..100 rating and a rating that *was* the miss chance would put the
- * top of the scale at "never hit", which is not a unit, it is a wall. Halved, the most evasive
- * sheet in the game still takes better than half of what is aimed at it.
+ * Evasion over 1.8 is the chance a hit does not land: 60 evasion means one shot in three goes
+ * past. More than one, because evasion is a 0..100 rating and a rating that *was* the miss chance
+ * would put the top of the scale at "never hit", which is not a unit, it is a wall; `MAX_MISS`
+ * holds the ceiling either way. It was two, and was retuned on 2026-09-21 against the
+ * eight-ratings ladder, which puts evasion a fifth over the average rating
+ * (`docs/BATTLE-ENGINE.md`, "The eight ratings"; pinned by `ratings.test.ts`).
  *
  * At stack scale this is applied as its expectation rather than rolled per shot, and that is the
  * accurate version rather than a shortcut: a round is hundreds of units firing, `fireRound`
@@ -220,7 +235,24 @@ export interface Exchange {
  * what you do when you see it coming. That coupled two axes for no gain a player could read: the
  * sheet said 60 and what it was worth depended on who was shooting.
  */
-export const EVASION_PER_MISS = 2;
+export const EVASION_PER_MISS = 1.8;
+
+/** How much a full reach edge multiplies the target's miss chance by (see `exchange`). */
+export const EVASION_VS_REACH = 0.5;
+/** How much a full closing edge divides it by. */
+export const EVASION_VS_CLOSING = 0.5;
+/**
+ * The most of the fire aimed at a stack that evasion may ever turn away.
+ *
+ * A ceiling on the function's range rather than a tuned number, and measured as inert at the
+ * shipped ratings (MOU bugpass, 2026-09-21): the highest evasion in the catalogue is 92, which is
+ * `missChance` 0.511, and the reach multiplier tops out at 1.5, which would need a hundred points
+ * of reach where the longest range in the game is 95. Dropping this to 0.55 moves none of 576
+ * seeded fights; at 0.3 it moves 175 of 720, so the harness can see it when it binds. It stays
+ * because it bounds a product of three terms any one of which a retune could raise, and a fight
+ * where three quarters of the fire misses is already past anything this game means to offer.
+ */
+export const MAX_MISS = 0.75;
 
 /** The chance one attack does not land, 0..1, from the defender's evasion alone. */
 export function missChance(evasion: number): number {
@@ -240,9 +272,28 @@ export function exchange(
   // than multiplied in, so a unit with little of it gains a lot from a good day and a specialist
   // barely notices, which is the right way round.
   const armor = armorMultiplier(defender.armor, attacker.penetration + luck);
-  const engagement = engagementMultiplier(attacker, defender);
+  const { reach, closing } = engagementEdge(attacker, defender);
+  const engagement = 1 + REACH_WEIGHT * reach + CLOSING_WEIGHT * closing;
 
-  const dodge = 1 - missChance(defender.evasion);
+  /*
+   * Evasion against fire that comes from reach, and against an attacker that has closed
+   * (maintainer, 2026-09-21).
+   *
+   * A flat miss chance interacted with nothing, which made evasion the one rating a player had no
+   * reason to build a line around. Now shots that arrive from reach (a slower target being
+   * out-ranged) are the ones that can be dodged, so evasion is worth the most against shooters;
+   * and an attacker with a closing edge has caught the target and pins it, so evasion is worth the
+   * least against fast melee. `tracking` stays the hard counter. Capped at `MAX_MISS` so no sheet
+   * becomes a wall.
+   */
+  const miss = Math.min(
+    MAX_MISS,
+    Math.max(
+      0,
+      missChance(defender.evasion) * (1 + EVASION_VS_REACH * reach - EVASION_VS_CLOSING * closing),
+    ),
+  );
+  const dodge = 1 - miss;
   const target = 1 + targetBonusPercent(attackerModifiers, defender, defenderMorale) / 100;
 
   return {

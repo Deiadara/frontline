@@ -300,14 +300,15 @@ describe('§I3b: the bracket rack at the head of a bench', () => {
  */
 describe('the head of the page', () => {
   /*
-   * Two groups on one line: the benches, then the filter and the yard's plate pushed to the right
-   * edge (maintainer request, 2026-09-15). It was two stacked rows, and the line that change gives
-   * back goes to the bench below, which is the thing a player is actually reading.
+   * Three things on one line: the benches, the drawn rule, then the filter and the yard's plate
+   * against the right edge (maintainer request, 2026-09-15, with the rule added 2026-09-21). It
+   * was two stacked rows, and the line that change gives back goes to the bench below, which is
+   * the thing a player is actually reading.
    *
    * The grouping is what is pinned here rather than the geometry: the filter and the plate have to
-   * stay in one box together, or the `ml-auto` that pushes them right pushes only one of them and
-   * the other is left stranded mid-row. Where the two groups actually land at each supported width
-   * is measured in the browser, in `scrapyard.spec.ts`.
+   * stay in one box together, or whatever pushes them right pushes only one of them and the other
+   * is left stranded mid-row. Where the two groups actually land at each supported width is
+   * measured in the browser, in `scrapyard.spec.ts`.
    */
   it('keeps the filter and the yard plate together in one box beside the benches', async () => {
     stubApi();
@@ -315,12 +316,52 @@ describe('the head of the page', () => {
 
     const info = await screen.findByTestId('scrapyard-info');
     const head = screen.getByTestId('scrapyard-head');
-    const [benches, boxes] = head.children;
+    const [benches, right] = head.children;
     expect(head.children).toHaveLength(2);
     expect(benches).toHaveAttribute('role', 'tablist');
+
+    /*
+     * The rule and the boxes are one group, and that is load-bearing rather than tidy.
+     *
+     * At 1024x768 the benches and the boxes cannot share a line, so the boxes wrap, and they
+     * have to wrap to the *right* edge of the line below (`visual.spec.ts`). A rule that grew
+     * with `flex-1` and boxes that were held right with `ml-auto` cannot both sit in one flex
+     * line: an auto margin eats the free space before `flex-grow` sees it, so the line would be
+     * drawn as nothing. Holding them in one wrapper is what lets both be true.
+     */
+    const [rule, boxes] = right!.children;
+    expect(right!.children).toHaveLength(2);
+    expect(rule).toHaveClass('ink-rule', 'flex-1');
+    expect(boxes).toHaveAttribute('data-testid', 'scrapyard-head-boxes');
     expect(boxes).toContainElement(screen.getByTestId('scrapyard-ready-only'));
     expect(boxes).toContainElement(info);
     expect(benches).not.toContainElement(info);
+  });
+
+  /**
+   * ...and the rule still reaches the yard's plate on the one tab with no filter (maintainer,
+   * 2026-09-21: "when ready to build is missing have it go next to the most right box").
+   *
+   * Components is the parts bin: nothing to build, so `Ready to build` is not drawn at all. A
+   * rule that stopped where the filter would have been would leave a gap with nothing in it.
+   */
+  it('runs the rule up to the yard plate on the tab with no filter', async () => {
+    stubApi();
+    renderYard();
+
+    const info = await screen.findByTestId('scrapyard-info');
+    fireEvent.click(screen.getByTestId('scrapyard-view-components'));
+    expect(screen.queryByTestId('scrapyard-ready-only')).toBeNull();
+
+    const head = screen.getByTestId('scrapyard-head');
+    const [benches, right] = head.children;
+    expect(head.children).toHaveLength(2);
+    expect(benches).toHaveAttribute('role', 'tablist');
+    const [rule, boxes] = right!.children;
+    expect(rule).toHaveClass('ink-rule', 'flex-1');
+    expect(boxes).toContainElement(info);
+    // Nothing between the rule and the box that is now the rightmost thing on the line.
+    expect(boxes?.children).toHaveLength(1);
   });
 });
 

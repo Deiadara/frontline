@@ -97,11 +97,12 @@ describe('bonuses reach the fight', () => {
     });
   }
 
-  it('carries a morale bonus, which is asked on the win and not on the unit count', () => {
-    // Both directions, because the surprising one is the point: this bonus wins fights and costs
-    // units, and a test that only knew the second half would call it a regression.
+  it('carries a morale bonus, which is asked on the win and on the unit count', () => {
+    // It used to win fights and *cost* units: a steadier line stood longer in a fight it was
+    // losing and died there. Since the morale ladder carries a fire cost (2026-09-21), a
+    // steadier line also fires more, wins the exchange, and brings more home. Both directions.
     expect(winRate(territory({ unitMoraleFlat: 25 }))).toBeGreaterThan(winRate({}));
-    expect(survival(territory({ unitMoraleFlat: 25 }))).toBeLessThan(flat);
+    expect(survival(territory({ unitMoraleFlat: 25 }))).toBeGreaterThanOrEqual(flat);
   });
 
   it('folds a bought boost onto the same three channels the ground uses', () => {

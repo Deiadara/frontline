@@ -15,7 +15,10 @@ import {
   damageTypeMultiplier,
   engagementEdge,
   engagementMultiplier,
+  EVASION_PER_MISS,
+  EVASION_VS_REACH,
   exchange,
+  MAX_MISS,
   MAX_RESISTANCE,
   MIN_RESISTANCE,
   missChance,
@@ -56,15 +59,15 @@ const bare = (id: string) =>
  * against the multiplier this replaced.
  */
 describe('evasion is a chance to miss', () => {
-  it('turns a rating into half its value as a miss chance', () => {
-    expect(missChance(60)).toBeCloseTo(0.3, 10);
+  it('turns a rating into its value over EVASION_PER_MISS as a miss chance', () => {
+    expect(missChance(60)).toBeCloseTo(60 / (EVASION_PER_MISS * 100), 10);
     expect(missChance(0)).toBe(0);
-    expect(missChance(100)).toBeCloseTo(0.5, 10);
+    expect(missChance(100)).toBeCloseTo(100 / (EVASION_PER_MISS * 100), 10);
   });
 
   it('refuses a rating outside the scale rather than producing a nonsense chance', () => {
     expect(missChance(-20)).toBe(0);
-    expect(missChance(400)).toBeCloseTo(0.5, 10);
+    expect(missChance(400)).toBeCloseTo(missChance(100), 10);
   });
 
   /** The formula, end to end: what an attack is worth is exactly what does not miss. */
@@ -75,29 +78,44 @@ describe('evasion is a chance to miss', () => {
 
     const hit = exchange(attacker, [], dodgy, 100);
     const flat = exchange(attacker, [], still, 100);
-    expect(hit.parts.dodge).toBeCloseTo(0.7, 10);
+    // A Razor on a Razor has no reach and no closing edge, so this is the plain rate.
+    expect(hit.parts.dodge).toBeCloseTo(1 - missChance(60), 10);
     expect(flat.parts.dodge).toBe(1);
-    expect(hit.perBody).toBeCloseTo(flat.perBody * 0.7, 6);
+    expect(hit.perBody).toBeCloseTo(flat.perBody * (1 - missChance(60)), 6);
   });
 
   /**
-   * It reads the *defender's* sheet alone.
+   * It reads the attacker's engagement edges, in a fixed direction (maintainer, 2026-09-21).
    *
-   * The rule it replaced let a fast attacker erode evasion, so what a sheet's 60 was worth depended
-   * on who was shooting. Two attackers at opposite ends of the speed range have to see the same
-   * dodge now, or that coupling is back.
+   * Until then it read the defender's sheet alone, which made evasion the one rating with no
+   * matchup. Now fire that arrives from reach is dodged more, and an attacker with a closing edge
+   * has caught the target and is dodged less. Both directions are asserted, and so is the case
+   * with no edge at all, which has to be the plain rate.
    */
-  it('is worth the same against a sprinter and against a shield wall', () => {
-    const dodgy = { ...bare('razors'), evasion: 88 };
-    const quick = exchange({ ...bare('road_reavers'), speed: 100 }, [], dodgy, 100);
-    const slow = exchange({ ...bare('ironsides'), speed: 5 }, [], dodgy, 100);
-    expect(quick.parts.dodge).toBeCloseTo(slow.parts.dodge, 10);
-    expect(quick.parts.dodge).toBeCloseTo(1 - 0.44, 10);
+  it('is dodged more from reach and less by a closer', () => {
+    const dodgy = { ...bare('razors'), evasion: 60 };
+    const plain = exchange({ ...bare('razors'), speed: 45, range: 5 }, [], dodgy, 100);
+    const shooter = exchange({ ...bare('snipers'), speed: 30, range: 95 }, [], dodgy, 100);
+    const closer = exchange({ ...bare('cyber_dogs'), speed: 90 }, [], { ...dodgy, range: 60 }, 100);
+    expect(plain.parts.dodge).toBeCloseTo(1 - missChance(60), 10);
+    expect(shooter.parts.dodge, 'reach should be dodged more').toBeLessThan(plain.parts.dodge);
+    expect(closer.parts.dodge, 'a closer should be dodged less').toBeGreaterThan(plain.parts.dodge);
   });
 
-  it('leaves the most evasive sheet in the game taking better than half of what is aimed at it', () => {
+  it('never turns away more than MAX_MISS of what is aimed at a stack', () => {
+    const wall = { ...bare('razors'), evasion: 100, speed: 0 };
+    const sniper = { ...bare('snipers'), range: 100, speed: 0 };
+    const hit = exchange(sniper, [], wall, 100);
+    expect(hit.parts.dodge).toBeGreaterThanOrEqual(1 - MAX_MISS);
+    expect(
+      missChance(100) * (1 + EVASION_VS_REACH),
+      'the cap should be doing work here',
+    ).toBeGreaterThan(MAX_MISS);
+  });
+
+  it('leaves the most evasive sheet in the game taking at least 1 - MAX_MISS of what is aimed at it', () => {
     const best = Math.max(...['the_loose_end', 'the_crimson_dancer'].map((id) => bare(id).evasion));
-    expect(1 - missChance(best)).toBeGreaterThan(0.5);
+    expect(1 - missChance(best)).toBeGreaterThanOrEqual(1 - MAX_MISS);
   });
 });
 
@@ -345,13 +363,14 @@ describe('armour', () => {
   it('diminishes rather than subtracts, and never reaches zero', () => {
     expect(armorMultiplier(0)).toBe(1);
     expect(armorMultiplier(10)).toBeCloseTo(ARMOR_FALLOFF ** 10, 6);
-    // Calibrated for a 0..100 stat: armour 45 takes about half, and the heaviest sheet in the game,
-    // the Colossus at 95, still takes over a quarter. An earlier constant borrowed straight from
-    // 0 A.D.'s 0..10 scale put that last figure at 1.6%, which made the heavy tier unkillable.
-    expect(armorMultiplier(45)).toBeGreaterThan(0.5);
-    expect(armorMultiplier(45)).toBeLessThan(0.6);
-    expect(armorMultiplier(95)).toBeGreaterThan(0.25);
-    expect(armorMultiplier(95)).toBeLessThan(0.35);
+    // Calibrated for a 0..100 stat and retuned on 2026-09-21 against the eight-ratings ladder:
+    // armour 45 takes about three quarters, and the heaviest sheet in the game, the Colossus at
+    // 95, still takes about half. An earlier constant borrowed straight from 0 A.D.'s 0..10 scale
+    // put that last figure at 1.6%, which made the heavy tier unkillable.
+    expect(armorMultiplier(45)).toBeGreaterThan(0.68);
+    expect(armorMultiplier(45)).toBeLessThan(0.78);
+    expect(armorMultiplier(95)).toBeGreaterThan(0.45);
+    expect(armorMultiplier(95)).toBeLessThan(0.58);
   });
 
   it('is worth less per point the more of it there is', () => {

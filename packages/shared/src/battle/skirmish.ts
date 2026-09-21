@@ -4,7 +4,13 @@ import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
 import { breakOut, type Breakout, type BreakoutSide } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
-import { officerOutcomeOf, openingJam, simulate, type Simulation } from './engine.js';
+import {
+  officerOutcomeOf,
+  openingJam,
+  simulate,
+  type RatingFlats,
+  type Simulation,
+} from './engine.js';
 import { OfficerOutcomeSchema, type BattleOfficer } from './officer.js';
 import {
   BattleFindingSchema,
@@ -72,6 +78,9 @@ export interface SkirmishInput {
    */
   attackerOfficer?: BattleOfficer;
   defenderOfficer?: BattleOfficer;
+  /** The balance harness's flat points per side (`RatingFlats`). Never set by the game. */
+  attackerFlat?: RatingFlats;
+  defenderFlat?: RatingFlats;
   /**
    * The Combine legendary whose power the defence carries (`city/combine.ts`), when the ground is
    * the regime's and its leader for that district still lives. Defender-only: the Combine never
@@ -242,6 +251,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
           ? { cohesionPercent: input.attackerCohesionPercent }
           : {}),
         ...(input.attackerOfficer ? { officer: input.attackerOfficer } : {}),
+        ...(input.attackerFlat ? { flat: input.attackerFlat } : {}),
       },
       defender: {
         name: input.defenderName,
@@ -254,6 +264,7 @@ export class TacticalSkirmishEngine implements SkirmishEngine {
           : {}),
         ...(input.defenderOfficer ? { officer: input.defenderOfficer } : {}),
         ...(input.defenderPresence ? { presence: input.defenderPresence } : {}),
+        ...(input.defenderFlat ? { flat: input.defenderFlat } : {}),
       },
     });
 

@@ -10,7 +10,12 @@ import {
   MAX_RECRUITMENT_ATTRIBUTE,
   RECRUIT_LEGEND_NOTORIETY,
   askingWage,
+  beginTraining,
+  type TrainingState,
   makeAttributes,
+  sessionFor,
+  trainingsLeft,
+  TRAINING_SECONDS,
   blackMarketDay,
   assessJoin,
   createCommander,
@@ -220,6 +225,8 @@ interface Written {
   commanders?: Commander[];
   caps?: number;
   commitments?: Record<string, number>;
+  /** The book as `releaseOfficer` left it, when it had a drill of the released officer's to drop. */
+  training?: TrainingState;
   hires: number;
 }
 
@@ -237,6 +244,13 @@ function fakeRepos(): {
       written.commitments = economy.payroll.commitments;
     },
     updateCommanders: (_id: string, commanders: Commander[]) => {
+      written.commanders = commanders;
+    },
+    // A fourth write, and only on the one path that can orphan a drill: letting somebody go while
+    // they are on an hour. A double missing it throws rather than passing, which is the right way
+    // round, but it has to be here or the release case cannot run at all.
+    updateTraining: (_id: string, training: TrainingState, commanders: Commander[]) => {
+      written.training = training;
       written.commanders = commanders;
     },
   };
@@ -660,6 +674,56 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
     expect(released.base.resources.caps).toBe(hired.base.resources.caps - released.fee);
     expect(released.payroll.committed).toBe(0);
     expect(released.base.commanders).toHaveLength(0);
+  });
+
+  /**
+   * Somebody let go mid-drill takes their hour with them (2026-09-21).
+   *
+   * A training session is keyed by subject id and nothing but this path can orphan one. It was
+   * harmless while a stranded session only blocked its own subject; with one bench on the floor
+   * (`TRAINING_BENCHES`) it blocks every drill the crew can start, for the rest of the hour, on a
+   * screen that reads "0 of 1 bench in use" and offers no way to clear it.
+   *
+   * Both halves are pinned: the session goes, and the day's allowance comes back, because nothing
+   * was learned in an hour that was cut short.
+   */
+  it('takes a released officer’s drill off the board, and hands the hour back', () => {
+    const { repos, written } = fakeRepos();
+    const hired = sign(repos, makeBase(), reserveFor(recruit()));
+    if (hired.kind !== 'signed') throw new Error('expected a signing');
+
+    const now = new Date().toISOString();
+    const drilling: Base = {
+      ...hired.base,
+      training: beginTraining(
+        hired.base.training,
+        {
+          id: 'drill-1',
+          subjectId: hired.officer.id,
+          attribute: 'logic',
+          startedAt: now,
+          durationSeconds: TRAINING_SECONDS,
+        },
+        now,
+      ),
+    };
+    expect(
+      sessionFor(drilling.training, hired.officer.id),
+      'the fixture has nobody drilling',
+    ).toBeDefined();
+    const spent = trainingsLeft(drilling.training, now);
+
+    const released = releaseOfficer(repos, drilling, hired.officer.id);
+    expect(released.kind).toBe('released');
+    if (released.kind !== 'released') return;
+
+    expect(sessionFor(released.base.training, hired.officer.id)).toBeUndefined();
+    expect(released.base.training.sessions).toHaveLength(0);
+    expect(trainingsLeft(released.base.training, now)).toBe(spent + 1);
+    // ...and it is written, not merely returned: the route answers off the book on the next read.
+    expect(written.training?.sessions ?? ['unwritten']).toHaveLength(0);
+    // Written with the roster the officer has already left, or the same call would put them back.
+    expect(written.commanders).toHaveLength(0);
   });
 
   it('refuses to let somebody go the crew cannot pay off, and 404s a stranger', () => {

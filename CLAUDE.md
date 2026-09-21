@@ -5,6 +5,8 @@ See `docs/ARCHITECTURE.md`, `docs/SPEC-server.md`, `docs/SPEC-client.md`.
 
 ## General Rules to always follow
 
+- Before making changes, unless it is a request that needs no major assumptions (e.g. doing a bugpass or changing values), prompt the user with questions to make everything clear, especially concerning design decisions and major changes to game behavior.
+- When mentioning changes or bugs or design decision to the user, assume they have not read the code and thus need an explanation of how the mechanic or the behavior currently works for the topic in discussion (e.g. when mentioning a battle engine variable, explain what it does as well)
 - When a new prompt is given while owrking on something else, prioritize them as you see fit (unless stated to prioritize something specific) but do not drop the rest of the items. The job is done when all requests are done not when the new one is.
 - Make sure the game can always be stopped by Ctrl + C in the console
 

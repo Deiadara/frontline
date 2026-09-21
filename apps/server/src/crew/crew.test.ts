@@ -11,6 +11,7 @@ import {
   OVERSEER_SUBJECT,
   RESOURCE_KEYS,
   STARTING_RESOURCES,
+  TRAINING_BENCHES,
   TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
@@ -166,6 +167,41 @@ describe('the Training tab over HTTP', () => {
     );
   });
 
+  /**
+   * One bench on the floor (maintainer, 2026-09-21). A second person is refused while the first
+   * is still drilling, and the Professor's fourth rung is what opens the second bench.
+   */
+  it('takes one person at a time until the Professor’s Second Chair', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    const base = app.repos.bases.findByOwnerId(
+      app.repos.users.findByUsername('driller')?.id ?? '',
+    )!;
+    const pupil = createCommander('pupil', 'Pupil', 'professor', makeAttributes(20), []);
+    app.repos.bases.updateTraining(base.id, base.training, [...base.commanders, pupil]);
+
+    expect((await board(app, token)).benches).toBe(TRAINING_BENCHES);
+    await train(app, token, OVERSEER_SUBJECT, 'cryptography');
+    const second = await train(app, token, 'pupil', 'logic');
+    expect(second.statusCode).toBe(409);
+    expect(second.json<{ error: { message: string } }>().error.message).toBe('The floor is taken');
+
+    const chair = RESEARCH_ITEMS.find(
+      (item) => item.track === 'professor' && item.payout.bonus.kind === 'training_benches',
+    );
+    expect(chair, 'the Professor has no rung that adds a bench').toBeDefined();
+    app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, chair!.id],
+    });
+    expect((await board(app, token)).benches).toBe(TRAINING_BENCHES + 1);
+    const admitted = await train(app, token, 'pupil', 'logic');
+    expect(admitted.statusCode).toBe(200);
+    expect(admitted.json<TrainingResponse>().subjects.filter((one) => one.session).length).toBe(2);
+    // The feat's number moved: a drill started beside a running one.
+    expect(app.repos.feats.tallies(base.id)['drills_paired']).toBe(1);
+  });
+
   it('refuses a subject nobody on the books answers to', async () => {
     const app = await makeApp();
     const res = await train(app, await signIn(app), 'officer-nobody', 'logic');
@@ -289,6 +325,22 @@ describe('the Training tab over HTTP', () => {
 
     for (const officer of officers.slice(0, TRAININGS_PER_DAY)) {
       expect((await train(app, token, officer.id, 'logic')).statusCode).toBe(200);
+      // One bench: each hour has to finish before the next can start. Backdated, so the next
+      // route call settles it, the way "pays the gain out an hour later" reaches past the clock.
+      const held = app.repos.bases.findByOwnerId(username?.id ?? '')!;
+      app.repos.bases.updateTraining(
+        held.id,
+        {
+          ...held.training,
+          sessions: held.training.sessions.map((session) => ({
+            ...session,
+            startedAt: new Date(
+              Date.parse(session.startedAt) - TRAINING_SECONDS * 1000,
+            ).toISOString(),
+          })),
+        },
+        held.commanders,
+      );
     }
     const sixth = await train(app, token, officers[5]?.id ?? '', 'logic');
     expect(sixth.statusCode).toBe(409);

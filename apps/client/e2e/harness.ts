@@ -484,6 +484,9 @@ export interface UnderWay {
 function crowdTheFloor(training: TrainingResponse, wanted: number): TrainingResponse {
   const [first, officer] = training.subjects;
   if (!first?.session || !officer) throw new Error('the training fixture lost its shape');
+  // Benches to stand them on. The floor takes one person per bench (`TRAINING_BENCHES`), so a
+  // fixture with five hours running and two benches is a screen saying "5 of 2 benches in use".
+  const benches = Math.max(training.benches, wanted);
 
   const names = ['Ox', 'Bartholomew Achterberg-Vance', 'Isolde Ferrier', 'Kit'];
   const extra = names.slice(0, Math.max(0, wanted - 1)).map((name, index) => ({
@@ -500,7 +503,7 @@ function crowdTheFloor(training: TrainingResponse, wanted: number): TrainingResp
       ).toISOString(),
     },
   }));
-  return { ...training, subjects: [...training.subjects, ...extra] };
+  return { ...training, benches, subjects: [...training.subjects, ...extra] };
 }
 
 export async function installApi(

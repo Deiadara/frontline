@@ -15,7 +15,7 @@ import { bareBattlefield } from './battlefield.js';
 import {
   MAX_INTIMIDATED_SHARE,
   intimidate,
-  execute,
+  takeDamage,
   menace,
   nerve,
   simulate,
@@ -204,30 +204,31 @@ describe('the Executioner', () => {
     }
   });
 
-  it('finishes a wounded front unit under the line, and only that', () => {
-    // Directly, on a built side, so the rule is measured rather than inferred from a fight.
-    const sim = fight({ razors: 10 }, { greycoat: 10 }, undefined);
-    const razors = stack(sim, 'attacker', 'razors');
-    const vitality = razors.effective.vitality;
-    // Ten bodies with the front one at 5% of a life: under the 10% line.
-    razors.alive = 10;
-    razors.pool = 9 * vitality + vitality * 0.05;
-    let counted = 0;
-    const lost = execute(sim.attacker, EXECUTIONER, (_unitId, n) => (counted += n));
-    expect(counted).toBe(1);
-    expect(razors.alive).toBe(9);
-    expect(razors.pool).toBeCloseTo(9 * vitality, 6);
-    expect(lost.get(razors)).toBeCloseTo(1 / 10, 6);
-    // Now whole bodies only at the front: nothing to finish.
-    expect(execute(sim.attacker, EXECUTIONER, () => {}).size).toBe(0);
-    // A front unit at 40% is wounded but standing.
-    razors.pool = 8 * vitality + vitality * 0.4;
-    expect(execute(sim.attacker, EXECUTIONER, () => {}).size).toBe(0);
-    expect(razors.alive).toBe(9);
-    // ...and without him the same stack is never touched at all.
-    razors.pool = 8 * vitality + vitality * 0.05;
-    expect(execute(sim.attacker, undefined, () => {}).size).toBe(0);
-    expect(razors.alive).toBe(9);
+  /**
+   * The rule itself, on the maintainer's own worked example (2026-09-21).
+   *
+   * Ten bodies of 10 hp, a line at 20%, 20 damage: the first body is finished after 8 (it reaches
+   * 2), the second after another 8, and the last 4 leave the third at 6. The stack has 76 left,
+   * not 80, because what a finished body had left under the line is forfeited rather than spent
+   * or carried. Without him the same 20 damage is 20 damage.
+   */
+  it('finishes a body the moment it reaches his line, and forfeits what it had left', () => {
+    const bodies = new Array<number>(10).fill(10);
+    expect(takeDamage(bodies, 20, 10, 0.2)).toEqual({ fell: 2, executed: 2 });
+    expect(bodies).toEqual([6, 10, 10, 10, 10, 10, 10, 10]);
+    expect(bodies.reduce((a, b) => a + b, 0)).toBe(76);
+
+    const plain = new Array<number>(10).fill(10);
+    expect(takeDamage(plain, 20, 10)).toEqual({ fell: 2, executed: 0 });
+    expect(plain.reduce((a, b) => a + b, 0)).toBe(80);
+
+    // A body brought exactly to the line is on it. Overkill past the last body is lost either way.
+    const exact = [10, 10];
+    expect(takeDamage(exact, 8, 10, 0.2)).toEqual({ fell: 1, executed: 1 });
+    expect(exact).toEqual([10]);
+    const two = [10, 10];
+    expect(takeDamage(two, 500, 10, 0.2).fell).toBe(2);
+    expect(two).toEqual([]);
   });
 
   it('costs the attacker bodies it would otherwise have kept', () => {
@@ -474,13 +475,13 @@ describe('never the attacker', () => {
   /**
    * The Executioner costs the attacker bodies and the Combine none.
    *
-   * Measured as the two sides' whole casualty counts across twelve seeds, because the per-stack
-   * reading a reviewer reaches for first cannot fail: `execute` takes the wounded front body
-   * *off*, so the stack it just finished ends with a fresh whole body at the front and reads as
-   * above the line either way. On these seeds, 30 Razors plus a mixed line against a Blacksite
-   * garrison, the figures are 126 attacker bodies bare against 130 under him, and 248 Combine
-   * bodies either way. A second `execute` call on the defence, which is the refactor that would
-   * quietly hand his rule to the crew, pushes the second of those numbers up and this catches it.
+   * "None" is read off `executedForce`, which names every body finished on his line by unit id:
+   * every one has to be a unit the crew brought, and none a unit the regime fields. That is the
+   * direct reading of the refactor this guards against, his line being handed to the defence, and
+   * it is the one that still holds now that his rule runs inside the damage walk. The old reading,
+   * that the Combine's own casualty count is unchanged by him, does not: measured 2026-09-21, the
+   * garrison loses 262 bodies under him against 248 bare on these seeds, because a defence that
+   * reads the enemy's losses as its own good news holds longer and bleeds longer for it.
    */
   it('costs the attacker bodies and the Combine none', () => {
     const heavy = { razors: 30, scrapers: 20, ghosts: 10, sluggers: 10 };
@@ -501,7 +502,12 @@ describe('never the attacker', () => {
       'nothing to measure',
     ).toBeGreaterThan(3);
     expect(bodies(withHim, 'attacker')).toBeGreaterThan(bodies(bare, 'attacker'));
-    expect(bodies(withHim, 'defender')).toBeLessThanOrEqual(bodies(bare, 'defender'));
+    for (const sim of withHim) {
+      for (const unitId of Object.keys(sim.executedForce)) {
+        expect(unitId in heavy, `${unitId} is not the crew's`).toBe(true);
+        expect(unitId in blacksite, `${unitId} is the Combine's`).toBe(false);
+      }
+    }
   });
 
   /** Directive Xero's crossing runs one way: his side never loses anybody to the crew. */

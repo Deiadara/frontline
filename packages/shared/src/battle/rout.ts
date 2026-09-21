@@ -27,13 +27,21 @@ import type { SideState, Stack } from './engine.js';
 export const BASE_FLEE_CHANCE = 0.5;
 
 export const MIN_FLEE_CHANCE = 0.12;
-export const MAX_FLEE_CHANCE = 0.88;
+/** 0.95 from 0.88 on 2026-09-21: the escape terms below saturate here, and stealth had nowhere to go. */
+export const MAX_FLEE_CHANCE = 0.95;
 
-/** A full speed advantage over the pursuit is worth this much flee chance. */
-export const SPEED_ESCAPE_WEIGHT = 0.3;
+/**
+ * A full speed advantage over the pursuit is worth this much flee chance.
+ *
+ * Both escape weights were retuned on 2026-09-21 against the eight-ratings ladder (they were
+ * 0.3 and 0.15). Getting home is most of what speed and stealth are worth in a fight, and stealth
+ * cannot go much further than this: the term is clamped at `MAX_FLEE_CHANCE`, and a weight past
+ * about 0.6 puts a 50-stealth line on the cap already, so a better one gains nothing.
+ */
+export const SPEED_ESCAPE_WEIGHT = 0.45;
 
 /** ...and being unfindable, this much. */
-export const STEALTH_ESCAPE_WEIGHT = 0.15;
+export const STEALTH_ESCAPE_WEIGHT = 0.6;
 
 /** Breaking on the first round rather than the last is worth this much. */
 export const EARLY_BREAK_WEIGHT = 0.12;

@@ -66,10 +66,9 @@ export type CombinePower =
    */
   | { kind: 'syndic'; penetration: number; armor: number }
   /**
-   * The Executioner: anybody left standing on less than `threshold` of a life is not standing.
-   *
-   * Read after every exchange, on every enemy stack in the fight, whether or not he is in it: a
-   * stack's wounded front unit under the threshold dies where it stands.
+   * The Executioner: a body brought to `threshold` of a life is finished, and what it had left
+   * below the line is forfeited. Applied inside the damage walk (`takeDamage`), on every enemy
+   * stack in the fight, whether or not he is in it.
    */
   | { kind: 'executioner'; threshold: number }
   /**
@@ -131,11 +130,25 @@ export const SYNDIC_PENETRATION = 25;
 export const SYNDIC_ARMOR = 25;
 
 /**
- * The share of a life under which the Executioner finishes a unit. Ten percent, raised from the
- * five the brief opened with so that it fires often enough to be felt: at five it rarely met a
- * stack whose wounded front man had that little left.
+ * The share of a life at which the Executioner finishes a unit (`battle/engine.ts`, `takeDamage`).
+ *
+ * A body under him dies the moment it is brought *to* this line rather than to zero, and what it
+ * had left below the line is forfeited: neither spent on that body nor carried to the next. So
+ * every body sent against him is worth the top `1 - threshold` of itself, which is a rule about
+ * each unit's own health and the reason the engine keeps a per-body ledger at all.
+ *
+ * It was a rule about the one wounded body at the front of a stack, read after the exchange, and
+ * measured on 2026-09-21 that was worth nothing: he moved the force needed to take the Blacksite
+ * by 0 slots at 10% and still 0 at 20%, because a stack has only one such body. The maintainer's
+ * redesign the same day moved him into the damage walk, with 20% as the worked example.
+ *
+ * Thirty, measured the same day on the real Blacksite garrison at 800 seeds per point: the extra
+ * army a crew needs to take the district is +5% with the line at 20%, +12% at 25%, +15% at 30%,
+ * +17% at 35% and +25% at 40%. The maintainer's ordering has him worth more than the Syndic (+9%
+ * at her +25/+25) and less than Directive Xero (+79%), in multiples of five. Thirty is the lowest
+ * line that clears her by more than the measurement's own two-slot resolution.
  */
-export const EXECUTIONER_THRESHOLD = 0.1;
+export const EXECUTIONER_THRESHOLD = 0.3;
 
 /** Directive Xero's line starts at the morale ceiling, which is what "immune to intimidation" is. */
 export const DIRECTIVE_XERO_MORALE = 100;
@@ -162,7 +175,7 @@ export const COMBINE_LEADERS: readonly CombineLeader[] = [
     power: { kind: 'executioner', threshold: EXECUTIONER_THRESHOLD },
     powerName: 'No Survivors',
     pronoun: { subject: 'he', object: 'him', possessive: 'his' },
-    powerLine: `In any fight on the Blacksite, a unit of yours left under ${Math.round(EXECUTIONER_THRESHOLD * 100)}% of its vitality after an exchange is finished where it stands.`,
+    powerLine: `In any fight on the Blacksite, a unit of yours is finished the moment it falls to ${Math.round(EXECUTIONER_THRESHOLD * 100)}% of its vitality. What it had left is lost, and the fire moves on to the next.`,
   },
   {
     unitId: 'directive_xero',

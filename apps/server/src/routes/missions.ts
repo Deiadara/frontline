@@ -8,6 +8,7 @@ import {
   RecallMissionRequestSchema,
   canRecall,
   concurrentMissionSlots,
+  findDistrict,
   findMissionTemplate,
   missionForceRefusal,
   unitsBeyondNotoriety,
@@ -18,6 +19,7 @@ import {
   type LaunchMissionResponse,
   type MissionForceRefusal,
   type MissionsResponse,
+  type LocationHolder,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
@@ -58,6 +60,27 @@ function missionSlotsFor(app: FastifyInstance, base: Base, now: Date): number {
   return (
     concurrentMissionSlots(base.level) + standingEffectsFor(app.repos, base, now).missionSlotsFlat
   );
+}
+
+/**
+ * Why a district behind an armed gate has no work in it, worded for whoever armed it.
+ *
+ * One sentence per holder rather than one for all of them: the rule is the same in every case
+ * (one party holds every location, so the gate is shut and there is nobody inside hiring), but a
+ * player who has just taken a district wants to be told they own it, and a player looking at the
+ * Combine Spire wants to be told what is in their way.
+ */
+function shutAreaRefusal(holder: LocationHolder | null): string {
+  switch (holder?.kind) {
+    case 'crew':
+      return 'You own every inch of it. Nobody is paying you to go back';
+    case 'government':
+      return 'The Combine holds every inch of it. Break the gate before anybody in there hires you';
+    case 'looters':
+      return 'The looters hold every inch of it. Break the gate before there is work in there';
+    default:
+      return 'One crew holds every inch of it. Nothing gets handed out behind a shut gate';
+  }
 }
 
 export function registerMissionRoutes(app: FastifyInstance): void {
@@ -225,14 +248,21 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     }
     // §A4: work is only offered where the crew has been and where there is still something to do.
     if (areaId !== MISC_AREA_ID) {
+      const district = findDistrict(areaId);
       const state = areaStatesFor(app.repos, base).get(areaId);
       if (!state?.scouted) {
         throw new AppError('DISTRICT_UNSCOUTED', 'You have not had eyes on that ground', levelUp);
       }
-      if (state.ownedOutright) {
+      // The same rule the board draws with, worded for whoever is actually behind the gate.
+      if (state.heldWhole) {
+        throw new AppError('MISSION_REFUSED', shutAreaRefusal(state.wholeHolder), levelUp);
+      }
+      // Worded without a possessive: the plot may be the reader's own, and "somebody's plot" read
+      // oddly against a player's own hideout.
+      if (district?.kind !== 'contested') {
         throw new AppError(
           'MISSION_REFUSED',
-          'You own every inch of it. Nobody is paying you to go back',
+          'Nobody hires a crew on a plot. That is somewhere people live, not ground with work in it',
           levelUp,
         );
       }

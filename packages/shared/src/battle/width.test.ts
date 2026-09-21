@@ -12,8 +12,10 @@ import {
   frontageShare,
   mergeLosses,
   simulate,
+  STEALTH_UNTAGGED_SHARE,
   type Simulation,
 } from './engine.js';
+import { findUnit } from '../units/index.js';
 
 /**
  * Combat width, and the opening strike.
@@ -159,8 +161,10 @@ describe('combat width', () => {
       );
     };
     // Four times the units, all of them past the width. The defender must come out of both in
-    // roughly the same shape.
-    expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.1);
+    // roughly the same shape. Not *exactly*: since 2026-09-21 a queued body fires
+    // `SECOND_RANK_FIRE` of its share scaled by its range, and a Razor's range of 5 lets a sliver
+    // through, so the bar sits a little above the noise it was measured against.
+    expect(Math.abs(survived(48) - survived(12))).toBeLessThan(0.15);
   });
 
   /**
@@ -188,11 +192,66 @@ describe('combat width', () => {
 });
 
 describe('the opening strike', () => {
-  it('is worth nothing to a force with nobody who can set one', () => {
-    const [only] = run({ razors: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
-    expect(only).toBeDefined();
-    if (!only) return;
-    expect(ambushShare(only.attacker, only.defender)).toBe(0);
+  /**
+   * Since 2026-09-21 an unmarked stack hides at `STEALTH_UNTAGGED_SHARE` of a marked one, so a
+   * force with nobody marked is not worth *nothing*: it is worth less than the same stealth would
+   * be with the mark, and nothing at all against an enemy that can already see it.
+   */
+  it('is worth less to a force with nobody marked than to one with the mark', () => {
+    const [plain] = run({ razors: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
+    const [marked] = run({ ghosts: 12 }, { sparks: 12 }, bareBattlefield(), 1).simulations;
+    expect(plain).toBeDefined();
+    expect(marked).toBeDefined();
+    if (!plain || !marked) return;
+    expect(ambushShare(plain.attacker, plain.defender)).toBeLessThan(
+      ambushShare(marked.attacker, marked.defender),
+    );
+  });
+
+  /**
+   * The `ambush` mark is worth something *on its own*, at equal stealth.
+   *
+   * The test above it compares Razors to Ghosts, which differ by 55 points of stealth as well as
+   * by the mark, so it passes on the rating alone: between 2026-09-21's stealth generalisation
+   * and this, the mark bought literally nothing and that test stayed green. `stealth / hidden` is
+   * a weighted mean, so the weight cancels exactly for any force whose stacks are marked the same
+   * way, and the share came out at the bare rating either way.
+   *
+   * Cyber Dogs carry the mark and Netrunners do not, and both sheets read 55 stealth, so the mark
+   * is the only thing that differs. `units.test.ts` holds the catalogue's shape; if that pairing
+   * is ever retuned apart this test should be re-pointed rather than deleted.
+   *
+   * `ambushShare` reads the sides as the fight left them, so the fixture has to leave both runs
+   * in the same shape or the *enemy* is what differs: a stack that broke is skipped entirely, and
+   * `watchfulness` is the enemy's own mean stealth, which is zero once the enemy is gone. Two
+   * hundred against four Sparks settles both the same way, and the defender count is asserted
+   * below rather than assumed.
+   */
+  it('is worth more to a marked force than to an unmarked one of the same stealth', () => {
+    expect(findUnit('cyber_dogs')?.modifiers).toContain('ambush');
+    expect(findUnit('netrunners')?.modifiers ?? []).not.toContain('ambush');
+    expect(findUnit('cyber_dogs')?.stats.stealth).toBe(findUnit('netrunners')?.stats.stealth);
+
+    const [marked] = run({ cyber_dogs: 200 }, { sparks: 4 }, bareBattlefield(), 1).simulations;
+    const [plain] = run({ netrunners: 200 }, { sparks: 4 }, bareBattlefield(), 1).simulations;
+    expect(marked && plain).toBeTruthy();
+    if (!marked || !plain) return;
+
+    const standing = (side: Simulation['defender']): number =>
+      side.stacks.reduce((total, stack) => total + stack.alive, 0);
+    expect(
+      standing(marked.defender),
+      'the two runs left different enemies standing, so the watchfulness differs too',
+    ).toBe(standing(plain.defender));
+    expect(marked.attacker.stacks[0]?.brokeAt, 'a broken stack is skipped entirely').toBeNull();
+    expect(plain.attacker.stacks[0]?.brokeAt).toBeNull();
+
+    const withMark = ambushShare(marked.attacker, marked.defender);
+    const without = ambushShare(plain.attacker, plain.defender);
+    expect(without, 'an unmarked force should still get something').toBeGreaterThan(0);
+    expect(withMark, 'the mark bought nothing at all').toBeGreaterThan(without);
+    // ...and by the weight, not by a rounding: an unmarked body hides at `STEALTH_UNTAGGED_SHARE`.
+    expect(without / withMark).toBeCloseTo(STEALTH_UNTAGGED_SHARE, 5);
   });
 
   it('is worth something to a force that can hide from what it is hitting', () => {

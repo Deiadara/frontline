@@ -1,7 +1,7 @@
 import type { ItemCost } from '../items/inventory.js';
 import type { PartialResources } from '../resources.js';
 import { findUnit } from './catalog.js';
-import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type UnitStats } from './stats.js';
+import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type StatKey, type UnitStats } from './stats.js';
 import type { ModificationRarity as UnitModificationRarity } from '../modification-rarity.js';
 
 /**
@@ -207,7 +207,8 @@ export function unitModificationPower(spec: UnitModificationSpec): number {
   for (const key of UNIT_STAT_KEYS) {
     const delta = spec.effect[key];
     if (delta === undefined) continue;
-    total += delta * (UNIT_RATING_KEYS.includes(key) ? 1 : OPEN_FIGURE_WEIGHT);
+    total +=
+      delta * ((UNIT_RATING_KEYS as readonly StatKey[]).includes(key) ? 1 : OPEN_FIGURE_WEIGHT);
   }
   return total;
 }

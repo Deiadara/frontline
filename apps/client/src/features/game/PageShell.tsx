@@ -265,12 +265,19 @@ export function InfoNote({
   /** What the chip says, and what the note is titled. Short: it is a label, not a summary. */
   label = 'How this works',
   size = 'md',
+  drawn = false,
 }: {
   children: ReactNode;
   tone?: 'neutral' | 'warn';
   label?: string;
   /** `sm` is a chip that sits on a panel's head beside its title, at the head's own height. */
   size?: 'md' | 'sm';
+  /**
+   * The pen rather than the plate (maintainer, 2026-09-21): the box the crew screen's door and
+   * the archive's tabs wear, for a note that sits on a paper screen's quotation line, where a
+   * struck chip would be the one machine-made thing on it.
+   */
+  drawn?: boolean;
 }) {
   return (
     <HoverCard
@@ -314,15 +321,21 @@ export function InfoNote({
     >
       <span
         className={cn(
-          'flex items-center gap-1.5 rounded-sm border',
-          // `sm` is the height of the plaque chips a panel's head carries ("Always in"): one
-          // line of 10px capitals with the head's own padding, so a note beside them sits level.
-          size === 'sm'
-            ? 'h-[1.3125rem] px-2 font-display text-[10px] font-bold uppercase leading-none tracking-[0.14em]'
-            : 'px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
-          tone === 'warn'
-            ? 'border-brass-500/50 bg-brass-500/10 text-brass-100'
-            : 'border-iris-500/45 bg-iris-500/10 text-iris-100',
+          'flex items-center gap-1.5',
+          drawn
+            ? 'ink-box gap-2 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100'
+            : cn(
+                'rounded-sm border',
+                // `sm` is the height of the plaque chips a panel's head carries ("Always in"):
+                // one line of 10px capitals with the head's own padding, so a note beside them
+                // sits level.
+                size === 'sm'
+                  ? 'h-[1.3125rem] px-2 font-display text-[10px] font-bold uppercase leading-none tracking-[0.14em]'
+                  : 'px-2.5 py-1 font-display text-[11px] font-bold uppercase tracking-[0.14em]',
+                tone === 'warn'
+                  ? 'border-brass-500/50 bg-brass-500/10 text-brass-100'
+                  : 'border-iris-500/45 bg-iris-500/10 text-iris-100',
+              ),
         )}
       >
         {/* Smaller than the struck glyph it replaces, because a drawn ring carries its own weight:
@@ -330,7 +343,10 @@ export function InfoNote({
             with a caption. */}
         <span
           aria-hidden
-          className={cn('block shrink-0', size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3')}
+          className={cn(
+            'block shrink-0',
+            drawn ? 'h-3.5 w-3.5' : size === 'sm' ? 'h-2.5 w-2.5' : 'h-3 w-3',
+          )}
         >
           <DrawnInfo />
         </span>

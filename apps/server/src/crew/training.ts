@@ -4,6 +4,7 @@ import {
   OFFICER_ROLE_LABELS,
   OVERSEER_SUBJECT,
   TRAINING_GAIN,
+  TRAINING_BENCHES,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
   applyGain,
@@ -129,6 +130,8 @@ export function projectTraining(
   now: string,
   /** §A4: sessions the ground adds on top of the day's allowance. The Gym. */
   extraSessions = 0,
+  /** People allowed on the floor at once: `TRAINING_BENCHES` plus the Professor's rung. */
+  benches = TRAINING_BENCHES,
 ): TrainingResponse {
   const state = rollDay(base.training, now);
   const subjects: TrainingSubject[] = [];
@@ -178,6 +181,7 @@ export function projectTraining(
     serverNow: now,
     sessionsLeft: trainingsLeft(state, now, extraSessions),
     perDay: TRAININGS_PER_DAY + Math.max(0, extraSessions),
+    benches,
     gainPerSession: TRAINING_GAIN,
     sessionSeconds: TRAINING_SECONDS,
     subjects,

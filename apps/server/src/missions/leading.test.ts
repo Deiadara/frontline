@@ -135,9 +135,23 @@ function withOfficer(stack: Stack, id = 'off-1', name = 'Halvard Nyx'): string {
  * fixture that asked the day for a misc job picked one off a board the route was not offering
  * and every launch here came back `That job is not on offer there`.
  */
+/**
+ * The contested districts nobody holds end to end on the first day (maintainer, 2026-09-21).
+ *
+ * Every other one starts behind an armed gate, and the four residential districts are plots and
+ * post no work at all, so a helper that walked the whole catalogue would hand a launch an area
+ * the route refuses. `missions/board.test.ts` is what holds this pair to the city as authored.
+ */
+const OPEN_ON_DAY_ONE = ['chrome-row', 'glasshouse-fields'];
+
 function aJobToday(): { template: MissionTemplate; areaId: string } {
   const now = new Date();
-  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
+  // Misc, then the districts that actually post work. A residential district is somebody's plot
+  // and a Combine district starts behind an armed gate (maintainer, 2026-09-21), so a walk over
+  // every district in the catalogue would, on a day the misc board deals no standard job, pick
+  // an area the launch route refuses, and the refusal would read as a fault in the thing under
+  // test. Chrome Row and the Glasshouse Fields are the two that are open from the first day.
+  for (const areaId of [MISC_AREA_ID, ...OPEN_ON_DAY_ONE]) {
     const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
       (entry) => entry.kind === 'standard',
     );
@@ -337,9 +351,11 @@ describe('the launch', () => {
     const first = await launch(stack, { leaderId: stack.overseer.id });
     expect(first.statusCode, first.body.slice(0, 200)).toBe(200);
 
-    // A second area, so the one-job-per-area rule is not what refuses this.
+    // A second area, so the one-job-per-area rule is not what refuses this, and an area that is
+    // actually open, so the shut-gate rule is not either: this test is about the leader and both
+    // of the others answer with a 409 of their own.
     const at = new Date();
-    const other = CITY_DISTRICTS.map((district) => district.id).find(
+    const other = OPEN_ON_DAY_ONE.find(
       (id) => missionOffers(id, missionBoardKey(id, at)).length > 0,
     );
     if (!other) throw new Error('no second board today');

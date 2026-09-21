@@ -210,7 +210,9 @@ export function BattlePage() {
     <PageShell
       title="Battles"
       icon="battles"
-      lede="Fights are called for a time, and everybody gets to see them coming."
+      // No lede (maintainer, 2026-09-21). "Fights are called for a time, and everybody gets to
+      // see them coming" is a rule a player learns from the board itself, and it was a line of
+      // standing grey text over the one screen where every row is already a clock.
       action={data ? <Counts data={data} /> : null}
       wide
       fills

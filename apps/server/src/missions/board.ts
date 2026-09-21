@@ -11,7 +11,8 @@ import {
   missionXp,
   scaledSuccessChance,
   CITY_DISTRICTS,
-  isHeldBy,
+  areaIsOpen,
+  districtHolder,
   missionBoardKey,
   missionOffers,
   missionRewards,
@@ -22,6 +23,8 @@ import {
   type MissionArea,
   type MissionOffer,
   type MissionTemplate,
+  type AreaAvailability,
+  type LocationHolder,
 } from '@frontline/shared';
 import { cityContextFor } from '../city/view.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -31,9 +34,10 @@ import { pricedTimings } from './pricing.js';
 /**
  * The mission board, per area (GDD §E, §A4).
  *
- * One board for work that belongs to nobody, and one for every district this crew has scouted and
- * does not already own outright. A district with every location taken and its gate down comes off
- * the board: there is nothing left in there anybody would pay a crew to do.
+ * One board for work that belongs to nobody, and one for every *contested* district this crew has
+ * scouted that nobody holds end to end. A district behind an armed gate comes off the board,
+ * whoever armed it, and a residential district was never work in the first place: see
+ * `areaIsOpen` in `missions.areas.ts` for the rule and why it moved (maintainer, 2026-09-21).
  *
  * What an area offers is a pure function of the area (`missionOffers`), so the board is stable and
  * a player can plan against it. What it *pays* is the template's own mix with the ground's premium
@@ -41,30 +45,35 @@ import { pricedTimings } from './pricing.js';
  */
 
 /** Everything the board needs to know about a district, read once per request. */
-export interface AreaState {
-  scouted: boolean;
-  ownedOutright: boolean;
+export interface AreaState extends AreaAvailability {
+  /**
+   * Who holds it end to end, when somebody does. `null` while it is still split.
+   *
+   * Carried beside the boolean so the launch route can word its refusal for the party actually
+   * behind the gate: "you own every inch of it" and "the Combine holds every inch of it" are the
+   * same rule and very different sentences.
+   */
+  wholeHolder: LocationHolder | null;
 }
 
 /**
- * Whether this crew owns a district so completely that there is no work left in it.
+ * Whether there is work to be had in a district, read off the world and not off the reader.
  *
- * Every location held **and** the gate down. Both, because a district whose locations are all
- * taken but whose gate still stands is a district with a fight left in it, and a gate with
- * locations still in other hands is not owned at all.
+ * One party holding every location is what arms its gate (`city/control.ts`), and that is the
+ * whole of the rule: it does not matter whether the party is the Combine, the looters, a rival or
+ * this crew. `districtHolder` is the same function the §A4 unified bonus turns on, so a district
+ * that pays somebody the unified bonus is exactly a district with no board, and the two cannot
+ * drift apart.
  */
 export function areaStatesFor(repos: Repositories, base: Base): Map<string, AreaState> {
   const context = cityContextFor(repos, base);
   const states = new Map<string, AreaState>();
   for (const district of CITY_DISTRICTS) {
-    const locations = district.locations;
-    const mine = locations.filter((location) => {
-      const control = context.controls.get(location.id);
-      return control !== undefined && isHeldBy(control, base.id);
-    }).length;
+    const holder = districtHolder(district, context.controls);
     states.set(district.id, {
       scouted: context.visible.has(district.id),
-      ownedOutright: locations.length > 0 && mine === locations.length,
+      heldWhole: holder !== null,
+      wholeHolder: holder,
     });
   }
   return states;
@@ -214,7 +223,7 @@ export function projectAreas(
     ...districts
       .filter((district) => {
         const state = states.get(district.id);
-        return state !== undefined && state.scouted && !state.ownedOutright;
+        return state !== undefined && areaIsOpen(district, state);
       })
       .map((district) => board(district.id, district.name, district.blurb, district.difficulty)),
   ];

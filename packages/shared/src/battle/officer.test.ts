@@ -212,7 +212,7 @@ describe('an officer in the line (§D3)', () => {
     const sim = led({ razors: 1 }, { razors: 1 }, leader);
     const shooter = stackOf(sim.defender, 'Razors');
     const officerStack = officerStackOf(sim.attacker)!;
-    const alone = allocate(shooter, [{ ...officerStack, alive: 1, pool: 100 }]);
+    const alone = allocate(shooter, [{ ...officerStack, alive: 1, pool: 100, bodies: [100] }]);
     expect(alone).toHaveLength(1);
     expect(alone[0]!.share).toBe(1);
   });

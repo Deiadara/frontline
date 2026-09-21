@@ -113,6 +113,7 @@ export const FEAT_MEASURES = [
   'combine_districts_held',
   'chapel_held',
   'units_trained',
+  'drills_paired',
   'overseer_taken',
   'buildings_raised',
   'officers_hired',
@@ -242,6 +243,8 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   combine_districts_held: { source: 'crew', scoped: false, unit: 'districts' },
   chapel_held: { source: 'crew', scoped: false, unit: 'chapels' },
   units_trained: { source: 'tally', scoped: false, unit: 'units' },
+  /** Drills started while somebody else was already on the floor: the second bench, used. */
+  drills_paired: { source: 'tally', scoped: false, unit: 'drills' },
   /**
    * The moment an account picks the person the district answers to, counted once and for ever.
    *

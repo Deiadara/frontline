@@ -129,7 +129,9 @@ export function MarketTabs({ active, action }: { active: MarketTab; action?: Rea
         'black',
         'There is a door at the end of the arcade. It costs infamy, not caps.',
       )}
-      {action !== undefined && <div className="ml-auto">{action}</div>}
+      {/* The crew screen's line, running on from the last tab (maintainer, 2026-09-21). */}
+      <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+      {action !== undefined && <div className="shrink-0">{action}</div>}
     </div>
   );
 }

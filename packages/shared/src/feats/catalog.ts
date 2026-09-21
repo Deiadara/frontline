@@ -3720,6 +3720,24 @@ const CREW: FeatSpec[] = [
       reward: rise(4, 'coin'),
     },
   ]),
+  /*
+   * The second bench (maintainer, 2026-09-21). The floor takes one person at a time until the
+   * Professor's fourth rung, and this is the one feat that says the rung is worth researching:
+   * the tally only moves once a drill starts beside a drill already running.
+   */
+  solo(
+    {
+      id: 'second_chair',
+      name: 'Two at the Bench',
+      blurb:
+        'Put two people through drills at the same time. The Professor’s Second Chair opens the second bench.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: lesson('mid', 'small'),
+    },
+    'drills_paired',
+  ),
   ...chain('trained', 'units_trained', [
     {
       id: 'trained_1',

@@ -175,9 +175,23 @@ export function TrainingPage() {
   }
 
   const subject = data.subjects.find((one) => one.id === chosen) ?? data.subjects[0];
+  // One bench until the Professor's Second Chair (`TRAINING_BENCHES`): a full floor dims every
+  // drill on every sheet, the way an empty allowance does.
+  const onTheFloor = data.subjects.filter((one) => one.session !== null).length;
+  const floorFull = onTheFloor >= data.benches;
 
   return (
     <PageShell quote="A little practice saves a great deal of blood." wide fills>
+      {/* The crew screen's line (maintainer, 2026-09-21), carrying the one number this screen
+          has that the rail and the sheet do not: how many may be on the floor at once. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3" data-testid="training-floor-line">
+        <span className="font-display text-[12px] uppercase tracking-[0.18em] text-ink-300">
+          <span className="tabular-nums text-ink-200">{onTheFloor}</span> of{' '}
+          <span className="tabular-nums text-ink-200">{data.benches}</span>{' '}
+          {data.benches === 1 ? 'bench' : 'benches'} in use
+        </span>
+        <span aria-hidden className="ink-rule block min-w-0 flex-1" />
+      </div>
       {/*
        * One frame, two columns, and one thing in it that moves.
        *
@@ -442,6 +456,7 @@ export function TrainingPage() {
                       group={group}
                       subject={subject}
                       sessionsLeft={data.sessionsLeft}
+                      floorFull={floorFull}
                       pending={start.isPending}
                       onOpen={setOpened}
                     />
@@ -469,7 +484,7 @@ export function TrainingPage() {
           name={opened}
           subject={subject}
           seconds={data.sessionSeconds}
-          blocker={drillBlocker(opened, subject, data.sessionsLeft)}
+          blocker={drillBlocker(opened, subject, data.sessionsLeft, floorFull)}
           pending={start.isPending}
           onTrain={() => {
             start.mutate(
@@ -493,9 +508,9 @@ export function TrainingPage() {
  * drill's own words and the cancel: this strip is the *other* question, which is everybody at once.
  *
  * Bounded by construction, so it never scrolls and never needs to (maintainer, 2026-09-21: "no
- * need for a scrolable page though"). A crew gets `perDay` hours a day and a running drill holds
- * one, so at most five of these exist however many officers are on the books, and four fit across
- * a 1440 sheet. It is also kept deliberately short, because every pixel it takes is a drill row
+ * need for a scrolable page though"). The floor has `benches` places, one until the Professor's
+ * Second Chair and two after, so at most two of these exist however many officers are on the
+ * books. It is also kept deliberately short, because every pixel it takes is a drill row
  * off the sheet above it: one line per person, and the drill's name on the hover rather than in
  * the row.
  *
@@ -711,12 +726,14 @@ function GroupSheet({
   group,
   subject,
   sessionsLeft,
+  floorFull,
   pending,
   onOpen,
 }: {
   group: AttributeGroup;
   subject: TrainingSubject;
   sessionsLeft: number;
+  floorFull: boolean;
   pending: boolean;
   onOpen: (name: AttributeName) => void;
 }) {
@@ -773,6 +790,7 @@ function GroupSheet({
             name={name}
             subject={subject}
             sessionsLeft={sessionsLeft}
+            floorFull={floorFull}
             pending={pending}
             onOpen={() => onOpen(name)}
           />
@@ -806,12 +824,14 @@ function DrillButton({
   name,
   subject,
   sessionsLeft,
+  floorFull,
   pending,
   onOpen,
 }: {
   name: AttributeName;
   subject: TrainingSubject;
   sessionsLeft: number;
+  floorFull: boolean;
   pending: boolean;
   onOpen: () => void;
 }) {
@@ -820,7 +840,7 @@ function DrillButton({
   const gain = trainingGainFor(rating);
   const drill = TRAINING_DRILLS[name];
   const effect = ATTRIBUTE_EFFECTS[name];
-  const blocker = drillBlocker(name, subject, sessionsLeft);
+  const blocker = drillBlocker(name, subject, sessionsLeft, floorFull);
   const filled = ratingPercent((rating / MAX_ATTRIBUTE) * 100);
   // The bar and the figure read the *rating*, not the column they are in. A group colour told a
   // player which of four lists they were looking at, which the icon and the frame already say, and
@@ -881,9 +901,13 @@ function DrillButton({
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-brass-300/80 shadow-brass"
           />
         )}
+        {/* `leading-none`: the figure's default line box was 21px on a 14px face, and it set the
+            row's height. Six pixels off each of eleven rows is what lets a whole column fit at
+            1440x900 rather than folding its last two (maintainer, 2026-09-21: "there are gaps in
+            the main part where the attributes are"). */}
         <span
           className={cn(
-            'shrink-0 font-display text-[14px] font-bold tabular-nums',
+            'shrink-0 font-display text-[14px] font-bold leading-none tabular-nums',
             RATING_TEXT[band],
           )}
         >
@@ -954,9 +978,12 @@ function drillBlocker(
   name: AttributeName,
   subject: TrainingSubject,
   sessionsLeft: number,
+  floorFull: boolean,
 ): string | null {
   if (sessionsLeft <= 0) return 'Nothing left today';
   if (subject.session) return 'Already in a session';
+  // The server's own words (`trainingBlocker`), after the per-person check for the same reason.
+  if (floorFull) return 'The floor is taken';
   if (subject.lastAttribute === name) return 'Did that last time';
   if (subject.attributes[name] >= MAX_ATTRIBUTE) return 'Nothing left to learn';
   return null;

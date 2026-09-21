@@ -329,6 +329,23 @@ describe('drilling', () => {
     expect(sessionFor(state, OVERSEER_SUBJECT)).toBeDefined();
   });
 
+  /**
+   * One person on the floor at a time (maintainer, 2026-09-21), and the Professor's Second Chair
+   * is the only thing that widens it. Pinned on both sides: the default refuses the second body
+   * while the first is still drilling, and a second bench admits exactly one more.
+   */
+  it('takes one person on the floor, and one more per bench', () => {
+    const state = beginTraining(startingTraining(NOW), session(), NOW);
+    expect(trainingBlocker(state, 'officer-1', 'logic', sheet, NOW)).toBe('The floor is taken');
+    expect(trainingBlocker(state, 'officer-1', 'logic', sheet, NOW, 0, 2)).toBeNull();
+    const two = beginTraining(state, session({ id: 's2', subjectId: 'officer-1' }), NOW);
+    expect(trainingBlocker(two, 'officer-2', 'logic', sheet, NOW, 0, 2)).toBe('The floor is taken');
+    // Somebody already drilling reads their own refusal, not the floor's.
+    expect(trainingBlocker(two, 'officer-1', 'logic', sheet, NOW, 0, 2)).toBe(
+      'Already in a session',
+    );
+  });
+
   it('refuses a sixth session in one day', () => {
     let state = startingTraining(NOW);
     const names: AttributeName[] = ['stamina', 'strength', 'stamina', 'strength', 'stamina'];
@@ -388,7 +405,8 @@ describe('drilling', () => {
     /** Per person. One officer's drill must not lock the same drill out for everybody else. */
     it("does not spread one person's last drill across the crew", () => {
       const state = beginTraining(startingTraining(NOW), session(), NOW);
-      expect(trainingBlocker(state, 'officer-1', 'stamina', sheet, NOW)).toBeNull();
+      // A second bench, so the floor is not what answers: the question here is the memory.
+      expect(trainingBlocker(state, 'officer-1', 'stamina', sheet, NOW, 0, 2)).toBeNull();
     });
 
     /**

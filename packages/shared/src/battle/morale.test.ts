@@ -157,9 +157,11 @@ describe('who gets away', () => {
       ),
       alive,
       pool: alive * unit.stats.vitality,
+      bodies: new Array<number>(alive).fill(unit.stats.vitality),
       morale: unit.stats.morale,
       brokeAt,
       started: alive,
+      charged: 0,
       suppressed: 0,
       // Only `jamPercent` reads it, and nothing here is fitted, so the catalogue figure is it.
       sheet: unit.stats,

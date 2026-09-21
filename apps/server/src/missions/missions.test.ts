@@ -133,7 +133,14 @@ function launchAnyJobToday(extra: Record<string, unknown> = {}) {
  * retuned.
  */
 function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
-  const boards = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)];
+  // Contested districts only: a residential district is somebody's plot and posts no work at all
+  // (maintainer, 2026-09-21), so a helper that counted them handed out ids no board offers.
+  const boards = [
+    MISC_AREA_ID,
+    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map(
+      (district) => district.id,
+    ),
+  ];
   const areaId = boards[nth];
   if (areaId === undefined) throw new Error(`no board number ${nth}`);
   const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()))[0];
@@ -209,6 +216,25 @@ interface Stack {
   db: AppDatabase;
 }
 
+/**
+ * Nobody holds a whole district, so every board is open (maintainer's rule, 2026-09-21).
+ *
+ * The same argument as the scouting loop below it. Work is offered only where no single party
+ * holds every location, and the city starts with five Combine districts and the Undergrid shut,
+ * so a stack that left them shut would refuse most of the launches in this file for a reason none
+ * of these tests is about. One plot per district emptied is the least that opens a gate, and the
+ * rule itself is tested on its own in `board.test.ts` rather than here.
+ */
+function openEveryGate(repos: Repositories): void {
+  for (const district of CITY_DISTRICTS) {
+    const first = district.locations[0];
+    if (!first) continue;
+    const control = repos.city.control(first.id);
+    if (!control) continue;
+    repos.city.put({ ...control, holder: { kind: 'unoccupied' }, garrison: {} });
+  }
+}
+
 async function makeStack(username = 'runner'): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
@@ -243,6 +269,7 @@ async function makeStack(username = 'runner'): Promise<Stack> {
   for (const district of CITY_DISTRICTS) {
     repos.city.markScouted(minted.id, district.id, new Date().toISOString());
   }
+  openEveryGate(repos);
   const base = repos.bases.findByOwnerId(user.id);
   if (!base) throw new Error('base vanished after arming it');
   return { app, repos, base, token, db, overseerId };
@@ -598,24 +625,31 @@ describe('mission payout (§E1, §E5)', () => {
     const stack = await makeStack();
     const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
     const settledAt = after(templateTimings(strike).totalMinutes);
-    // Enough to kill somebody and not enough to hold the field.
-    const outmatched: Army = { razors: 8 };
-    const losing = (() => {
-      for (let seed = 1; seed < 500; seed += 1) {
-        const fought = fightMissionBattle({
-          seed,
-          jobName: strike.name,
-          force: outmatched,
-          vehicles: {},
-          tier: battleTierFor(strike) as BattleTier,
-          level: stack.base.level,
-          anyRide: false,
-        });
-        if (fought.outcome === 'failure' && total(fought.killed) > 0 && total(fought.home) > 0) {
-          return seed;
+    // Enough to kill somebody and not enough to hold the field. The size is searched for along
+    // with the seed since 2026-09-21: eight Razors stopped producing the case after the engine
+    // retune (they either walk it or die to the last), and the fixture's own rule is that the
+    // engine decides what this fight looks like, not the test.
+    const { outmatched, losing } = (() => {
+      for (const razors of [8, 6, 10, 5, 12, 4, 14]) {
+        const force: Army = { razors };
+        for (let seed = 1; seed < 300; seed += 1) {
+          const fought = fightMissionBattle({
+            seed,
+            jobName: strike.name,
+            force,
+            vehicles: {},
+            tier: battleTierFor(strike) as BattleTier,
+            level: stack.base.level,
+            anyRide: false,
+          });
+          if (fought.outcome === 'failure' && total(fought.killed) > 0 && total(fought.home) > 0) {
+            return { outmatched: force, losing: seed };
+          }
         }
       }
-      throw new Error('fixture: no seed loses the field, kills somebody and brings anybody home');
+      throw new Error(
+        'fixture: no size and seed loses the field, kills somebody and brings anybody home',
+      );
     })();
     planted(stack, strike, losing, T0, {}, outmatched);
     const { fought } = replayed(stack, strike, losing, outmatched, settledAt);
@@ -677,25 +711,48 @@ describe('mission payout (§E1, §E5)', () => {
 
     const strike = findMissionTemplate('convoy-ambush') as MissionTemplate;
     const edge: Army = { razors: 9 };
-    planted({ ...stack, base: fitted }, strike, ALWAYS_SUCCEEDS, T0, {}, edge);
     const settledAt = after(templateTimings(strike).totalMinutes);
-    const replay = (loadouts: UnitLoadouts) =>
+    // The same fight the settle runs (`missions/resolve.ts`): the crew's standing effects as the
+    // ground and its recovery, not only its `anyRide`. Without them the replay is a different
+    // fight, and on most seeds it happens to land on the bare figure, which reads as the settle
+    // having dropped the card.
+    const crew = standingEffectsFor(stack.repos, fitted, settledAt);
+    const replay = (seed: number, loadouts: UnitLoadouts) =>
       fightMissionBattle({
-        seed: ALWAYS_SUCCEEDS,
+        seed,
         jobName: strike.name,
         force: edge,
         vehicles: {},
         tier: battleTierFor(strike) as BattleTier,
         level: fitted.level,
-        anyRide: standingEffectsFor(stack.repos, fitted, settledAt).anyRide,
+        anyRide: crew.anyRide,
         loadouts,
+        territory: crew,
+        recoveryPercent: crew.casualtyRecoveryPercent + infirmaryRecoveryPercent(fitted.buildings),
       });
-    const bare = replay({});
-    const withGrips = replay(fitted.unitLoadouts);
+    // The seed is searched for rather than fixed (2026-09-21): the card has to change *this*
+    // fight's losses or the settle assertion below measures nothing, and which seeds it changes
+    // is the engine's to decide.
+    const felt = (() => {
+      for (let seed = 1; seed < 2000; seed += 1) {
+        // The settle rolls the job's own success on this seed first; it has to clear that too.
+        if (createRng(seed)() >= 0.5) continue;
+        if (total(replay(seed, fitted.unitLoadouts).lost) !== total(replay(seed, {}).lost)) {
+          return seed;
+        }
+      }
+      throw new Error('fixture: no seed clears the job and feels the card');
+    })();
+    planted({ ...stack, base: fitted }, strike, felt, T0, {}, edge);
+    const bare = replay(felt, {});
+    const withGrips = replay(felt, fitted.unitLoadouts);
     expect(withGrips.lost, 'the fixture has to feel the card').not.toEqual(bare.lost);
 
     const { resolved } = resolveDueMissions(stack.repos, fitted, settledAt);
-    expect(resolved[0]?.lost).toEqual(withGrips.lost);
+    expect(
+      resolved[0]?.lost,
+      `seed ${felt}: settled ${JSON.stringify(resolved[0]?.lost)}, bare ${JSON.stringify(bare.lost)}, fitted ${JSON.stringify(withGrips.lost)}, outcome ${resolved[0]?.outcome}`,
+    ).toEqual(withGrips.lost);
   });
 
   it('leaves infamy alone for standard work however well it went', async () => {
@@ -2032,9 +2089,25 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
    * comparison that lands on one passes whatever the code does. Easy is what this fixture has
    * always asked for and it costs nothing to keep: both crews here name a leader.
    */
-  function anEasyRoadToday(): { template: MissionTemplate; areaId: string } {
+  /**
+   * The longest road on any board today, out of the jobs this fixture can actually send.
+   *
+   * **Not the easy ones.** The Short Way is ten per cent off a leg and legs are whole minutes, so
+   * a `close` band, five minutes before the column's own pace is read, rounds the perk away to
+   * nothing and the test's own control trips ("the Short Way does not move this road"). Today
+   * every easy job on an open board is `close`; on 2026-09-21, when residential districts came
+   * off the boards, the pool lost the templates that were only offered on a plot and the longest
+   * easy road fell to three minutes.
+   *
+   * `standard` rather than any kind, because a battle job brings §D7's force rules with it and
+   * this test is about pricing. Difficulty is not filtered at all: a hard standard job launches
+   * on the same four Razors, and what it costs is not what is under test.
+   */
+  function aLongRoadToday(): { template: MissionTemplate; areaId: string } {
     const now = new Date();
-    const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
+    const offered = MISSION_TEMPLATES.filter(
+      (template) => template.kind === 'standard' && template.travelBand !== 'close',
+    )
       .map((template) => ({ template, areaId: areasOffering(template.id, now)[0] }))
       .filter(
         (entry): entry is { template: MissionTemplate; areaId: string } =>
@@ -2045,7 +2118,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
           TRAVEL_BAND_MINUTES[b.template.travelBand] - TRAVEL_BAND_MINUTES[a.template.travelBand],
       );
     const longest = offered[0];
-    if (!longest) throw new Error(`no easy job on any board at ${now.toISOString()}`);
+    if (!longest) throw new Error(`no long standard road on any board at ${now.toISOString()}`);
     return longest;
   }
 
@@ -2080,7 +2153,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   }
 
   it('pays and teaches the same whether or not the fastest officer leads it', async () => {
-    const { template, areaId } = anEasyRoadToday();
+    const { template, areaId } = aLongRoadToday();
     const led = await crewWithAShortWay('short_way_led');
     const unled = await crewWithAShortWay('short_way_unled');
 
@@ -2115,7 +2188,7 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   });
 
   it('freezes the clock the board quoted, not the one the crew runs on', async () => {
-    const { template, areaId } = anEasyRoadToday();
+    const { template, areaId } = aLongRoadToday();
     const { stack, leaderId } = await crewWithAShortWay('short_way_quoted');
 
     const board = await stack.app.inject({

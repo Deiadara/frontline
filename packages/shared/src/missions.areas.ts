@@ -21,11 +21,20 @@ import { lootCapacityOf } from './raid.js';
  * not a map: nothing about it said where you were working, nothing changed as the city changed,
  * and taking a job cost nothing but the clock.
  *
- * Work is now **per area**. Every district you have scouted and do not yet own outright offers
- * three jobs; there is one more board, `misc`, for the work that belongs to nobody's ground. Take
- * one and the other two are off the table until that crew is home, so a district is a commitment
- * rather than a queue. Across the whole city a crew can only have {@link BASE_CONCURRENT_MISSIONS}
- * running at once, in different areas, and the only thing that lifts that is a milestone.
+ * Work is now **per area**. Every contested district you have scouted that nobody holds end to
+ * end offers three jobs; there is one more board, `misc`, for the work that belongs to nobody's
+ * ground. Take one and the other two are off the table until that crew is home, so a district is
+ * a commitment rather than a queue. Across the whole city a crew can only have
+ * {@link BASE_CONCURRENT_MISSIONS} running at once, in different areas, and the only thing that
+ * lifts that is a milestone.
+ *
+ * Two of those conditions arrived on 2026-09-21 and between them they make the board a map of
+ * where the city is still loose: a residential district is somebody's plot and posts nothing, and
+ * a district one party holds down to the last location is behind an armed gate and posts nothing
+ * either, whoever that party is. The city as authored starts with two contested districts open
+ * (Chrome Row and the Glasshouse Fields) and six shut, so breaking a gate is what puts a board on
+ * the screen. {@link areaIsOpen} is the rule and `missions/board.test.ts` on the server is what
+ * holds the count.
  *
  * The three on offer are a pure function of the area, so two players looking at Steelbelt see
  * the same three jobs and a player can plan around them. What differs is what they pay: a job in a
@@ -111,13 +120,20 @@ function takeFrom(
  * key: a district's is its game day and `misc` carries an hourly slot inside it. Asking each area
  * for its own key through `missionBoardKey` is the only reading that cannot go stale for one of
  * them while staying right for the other.
+ *
+ * Contested districts only (maintainer, 2026-09-21). `missionOffers` is a pure function of an area
+ * id and will happily deal three jobs for a residential district, which posts none: a caller
+ * asking "where is this job today" was handed a plot on the days the rotation put one first, and
+ * the launch it built from that answer came back refused. The other half of {@link areaIsOpen},
+ * whether the ground is scouted and loose, is a fact about one crew and cannot be answered here.
  */
 export function areasOffering(
   templateId: string,
   now: Date,
   zone: string = GAME_TIMEZONE,
 ): string[] {
-  return [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)].filter((areaId) =>
+  const boards = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
+  return [MISC_AREA_ID, ...boards.map((district) => district.id)].filter((areaId) =>
     missionOffers(areaId, missionBoardKey(areaId, now, zone)).some(
       (template) => template.id === templateId,
     ),
@@ -269,19 +285,42 @@ export const FAILED_MISSION_XP_SHARE = 0.2;
 /** Whether this district is one a crew may still take work in. */
 export interface AreaAvailability {
   scouted: boolean;
-  /** Every location taken and the gate down: there is nothing left in there to be paid for. */
-  ownedOutright: boolean;
+  /**
+   * One party holds every location in it, whoever they are.
+   *
+   * That is what arms a gate (`city/control.ts`, `startingHolder`), and a district behind an armed
+   * gate has no work in it for anybody: there is nobody inside to hire a crew and nothing loose to
+   * be paid for taking. It reads the same whether the party is the Combine, the looters, a rival
+   * or the reader: see {@link areaIsOpen}.
+   */
+  heldWhole: boolean;
 }
 
-export function areaIsOpen({ scouted, ownedOutright }: AreaAvailability): boolean {
-  return scouted && !ownedOutright;
+/**
+ * Whether a crew may be offered work in this district (maintainer, 2026-09-21).
+ *
+ * Three conditions, and the last two are the new ones:
+ *
+ *   * **Scouted.** Work is only offered on ground somebody has had eyes on.
+ *   * **Contested.** A residential district is somebody's plot, and the four of them hold no
+ *     capturable locations at all (`districts.ts` guards it at module load). A job board over a
+ *     rival's hideout was offering work in a place with nothing in it to work on.
+ *   * **Not held end to end.** One party holding all of it is exactly what arms the gate, so the
+ *     district is shut. This closed only against *your own* holdings before, which read as a rule
+ *     about the reader rather than about the ground: the Combine Spire, held by the Combine down
+ *     to the last plot, still posted three jobs a day.
+ *
+ * The misc board is not a district and is never subject to any of this: see {@link MISC_AREA_ID}.
+ */
+export function areaIsOpen(district: District, { scouted, heldWhole }: AreaAvailability): boolean {
+  return district.kind === 'contested' && scouted && !heldWhole;
 }
 
 /** Districts a crew may be offered work in, in map order. */
 export function openAreas(
   availability: (district: District) => AreaAvailability,
 ): readonly District[] {
-  return CITY_DISTRICTS.filter((district) => areaIsOpen(availability(district)));
+  return CITY_DISTRICTS.filter((district) => areaIsOpen(district, availability(district)));
 }
 
 // --- who goes ---

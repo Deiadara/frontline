@@ -255,25 +255,41 @@ describe('nobody runs because somebody else did', () => {
   });
 
   /**
-   * A found case, like the stalwart one in `marks.test.ts`: this exact matchup loses a fourth stack
-   * to the cascade without the holding and keeps it with it. Pinning a case the rule changes is the
-   * only way the test fails when the engine stops reading it.
+   * The holding keeps stacks the same fights lose to the panic beside them.
    *
-   * Refound on 2026-09-18, twice over: the old fixture put a hundred attackers on a frontage of 48,
-   * so {@link overstackPenalty} moved it, and the roster it was built from gained resistance sheets
-   * in the same pass. The replacement is deliberately **under** the frontage, at 46 of 48, so the
-   * thing being measured is the cascade and not how crowded the attacker is, and it is a stronger
-   * pin than the one it replaces: the old case separated on four seeds in five, this one separates
-   * on all thirty tried.
+   * Read over thirty seeds rather than pinned on one. It was a single found case, refound twice
+   * (2026-09-18 for `overstackPenalty` and a resistance retune, 2026-09-21 for the Suppressors),
+   * and it broke a third time when the cascade started charging the **share** of the side that
+   * ran instead of the number of stacks: one seed either side of a threshold is a fixture with an
+   * expiry date on it, and three expiries is enough.
+   *
+   * Four equal stacks, so a stack breaking really is a quarter of the line and the cascade has
+   * something to be proportional to. Measured over the thirty seeds below: 106 stacks broken
+   * without the holding against 84 with it, the holding keeping a stack on 19 of the 30 and
+   * costing one on none of them. Both halves are asserted, because "fewer overall" alone would
+   * pass on a rule that helped twice as often as it hurt.
    */
-  it('keeps a stack that the same fight loses to the panic beside it', () => {
-    const attacking: Army = { the_condemned: 20, razors: 10, sparks: 10, scrapers: 6 };
-    // The seed is part of the fixture, since a fight is deterministic from it.
-    const shaken = fight(attacking, { juggernauts: 10 }, 'c0');
-    const steady = fight(attacking, { juggernauts: 10 }, 'c0', fold({ kind: 'steady_nerve' }));
+  it('keeps stacks that the same fights lose to the panic beside them', () => {
+    const attacking: Army = { razors: 25, sparks: 25, scrapers: 25, anodics: 25 };
+    const defending: Army = { suppressor: 20 };
     const broke = (side: Simulation['attacker']): number =>
       side.stacks.filter((stack) => stack.brokeAt !== null).length;
-    expect(broke(shaken.attacker)).toBe(4);
-    expect(broke(steady.attacker)).toBe(3);
+
+    let shakenTotal = 0;
+    let steadyTotal = 0;
+    let kept = 0;
+    for (let seed = 0; seed < 30; seed += 1) {
+      // The seed is part of the fixture, since a fight is deterministic from it.
+      const shaken = broke(fight(attacking, defending, `c${seed}`).attacker);
+      const steady = broke(
+        fight(attacking, defending, `c${seed}`, fold({ kind: 'steady_nerve' })).attacker,
+      );
+      shakenTotal += shaken;
+      steadyTotal += steady;
+      if (shaken > steady) kept += 1;
+      expect(steady, `steady nerve cost a stack on seed c${seed}`).toBeLessThanOrEqual(shaken);
+    }
+    expect(kept, 'the holding changed nothing in thirty fights').toBeGreaterThanOrEqual(10);
+    expect(steadyTotal).toBeLessThan(shakenTotal);
   });
 });

@@ -194,12 +194,13 @@ describe('what it does to a fight', () => {
     const lost = (side: SideState) =>
       side.stacks.reduce((total, stack) => total + (stack.started - stack.alive), 0);
     const sheet = ANODICS as unknown as Record<string, boolean | undefined>;
-    const loud = fight({ anodics: 24 }, { cyber_dogs: 18 }, 'loud-fight');
+    // Thirty dogs rather than eighteen since 2026-09-21: eighteen died to the last either way.
+    const loud = fight({ anodics: 24 }, { cyber_dogs: 30 }, 'loud-fight');
     const had = sheet['loud'];
     delete sheet['loud'];
     let quiet: Simulation;
     try {
-      quiet = fight({ anodics: 24 }, { cyber_dogs: 18 }, 'loud-fight');
+      quiet = fight({ anodics: 24 }, { cyber_dogs: 30 }, 'loud-fight');
     } finally {
       sheet['loud'] = had;
     }

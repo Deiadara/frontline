@@ -25,6 +25,28 @@ export const MORALE_THRESHOLDS: Record<Exclude<MoraleState, 'routed'>, number> =
   wavering: 15,
 };
 
+/**
+ * What each rung of the ladder costs a stack in fire (maintainer, 2026-09-21).
+ *
+ * The ladder had four names and one consequence: nothing happened until `routed`. That made
+ * morale a clock rather than a stat. `WINNING_RELIEF` zeroes the casualty shock for whichever
+ * side is winning the exchange, so morale decided only how long the losing side lasted and never
+ * who lost, and measured against the other seven ratings it was worth a third of armour. A shaken
+ * line now fires at nine tenths and a wavering one at seven tenths, which is what those words mean
+ * in every wargame that uses them, and it is what lets a steadier line win an exchange it would
+ * otherwise have lost.
+ */
+export const SHAKEN_FIRE = 0.9;
+export const WAVERING_FIRE = 0.75;
+
+/** The share of its fire a stack gets away at this morale, by the rung it is on. */
+export function moraleFireShare(morale: number): number {
+  const state = moraleState(morale);
+  if (state === 'steady') return 1;
+  if (state === 'shaken') return SHAKEN_FIRE;
+  return WAVERING_FIRE;
+}
+
 export function moraleState(morale: number): MoraleState {
   if (morale >= MORALE_THRESHOLDS.steady) return 'steady';
   if (morale >= MORALE_THRESHOLDS.shaken) return 'shaken';
@@ -39,8 +61,15 @@ export const MORALE_STATE_LABELS: Record<MoraleState, string> = {
   routed: 'broken',
 };
 
-/** Morale points lost for losing a stack's whole strength in one round. Scaled by what was lost. */
-export const CASUALTY_SHOCK = 14;
+/**
+ * Morale points lost for losing a stack's whole strength in one round. Scaled by what was lost.
+ *
+ * Thirty-five, from fourteen, on 2026-09-21. At fourteen the casualty term was under half a point
+ * a round in an even fight (per-round losses run about 7% and `WINNING_RELIEF` nets that to
+ * 0.03), while intimidation pressure was worth several, so the morale phase was a pressure clock
+ * and casualties barely reached it. See `docs/BATTLE-ENGINE.md`, "The eight ratings".
+ */
+export const CASUALTY_SHOCK = 35;
 
 /**
  * How much of the enemy's casualties count *against* your own when a stack judges how it is doing.
@@ -55,16 +84,38 @@ export const CASUALTY_SHOCK = 14;
  */
 export const WINNING_RELIEF = 0.6;
 
-/** How much harder every shock lands on a stack that is already low. */
-export const FRAGILITY_WEIGHT = 1.1;
+/**
+ * How much harder every shock lands on a stack that is already low.
+ *
+ * Two, from 1.1, on 2026-09-21: the eight-ratings ladder puts morale a tenth over the average
+ * rating, and fragility is most of what a morale point buys once pressure is no longer the whole
+ * morale phase. See `docs/BATTLE-ENGINE.md`, "The eight ratings".
+ */
+export const FRAGILITY_WEIGHT = 2;
 
-/** Morale points a full intimidation edge is worth per round. */
-export const INTIMIDATION_PRESSURE = 14;
+/**
+ * Morale points a full intimidation edge is worth per round.
+ *
+ * Six, from fourteen, on 2026-09-21. This term is taken off every stack every round, scaled by
+ * fragility, and subtracted from the quiet-round recovery too, and at fourteen it was the
+ * strongest number in the engine by a wide margin: +25 intimidation on a defender cost an attacker
+ * about four times the army that +25 armour did. The eight-ratings ladder puts intimidation a
+ * fifth over the average rating, level with evasion, and six is where the harness lands it.
+ * `CASUALTY_SHOCK` went up in the same pass so that casualties, not pressure, are what a line
+ * mostly breaks from. See `docs/BATTLE-ENGINE.md`, "The eight ratings".
+ */
+export const INTIMIDATION_PRESSURE = 6;
 
 /** Morale points lost per round for being outnumbered, at the worst. */
 export const OUTNUMBERED_SHOCK = 5;
 
-/** Morale points a stack loses when a neighbour breaks: the cascade. */
+/**
+ * Morale points a stack loses when the line beside it breaks, at the worst.
+ *
+ * Charged in proportion to how much of the side ran: see `MoraleShock.alliesBroken`. The whole
+ * line going at once costs this; a tenth of it going costs a tenth of this. It was charged per
+ * *stack* until 2026-09-21, which is the same thing only when every stack is the same size.
+ */
 export const ROUT_CASCADE = 10;
 
 /** Morale points a stack recovers per round when nothing bad happened to it. */
@@ -89,7 +140,17 @@ export interface MoraleShock {
   enemyIntimidation: number;
   /** Enemy units ÷ own units. Below 1 is an advantage and costs nothing. */
   outnumberedRatio: number;
-  /** How many friendly stacks broke this round. */
+  /**
+   * The share of the side's standing bodies that broke last round, 0..1.
+   *
+   * A *share*, not a count of stacks, since 2026-09-21. As a count it was the same 10 points
+   * whether one stack of two men ran or half the army did, and that made a force strictly worse
+   * for having a small fragile stack in it: 62 Razors beat a Combine line 45% of the time, and
+   * the same 62 with three Sparks bolted on won 0 of 600, because the Sparks broke first and
+   * charged everyone else the full cascade. Sixty-two with twenty Sparks won 86%, so the hole
+   * was not a slope but a pit. Eleven roster sheets sit under the 60-point `steady` line, so
+   * this was reachable with most of the cheap units in the game.
+   */
   alliesBroken: number;
   /** Holding fortified ground steadies a unit: percentage points of resistance to all of it. */
   resolvePercent: number;
@@ -112,7 +173,7 @@ export function moraleDelta(shock: MoraleShock, morale: number): number {
   const pressure = INTIMIDATION_PRESSURE * (Math.max(0, shock.enemyIntimidation) / 100);
   const outnumbered =
     OUTNUMBERED_SHOCK * Math.max(0, Math.min(1, (shock.outnumberedRatio - 1) / 2));
-  const cascade = ROUT_CASCADE * Math.max(0, shock.alliesBroken);
+  const cascade = ROUT_CASCADE * Math.max(0, Math.min(1, shock.alliesBroken));
 
   const damage = (casualties + pressure + outnumbered + cascade) * scale;
 

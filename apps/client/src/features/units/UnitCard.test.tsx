@@ -5,6 +5,11 @@ import {
   ENV_LABEL_IDS,
   UNIT_MODIFIERS,
   COMBAT_CONTEXT_LABELS,
+  UNIT_HEADLINE_KEYS,
+  UNIT_RATING_KEYS,
+  UNIT_STAT_EXPLAINERS,
+  UNIT_STAT_LABELS,
+  UNIT_TIER_LABELS,
   findUnit,
   modificationsForUnit,
   unitRules,
@@ -221,6 +226,70 @@ describe('a locked unit on the roster', () => {
  * fight, so the fight count is written after a slash and it is the only orange thing in the badge.
  * The hover is the one place the number says what it is, and it is unchanged.
  */
+describe('a Combine sheet', () => {
+  /**
+   * Nothing of theirs sleeps in the player's beds and nothing of theirs carries anything home,
+   * so the slot count and the loot chip are two numbers about the player printed on a card that
+   * is about the enemy (maintainer, 2026-09-21).
+   */
+  it('leaves the slot count and the loot chip off', () => {
+    const unit = optionFor(ironsides!);
+    draw(<UnitCard unit={unit} garrisoned={0} abroad={0} enemy />);
+    const card = screen.getByTestId(`unit-${unit.id}`);
+    expect(card).toHaveTextContent('The Combine');
+    expect(card).not.toHaveTextContent(/\bslots?\b/i);
+    expect(card.querySelector('[data-tip^="Loot slots"]')).toBeNull();
+    // The dossier behind the name keeps the tier and drops the slots with it.
+    fireEvent.focus(within(card).getByRole('button', { name: unit.name }));
+    const dossier = screen.getByRole('tooltip');
+    expect(dossier).toHaveTextContent(UNIT_TIER_LABELS[unit.tier]);
+    expect(dossier).not.toHaveTextContent(/unit slots?/i);
+  });
+
+  it('keeps both on a sheet the player can train', () => {
+    const unit = optionFor(ironsides!);
+    draw(<UnitCard unit={unit} garrisoned={0} abroad={0} />);
+    const card = screen.getByTestId(`unit-${unit.id}`);
+    expect(card).toHaveTextContent(`${unit.unitSlots} slot`);
+    expect(card.querySelector('[data-tip^="Loot slots"]')).not.toBeNull();
+  });
+});
+
+describe('the sheet', () => {
+  /**
+   * The two figures have no hover (maintainer, 2026-09-21): a damage or hit-point count explains
+   * itself, and a card where every word is a question is a card nobody hovers. The ratings keep
+   * theirs, with the maintainer's copy behind each.
+   */
+  it('puts a hover on every rating and none on the two figures', () => {
+    const unit = optionFor(ironsides!);
+    draw(<UnitCard unit={unit} garrisoned={0} abroad={0} />);
+    const card = screen.getByTestId(`unit-${unit.id}`);
+    for (const key of UNIT_HEADLINE_KEYS) {
+      expect(within(card).queryByRole('button', { name: UNIT_STAT_LABELS[key] })).toBeNull();
+    }
+    for (const key of UNIT_RATING_KEYS) {
+      fireEvent.focus(within(card).getByRole('button', { name: UNIT_STAT_LABELS[key] }));
+      expect(screen.getByRole('tooltip')).toHaveTextContent(UNIT_STAT_EXPLAINERS[key]);
+      fireEvent.blur(within(card).getByRole('button', { name: UNIT_STAT_LABELS[key] }));
+    }
+  });
+
+  /**
+   * Two ratings to a row, in the order the shared list gives them: stealth beside speed on the
+   * first row, and morale beside intimidation on the last, since those two are the two ends of
+   * one mechanic (maintainer, 2026-09-21).
+   */
+  it('pairs speed with stealth and morale with intimidation', () => {
+    const rows: string[][] = [];
+    for (let index = 0; index < UNIT_RATING_KEYS.length; index += 2) {
+      rows.push(UNIT_RATING_KEYS.slice(index, index + 2).map((key) => UNIT_STAT_LABELS[key]));
+    }
+    expect(rows[0]).toEqual(['Speed', 'Stealth']);
+    expect(rows[rows.length - 1]).toEqual(['Morale', 'Intimidation']);
+  });
+});
+
 describe('the count over the picture', () => {
   const shield = ironsides as UnitSpec;
 

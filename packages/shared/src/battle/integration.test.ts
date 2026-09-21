@@ -356,11 +356,9 @@ describe('across every scenario at once', () => {
   });
 
   it('only claims an opening strike where somebody could set one', () => {
-    for (const { scenario, simulation } of everything) {
-      const ambushers = Object.keys(scenario.attacking).filter((unitId) =>
-        findUnit(unitId)?.modifiers.includes('ambush'),
-      );
-      if (ambushers.length === 0) expect(simulation.openingStrike).toBe(0);
+    for (const { simulation } of everything) {
+      // Since 2026-09-21 an unmarked stack hides at `STEALTH_UNTAGGED_SHARE`, so a force with no
+      // marked unit can still open with a small strike. What is left to claim is the range.
       expect(simulation.openingStrike).toBeGreaterThanOrEqual(0);
       expect(simulation.openingStrike).toBeLessThanOrEqual(1);
     }

@@ -12,7 +12,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Consumables and other items](#consumables-and-other-items) (93 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (496 entries)
+- [Feats](#feats) (497 entries)
 - [Missions](#missions) (38 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
 - [Locations](#locations) (106 entries)
@@ -1221,6 +1221,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `beds_3` | A Thousand at Home | late | medium | `beds` | `beds_2` | `army_unit_slots` | 1,000 | resources | 103,200 |
 | `beds_4` | Fifteen Hundred Slots | late | medium | `beds` | `beds_3` | `army_unit_slots` | 1,500 | resources | 118,160 |
 | `beds_5` | Every Bed in the District | late | large | `beds` | `beds_4` | `army_unit_slots` | 2,200 | resources | 189,900 |
+| `second_chair` | Two at the Bench | mid | small | - | - | `drills_paired` | 1 | xp | 2,240 |
 | `trained_1` | Put Them Through It | early | small | `trained` | - | `units_trained` | 25 | xp | 210 |
 | `trained_2` | The Drill Yard | mid | medium | `trained` | `trained_1` | `units_trained` | 400 | xp | 14,000 |
 | `trained_3` | Two Thousand Through the Gate | late | medium | `trained` | `trained_2` | `units_trained` | 2,000 | xp | 77,000 |
@@ -1726,13 +1727,13 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | --- | --- |
 | `speed` | Speed |
 | `vitality` | Vitality |
-| `morale` | Morale |
+| `stealth` | Stealth |
 | `armor` | Armour |
 | `penetration` | Penetration |
 | `range` | Range |
 | `offense` | Damage |
 | `evasion` | Evasion |
-| `stealth` | Stealth |
+| `morale` | Morale |
 | `lootCapacity` | Loot |
 | `intimidation` | Intimidation |
 
@@ -1788,7 +1789,7 @@ Offcuts, tape and drill. Anybody can make one and everybody has.
 | `whistle_code` | Whistle Code | +6 Morale, +2 Intimidation | 1000 Scrap | 1 Signal Relay | yes | every unit | 1 | Six notes that mean six things. A section that cannot see each other still moves together. |
 | `hook_and_line` | Hook and Line | +2 Speed, +12 Loot | 1050 Scrap | 2 Welding Rods | yes | `scavengers`, `haulers` | 1 | Forty metres of rope and a grapple. Whatever is on the third floor comes down to you. |
 | `knuckle_guards` | Knuckle Guards | +3 Armour, +12 Damage, +2 Intimidation | 1100 Scrap | 3 Welding Rods | yes | `razors`, `anodics`, `scrapers`, `ghosts`, `ironsides`, `stitchers`, `sleepers`, `cyber_dogs`, `hollow_men`, `the_condemned`, `the_twins` | 1 | Cut steel over the fingers. It saves the hand, and it does something to the face it lands… |
-| `ear_defenders` | Ear Defenders | +5 Morale, +2 Evasion | 1200 Scrap | 1 Scrap Servo | yes | every unit | 1 | Moulded plugs, issued and checked. People who can still hear the order do not run as earl… |
+| `ear_defenders` | Ear Defenders | +2 Evasion, +5 Morale | 1200 Scrap | 1 Scrap Servo | yes | every unit | 1 | Moulded plugs, issued and checked. People who can still hear the order do not run as earl… |
 
 #### INTRICATE (10)
 
@@ -1800,7 +1801,7 @@ Somebody who knows the work, with the right stock in front of them.
 | `ablative_layers` | Ablative Layers | -2 Speed, +24 Vitality, +9 Armour | 2600 Scrap, 130 HQ metal | 3 Ceramic Plate | yes | every unit | 3 | Plate that comes apart instead of the person behind it. You replace it after every fight. |
 | `recoil_dampers` | Recoil Dampers | +5 Penetration, +4 Range, +28 Damage | 2800 Scrap, 140 HQ metal | 4 Scrap Servo | yes | every unit | 3 | Springs and a gas port, fitted properly. The second shot arrives while the first is still… |
 | `twitch_loop` | Twitch Loop | +7 Speed, +6 Evasion | 3000 Scrap, 150 HQ metal | 3 Scrap Servo, 1 Neural Shunt | yes | every unit | 3 | A closed circuit from eye to hand with nothing in between. Thinking was the slow part. |
-| `smoke_discipline` | Smoke Discipline | +4 Evasion, +10 Stealth | 3100 Scrap, 160 HQ metal | 2 Signal Relay | yes | every unit | 3 | Nobody lights up, nobody cooks, nobody talks on the approach. It is a rule rather than a… |
+| `smoke_discipline` | Smoke Discipline | +10 Stealth, +4 Evasion | 3100 Scrap, 160 HQ metal | 2 Signal Relay | yes | every unit | 3 | Nobody lights up, nobody cooks, nobody talks on the approach. It is a rule rather than a… |
 | `drill_book` | The Drill Book | +12 Morale, +5 Intimidation | 3300 Scrap, 170 HQ metal | 1 Signal Relay, 1 Optic Cluster | yes | every unit | 3 | Forty pages, most of it about standing still. Read aloud every morning until nobody needs… |
 | `hardened_optics` | Hardened Optics | +6 Penetration, +9 Range, +12 Damage | 3500 Scrap, 180 HQ metal | 3 Optic Cluster | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `juggernauts`, `sluggers` | 3 | Sealed glass with a coating that does not fog or flare. You see the target on the bad day… |
 | `counterweight_harness` | Counterweight Harness | +2 Speed, +20 Vitality, +32 Loot | 3700 Scrap, 190 HQ metal | 2 Hydraulic Ram, 4 Welding Rods | yes | `scavengers`, `haulers` | 3 | Load on the hips instead of the shoulders. Twice the bag and the same walk home. |
@@ -1815,7 +1816,7 @@ Engineering. It goes wrong when it is rushed and it is expensive when it is not.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `composite_carapace` | Composite Carapace | -3 Speed, +40 Vitality, +14 Armour, +5 Intimidation | 6200 Scrap, 430 HQ metal | 6 Ceramic Plate, 3 Hydraulic Ram | yes | every unit | 4 | A shell built to the body rather than strapped over it. Heavy, loud, and very hard to ope… |
 | `ranging_gear` | Ranging Gear | +10 Penetration, +8 Range, +48 Damage | 6600 Scrap, 460 HQ metal | 4 Optic Cluster, 1 Targeting Core | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `juggernauts`, `sluggers` | 4 | Drum, wire and a hand-cut cam that solves the drop for you. Arguments about elevation end. |
-| `dry_joints` | Dry Joints | +7 Speed, +5 Evasion, +16 Stealth | 7000 Scrap, 500 HQ metal | 8 Scrap Servo, 2 Pressure Valve | yes | every unit | 4 | Graphite and rubber through every hinge and boot. A yard full of gravel stops being a war… |
+| `dry_joints` | Dry Joints | +7 Speed, +16 Stealth, +5 Evasion | 7000 Scrap, 500 HQ metal | 8 Scrap Servo, 2 Pressure Valve | yes | every unit | 4 | Graphite and rubber through every hinge and boot. A yard full of gravel stops being a war… |
 | `adrenal_regulator` | Adrenal Regulator | +6 Speed, +16 Vitality, +15 Morale | 7400 Scrap, 540 HQ metal | 2 Neural Shunt, 2 Pressure Valve | yes | every unit | 4 | A pump that decides when they are frightened. The dose is small and the bill comes later. |
 | `breaching_charges` | Breaching Charges | +20 Penetration, +32 Damage | 7800 Scrap, 580 HQ metal | 4 Ceramic Plate, 1 Coolant Cell | yes | `breakers`, `demolishers`, `juggernauts`, `sluggers` | 4 | Cones packed by somebody who has counted their own fingers recently. Plate stops being an… |
 | `rescue_rig` | Rescue Rig | +3 Speed, +24 Vitality, +8 Morale, +48 Loot | 8200 Scrap, 640 HQ metal | 4 Hydraulic Ram, 6 Scrap Servo | yes | `scavengers`, `haulers` | 4 | Winch, sled and a harness rated for a body. It brings back the load and occasionally the… |
@@ -1828,9 +1829,9 @@ One of these turns up a year. The people who can build them are known by name.
 | Id | Name | Effect | Cost | Parts | Blueprint | Fits | Yard level | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `hardshell_exoframe` | Hardshell Exoframe | -4 Speed, +64 Vitality, +20 Armour, +10 Intimidation | 13000 Scrap, 980 HQ metal | 6 Hydraulic Ram, 10 Ceramic Plate, 3 Coolant Cell | yes | every unit | 7 | A powered shell with its own cooling and its own opinion about doorways. You hear it thre… |
-| `synaptic_lace` | Synaptic Lace | +14 Speed, -4 Morale, +15 Evasion, +10 Stealth | 14000 Scrap, 1060 HQ metal | 6 Neural Shunt, 2 Coolant Cell, 2 Pressure Valve | yes | every unit | 7 | Grown through the cortex over six weeks. Everything gets faster and some of it does not c… |
+| `synaptic_lace` | Synaptic Lace | +14 Speed, +10 Stealth, +15 Evasion, -4 Morale | 14000 Scrap, 1060 HQ metal | 6 Neural Shunt, 2 Coolant Cell, 2 Pressure Valve | yes | every unit | 7 | Grown through the cortex over six weeks. Everything gets faster and some of it does not c… |
 | `guided_rounds` | Guided Rounds | +15 Penetration, +11 Range, +72 Damage | 15000 Scrap, 1180 HQ metal | 3 Targeting Core, 6 Optic Cluster | yes | `sparks`, `wardens`, `snipers`, `road_reavers`, `kite_crews`, `juggernauts`, `sluggers` | 7 | Each round steers for the last half second. Cover becomes a suggestion, and the price is… |
-| `ghost_protocol` | Ghost Protocol | +8 Speed, +12 Evasion, +22 Stealth | 16500 Scrap, 1300 HQ metal | 4 Neural Shunt, 5 Optic Cluster, 3 Coolant Cell | yes | every unit | 7 | Heat, sound and signature all handled at once, by people who used to do this for the Comb… |
+| `ghost_protocol` | Ghost Protocol | +8 Speed, +22 Stealth, +12 Evasion | 16500 Scrap, 1300 HQ metal | 4 Neural Shunt, 5 Optic Cluster, 3 Coolant Cell | yes | every unit | 7 | Heat, sound and signature all handled at once, by people who used to do this for the Comb… |
 | `colours_of_the_line` | Colours of the Line | +16 Vitality, +22 Morale, +14 Intimidation | 18000 Scrap, 1450 HQ metal | 4 Signal Relay, 6 Ceramic Plate, 1 Targeting Core | yes | every unit | 7 | A standard carried by somebody who has held one before. Nothing breaks in front of it, an… |
 
 ## Vehicles
@@ -2336,7 +2337,7 @@ Somebody has to sit with the files.
 | 1 | `tech_reading_lists` | Reading Lists | -4% research time | 600 Caps, 400 Scrap | 45 | F- | - | What to read, in what order, and what to skip. |
 | 2 | `tech_lecture_series` | Lecture Series | -5% training time | 1550 Caps, 950 Scrap | 70 | F | - | Two hours a week, and everybody is better at their job. |
 | 3 | `tech_marginalia` | Marginalia | +6% experience | 2650 Caps, 1600 Scrap | 95 | F+ | - | The notes in the margin are worth more than the book they are in. |
-| 4 | `tech_working_papers` | Working Papers | -7% research time | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Circulated before they are finished, which is the point of them. |
+| 4 | `tech_second_chair` | Second Chair | +1 person drilling at the same time | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Two at the bench, one hour. The Professor takes them in turns and nobody waits. |
 | 5 | `tech_seminar` | Seminar | +2 to officer mental skills | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Six people arguing about one page. |
 | 6 | `tech_citation_index` | Citation Index | +8% intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Who read what, and what it changed. |
 | 7 | `tech_applied_sections` | Applied Sections | -7% build time | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The theory goes down to the workshop the same week. |

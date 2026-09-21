@@ -38,6 +38,17 @@ import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
 /** How many sessions a crew may start in one day. Does not bank. */
 export const TRAININGS_PER_DAY = 5;
 
+/**
+ * How many people may be on the floor at once (maintainer, 2026-09-21).
+ *
+ * One. The five hours a day used to run side by side, so a crew of five put the whole day through
+ * in the first hour and the tab was a thing you visited once. A floor with one bench makes the
+ * allowance a *day*: the hours are spent one after the other, and choosing who goes first is a
+ * decision. The Professor's fourth rung (`research/tracks.ts`, `training_benches`) adds a second
+ * bench, which is the only way past this.
+ */
+export const TRAINING_BENCHES = 1;
+
 /** How long one session takes. */
 export const TRAINING_SECONDS = 3600;
 
@@ -162,10 +173,14 @@ export function trainingBlocker(
   sheet: Attributes,
   now: string,
   extra = 0,
+  /** Benches on the floor: {@link TRAINING_BENCHES} plus what the Professor's track has bought. */
+  benches = TRAINING_BENCHES,
 ): TrainingBlocker | null {
   const rolled = rollDay(state, now);
   if (trainingsLeft(rolled, now, extra) <= 0) return 'No sessions left today';
   if (sessionFor(rolled, subjectId)) return 'Already in a session';
+  // After the per-person check, so someone already drilling reads the more exact refusal.
+  if (rolled.sessions.length >= benches) return 'The floor is taken';
   if (rolled.last[subjectId] === attribute) return 'Trained that last time';
   if (sheet[attribute] >= MAX_ATTRIBUTE) return 'Nothing left to learn here';
   return null;

@@ -134,6 +134,11 @@ export function tallyPageReimagined(repos: Repositories, baseId: string, pageId:
   record(repos, baseId, [one('masterpieces_reimagined')]);
 }
 
+/** A drill started while another was already running: the second bench, used. */
+export function tallyDrillPaired(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('drills_paired')]);
+}
+
 /** Infamy banked, gross. Spending it on the ladder or the back room does not take it back. */
 export function tallyInfamyEarned(repos: Repositories, baseId: string, amount: number): void {
   if (amount <= 0) return;

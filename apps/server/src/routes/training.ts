@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   OVERSEER_SUBJECT,
   StartTrainingRequestSchema,
+  TRAINING_BENCHES,
   TRAINING_SECONDS,
   beginTraining,
   crewSheet,
@@ -16,6 +17,7 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { projectTraining, settleTrainingFor } from '../crew/training.js';
+import { tallyDrillPaired } from '../feats/tally.js';
 import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
@@ -29,6 +31,11 @@ import { ownBase } from './own-base.js';
  */
 function extraSessionsFor(app: FastifyInstance, base: Base): number {
   return standingEffectsFor(app.repos, base).extraTrainingSessions;
+}
+
+/** How many people may drill at once: one, plus the Professor's Second Chair. Same rule as above. */
+function benchesFor(app: FastifyInstance, base: Base): number {
+  return TRAINING_BENCHES + standingEffectsFor(app.repos, base).trainingBenchesFlat;
 }
 
 /**
@@ -57,7 +64,13 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       }
       const training = cancelDrill(base.training, sessionId, now);
       app.repos.bases.updateTraining(base.id, training, base.commanders);
-      return projectTraining({ ...base, training }, overseer, now, extraSessionsFor(app, base));
+      return projectTraining(
+        { ...base, training },
+        overseer,
+        now,
+        extraSessionsFor(app, base),
+        benchesFor(app, base),
+      );
     })();
   });
 
@@ -71,6 +84,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       settled.overseer,
       now,
       extraSessionsFor(app, settled.base),
+      benchesFor(app, settled.base),
     );
   });
 
@@ -99,10 +113,13 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
         sheet,
         now,
         extraSessionsFor(app, base),
+        benchesFor(app, base),
       );
       // The wording is the same one the tab already shows against the disabled button, so a player
       // who somehow gets past the client reads the same sentence rather than a second vocabulary.
       if (blocker !== null) throw new AppError('TRAINING_REFUSED', blocker);
+      // Counted off the settled book, before this one is added: a drill beside a running one.
+      if (base.training.sessions.length > 0) tallyDrillPaired(app.repos, base.id);
 
       const session: TrainingSession = {
         id: randomUUID(),
@@ -113,7 +130,13 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
       };
       const training = beginTraining(base.training, session, now);
       app.repos.bases.updateTraining(base.id, training, base.commanders);
-      return projectTraining({ ...base, training }, overseer, now, extraSessionsFor(app, base));
+      return projectTraining(
+        { ...base, training },
+        overseer,
+        now,
+        extraSessionsFor(app, base),
+        benchesFor(app, base),
+      );
     })();
   });
 

@@ -264,21 +264,37 @@ describe("what the crew's own level does to a job (§I, §E5)", () => {
 });
 
 describe('which areas are open', () => {
-  it('needs a scout, and closes once there is nothing left in there to take', () => {
-    expect(areaIsOpen({ scouted: false, ownedOutright: false })).toBe(false);
-    expect(areaIsOpen({ scouted: true, ownedOutright: true })).toBe(false);
-    expect(areaIsOpen({ scouted: true, ownedOutright: false })).toBe(true);
+  const contested = CITY_DISTRICTS.find((d) => d.kind === 'contested')!;
+  const residential = CITY_DISTRICTS.find((d) => d.kind === 'residential')!;
+
+  it('needs a scout, and closes once one party holds the whole thing', () => {
+    expect(areaIsOpen(contested, { scouted: false, heldWhole: false })).toBe(false);
+    expect(areaIsOpen(contested, { scouted: true, heldWhole: true })).toBe(false);
+    expect(areaIsOpen(contested, { scouted: true, heldWhole: false })).toBe(true);
   });
 
-  it('lists open districts in map order', () => {
+  /**
+   * A residential district is somebody's plot (maintainer, 2026-09-21).
+   *
+   * The four of them hold no capturable locations at all, which `districts.ts` guards at module
+   * load, so `heldWhole` can never be true of one and the scout is the only other condition: with
+   * the kind unchecked, every scouted plot in the city posted three jobs a day.
+   */
+  it('never offers work on a plot, however open it looks', () => {
+    expect(residential.locations).toHaveLength(0);
+    expect(areaIsOpen(residential, { scouted: true, heldWhole: false })).toBe(false);
+  });
+
+  it('lists open contested districts in map order, and no plots', () => {
     const open = openAreas((district) => ({
       scouted: district.difficulty <= 3,
-      ownedOutright: false,
+      heldWhole: false,
     }));
     expect(open.length).toBeGreaterThan(0);
     expect(open.map((d) => d.id)).toEqual(
-      CITY_DISTRICTS.filter((d) => d.difficulty <= 3).map((d) => d.id),
+      CITY_DISTRICTS.filter((d) => d.kind === 'contested' && d.difficulty <= 3).map((d) => d.id),
     );
+    expect(open.every((d) => d.kind === 'contested')).toBe(true);
   });
 });
 

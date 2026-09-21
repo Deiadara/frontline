@@ -128,6 +128,8 @@ export type ResearchBonus =
   | { kind: 'declarations'; flat: number }
   /** §D7: another name a crew may burn on one fight. */
   | { kind: 'battle_boosts'; flat: number }
+  /** Another bench on the training floor: one more person drilling at the same time. */
+  | { kind: 'training_benches'; flat: number }
   /**
    * The units the Infirmary brought back carry their share of the haul home.
    *
@@ -235,6 +237,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   mission_slots: 'command',
   declarations: 'command',
   battle_boosts: 'command',
+  training_benches: 'command',
 
   // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
@@ -1443,9 +1446,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'xp_gain', percent: 6 },
     },
     {
-      name: 'Working Papers',
-      blurb: 'Circulated before they are finished, which is the point of them.',
-      bonus: { kind: 'research_speed', percent: 7 },
+      // The fourth rung, and the only door past the one-bench floor (maintainer, 2026-09-21):
+      // see `TRAINING_BENCHES` in `crew/training.ts`. It replaced Working Papers, a 7% research
+      // clock, which the track already pays twice.
+      name: 'Second Chair',
+      blurb: 'Two at the bench, one hour. The Professor takes them in turns and nobody waits.',
+      bonus: { kind: 'training_benches', flat: 1 },
     },
     {
       name: 'Seminar',
@@ -1554,6 +1560,9 @@ export function applyResearchBonus(into: CrewEffects, bonus: ResearchBonus): Cre
     case 'battle_boosts':
       into.battleBoostsFlat += bonus.flat;
       return into;
+    case 'training_benches':
+      into.trainingBenchesFlat += bonus.flat;
+      return into;
     // A switch, so it is set rather than added: two sources of one permission grant it once.
     case 'recovered_carry_loot':
       into.recoveredCarryLoot = true;
@@ -1574,6 +1583,8 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `+${bonus.flat} ${bonus.flat === 1 ? 'fight' : 'fights'} called at once`;
     case 'battle_boosts':
       return `+${bonus.flat} ${bonus.flat === 1 ? 'name' : 'names'} burned on one fight`;
+    case 'training_benches':
+      return `+${bonus.flat} ${bonus.flat === 1 ? 'person' : 'people'} drilling at the same time`;
     case 'recovered_carry_loot':
       return 'the ones the medics get back carry their share of the haul home';
     default:

@@ -573,8 +573,10 @@ test('a quiet day draws no mark', async ({ page }) => {
  * chip on it. The only thing missing was the sum.
  *
  * Asserted as the swing rather than as two pinned percentages, so a retune of her power moves the
- * measurement with it instead of turning this red. Measured on this fixture, 60 Razors against a
- * count of 6: **67% without her and 0% under her**.
+ * measurement with it instead of turning this red. The fixture is 50 Razors against a count of 12
+ * since the 2026-09-21 ratings retune: 60 against 6 became a walkover with or without her (100%
+ * both ways), which is no measurement. Searched on the fixture's own ground (a scrap press, ten
+ * wide) with the page's own `forecast`: **73% without her and 20% under her**.
  */
 test('the forecast counts the Combine legendary standing over the ground', async ({ page }) => {
   const leaderDistrict = 'datavault-sigma';
@@ -592,8 +594,8 @@ test('the forecast counts the Combine legendary standing over the ground', async
         },
         role: 'attacker' as const,
         side: 'attacker' as const,
-        muster: { army: { razors: 60 }, perimeter: {}, size: 60 },
-        enemySize: 6,
+        muster: { army: { razors: 50 }, perimeter: {}, size: 50 },
+        enemySize: 12,
       },
       ...battles.coming.slice(1),
     ],

@@ -353,6 +353,24 @@ disconnected is caught up without the server replaying events.
 Body: `RenameFactionRequestSchema` `{name}`: trimmed and bounded by `FactionNameSchema`.
 `200` → `RenameFactionResponseSchema` `{base}`.
 
+### Where there is work (maintainer, 2026-09-21)
+
+`GET /api/missions` posts a board per area: `misc`, which is always there, plus every district
+that passes `areaIsOpen` (`missions.areas.ts`). Three conditions, all of them about the ground
+rather than about the reader:
+
+- **Contested.** The four residential districts are plots and hold no capturable locations, so
+  they post nothing. `POST /api/missions` into one answers `409 MISSION_REFUSED`.
+- **Scouted.** Unseen ground answers `409 DISTRICT_UNSCOUTED`, as before.
+- **Not held end to end.** One party holding every location in a district is what arms its gate
+  (`city/control.ts`), and a district behind an armed gate has no work in it for anybody. It
+  reads the same whether that party is the Combine, the looters, a rival or the reader;
+  `409 MISSION_REFUSED` carries a sentence naming whichever it is.
+
+The city as authored starts with two contested districts open, Chrome Row and the Glasshouse
+Fields, and six shut, so breaking a gate is what puts a new board on the screen.
+`missions/board.test.ts` holds that count.
+
 ### Calling things off (maintainer, 2026-09-12)
 
 One rule for everything that takes time, in `@frontline/shared`'s `time/cancel.ts`: a thing can be
@@ -375,6 +393,9 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
 - `POST /api/city/gate/cancel`: `{districtId}`. The raise's `upgradingSince` (migration 0089) is
   the clock's start. Answers with the city.
 - `POST /api/training/cancel`: `{sessionId}`. Drops the drill and hands the day's session back.
+  `POST /api/training` itself takes one person on the floor at a time (`TRAINING_BENCHES`, refusal
+  "The floor is taken"); the Professor's fourth rung, Second Chair, adds a bench
+  (`training_benches`), and the response's `benches` says how many the screen may fill.
 - `POST /api/units/cancel` and `POST /api/actions/recall` already existed; the unit refund moved
   from ninety-five to ninety percent. `POST /api/missions/recall` now refuses outside the first
   tenth of the outbound leg (it was open until the crew was home).

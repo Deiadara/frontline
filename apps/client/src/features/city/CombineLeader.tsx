@@ -167,11 +167,11 @@ export function leaderOption(sheet: UnitSpec, leader: CombineLeaderView): UnitOp
     {
       id: POWER_MARK_ID,
       label: leader.powerName,
-      // Dead, the mark stays on the sheet and says so. The sheet is who he is; whether he is
-      // still standing is a fact about the district, and the tag outside already carries it.
-      description: leader.alive
-        ? leader.powerLine
-        : `While ${leader.pronoun.subject} stood: ${leader.powerLine.charAt(0).toLowerCase()}${leader.powerLine.slice(1)}`,
+      // What the power does, whether or not he is still standing (maintainer, 2026-09-21). The
+      // sheet is who he is; that he is dead is a fact about the district, and the tag outside
+      // carries it. It used to open `While he stood:` here as well, which turned the one line that
+      // explains the ability into a line about the leader's health.
+      description: leader.powerLine,
     },
   ]);
 }
