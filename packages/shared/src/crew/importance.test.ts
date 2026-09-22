@@ -43,13 +43,13 @@ describe('what a chair is worth to the person in it', () => {
    * The board's first example: "1 point in one insignificant, 2 in one useful, 2 in one essential
    * and 1 in irreplaceable" scores 1*1 + 2*2 + 2*3 + 1*4 = 15.
    *
-   * Head Spy: Stealth is irreplaceable, Deception essential, Logic useful, and Strength is not
+   * Master of Whispers: Stealth is irreplaceable, Deception essential, Logic useful, and Strength is not
    * rated at all, which makes it the insignificant one.
    */
   it('adds up the way the worked example does', () => {
     const score = officerScore(
       sheet({ strength: 1, logic: 2, deception: 2, stealth: 1 }),
-      'head_spy',
+      'master_of_whispers',
     );
     expect(score.base).toBe(1 * 1 + 2 * 2 + 2 * 3 + 1 * 4);
     expect(score.base).toBe(15);
@@ -65,11 +65,14 @@ describe('what a chair is worth to the person in it', () => {
    * a reading could get wrong in either direction.
    */
   it('pays the band bonus once for every skill that reaches it', () => {
-    const before = officerScore(sheet(), 'head_spy');
+    const before = officerScore(sheet(), 'master_of_whispers');
     expect(before.bonus).toBe(0);
 
-    // Strength and Toughness are unrated by the Head Spy (insignificant); Logic is useful.
-    const score = officerScore(sheet({ strength: 51, toughness: 51, logic: 34 }), 'head_spy');
+    // Strength and Toughness are unrated by the Master of Whispers (insignificant); Logic is useful.
+    const score = officerScore(
+      sheet({ strength: 51, toughness: 51, logic: 34 }),
+      'master_of_whispers',
+    );
     expect(score.bonus).toBe(2 * 3 + 2);
     expect(score.bonus).toBe(8);
     // ...and the base is still the plain weighted sum underneath it.
@@ -116,7 +119,7 @@ describe('the table of what each chair wants', () => {
   it('leaves anything a seat does not name as insignificant', () => {
     // The Raid Boss has no use for cipher traffic.
     expect(importanceOf('raid_boss', 'cryptography')).toBe('insignificant');
-    expect(importanceOf('head_spy', 'stealth')).toBe('irreplaceable');
+    expect(importanceOf('master_of_whispers', 'stealth')).toBe('irreplaceable');
   });
 
   it('gives every seat a shape rather than a single number', () => {
@@ -149,7 +152,7 @@ describe('the table of what each chair wants', () => {
     const best = [...OFFICER_ROLES].sort(
       (a, b) => officerScore(spy, b).total - officerScore(spy, a).total,
     )[0];
-    expect(best).toBe('head_spy');
+    expect(best).toBe('master_of_whispers');
   });
 });
 

@@ -1381,7 +1381,7 @@ export interface TerritoryEffects {
    * What a scout brings back, and what the city tells you unasked.
    *
    * Lives here rather than in `CrewEffects` because ground and people push it *equally*: a
-   * Watchtower and a Head Spy with a Logic of 80 are two ways of buying the same thing, and the
+   * Watchtower and a Master of Whispers with a Logic of 80 are two ways of buying the same thing, and the
    * whole design of `crew/effects.ts` is that they should land in one channel.
    */
   intelYieldPercent: number;

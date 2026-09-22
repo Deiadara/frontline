@@ -92,15 +92,19 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
             broken instead. Most of the nineteen start empty, so this is the state a player spends
             the most time looking at and it earns a real drawing rather than an icon. */}
         {/*
-         * As tall as the drawing needs, not as tall as a portrait.
+         * Exactly as tall as a portrait (maintainer, 2026-09-22: the empty chairs are broken,
+         * they have to be the same size as a filled card).
          *
-         * This frame was `aspect-[4/5]` to match a filled card, which on a four-column grid is a
-         * 410px box holding a 58px chair and two short lines: the four vacancies at the top of the
-         * roster filled the whole window on their own and pushed every hired officer past the fold.
-         * `flex-1` still stretches it to the tallest card in its own grid row, so a vacancy beside
-         * somebody's portrait lines up; it just no longer sets that height itself.
+         * It was `min-h-[8rem] flex-1`, which let a vacancy be whatever height its row happened
+         * to need: a grid of nothing but vacancies drew short cards, and one vacancy beside a
+         * hired officer drew a chair stretched down a 4:5 picture. A job is the same object
+         * whether or not somebody is in it, so the frame is the picture's shape either way and
+         * the drawing sits in the middle of it.
          */}
-        <span className="relative flex min-h-[8rem] w-full flex-1 items-center justify-center overflow-hidden">
+        <span
+          className="relative flex w-full shrink-0 items-center justify-center overflow-hidden"
+          style={{ aspectRatio: '4 / 5' }}
+        >
           <span
             aria-hidden
             className="absolute inset-3 rounded-sm border border-dashed border-surface-600/70"
@@ -113,7 +117,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
                 resolve against, so this scales with the card the way the intent was. */}
             <span
               aria-hidden
-              className="ink-chair w-[52%] opacity-40 transition-opacity duration-200 group-hover:opacity-70"
+              className="ink-chair w-[44%] opacity-40 transition-opacity duration-200 group-hover:opacity-70"
               style={{ aspectRatio: '96 / 112' }}
             />
             <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-400 transition-colors group-hover:text-brass-300/80">
@@ -680,16 +684,6 @@ function Layout({ data }: { data: CrewResponse }) {
           What the crew is buying
         </Link>
       </div>
-
-      {/* Said outright rather than folded into an `InfoNote`: that control starts collapsed behind
-          a "How this works" toggle, which is right for a rule somebody might want and wrong for the
-          one sentence explaining why the screen is empty. */}
-      {filled === 0 && (
-        <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          Nineteen positions, nobody in any of them yet. A card is a job: open an empty one and it
-          takes you to the Bar to hire for it.
-        </p>
-      )}
 
       {/* Reassignment is refused by an ordinary race: somebody took the chair in another tab. The
           mutation was read only for `isPending`, so a refusal left the window open with nothing

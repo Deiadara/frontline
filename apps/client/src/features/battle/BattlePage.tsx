@@ -11,6 +11,9 @@ import {
   type BattlesResponse,
   type MovementView,
   type StructureDefence,
+  type SpyReport,
+  SPY_TIER_SPECS,
+  armySize,
   type UnitLoadouts,
   combineLeaderOf,
   estimatedForce,
@@ -52,6 +55,7 @@ import { locationKindOf, whenItHolds } from '../city/characteristics';
 import { BoostStash } from './BoostStash';
 import { PageShell } from '../game/PageShell';
 import { BattleReportModal } from './BattleReportModal';
+import { SpyReportModal } from './SpyReportModal';
 import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
 import { EffectiveCard } from './EffectiveCard';
@@ -82,11 +86,13 @@ import { EffectiveCard } from './EffectiveCard';
  * answer for it.
  */
 
-type Tab = 'coming' | 'reports' | 'ground' | 'inventory';
+type Tab = 'coming' | 'reports' | 'spies' | 'ground' | 'inventory';
 
 const TABS: readonly { id: Tab; label: string }[] = [
   { id: 'coming', label: 'Upcoming' },
   { id: 'reports', label: 'Reports' },
+  // Spy reports, kept for ever (maintainer, 2026-09-22): what the crew knows about the city.
+  { id: 'spies', label: 'Spy Reports' },
   { id: 'ground', label: 'Your ground' },
   // The back room's shelf. Last, because it is the only tab that is not a list of fights.
   { id: 'inventory', label: 'Inventory' },
@@ -126,8 +132,13 @@ export function BattlePage() {
    */
   const [params, setParams] = useSearchParams();
   const wanted = params.get('report');
+  /** The spy report a receipt sent the player to, at `?spy=<id>`: the Spy Reports tab, opened on it. */
+  const wantedSpy = params.get('spy');
 
-  const [tab, setTab] = useState<Tab>(wanted === null ? 'coming' : 'reports');
+  const [tab, setTab] = useState<Tab>(
+    wanted !== null ? 'reports' : wantedSpy !== null ? 'spies' : 'coming',
+  );
+  const [readingSpy, setReadingSpy] = useState<SpyReport | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   /* Which fight the dialog is open on, and which of its two places it is moving people to. One
      dialog, two modes, so the state has to carry both. The id rather than the view: the view is
@@ -197,6 +208,15 @@ export function BattlePage() {
     setReading(found);
     setParams({}, { replace: true });
   }, [wanted, data, setParams]);
+
+  useEffect(() => {
+    if (wantedSpy === null || opened.current || data === undefined) return;
+    const found = data.spyReports.find((report) => report.id === wantedSpy);
+    if (found === undefined) return;
+    opened.current = true;
+    setReadingSpy(found);
+    setParams({}, { replace: true });
+  }, [wantedSpy, data, setParams]);
 
   // A fight that resolved or was withdrawn while its dialog was up leaves nothing to send to.
   useEffect(() => {
@@ -347,6 +367,11 @@ export function BattlePage() {
               <Reports reports={data.reports} onRead={setReading} />
             </div>
           )}
+          {tab === 'spies' && (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <SpyReports reports={data.spyReports} onRead={setReadingSpy} />
+            </div>
+          )}
           {tab === 'inventory' && (
             <BoostStash stash={stash} inventory={me.data?.base?.inventory ?? {}} />
           )}
@@ -392,6 +417,7 @@ export function BattlePage() {
           onClose={() => setReading(null)}
         />
       )}
+      {readingSpy && <SpyReportModal report={readingSpy} onClose={() => setReadingSpy(null)} />}
     </PageShell>
   );
 }
@@ -425,6 +451,7 @@ function Tabs({
   const count: Record<Tab, number> = {
     coming: data.coming.length,
     reports: data.reports.length,
+    spies: data.spyReports.length,
     ground: data.structures.length,
     // Filled by the caller, which is the only thing holding the black market query.
     inventory: stashHeld,
@@ -1624,6 +1651,69 @@ function Reports({
   );
 }
 
+/** Every spy report the crew has written, most recent first. Kept for ever: it is what the crew knows. */
+function SpyReports({
+  reports,
+  onRead,
+}: {
+  reports: readonly SpyReport[];
+  onRead: (report: SpyReport) => void;
+}) {
+  if (reports.length === 0) {
+    return (
+      <Empty>
+        No spy reports yet. Send the Master of Whispers' runners at a place from its district
+        screen, and what they find is filed here.
+      </Empty>
+    );
+  }
+  return (
+    <FileSection
+      icon="eye"
+      title="Spy Reports"
+      note="What your runners brought back, most recent first. A report is about the night it was written"
+    >
+      <ul
+        className="flex flex-col divide-y divide-surface-700 rounded-sm border border-surface-700 bg-surface-950/40"
+        data-testid="spy-reports"
+      >
+        {reports.map((report) => (
+          <li key={report.id}>
+            <button
+              type="button"
+              onClick={() => onRead(report)}
+              data-testid={`read-spy-${report.id}`}
+              className="flex w-full items-center gap-3 p-2 text-left transition-colors duration-150 hover:bg-brass-300/10"
+            >
+              <span
+                className={cn(
+                  'flex h-9 w-16 shrink-0 items-center justify-center rounded-sm border font-display text-[11px] font-bold uppercase tracking-[0.14em] tabular-nums',
+                  report.failed
+                    ? 'border-oxblood-500/70 bg-oxblood-300/10 text-oxblood-300'
+                    : 'border-brass-300/70 bg-brass-300/10 text-brass-300',
+                )}
+              >
+                {report.failed ? 'Nothing' : `${armySize(report.exposed)} seen`}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-display text-[13px] tracking-[0.06em] text-ink-100">
+                  {report.placeName}, {report.districtName}
+                </span>
+                <span className="block truncate font-body text-[11px] text-ink-300">
+                  {report.holder.name}
+                  {report.holder.faction ? ` · ${report.holder.faction}` : ''} ·{' '}
+                  {SPY_TIER_SPECS[report.tier].label} · {report.writtenAt.slice(0, 10)}
+                </span>
+              </span>
+              <Icon name="chevron-down" className="h-4 w-4 shrink-0 -rotate-90 text-ink-300" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </FileSection>
+  );
+}
+
 /** Your own ground: the way in, and what is standing behind it. */
 function Defences({ structures }: { structures: readonly StructureDefence[] }) {
   const gate = structures.find((structure) => structure.kind === 'gate') ?? null;
@@ -1662,10 +1752,10 @@ function Defences({ structures }: { structures: readonly StructureDefence[] }) {
                 </div>
                 <div className="flex items-baseline justify-between gap-2">
                   <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-                    Against scouts
+                    Against spies
                   </dt>
                   <dd className="font-display text-[13px] font-bold tabular-nums text-ink-100">
-                    +{Math.round(gate.intelResistancePercent ?? 0)}%
+                    +{Math.round(gate.intelResistancePercent ?? 0)} points
                   </dd>
                 </div>
               </dl>

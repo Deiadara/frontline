@@ -100,11 +100,17 @@ test('the plot window is drawn rather than struck', async ({ page }) => {
     return panels.flatMap((panel) => {
       const style = getComputedStyle(panel);
       const name = panel.querySelector('h3')?.textContent ?? '(unnamed)';
-      // The drawn frame, and the sheet under it. `card-paper` declares its ground as a longhand
-      // `background-color` precisely so that a later `background-image` cannot take it away, so
-      // that is the honest thing to read back.
+      /*
+       * The drawn frame, and the sheet under it.
+       *
+       * `card-paper-lit` since 2026-09-22 (maintainer: the building windows are too dark), so
+       * the ground is the lit sheet's `rgb(42, 40, 50)` rather than the ink-black one's. Read
+       * back as a `background-color` because that is how both sheets declare their ground: a
+       * longhand after the shorthand, precisely so a later `background-image` cannot take it
+       * away. A panel that lost the class computes to `rgba(0, 0, 0, 0)` and fails here.
+       */
       if (style.borderImageSource === 'none') return [`${name}: no drawn frame`];
-      if (style.backgroundColor !== 'rgb(18, 18, 22)') return [`${name}: ${style.backgroundColor}`];
+      if (style.backgroundColor !== 'rgb(42, 40, 50)') return [`${name}: ${style.backgroundColor}`];
       return [];
     });
   });

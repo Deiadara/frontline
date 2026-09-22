@@ -44,6 +44,7 @@ const RICH = 420;
 const board: BattlesResponse = {
   coming: [],
   reports: [],
+  spyReports: [],
   slots: [EARLY, LATE],
   infamy: RICH,
   callPrices: { locations: { [target.locationId]: DECLARE_INFAMY_COST }, districts: {} },
@@ -103,7 +104,7 @@ describe('which mark is called', () => {
     const { onConfirm, rerender } = open([EARLY, LATE]);
     rerender([LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, false);
+    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
   });
 
   it('lets go of a mark the player picked once the board no longer offers it', () => {
@@ -111,7 +112,7 @@ describe('which mark is called', () => {
     fireEvent.click(screen.getByTestId(`slot-${EARLY}`));
     rerender([LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, false);
+    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
   });
 
   it('keeps a mark the player picked for as long as the board offers it', () => {
@@ -119,7 +120,7 @@ describe('which mark is called', () => {
     fireEvent.click(screen.getByTestId(`slot-${LATE}`));
     rerender([EARLY, LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, false);
+    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
   });
 });
 
@@ -154,7 +155,7 @@ describe('what the call costs on another player', () => {
     const { onConfirm } = open([EARLY, LATE], DECLARE_INFAMY_COST);
     expect(screen.queryByTestId('declare-unaffordable')).toBeNull();
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(EARLY, false);
+    expect(onConfirm).toHaveBeenCalledWith(EARLY, true);
   });
 });
 
@@ -168,7 +169,7 @@ describe('what the call costs on anybody else', () => {
     expect(screen.queryByTestId('declare-price')).toBeNull();
     expect(screen.queryByTestId('declare-unaffordable')).toBeNull();
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(EARLY, false);
+    expect(onConfirm).toHaveBeenCalledWith(EARLY, true);
   });
 
   it('holds the button until the board has said what the call costs', () => {
@@ -194,43 +195,40 @@ describe('what the call costs on anybody else', () => {
  * possible to case the name without shouting the sentence. The rendered case is asserted where
  * there is real CSS to render it, in `e2e/visiting.spec.ts`.
  */
-describe('the heading names the place in caps', () => {
-  const headingParts = (): { text: string; cased: boolean }[] =>
-    [...screen.getByRole('heading', { level: 2 }).querySelectorAll('span')].map((node) => ({
-      text: node.textContent ?? '',
-      cased: node.className.split(/\s+/).includes('uppercase'),
-    }));
+describe('the heading is wholly in caps', () => {
+  /**
+   * Every word of it, since 2026-09-22 (maintainer).
+   *
+   * It used to set the *place* in caps inside a sentence in sentence case, on the argument that
+   * a heading wholly shouted loses the difference between the thing being named and the words
+   * naming it. The maintainer wants these titles shouted, so the rule is now one class on the
+   * heading and the spans inside it carry nothing.
+   */
+  const shouted = () =>
+    screen.getByRole('heading', { level: 2 }).className.split(/\s+/).includes('uppercase');
 
-  it('sets the place in caps and leaves the words around it alone', () => {
+  it('shouts a gate target, words and place alike', () => {
     open([EARLY, LATE], RICH, { kind: 'gate', districtId: 'kessler' });
-    const heading = screen.getByRole('heading', { level: 2 });
-    expect(heading).toHaveTextContent('the gate at Kessler Press');
-    const place = headingParts().find((part) => part.text === 'Kessler Press');
-    expect(
-      place,
-      'the place is not its own element, so it cannot be cased on its own',
-    ).toBeDefined();
-    expect(place!.cased).toBe(true);
-    // ...and the sentence around it is not shouted: a heading wholly in caps loses the difference
-    // between the thing being named and the words naming it.
-    expect(heading.textContent?.startsWith('the gate at ')).toBe(true);
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      'the gate at Kessler Press',
+    );
+    expect(shouted()).toBe(true);
   });
 
-  /** The other half of the rule: a name with no sentence around it is not shouted. */
-  it('leaves a location target as written, because there is no sentence to set it apart from', () => {
+  it('shouts a location target too', () => {
     open([EARLY, LATE], RICH, {
       kind: 'location',
       districtId: 'kessler',
       locationId: 'kessler-press',
     });
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Kessler Press');
-    expect(headingParts()[0]?.cased).toBe(false);
+    expect(shouted()).toBe(true);
   });
 
   it('calls a raid on a district a raid', () => {
     open([EARLY, LATE], RICH, { kind: 'district', districtId: 'kessler' });
     const heading = screen.getByRole('heading', { level: 2 });
     expect(heading).toHaveTextContent('a raid on Kessler Press');
-    expect(headingParts().find((part) => part.text === 'Kessler Press')?.cased).toBe(true);
+    expect(shouted()).toBe(true);
   });
 });

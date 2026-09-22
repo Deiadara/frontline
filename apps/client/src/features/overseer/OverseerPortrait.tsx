@@ -119,11 +119,21 @@ export function OverseerPortrait({
          * `object-cover` the scale is set by the box's narrow side, so in a square box the widest
          * view available *is* the full width of the delivery. Showing the face smaller than that
          * needs a taller box, which is the standing bar's layout rather than this component's.
+         *
+         * And ten percent lower in the frame (maintainer, 2026-09-22: the top of the head is
+         * sometimes cropped).
+         *
+         * A negative `object-position` spends part of the crop's own overflow: at `0%` the top
+         * edge of the picture is level with the top of the box, and `-10%` slides it a tenth of
+         * the overflow further down, so the air above the skull grows and the bite comes off the
+         * bottom instead. A box that matches the delivery's shape exactly has no overflow to
+         * spend and is left as it was, which is right: nothing was being cut there either.
          */
         <img
           src={painted}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover object-top"
+          className="absolute inset-0 h-full w-full object-cover"
+          style={{ objectPosition: '50% -10%' }}
         />
       ) : (
         <Silhouette />

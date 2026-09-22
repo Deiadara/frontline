@@ -581,7 +581,7 @@ describe('a save naming content the game no longer has', () => {
   });
 
   it('drops an officer whose chair no longer exists, and a perk that does not', () => {
-    const officer = createCommander('c1', 'A Name', 'head_spy');
+    const officer = createCommander('c1', 'A Name', 'master_of_whispers');
     const gone = { ...officer, id: 'c2', role: 'gone_role' };
     const withGhostRole = load('commanders_json', [officer, gone])?.commanders;
     expect(withGhostRole?.map((one) => one.id)).toEqual(['c1']);

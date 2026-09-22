@@ -634,7 +634,10 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
     expect(playerLevelGrants(2).recruitSlots).toBe(3);
 
     const full = makeBase({
-      commanders: [createCommander('a', 'A', 'scout', {}), createCommander('b', 'B', 'trader', {})],
+      commanders: [
+        createCommander('a', 'A', 'cartographer', {}),
+        createCommander('b', 'B', 'trader', {}),
+      ],
     });
     expect(sign(fakeRepos().repos, full, reserveFor(recruit()))).toEqual({
       kind: 'refused',
@@ -650,7 +653,7 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
   it('will not sign the same person twice', () => {
     const hire = recruit();
     const already = makeBase({
-      commanders: [createCommander(hire.id, hire.name, 'scout', {})],
+      commanders: [createCommander(hire.id, hire.name, 'cartographer', {})],
     });
     expect(sign(fakeRepos().repos, already, reserveFor(hire))).toEqual({
       kind: 'refused',
@@ -1172,7 +1175,7 @@ describe('§H7a: the close', () => {
     const base = app.repos.bases.findById(one.baseId);
     if (!base) throw new Error('no base');
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('sitting-1', 'Halvard', 'head_spy'),
+      createCommander('sitting-1', 'Halvard', 'master_of_whispers'),
       createCommander('sitting-2', 'Vasso', 'lead_engineer'),
     ]);
 
@@ -1212,7 +1215,7 @@ describe('§H7a: the close', () => {
       const base = app.repos.bases.findById(player.baseId);
       if (!base) throw new Error('no base');
       app.repos.bases.updateCommanders(base.id, [
-        createCommander(`${player.username}-1`, 'Halvard', 'head_spy'),
+        createCommander(`${player.username}-1`, 'Halvard', 'master_of_whispers'),
         createCommander(`${player.username}-2`, 'Vasso', 'lead_engineer'),
       ]);
     }
@@ -1400,7 +1403,7 @@ describe('0006_recruitment.sql', () => {
   const legacyOfficer = {
     id: 'legacy-1',
     name: 'Pre-H Officer',
-    role: 'head_spy',
+    role: 'master_of_whispers',
     attributes: Object.fromEntries(ATTRIBUTE_NAMES.map((n) => [n, 20])),
     traits: ['gutter_born'],
   };
@@ -1420,7 +1423,11 @@ describe('0006_recruitment.sql', () => {
     ]);
 
     const [migrated] = commandersOf(db, 'legacy-base');
-    expect(migrated).toMatchObject({ id: 'legacy-1', name: 'Pre-H Officer', role: 'head_spy' });
+    expect(migrated).toMatchObject({
+      id: 'legacy-1',
+      name: 'Pre-H Officer',
+      role: 'master_of_whispers',
+    });
     // The fee follows the rename. Defaulting it would hand this crew a roster that works free.
     expect(migrated?.weeklyWage, 'the agreed fee survived the rename').toBe(44);
     // No honest mapping from a trait to a perk, so they start empty rather than being handed
@@ -1442,7 +1449,14 @@ describe('0006_recruitment.sql', () => {
    */
   it('leaves an empty roster alone and does not undo an officer already in the new shape', () => {
     const db = rewoundToBefore0006();
-    const already = createCommander('kept-1', 'Already Migrated', 'scout', {}, ['skim_route'], 30);
+    const already = createCommander(
+      'kept-1',
+      'Already Migrated',
+      'cartographer',
+      {},
+      ['skim_route'],
+      30,
+    );
     plantBase(db, 'empty-base', []);
     plantBase(db, 'kept-base', [already]);
     runMigrations(db, MIGRATIONS);

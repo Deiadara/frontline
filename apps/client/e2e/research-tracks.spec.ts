@@ -99,13 +99,13 @@ test('opens on the first trade and swaps the whole panel for another', async ({ 
   await openTracks(page);
 
   await expect(page.getByTestId(`tech-track-${FIRST_TRACK}`)).toBeVisible();
-  await expect(page.getByTestId('tech-track-scout')).toHaveCount(0);
+  await expect(page.getByTestId('tech-track-cartographer')).toHaveCount(0);
 
-  await page.getByTestId('research-track-scout').click();
-  await expect(page.getByTestId('tech-track-scout')).toBeVisible();
+  await page.getByTestId('research-track-cartographer').click();
+  await expect(page.getByTestId('tech-track-cartographer')).toBeVisible();
   await expect(page.getByTestId(`tech-track-${FIRST_TRACK}`)).toHaveCount(0);
 
-  const rungs = research.technologies.filter((tech) => tech.track === 'scout');
+  const rungs = research.technologies.filter((tech) => tech.track === 'cartographer');
   expect(rungs).toHaveLength(RESEARCH_TRACK_STEPS);
   for (const rung of rungs) {
     await expect(page.getByTestId(`tech-${rung.id}`)).toHaveCount(1);
@@ -181,12 +181,12 @@ for (const size of VIEWPORTS) {
 
 test('says why a rung is shut, in the words the server sent', async ({ page }) => {
   await openTracks(page);
-  await page.getByTestId('research-track-scout').click();
+  await page.getByTestId('research-track-cartographer').click();
 
   const shut = research.technologies.find(
-    (tech) => tech.track === 'scout' && tech.blocker !== null && !tech.known,
+    (tech) => tech.track === 'cartographer' && tech.blocker !== null && !tech.known,
   );
-  if (!shut?.blocker) throw new Error('the fixture has no shut scout rung');
+  if (!shut?.blocker) throw new Error('the fixture has no shut cartographer rung');
   const card = page.getByTestId(`tech-${shut.id}`);
   await expect(card).toContainText(shut.blocker);
   await expect(card.getByRole('button')).toBeDisabled();

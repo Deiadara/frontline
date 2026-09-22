@@ -164,7 +164,7 @@ export const BATTLE_BOOSTS: readonly BattleBoostSpec[] = [
     description: 'Somebody has already been inside and marked which way the specialists go in.',
     cost: 560,
     effect: { kind: 'tier', tier: 'specialist', stat: 'offense', percent: 30 },
-    unlock: { kind: 'officer', role: 'head_spy' },
+    unlock: { kind: 'officer', role: 'master_of_whispers' },
   },
   {
     id: 'boost_plated_overnight',

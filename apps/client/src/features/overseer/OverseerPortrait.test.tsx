@@ -39,7 +39,10 @@ describe('OverseerPortrait', () => {
  * is a box that does not fill the panel, and on a 720-tall viewport the overseer's file showed a
  * 227px painting sitting in the middle of a 330px rail.
  *
- * So the box is the parent's, and `object-top` is the part that keeps the reversal honest. The
+ * So the box is the parent's, and the aimed crop is the part that keeps the reversal honest. It
+ * is `object-position: 50% -10%` since 2026-09-22 rather than `object-top` (maintainer: the top
+ * of the head is sometimes cropped): the top edge of the picture starts level with the box and
+ * then slides a tenth of the overflow lower, so the air above the skull grows. The
  * deliveries are 928x1392 with the head in the top half; a `fill` box on a short viewport is
  * nearly square, and a *centred* cover crop of a nearly-square box off a 2:3 picture takes its
  * first bite out of the top of the head. Both halves are pinned: the box fills, and the crop is
@@ -58,7 +61,7 @@ describe('the fill box', () => {
     expect(box).toHaveClass('h-full');
     expect(box).toHaveClass('w-full');
     expect(box?.className, 'a fixed ratio would put the dead space back').not.toMatch(/aspect-/);
-    expect(container.querySelector('img')).toHaveClass('object-top');
+    expect(container.querySelector('img')).toHaveStyle({ objectPosition: '50% -10%' });
   });
 
   /**
@@ -79,9 +82,9 @@ describe('the fill box', () => {
       const { container } = render(
         <OverseerPortrait portraitId="overseer-1" archetype="enforcer" aspect={aspect} />,
       );
-      expect(container.querySelector('img'), `${aspect} crops from the middle`).toHaveClass(
-        'object-top',
-      );
+      expect(container.querySelector('img'), `${aspect} crops from the middle`).toHaveStyle({
+        objectPosition: '50% -10%',
+      });
     }
   });
 

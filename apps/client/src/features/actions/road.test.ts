@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as F from '../../../e2e/fixtures';
-import { unitSlotsUsed } from '@frontline/shared';
+import { unitSlotsUsed, type ActionsResponse } from '@frontline/shared';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty } from './road';
 
 /**
@@ -20,7 +20,7 @@ describe('who is on the road', () => {
     expect(road.jobs.length).toBeGreaterThan(0);
     // The fixture's press fight has a muster; the Bonefield one has nobody deployed.
     expect(road.fights.map((fight) => fight.battle.id)).toEqual(['press']);
-    expect(road.scout?.officerName).toBe('Vesper Kade');
+    expect(road.scout?.officerName).toBe('Scout Party');
   });
 
   it('leaves out what is home, what is settled and what has nobody at it', () => {
@@ -38,29 +38,35 @@ describe('who is on the road', () => {
         status: 'resolved' as const,
       })),
     };
-    // The cells and the postings go too (§A4): a crew with people planted or standing on held
-    // ground is not a crew with nobody out, and the empty card would cover the only screen that
-    // lists either of them.
-    const road = onTheRoad(
-      { ...F.actionsResponse, movements: [], scoutingRun: null, sleepers: [], stationed: [] },
-      home,
-      settled,
-    );
-    expect(roadIsEmpty(road)).toBe(true);
+    /*
+     * Everything that counts as "out" has to be cleared for the page to be empty (§A4).
+     *
+     * A crew with people planted, standing on held ground, walking between its own places or
+     * paying runners to look at somebody is not a crew with nobody out, and the empty card
+     * would cover the only screen that lists any of them. The list grew twice on 2026-09-22
+     * (spy jobs, and columns between the crew's own places), and each addition is checked on
+     * its own below, so a reader that forgot one cannot pass this.
+     */
+    // Typed off the response so the empty arrays do not narrow to `never[]`, which is what
+    // makes the one-at-a-time checks below compile.
+    const nobody: ActionsResponse = {
+      ...F.actionsResponse,
+      movements: [],
+      scoutingRun: null,
+      spyRun: null,
+      moves: [],
+      sleepers: [],
+      stationed: [],
+    };
+    expect(roadIsEmpty(onTheRoad(nobody, home, settled))).toBe(true);
 
-    // ...and each of the two on its own is enough to make the page worth drawing.
-    const planted = onTheRoad(
-      { ...F.actionsResponse, movements: [], scoutingRun: null, stationed: [] },
-      home,
-      settled,
-    );
-    expect(roadIsEmpty(planted), 'a planted cell read as nobody out').toBe(false);
-    const posted = onTheRoad(
-      { ...F.actionsResponse, movements: [], scoutingRun: null, sleepers: [] },
-      home,
-      settled,
-    );
-    expect(roadIsEmpty(posted), 'a posting read as nobody out').toBe(false);
+    // ...and each one on its own is enough to make the page worth drawing.
+    const only = (patch: Partial<ActionsResponse>, what: string) =>
+      expect(roadIsEmpty(onTheRoad({ ...nobody, ...patch }, home, settled)), what).toBe(false);
+    only({ sleepers: F.actionsResponse.sleepers }, 'a planted cell read as nobody out');
+    only({ stationed: F.actionsResponse.stationed }, 'a posting read as nobody out');
+    only({ spyRun: F.actionsResponse.spyRun }, 'runners on a job read as nobody out');
+    only({ moves: F.actionsResponse.moves }, 'a column on the move read as nobody out');
   });
 
   /**
@@ -88,12 +94,16 @@ describe('who is on the road', () => {
       // them in the district's draw. A header that left them out would disagree with the
       // roster's own unit-slot chip by exactly the number of people standing somewhere.
       road.cells.reduce((total, cell) => total + slotsOf(cell.army), 0) +
-      road.stationed.reduce((total, post) => total + slotsOf(post.army), 0);
+      road.stationed.reduce((total, post) => total + slotsOf(post.army), 0) +
+      // ...and the columns walking between the crew's own places (2026-09-22), which eat exactly
+      // as much as a column walking to a fight.
+      road.moves.reduce((total, move) => total + slotsOf(move.army), 0);
     expect(counts.unitSlots).toBe(expected);
-    // The control on *that*: the fixture really does have both, so dropping either from the sum
-    // above would change the answer.
+    // The control on *that*: the fixture really does have all three, so dropping any of them
+    // from the sum above would change the answer.
     expect(road.cells.length, 'no cells in the fixture').toBeGreaterThan(0);
     expect(road.stationed.length, 'no postings in the fixture').toBeGreaterThan(0);
+    expect(road.moves.length, 'nothing moving in the fixture').toBeGreaterThan(0);
 
     // The control: the fixture really does hold something that costs more than one slot, so the
     // two arithmetics give different answers and this test can tell them apart.

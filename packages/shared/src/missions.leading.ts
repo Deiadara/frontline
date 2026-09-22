@@ -280,7 +280,8 @@ export type LeadRefusal = 'needs_leader';
  * ever be held by `run`: they are not on the books, so no fight and no scouting party can name
  * them, and §D4's injuries are an officer's.
  */
-export const LEADER_HOLDS = ['run', 'fight', 'scouting', 'injury'] as const;
+// `scouting` was a hold until 2026-09-22; a scout party takes nobody with it now.
+export const LEADER_HOLDS = ['run', 'fight', 'injury'] as const;
 export const LeaderHoldSchema = z.enum(LEADER_HOLDS);
 export type LeaderHold = z.infer<typeof LeaderHoldSchema>;
 
@@ -292,7 +293,6 @@ export type LeaderHold = z.infer<typeof LeaderHoldSchema>;
 export const LEADER_HOLD_MESSAGES: Readonly<Record<LeaderHold, string>> = {
   run: 'is out leading a run',
   fight: 'is at a fight',
-  scouting: 'is out scouting',
   injury: 'is still laid up',
 };
 
@@ -300,7 +300,6 @@ export const LEADER_HOLD_MESSAGES: Readonly<Record<LeaderHold, string>> = {
 export const LEADER_HOLD_LABELS: Readonly<Record<LeaderHold, string>> = {
   run: 'out leading a run',
   fight: 'at a fight',
-  scouting: 'out scouting',
   injury: 'laid up',
 };
 

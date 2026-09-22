@@ -94,7 +94,7 @@ describe('§C1: the shape of the tree', () => {
       'tech_line_balancing',
       'tech_critical_path',
       'tech_traffic_analysis',
-      'tech_one_time_pads',
+      // `tech_one_time_pads` was here: retired with the Whispers rework, dropped from saves by 0109.
       'tech_false_traffic',
       'tech_field_triage',
       'tech_blood_bank',
@@ -490,7 +490,7 @@ describe('the ladder of prices and clocks', () => {
   });
 
   it('counts a track from what the crew has finished on it', () => {
-    const track = 'scout';
+    const track = 'cartographer';
     expect(trackProgress([], track)).toBe(0);
     expect(trackProgress(finishedBelow(track, 5), track)).toBe(4);
     // Another track's ids do not count towards this one.

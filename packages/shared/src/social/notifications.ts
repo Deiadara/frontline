@@ -62,6 +62,8 @@ export const NOTIFICATION_KINDS = [
   'market_won',
   'market_outbid',
   'page_found',
+  'spy_report',
+  'spied_on',
   // The crew
   'officer_hired',
   'bar_outbid',
@@ -209,6 +211,18 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     label: 'Scouts returning',
     blurb: 'Somebody you sent out has walked a district and come back with it.',
     icon: 'eye',
+  },
+  spy_report: {
+    group: 'district',
+    label: 'Spy reports',
+    blurb: 'A job you paid for has come back, with a report or without one.',
+    icon: 'eye',
+  },
+  spied_on: {
+    group: 'district',
+    label: 'Spies on your ground',
+    blurb: 'Somebody has been looking at a place you hold. Your Consigliere noticed.',
+    icon: 'shield',
   },
 };
 

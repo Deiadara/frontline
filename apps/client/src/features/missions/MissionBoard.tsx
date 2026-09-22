@@ -1038,8 +1038,19 @@ function SendDialog({
          * One scroller now, bounded by a ruled box with its own inset, so the top and the bottom
          * of what moves are both drawn.
          */}
-        <div className="min-h-0 flex-1 px-4 pb-1">
-          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-sm border border-surface-600/70 bg-surface-950/30">
+        {/*
+         * `flex flex-col` on this wrapper, and `flex-1 min-h-0` rather than `h-full` on the box
+         * inside it (maintainer, 2026-09-22: "goes below the screen and has no scroll").
+         *
+         * The window's height is a `max-height`, which is a ceiling and not a height, so nothing
+         * in this chain is definite and a `h-full` on the box resolved against `auto`: the box
+         * grew to its content, the scroller inside it never had anything to scroll, and a roster
+         * of twelve sheets pushed the Send button off the bottom of a 720px screen. A flex item
+         * with `flex-1 min-h-0` takes what its flex parent has left and no more, which is the one
+         * arrangement that does not need a definite height anywhere above it.
+         */}
+        <div className="flex min-h-0 flex-1 flex-col px-4 pb-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-sm border border-surface-600/70 bg-surface-950/30">
             <div
               className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
               data-testid="send-scroll"

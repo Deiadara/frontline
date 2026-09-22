@@ -1,4 +1,4 @@
-import { OFFICER_ROLES } from '@frontline/shared';
+import { OFFICER_ROLES, SCOUTING_RESEARCH_ID } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
@@ -73,6 +73,17 @@ describe('the officers knob', () => {
     });
     expect(knobs.statusCode, knobs.body.slice(0, 300)).toBe(200);
 
+    // The chair is filled but Scouting is research, and the knob seats people rather than
+    // finishing rungs (2026-09-22). The second refusal is the other one, and it is precise.
+    const unread = await scout(app, token);
+    expect(unread.statusCode, unread.body.slice(0, 300)).toBe(400);
+    expect(unread.json<{ error: { message: string } }>().error.message).toContain('Scouting');
+
+    const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('seater')!.id)!;
+    app.repos.bases.updateResearch(base.id, {
+      ...base.research,
+      technologies: [...base.research.technologies, SCOUTING_RESEARCH_ID],
+    });
     const after = await scout(app, token);
     expect(after.statusCode, after.body.slice(0, 300)).toBe(200);
   });

@@ -163,7 +163,6 @@ test('the crew chart explains itself before anybody is hired', async ({ page }) 
   );
   await page.goto('/game/crew');
 
-  await expect(page.getByText('Nineteen positions, nobody in any of them yet')).toBeVisible();
   // Every position still drawn, all of them vacant: the chart is the explanation.
   await expect(page.getByText('Vacant')).toHaveCount(OFFICER_ROLES.length);
   await settleFonts(page);
@@ -1169,7 +1168,7 @@ test('an empty chair can be filled from the bench', async ({ page }) => {
   const before = await bench.locator('[data-testid^="bench-"]').count();
   expect(before).toBeGreaterThan(0);
 
-  await page.getByTestId('seat-head_spy').click();
+  await page.getByTestId('seat-master_of_whispers').click();
   const window = page.getByTestId('chair-window');
   await expect(window).toBeVisible();
   // Both routes into the chair are offered, not just the Bar.
@@ -1183,7 +1182,7 @@ test('an empty chair can be filled from the bench', async ({ page }) => {
   );
   await picker.locator('button').first().click();
   const body = (await assigned).postDataJSON() as { officerId: string; role: string };
-  expect(body.role).toBe('head_spy');
+  expect(body.role).toBe('master_of_whispers');
 
   // The window closes and the bench is one shorter.
   await expect(page.getByTestId('chair-window')).toBeHidden();
@@ -1235,7 +1234,8 @@ test('a captured district offers its gate, and raising it reaches the server', a
   // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a scout.
   await expect(panel).toContainText('Lv 6');
   await expect(panel).toContainText('15%');
-  await expect(panel).toContainText('9%');
+  // Ten points per level against spies (2026-09-22), and the card says points, not a percent.
+  await expect(panel).toContainText('60 points');
 
   const raised = page.waitForRequest(
     (request) => request.url().includes('/api/city/gate') && request.method() === 'POST',

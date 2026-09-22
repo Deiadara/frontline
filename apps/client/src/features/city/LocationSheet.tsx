@@ -4,6 +4,7 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UNIT_MODIFIERS,
+  armySize,
   battlefieldFor,
   findUnit,
   cancelWindowMs,
@@ -42,6 +43,7 @@ import { formatDuration, formatRemaining } from '../base/format';
 import { HOLDER_PLATE } from './holder';
 import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
+import { SpyDialog, type SpyingProps } from './SpyPanel';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -87,6 +89,8 @@ export interface LocationSheetProps {
   /** The server's clock, corrected and ticking, for the sheet's countdowns. */
   now: Date;
   onCall: () => void;
+  /** The crew's spy job, quote and blocker, off the district read (2026-09-22). */
+  spying: SpyingProps;
 }
 
 /**
@@ -126,6 +130,7 @@ export function LocationSheet({
   shut,
   now,
   onCall,
+  spying,
 }: LocationSheetProps) {
   const spec = LOCATION_CATALOG[view.location.kind];
   const fortify = useFortify(baseId, districtId);
@@ -138,6 +143,7 @@ export function LocationSheet({
   const me = useMe();
   const [staging, setStaging] = useState(false);
   const [planting, setPlanting] = useState(false);
+  const [spyingOpen, setSpyingOpen] = useState(false);
   const plant = usePlantSleepers(baseId, districtId);
   /*
    * How many sheets this crew has that can be planted at all (`UnitSpec.sleeper`).
@@ -259,8 +265,19 @@ export function LocationSheet({
         />
         <FightsAs view={view} now={now} />
         <dl className="mt-1 grid grid-cols-3 gap-2">
-          <Figure label="Defence" value={String(view.defense)} />
-          <Figure label="Standing there" value={String(view.garrisonSize)} />
+          <Figure label={mine ? 'Defence' : 'Ground defence'} value={String(view.defense)} />
+          {/* Nothing about their count is free (maintainer, 2026-09-22): the figure is the
+              crew's own, or what its last spy report said, or a blank. */}
+          <Figure
+            label="Standing there"
+            value={
+              view.garrisonSize !== null
+                ? String(view.garrisonSize)
+                : view.latestSpyReport && !view.latestSpyReport.failed
+                  ? `${armySize(view.latestSpyReport.exposed)} seen`
+                  : 'Unknown'
+            }
+          />
           <div className="flex min-w-0 flex-col gap-1">
             <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
               Dug in
@@ -281,6 +298,24 @@ export function LocationSheet({
           </div>
         </dl>
       </Sheet>
+
+      {spyingOpen && (
+        <SpyDialog
+          target={{ kind: 'location', locationId: view.location.id }}
+          title={`Spy on ${view.location.name}`}
+          eyebrow={district?.name ?? spec.label}
+          blurb="Your runners go and look. What comes back is what they could uncover of whoever is standing there, and never a soul that is not."
+          placeName={view.location.name}
+          districtId={districtId}
+          baseId={baseId}
+          caps={resources.caps}
+          spying={spying}
+          latest={view.latestSpyReport}
+          now={now}
+          testId={`spy-${view.location.id}`}
+          onClose={() => setSpyingOpen(false)}
+        />
+      )}
 
       {mine ? (
         <Sheet label="Your options" icon="build" tone="mine">
@@ -395,7 +430,7 @@ export function LocationSheet({
           <p className="font-body text-[12px] leading-relaxed text-ink-300">
             {shut
               ? 'The gate is armed. Nothing in here can be called until it is down.'
-              : `Call a fight on it and turn up. What you have to beat is the defence above: the ground, the digging, and the ${view.garrisonSize} standing on it.`}
+              : 'Call a fight on it and turn up. What you have to beat is the defence above and whoever is standing on it: spy on it to find out who.'}
           </p>
           <div className="flex flex-wrap gap-2">
             {/* One button, because there is one way to take ground now: call it, and turn up.
@@ -429,6 +464,23 @@ export function LocationSheet({
                 data-testid={`send-sleepers-${view.location.id}`}
               >
                 Send Sleepers
+              </Button>
+            )}
+            {/* Spying (2026-09-22): the third thing to do about somebody else's ground, and the
+                one that tells you what the other two are up against. A window rather than a
+                sheet, so this card still fits at 1024x768.
+                
+                Not offered behind a shut gate, where the district screen reads the door instead,
+                and not on ground nobody holds: there is nothing to count, the sheet says so
+                already, and the route refuses it (`nothing_there`). */}
+            {!shut && view.holder.kind !== 'unoccupied' && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSpyingOpen(true)}
+                data-testid={`spy-open-${view.location.id}`}
+              >
+                Spy on it
               </Button>
             )}
           </div>

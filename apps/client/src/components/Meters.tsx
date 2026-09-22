@@ -157,7 +157,14 @@ function DrawnCard({
   tone: CardTone;
   figure: ReactNode;
   /** The one line telling a player the chip is also a door. */
-  footnote: string;
+  /**
+   * The italic line at the foot of the card.
+   *
+   * Optional since 2026-09-22: the two ladder cards dropped theirs at the maintainer's request.
+   * "Click for the whole ladder" is a caption on a control that is already a button, printed
+   * under a figure that is the reason to press it.
+   */
+  footnote?: string;
   children?: ReactNode;
   'data-testid'?: string;
 }) {
@@ -196,7 +203,9 @@ function DrawnCard({
 
       {/* The chip is a door now, and a door nobody knows about is a door nobody opens. Set small
           and quiet, because it is an instruction rather than a reading. */}
-      <p className="mt-2.5 font-body text-[11px] italic leading-snug text-ink-400">{footnote}</p>
+      {footnote !== undefined && (
+        <p className="mt-2.5 font-body text-[11px] italic leading-snug text-ink-400">{footnote}</p>
+      )}
     </div>
   );
 }
@@ -265,7 +274,6 @@ export function DistrictLevelChip({
               </span>
             </span>
           }
-          footnote="Click for the ladder, and what each rung opens."
         >
           {/*
            * The meter and nothing else, which is the standing bar's own rule.
@@ -390,7 +398,6 @@ export function InfamyChip({
               <span className="font-display text-base text-ink-300">infamy</span>
             </span>
           }
-          footnote="Click for the whole ladder, every price and what each rank pays."
         >
           {/* The rank blurb is gone with the rest of the standing-bar prose: what is left is the
               ladder itself, which is a price and a button rather than an explanation. */}

@@ -353,8 +353,9 @@ describe('calling a fight (§A4)', () => {
     expect(coming).toHaveLength(1);
     expect(coming[0]!.role).toBe('attacker');
     expect(coming[0]!.targetName).toBe(findLocation(SQUATTED_RUSTYARD_LOCATION)?.name);
-    // The other side exists from the moment the call is made: an NPC answers a call the same day.
-    expect(coming[0]!.enemySize).not.toBe(0);
+    // Nothing is known of the other side for free (2026-09-22): the count is a spy report's to
+    // give, and this crew has not paid for one.
+    expect(coming[0]!.enemySize).toBeNull();
   });
 
   it('offers only half-hour marks, and refuses anything between them', async () => {

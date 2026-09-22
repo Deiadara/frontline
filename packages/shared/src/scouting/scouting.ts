@@ -85,11 +85,10 @@ export function scoutRunMinutes(travelMinutes: number, attributes: Attributes): 
 export const SCOUT_REFUSALS = [
   'already_scouted',
   'already_out',
-  'no_officer',
-  /** They are already leading a fight, out on a job, or out scouting. */
-  'officer_busy',
-  /** §D4: they came home hurt and their services are inactive until they are well. */
-  'officer_injured',
+  /** Nobody in the Master of Whispers' chair: scouting is that chair's work (2026-09-22). */
+  'no_whispers',
+  /** The chair is filled but its first rung, Scouting, is not researched yet. */
+  'not_researched',
   'own_district',
 ] as const;
 export type ScoutRefusal = (typeof SCOUT_REFUSALS)[number];
@@ -98,8 +97,13 @@ export const ScoutingRunSchema = z.object({
   id: IdSchema,
   baseId: IdSchema,
   districtId: IdSchema,
-  /** The officer who went. They are out of the crew's reach until they are home. */
-  officerId: IdSchema,
+  /**
+   * Nobody, since 2026-09-22. A scout party is the Master of Whispers' people and not the
+   * officer: the run is priced off their sheet and needs their chair filled, but they never
+   * leave it and nothing holds them. Rows written before that carry the officer who went;
+   * they settle exactly as they did.
+   */
+  officerId: IdSchema.nullable().default(null),
   departedAt: IsoDateTimeSchema,
   /** When they are back and the ground is open. One mark: there is no separate arrival. */
   returnsAt: IsoDateTimeSchema,

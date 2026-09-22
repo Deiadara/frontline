@@ -23,7 +23,7 @@ interface Row {
   id: string;
   base_id: string;
   district_id: string;
-  officer_id: string;
+  officer_id: string | null;
   departed_at: string;
   returns_at: string;
   travel_minutes: number;

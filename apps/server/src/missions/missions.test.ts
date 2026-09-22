@@ -110,7 +110,13 @@ function aJobToday(): { template: MissionTemplate; areaId: string } {
  */
 function theFurthestJobToday(): { template: MissionTemplate; areaId: string } {
   const now = new Date();
-  for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
+  // Contested districts only: a plot posts no work (maintainer, 2026-09-21), and which board
+  // carries the day's furthest job moves with the date.
+  const areas = [
+    MISC_AREA_ID,
+    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map((d) => d.id),
+  ];
+  for (const areaId of areas) {
     const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
       (entry) => entry.travelBand === 'furthest',
     );

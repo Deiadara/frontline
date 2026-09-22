@@ -13,7 +13,7 @@ import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
 import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 import { PartialResourcesSchema } from './resources.js';
 import { TimezoneSchema } from './time/zone.js';
-import { PLAYER_ICONS, PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
+import { PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
 
 /**
  * The account half of the REST contract: who you are, what you have set, what the back room is
@@ -46,6 +46,14 @@ export const UpdateProfileRequestSchema = z
      * live on the wire; the repo already understood it.
      */
     displayName: z.string().trim().min(1).max(32).nullable().optional(),
+    /**
+     * The account's mark.
+     *
+     * Nothing draws one since 2026-09-22 (maintainer: the mark glyph goes everywhere) and no
+     * screen offers it, so nothing sends this today. Left on the write path rather than deleted
+     * with the pickers: the column is still on the account, and a route that quietly refused a
+     * field the record has is a worse shape than one nobody calls.
+     */
     icon: PlayerIconSchema.optional(),
     timezone: TimezoneSchema.optional(),
     /** How loud the interface is, 0 to 100. See {@link SoundVolumeSchema}. */
@@ -70,15 +78,12 @@ export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
 export const SettingsResponseSchema = z.object({
   user: UserSchema,
   /** Offered in the picker. Sent rather than hardcoded client-side so one list governs both ends. */
-  icons: z.array(PlayerIconSchema),
   /** The server's own instant, so the settings clock agrees with every other clock in the game. */
   serverNow: IsoDateTimeSchema,
   /** The house clock, so the picker can mark it. */
   gameTimezone: z.string().min(1),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponseSchema>;
-
-export { PLAYER_ICONS };
 
 // --- the black market ---
 

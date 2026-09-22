@@ -89,53 +89,37 @@ async function expectNothingClippedHorizontally(page: Page, root = 'body'): Prom
 }
 
 /**
- * The roster gives up whole cards, never part of one.
+ * The four paintings are all on screen, whole.
  *
- * `expectNothingClippedVertically` proves no card is sliced; this proves the roster is still
- * honest about the ones it dropped. Both branches are real: at 1280x720 two cards do not fit, at
- * every taller viewport all four do, so the tight viewport is the fat case this screen has, its
- * content being the same four presets everywhere.
+ * Rewritten on 2026-09-22 with the screen (maintainer). It used to be a scrolling grid of four
+ * cards, each carrying a thumbnail, a clamped bio, a radar and an attribute sheet, and this
+ * helper pinned which viewports had to drop a whole card row and advertise it. There is no grid
+ * and no scroll hint now: the landing is four portraits and a title, so what there is to check
+ * is that every one of the four is drawn and none of them is cut off at the bottom of the frame.
  *
- * `fitsWholeRoster` pins which of the two branches a viewport is in. Reading the hidden count off
- * the DOM and checking only that the hint agrees with it is self-fulfilling: a card that grew back
- * into the 5px of slack 1024x768 has would silently halve the roster and stay green: the same
- * shape of blind spot that let the horizontal-only gate ship the bug this file exists for.
+ * Polled rather than read once, for the reason it always was: the font swap relays the page.
  */
-async function expectWholeCardRows(page: Page, fitsWholeRoster: boolean): Promise<void> {
-  // Polled, not read once: the viewport is sized by a layout effect that re-runs on every resize
-  // and on the font swap, so a single snapshot can catch an intermediate pass.
-  const roster = () =>
-    page.evaluate<{ total: number; hidden: number }>(() => {
-      const cards = [...document.querySelectorAll('button[aria-pressed]')];
-      const viewport = cards[0]?.closest('.overflow-y-auto');
-      if (!viewport) throw new Error('roster viewport not found');
-      const { bottom } = viewport.getBoundingClientRect();
+async function expectWholeCardRows(page: Page): Promise<void> {
+  const wall = () =>
+    page.evaluate<{ total: number; cut: number }>(() => {
+      const cards = [...document.querySelectorAll('[data-testid^="overseer-card-"]')];
+      const frame = cards[0]?.closest('.overflow-y-auto');
+      if (!frame) throw new Error('the portrait wall has no frame');
+      const { bottom } = frame.getBoundingClientRect();
       return {
         total: cards.length,
-        hidden: cards.filter((card) => card.getBoundingClientRect().bottom > bottom + 1).length,
+        cut: cards.filter((card) => card.getBoundingClientRect().bottom > bottom + 1).length,
       };
     });
 
   await expect
-    .poll(async () => (await roster()).total, { message: 'every preset must be rendered' })
+    .poll(async () => (await wall()).total, { message: 'every preset must be drawn' })
     .toBe(4);
   await expect
-    .poll(async () => (await roster()).hidden === 0, {
-      message: fitsWholeRoster
-        ? 'this viewport has room for every overseer'
-        : 'this viewport is too short for two rows, so cards must drop',
+    .poll(async () => (await wall()).cut, {
+      message: 'a painting is cut off at the bottom of the frame',
     })
-    .toBe(fitsWholeRoster);
-
-  const hidden = (await roster()).hidden;
-  const hint = page.getByText(/Scroll for \d+ more/);
-  if (hidden === 0) {
-    await expect(hint, 'a roster that fits must not advertise hidden cards').toHaveCount(0);
-  } else {
-    await expect(hint, 'hidden cards must be advertised, and counted correctly').toHaveText(
-      new RegExp(`Scroll for ${hidden} more`),
-    );
-  }
+    .toBe(0);
 }
 
 /**
@@ -230,18 +214,9 @@ for (const size of VIEWPORTS) {
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
       await expectNothingClippedVertically(page);
-      // Two card rows need ~652px of frame, and only viewports 900px tall and up can pay for it.
-      //
-      // This flag has never been a target; it records which branch each viewport lands in, and it
-      // has moved twice. 1024x768 used to clear the old ~608px by 5px and stopped when the display
-      // face went from Orbitron to Rajdhani. 1280x800 cleared it until the attribute model was
-      // reworked: the sheet gained two attributes (Authority and Cryptography) and its labels went
-      // up a size and a shade for legibility, which is 22px of card. Both times the alternative was
-      // squeezing type on a screen whose whole job is to be read, and both times the screen already
-      // did the right thing without help: it drops a whole row and says "scroll for 2 more". So
-      // the number moves and the assertion keeps its teeth: a viewport on the wrong side of it
-      // still fails, and a roster that silently halves itself at 1440x900 still fails.
-      await expectWholeCardRows(page, size.height >= 900);
+      // One row of four paintings at every viewport this file runs: the wall is `grid-cols-4`
+      // from `lg` up, and the shortest of them is 720 tall.
+      await expectWholeCardRows(page);
       await page.screenshot({ path: `screenshots/visual/overseer-${tag}.png` });
     });
 
@@ -2315,16 +2290,26 @@ test('the vertical clipping guard rejects a bisected card row', async ({ page })
   await expectNothingClippedVertically(page);
 
   await page.evaluate(() => {
-    const card = document.querySelector('button[aria-pressed]');
+    const card = document.querySelector('[data-testid^="overseer-card-"]');
+    const wall = document.querySelector<HTMLElement>('[data-testid="overseer-wall"]');
     const viewport = card?.closest<HTMLElement>('.overflow-y-auto');
-    const frame = viewport?.parentElement;
-    if (!card || !viewport || !frame) throw new Error('roster viewport not found');
+    if (!card || !wall || !viewport) throw new Error('the portrait wall was not found');
 
-    // The frame centres its content, so shrinking the viewport would also move it and the cut
-    // would land somewhere unintended. Pin it to the top so the cut lands where it is computed.
-    frame.style.justifyContent = 'flex-start';
+    /*
+     * Pin the wall before cutting it.
+     *
+     * The wall takes the height the frame has left over and the paintings are sized off it
+     * (`PortraitWall`), so shrinking the frame would shrink the pictures rather than slice
+     * them and the cut would land in empty space. Freezing the wall at the height it has now
+     * turns the frame into what it was on the day of the defect: a viewport that ends part-way
+     * down its content. The frame also centres, so it is pinned to the top for the same reason
+     * the old version of this test pinned it: the cut has to land where it is computed.
+     */
+    viewport.style.justifyContent = 'flex-start';
+    wall.style.flex = 'none';
+    wall.style.height = `${wall.getBoundingClientRect().height}px`;
 
-    // Cut through the middle of a glyph, not through the padding between two attribute rows.
+    // Cut through the middle of a glyph rather than through the gap under it.
     const glyph = [...card.querySelectorAll('*')]
       .filter((el) => el.childElementCount === 0 && el.textContent?.trim())
       .map((el) => el.getBoundingClientRect())

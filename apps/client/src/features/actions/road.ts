@@ -7,6 +7,8 @@ import {
   type MissionsResponse,
   type MovementView,
   type ScoutingRunView,
+  type SpyRunView,
+  type UnitMoveView,
   type SleeperCellView,
   type StationedForce,
 } from '@frontline/shared';
@@ -25,6 +27,10 @@ export interface Road {
   readonly jobs: readonly Mission[];
   readonly fights: readonly BattleView[];
   readonly scout: ScoutingRunView | null;
+  /** The spy job out, or null: the runners on a road are somebody too (2026-09-22). */
+  readonly spy: SpyRunView | null;
+  /** Columns walking between the crew's own places (2026-09-22). */
+  readonly moves: readonly UnitMoveView[];
   /** §A4: cells planted on somebody else's ground, in any of their three phases. */
   readonly cells: readonly SleeperCellView[];
   /** ...and the people posted on ground this crew holds, who are not going anywhere. */
@@ -46,6 +52,8 @@ export function onTheRoad(
       (view) => view.muster !== null && view.muster.size > 0 && view.battle.resolvedAt === null,
     ),
     scout: actions?.scoutingRun ?? null,
+    spy: actions?.spyRun ?? null,
+    moves: actions?.moves ?? [],
     cells: actions?.sleepers ?? [],
     stationed: actions?.stationed ?? [],
   };
@@ -58,6 +66,8 @@ export function roadIsEmpty(road: Road): boolean {
     road.jobs.length === 0 &&
     road.fights.length === 0 &&
     road.scout === null &&
+    road.spy === null &&
+    road.moves.length === 0 &&
     // A crew with people planted or posted is not a crew with nobody out, and saying so put the
     // "Nobody is out" card over the top of the only screen that lists either of them.
     road.cells.length === 0 &&
@@ -78,6 +88,8 @@ export function roadCounts(road: Road): {
   jobs: number;
   fights: number;
   scouts: number;
+  spies: number;
+  moves: number;
   cells: number;
   stationed: number;
   unitSlots: number;
@@ -89,6 +101,8 @@ export function roadCounts(road: Road): {
     jobs: road.jobs.length,
     fights: road.fights.length,
     scouts: road.scout === null ? 0 : 1,
+    spies: road.spy === null ? 0 : 1,
+    moves: road.moves.length,
     cells: road.cells.length,
     stationed: road.stationed.length,
     unitSlots:
@@ -106,6 +120,7 @@ export function roadCounts(road: Road): {
        * them out would disagree with the unit-slot chip on the roster by exactly the number of
        * people a player has standing somewhere.
        */
+      road.moves.reduce((total, move) => total + slots(move.army), 0) +
       road.cells.reduce((total, cell) => total + slots(cell.army), 0) +
       road.stationed.reduce((total, post) => total + slots(post.army), 0),
   };

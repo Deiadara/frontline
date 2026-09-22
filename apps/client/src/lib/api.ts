@@ -117,6 +117,11 @@ import {
   type CancelResearchRequest,
   type CancelLocationWorkRequest,
   type RecallScoutRequest,
+  type RecallSpyRequest,
+  type MoveUnitsRequest,
+  type RecallMoveRequest,
+  MoveQuoteResponseSchema,
+  type SpyRequest,
   type CancelGateRaiseRequest,
   type CancelDrillRequest,
 } from '@frontline/shared';
@@ -586,6 +591,24 @@ export const cancelLocationFortify = (body: CancelLocationWorkRequest) =>
 /** A journey pays back time rather than caps: the scout walks home the distance covered. */
 export const recallScout = (body: RecallScoutRequest) =>
   apiFetch('/city/scout/recall', CityMutationResponseSchema, jsonBody(body));
+
+/** Spying (2026-09-22): one place, one tier, the caps taken at the send. */
+export const spyOn = (body: SpyRequest) =>
+  apiFetch('/city/spy', CityMutationResponseSchema, jsonBody(body));
+
+/** The runners walk home without a report. The caps stay spent. */
+export const recallSpy = (body: RecallSpyRequest) =>
+  apiFetch('/city/spy/recall', CityMutationResponseSchema, jsonBody(body));
+
+/** Moving units between the crew's own places (2026-09-22). */
+export const moveUnits = (body: MoveUnitsRequest) =>
+  apiFetch('/actions/move', ActionsResponseSchema, jsonBody(body));
+
+export const quoteMove = (body: MoveUnitsRequest) =>
+  apiFetch('/actions/move/quote', MoveQuoteResponseSchema, jsonBody(body));
+
+export const recallMove = (body: RecallMoveRequest) =>
+  apiFetch('/actions/move/recall', ActionsResponseSchema, jsonBody(body));
 
 export const cancelGateRaise = (body: CancelGateRaiseRequest) =>
   apiFetch('/city/gate/cancel', CityResponseSchema, jsonBody(body));

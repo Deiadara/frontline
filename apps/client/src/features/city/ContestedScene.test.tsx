@@ -37,6 +37,7 @@ function viewOf(locationId: string, blurb: string | undefined): LocationView {
     defense: 0,
     garrisonSize: 0,
     garrison: null,
+    latestSpyReport: null,
     bonuses: [],
     reward: LOCATION_CATALOG[location.kind].reward,
     labels: [],

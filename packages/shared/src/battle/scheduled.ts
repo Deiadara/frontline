@@ -305,7 +305,9 @@ export const ScheduledBattleSchema = z.object({
    * Defaulted, so a row written before the flag existed reads as a raid, which is what those
    * fights actually were.
    */
-  holdAfterCapture: z.boolean().default(false),
+  // True by default since 2026-09-22 (maintainer): winning attackers stay and hold what they
+  // took. The flag stays on the row so an old fight settles as it was called.
+  holdAfterCapture: z.boolean().default(true),
   /**
    * §A4: whether a Sleeper cell woke into this fight when it was called (`city/sleepers.ts`).
    *

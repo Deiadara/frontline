@@ -14,6 +14,8 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
 import { SleeperPhaseSchema } from './sleepers.js';
+import { SpyReportSchema, SpyRunViewSchema } from './spying/index.js';
+import { UnitMoveViewSchema } from './moves/index.js';
 
 /**
  * The REST contract for declared battles, deployments, reports and the infamy sinks.
@@ -134,9 +136,16 @@ export const BattleViewSchema = z.object({
   deploymentOpen: z.boolean(),
   /** The caller's own force, exact. Null when they are neither side. */
   muster: BattleMusterSchema.nullable(),
-  /** What the caller can make out of the other side, or null when they cannot make out anything. */
+  /**
+   * What the caller knows of the other side, or null when they know nothing.
+   *
+   * Since 2026-09-22 this is the last spy report the caller wrote on the ground the fight is on:
+   * the bodies it exposed, and nothing more. There is no free reading any more, blurred or
+   * otherwise. A defender facing a column on the road has no report to read, because nobody
+   * spies a column, and reads null.
+   */
   enemySize: z.number().int().nonnegative().nullable(),
-  /** One line about how good that reading is. Always present: "nothing" is a reading. */
+  /** One line about where that figure came from. Always present: "nothing" is a reading. */
   enemyIntel: z.string(),
   /** Who the caller is up against, in the words the map uses. */
   opponentName: z.string(),
@@ -316,6 +325,10 @@ export const ActionsResponseSchema = z.object({
    * still parses.
    */
   scoutingRun: ScoutingRunViewSchema.nullable().default(null),
+  /** The spy job this crew has out, or null: runners on a road are somebody too (2026-09-22). */
+  spyRun: SpyRunViewSchema.nullable().default(null),
+  /** Columns walking between the crew's own places (`moves/moves.ts`), soonest to land first. */
+  moves: z.array(UnitMoveViewSchema).default([]),
   /**
    * §A4: the Sleeper cells this crew has out (`sleepers.ts`).
    *
@@ -370,6 +383,12 @@ export const BattlesResponseSchema = z.object({
   coming: z.array(BattleViewSchema),
   /** Fights that have happened, most recent first. */
   reports: z.array(BattleReportViewSchema),
+  /**
+   * Every spy report this crew has ever written, most recent first (maintainer, 2026-09-22).
+   * Kept for ever: a report is what the crew knows about a place, and forgetting it would be
+   * forgetting what the caps bought.
+   */
+  spyReports: z.array(SpyReportSchema).default([]),
   /** The half-hour marks a declaration could name right now. */
   slots: z.array(IsoDateTimeSchema),
   /** §D7: what the caller's name is worth. Boosts are priced per fight, on each `BattleView`. */

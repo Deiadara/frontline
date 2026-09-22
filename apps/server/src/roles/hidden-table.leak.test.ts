@@ -369,6 +369,8 @@ describe('the Bar roster response (INTERFACES R4)', () => {
     // ...and the value/token scans have to fire on a planted affinity, too.
     const leaky = { recruits: [{ id: 'x', affinity: OFFICER_ROLES[0] }] };
     expect(JSON.stringify(leaky)).toContain('affinity');
-    expect(valueLeaksIn({ hint: { weights: ROLE_REQUIREMENTS.head_spy.weights } })).not.toEqual([]);
+    expect(
+      valueLeaksIn({ hint: { weights: ROLE_REQUIREMENTS.master_of_whispers.weights } }),
+    ).not.toEqual([]);
   });
 });

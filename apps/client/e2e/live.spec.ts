@@ -315,9 +315,8 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await card.getByRole('button', { name: 'Call a fight' }).click();
   const caller = page.getByRole('dialog');
   await expect(caller.getByRole('heading', { name: firstPlace.name })).toBeVisible();
-  // The occupation flag the maintainer asked for, on the real screen.
+  // Winners stay and hold (maintainer, 2026-09-22): the rule is on the real screen, not a toggle.
   await expect(caller.getByTestId('declare-hold')).toBeVisible();
-  await caller.getByTestId('declare-hold').click();
   await caller.getByTestId('declare-confirm').click();
   await expect(page.getByRole('dialog')).toBeHidden();
   await shootEveryViewport(page, 'fight-called');

@@ -135,6 +135,7 @@ const view: BattleView = {
 const battles: BattlesResponse = {
   coming: [view],
   reports: [],
+  spyReports: [],
   slots: [],
   infamy: 40,
   callPrices: { locations: {}, districts: {} },

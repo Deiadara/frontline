@@ -71,14 +71,16 @@ describe('roleFit', () => {
 
   it('rewards the attributes a role actually asks for and ignores the rest', () => {
     const irrelevant = ATTRIBUTE_NAMES.filter(
-      (name) => !(name in ROLE_REQUIREMENTS.head_spy.weights),
+      (name) => !(name in ROLE_REQUIREMENTS.master_of_whispers.weights),
     );
     const flat = makeAttributes(20);
     const spyish = makeAttributes(20, { stealth: 90, deception: 90 });
     const wasted = makeAttributes(20, Object.fromEntries(irrelevant.map((n) => [n, 90])));
 
-    expect(roleFit(spyish, 'head_spy')).toBeGreaterThan(roleFit(flat, 'head_spy'));
-    expect(roleFit(wasted, 'head_spy')).toBe(roleFit(flat, 'head_spy'));
+    expect(roleFit(spyish, 'master_of_whispers')).toBeGreaterThan(
+      roleFit(flat, 'master_of_whispers'),
+    );
+    expect(roleFit(wasted, 'master_of_whispers')).toBe(roleFit(flat, 'master_of_whispers'));
   });
 
   // C2: the same character can be slotted anywhere: well or badly. A sheet built for one role

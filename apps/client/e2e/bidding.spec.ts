@@ -326,9 +326,10 @@ test.describe('doors behind a level (§I3)', () => {
     // The door is *there*, and it is the screen's own name that is on it. Level 5 since the
     // maintainer re-cut the gates on 2026-09-19; the Bar used to open at 10.
     await expect(page.getByText('Opens at level 5')).toBeVisible();
+    // ...and where the player stands against it, which is the half a bare number never gave.
+    // The separate "Reach level 5." sentence went on 2026-09-22 when the sign was redrawn with
+    // less on it: the figure line above is the instruction, and this line is the distance.
     await expect(page.getByText('You are level')).toBeVisible();
-    // ...and the sign says what to go and do, which is the half a bare number never gave.
-    await expect(page.getByText('Reach level 5.')).toBeVisible();
     // And the nav still shows the door rather than removing it.
     await expect(page.getByTestId('nav-the-bar')).toBeVisible();
     await expect(page.getByTestId('nav-locked-bar')).toBeVisible();

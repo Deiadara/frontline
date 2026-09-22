@@ -143,10 +143,7 @@ export function LevelLadderPage() {
   );
 
   return (
-    <StandingSheet
-      title="District levels"
-      lede="What every level costs in XP, and what it opens when you get there."
-    >
+    <StandingSheet title="District levels">
       {/* Where the player is standing, in the same arrangement the hover card uses: the level as
           the headline, the exact figures spelled out, and the meter under both. */}
       <PaperBlock

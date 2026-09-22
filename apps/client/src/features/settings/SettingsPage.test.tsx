@@ -1,5 +1,4 @@
 import {
-  PLAYER_ICONS,
   UpdateProfileRequestSchema,
   type SettingsResponse,
   type UpdateProfileRequest,
@@ -35,7 +34,6 @@ const settings: SettingsResponse = {
     timezone: 'Europe/Athens',
     soundVolume: 60,
   },
-  icons: [...PLAYER_ICONS],
   serverNow: NOW,
   gameTimezone: 'Europe/Athens',
 };

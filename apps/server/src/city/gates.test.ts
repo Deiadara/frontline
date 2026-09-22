@@ -10,7 +10,6 @@ import {
   STARTING_RESOURCES,
   capturedGateCost,
   capturedGateDefensePercent,
-  capturedGateIntelResistancePercent,
   capturedGateSeconds,
   GATE_BREACH_HOURS,
   breachExpiry,
@@ -20,6 +19,9 @@ import {
   startingResearch,
   startingTraining,
   type Base,
+  SPY_GATE_POINTS_PER_LEVEL,
+  capturedGateIntelResistancePercent,
+  counterScore,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations } from '../db/index.js';
@@ -33,7 +35,7 @@ import {
   resetGateOnDistrictLost,
   settleCapturedGates,
 } from './gates.js';
-import { cityContextFor } from './view.js';
+import { groundBehind } from '../spying/spying.js';
 
 /**
  * §B7: the gate on a district a crew has taken whole (maintainer request).
@@ -420,14 +422,27 @@ describe('losing a district while the gate is down', () => {
   });
 });
 
-describe('what a captured gate changes', () => {
-  it('makes the district it stands on harder to read', () => {
-    const { repos, base } = stack();
+describe('what a captured gate changes (2026-09-22: read by spies, since nothing is free)', () => {
+  const GATE = { kind: 'gate', districtId: DISTRICT.id } as const;
+
+  function rival(repos: Repositories, base: Base): void {
     repos.users.insert({ id: 'u2', username: 'rival', passwordHash: 'x', createdAt: HOUR });
     repos.bases.insert({ ...base, id: 'b2', ownerId: 'u2', name: 'Theirs' });
+    repos.city.markScouted(base.id, DISTRICT.id, HOUR);
+  }
+
+  function counterOn(repos: Repositories, base: Base): number {
+    const looked = groundBehind(repos, base, GATE);
+    if (looked.kind !== 'ground') throw new Error(`refused: ${looked.reason}`);
+    return counterScore(looked.ground.counter);
+  }
+
+  it('makes the gate of the district it stands on harder to read', () => {
+    const { repos, base } = stack();
+    rival(repos, base);
     takeWhole(repos, 'b2', DISTRICT.id);
 
-    const bare = cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2');
+    const bare = counterOn(repos, base);
     repos.capturedGates.put({
       districtId: DISTRICT.id,
       level: 10,
@@ -435,35 +450,34 @@ describe('what a captured gate changes', () => {
       upgradingUntil: null,
       upgradingSince: null,
     });
-    const walled = cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2');
+    const walled = counterOn(repos, base);
 
     expect(walled).toBeGreaterThan(bare);
-    expect(walled).toBe(capturedGateIntelResistancePercent(10));
+    expect(walled - bare).toBe((10 - CAPTURED_GATE_START_LEVEL) * SPY_GATE_POINTS_PER_LEVEL);
   });
 
-  /** Only the district it stands on: a wall in the Rustyard hides nothing in the Undergrid. */
-  it('hides nothing anywhere else', () => {
+  it('shuts every location behind it: from outside, the gate is the only thing to read', () => {
     const { repos, base } = stack();
-    repos.users.insert({ id: 'u2', username: 'rival', passwordHash: 'x', createdAt: HOUR });
-    repos.bases.insert({ ...base, id: 'b2', ownerId: 'u2', name: 'Theirs' });
+    rival(repos, base);
     takeWhole(repos, 'b2', DISTRICT.id);
-    repos.capturedGates.put({
-      districtId: DISTRICT.id,
-      level: 10,
-      upgradingTo: null,
-      upgradingUntil: null,
-      upgradingSince: null,
-    });
 
-    const elsewhere = CITY_DISTRICTS.find((d) => d.id !== DISTRICT.id)!;
-    expect(cityContextFor(repos, base).gateBlurOn(elsewhere.id, 'b2')).toBe(0);
+    const inside = groundBehind(repos, base, {
+      kind: 'location',
+      locationId: DISTRICT.locations[0]!.id,
+    });
+    expect(inside).toEqual({ kind: 'refused', reason: 'not_the_gate' });
   });
 
-  /** And nothing at all while the district is still split. */
-  it('hides nothing until the district is held whole', () => {
+  it('is nothing until the district is held whole', () => {
     const { repos, base } = stack();
-    repos.users.insert({ id: 'u2', username: 'rival', passwordHash: 'x', createdAt: HOUR });
-    repos.bases.insert({ ...base, id: 'b2', ownerId: 'u2', name: 'Theirs' });
+    rival(repos, base);
+    takeWhole(repos, 'b2', DISTRICT.id);
+    const [first] = DISTRICT.locations;
+    repos.city.put({
+      ...repos.city.control(first!.id)!,
+      holder: { kind: 'looters' },
+      garrison: {},
+    });
     repos.capturedGates.put({
       districtId: DISTRICT.id,
       level: 10,
@@ -472,7 +486,10 @@ describe('what a captured gate changes', () => {
       upgradingSince: null,
     });
 
-    expect(cityContextFor(repos, base).gateBlurOn(DISTRICT.id, 'b2')).toBe(0);
+    // An open district has no gate to read, and a location in it reads as itself.
+    expect(groundBehind(repos, base, GATE)).toEqual({ kind: 'refused', reason: 'nothing_there' });
+    const inside = groundBehind(repos, base, { kind: 'location', locationId: first!.id });
+    expect(inside.kind).toBe('ground');
   });
 });
 

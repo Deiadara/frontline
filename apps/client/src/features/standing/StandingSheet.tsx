@@ -21,11 +21,12 @@ export function StandingSheet({
   children,
 }: {
   title: string;
-  lede: string;
+  /** Optional since 2026-09-22: both ladders dropped theirs, and a ladder explains itself. */
+  lede?: string;
   children: ReactNode;
 }) {
   return (
-    <PageShell title={title} lede={lede} action={<CloseMark />}>
+    <PageShell title={title} {...(lede === undefined ? {} : { lede })} action={<CloseMark />}>
       {children}
     </PageShell>
   );

@@ -209,7 +209,7 @@ describe('the bench, shut (§G4)', () => {
  *
  * The destination is asserted rather than the words, because the words are the cheap half. A link
  * reading "Research it on the Fabricator's track" that points at a bare `/game/research` lands a
- * player on the Head Spy, and every assertion on its label would still pass.
+ * player on the Master of Whispers, and every assertion on its label would still pass.
  */
 describe('the door out of a shut bench', () => {
   it('sends a crew with no Head of Research to the Bar', async () => {

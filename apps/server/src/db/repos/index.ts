@@ -17,6 +17,13 @@ import { createUsersRepo, type UsersRepo } from './users.js';
 import { createFactionsRepo, type FactionsRepo } from './factions.js';
 import { createSocialRepo, type SocialRepo } from './social.js';
 import { createScoutingRepo, type ScoutingRepo } from './scouting.js';
+import { createSpyingRepo, type SpyingRepo } from './spying.js';
+import {
+  createAlliedGarrisonsRepo,
+  createMovesRepo,
+  type AlliedGarrisonsRepo,
+  type MovesRepo,
+} from './moves.js';
 import { createFeatsRepo, type FeatsRepo } from './feats.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
@@ -51,6 +58,12 @@ export interface Repositories {
   history: HistoryRepo;
   /** §A4: officers out casing a district, and the ground they have opened. */
   scouting: ScoutingRepo;
+  /** Spy jobs on the clock and every report they came home with (2026-09-22). */
+  spying: SpyingRepo;
+  /** Columns walking between the crew's own places (2026-09-22). */
+  moves: MovesRepo;
+  /** Units posted on a faction ally's ground: theirs, fighting for the holder. */
+  alliedGarrisons: AlliedGarrisonsRepo;
   /** Feats: the lifetime counters a feat asks about, and what each crew has collected. */
   feats: FeatsRepo;
   /**
@@ -90,6 +103,9 @@ export function createRepositories(
     history: createHistoryRepo(db),
     feats: createFeatsRepo(db),
     scouting: createScoutingRepo(db),
+    spying: createSpyingRepo(db),
+    moves: createMovesRepo(db),
+    alliedGarrisons: createAlliedGarrisonsRepo(db),
     tx: (work) => db.transaction(work)(),
   };
 }

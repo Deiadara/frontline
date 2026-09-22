@@ -65,6 +65,7 @@ import {
   declarableSlots,
   type BattleAnalysis,
   type BattlesResponse,
+  type SpyReport,
   type BattleView,
   startingTraining,
   VEHICLES,
@@ -205,7 +206,6 @@ import {
   type SettingsResponse,
   DEFAULT_SOUND_VOLUME,
   GAME_TIMEZONE,
-  PLAYER_ICONS,
   blackLotId,
   blackMarketBoard,
   blackMarketEffect,
@@ -645,6 +645,12 @@ export const districtDetail: DistrictDetailResponse = {
   // Nobody out, and no quote: this ground is already open, so there is nothing to send anybody for.
   scoutingRun: null,
   scoutPlan: null,
+  scoutBlocker: null,
+  // Spying (2026-09-22): nobody out, a job quoted, the chair filled and the rung finished.
+  spyRun: null,
+  spyQuote: { minutes: 96 },
+  spyBlocker: null,
+  spyGateReport: null,
   travelMinutes: 24,
   // Contested ground, so nobody lives here and there is nothing standing to look at.
   residentBuildings: [],
@@ -664,6 +670,38 @@ export const districtDetail: DistrictDetailResponse = {
  * the locations: the Docks drew its painting with nothing on it and the spec passed, because there
  * was nothing to draw and nothing asserting there should be.
  */
+/**
+ * The crew's last look at the rival's holding: the report a sheet quotes and the board files.
+ *
+ * Two are filed on the board (`battles.spyReports`): this one, which stood, and one that failed.
+ * Both readouts are on this one, so the window has every row to draw.
+ */
+function spyReportOnRivals(locationId: string, placeName: string): SpyReport {
+  return {
+    id: 'spy-report-1',
+    baseId: base.id,
+    target: { kind: 'location', locationId },
+    // Inline rather than the module's `rustyard`: the narrowing above does not reach a function.
+    districtId: 'rustyard',
+    districtName: findDistrict('rustyard')?.name ?? 'The Rustyard',
+    placeName,
+    holder: {
+      kind: 'crew',
+      name: RIVAL_HOLD.crewName,
+      player: RIVAL_HOLD.player,
+      faction: 'The Ashen Compact',
+    },
+    tier: 'bought_eyes',
+    capsPaid: 2000,
+    writtenAt: '2026-08-15T21:10:00.000Z',
+    failed: false,
+    exposed: { razors: 14, scrapers: 6, ghosts: 3 },
+    accuracy: 0.82,
+    unseen: 5,
+    accuracyShown: true,
+  };
+}
+
 function locationViewsFor(district: District): DistrictDetailResponse['locations'] {
   return district.locations.map((location, index) => {
     const spec = LOCATION_CATALOG[location.kind];
@@ -691,8 +729,11 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
       fortifyingUntil: null,
       fortifyingSince: null,
       defense: spec.baseDefense + index,
-      garrisonSize: mine ? 3 : index * 2,
+      // Nothing about somebody else's count is free (2026-09-22): the crew's own is exact, the
+      // rival's is whatever the last report said, the looters' is unknown.
+      garrisonSize: mine ? 3 : null,
       garrison: mine ? { razors: 3 } : null,
+      latestSpyReport: rivals ? spyReportOnRivals(location.id, location.name) : null,
       bonuses: bonusesAt(location.kind, level).map(describeHoldBonus),
       reward: spec.reward,
       // The same fold the server does: the ground's own character plus today's sky. `NOW` is a
@@ -784,7 +825,7 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
       holder: null,
       scoutingRun: null,
       // The quote a player reads before committing an evening to it.
-      scoutPlan: { officerId: 'off-3', officerName: 'Vela', minutes: 214 },
+      scoutPlan: { minutes: 214 },
     };
   }
   const lived = district.kind === 'residential';
@@ -882,7 +923,7 @@ export const ownProfile: CrewProfileResponse = {
     level: base.level,
     isBot: false,
   },
-  player: { userId: user.id, name: user.username, icon: user.icon, since: NOW },
+  player: { userId: user.id, name: user.username, since: NOW },
   overseer: {
     name: overseer.name,
     archetype: overseer.archetype,
@@ -923,7 +964,6 @@ export const rivalProfile: CrewProfileResponse = {
   player: {
     userId: RIVAL_HOLD.userId,
     name: RIVAL_HOLD.player,
-    icon: 'sword',
     since: '2026-03-02T09:00:00.000Z',
   },
   overseer: {
@@ -1001,6 +1041,41 @@ const GRANTED_MARKS = {
 export const unitsResponse: UnitsResponse = {
   serverNow: NOW,
   army: base.army,
+  // At the door (2026-09-22): the fifth place the census draws, and a source the Move dialog lists.
+  gateArmy: { razors: 5 },
+  moveDestinations: [
+    {
+      place: { kind: 'district' },
+      label: 'Your District',
+      districtName: null,
+      group: 'yours',
+      holderName: null,
+    },
+    {
+      place: { kind: 'gate' },
+      label: 'Your Gate',
+      districtName: null,
+      group: 'yours',
+      holderName: null,
+    },
+    {
+      place: { kind: 'location', locationId: 'rustyard-press' },
+      label: 'No. 4 Press House',
+      districtName: 'The Rustyard',
+      group: 'yours',
+      holderName: null,
+    },
+    {
+      place: { kind: 'location', locationId: 'rustyard-pawn' },
+      label: 'Toolhouse Pawn',
+      districtName: 'The Rustyard',
+      group: 'faction',
+      holderName: RIVAL_HOLD.crewName,
+    },
+  ],
+  standingAt: { 'rustyard-press': { razors: 2 } },
+  // Two machines in the yard, so the Move dialog has a vehicles section to draw.
+  fleet: { motorcycle: 2 },
   garrisoned: { razors: 2 },
   // §A4: away at a fight, and drawing on the same beds as the two on held ground. Non-empty on
   // purpose: the card prints a third count for these, and a fixture with none of them would
@@ -1404,7 +1479,7 @@ export const bar: BarResponse = {
     barRecruit('bar-7', 'Casimir Adeyemi-Lindqvist', { askingWage: 74, perks: ['haggler'] }),
   ],
   officers: [
-    barOfficer('off-1', 'The Ghost of Sector Nine', 'head_spy', 1240, {
+    barOfficer('off-1', 'The Ghost of Sector Nine', 'master_of_whispers', 1240, {
       perks: ['wire_tap', 'street_ears', 'counter_signals'],
     }),
     barOfficer('off-2', 'Odile Marchetti', 'finance_officer', 340),
@@ -1424,7 +1499,7 @@ export const bar: BarResponse = {
     nextStepCost: payrollStepCost(6),
     stepSize: PAYROLL_STEP,
   },
-  filledRoles: ['head_spy', 'finance_officer', 'raid_boss'],
+  filledRoles: ['master_of_whispers', 'finance_officer', 'raid_boss'],
   auctions: BAR_AUCTIONS,
   /**
    * §H7: two of the two tables this crew may sit at, which is what makes the room's cap readable.
@@ -2647,7 +2722,6 @@ export const blackMarketSpent: BlackMarketResponse = {
 
 export const settings: SettingsResponse = {
   user,
-  icons: [...PLAYER_ICONS],
   serverNow: NOW,
   gameTimezone: GAME_TIMEZONE,
 };
@@ -2988,6 +3062,29 @@ export const battles: BattlesResponse = {
       null,
     ),
   ],
+  spyReports: [
+    spyReportOnRivals(
+      rustyard.locations[2]?.id ?? 'rustyard-press',
+      rustyard.locations[2]?.name ?? 'The Press',
+    ),
+    {
+      id: 'spy-report-2',
+      baseId: base.id,
+      target: { kind: 'gate', districtId: UNSCOUTED_DISTRICT_ID },
+      districtId: UNSCOUTED_DISTRICT_ID,
+      districtName: findDistrict(UNSCOUTED_DISTRICT_ID)?.name ?? 'the Spire',
+      placeName: 'The gate',
+      holder: { kind: 'government', name: 'The Combine', player: null, faction: null },
+      tier: 'loose_ears',
+      capsPaid: 100,
+      writtenAt: '2026-08-14T19:30:00.000Z',
+      failed: true,
+      exposed: {},
+      accuracy: 0.1,
+      unseen: null,
+      accuracyShown: false,
+    },
+  ],
   reports: [
     {
       battleId: 'fight-3',
@@ -3157,11 +3254,44 @@ export const actionsResponse: ActionsResponse = {
   ],
   // Somebody out looking: ten minutes into an hour's run to the Rustyard, which is twenty
   // minutes' walk each way and twenty on the ground.
+  // A column on its way to the gate (2026-09-22): two minutes into a ten-minute walk, so the
+  // recall is still open and the Monitor has a row with the mark on it to draw.
+  moves: [
+    {
+      id: 'move-1',
+      from: { kind: 'district' },
+      to: { kind: 'gate' },
+      fromName: 'Your District',
+      toName: 'Your Gate',
+      army: { razors: 6, snipers: 2 },
+      vehicles: {},
+      size: 8,
+      departedAt: new Date(Date.parse(BOARD_NOW) - 2 * 60_000).toISOString(),
+      arrivesAt: new Date(Date.parse(BOARD_NOW) + 8 * 60_000).toISOString(),
+      travelMinutes: 10,
+      recalledAt: null,
+    },
+  ],
+  // Runners out on a job (2026-09-22): a quarter of an hour into a two-hour look at the Press.
+  spyRun: {
+    id: 'spy-run-1',
+    target: { kind: 'location', locationId: 'rustyard-press' },
+    districtId: 'rustyard',
+    districtName: 'The Rustyard',
+    placeName: 'No. 4 Press House',
+    tier: 'paid_whisper',
+    capsPaid: 500,
+    departedAt: new Date(Date.parse(BOARD_NOW) - 15 * 60_000).toISOString(),
+    returnsAt: new Date(Date.parse(BOARD_NOW) + 105 * 60_000).toISOString(),
+    travelMinutes: 40,
+    recalledAt: null,
+  },
   scoutingRun: {
     districtId: 'rustyard',
     districtName: 'The Rustyard',
-    officerId: 'officer-scout',
-    officerName: 'Vesper Kade',
+    // A party, not a person, since 2026-09-22: the Master of Whispers stays in the chair.
+    officerId: null,
+    officerName: 'Scout Party',
     departedAt: new Date(Date.parse(BOARD_NOW) - 10 * 60_000).toISOString(),
     returnsAt: new Date(Date.parse(BOARD_NOW) + 50 * 60_000).toISOString(),
     travelMinutes: 20,

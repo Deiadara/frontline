@@ -14,7 +14,18 @@ import { useActions, useMissions, useUnits } from '../../lib/queries';
 import { UnitCard } from '../units/UnitCard';
 import { UnitTrigger } from '../units/UnitWindow';
 import { UnitPortrait } from '../units/UnitPortrait';
-import { HeldMark, HomeMark, OutMark, PlantedMark, SplitBar, type Slice } from './CensusMarks';
+import {
+  GateMark,
+  HeldMark,
+  HomeMark,
+  OutMark,
+  PlantedMark,
+  SplitBar,
+  type Slice,
+} from './CensusMarks';
+import { MoveDialog } from './MoveDialog';
+import { DrawnButton } from '../../components/ui/DrawnButton';
+import { useState, type ReactNode } from 'react';
 
 /**
  * The census: every unit this crew owns, and where each one is (maintainer, 2026-09-18).
@@ -49,6 +60,8 @@ interface Census {
   tier: UnitTier;
   total: number;
   home: number;
+  /** At the district's door (2026-09-22): the units a call on the gate is met by. */
+  gate: number;
   held: number;
   planted: number;
   out: number;
@@ -78,6 +91,14 @@ const PLACES: readonly {
     fill: 'fill-ink-200/85',
     tip: 'Standing in your own district',
     Mark: HomeMark,
+  },
+  {
+    key: 'gate',
+    label: 'Gate',
+    ink: 'text-ink-200',
+    fill: 'fill-ink-300/85',
+    tip: 'Standing at your gate',
+    Mark: GateMark,
   },
   {
     key: 'held',
@@ -111,6 +132,9 @@ export function Census() {
   // cache the road tab warms, and so a recall landing anywhere refreshes this too.
   useActions();
   useMissions();
+  // Which row's Move dialog is open. Declared before the early return below: a hook after it
+  // is a hook that is not called on the loading render, and React refuses the next one.
+  const [moving, setMoving] = useState<string | null>(null);
 
   const data = units.data;
   if (!data) {
@@ -127,6 +151,7 @@ export function Census() {
 
   const census: Census[] = PLAYER_UNITS.map((spec) => {
     const home = count(data.army, spec.id);
+    const gate = count(data.gateArmy, spec.id);
     const held = count(data.garrisoned, spec.id);
     const planted = count(data.sleeping, spec.id);
     // `abroad` already holds the planted, so what is left is the committed: at a fight, walking
@@ -137,8 +162,9 @@ export function Census() {
       unitId: spec.id,
       name: spec.name,
       tier: spec.tier,
-      total: home + held + planted + out,
+      total: home + gate + held + planted + out,
       home,
+      gate,
       held,
       planted,
       out,
@@ -167,6 +193,9 @@ export function Census() {
      */
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-0.5" data-testid="census">
       <Ledger rows={census} slots={slots} />
+      {moving !== null && (
+        <MoveDialog roster={data} unitId={moving} onClose={() => setMoving(null)} />
+      )}
       {UNIT_TIERS.map((tier) => {
         const rows = census.filter((row) => row.tier === tier);
         if (rows.length === 0) return null;
@@ -191,7 +220,12 @@ export function Census() {
                 between; at 600px a row is a card you can read in one go. */}
             <ul className="grid grid-cols-1 gap-1.5 lg:grid-cols-2 2xl:grid-cols-3">
               {rows.map((row) => (
-                <CensusRow key={row.unitId} row={row} roster={data} />
+                <CensusRow
+                  key={row.unitId}
+                  row={row}
+                  roster={data}
+                  onMove={() => setMoving(row.unitId)}
+                />
               ))}
             </ul>
           </section>
@@ -280,7 +314,15 @@ function Ledger({ rows, slots }: { rows: readonly Census[]; slots: number }) {
   );
 }
 
-function CensusRow({ row, roster }: { row: Census; roster: UnitsResponse }) {
+function CensusRow({
+  row,
+  roster,
+  onMove,
+}: {
+  row: Census;
+  roster: UnitsResponse;
+  onMove: () => void;
+}) {
   /*
    * §A5: the sheet, on hover, the way every other screen that lists units offers it.
    *
@@ -303,7 +345,10 @@ function CensusRow({ row, roster }: { row: Census; roster: UnitsResponse }) {
   const body = (
     <div
       data-testid={`census-${row.unitId}`}
-      className="flex items-center gap-3 rounded-sm border border-surface-700 bg-surface-950/40 p-2 transition-colors hover:border-brass-500/40"
+      /* The drawn sheet the rest of the Monitor is printed on (maintainer, 2026-09-22), rather
+         than a flat bordered box: this page sits beside the road's file sections and was the one
+         thing on it that still read as a form. */
+      className="flex min-w-0 flex-1 items-center gap-3"
     >
       {/*
        * `fill` inside a box with a definite height, which is the only way this component sizes.
@@ -377,9 +422,46 @@ function CensusRow({ row, roster }: { row: Census; roster: UnitsResponse }) {
           );
         })}
       </dl>
+
+      {/*
+       * Move, inside the row's own box (maintainer, 2026-09-22), drawn and in brass.
+       *
+       * It sat outside the card as a plate-metal ghost button, which made every row two objects
+       * with a gap down the middle. It belongs to the unit, so it is printed on the unit's sheet;
+       * `DrawnButton` is the hand's version of the same control and the one the rest of the paper
+       * screens use.
+       *
+       * `stopPropagation` because the whole row is a `UnitTrigger`: without it a press opens the
+       * dialog *and* the unit's card behind it. `preventDefault` for the same reason on the
+       * keyboard path, which the trigger also listens to.
+       */}
     </div>
   );
-  if (!option) return <li className="min-w-0">{body}</li>;
+
+  /*
+   * The box, and the two things in it.
+   *
+   * The sheet is the `<li>` rather than the trigger, because the trigger is a `<button>` and the
+   * Move control is another one: nesting them is invalid markup and a press that fires both. So
+   * the drawn panel holds a trigger that takes the slack and a control that does not.
+   */
+  const boxed = (inside: ReactNode) => (
+    <li className="ink-frame card-paper washed grain flex min-w-0 items-center gap-2 rounded-sm p-2.5 shadow-panel">
+      {inside}
+      {/* Move (maintainer, 2026-09-22): part of the unit's own box, drawn, and in brass. It was
+          a plate-metal ghost button floating outside the row. */}
+      <DrawnButton
+        size="sm"
+        onClick={onMove}
+        data-testid={`move-${row.unitId}`}
+        className="shrink-0"
+      >
+        Move
+      </DrawnButton>
+    </li>
+  );
+
+  if (!option) return boxed(body);
   const card = (
     <UnitCard
       unit={option}
@@ -388,8 +470,8 @@ function CensusRow({ row, roster }: { row: Census; roster: UnitsResponse }) {
       carriersFight={roster.carriersFight ?? false}
     />
   );
-  return (
-    <li className="min-w-0">
+  return boxed(
+    <>
       {/*
        * Through `UnitTrigger` since 2026-09-20, so a row opens as well as explains itself.
        *
@@ -400,12 +482,12 @@ function CensusRow({ row, roster }: { row: Census; roster: UnitsResponse }) {
       <UnitTrigger
         unitId={row.unitId}
         label={row.name}
-        className="block w-full min-w-0"
+        className="flex min-w-0 flex-1 text-left"
         card={card}
         windowCard={card}
       >
         {body}
       </UnitTrigger>
-    </li>
+    </>,
   );
 }

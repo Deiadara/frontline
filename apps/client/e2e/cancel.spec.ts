@@ -310,7 +310,7 @@ test('a scout on the road can be turned round, and the street stays shut', async
     districtId: UNSCOUTED_DISTRICT_ID,
     districtName: dark.district.name,
     officerId: 'off-3',
-    officerName: 'Vela',
+    officerName: 'Scout Party',
     departedAt: new Date(Date.now() - 60_000).toISOString(),
     // Thirty minutes' walk each way and an hour on the ground: three minutes to decide, two left.
     // The window is a tenth of the walk, so the hour of looking buys none of it.
@@ -342,7 +342,7 @@ test('a scout on the road can be turned round, and the street stays shut', async
   await settleFonts(page);
   const x = page.getByTestId('recall-scout');
   await expect(x).toBeVisible();
-  await expect(x).toHaveAccessibleName('Turn Vela round');
+  await expect(x).toHaveAccessibleName('Turn the Scout Party round');
   await expect(page.getByTestId('recall-scout-window')).toHaveText(/^[12]m( \d+s)? left/);
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/city/scout/recall'));

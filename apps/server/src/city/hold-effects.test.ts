@@ -3,6 +3,10 @@ import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   createCommander,
+  makeAttributes,
+  SCOUTING_RESEARCH_ID,
+  armySize,
+  type SpyRun,
   declarationWindow,
   findLocation,
   findUnit,
@@ -15,7 +19,6 @@ import {
   type Base,
   type BattlesResponse,
   type BattleTarget,
-  type DistrictDetailResponse,
   type MarketResponse,
   type SkirmishEngine,
   type TrainingOrder,
@@ -29,6 +32,7 @@ import {
   vendorSessionsFor,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { spyStrengthFor, writeSpyReport } from '../spying/spying.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
@@ -344,18 +348,10 @@ describe('the Downtown Market', () => {
 });
 
 describe('the Watchtower', () => {
-  /**
-   * Intel is people *and* ground.
-   *
-   * `intelYieldPercent` moved onto `TerritoryEffects` precisely so a Watchtower and a Head Spy
-   * would push one lever, and both readers kept asking the crew-only fold, so the location's
-   * whole advertised reward moved nothing. Measured through the district view's blurred garrison
-   * count, which is the number the channel exists to sharpen.
-   */
-  it('sharpens what a scout brings back about a rival', async () => {
+  it('sharpens what a spy brings back about a rival', async () => {
     const stack = await makeStack();
 
-    // A second crew, so there is somebody whose ground can be looked at and whose deception is
+    // A second crew, so there is somebody whose ground can be looked at and whose Consigliere is
     // what the intel channel has to cut through.
     const registered = await stack.app.inject({
       method: 'POST',
@@ -364,33 +360,11 @@ describe('the Watchtower', () => {
     });
     const rivalToken = registered.json<{ token: string }>().token;
     const rivalBase = await chooseOverseer(stack.app, rivalToken);
-    // The liar on the books below is what the intel channel has to cut through, so the rival must
-    // not bring an intel signature of their own on top of it.
     pinOverseer(stack.app, rivalToken);
     const rivalId = rivalBase.json<{ base: { id: string } }>().base.id;
 
-    /*
-     * And a liar on their books, or there is nothing for intel to cut through.
-     *
-     * `blurAgainst` is `max(0, theirResistance - myYield)`, so against a crew with no Deception the
-     * count is already exact and no amount of Watchtower can sharpen it further: the test would
-     * pass for the wrong reason, or fail for one.
-     *
-     * Seated as Head Spy deliberately, and carrying **both** attributes that drive the channel.
-     * The seat rates Deception as essential rather than irreplaceable, so it pays three quarters
-     * (`IMPORTANCE_SHARE`), and one attribute at 90 no longer clears the reader's own yield: the
-     * count came back exact and the assertion below failed with `40 not to be 40`, which is this
-     * fixture being too weak rather than the Watchtower being broken. Cryptography drives the same
-     * channel and the seat rates it useful, so the pair together put a real blur on the count.
-     */
     stack.app.repos.bases.updateCommanders(rivalId, [
-      createCommander(
-        'rival-spy',
-        'The Ghost',
-        'head_spy',
-        { deception: 100, cryptography: 100 },
-        [],
-      ),
+      createCommander('rival-consigliere', 'The Ghost', 'consigliere', makeAttributes(70), []),
     ]);
 
     const press = stack.app.repos.city.control('rustyard-press');
@@ -398,26 +372,42 @@ describe('the Watchtower', () => {
     stack.app.repos.city.put({
       ...press,
       holder: { kind: 'crew', baseId: rivalId },
-      // 37 rather than a round 40, and that is load-bearing. `blurredCount` rounds to a grain of
-      // `1 + floor(blur / 8)`, and 40 lands back on 40 at grains 1, 2, 4, 5 and 8: a garrison of
-      // forty made this assertion pass or fail on whether the blur happened to hit one of the
-      // grains that move it, which is luck rather than a gate. 37 moves at every grain above 1.
       garrison: { razors: 37 },
     });
 
-    const count = async (): Promise<number> => {
-      const res = await stack.app.inject({
-        method: 'GET',
-        url: '/api/city/rustyard',
-        headers: auth(stack.token),
-      });
-      const view = res
-        .json<DistrictDetailResponse>()
-        .locations.find((l) => l.location.id === 'rustyard-press');
-      return view?.garrisonSize ?? -1;
-    };
+    // A bad chair on our side, so the Watchtower's points are a real share of the budget.
+    const mine = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(stack.baseId, [
+      ...mine.commanders,
+      createCommander('spy', 'Wire', 'master_of_whispers', makeAttributes(20), []),
+    ]);
+    stack.app.repos.bases.updateResearch(stack.baseId, {
+      ...mine.research,
+      technologies: [...mine.research.technologies, SCOUTING_RESEARCH_ID],
+    });
+    stack.app.repos.city.markScouted(stack.baseId, 'rustyard', new Date().toISOString());
 
-    const blurred = await count();
+    const run: SpyRun = {
+      id: 'run-1',
+      baseId: stack.baseId,
+      target: { kind: 'location', locationId: 'rustyard-press' },
+      tier: 'loose_ears',
+      capsPaid: 100,
+      departedAt: new Date().toISOString(),
+      returnsAt: new Date().toISOString(),
+      travelMinutes: 0,
+      recalledAt: null,
+    };
+    const seen = (): number => {
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      return armySize(writeSpyReport(stack.app.repos, base, run, new Date()).exposed);
+    };
+    const points = (): number =>
+      spyStrengthFor(stack.app.repos, stack.app.repos.bases.findById(stack.baseId)!, 'loose_ears')
+        .intelPercent;
+
+    const before = seen();
+    const pointsBefore = points();
     await stack.app.inject({
       method: 'POST',
       url: '/api/city/scout',
@@ -425,12 +415,14 @@ describe('the Watchtower', () => {
       payload: { districtId: 'blacksite-7' },
     });
     give(stack, 'blacksite-7-watchtower');
-    const sharp = await count();
 
-    // The rival's deception blurs the count; the Watchtower is what cuts through it. Whichever way
-    // this fixture's numbers land, holding it must *change* the reading: nothing is the bug.
-    expect(sharp, 'the Watchtower changed nothing about what a scout sees').not.toBe(blurred);
-    expect(Math.abs(sharp - 37)).toBeLessThanOrEqual(Math.abs(blurred - 37));
+    // The Watchtower pays into the intel channel, and the intel channel is spy points now: holding
+    // it must move the strength, and a bigger budget must never read fewer bodies.
+    expect(points(), 'the Watchtower changed nothing about what a spy brings').toBeGreaterThan(
+      pointsBefore,
+    );
+    expect(seen()).toBeGreaterThanOrEqual(before);
+    expect(seen()).toBeLessThanOrEqual(37);
   });
 });
 

@@ -92,6 +92,13 @@ export function unitsAbroad(repos: Repositories, base: Base): Army {
   for (const cell of repos.sleepers.forBase(base.id)) {
     total = mergeArmies(total, cell.army);
   }
+  // Columns between the crew's own places, and units posted on allies' ground (2026-09-22).
+  for (const move of repos.moves.activeFor(base.id)) {
+    total = mergeArmies(total, move.army);
+  }
+  for (const posted of repos.alliedGarrisons.forBase(base.id)) {
+    total = mergeArmies(total, posted.army);
+  }
   return total;
 }
 
@@ -116,7 +123,11 @@ export function vehiclesAbroad(repos: Repositories, base: Base): Fleet {
     .listActiveByBaseId(base.id)
     .map((stored) => stored.mission.vehicles)
     .reduce(mergeFleets, {} as Fleet);
-  return mergeFleets(committed, riding);
+  const moving = repos.moves
+    .activeFor(base.id)
+    .map((move) => move.vehicles)
+    .reduce(mergeFleets, {} as Fleet);
+  return mergeFleets(mergeFleets(committed, riding), moving);
 }
 
 export function districtUnitSlots(
@@ -130,7 +141,11 @@ export function districtUnitSlots(
   const capacity = districtUnitSlotCapacity(base.buildings, standingEffectsFor(repos, base));
   const draw = unitSlotDraw({
     ...base,
-    garrison: mergeArmies(garrison ?? garrisonedUnits(repos, base), unitsAbroad(repos, base)),
+    // The gate garrison draws beds like everybody else: it is the crew's army at the door.
+    garrison: mergeArmies(
+      mergeArmies(garrison ?? garrisonedUnits(repos, base), unitsAbroad(repos, base)),
+      base.gateArmy ?? {},
+    ),
     fleet: mergeFleets(base.fleet, vehiclesAbroad(repos, base)),
   });
   return { ...draw, capacity, spare: Math.max(0, capacity - draw.total) };

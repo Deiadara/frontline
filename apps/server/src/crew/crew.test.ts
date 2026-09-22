@@ -15,8 +15,6 @@ import {
   TRAINING_GAIN,
   TRAINING_SECONDS,
   TRAININGS_PER_DAY,
-  blurredCount,
-  INTEL_PERCENT_PER_GRAIN,
   buildingBuildSeconds,
   buildingCost,
   createCommander,
@@ -319,7 +317,7 @@ describe('the Training tab over HTTP', () => {
     // Five officers, so nobody is blocked by the one-session-per-person rule and the only thing
     // that can stop the sixth is the daily allowance.
     const officers = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) =>
-      createCommander(`officer-${id}`, `Officer ${id}`, 'head_spy'),
+      createCommander(`officer-${id}`, `Officer ${id}`, 'master_of_whispers'),
     );
     app.repos.bases.updateCommanders(base.id, officers);
 
@@ -514,7 +512,7 @@ describe('an attribute changes an outcome', () => {
       unitLoadouts: {},
       fleet: {},
       commanders: [
-        createCommander('o1', 'Spec', 'head_spy', makeAttributes(0, sheet), perks),
+        createCommander('o1', 'Spec', 'master_of_whispers', makeAttributes(0, sheet), perks),
         ...extra,
       ],
       createdAt: HOUR,
@@ -619,55 +617,15 @@ describe('an attribute changes an outcome', () => {
     expect(askingWage(sheet, 100)).toBe(askingWage(sheet, MAX_WAGE_DISCOUNT));
   });
 
-  it('blurs a garrison count for the holder, and sharpens it for the reader', () => {
-    // 43 people, seen through 24% of counter-intelligence: reported to the nearest four.
-    expect(blurredCount(43, 0)).toBe(43);
-    expect(blurredCount(43, 24)).toBe(44);
-    expect(blurredCount(43, 24)).not.toBe(43);
-    // A reader who has cut through it is back to the exact number.
-    expect(blurredCount(43, 0)).toBe(43);
-  });
-
-  /**
-   * The two things a coarsened count must never do.
+  /*
+   * Four tests on `blurredCount` were here and went with it (2026-09-22).
    *
-   * Zero is not a coarse number: it is the one value the district screen reads as a fact about the
-   * world rather than as an estimate, and it costs the reader a deployment. And "never
-   * systematically high or low" has to survive the ties, which `Math.round` sends upward every
-   * time.
+   * The free blurred head count is gone: nothing about somebody else's garrison is known now
+   * until a spy job has been paid for, so the coarsening function had no caller left. What
+   * replaced the property it guarded ("never further from the truth than half a grain") is that
+   * a spy report is never wrong at all: it lists bodies that are there or it lists nothing, and
+   * `packages/shared/src/spying/spying.test.ts` holds that.
    */
-  it('never reports an occupied place as empty', () => {
-    for (const blur of [8, 16, 24, 32, 40, 56, 63, 80]) {
-      for (let standing = 1; standing <= 12; standing++) {
-        expect(blurredCount(standing, blur), `${standing} through ${blur}`).toBeGreaterThan(0);
-      }
-    }
-    // Empty stays empty: the blur must not invent a garrison either.
-    expect(blurredCount(0, 32)).toBe(0);
-  });
-
-  it('is not biased upward across a spread, which rounding every tie up made it', () => {
-    for (const blur of [8, 16, 32]) {
-      let drift = 0;
-      for (let standing = 1; standing <= 200; standing++) {
-        drift += blurredCount(standing, blur) - standing;
-      }
-      // A quarter of a grain is what `Math.round` cost: 0.25, 0.5 and 1.25 for these three blurs.
-      expect(Math.abs(drift / 200), `blur ${blur}`).toBeLessThan(0.1);
-    }
-  });
-
-  it('stays inside half a grain of the truth, which is the promise it is made on', () => {
-    for (const blur of [8, 16, 32, 48]) {
-      const grain = 1 + Math.floor(blur / INTEL_PERCENT_PER_GRAIN);
-      for (let standing = grain; standing <= 200; standing++) {
-        expect(
-          Math.abs(blurredCount(standing, blur) - standing),
-          `${standing} through ${blur}`,
-        ).toBeLessThanOrEqual(grain / 2);
-      }
-    }
-  });
 
   it('brings some of the dead back for Medicine', () => {
     expect(recoverCasualties({ razors: 10 }, 0)).toEqual({ razors: 10 });
@@ -757,7 +715,7 @@ describe('a perk that lifts the other officers', () => {
   it('raises the attribute on everybody else', () => {
     const repos = openStack();
     const base = roster(repos, [
-      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('teacher', 'Teach', 'master_of_whispers', makeAttributes(20), [teacher.id]),
       createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
     ]);
 
@@ -768,7 +726,7 @@ describe('a perk that lifts the other officers', () => {
   it('does not raise it on the officer carrying it', () => {
     const repos = openStack();
     const base = roster(repos, [
-      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('teacher', 'Teach', 'master_of_whispers', makeAttributes(20), [teacher.id]),
       createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
     ]);
 
@@ -778,7 +736,7 @@ describe('a perk that lifts the other officers', () => {
   it('stacks when two officers both carry one', () => {
     const repos = openStack();
     const base = roster(repos, [
-      createCommander('one', 'One', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('one', 'One', 'master_of_whispers', makeAttributes(20), [teacher.id]),
       createCommander('two', 'Two', 'trader', makeAttributes(20), [teacher.id]),
       createCommander('three', 'Three', 'raid_boss', makeAttributes(20), []),
     ]);
@@ -791,7 +749,7 @@ describe('a perk that lifts the other officers', () => {
   it('leaves a lone officer exactly as they came in', () => {
     const repos = openStack();
     const base = roster(repos, [
-      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), [teacher.id]),
+      createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), [teacher.id]),
     ]);
 
     expect(sheetOf(repos, base, 'alone').attributes[attribute]).toBe(20);
@@ -819,7 +777,7 @@ describe('a perk that lifts the other officers', () => {
   it('raises one attribute on every officer when the Lab has finished the rung that teaches it', () => {
     const repos = openStack();
     const alone = roster(repos, [
-      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+      createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), []),
     ]);
     const taught = { ...alone, research: { active: null, technologies: [lesson.id] } };
 
@@ -830,7 +788,7 @@ describe('a perk that lifts the other officers', () => {
   it('raises a whole attribute group on every officer for a group rung', () => {
     const repos = openStack();
     const alone = roster(repos, [
-      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+      createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), []),
     ]);
     const taught = { ...alone, research: { active: null, technologies: [seminar.id] } };
 
@@ -905,7 +863,7 @@ describe("the Overseer's teaching perk", () => {
   it('raises every social attribute on an officer who has never met another officer', () => {
     const repos = openStack();
     const base = yardWithOverseer(repos, [
-      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+      createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), []),
     ]);
 
     // Sheet order is the Overseer, then the officers.
@@ -920,7 +878,7 @@ describe("the Overseer's teaching perk", () => {
   it('does not lift the Overseer, who is the one carrying it', () => {
     const repos = openStack();
     const base = yardWithOverseer(repos, [
-      createCommander('alone', 'Alone', 'head_spy', makeAttributes(20), []),
+      createCommander('alone', 'Alone', 'master_of_whispers', makeAttributes(20), []),
     ]);
 
     const overseer = repos.overseers.findById('o')!;
@@ -937,7 +895,7 @@ describe("the Overseer's teaching perk", () => {
     const host = findPerk('house_host')?.bonus;
     expect(host).toEqual({ kind: 'officer_group', group: 'social', flat: 3 });
     const base = yardWithOverseer(repos, [
-      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), ['house_host']),
+      createCommander('teacher', 'Teach', 'master_of_whispers', makeAttributes(20), ['house_host']),
       createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
     ]);
 
@@ -958,7 +916,7 @@ describe("the Overseer's teaching perk", () => {
   it('names who lifted whom, so the card can print the receipt', () => {
     const repos = openStack();
     const base = yardWithOverseer(repos, [
-      createCommander('teacher', 'Teach', 'head_spy', makeAttributes(20), ['house_host']),
+      createCommander('teacher', 'Teach', 'master_of_whispers', makeAttributes(20), ['house_host']),
       createCommander('pupil', 'Pupil', 'trader', makeAttributes(20), []),
     ]);
     const overseer = repos.overseers.findById('o')!;
@@ -994,10 +952,10 @@ describe("the Overseer's teaching perk", () => {
     // Six teachers of the same group, which no ordinary crew assembles and every late one could.
     const teachers = ['house_host', 'the_connector', 'sig_drillmaster'];
     const crowd = [
-      createCommander('a', 'A', 'head_spy', makeAttributes(20), [teachers[0]!]),
+      createCommander('a', 'A', 'master_of_whispers', makeAttributes(20), [teachers[0]!]),
       createCommander('b', 'B', 'trader', makeAttributes(20), [teachers[1]!]),
       createCommander('c', 'C', 'raid_boss', makeAttributes(20), [teachers[0]!]),
-      createCommander('d', 'D', 'scout', makeAttributes(20), [teachers[1]!]),
+      createCommander('d', 'D', 'cartographer', makeAttributes(20), [teachers[1]!]),
       createCommander('pupil', 'Pupil', 'professor', makeAttributes(20), []),
     ];
     const base = yardWithOverseer(repos, crowd);
@@ -1089,7 +1047,9 @@ describe('the bench', () => {
     const seated = crewSheet(
       crewSheetsFor(
         openStack(),
-        roster(openStack(), [createCommander('x', 'X', 'head_spy', makeAttributes(40), [])]),
+        roster(openStack(), [
+          createCommander('x', 'X', 'master_of_whispers', makeAttributes(40), []),
+        ]),
       ),
     );
 
@@ -1114,15 +1074,15 @@ describe('the bench', () => {
     const withTeacher = openStack();
     const pairBase = roster(withTeacher, [
       createCommander('benched', 'Bench', null, makeAttributes(20), [teacher.id]),
-      createCommander('seated', 'Seat', 'head_spy', makeAttributes(20), []),
+      createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
     ]);
     const lifted = crewSheetsFor(withTeacher, pairBase).find(
-      (member) => member.role === 'head_spy',
+      (member) => member.role === 'master_of_whispers',
     )!;
 
     const alone = openStack();
     const loneBase = roster(alone, [
-      createCommander('seated', 'Seat', 'head_spy', makeAttributes(20), []),
+      createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
     ]);
     const unlifted = crewSheetsFor(alone, loneBase)[0]!;
 

@@ -224,6 +224,13 @@ export interface UnitSpec {
    */
   sleeper?: boolean;
   /**
+   * Never in a spy report. A spy counting a garrison walks straight past this sheet, whatever
+   * the tier and whatever the rung; it is only ever met, in a battle report, once it has struck.
+   * The card says so ({@link UNIT_RULES.unspyable}), because a player paying ten thousand caps
+   * for Total Intelligence is owed the reason it came back one body short.
+   */
+  unspyable?: boolean;
+  /**
    * Who fields this sheet, when it is not the player (maintainer, 2026-09-19).
    *
    * The Combine's own units: the conscripts, the grey infantry, the enforcers, the suppressors
@@ -1127,6 +1134,7 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 80,
     }),
     modifiers: ['ambush', 'night_operations'],
+    unspyable: true,
     /*
      * A full-spectrum cloak defeats eyes. It does nothing at all about ears, and that is what the
      * `noisy` affinity is: this sheet used to say the same thing twice, once here and once as a

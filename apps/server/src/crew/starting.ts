@@ -91,6 +91,7 @@ export function startingBase({
      * *available*, not the one that sounds modest.
      */
     army: { razors: 8 },
+    gateArmy: {},
     trainingQueue: [],
     training: startingTraining(now),
     inventory: {},

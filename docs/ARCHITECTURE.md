@@ -66,7 +66,8 @@ or client-facing type.
 | `battle/scheduled.ts`   | A declared fight: targets, gates, deployments, and what may legally be called        |
 | `battle/perimeter.ts`   | The ring outside the fight, who does not get away, and whose report goes missing     |
 | `battle/traps.ts`       | What is buried under an approach, and the bounded bite it takes                      |
-| `battle/intel.ts`       | What the other side can count of a deployment, on the §F2 channels                   |
+| `spying/spying.ts`      | The spy contest: tiers, the two scores, cheapest-first exposure, the report schemas  |
+| `moves/moves.ts`        | Columns between the crew's own places: district, gate, held and allied ground        |
 | `battle/analysis.ts`    | The after-action ledger, and who is allowed to read one                              |
 | `economy/infamy.ts`     | §D7 as an uncapped point total: what a kill is worth, and what a name buys           |
 | `api.ts`                | All request/response DTO schemas + `ApiErrorSchema`                                  |

@@ -109,6 +109,7 @@ const view = (id: string, targetName: string): BattleView => ({
 const battles: BattlesResponse = {
   coming: [view('press', 'Kessler Press')],
   reports: [],
+  spyReports: [],
   slots: [],
   infamy: 40,
   callPrices: { locations: {}, districts: {} },
@@ -126,6 +127,10 @@ const roster: UnitsResponse = {
   abroad: {},
   unitSlotsUsed: 0,
   unitSlotsCap: 40,
+  gateArmy: {},
+  moveDestinations: [],
+  standingAt: {},
+  fleet: {},
   queue: [],
   resources: STARTING_RESOURCES,
   trainingCostReduction: 0,
@@ -139,6 +144,8 @@ const nothingWalking: ActionsResponse = {
   sleepers: [],
   stationed: [],
   scoutingRun: null,
+  spyRun: null,
+  moves: [],
   serverNow: NOW,
 };
 
@@ -147,6 +154,8 @@ const walking: ActionsResponse = {
   sleepers: [],
   stationed: [],
   scoutingRun: null,
+  spyRun: null,
+  moves: [],
   movements: [
     {
       id: 'move-1',

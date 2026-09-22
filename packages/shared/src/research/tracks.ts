@@ -167,7 +167,7 @@ export type PayoutFamily = (typeof PAYOUT_FAMILIES)[number];
 /**
  * Which family each bonus kind belongs to.
  *
- * `intel` is filed under `counterintel` with its mirror: the Head Spy's and the Scout's tracks are
+ * `intel` is filed under `counterintel` with its mirror: the Master of Whispers' track is
  * about the quiet war in both directions. `people` is what lifts the officers or seats another;
  * `command` is what widens what the crew may have going at once.
  */
@@ -344,8 +344,25 @@ function buildTrack(track: OfficerRole, entries: readonly TrackEntry[]): Researc
 }
 
 /** What each track is about, in the one line the rail prints under its name. */
+/**
+ * The Master of Whispers' first rung: the one that opens scouting (2026-09-22). Checked by
+ * `scouting/scouting.ts` on the server and by the district screen's scout panel on the client.
+ */
+export const SCOUTING_RESEARCH_ID = 'tech_scouting';
+
+/**
+ * The spying rungs the server reads by id (maintainer, 2026-09-22). On the Master of Whispers'
+ * track: the accuracy figure, the unseen estimate and Sleepers in a report. On the Consigliere's:
+ * word that a place was spied, and then whose spies and what they learnt.
+ */
+export const SPY_ACCURACY_RESEARCH_ID = 'tech_second_source';
+export const SPY_ESTIMATE_RESEARCH_ID = 'tech_counting_the_empty_beds';
+export const SPY_SLEEPERS_RESEARCH_ID = 'tech_sleeper_lists';
+export const SPY_NOTICE_RESEARCH_ID = 'tech_reading_the_room';
+export const SPY_TRACE_RESEARCH_ID = 'tech_names_and_faces';
+
 export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
-  head_spy: 'What they never find out, and what you do.',
+  master_of_whispers: 'What you find out, and what it costs to.',
   lead_engineer: 'What is standing, how fast it went up, and what it cost.',
   finance_officer: 'What everything costs and what you actually pay.',
   head_of_growth: 'More of everything, off the same ground.',
@@ -361,27 +378,49 @@ export const RESEARCH_TRACK_BLURBS: Readonly<Record<OfficerRole, string>> = {
   chief_medic: 'How many of them come back.',
   instructor_of_the_young: 'How fast a unit becomes a soldier.',
   raid_boss: 'Going and taking it.',
-  scout: 'Knowing before you go.',
-  consigliere: 'What is said, and what is meant.',
+  consigliere: 'What they never find out.',
   professor: 'Somebody has to sit with the files.',
 };
 
 const CATALOGUE: readonly ResearchItemSpec[] = [
-  ...buildTrack('head_spy', [
+  ...buildTrack('master_of_whispers', [
     {
-      name: 'Dead Drops',
-      blurb: 'A brick, the gap behind it, and two people who never meet.',
-      bonus: { kind: 'intel_resistance', percent: 4 },
+      /*
+       * The door to the map (maintainer, 2026-09-22). Scouting needs a Master of Whispers seated
+       * and this rung finished; nobody walks anywhere, the party is theirs. It is the first thing
+       * on the track because a crew that cannot scout cannot open a mission board or take ground,
+       * so the chair is the early hire this rung exists to make worth it.
+       *
+       * Spying is **not** behind it (maintainer, 2026-09-22): a job is bought with caps the
+       * moment somebody is sitting in the chair. This rung buys the party, which is the free one.
+       */
+      id: SCOUTING_RESEARCH_ID,
+      name: 'Scouting',
+      blurb: 'Somebody who knows somebody in every district, and a runner to ask them.',
+      bonus: { kind: 'intel', percent: 4 },
+      unlocks: 'scout parties, sent from the chair without anybody of yours walking',
     },
     {
-      name: 'Cut-Outs',
-      blurb: 'Every message passes through somebody who can name neither end.',
-      bonus: { kind: 'intel_resistance', percent: 5 },
+      name: 'Paid Informants',
+      blurb: 'A few caps a week to people who see things, and a few more when they see something.',
+      bonus: { kind: 'intel', percent: 6 },
     },
     {
       name: 'Traffic Analysis',
       blurb: 'You do not need to read it. You need to know who is talking to whom.',
-      bonus: { kind: 'intel', percent: 6 },
+      bonus: { kind: 'intel', percent: 8 },
+    },
+    {
+      /*
+       * The accuracy figure on a report (maintainer, 2026-09-22). A report always lists what was
+       * seen; until this rung the crew cannot tell how much of the ground that was. Frozen onto
+       * the report at writing time: see `SpyReport.accuracyShown`.
+       */
+      id: SPY_ACCURACY_RESEARCH_ID,
+      name: 'Second Source',
+      blurb: 'Nothing is written down until two people who have never met agree on it.',
+      bonus: { kind: 'intel', percent: 9 },
+      unlocks: 'the accuracy figure on a spy report',
     },
     {
       name: 'Two Sets of Eyes',
@@ -392,14 +431,24 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'scout_parties', flat: 1 },
     },
     {
-      name: 'Legend Building',
-      blurb: 'A whole life on paper, for somebody who has never existed.',
-      bonus: { kind: 'unit_stealth', percent: 6 },
+      /* The "roughly N unseen" estimate under a report: `SpyReport.unseen`. */
+      id: SPY_ESTIMATE_RESEARCH_ID,
+      name: 'Counting the Empty Beds',
+      blurb: 'How many bunks, how many bowls, how many boots by the door. The rest is arithmetic.',
+      bonus: { kind: 'intel', percent: 10 },
+      unlocks: 'an estimate of how much a spy report missed',
     },
     {
-      name: 'One-Time Pads',
-      blurb: 'Slow, unbreakable, and everybody hates carrying the books.',
-      bonus: { kind: 'intel_resistance', percent: 10 },
+      /*
+       * Sleepers on spied ground. Without this rung a planted cell is invisible to every job at
+       * every tier, which is the maintainer's ruling on what planting one is worth; with it, a
+       * report lists them like anybody else standing there, at their own stealth.
+       */
+      id: SPY_SLEEPERS_RESEARCH_ID,
+      name: 'Sleeper Lists',
+      blurb: 'The ones who arrived years ago and never left. Somebody remembers them arriving.',
+      bonus: { kind: 'intel', percent: 12 },
+      unlocks: 'Sleepers in a spy report, at their own stealth',
     },
     {
       name: 'Turned Runners',
@@ -412,14 +461,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'officer_group', group: 'mental', flat: 2 },
     },
     {
-      name: 'False Traffic',
-      blurb: 'A whole second district that does not exist, chattering away all night.',
-      bonus: { kind: 'intel_resistance', percent: 14 },
-    },
-    {
-      name: 'The Long Silence',
-      blurb: 'For a week the wire says nothing at all, and that is the loudest thing on it.',
-      bonus: { kind: 'unit_kind', unitId: 'ghosts', stat: 'offense', percent: 20 },
+      name: 'The Whole Wire',
+      blurb: 'There is no message in this city you do not get a copy of, eventually.',
+      bonus: { kind: 'intel', percent: 14 },
     },
   ]),
 
@@ -1323,59 +1367,6 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
-  ...buildTrack('scout', [
-    {
-      name: 'Point Work',
-      blurb: 'One person, four hundred metres ahead, and quiet.',
-      bonus: { kind: 'unit_stealth', percent: 5 },
-    },
-    {
-      name: 'Pace Counting',
-      blurb: 'Distance without a map, in the dark.',
-      bonus: { kind: 'travel_speed', percent: 6 },
-    },
-    {
-      name: 'Observation Posts',
-      blurb: 'Somewhere you can watch a road all day without being seen.',
-      bonus: { kind: 'intel', percent: 8 },
-    },
-    {
-      name: 'Track Reading',
-      blurb: 'Who went through, how many, and how long ago.',
-      bonus: { kind: 'intel', percent: 10 },
-    },
-    {
-      name: 'Light Order',
-      blurb: 'Nothing carried that is not needed. Nothing that rattles.',
-      bonus: { kind: 'unit_speed', percent: 6 },
-    },
-    {
-      name: 'Hide Discipline',
-      blurb: 'A day in a hole without moving.',
-      bonus: { kind: 'unit_stealth', percent: 10 },
-    },
-    {
-      name: 'Runner Relays',
-      blurb: 'The report gets back in an hour instead of in a day.',
-      bonus: { kind: 'mission_speed', percent: 8 },
-    },
-    {
-      name: 'Route Reconnaissance',
-      blurb: 'The way in is walked before anybody has to use it.',
-      bonus: { kind: 'vision', districts: 1 },
-    },
-    {
-      name: 'Counter-Tracking',
-      blurb: 'Going back over your own trail and taking it apart.',
-      bonus: { kind: 'intel_resistance', percent: 10 },
-    },
-    {
-      name: 'Eyes On',
-      blurb: 'There is nothing in this district you do not already know about.',
-      bonus: { kind: 'vision', districts: 2 },
-    },
-  ]),
-
   ...buildTrack('consigliere', [
     {
       name: 'The Quiet Word',
@@ -1383,9 +1374,21 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
+      name: 'Deniability',
+      blurb: 'Arranged so that it was never said.',
+      bonus: { kind: 'intel_resistance', percent: 5 },
+    },
+    {
+      /*
+       * Word that the ground was spied (maintainer, 2026-09-22). A job on this crew's ground is
+       * silent by default; from this rung the holder is told a place of theirs was looked at,
+       * and no more than that. `spying/spying.ts` on the server reads it at the settle.
+       */
+      id: SPY_NOTICE_RESEARCH_ID,
       name: 'Reading the Room',
       blurb: 'Who is uncomfortable, and about what.',
-      bonus: { kind: 'intel_resistance', percent: 5 },
+      bonus: { kind: 'intel_resistance', percent: 6 },
+      unlocks: 'word when a place you hold has been spied',
     },
     {
       name: 'Favours Owed',
@@ -1393,34 +1396,32 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'recruit_pool', percent: 8 },
     },
     {
+      /* The rest of the notice: whose spies, and what they came away with. */
+      id: SPY_TRACE_RESEARCH_ID,
+      name: 'Names and Faces',
+      blurb: 'The stranger at the bar had a name, and the name had a crew.',
+      bonus: { kind: 'intel_resistance', percent: 8 },
+      unlocks: 'who spied on you, and what they learnt',
+    },
+    {
+      name: 'False Traffic',
+      blurb: 'A whole second district that does not exist, chattering away all night.',
+      bonus: { kind: 'intel_resistance', percent: 10 },
+    },
+    {
       name: 'Terms in Advance',
       blurb: 'Agreed before anybody is in a position to want more.',
       bonus: { kind: 'market_discount', percent: 6 },
     },
     {
-      name: 'Deniability',
-      blurb: 'Arranged so that it was never said.',
-      bonus: { kind: 'intel_resistance', percent: 8 },
-    },
-    {
-      name: 'Backchannels',
-      blurb: 'A way to talk to somebody you are not talking to.',
-      bonus: { kind: 'black_market_discount', percent: 8 },
-    },
-    {
-      name: 'Sitting Down',
-      blurb: 'Both sides, one table, and somebody neutral pouring.',
-      bonus: { kind: 'allied_offense', percent: 8 },
+      name: 'Insulation',
+      blurb: 'Nothing that happens downstairs reaches this floor.',
+      bonus: { kind: 'intel_resistance', percent: 12 },
     },
     {
       name: 'The Long View',
       blurb: "This year's enemy is next year's supplier.",
       bonus: { kind: 'officer_group', group: 'social', flat: 3 },
-    },
-    {
-      name: 'Insulation',
-      blurb: 'Nothing that happens downstairs reaches this floor.',
-      bonus: { kind: 'intel_resistance', percent: 12 },
     },
     {
       name: 'Nothing in Writing',

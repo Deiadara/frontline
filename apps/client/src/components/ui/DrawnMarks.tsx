@@ -1,4 +1,6 @@
 import { useId } from 'react';
+import { cn } from '../../lib/cn';
+import { ICON_GLYPHS, type IconName } from './Icon';
 
 /**
  * The drawn furniture the paper screens share (maintainer, 2026-09-17).
@@ -14,6 +16,41 @@ import { useId } from 'react';
  * page that mounts and unmounts as a list changes, that is a drawing that loses its wobble the
  * moment its owner is scrolled past.
  */
+
+/**
+ * Any icon in the set, put through the pen (maintainer, 2026-09-22).
+ *
+ * The training sigils (`DrillSigil`) already do this for four glyphs: take the icon set's own
+ * drawing and push it through a displacement map so the line wobbles the way a pen does. This is
+ * that, for any name, without the roundel. It exists so the big marks on a shut door, the red
+ * padlock on a nav tile and the slot figure on a unit card are all the *same* drawings the icon
+ * set draws small, rather than a second set that resembles them; a player who has learnt one mark
+ * has learnt the other.
+ *
+ * Sized and coloured by whatever it is dropped into. Filled glyphs (the infamy spade) keep their
+ * fill; the wobble moves the edge either way.
+ */
+export function DrawnGlyph({ name, className }: { name: IconName; className?: string }) {
+  const id = useId();
+  return (
+    <svg viewBox="0 0 24 24" className={cn('overflow-visible', className)} aria-hidden>
+      <defs>
+        <filter id={`glyph-${id}`} x="-25%" y="-25%" width="150%" height="150%">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3" seed="7" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            scale="0.9"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          />
+        </filter>
+      </defs>
+      <g filter={`url(#glyph-${id})`} strokeLinecap="round" strokeLinejoin="round">
+        {ICON_GLYPHS[name]}
+      </g>
+    </svg>
+  );
+}
 
 /** The ink every mark is drawn in, so one screen reads as one hand. */
 const INK = {

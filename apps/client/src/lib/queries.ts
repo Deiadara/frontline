@@ -1,5 +1,8 @@
 import { readyCount } from '@frontline/shared';
 import type {
+  ActionsResponse,
+  MoveUnitsRequest,
+  RecallMoveRequest,
   BaseDetailResponse,
   ClaimFeatRequest,
   FeatsResponse,
@@ -129,6 +132,11 @@ import {
   cancelLocationUpgrade,
   cancelLocationFortify,
   recallScout,
+  recallSpy,
+  spyOn,
+  moveUnits,
+  quoteMove,
+  recallMove,
   cancelGateRaise,
   cancelDrill,
 } from './api';
@@ -788,6 +796,56 @@ export const useCancelLocationFortify = (
  */
 export const useRecallScout = (districtId: string | undefined) =>
   useCityWrite(recallScout, undefined, () => districtId ?? null);
+
+/**
+ * Spying (2026-09-22). The board and the Monitor both draw the job, so both go stale with it;
+ * the base does too, since the caps came off it.
+ */
+export const useSpy = (baseId: string | undefined, districtId: string | undefined) =>
+  useCityWrite(spyOn, baseId, () => districtId ?? null, [queryKeys.battles, queryKeys.actions]);
+
+/** Moving units between places (2026-09-22): the road, the roster, the city and the base all move. */
+export function useMoveUnits() {
+  const queryClient = useQueryClient();
+  return useMutation<ActionsResponse, ApiRequestError, MoveUnitsRequest>({
+    mutationFn: moveUnits,
+    onSettled: () => {
+      for (const key of [queryKeys.actions, queryKeys.units, queryKeys.city, queryKeys.battles]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+      invalidateLevelSensitive(queryClient);
+    },
+  });
+}
+
+export function useRecallMove() {
+  const queryClient = useQueryClient();
+  return useMutation<ActionsResponse, ApiRequestError, RecallMoveRequest>({
+    mutationFn: recallMove,
+    onSettled: () => {
+      for (const key of [queryKeys.actions, queryKeys.units, queryKeys.city]) {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+    },
+  });
+}
+
+/** The clock a move would run to, re-read as the picker changes. Nothing is moved. */
+export function useMoveQuote(body: MoveUnitsRequest | null) {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: ['move-quote', body] as const,
+    queryFn: () => quoteMove(body!),
+    enabled: token !== null && body !== null,
+    staleTime: 10_000,
+  });
+}
+
+export const useRecallSpy = (districtId: string | undefined) =>
+  useCityWrite(recallSpy, undefined, () => districtId ?? null, [
+    queryKeys.battles,
+    queryKeys.actions,
+  ]);
 
 /**
  * The unit roster (GDD §A5). Polled for the same reason the district page is: a training batch

@@ -93,6 +93,11 @@ export const UNIT_RULES = {
     description:
       'Can be planted on a place you do not hold, long before there is anything to fight over, and left there. Nothing finds them: no scout counts them and no amount of digging turns them up. Call a fight on that ground and they are already standing in it, with the walk paid days ago. Nobody else in the crew can be anywhere they were not sent.',
   },
+  unspyable: {
+    label: 'Cannot Be Spied',
+    description:
+      'Never appears in a spy report, whatever was paid for it. The cloak is full-spectrum: bought eyes, bought runners and bought everyone all count the garrison one body short. The only report that ever lists it is a battle report, once it has struck.',
+  },
 } as const satisfies Record<string, UnitRuleSpec>;
 
 export type UnitRuleId = keyof typeof UNIT_RULES;

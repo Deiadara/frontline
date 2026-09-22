@@ -80,6 +80,16 @@ export const BaseSchema = z.object({
    * when the place does.
    */
   army: ArmySchema.default({}),
+  /**
+   * The gate garrison (maintainer, 2026-09-22): the units standing at the district's door.
+   *
+   * A call on the gate is met by these and nothing else, and a raid inside a breach by `army`
+   * and nothing else: each half defends its own place. When the gate falls, whoever is left
+   * standing here falls back into `army`. New units land in `army`; the Move screen walks them
+   * here, ten minutes at base. Optional rather than defaulted, so a row written before the split
+   * and every fixture built before it still type as a crew with nobody at the door.
+   */
+  gateArmy: ArmySchema.optional(),
   /** Up to five training orders in flight (§A5). */
   trainingQueue: TrainingQueueSchema,
   commanders: z.array(CommanderSchema),

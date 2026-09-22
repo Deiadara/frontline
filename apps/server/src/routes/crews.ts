@@ -124,7 +124,6 @@ export function projectCrewProfile(
     player: {
       userId: user.id,
       name: displayNameOf(user),
-      icon: user.icon,
       since: user.createdAt,
     },
     overseer: overseer

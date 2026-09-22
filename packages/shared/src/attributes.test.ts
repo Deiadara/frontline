@@ -114,10 +114,11 @@ describe('PERK_CATALOG', () => {
 });
 
 describe('officer roles', () => {
-  // C1: exactly the 19 positions the board listed.
-  it('declares the 19 positions, each with a label', () => {
-    expect(OFFICER_ROLES).toHaveLength(19);
-    expect(new Set(OFFICER_ROLES).size).toBe(19);
+  // C1: the 19 positions the board listed, less the Scout, whose chair went on 2026-09-22 when
+  // scouting became the Master of Whispers' work and nobody's journey.
+  it('declares the 18 positions, each with a label', () => {
+    expect(OFFICER_ROLES).toHaveLength(18);
+    expect(new Set(OFFICER_ROLES).size).toBe(18);
     for (const role of OFFICER_ROLES) {
       expect(OFFICER_ROLE_LABELS[role].length).toBeGreaterThan(0);
     }

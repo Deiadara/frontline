@@ -21,7 +21,7 @@ import { cn } from '../../lib/cn';
 
 /** Every glyph is drawn stroked, in a 24 by 24 box, so they share one weight and one optical size. */
 const GLYPHS: Readonly<Record<OfficerRole, string[]>> = {
-  head_spy: ['M2 12c4-5 6-5 10-5s6 0 10 5c-4 5-6 5-10 5s-6 0-10-5z', 'M12 9.5v5'],
+  master_of_whispers: ['M2 12c4-5 6-5 10-5s6 0 10 5c-4 5-6 5-10 5s-6 0-10-5z', 'M12 9.5v5'],
   lead_engineer: ['M4 19h16L4 5z', 'M8 19v-5'],
   finance_officer: [
     'M5 8c0-1.6 3.1-3 7-3s7 1.4 7 3-3.1 3-7 3-7-1.4-7-3z',
@@ -68,7 +68,6 @@ const GLYPHS: Readonly<Record<OfficerRole, string[]>> = {
     'M10 20v-2',
     'M14 20v-2',
   ],
-  scout: ['M7 9a4 4 0 1 0 .1 0z', 'M17 9a4 4 0 1 0 .1 0z', 'M9 7l1-4h4l1 4', 'M11 13h2'],
   consigliere: ['M3 6h18v12H3z', 'M3 6l9 7 9-7', 'M18 17a2.5 2.5 0 1 0 .1 0z'],
   professor: [
     'M6.5 13a3.5 3.5 0 1 0 .1 0z',

@@ -13,6 +13,9 @@ import {
   type DistrictDetailResponse,
   CancelLocationWorkRequestSchema,
   RecallScoutRequestSchema,
+  RecallSpyRequestSchema,
+  SpyRequestSchema,
+  type SpyRefusal,
   CancelGateRaiseRequestSchema,
   PlantSleepersRequestSchema,
   RecallSleepersRequestSchema,
@@ -36,6 +39,7 @@ import {
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { recallScout, sendScout } from '../scouting/scouting.js';
+import { recallSpy, sendSpy } from '../spying/spying.js';
 import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
 import { settleWorld } from '../world/settle.js';
 
@@ -80,10 +84,36 @@ const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: str
     code: 'VALIDATION_ERROR',
     message: 'Somebody is already out. One scout at a time',
   },
-  no_officer: { code: 'NO_FORCE', message: 'You have nobody to send' },
-  officer_busy: { code: 'VALIDATION_ERROR', message: 'They are already out' },
-  officer_injured: { code: 'VALIDATION_ERROR', message: 'They are still laid up' },
+  no_whispers: {
+    code: 'NO_FORCE',
+    message: 'Nobody is in the Master of Whispers chair. Scouting is their work',
+  },
+  not_researched: {
+    code: 'VALIDATION_ERROR',
+    message:
+      'Your Master of Whispers has not worked Scouting out yet. It is the first thing on their track',
+  },
   own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
+};
+
+/** Why a spy job was refused, in the player's words (2026-09-22). */
+const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string }> = {
+  no_whispers: SCOUT_REFUSAL_ERRORS.no_whispers,
+  cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the caps' },
+  already_out: {
+    code: 'VALIDATION_ERROR',
+    message: 'Your runners are already out on a job. One at a time',
+  },
+  nothing_there: {
+    code: 'INVALID_TARGET',
+    message: 'Nobody is holding that. There is nothing to read',
+  },
+  own_ground: { code: 'VALIDATION_ERROR', message: 'That is yours. You can count it yourself' },
+  not_the_gate: {
+    code: 'INVALID_TARGET',
+    message: 'That district is shut. From outside, the gate is the only thing to read',
+  },
+  unscouted: { code: 'VALIDATION_ERROR', message: 'Nobody of yours has been there yet' },
 };
 
 /** The table above, unless the refusal came with a sentence about the person it turned away. */
@@ -181,12 +211,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
     if (!district) throw new AppError('NOT_FOUND', 'No such district');
 
     const outcome = app.db.transaction(() =>
-      sendScout(app.repos, {
-        base,
-        districtId: body.districtId,
-        ...(body.officerId === undefined ? {} : { officerId: body.officerId }),
-        now,
-      }),
+      sendScout(app.repos, { base, districtId: body.districtId, now }),
     )();
     if (outcome.kind === 'refused') refuseScout(outcome.reason, outcome.message);
 
@@ -311,6 +336,58 @@ export function registerCityRoutes(app: FastifyInstance): void {
       }
       const district = findDistrict(outcome.run.districtId);
       if (!district) throw new AppError('NOT_FOUND', 'No such district');
+      return { district: projectDistrict(app.repos, base, district, now), base };
+    },
+  );
+
+  /**
+   * Spying (maintainer, 2026-09-22): send the runners to look at one place, at one tier.
+   *
+   * Answers with the district the place is in, like every other city write: what it will show is
+   * the job on the clock, and the report lands on the battle board when the runners are back.
+   */
+  app.post('/city/spy', { preHandler: app.authenticate }, (request): CityMutationResponse => {
+    const body = parseBody(SpyRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(app, request.currentUser.id, now);
+    const districtId =
+      body.target.kind === 'gate'
+        ? body.target.districtId
+        : (findLocation(body.target.locationId)?.districtId ?? '');
+    const district = findDistrict(districtId);
+    if (!district) throw new AppError('NOT_FOUND', 'No such place');
+
+    const outcome = app.db.transaction(() =>
+      sendSpy(app.repos, { base, target: body.target, tier: body.tier, now }),
+    )();
+    if (outcome.kind === 'refused') {
+      const { code, message } = SPY_REFUSAL_ERRORS[outcome.reason];
+      throw new AppError(code, message);
+    }
+    return {
+      district: projectDistrict(app.repos, outcome.base, district, now),
+      base: outcome.base,
+    };
+  });
+
+  app.post(
+    '/city/spy/recall',
+    { preHandler: app.authenticate },
+    (request): CityMutationResponse => {
+      parseBody(RecallSpyRequestSchema, request.body ?? {});
+      const now = new Date();
+      const base = settled(app, request.currentUser.id, now);
+      const outcome = app.db.transaction(() => recallSpy(app.repos, base, now))();
+      if (outcome.kind === 'refused') {
+        const { code, message } = SCOUT_RECALL_ERRORS[outcome.reason];
+        throw new AppError(code, message);
+      }
+      const districtId =
+        outcome.run.target.kind === 'gate'
+          ? outcome.run.target.districtId
+          : (findLocation(outcome.run.target.locationId)?.districtId ?? '');
+      const district = findDistrict(districtId);
+      if (!district) throw new AppError('NOT_FOUND', 'No such place');
       return { district: projectDistrict(app.repos, base, district, now), base };
     },
   );

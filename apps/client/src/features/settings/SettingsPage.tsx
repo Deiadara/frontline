@@ -1,7 +1,6 @@
 import {
   GAME_TIMEZONE,
   OFFERED_TIMEZONES,
-  PLAYER_ICONS,
   SOUND_VOLUME_MAX,
   SOUND_VOLUME_MIN,
   UsernameSchema,
@@ -9,7 +8,6 @@ import {
   isValidTimezone,
   zoneCity,
   zoneLabel,
-  type PlayerIcon,
 } from '@frontline/shared';
 import {
   useEffect,
@@ -19,9 +17,8 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
-import { Button } from '../../components/ui/Button';
+import { DrawnButton } from '../../components/ui/DrawnButton';
 import { Dropdown } from '../../components/ui/Dropdown';
-import { Icon, type IconName } from '../../components/ui/Icon';
 import { Panel } from '../../components/ui/Panel';
 import { NotificationFilters } from '../social/NotificationFilters';
 import { cn } from '../../lib/cn';
@@ -54,7 +51,7 @@ function Field({
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-1.5">
-      <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-ink-200">
+      <span className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
         {label}
       </span>
       {children}
@@ -65,10 +62,22 @@ function Field({
   );
 }
 
+/**
+ * A box somebody ruled, not a plated input (maintainer, 2026-09-22: make this screen match the
+ * rest of the game).
+ *
+ * `.ink-field` is the pen's own rectangle, the same one the Bar's bid box and the console's
+ * knobs wear. It is a background image, so the element keeps a transparent ground and the paper
+ * under it shows through; the focus ring is a brass glow rather than a border colour, because
+ * there is no border to recolour.
+ */
 const INPUT =
-  'w-full min-w-0 rounded-sm border border-surface-600 bg-surface-950 px-3 py-2 font-body ' +
-  'text-[14px] text-ink-100 outline-none transition-colors placeholder:text-ink-300/50 ' +
-  'focus:border-brass-300';
+  'ink-field w-full min-w-0 bg-transparent px-3 py-2 font-body text-[14px] text-ink-100 ' +
+  'outline-none transition-shadow placeholder:text-ink-300/40 ' +
+  'focus:shadow-[0_0_0_1px_rgb(240_173_76_/_0.55)]';
+
+/** The same box when what is in it is wrong: the glow is oxblood and it is always on. */
+const INPUT_BAD = 'shadow-[0_0_0_1px_rgb(154_58_58_/_0.75)]';
 
 /** A short line under a form that says what just happened. Green for done, red for refused. */
 function Result({ error, done }: { error: Error | null; done: string | null }) {
@@ -89,19 +98,17 @@ function Result({ error, done }: { error: Error | null; done: string | null }) {
   return null;
 }
 
-function ProfilePanel({
-  username,
-  displayName,
-  icon,
-}: {
-  username: string;
-  displayName: string | null;
-  icon: PlayerIcon;
-}) {
+/**
+ * Who you are: the login and the name other people read.
+ *
+ * The mark, a twelve-glyph picker, was here and is gone (maintainer, 2026-09-22). The account
+ * still carries an icon on the wire, so nothing that draws one has to change; what is gone is
+ * the choosing of it, which was a wall of buttons above the one field anybody came here for.
+ */
+function ProfilePanel({ username, displayName }: { username: string; displayName: string | null }) {
   const save = useUpdateProfile();
   const [name, setName] = useState(username);
   const [shown, setShown] = useState(displayName ?? '');
-  const [glyph, setGlyph] = useState<PlayerIcon>(icon);
   const [done, setDone] = useState<string | null>(null);
 
   // The server is the source of truth, so a save that changed something the server normalised (or
@@ -110,8 +117,7 @@ function ProfilePanel({
   useEffect(() => {
     setName(username);
     setShown(displayName ?? '');
-    setGlyph(icon);
-  }, [username, displayName, icon]);
+  }, [username, displayName]);
 
   const nameError = UsernameSchema.safeParse(name).success
     ? null
@@ -128,14 +134,13 @@ function ProfilePanel({
         // field: omitting it means "leave it alone", so clearing the box used to save nothing and
         // the sync effect above put the old name straight back while the panel said "Saved."
         displayName: shown.trim() === '' ? null : shown.trim(),
-        icon: glyph,
       },
       { onSuccess: () => setDone('Saved.') },
     );
   };
 
   return (
-    <Panel title="Who you are">
+    <Panel title="Who you are" tone="paper">
       <form className="flex flex-col gap-4 p-4" onSubmit={onSubmit} noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Operator ID" hint="What you log in with. It has to be unique.">
@@ -144,7 +149,7 @@ function ProfilePanel({
               onChange={(event) => setName(event.target.value)}
               autoComplete="username"
               data-testid="settings-username"
-              className={cn(INPUT, nameError !== null && 'border-oxblood-500')}
+              className={cn(INPUT, nameError !== null && INPUT_BAD)}
             />
           </Field>
           <Field label="Name" hint="What everybody else sees. Blank means your Operator ID.">
@@ -162,36 +167,10 @@ function ProfilePanel({
           <p className="font-body text-[12px] text-oxblood-300">{nameError}</p>
         )}
 
-        <Field label="Mark" hint="Your glyph on the board, in a listing, and beside your name.">
-          {/* Six a row, not "as many as fit". Wrapped, the twelve glyphs broke 10 + 1 at 1440 and
-              9 + 2 at 1280: a full row and an orphan, in a different place on every browser. Two
-              rows of six is the same picture everywhere and the marks stay their own size, which
-              is why the grid is `w-fit` rather than stretched across the column. */}
-          <div className="grid w-fit grid-cols-6 gap-2" data-testid="settings-icons">
-            {PLAYER_ICONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-label={option}
-                aria-pressed={glyph === option}
-                onClick={() => setGlyph(option)}
-                className={cn(
-                  'brushed relative flex h-11 w-11 items-center justify-center rounded-sm border transition-all duration-100',
-                  glyph === option
-                    ? 'border-brass-300/80 bg-brass-300/20 text-brass-100 shadow-brass'
-                    : 'border-surface-600 bg-surface-800/70 text-ink-300 hover:border-iris-300/70 hover:text-iris-100',
-                )}
-              >
-                <Icon name={option as IconName} className="h-6 w-6" />
-              </button>
-            ))}
-          </div>
-        </Field>
-
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" size="sm" disabled={save.isPending || nameError !== null}>
+          <DrawnButton type="submit" size="sm" disabled={save.isPending || nameError !== null}>
             {save.isPending ? 'Saving…' : 'Save'}
-          </Button>
+          </DrawnButton>
           <Result error={save.error} done={done} />
         </div>
       </form>
@@ -226,6 +205,7 @@ function ClockPanel({
   return (
     <Panel
       title="Your clock"
+      tone="paper"
       data-testid="settings-clock-panel"
       action={
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
@@ -256,14 +236,14 @@ function ClockPanel({
         </Field>
 
         <p
-          className="rounded-sm border border-brass-500/40 bg-surface-900/60 px-3 py-2.5 font-display text-[14px] tabular-nums text-ink-100"
+          className="ink-box px-3 py-2.5 text-center font-stamp text-[15px] tabular-nums text-brass-300"
           data-testid="settings-clock-preview"
         >
           {formatDayClock(at, zone)} · {zoneLabel(at, zone)}
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button
+          <DrawnButton
             size="sm"
             disabled={save.isPending || !isValidTimezone(zone)}
             onClick={() => {
@@ -272,7 +252,7 @@ function ClockPanel({
             }}
           >
             {save.isPending ? 'Saving…' : 'Use this clock'}
-          </Button>
+          </DrawnButton>
           <Result error={save.error} done={done} />
         </div>
       </div>
@@ -445,6 +425,7 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
   return (
     <Panel
       title="Sounds"
+      tone="paper"
       data-testid="settings-sounds-panel"
       action={
         <span
@@ -471,7 +452,7 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button
+          <DrawnButton
             size="sm"
             disabled={save.isPending}
             onClick={() => {
@@ -480,7 +461,7 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
             }}
           >
             {save.isPending ? 'Saving…' : 'Save'}
-          </Button>
+          </DrawnButton>
           <Result error={save.error} done={done} />
         </div>
       </div>
@@ -500,7 +481,7 @@ function PasswordPanel() {
   const blocked = current === '' || next.length < 8 || next !== again;
 
   return (
-    <Panel title="Password">
+    <Panel title="Password" tone="paper">
       <form
         className="flex flex-col gap-4 p-4"
         noValidate
@@ -542,7 +523,7 @@ function PasswordPanel() {
               autoComplete="new-password"
               onChange={(event) => setNext(event.target.value)}
               data-testid="settings-new-password"
-              className={cn(INPUT, tooShort && 'border-oxblood-500')}
+              className={cn(INPUT, tooShort && INPUT_BAD)}
             />
           </Field>
           <Field label="Again">
@@ -552,7 +533,7 @@ function PasswordPanel() {
               autoComplete="new-password"
               onChange={(event) => setAgain(event.target.value)}
               data-testid="settings-repeat-password"
-              className={cn(INPUT, mismatch && 'border-oxblood-500')}
+              className={cn(INPUT, mismatch && INPUT_BAD)}
             />
           </Field>
         </div>
@@ -562,9 +543,9 @@ function PasswordPanel() {
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" size="sm" disabled={blocked || change.isPending}>
+          <DrawnButton type="submit" size="sm" disabled={blocked || change.isPending}>
             {change.isPending ? 'Changing…' : 'Change it'}
-          </Button>
+          </DrawnButton>
           <Result error={change.error} done={done} />
         </div>
       </form>
@@ -598,11 +579,7 @@ export function SettingsPage() {
   return (
     <PageShell quote="The only part that the city allows you to control">
       <div className="grid items-start gap-5 xl:grid-cols-2">
-        <ProfilePanel
-          username={data.user.username}
-          displayName={data.user.displayName}
-          icon={data.user.icon}
-        />
+        <ProfilePanel username={data.user.username} displayName={data.user.displayName} />
         <ClockPanel
           timezone={data.user.timezone}
           serverNow={data.serverNow}
@@ -616,6 +593,7 @@ export function SettingsPage() {
           category is usually looking at it, and a player hunting for a switch comes here. */}
       <Panel
         title="Sound Preferences"
+        tone="paper"
         data-testid="settings-notify-panel"
         // Framed by hand like the battle rail, and the rows inside it ruled with the same pen.
         // `NotificationFilters` draws its rows with a plain 1px `border` because the bell's tab is a
@@ -624,8 +602,10 @@ export function SettingsPage() {
         // rather than by giving the shared control a flag it only needs on one screen. The brass
         // frame on hover stands in for the `border-brass` the plain border showed, on rows that
         // can still be switched.
+        // The frame comes with `tone="paper"` now; what is left here is the rows inside it,
+        // re-ruled with the same pen (the bell's own tab draws them with a plain 1px border,
+        // which is right for a narrow list and not for this screen).
         className={cn(
-          'ink-frame',
           '[&_li>label]:ink-frame [&_li>label:hover:has(input:enabled)]:ink-frame-brass',
         )}
       >

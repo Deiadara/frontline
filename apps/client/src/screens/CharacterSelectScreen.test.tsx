@@ -17,7 +17,7 @@ import {
   type OverseerPreset,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CharacterSelectScreen } from './CharacterSelectScreen';
@@ -75,8 +75,10 @@ describe('when the offer does not arrive', () => {
     });
 
     renderScreen();
-    const line = await screen.findByTestId('overseer-pool');
-    await waitFor(() => expect(line).not.toHaveTextContent('Reading the files.'));
+    expect(await screen.findByTestId('overseer-pool')).toHaveTextContent('Reading the files.');
+    // The failing state replaces the wall rather than sitting under it, so the line it was
+    // reading goes with it: waiting on the node itself would wait on a detached element for ever.
+    await waitFor(() => expect(screen.queryByTestId('overseer-pool')).toBeNull());
     // The same `LoadFailure` every screen behind the nav uses, so the remedy is a retry rather
     // than a sentence telling the player to reload the one page they cannot leave.
     expect(screen.getByTestId('load-failure')).toBeInTheDocument();
@@ -182,54 +184,64 @@ describe('CharacterSelectScreen', () => {
     await waitFor(() => expect(choiceReads).toBeGreaterThan(0));
   });
 
-  /** §F6: the screen says how much of the pool is left, because four of thirty and four of five
-      are very different choices and the cards alone cannot tell them apart. */
-  it('says how much of the pool is left', async () => {
-    await offered();
-    const line = screen.getByTestId('overseer-pool');
-    expect(line).toHaveTextContent(String(OVERSEER_POOL_SIZE));
-    expect(line).toHaveTextContent(String(REMAINING));
-  });
-
-  // B6/F6: each card shows its *whole* sheet: every attribute, not a role-relevant subset.
-  it('renders the full attribute sheet and a radar for each offered character', async () => {
-    await offered();
-    // By the label a player reads, not by the key: the sheet renders `ATTRIBUTE_LABELS`, and an
-    // assertion on the raw key would pass only for as long as the two happen to match.
-    for (const attribute of ATTRIBUTE_NAMES) {
-      expect(screen.getAllByText(ATTRIBUTE_LABELS[attribute])).toHaveLength(OFFERED.length);
-    }
-    expect(screen.getAllByRole('img', { name: 'Attribute radar' })).toHaveLength(OFFERED.length);
-  });
-
-  /*
-   * The bio is clamped to two lines and every one runs to three in that column, so the card shows
-   * a sentence cut mid-word on the one screen where a player is choosing *on* the description. The
-   * clamp stays (a taller card drops a whole card row at 1280x800); what cannot stay is there
-   * being nowhere to read the rest.
+  /**
+   * B6/F6: the file shows the **whole** sheet, and it is reached by pressing a painting.
+   *
+   * Two steps since 2026-09-22 (maintainer): the landing is four portraits and nothing else, so
+   * a sheet on screen at all means the press worked, and the sheet being whole is what the
+   * second step is for. Four thumbnails could not carry any of this legibly, which is why the
+   * bio used to be clamped mid-word here.
    */
-  it('carries the whole bio on the hover, not just the two lines it shows', async () => {
+  it('opens the pressed overseer file, with the full sheet, the radar and the whole bio', async () => {
     await offered();
-    for (const preset of OFFERED) {
-      const bio = screen.getByText(preset.bio);
-      expect(bio.className, `${preset.presetId}'s bio is not clamped`).toContain('line-clamp-2');
-      expect(bio, `${preset.presetId}'s cut bio cannot be read anywhere`).toHaveAttribute(
-        'data-tip',
-        preset.bio,
-      );
+    const preset = OFFERED[0]!;
+    // Nothing but the paintings first: no attribute labels anywhere on the wall.
+    expect(screen.queryByText(ATTRIBUTE_LABELS[ATTRIBUTE_NAMES[0]])).toBeNull();
+
+    fireEvent.click(screen.getByText(preset.name));
+
+    const sheet = await screen.findByTestId(`overseer-sheet-${preset.presetId}`);
+    for (const attribute of ATTRIBUTE_NAMES) {
+      expect(within(sheet).getByText(ATTRIBUTE_LABELS[attribute])).toBeInTheDocument();
+    }
+    expect(within(sheet).getByRole('img', { name: 'Attribute radar' })).toBeInTheDocument();
+    // Whole, and no longer clamped: there is room for it at this size.
+    const bio = within(sheet).getByText(preset.bio);
+    expect(bio.className).not.toContain('line-clamp');
+    // ...and only the one pressed. The other three are off the screen entirely.
+    for (const other of OFFERED.slice(1)) {
+      expect(screen.queryByText(other.bio)).toBeNull();
     }
   });
 
   /** B7: the signature perk is the character. It is the one thing a player is really choosing. */
-  it('names each offered character signature perk', async () => {
+  it('names each offered character signature perk, and what it is worth', async () => {
     await offered();
     for (const preset of OFFERED) {
+      fireEvent.click(screen.getByText(preset.name));
+      const sheet = await screen.findByTestId(`overseer-sheet-${preset.presetId}`);
       for (const id of preset.perks) {
         const perk = findPerk(id);
         expect(perk, `${preset.presetId} carries an unknown perk ${id}`).toBeDefined();
-        if (perk) expect(screen.getByText(perk.name)).toBeInTheDocument();
+        if (!perk) continue;
+        expect(within(sheet).getByText(perk.name)).toBeInTheDocument();
+        expect(within(sheet).getByText(perk.description)).toBeInTheDocument();
       }
+      fireEvent.click(screen.getByTestId('overseer-back'));
     }
+  });
+
+  /** Go back returns to the four, with nothing chosen (maintainer, 2026-09-22). */
+  it('goes back to the paintings without choosing anybody', async () => {
+    await offered();
+    fireEvent.click(screen.getByText(OFFERED[0]!.name));
+    expect(screen.getByTestId(`overseer-sheet-${OFFERED[0]!.presetId}`)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('overseer-back'));
+
+    expect(screen.queryByTestId(`overseer-sheet-${OFFERED[0]!.presetId}`)).toBeNull();
+    for (const preset of OFFERED) expect(screen.getByText(preset.name)).toBeInTheDocument();
+    expect(screen.queryByTestId('overseer-confirm')).toBeNull();
   });
 });
 
@@ -276,7 +288,7 @@ describe('while the offer is held', () => {
 
     const held = await screen.findByTestId('overseer-hold');
     // 9:59 rather than 10:00 once a tick has passed, and either is the same statement.
-    expect(held.textContent).toMatch(/Held for you \/\/ (10:00|9:59)/);
+    expect(held.textContent).toMatch(/Held for you\s*(10:00|9:59)/);
   });
 
   it('draws a fresh batch when the window shuts, without a reload', async () => {
@@ -331,7 +343,5 @@ describe('when everybody free is already spoken for', () => {
     const line = await screen.findByTestId('overseer-pool');
     await waitFor(() => expect(line).not.toHaveTextContent('Reading the files.'));
     expect(line.textContent).toContain("somebody else's booking");
-    // The number still has to be true: six are unclaimed, they are simply all booked.
-    expect(line.textContent).toContain('6');
   });
 });

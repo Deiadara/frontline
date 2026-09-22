@@ -195,52 +195,18 @@ test.describe('settings', () => {
   });
 
   /*
-   * The marks are the same two rows on every browser.
+   * The mark picker is gone (maintainer, 2026-09-22).
    *
-   * Twelve glyphs in a wrapping row broke 10 + 1 at 1440 and 9 + 2 at 1280, so the block a player
-   * picks their mark out of had a different shape, and a stray orphan in a different place, at
-   * every width. Asserted as "the same shape at two widths" rather than as "six a row", which
-   * would go red the day a thirteenth glyph is drawn without anything being wrong.
+   * Two tests lived here: one measuring that the twelve glyphs wrapped into the same two rows at
+   * every width, and one pressing a glyph. The account still carries an icon on the wire, so
+   * nothing that draws one changed; what went is the choosing of it, which was a wall of buttons
+   * above the one field anybody opens this screen for. Recorded rather than silently deleted, so
+   * the next person reading this file knows the grid was taken out on purpose.
    */
-  test('lays the marks out the same way whatever the browser is', async ({ page }) => {
-    const shapeAt = async (width: number, height: number) => {
-      await open(page, '/game/settings', width, height);
-      await expect(page.getByTestId('settings-icons').getByRole('button').first()).toBeVisible();
-      return page.evaluate(() => {
-        const grid = document.querySelector('[data-testid="settings-icons"]') as HTMLElement;
-        const rows = new Map<number, number>();
-        for (const mark of grid.children) {
-          const top = Math.round(mark.getBoundingClientRect().top);
-          rows.set(top, (rows.get(top) ?? 0) + 1);
-        }
-        return [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([, count]) => count);
-      });
-    };
-
-    const narrow = await shapeAt(1280, 720);
-    const wide = await shapeAt(1440, 900);
-    expect(narrow.length, 'the marks did not wrap at all').toBeGreaterThan(1);
-    expect(
-      wide,
-      `the marks rewrap with the browser: ${narrow.join('+')} vs ${wide.join('+')}`,
-    ).toEqual(narrow);
-    // ...and no row is a lone orphan under a full one.
-    expect(
-      Math.min(...narrow),
-      `a row of marks is left with ${Math.min(...narrow)}`,
-    ).toBeGreaterThan(Math.max(...narrow) / 2);
-  });
-
-  test('offers a glyph to be recognised by', async ({ page }) => {
+  test('offers no mark picker at all', async ({ page }) => {
     await open(page, '/game/settings', 1280, 720);
-    const icons = page.getByTestId('settings-icons').getByRole('button');
-    // `count()` does not auto-wait, so it has to be read *after* an assertion that does. Without
-    // one it samples whatever the DOM held on the first tick, which on a slow cold Vite start is
-    // nothing at all.
-    await expect(icons.first()).toBeVisible();
-    expect(await icons.count()).toBeGreaterThan(4);
-    await icons.nth(1).click();
-    await expect(icons.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('settings-username')).toBeVisible();
+    await expect(page.getByTestId('settings-icons')).toHaveCount(0);
   });
 });
 

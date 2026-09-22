@@ -66,6 +66,8 @@ const onTheRoad: ActionsResponse = {
   sleepers: [],
   stationed: [],
   scoutingRun: null,
+  spyRun: null,
+  moves: [],
   movements: [
     {
       id: 'move-1',

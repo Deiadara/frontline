@@ -34,17 +34,17 @@ import {
  *
  * A crew's rating in an attribute used to be the best rating anybody in the room had, regardless
  * of what they had been hired as. So a cryptographer sat in the Fabricator's chair improved your
- * intel exactly as much as one sat as Head Spy, and the nineteen role slots were a filing system
+ * intel exactly as much as one sat as Master of Whispers, and the nineteen role slots were a filing system
  * rather than a decision. Now a person contributes their full rating only in the attributes their
  * seat uses, and {@link OFF_DUTY_SHARE} of it everywhere else. They are still in the room, they
  * are simply not doing that job.
  *
- * Each row is deliberately wider than that role's `primary`: a Head Spy is hired for Stealth and
+ * Each row is deliberately wider than that role's `primary`: a Master of Whispers is hired for Stealth and
  * spends the week on Deception, Signals and Logic as well, and a table that listed only the
  * primary would make every officer a single number.
  */
 export const ROLE_DUTIES: Readonly<Record<OfficerRole, readonly AttributeName[]>> = {
-  head_spy: ['stealth', 'deception', 'signals', 'logic'],
+  master_of_whispers: ['stealth', 'deception', 'signals', 'logic'],
   lead_engineer: ['engineering', 'craft', 'analysis', 'cybernetics'],
   finance_officer: ['strategy', 'analysis', 'logistics', 'negotiation'],
   head_of_growth: ['charisma', 'communication', 'empathy', 'diplomacy'],
@@ -60,7 +60,6 @@ export const ROLE_DUTIES: Readonly<Record<OfficerRole, readonly AttributeName[]>
   chief_medic: ['medicine', 'chemistry', 'composure', 'empathy'],
   instructor_of_the_young: ['diplomacy', 'communication', 'empathy', 'intuition'],
   raid_boss: ['intimidation', 'strength', 'toughness', 'improvisation'],
-  scout: ['speed', 'dexterity', 'stealth', 'navigation'],
   consigliere: ['logic', 'empathy', 'deception', 'strategy'],
   professor: ['intuition', 'diplomacy', 'improvisation', 'cryptography'],
 };

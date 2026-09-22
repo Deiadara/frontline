@@ -83,7 +83,7 @@ export function DeltaFloat({
 
     for (const [key, group] of groups) {
       if (group.press !== undefined) {
-        const row = claimRow(group.press.id, owner);
+        const row = claimRow(group.press.id, owner, group.marks.length);
         held.current.add(group.press.id);
         /*
          * Under the button, in this readout's row of the stack; above it when the stack would run

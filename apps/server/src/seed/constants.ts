@@ -112,7 +112,7 @@ export const MVP_BOT: BotBlueprint = {
     createCommander(
       'vex-commander-spy',
       'The Ghost of Sector Nine',
-      'head_spy',
+      'master_of_whispers',
       { stealth: 37, deception: 29, signals: 26 },
       ['quiet_boots'],
     ),

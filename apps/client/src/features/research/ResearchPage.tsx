@@ -403,7 +403,7 @@ function TracksSection({
    *
    * It was component state, which made the rail unreachable from anywhere else: the shut
    * Reimagining bench wants to send a player to the one rung that opens it, and a link that can
-   * only say "the Programmes tab" lands them on the Head Spy with nineteen rows to read. `replace`,
+   * only say "the Programmes tab" lands them on the Master of Whispers with nineteen rows to read. `replace`,
    * because picking through the trades is browsing rather than navigating.
    */
   const [params, setParams] = useSearchParams();

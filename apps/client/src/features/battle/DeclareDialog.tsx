@@ -1,10 +1,4 @@
-import {
-  callPriceOf,
-  DECLARE_UNAFFORDABLE_MESSAGE,
-  MAX_DECLARE_LEAD_HOURS,
-  MIN_DECLARE_LEAD_HOURS,
-  type BattleTarget,
-} from '@frontline/shared';
+import { callPriceOf, DECLARE_UNAFFORDABLE_MESSAGE, type BattleTarget } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -67,11 +61,8 @@ export function DeclareDialog({
    * posted a mark the board no longer offered. `Fights.tsx` documents the same trap.
    */
   const chosen = picked !== null && slots.includes(picked) ? picked : (slots[0] ?? null);
-  // Off by default. Holding is the bigger commitment of the two. It takes the survivors off the
-  // roster until somebody goes and gets them, so it is the one a player has to reach for.
-  const [hold, setHold] = useState(false);
-  // Only a location can be occupied. A gate is a hole in a wall for a few hours, not a position, so
-  // offering the choice there would be offering something that cannot happen.
+  // Winners stay and hold what they took (maintainer, 2026-09-22): no longer a choice. A gate is
+  // a hole in a wall for a few hours, not a position, so there the flag means nothing.
   const holdable = target.kind === 'location';
   /*
    * §D7: the call's price, quoted off the board rather than worked out here.
@@ -108,12 +99,12 @@ export function DeclareDialog({
         <p className="font-display text-[10px] uppercase tracking-[0.22em] text-oxblood-300">
           {target.kind === 'gate' ? 'Break the way in' : 'Call a fight'}
         </p>
-        {/* The place in caps and the words around it as written: a heading set wholly in caps
-            loses the difference between the thing being named and the sentence naming it, and one
-            set wholly in title case buries the name in the middle of a line. */}
+        {/* Wholly in caps (maintainer, 2026-09-22). The heading used to set the place in caps
+            inside a sentence in sentence case; every other title on these windows shouts, and a
+            fight is the loudest thing a player does. */}
         <h2
           id="declare-title"
-          className="font-display text-lg font-bold tracking-[0.1em] text-ink-100"
+          className="font-display text-lg font-bold uppercase tracking-[0.1em] text-ink-100"
         >
           {target.kind === 'gate' ? (
             <>
@@ -130,13 +121,14 @@ export function DeclareDialog({
             </>
           )}
         </h2>
-        <p className="font-body text-xs leading-relaxed text-ink-300">
-          Everybody sees it coming. The soonest you may call it is {MIN_DECLARE_LEAD_HOURS} hours
-          out, the latest {MAX_DECLARE_LEAD_HOURS}. Nobody is sent yet: you move people up between
-          now and the mark.
-          {charged &&
-            ` Calling it on another player's crew costs ${cost} infamy, taken the moment it lands.`}
-        </p>
+        {/* What it costs, and nothing else (maintainer, 2026-09-22). The rules of the window
+            (eight hours out, nobody sent yet) were three lines of standing prose over a grid of
+            marks that says the first two on its own. The price is news. */}
+        {charged && (
+          <p className="font-body text-xs leading-relaxed text-ink-300">
+            Calling it on another player&apos;s crew costs {cost} infamy, taken the moment it lands.
+          </p>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5" data-testid="declare-slots">
@@ -166,29 +158,14 @@ export function DeclareDialog({
           </section>
         ))}
 
-        {/* §A4: what the fight is *for*, asked before anybody is committed. Two different fights
-            are being spelled the same way otherwise: take it and come home, or take it and stay. */}
         {holdable && (
-          <label
-            className="rivets flex cursor-pointer items-start gap-3 rounded-sm border border-surface-600 bg-surface-800/50 px-3.5 py-3"
+          <p
+            className="font-body text-[11px] leading-relaxed text-ink-300"
             data-testid="declare-hold"
           >
-            <input
-              type="checkbox"
-              checked={hold}
-              onChange={(event) => setHold(event.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-brass-500"
-            />
-            <span className="flex min-w-0 flex-col gap-1">
-              <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-100">
-                Have the units stay after a successful capture
-              </span>
-              <span className="font-body text-[11px] leading-relaxed text-ink-300">
-                Whoever is left standing garrisons the location and defends it. They are off your
-                roster until you pull them out. Leave it clear and everybody marches home.
-              </span>
-            </span>
-          </label>
+            Whoever is left standing garrisons the location and holds it. They are off your roster
+            until you walk them somewhere else.
+          </p>
         )}
 
         {/* The price against the wallet, so the two numbers a player is weighing are on one line
@@ -238,7 +215,7 @@ export function DeclareDialog({
           // Not the confirm every other primary button gets. Calling a fight is the loudest thing
           // a player does in this game: everybody in the city sees it, and it cannot be taken back.
           data-sound="call"
-          onClick={() => chosen && affordable && onConfirm(chosen, holdable && hold)}
+          onClick={() => chosen && affordable && onConfirm(chosen, holdable)}
         >
           {pending ? 'Working…' : 'Call it'}
         </Button>

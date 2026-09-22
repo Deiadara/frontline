@@ -320,12 +320,12 @@ describe('§C1d: the track officer shortens the bill, and only the bill', () => 
       fitFor(makeBase([officerAt('m', 'chief_medic', 100)])),
     );
     const medic = statuses.find((entry) => entry.role === 'chief_medic');
-    const spy = statuses.find((entry) => entry.role === 'head_spy');
-    expect(statuses).toHaveLength(19);
+    const spy = statuses.find((entry) => entry.role === 'master_of_whispers');
+    expect(statuses).toHaveLength(OFFICER_ROLES.length);
     expect(medic?.costCutPercent).toBe(30);
     expect(medic?.mark).toBe('S+');
     expect(spy).toEqual({
-      role: 'head_spy',
+      role: 'master_of_whispers',
       officerName: null,
       mark: null,
       costCutPercent: 0,
@@ -565,8 +565,8 @@ describe('the catalogue on the wire', () => {
       expect(item.blocker.length, item.id).toBeGreaterThan(4);
     }
     // A track with nobody on it is shut on the chair rather than on the mark.
-    const spyRung = shipped.find((item) => item.track === 'head_spy' && item.step === 1);
-    expect(spyRung?.blocker).toBe('Needs a Head Spy');
+    const spyRung = shipped.find((item) => item.track === 'master_of_whispers' && item.step === 1);
+    expect(spyRung?.blocker).toBe('Needs a Master of Whispers');
   });
 
   /**
@@ -578,7 +578,7 @@ describe('the catalogue on the wire', () => {
     const { repos } = fakeRepos();
     const base = makeBase([
       officerAt('m', 'chief_medic', 40),
-      officerAt('s', 'scout', 93),
+      officerAt('s', 'cartographer', 93),
       officerAt('h', 'head_of_research', 55),
     ]);
     const shipped = labResearchItems(repos, base, fitFor(base, repos));
@@ -620,8 +620,8 @@ describe('the research payload publishes nothing finer than its grain (§B8)', (
   };
 
   it('has a fixture whose raw cuts are off the grain, or it proves nothing', () => {
-    const officer = awkward('head_spy', 'probe');
-    const raw = trackCostCutPercent(roleFit(officer.attributes, 'head_spy'));
+    const officer = awkward('master_of_whispers', 'probe');
+    const raw = trackCostCutPercent(roleFit(officer.attributes, 'master_of_whispers'));
     expect(onGrain(raw), `raw cut ${raw} is already on the grain, so rounding is untestable`).toBe(
       false,
     );

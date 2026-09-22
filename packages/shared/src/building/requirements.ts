@@ -191,9 +191,12 @@ export const OFFICER_FOR_UNIT_STAT: Readonly<Record<string, OfficerRole>> = {
   range: 'lead_engineer',
   vitality: 'chief_medic',
   armor: 'security_officer',
-  evasion: 'scout',
-  speed: 'scout',
-  stealth: 'head_spy',
+  // The Scout's chair went on 2026-09-22. Speed is the Cartographer's trade (every road in the
+  // game is on that track) and evasion the Field Commander's, whose sheet is what a line does
+  // when it is shot at.
+  evasion: 'field_commander',
+  speed: 'cartographer',
+  stealth: 'master_of_whispers',
   morale: 'field_commander',
   intimidation: 'field_commander',
   lootCapacity: 'salvager',

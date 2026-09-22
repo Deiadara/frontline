@@ -1,4 +1,5 @@
 import {
+  SCOUTING_RESEARCH_ID,
   makeAttributes,
   createCommander,
   CITY_DISTRICTS,
@@ -387,9 +388,14 @@ describe('GET /api/city', () => {
      * past that.
      */
     const own = app.repos.bases.findByOwnerId(userId)!;
+    // A Master of Whispers with Scouting researched: the two things a party needs (2026-09-22).
     app.repos.bases.updateCommanders(own.id, [
-      createCommander('scout-1', 'Wire', 'scout', makeAttributes(30), []),
+      createCommander('whispers-1', 'Wire', 'master_of_whispers', makeAttributes(30), []),
     ]);
+    app.repos.bases.updateResearch(own.id, {
+      ...own.research,
+      technologies: [...own.research.technologies, SCOUTING_RESEARCH_ID],
+    });
 
     const sent = await app.inject({
       method: 'POST',

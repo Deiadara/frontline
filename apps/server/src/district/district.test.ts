@@ -489,7 +489,7 @@ describe('unit slots (§A1: one pool)', () => {
    */
   it('charges the army, the officers and the yard against the ceiling', () => {
     const repos = openStack();
-    const officers = [createCommander('o1', 'One', 'head_spy')];
+    const officers = [createCommander('o1', 'One', 'master_of_whispers')];
     const base = seedBase(repos, {
       officers,
       buildings: [build('nexus', 1), build('generator', 1), build('quarters', 2)],
@@ -546,7 +546,10 @@ describe('unit slots (§A1: one pool)', () => {
     expect(filled.kind).toBe('queued');
 
     // ...and signing somebody takes a bed off the army, which is the maintainer's rule (§A1).
-    const withOfficer = { ...base, commanders: [createCommander('o1', 'One', 'head_spy')] };
+    const withOfficer = {
+      ...base,
+      commanders: [createCommander('o1', 'One', 'master_of_whispers')],
+    };
     expect(districtUnitSlots(repos, withOfficer).spare).toBe(room - 1);
   });
 
@@ -561,7 +564,10 @@ describe('unit slots (§A1: one pool)', () => {
   it('sends the roster a draw that subtracts to the same beds the training door counts', () => {
     const repos = openStack();
     const base = seedBase(repos, {
-      officers: [createCommander('o1', 'One', 'head_spy'), createCommander('o2', 'Two', null)],
+      officers: [
+        createCommander('o1', 'One', 'master_of_whispers'),
+        createCommander('o2', 'Two', null),
+      ],
       buildings: [build('nexus', 1), build('generator', 1), build('quarters', 4)],
     });
     const crew: Base = { ...base, army: { razors: 3 }, fleet: { motorcycle: 2 } };

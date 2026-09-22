@@ -69,9 +69,9 @@ Conventions used below:
 ## C. Roles (officer positions)
 
 - **C1 [SPEC]** The 19 fillable positions:
-  Head Spy · Lead Engineer · Head of Finance · Head of Growth · Field Commander · Head of Research ·
+  Master of Whispers · Lead Engineer · Head of Finance · Head of Growth · Field Commander · Head of Research ·
   Wetware Chief · Fabricator · Salvager · Right Hand · Cartographer · Trader · Head of Security ·
-  Chief Medic · Instructor of the Young · Raid Boss · Scout · Consigliere · Professor.
+  Chief Medic · Instructor of the Young · Raid Boss · Consigliere · Professor.
 - **C2 [SPEC]** Humans are generic; **roles are what you hire them into**. The same character could be
   slotted anywhere: well or badly.
 - **C3 [PROVISIONAL]** One officer per role slot; a role is either filled or empty. Duplicate officers in the same

@@ -40,11 +40,35 @@ function record(target: EventTarget | null): void {
   const box = control.getBoundingClientRect();
   // A control with no box is one the pointer could not have found: a hidden input.
   if (box.width === 0 && box.height === 0) return;
-  last = {
-    id: (nextId += 1),
-    at: Date.now(),
-    rect: { top: box.top, bottom: box.bottom, left: box.left, width: box.width },
-  };
+  const rect = { top: box.top, bottom: box.bottom, left: box.left, width: box.width };
+  const now = Date.now();
+  /*
+   * The same control pressed again inside the window is the same column (maintainer,
+   * 2026-09-22: "if I click two times on train a unit the minus symbols appear more than two
+   * times and glitch out").
+   *
+   * Every press minted a fresh id, and a readout stacks its figures per press id, so two quick
+   * presses of Train were two stacks with the same anchor: the second pair of receipts was
+   * drawn over the first at the same pixel, and four figures fighting for two rows is what the
+   * glitch was. Measured: `-36@612,481` and `-36@612,482`, twice each. Keeping the id makes the
+   * second press's figures the next rows of the first press's column, which is what a receipt
+   * for two purchases looks like.
+   */
+  if (last !== null && now - last.at <= PRESS_WINDOW_MS && sameBox(last.rect, rect)) {
+    last = { ...last, at: now, rect };
+    return;
+  }
+  last = { id: (nextId += 1), at: now, rect };
+}
+
+/** The same control, allowing a pixel for a button that shifted under a hover lift. */
+function sameBox(a: Press['rect'], b: Press['rect']): boolean {
+  return (
+    Math.abs(a.top - b.top) <= 2 &&
+    Math.abs(a.bottom - b.bottom) <= 2 &&
+    Math.abs(a.left - b.left) <= 2 &&
+    Math.abs(a.width - b.width) <= 2
+  );
 }
 
 let installed = false;
@@ -75,22 +99,33 @@ export function forgetPresses(): void {
  * one another. So a press hands out rows: the first readout to ask gets the top row, the next the
  * one under it, and a row is given back when that readout's figures have gone.
  */
-const rows = new Map<number, string[]>();
+const rows = new Map<number, { owner: string; count: number }[]>();
 
-export function claimRow(pressId: number, owner: string): number {
+/**
+ * The first row this readout's figures start on under a press, given how many it holds.
+ *
+ * One row per *figure*, not per readout (maintainer, 2026-09-22). It was one row per owner, so a
+ * readout holding two figures drew its second straight through the next readout's first: two
+ * quick presses of Train put the caps column's `-36` on row 0 and 1 and the supplies column's
+ * `-7` on row 1 and 2, and row 1 had both. Each owner reserves as many rows as it has figures,
+ * and the next owner starts after them.
+ */
+export function claimRow(pressId: number, owner: string, count = 1): number {
   const held = rows.get(pressId) ?? [];
-  let at = held.indexOf(owner);
-  if (at === -1) {
-    at = held.length;
-    rows.set(pressId, [...held, owner]);
-  }
-  return at;
+  const at = held.findIndex((one) => one.owner === owner);
+  const next =
+    at === -1
+      ? [...held, { owner, count }]
+      : held.map((one, index) => (index === at ? { owner, count } : one));
+  rows.set(pressId, next);
+  const before = at === -1 ? held : held.slice(0, at);
+  return before.reduce((total, one) => total + one.count, 0);
 }
 
 export function releaseRow(pressId: number, owner: string): void {
   const held = rows.get(pressId);
   if (held === undefined) return;
-  const left = held.filter((one) => one !== owner);
+  const left = held.filter((one) => one.owner !== owner);
   if (left.length === 0) rows.delete(pressId);
   else rows.set(pressId, left);
 }

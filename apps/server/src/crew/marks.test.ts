@@ -11,7 +11,7 @@ import { projectCrewOfficer } from './roster.js';
 
 /** Somebody built for one chair: the stealth and deception a Head of Spies is read on. */
 const spy = (): Commander =>
-  createCommander('o1', 'Vela', 'head_spy', {
+  createCommander('o1', 'Vela', 'master_of_whispers', {
     stealth: 90,
     deception: 85,
     signals: 70,

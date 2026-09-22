@@ -347,7 +347,7 @@ function CapturedGatePanel({
       </div>
       <p className="font-body text-[12px] leading-snug text-ink-300">
         +{Math.round(gate.defensePercent)}% holding it, and{' '}
-        {Math.round(gate.intelResistancePercent)}% less for anybody reading it.
+        {Math.round(gate.intelResistancePercent)} points against anybody spying on it.
       </p>
       {working ? (
         <div className="flex flex-wrap items-center gap-3">

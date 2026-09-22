@@ -69,6 +69,23 @@ export function HeldMark({ className }: { className?: string }) {
 }
 
 /**
+ * At the gate: the door itself, two posts and a bar, drawn in the same pen (2026-09-22).
+ */
+export function GateMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <g {...PEN} strokeWidth="1.7">
+        <path d="M5.2 20.6 5.6 6.2" />
+        <path d="M18.6 20.4 18.9 6.4" />
+        <path d="M5.4 6.6 C9 3.2 15.2 3.1 19 6.4" />
+        <path d="M5.8 13.4 18.4 13.2" strokeWidth="1.4" />
+        <path d="M3 20.8 21.2 20.5" strokeWidth="1.2" opacity="0.6" />
+      </g>
+    </svg>
+  );
+}
+
+/**
  * Planted: somebody under the floor of a place that is not yours.
  *
  * A dashed line over a figure, because the whole mechanic is that the ground above does not know

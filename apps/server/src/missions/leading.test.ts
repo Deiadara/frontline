@@ -406,7 +406,9 @@ describe('the launch', () => {
      * happened to be misc.
      */
     const now = new Date();
-    const elsewhere = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]
+    // Only boards a launch is accepted on: misc and the districts open on the first day. The
+    // walk over every district used to land on a Combine one, which is refused since 2026-09-21.
+    const elsewhere = [MISC_AREA_ID, ...OPEN_ON_DAY_ONE]
       .filter((areaId) => areaId !== home.areaId)
       .map((areaId) => ({ areaId, offer: missionOffers(areaId, missionBoardKey(areaId, now))[0] }))
       .find((entry) => entry.offer !== undefined);
@@ -500,7 +502,12 @@ function planted(
     id: `run-${seed}-${template.id}`,
     base,
     template,
-    areaId: areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID,
+    // Misc, then a district open on the first day: `areasOffering` still lists districts the
+    // Combine holds whole, and a run planted there is refused at the launch (2026-09-22).
+    areaId:
+      [MISC_AREA_ID, ...OPEN_ON_DAY_ONE].find((id) =>
+        areasOffering(template.id, new Date()).includes(id),
+      ) ?? MISC_AREA_ID,
     force,
     vehicles,
     now: startedAt,

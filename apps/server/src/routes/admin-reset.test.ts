@@ -92,7 +92,8 @@ describe('the console wipes a crew', () => {
     }>().base;
     expect(played.level, 'the crew has played').toBe(30);
     expect(Object.keys(played.inventory).length).toBeGreaterThan(20);
-    expect(played.research.technologies.length).toBe(190);
+    // Eighteen chairs, ten rungs each, since the Scout's chair went on 2026-09-22.
+    expect(played.research.technologies.length).toBe(180);
 
     /*
      * The ground, counted in the table rather than off `/api/city`.
@@ -185,6 +186,16 @@ describe('the console wipes a crew', () => {
 
     // The ground went back to the city rather than staying held by a crew that no longer exists.
     expect(heldRows(), 'nothing is still held by the wiped crew').toBe(0);
+    /*
+     * ...and the released rows still *read* (maintainer, 2026-09-22: "when I click on clean slate
+     * it crashes"). The wipe wrote them back at level 0, one under the schema's floor, and the
+     * control table is parsed on every read: the world clock threw on every tick from then on
+     * and nothing in this test noticed, because nothing here read the table after the wipe.
+     */
+    const released = [...app.repos.city.controls().values()];
+    expect(released.length, 'the control table is unreadable after the wipe').toBeGreaterThan(0);
+    for (const control of released)
+      expect(control.level, control.locationId).toBeGreaterThanOrEqual(1);
 
     // And the ledger, the board and the map forgot the old life.
     expect(app.repos.feats.tallies(baseId), 'no lifetime counts carried over').toEqual({});

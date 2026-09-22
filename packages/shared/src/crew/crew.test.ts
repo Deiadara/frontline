@@ -139,9 +139,9 @@ describe('what a crew is worth', () => {
 
     it('takes the highest rating anybody has, attribute by attribute', () => {
       const engineer = officer('lead_engineer', { engineering: 70 });
-      const spy = officer('head_spy', { stealth: 65 });
+      const spy = officer('master_of_whispers', { stealth: 65 });
       const sheet = crewSheet([engineer, spy]);
-      // Engineering is the Lead Engineer's irreplaceable skill and Stealth is the Head Spy's, so
+      // Engineering is the Lead Engineer's irreplaceable skill and Stealth is the Master of Whispers', so
       // each is paid in full, lifted by whatever their peaks are worth.
       expect(sheet.engineering).toBeCloseTo(worth(engineer, 'engineering'), 5);
       expect(sheet.stealth).toBeCloseTo(worth(spy, 'stealth'), 5);
@@ -161,7 +161,10 @@ describe('what a crew is worth', () => {
      */
     it('never drops a channel when another person joins', () => {
       const before = crewEffects([overseer({}, 30)]);
-      const after = crewEffects([overseer({}, 30), officer('head_spy', { signals: 80 }, 4)]);
+      const after = crewEffects([
+        overseer({}, 30),
+        officer('master_of_whispers', { signals: 80 }, 4),
+      ]);
       for (const channel of EFFECT_CHANNELS) {
         expect(after[channel], channel).toBeGreaterThanOrEqual(before[channel]);
       }
@@ -169,7 +172,7 @@ describe('what a crew is worth', () => {
 
     it('counts the Overseer as one of the people in the room', () => {
       const alone = crewEffects([overseer({ cryptography: 90 })]);
-      const hired = crewEffects([overseer(), officer('head_spy', { cryptography: 90 })]);
+      const hired = crewEffects([overseer(), officer('master_of_whispers', { cryptography: 90 })]);
       expect(alone.intelResistancePercent).toBeGreaterThanOrEqual(hired.intelResistancePercent);
     });
 
@@ -182,8 +185,8 @@ describe('what a crew is worth', () => {
      * nothing at all.
      */
     it('pays a person their full rating only in the job they are actually doing', () => {
-      // The Head Spy rates Cryptography as useful; the Raid Boss does not rate it at all.
-      const rightChair = officer('head_spy', { cryptography: 90 });
+      // The Master of Whispers rates Cryptography as useful; the Raid Boss does not rate it at all.
+      const rightChair = officer('master_of_whispers', { cryptography: 90 });
       const wrongChair = officer('raid_boss', { cryptography: 90 });
       const onDuty = crewSheet([rightChair]);
       const off = crewSheet([wrongChair]);
@@ -195,7 +198,7 @@ describe('what a crew is worth', () => {
     /** And it is a real ordering, not a rounding: the right ordinary person beats the wrong star. */
     it('lets an ordinary officer in the right seat beat a brilliant one in the wrong seat', () => {
       const star = crewSheet([officer('raid_boss', { stealth: 95 })]);
-      const journeyman = crewSheet([officer('head_spy', { stealth: 50 })]);
+      const journeyman = crewSheet([officer('master_of_whispers', { stealth: 50 })]);
       expect(journeyman.stealth).toBeGreaterThan(star.stealth);
     });
 
@@ -556,7 +559,11 @@ describe('a training state parses back out of storage', () => {
  */
 describe('the sheet best-of hands back', () => {
   const everyone: CrewMember[] = [
-    { attributes: makeAttributes(37, { stealth: 91, deception: 63 }), role: 'head_spy', perks: [] },
+    {
+      attributes: makeAttributes(37, { stealth: 91, deception: 63 }),
+      role: 'master_of_whispers',
+      perks: [],
+    },
     { attributes: makeAttributes(29, { medicine: 88 }), role: 'chief_medic', perks: [] },
     { attributes: makeAttributes(41, { intimidation: 77 }), role: 'raid_boss', perks: [] },
     { attributes: makeAttributes(23), role: null, perks: [] },

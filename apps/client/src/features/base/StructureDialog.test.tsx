@@ -152,7 +152,13 @@ describe('the plot window is in the same house as the feats board', () => {
    * `features/units/UnitDamage.tsx` uses the same four on the hover sheet. Four separate classes
    * doing four separate jobs: the drawn border, the sheet, the wash over it and the tooth.
    */
-  const PAPER = ['ink-frame', 'card-paper', 'washed', 'grain'] as const;
+  /*
+   * `card-paper-lit` rather than `card-paper` since 2026-09-22 (maintainer: the building windows
+   * are too dark). Same stack, same hand, one lighter sheet: `.card-paper` is ink black, which
+   * reads as a hole rather than as a panel when it is printed on a lit paper Modal instead of on
+   * the game's own dark shell.
+   */
+  const PAPER = ['ink-frame', 'card-paper-lit', 'washed', 'grain'] as const;
 
   it('frames every panel in the board’s paper', async () => {
     const dialog = await openNexus();
@@ -223,23 +229,16 @@ describe('the plot window is in the same house as the feats board', () => {
 });
 
 /**
- * Max level: one panel reads as spent, and the rest of the window does not (maintainer,
- * 2026-09-19).
+ * Max level: the window says so, and nothing on it is dimmed for it (maintainer, 2026-09-22).
  *
- * The maintainer asked for this after seeing a maxed district and reading the whole window as
- * dimmed. It is not: the panels are `card-paper`, the same near-black sheet the feats board and
- * the archive are printed on, at every level. Measured on two screenshots of the same Nexus at
- * level 5 and level 20, the panel interiors came back within a pixel value of each other, so
- * nothing about being finished was darkening anything.
+ * The finished panel used to read as a closed shutter: an ink heading and no lift, while the
+ * live panels beside it kept their brass. That went with the dark sheet. The maintainer's note
+ * is that a building window should be one lit material at every level and say "Max level
+ * reached" in words, so the *only* difference a ceiling makes now is what the panel is called.
  *
- * What was wrong is what the finished panel *said*. "No order to give" is the heading for a plot
- * waiting on the Nexus, and a structure at the end of its content is not waiting for anything.
- * So the finished case now says so and reads as a closed shutter, and the three panels beside it,
- * which are all still live at level 20, keep their brass headings and their lift.
- *
- * The negative half is the half worth having. A plot held down by the Nexus must **not** get this
- * treatment: that panel is the one telling the player what to go and do next, and greying it out
- * would dim the only instruction on the screen.
+ * What is still worth pinning is the wording, because it is a real distinction the code has to
+ * keep: "No order to give" is the heading for a plot waiting on the Nexus, and a structure at
+ * the end of its content is not waiting for anything.
  */
 describe('a structure at the top of its ladder', () => {
   const maxedBase: Base = {
@@ -292,26 +291,23 @@ describe('a structure at the top of its ladder', () => {
     );
   });
 
-  it('marks that one panel spent, and leaves every other panel in the window alone', async () => {
+  it('leaves every panel in the window lit, the finished one included', async () => {
     const dialog = await open('The Nexus');
-    expect(panelTitled(dialog, 'Max level reached').dataset['spent']).toBe('true');
-    // Every other panel in the deck is live, and there is more than one of them, or this
-    // assertion is a loop over nothing.
-    const others = within(dialog)
-      .getAllByRole('heading')
-      .map((heading) => heading.closest('section'))
-      .filter((panel): panel is HTMLElement => panel !== null)
-      .filter((panel) => panel.dataset['spent'] === undefined);
-    expect(others.length).toBeGreaterThan(1);
-    for (const panel of others) {
-      expect(panel.className).toContain('shadow-panel');
+    const panels = [...dialog.querySelectorAll('section')];
+    expect(panels.length).toBeGreaterThan(1);
+    for (const panel of panels) {
+      const heading = panel.querySelector('h3')?.textContent ?? '(unnamed)';
+      // No panel is dimmed and none carries the old marker: one material, one lift.
+      expect(panel.className, `${heading} lost its lift`).toContain('shadow-panel');
+      expect(panel.dataset['spent'], `${heading} is still marked spent`).toBeUndefined();
+      expect(panel.className, `${heading} is on the dark sheet`).toContain('card-paper-lit');
     }
   });
 
-  it('drops the spent heading off brass and on to ink, and keeps the live ones brass', async () => {
+  it('keeps the finished panel heading in brass, like every other', async () => {
     const dialog = await open('The Nexus');
     expect(within(dialog).getByRole('heading', { name: 'Max level reached' }).className).toContain(
-      'text-ink-300',
+      'text-brass-300',
     );
     expect(within(dialog).getByRole('heading', { name: 'What it gives' }).className).toContain(
       'text-brass-300',
@@ -326,7 +322,6 @@ describe('a structure at the top of its ladder', () => {
     const dialog = await open('The Generator');
     expect(within(dialog).queryByRole('heading', { name: 'Max level reached' })).toBeNull();
     const waiting = panelTitled(dialog, 'Upgrade to level 7');
-    expect(waiting.dataset['spent']).toBeUndefined();
     expect(waiting.className).toContain('shadow-panel');
   });
 });

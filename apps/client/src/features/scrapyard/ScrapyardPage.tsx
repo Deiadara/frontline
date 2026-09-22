@@ -1402,7 +1402,10 @@ function TrapsBench({
        * defending, so without a word on this bench a player buys one, goes to set it on a raid,
        * and finds an empty list with nothing anywhere to say why.
        */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {/* The note on the right of its own line (maintainer, 2026-09-22), under the bill at the
+          top of the yard: the count of what is held reads from the left like every other line on
+          this bench, and the rule sits at the far end where a reader goes looking for it. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <Withheld heldCount={heldCount} withheldCount={keptBack} bench="traps" />
         <InfoNote label="How traps work">
           A trap is set on ground you are holding and spent on the fight it catches. You cannot take

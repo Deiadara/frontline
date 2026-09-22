@@ -12,7 +12,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Consumables and other items](#consumables-and-other-items) (93 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (497 entries)
+- [Feats](#feats) (501 entries)
 - [Missions](#missions) (38 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
 - [Locations](#locations) (106 entries)
@@ -22,17 +22,17 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Vehicles](#vehicles) (7 entries)
 - [Buildings](#buildings) (11 entries)
 - [Building modifications](#building-modifications) (89 entries)
-- [Research](#research) (190 entries)
+- [Research](#research) (180 entries)
 - [Officer perks](#officer-perks) (180 entries)
 - [Training drills](#training-drills) (35 entries)
 - [Black market goods](#black-market-goods) (17 entries)
 - [Factions](#factions) (8 entries)
 - [Overseer presets](#overseer-presets) (30 entries)
 - [Resources](#resources) (6 entries)
-- [Attributes and officer roles](#attributes-and-officer-roles) (54 entries)
+- [Attributes and officer roles](#attributes-and-officer-roles) (53 entries)
 - [Notoriety tiers](#notoriety-tiers) (14 entries)
 - [Player level unlocks](#player-level-unlocks) (10 entries)
-- [Notification kinds](#notification-kinds) (19 entries)
+- [Notification kinds](#notification-kinds) (21 entries)
 - [Blueprint motifs](#blueprint-motifs) (111 entries)
 
 ## Blueprints and their pages
@@ -872,7 +872,7 @@ Source: `packages/shared/src/battle/boosts.ts`
 | `boost_make_an_example` | Make An Example | 320 | +20% morale for everything you send | Anybody | Something public, something ugly, and nobody on your side thinking about home. |
 | `boost_paid_in_advance` | Paid In Advance | 620 | +40% attack for your rabble | Proposed by your Head of Finance | The cheap end of the roster, paid before the fight instead of after it. They notice. |
 | `boost_drilled_all_week` | Drilled All Week | 420 | +28% attack for your engineered units | Proposed by your Instructor of the Young | Seven days of the same approach, walked until nobody has to be told twice. |
-| `boost_the_right_doors` | The Right Doors | 560 | +30% attack for your specialists | Proposed by your Head Spy | Somebody has already been inside and marked which way the specialists go in. |
+| `boost_the_right_doors` | The Right Doors | 560 | +30% attack for your specialists | Proposed by your Master of Whispers | Somebody has already been inside and marked which way the specialists go in. |
 | `boost_plated_overnight` | Plated Overnight | 700 | +35% defence for your heavy units | Proposed by the Lab: Standard Parts | Every heavy thing you own, up on blocks and welded to until the sun came up. |
 | `boost_shaped_for_this` | Shaped For This | 640 | +32% attack for your heavy units | Proposed by the Lab: Shaped Charges | The charges cut for this wall, this week, by somebody who measured it. |
 | `boost_they_came_for_this` | They Came For This | 780 | +45% attack for your legends | Proposed by your Raid Boss | The one on your roster the city tells stories about, told the story is tonight. |
@@ -1120,6 +1120,10 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `scouted_1` | Have a Look | early | small | `scouted` | - | `districts_scouted` | 3 | xp | 210 |
 | `scouted_2` | Eight Streets | early | medium | `scouted` | `scouted_1` | `districts_scouted` | 8 | xp | 1,260 |
 | `scouted_3` | Nowhere Left Dark | mid | medium | `scouted` | `scouted_2` | `districts_scouted` | 11 | xp | 14,000 |
+| `spying_1` | Loose Ears | early | small | `spying` | - | `spy_reports` | 3 | items | 240 |
+| `spying_2` | Somebody on the Inside | mid | small | `spying` | `spying_1` | `spy_reports` | 20 | items | 2,520 |
+| `spying_3` | The Whole Wire | late | small | `spying` | `spying_2` | `spy_reports` | 80 | resources, items | 7,700 |
+| `spying_4` | Total Intelligence | late | medium | `spying` | `spying_3` | `spy_reports` | 250 | xp | 77,000 |
 | `scouting_1` | Send a Scout | early | small | `scouting` | - | `scouting_runs` | 5 | items | 240 |
 | `scouting_2` | Eyes Out | mid | small | `scouting` | `scouting_1` | `scouting_runs` | 40 | items | 2,520 |
 | `scouting_3` | The Standing Watch | late | small | `scouting` | `scouting_2` | `scouting_runs` | 150 | resources, items | 7,700 |
@@ -1338,7 +1342,7 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `research_3` | Sixty | late | medium | `research` | `research_2` | `research_done` | 60 | resources, items | 82,540 |
 | `research_4` | A Hundred and Ten Programmes | late | medium | `research` | `research_3` | `research_done` | 110 | xp | 117,600 |
 | `research_5` | Most of What There Is to Know | late | large | `research` | `research_4` | `research_done` | 150 | xp | 189,000 |
-| `research_6` | The Whole Book | late | large | `research` | `research_5` | `research_done` | 190 | xp | 361,200 |
+| `research_6` | The Whole Book | late | large | `research` | `research_5` | `research_done` | 180 | xp | 361,200 |
 | `pages_1` | A Page | early | medium | `pages` | - | `pages_found` | 1 | items | 540 |
 | `pages_2` | Twenty Pages | mid | medium | `pages` | `pages_1` | `pages_found` | 20 | resources, items | 5,700 |
 | `pages_3` | Eighty Pages | late | medium | `pages` | `pages_2` | `pages_found` | 80 | resources, items | 82,540 |
@@ -1699,7 +1703,7 @@ Four of the eleven sheet numbers are printed here. The rest (penetration, range,
 
 | Id | Name | Unique | Fights | Unit slots | Damage | Vitality | Armour | Speed | Damage type | Answers / dreads | Cost | Train | Requires | Rules | Modifiers | Blurb |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | ballistic +45, chemical -30 | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | - | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
+| `the_specter` | The Specter | yes | yes | 8 | 475 | 300 | 35 | 80 | energy | ballistic +45, chemical -30 | 1500 Caps, 225 Supplies, 300 Oil, 250 HQ metal | 1h | The Specter Blueprint; The Lab at level 15; Shielded Datacore; Hold The Satellite Uplink | Cannot Be Spied | Ambush, Night Operations | Experimental full-spectrum cloak. Invisible until it strikes, and then briefly visible. |
 | `the_abomination` | The Abomination | yes | yes | 10 | 500 | 700 | 55 | 40 | chemical | ballistic +30, chemical +100, explosive -25 | 1400 Caps, 400 Supplies, 200 HQ metal | 1h 10m | The Abomination Blueprint; The Lab at level 16; The Infirmary at level 9; Hold The Mad Scientist's Lair | - | Terror, Close Quarters | A failed experiment that became a weapon. Unstable, devastating, and not steerable. |
 | `the_colossus` | The Colossus | yes | yes | 12 | 490 | 1000 | 95 | 15 | explosive | ballistic +70, blade +80, explosive +40, blunt +40, energy -30 | 2200 Caps, 330 Supplies, 600 Oil, 900 Scrap, 400 HQ metal | 1h 30m | The Colossus Blueprint; The Garage at level 10; The Generator at level 14; Hold The Construction Site | Too big to ride, Wall Breaker | Breaching, Armour Piercing | A single massive machine that functions like a walking fortress. It arrives slowly. |
 | `the_saint` | The Saint | yes | yes | 6 | 275 | 265 | 30 | 45 | blunt | blade +45, chemical -25 | 1200 Caps, 300 Supplies, 120 HQ metal | 50m | The Quarters at level 12; The Infirmary at level 10; Hold The Downtown Tavern | Holds the Line | Last Stand, Dug In | A legendary fighter whose presence alone steadies everyone who can see them. |
@@ -1737,7 +1741,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `lootCapacity` | Loot |
 | `intimidation` | Intimidation |
 
-#### Rules on a sheet (10)
+#### Rules on a sheet (11)
 
 | Flag | Label | Tone | Description |
 | --- | --- | --- | --- |
@@ -1751,6 +1755,7 @@ Met, never held. No price, no clock and no gate: see `UnitSpec.faction`.
 | `jammer` | Jamming | positive | Hijacks the other side's augmentations for as long as the fight lasts. Every round, befor… |
 | `loud` | Loud | positive | Puts Noisy II on whoever they are fighting, round by round, for as long as they are still… |
 | `sleeper` | Goes to Ground | positive | Can be planted on a place you do not hold, long before there is anything to fight over, a… |
+| `unspyable` | Cannot Be Spied | positive | Never appears in a spy report, whatever was paid for it. The cloak is full-spectrum: boug… |
 
 #### Modifiers (14)
 
@@ -2020,24 +2025,24 @@ An advanced modification is one worth 12 points or more: it costs high quality m
 
 Source: `packages/shared/src/research/tracks.ts`
 
-19 tracks of 10 rungs. Cost and minutes come from the rung's depth, not from the row: see `researchItemCost` and `researchItemMinutes`. Mark is what the chair holding the track needs; head mark is what the Head of Research needs alongside.
+18 tracks of 10 rungs. Cost and minutes come from the rung's depth, not from the row: see `researchItemCost` and `researchItemMinutes`. Mark is what the chair holding the track needs; head mark is what the Head of Research needs alongside.
 
-#### Head Spy (10)
+#### Master of Whispers (10)
 
-What they never find out, and what you do.
+What you find out, and what it costs to.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_dead_drops` | Dead Drops | +4% counter-intel | 600 Caps, 400 Scrap | 45 | F- | - | A brick, the gap behind it, and two people who never meet. |
-| 2 | `tech_cut_outs` | Cut-Outs | +5% counter-intel | 1550 Caps, 950 Scrap | 70 | F | - | Every message passes through somebody who can name neither end. |
-| 3 | `tech_traffic_analysis` | Traffic Analysis | +6% intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | You do not need to read it. You need to know who is talking to whom. |
-| 4 | `tech_two_sets_of_eyes` | Two Sets of Eyes | +1 scouting party out at once | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Never one watcher on anything, so nothing waits on one person coming home. |
-| 5 | `tech_legend_building` | Legend Building | +6% unit stealth | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | A whole life on paper, for somebody who has never existed. |
-| 6 | `tech_one_time_pads` | One-Time Pads | +10% counter-intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | Slow, unbreakable, and everybody hates carrying the books. |
-| 7 | `tech_turned_runners` | Turned Runners | sees 1 district | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Their courier still runs their route. He stops here first. |
-| 8 | `tech_compartmentation` | Compartmentation | +2 to officer mental skills | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Nobody knows more than the next name up. Not even you. |
-| 9 | `tech_false_traffic` | False Traffic | +14% counter-intel | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | A whole second district that does not exist, chattering away all night. |
-| 10 | `tech_the_long_silence` | The Long Silence | +20% Ghosts damage | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | For a week the wire says nothing at all, and that is the loudest thing on it. |
+| 1 | `tech_scouting` | Scouting | Opens scout parties, sent from the chair without anybody of yours wal… | 600 Caps, 400 Scrap | 45 | F- | - | Somebody who knows somebody in every district, and a runner to ask them. |
+| 2 | `tech_paid_informants` | Paid Informants | +6% intel | 1550 Caps, 950 Scrap | 70 | F | - | A few caps a week to people who see things, and a few more when they see something. |
+| 3 | `tech_traffic_analysis` | Traffic Analysis | +8% intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | You do not need to read it. You need to know who is talking to whom. |
+| 4 | `tech_second_source` | Second Source | Opens the accuracy figure on a spy report, and +9% intel | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Nothing is written down until two people who have never met agree on it. |
+| 5 | `tech_two_sets_of_eyes` | Two Sets of Eyes | +1 scouting party out at once | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Never one watcher on anything, so nothing waits on one person coming home. |
+| 6 | `tech_counting_the_empty_beds` | Counting the Empty Beds | Opens an estimate of how much a spy report missed, and +10% intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | How many bunks, how many bowls, how many boots by the door. The rest is arithmetic. |
+| 7 | `tech_sleeper_lists` | Sleeper Lists | Opens Sleepers in a spy report, at their own stealth, and +12% intel | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The ones who arrived years ago and never left. Somebody remembers them arriving. |
+| 8 | `tech_turned_runners` | Turned Runners | sees 1 district | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Their courier still runs their route. He stops here first. |
+| 9 | `tech_compartmentation` | Compartmentation | +2 to officer mental skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Nobody knows more than the next name up. Not even you. |
+| 10 | `tech_the_whole_wire` | The Whole Wire | +14% intel | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | There is no message in this city you do not get a copy of, eventually. |
 
 #### Lead Engineer (10)
 
@@ -2294,38 +2299,21 @@ Going and taking it.
 | 9 | `tech_fence_network` | Fence Network | -10% black-market infamy | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Everything moves within a day. Nothing sits in the yard. |
 | 10 | `tech_the_name` | The Name | +1 fight called at once | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | Nobody counts what you brought. They count who is leading it. |
 
-#### Scout (10)
-
-Knowing before you go.
-
-| Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `tech_point_work` | Point Work | +5% unit stealth | 600 Caps, 400 Scrap | 45 | F- | - | One person, four hundred metres ahead, and quiet. |
-| 2 | `tech_pace_counting` | Pace Counting | -6% off the road | 1550 Caps, 950 Scrap | 70 | F | - | Distance without a map, in the dark. |
-| 3 | `tech_observation_posts` | Observation Posts | +8% intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | Somewhere you can watch a road all day without being seen. |
-| 4 | `tech_track_reading` | Track Reading | +10% intel | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Who went through, how many, and how long ago. |
-| 5 | `tech_light_order` | Light Order | +6% unit speed | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Nothing carried that is not needed. Nothing that rattles. |
-| 6 | `tech_hide_discipline` | Hide Discipline | +10% unit stealth | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | A day in a hole without moving. |
-| 7 | `tech_runner_relays` | Runner Relays | -7% mission time | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | The report gets back in an hour instead of in a day. |
-| 8 | `tech_route_reconnaissance` | Route Reconnaissance | sees 1 district | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | The way in is walked before anybody has to use it. |
-| 9 | `tech_counter_tracking` | Counter-Tracking | +10% counter-intel | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Going back over your own trail and taking it apart. |
-| 10 | `tech_eyes_on` | Eyes On | sees 2 districts | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | There is nothing in this district you do not already know about. |
-
 #### Consigliere (10)
 
-What is said, and what is meant.
+What they never find out.
 
 | Step | Id | Name | Payout | Cost | Minutes | Mark | Head mark | Description |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tech_the_quiet_word` | The Quiet Word | -4% wages | 600 Caps, 400 Scrap | 45 | F- | - | Before it is a problem, rather than after. |
-| 2 | `tech_reading_the_room` | Reading the Room | +5% counter-intel | 1550 Caps, 950 Scrap | 70 | F | - | Who is uncomfortable, and about what. |
-| 3 | `tech_favours_owed` | Favours Owed | +8% recruits at the Bar | 2650 Caps, 1600 Scrap | 95 | F+ | - | A ledger nobody writes down. |
-| 4 | `tech_terms_in_advance` | Terms in Advance | -6% market prices | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Agreed before anybody is in a position to want more. |
-| 5 | `tech_deniability` | Deniability | +8% counter-intel | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Arranged so that it was never said. |
-| 6 | `tech_backchannels` | Backchannels | -8% black-market infamy | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | A way to talk to somebody you are not talking to. |
-| 7 | `tech_sitting_down` | Sitting Down | +8% offense fighting alongside allies | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Both sides, one table, and somebody neutral pouring. |
-| 8 | `tech_the_long_view` | The Long View | +3 to officer social skills | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | This year's enemy is next year's supplier. |
-| 9 | `tech_insulation` | Insulation | +12% counter-intel | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Nothing that happens downstairs reaches this floor. |
+| 2 | `tech_deniability` | Deniability | +5% counter-intel | 1550 Caps, 950 Scrap | 70 | F | - | Arranged so that it was never said. |
+| 3 | `tech_reading_the_room` | Reading the Room | Opens word when a place you hold has been spied, and +6% counter-intel | 2650 Caps, 1600 Scrap | 95 | F+ | - | Who is uncomfortable, and about what. |
+| 4 | `tech_favours_owed` | Favours Owed | +8% recruits at the Bar | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | A ledger nobody writes down. |
+| 5 | `tech_names_and_faces` | Names and Faces | Opens who spied on you, and what they learnt, and +8% counter-intel | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | The stranger at the bar had a name, and the name had a crew. |
+| 6 | `tech_false_traffic` | False Traffic | +10% counter-intel | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | A whole second district that does not exist, chattering away all night. |
+| 7 | `tech_terms_in_advance` | Terms in Advance | -6% market prices | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Agreed before anybody is in a position to want more. |
+| 8 | `tech_insulation` | Insulation | +12% counter-intel | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | Nothing that happens downstairs reaches this floor. |
+| 9 | `tech_the_long_view` | The Long View | +3 to officer social skills | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | This year's enemy is next year's supplier. |
 | 10 | `tech_nothing_in_writing` | Nothing in Writing | +1 chair at the Bar | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | There is no document anywhere with your name on it. |
 
 #### Professor (10)
@@ -2722,13 +2710,13 @@ Source: `packages/shared/src/attributes.ts`, `packages/shared/src/roles.ts`
 | Social | Leadership (`leadership`), Charisma (`charisma`), Communication (`communication`), Intimidation (`intimidation`), Negotiation (`negotiation`), Deception (`deception`), Empathy (`empathy`), Diplomacy (`diplomacy`) |
 | Technical | Engineering (`engineering`), Signals (`signals`), Craft (`craft`), Medicine (`medicine`), Cybernetics (`cybernetics`), Salvage (`salvage`), Encyclopedia (`encyclopedia`), Navigation (`navigation`), Chemistry (`chemistry`), Logistics (`logistics`), Cryptography (`cryptography`) |
 
-#### Officer roles (19)
+#### Officer roles (18)
 
 What a role actually asks of a sheet is server-side and deliberately not in this package.
 
 | Role | Label | Its research track |
 | --- | --- | --- |
-| `head_spy` | Head Spy | What they never find out, and what you do. |
+| `master_of_whispers` | Master of Whispers | What you find out, and what it costs to. |
 | `lead_engineer` | Lead Engineer | What is standing, how fast it went up, and what it cost. |
 | `finance_officer` | Head of Finance | What everything costs and what you actually pay. |
 | `head_of_growth` | Head of Growth | More of everything, off the same ground. |
@@ -2744,8 +2732,7 @@ What a role actually asks of a sheet is server-side and deliberately not in this
 | `chief_medic` | Chief Medic | How many of them come back. |
 | `instructor_of_the_young` | Instructor of the Young | How fast a unit becomes a soldier. |
 | `raid_boss` | Raid Boss | Going and taking it. |
-| `scout` | Scout | Knowing before you go. |
-| `consigliere` | Consigliere | What is said, and what is meant. |
+| `consigliere` | Consigliere | What they never find out. |
 | `professor` | Professor | Somebody has to sit with the files. |
 
 ## Notoriety tiers
@@ -2799,7 +2786,7 @@ Source: `packages/shared/src/social/notifications.ts`
 | `reinforcement_arrived` | Reinforcements | no | An ally has put units into a fight of yours, or you into one of theirs. |
 | `mission_home` | Crews coming home | no | A job is finished and the crew is back. |
 
-#### The district (8)
+#### The district (10)
 
 | Kind | Label | Always on | Blurb |
 | --- | --- | --- | --- |
@@ -2810,6 +2797,8 @@ Source: `packages/shared/src/social/notifications.ts`
 | `market_won` | Lots you won | no | A lot you were bidding on at the barrow closed with you on top. |
 | `market_outbid` | Lots at the barrow | no | A lot you were bidding on has gone to somebody else, or gone unsold. |
 | `page_found` | Pages found | no | A blueprint page came into the inventory. |
+| `spy_report` | Spy reports | no | A job you paid for has come back, with a report or without one. |
+| `spied_on` | Spies on your ground | no | Somebody has been looking at a place you hold. Your Consigliere noticed. |
 | `scout_home` | Scouts returning | no | Somebody you sent out has walked a district and come back with it. |
 
 #### The crew (3)

@@ -8,6 +8,8 @@ import { settleSleepers } from '../city/sleepers.js';
 import { settleFortifications } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
 import { settleScouting } from '../scouting/scouting.js';
+import { settleSpying } from '../spying/spying.js';
+import { settleMoves } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { liveHub } from '../live/hub.js';
 
@@ -59,6 +61,9 @@ export function settleWorld(
 ): number {
   settleFortifications(repos, now);
   const landed = settleMovements(repos, now);
+  // Columns between the crew's own places land beside the ones bound for a fight, and for the
+  // same reason: a garrison that arrived before the mark is standing when the mark comes.
+  const moved = settleMoves(repos, now);
   /*
    * §A4: cells going to ground and cells coming home, **before** the fights.
    *
@@ -71,6 +76,9 @@ export function settleWorld(
   const fights = settleBattles(repos, engine, now).length;
   bringCrewsHome?.(repos, now);
   settleScouting(repos, now);
+  // Spy jobs beside the scouts: a report is a receipt too, and it reads the ground as it stands
+  // after the fights above, which is the ground the runners actually arrive at.
+  settleSpying(repos, now);
   const tables = settleBarAuctions(repos, now);
   const lots = settleVendorAuctions(repos, now);
   /*
@@ -91,7 +99,9 @@ export function settleWorld(
    * saw two different streets for that long. A nudge costs nothing when nobody is connected and
    * is only sent when something actually settled, so a quiet world stays quiet.
    */
-  if (fights > 0 || landed > 0 || planted > 0 || gates > 0) liveHub.broadcast('world', now);
+  if (fights > 0 || landed > 0 || moved > 0 || planted > 0 || gates > 0) {
+    liveHub.broadcast('world', now);
+  }
   if (tables > 0) liveHub.broadcast('bar', now);
   if (lots > 0) liveHub.broadcast('market', now);
   return fights;

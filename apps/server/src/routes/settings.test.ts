@@ -66,7 +66,6 @@ describe('GET /api/settings', () => {
     expect(current.user.timezone).toBe(GAME_TIMEZONE);
     expect(current.user.soundVolume).toBe(DEFAULT_SOUND_VOLUME);
     expect(current.gameTimezone).toBe(GAME_TIMEZONE);
-    expect(current.icons.length).toBeGreaterThan(1);
     expect(current.user).not.toHaveProperty('passwordHash');
   });
 });

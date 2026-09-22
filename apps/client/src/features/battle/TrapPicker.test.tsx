@@ -132,6 +132,7 @@ function viewFor(side: BattleSide, trapId: string | null): BattleView {
 const boardWith = (view: BattleView): BattlesResponse => ({
   coming: [view],
   reports: [],
+  spyReports: [],
   slots: [],
   infamy: 40,
   callPrices: { locations: {}, districts: {} },

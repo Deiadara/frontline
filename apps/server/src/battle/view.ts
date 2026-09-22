@@ -1,13 +1,11 @@
 import {
   blueprintGateMet,
-  capRating,
   describeBlueprintGate,
   BUILDING_CATALOG,
   CITY_DISTRICTS,
   BATTLE_BOOSTS,
   TRAP_CATALOG,
   declarableSlots,
-  deploymentBlurPercent,
   districtHolder,
   districtIsShut,
   gateIsBroken,
@@ -17,9 +15,6 @@ import {
   findDistrict,
   findLocation,
   isHeldBy,
-  findUnit,
-  fittedFor,
-  upgradedStats,
   blackMarketEffect,
   boostAvailable,
   boostCoverage,
@@ -29,11 +24,9 @@ import {
   findTech,
   stashCount,
   hasInfamy,
-  intelQualityLine,
   itemCount,
   movementCancellable,
   movementSize,
-  observedForceSize,
   reportReaches,
   officerBattleStats,
   type BattleLeader,
@@ -50,9 +43,11 @@ import {
   type BattleBoostOption,
   type Fleet,
   type ScheduledBattle,
+  type SpyTarget,
   type ItemId,
   type StructureDefence,
   type TrapOption,
+  armySize,
   battleBoostSlots,
   gateDefensePercent,
   gateIntelResistancePercent,
@@ -62,6 +57,8 @@ import type { Repositories } from '../db/repos/index.js';
 import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 import { cityContextFor, scoutingRunView } from '../city/view.js';
+import { spyRunView } from '../spying/spying.js';
+import { moveViews } from '../moves/moves.js';
 import { sideOf } from './deploy.js';
 import { callPriceFor } from './declare.js';
 import {
@@ -118,79 +115,44 @@ function musterOf(repos: Repositories, battle: ScheduledBattle, side: BattleSide
 }
 
 /**
- * What this crew can make out of the other side's force.
+ * What this crew knows of the other side (maintainer, 2026-09-22): its last spy report on the
+ * ground the fight is on, and nothing else.
  *
- * Their counter-intelligence and the force's own stealth against this crew's reading: one figure,
- * and it decides between an exact count, a rounded one and nothing at all. The **ring is never in
- * the count**: it is standing outside the fight, and a player who could see it coming would never
- * walk into one, which is the whole of what it is for.
+ * There is no free reading any more. The blur this used to compute (their counter-intel against
+ * this crew's intel, coarsened) is gone with the intel channels it read, which are spy points
+ * now. An attacker who paid to have the place read sees the bodies the report exposed; one who
+ * did not sees nothing. A defender sees nothing either way, because nobody spies a column on the
+ * road: the ring is still never in any count, and neither is what marched up last night.
  */
 function readEnemy(
   repos: Repositories,
-  battle: ScheduledBattle,
-  ownSide: BattleSide,
-  reading: number,
-): { size: number | null; quality: string } {
-  const other: BattleSide = ownSide === 'attacker' ? 'defender' : 'attacker';
-  // Everything on the other side. Reading one row would understate an enemy who has been reinforced,
-  // which is exactly the reading this function exists to get right.
-  const force = sideForce(repos, battle.id, other, battle.scheduledFor).army;
-
-  const enemyBase =
-    other === 'attacker'
-      ? repos.bases.findById(battle.attackerBaseId)
-      : defendingBaseOf(repos, battle);
-  // §B7: their Gate is half of what a reading has to see past, the same way it is on the city map
-  // (`city/view.ts`). It was missing here, on the screen that draws the Gate's own figure two
-  // panels away: a level 10 Gate blurred a scout report and did nothing at all for the fight it
-  // was built for. Folded at the read rather than into `crewEffectsFor`, which is about people.
-  const resistance = enemyBase
-    ? crewEffectsFor(repos, enemyBase).intelResistancePercent +
-      gateIntelResistancePercent(enemyBase.buildings)
-    : 0;
-
-  /*
-   * What they are actually fielding, not what the catalogue prints.
-   *
-   * Off the same base the resistance term above comes from, which keeps the two halves of one
-   * reading consistent: both are measured against the crew that owns the ground rather than
-   * against each ally's own books. `upgradedStats` folds their fitted cards and the crew's
-   * `unitStealthPercent` then scales the result, in that order, exactly as `battle/effects.ts`
-   * does it for the line, so the number this hides behind is the number that fights.
-   */
-  const theirStealthPercent = enemyBase ? crewEffectsFor(repos, enemyBase).unitStealthPercent : 0;
-  const stealthOf = (unitId: string): number => {
-    const unit = findUnit(unitId);
-    if (!unit) return 0;
-    const fitted = enemyBase
-      ? upgradedStats(unit.stats, fittedFor(enemyBase.unitLoadouts, unitId))
-      : unit.stats;
-    return capRating(Math.round(fitted.stealth * (1 + theirStealthPercent / 100)));
-  };
-
-  const blur = deploymentBlurPercent({
-    resistancePercent: resistance,
-    yieldPercent: reading,
-    force,
-    stealthOf,
-  });
-  return { size: observedForceSize(force, blur), quality: intelQualityLine(blur) };
-}
-
-function viewOf(
-  repos: Repositories,
   base: Base,
   battle: ScheduledBattle,
-  reading: number,
-  now: Date,
-): BattleView {
+  ownSide: BattleSide,
+): { size: number | null; quality: string } {
+  if (ownSide === 'defender') return { size: null, quality: 'Nobody reads a column on the road.' };
+  const target: SpyTarget =
+    battle.target.kind === 'location'
+      ? { kind: 'location', locationId: battle.target.locationId }
+      : { kind: 'gate', districtId: battle.target.districtId };
+  const report = repos.spying.latestFor(base.id, target);
+  if (!report || report.failed) {
+    return { size: null, quality: 'No spy report on this ground. Send one from the district.' };
+  }
+  return {
+    size: armySize(report.exposed),
+    quality: `From your spy report of ${report.writtenAt.slice(0, 10)}.`,
+  };
+}
+
+function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: Date): BattleView {
   const district = findDistrict(battle.target.districtId);
   const resident = residentOf(repos, battle.target.districtId);
   const side = sideOf(repos, battle, base.id);
   const defenderBase = defendingBaseOf(repos, battle);
   const attackerName = repos.bases.findById(battle.attackerBaseId)?.name ?? 'a crew nobody knows';
 
-  const enemy = side ? readEnemy(repos, battle, side, reading) : { size: null, quality: '' };
+  const enemy = side ? readEnemy(repos, base, battle, side) : { size: null, quality: '' };
   const muster = side ? musterOf(repos, battle, side) : null;
   // This crew's own row: the deployment screen edits what *you* have sent, not what your allies have.
   const deployment = side ? repos.sieges.deployment(battle.id, side, base.id) : undefined;
@@ -548,6 +510,7 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
       };
     }),
     scoutingRun: scoutingRunView(repos, base),
+    spyRun: spyRunView(repos, base),
     /*
      * §A4: the cells this crew has planted (`city/sleepers.ts`).
      *
@@ -576,18 +539,25 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
      * Empty postings are dropped: a control row keeps its `garrison` key whether or not anybody
      * is standing on it, and a list of empty places is a list of noise.
      */
+    moves: moveViews(repos, base),
     stationed: (() => {
       const controls = repos.city.controls();
+      // Postings on allies' ground, beside the crew's own garrisons (2026-09-22): the units are
+      // this crew's, so "where is everybody" has to list them.
+      const posted = new Map(
+        repos.alliedGarrisons.forBase(base.id).map((row) => [row.locationId, row.army]),
+      );
       return CITY_LOCATIONS.flatMap((location) => {
         const control = controls.get(location.id);
-        if (!control || !isHeldBy(control, base.id)) return [];
-        if (Object.values(control.garrison).every((count) => count <= 0)) return [];
+        const army =
+          control && isHeldBy(control, base.id) ? control.garrison : posted.get(location.id);
+        if (!army || Object.values(army).every((count) => count <= 0)) return [];
         return [
           {
             locationId: location.id,
             locationName: location.name,
             districtName: named(location.districtId),
-            army: control.garrison,
+            army,
           },
         ];
       });
@@ -597,23 +567,19 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
 }
 
 export function projectBattles(repos: Repositories, base: Base, now: Date): BattlesResponse {
-  // One context, read once: the same fold the city view uses, so the two screens cannot report a
-  // different quality of intel about the same rival. It was two folds and they disagreed. This
-  // one had no locations in it, so a Watchtower made the city page sharper and the board blind.
-  const context = cityContextFor(repos, base);
-  const visible = context.visible;
-  const reading = context.intelYieldPercent;
+  const visible = cityContextFor(repos, base).visible;
 
   const coming = repos.sieges
     .pending()
     .filter(
       (battle) => sideOf(repos, battle, base.id) !== null || visible.has(battle.target.districtId),
     )
-    .map((battle) => viewOf(repos, base, battle, reading, now));
+    .map((battle) => viewOf(repos, base, battle, now));
 
   return {
     coming,
     reports: reportsFor(repos, base),
+    spyReports: repos.spying.reportsFor(base.id, REPORT_HISTORY),
     slots: declarableSlots(now).map((slot) => slot.toISOString()),
     infamy: base.economy.infamy,
     callPrices: callPricesFor(repos, visible),

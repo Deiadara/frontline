@@ -1,7 +1,6 @@
 import {
   ChangePasswordRequestSchema,
   GAME_TIMEZONE,
-  PLAYER_ICONS,
   UpdateProfileRequestSchema,
   UserSchema,
   type SettingsResponse,
@@ -30,7 +29,6 @@ function publicUser(record: UserRecord) {
 function settingsFor(record: UserRecord): SettingsResponse {
   return {
     user: publicUser(record),
-    icons: [...PLAYER_ICONS],
     serverNow: new Date().toISOString(),
     gameTimezone: GAME_TIMEZONE,
   };

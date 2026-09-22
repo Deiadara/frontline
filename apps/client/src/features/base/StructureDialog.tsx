@@ -269,14 +269,6 @@ export function StructureDialog({
                     ? `Upgrade to level ${nextLevel}`
                     : 'Build this'
             }
-            /*
-             * The one panel that is allowed to read as spent (maintainer, 2026-09-19).
-             *
-             * Only when the structure is genuinely finished. A plot waiting on the Nexus or on a
-             * requirement is *not* spent: that panel is the one telling the player what to go and
-             * do next, and dimming it would grey out the only instruction on the screen.
-             */
-            spent={ceiling?.maxed === true}
           >
             {cost === null ? (
               <p
@@ -948,8 +940,9 @@ const BUILD_BOOST_OIL_LINE = (oil: number): string =>
  *
  * They used to be one string, so the panel could not tell them apart and drew the finished case
  * with the same live heading as the waiting ones ("No order to give", which reads as a temporary
- * state). The maintainer asked for the finished case to say so and to read as spent, which needs
- * the caller to know which one it is holding.
+ * state). The finished case says so instead, which needs the caller to know which one it is
+ * holding. It no longer *dims*: the panels are all one lit material since 2026-09-22, and a
+ * structure at its ceiling is told so in words rather than by being greyed out.
  *
  * Judged against the *projected* district, the same reading the server's gate uses, so a player
  * who has already queued the Nexus level that unlocks this plot is told they can build, not told to
@@ -991,51 +984,29 @@ function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
  * the slots are in the box called "Modifications", and a glance lands in the right box before any
  * word has been read.
  */
-function Section({
-  title,
-  children,
-  spent = false,
-}: {
-  title: string;
-  children: ReactNode;
-  /**
-   * This panel holds something finished rather than something to do (maintainer, 2026-09-19).
-   *
-   * A closed shutter, not a disabled control: the heading drops off the brass the live panels are
-   * titled in and onto ink, and the sheet loses its lift. It stays fully legible, because a
-   * player at the top of a structure is entitled to read what they got there with; what it stops
-   * doing is competing for the eye with the panels that still have a decision in them.
-   *
-   * Scoped to one panel on purpose. Dimming the whole window at max level is the version the
-   * maintainer asked not to have, and it would take the payroll book and the bracket rack, which
-   * are both still live at level 20, down with it.
-   */
-  spent?: boolean;
-}) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     /*
      * Paper, and the same sheet the rest of the game is printed on now.
      *
-     * `ink-frame card-paper washed grain ... shadow-panel` is the exact string the feats ladders,
-     * the feats sidebar, the research rail and the unit hovers carry. Copied rather than
-     * approximated on purpose: a panel here that was *nearly* one of those would read as a fifth
-     * material rather than as the fourth screen in one house style. No `rivets`, for the same
-     * reason none of them has it: rivets are punched tin and this is a sheet somebody drew on.
+     * `ink-frame card-paper-lit washed grain ... shadow-panel`: the feats ladders' stack with
+     * the lit sheet in place of the ink-black one (maintainer, 2026-09-22: the building windows
+     * are too dark). Those ladders are printed on the game's own shell; this is printed on a lit
+     * paper Modal, where the same black reads as a hole rather than as a panel. No `rivets`, for
+     * the reason none of them has it: rivets are punched tin and this is a sheet somebody drew on.
      *
      * `break-inside-avoid` is what keeps a panel whole when the deck above balances it into two
      * columns, and `mb-3` is its gap, because multi-column has no row gap to give.
      */
     <section
       className={cn(
-        'ink-frame card-paper washed grain mb-3 flex min-w-0 break-inside-avoid flex-col rounded-sm',
-        spent ? 'shadow-none' : 'shadow-panel',
+        'ink-frame card-paper-lit washed grain mb-3 flex min-w-0 break-inside-avoid flex-col rounded-sm',
+        'shadow-panel',
       )}
-      data-spent={spent ? 'true' : undefined}
     >
       <h3
         className={cn(
-          'relative px-3 pb-2 pt-2.5 font-stamp text-[15px] leading-none',
-          spent ? 'text-ink-300' : 'text-brass-300',
+          'relative px-3 pb-2 pt-2.5 font-stamp text-[15px] leading-none text-brass-300',
         )}
       >
         {/*

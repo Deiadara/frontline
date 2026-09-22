@@ -133,9 +133,9 @@ test('lists what is on the road, and offers to turn back only what is still clos
   // listed the walkers and nothing they were riding in.
   await expect(page.getByTestId('walking-ride-motorcycle')).toContainText('The Scrappy');
   await expect(page.getByTestId('posted-ride-motorcycle')).toContainText('The Scrappy');
-  await expect(page.getByTestId('scout-run')).toContainText('Vesper Kade');
+  await expect(page.getByTestId('scout-run')).toContainText('Scout Party');
   await expect(page.getByTestId('scout-run')).toContainText('The Rustyard');
-  await expect(page.getByTestId('road-counts')).toContainText('a scout out');
+  await expect(page.getByTestId('road-counts')).toContainText('a scout party out');
 
   const sent: string[] = [];
   page.on('request', (request) => {

@@ -128,10 +128,12 @@ test('the census says how many of everybody there are, and where', async ({ page
    * 2 out and a total of 5 rather than 3.
    */
   await expect(page.getByTestId('census-home-razors')).toHaveText('4');
+  // Five at the door since the split (2026-09-22): a fifth place, and it counts in the total.
+  await expect(page.getByTestId('census-gate-razors')).toHaveText('5');
   await expect(page.getByTestId('census-held-razors')).toHaveText('2');
   await expect(page.getByTestId('census-out-razors')).toHaveText('3');
   await expect(page.getByTestId('census-planted-razors')).toHaveText('0');
-  await expect(page.getByTestId('census-total-razors')).toHaveText('9');
+  await expect(page.getByTestId('census-total-razors')).toHaveText('14');
 
   await expect(page.getByTestId('census-home-sleepers')).toHaveText('1');
   await expect(page.getByTestId('census-planted-sleepers')).toHaveText('2');

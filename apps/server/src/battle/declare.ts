@@ -221,7 +221,9 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     declaredAt: now.toISOString(),
     resolvedAt: null,
     seed: randomUUID(),
-    holdAfterCapture: input.holdAfterCapture ?? false,
+    // Winners stay and hold what they took (maintainer, 2026-09-22): the default, and the client
+    // no longer asks.
+    holdAfterCapture: input.holdAfterCapture ?? true,
     /*
      * §A4: whether a cell of this crew's was already standing here (`city/sleepers.ts`).
      *

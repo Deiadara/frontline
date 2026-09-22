@@ -8,6 +8,11 @@ import {
   movementCancelWindowMs,
   recallWindowMs,
   scoutRecallWindowMs,
+  SPY_TIER_SPECS,
+  spyRecallWindowMs,
+  moveRecallWindowMs,
+  type SpyRunView,
+  type UnitMoveView,
   type BattleView,
   type Mission,
   type MissionPhase,
@@ -32,6 +37,8 @@ import {
   useRecallColumn,
   useRecallMission,
   useRecallScout,
+  useRecallSpy,
+  useRecallMove,
   useRecallSleepers,
 } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
@@ -162,6 +169,8 @@ export function ActionsPage() {
   const data = query.data;
   const road = onTheRoad(data, missions.data, battles.data);
   const recallScout = useRecallScout(road.scout?.districtId);
+  const recallSpy = useRecallSpy(road.spy?.districtId);
+  const recallMove = useRecallMove();
   const recallCell = useRecallSleepers();
   const { pathname } = useLocation();
   const page: MonitorPage = pathname.endsWith('/units') ? 'census' : 'road';
@@ -355,7 +364,7 @@ export function ActionsPage() {
             <Section
               icon="eye"
               title="Looking"
-              note="The one scout out. The ground opens the moment they are home, unless they were turned round in the first tenth of the way."
+              note="The Master of Whispers' party, out. The ground opens the moment they are back, unless they were turned round in the first tenth of the way."
               count={1}
             >
               <ul className="flex flex-col gap-2.5">
@@ -364,6 +373,45 @@ export function ActionsPage() {
                   now={now}
                   pending={recallScout.isPending}
                   onRecall={() => recallScout.mutate({})}
+                />
+              </ul>
+            </Section>
+          )}
+
+          {road.moves.length > 0 && (
+            <Section
+              icon="actions"
+              title="Moving"
+              note="Columns walking between your own places: the district, the gate, ground you hold and ground the faction holds. Turned round in the first tenth, they walk back where they came from."
+              count={road.moves.length}
+            >
+              <ul className="flex flex-col gap-2.5" data-testid="moves">
+                {road.moves.map((move) => (
+                  <Moving
+                    key={move.id}
+                    move={move}
+                    now={now}
+                    pending={recallMove.isPending}
+                    onRecall={() => recallMove.mutate({ moveId: move.id })}
+                  />
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {road.spy !== null && (
+            <Section
+              icon="eye"
+              title="Spying"
+              note="The Master of Whispers' runners, out on a job. The report lands on the battle board when they are back; turned round in the first tenth, they bring nothing and the caps stay spent."
+              count={1}
+            >
+              <ul className="flex flex-col gap-2.5">
+                <SpyJob
+                  run={road.spy}
+                  now={now}
+                  pending={recallSpy.isPending}
+                  onRecall={() => recallSpy.mutate({})}
                 />
               </ul>
             </Section>
@@ -380,7 +428,9 @@ function Counts({ road }: { road: Road }) {
     counts.columns > 0 && `${counts.columns} walking`,
     counts.fights > 0 && `${counts.fights} at a fight`,
     counts.jobs > 0 && `${counts.jobs} on a job`,
-    counts.scouts > 0 && 'a scout out',
+    counts.scouts > 0 && 'a scout party out',
+    counts.spies > 0 && 'runners on a job',
+    counts.moves > 0 && `${counts.moves} moving`,
     // §A4: the two the header used to leave out, so the summary adds up to the page under it.
     counts.cells > 0 && `${counts.cells} planted`,
     counts.stationed > 0 && `${counts.stationed} posted`,
@@ -747,6 +797,117 @@ function Job({
   );
 }
 
+/** A column between two of the crew's own places (2026-09-22). */
+function Moving({
+  move,
+  now,
+  pending,
+  onRecall,
+}: {
+  move: UnitMoveView;
+  now: Date;
+  pending: boolean;
+  onRecall: () => void;
+}) {
+  const left = Math.max(0, Date.parse(move.arrivesAt) - now.getTime());
+  const total = Math.max(1, Date.parse(move.arrivesAt) - Date.parse(move.departedAt));
+  const window = moveRecallWindowMs(move, now);
+  // Nobody aboard: the machines driving themselves home after a drop (`moves/moves.ts`). They
+  // carry the same mark a turned-round column does, so the two are told apart by the load.
+  const empty = move.size === 0;
+  const turned = move.recalledAt !== null && !empty;
+  return (
+    <Row
+      testId={`move-${move.id}`}
+      name={turned ? move.fromName : move.toName}
+      status={empty ? 'Driving home' : turned ? 'Turned round' : 'Moving'}
+    >
+      <Route
+        from={turned ? move.toName : move.fromName}
+        to={turned ? move.fromName : move.toName}
+        remaining={formatRemaining(left)}
+      />
+      <ProgressBar
+        progress={Math.min(1, Math.max(0, 1 - left / total))}
+        label={move.toName}
+        tone="brass"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        {empty && (
+          <span className="font-body text-[12px] text-ink-300">
+            The machines, driving back empty.
+          </span>
+        )}
+        <Force army={move.army} testPrefix={`moving-${move.id}`} />
+        <Rides fleet={move.vehicles} testPrefix={`moving-${move.id}`} />
+      </div>
+      {window > 0 && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <CancelMark
+            windowMs={window}
+            label={`Turn the column to ${move.toName} round`}
+            pending={pending}
+            onCancel={onRecall}
+            data-testid={`recall-move-${move.id}`}
+          />
+        </div>
+      )}
+    </Row>
+  );
+}
+
+/** The runners on a job (2026-09-22): where, at what tier, and when the report is in. */
+function SpyJob({
+  run,
+  now,
+  pending,
+  onRecall,
+}: {
+  run: SpyRunView;
+  now: Date;
+  pending: boolean;
+  onRecall: () => void;
+}) {
+  const left = Math.max(0, Date.parse(run.returnsAt) - now.getTime());
+  const total = Math.max(1, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
+  const window = spyRecallWindowMs(run, now);
+  const turned = run.recalledAt !== null;
+  return (
+    <Row
+      testId="spy-run"
+      name={`${SPY_TIER_SPECS[run.tier].label} · ${run.capsPaid.toLocaleString()} caps`}
+      status={turned ? 'Turned round' : 'Spying'}
+    >
+      <Route
+        from="Home"
+        to={`${run.placeName}, ${run.districtName}`}
+        remaining={formatRemaining(left)}
+      />
+      <ProgressBar
+        progress={Math.min(1, Math.max(0, 1 - left / total))}
+        label={run.placeName}
+        tone="brass"
+      />
+      <p className="font-body text-[12px] text-ink-300">
+        {turned
+          ? `Walking home, in ${formatRemaining(left)}. No report; the caps are spent.`
+          : `The report is in, in ${formatRemaining(left)}.`}
+      </p>
+      {window > 0 && (
+        <div className="border-t border-surface-700/70 pt-2.5">
+          <CancelMark
+            windowMs={window}
+            label="Turn the runners round"
+            pending={pending}
+            onCancel={onRecall}
+            data-testid="recall-spy"
+          />
+        </div>
+      )}
+    </Row>
+  );
+}
+
 /** The scout on the road: one person, one mark, home and the ground open at the same moment. */
 function Scout({
   run,
@@ -780,7 +941,7 @@ function Scout({
         <div className="border-t border-surface-700/70 pt-2.5">
           <CancelMark
             windowMs={window}
-            label={`Turn ${run.officerName} round`}
+            label={`Turn the ${run.officerName} round`}
             pending={pending}
             onCancel={onRecall}
             data-testid="recall-scout"

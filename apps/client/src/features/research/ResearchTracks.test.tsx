@@ -210,12 +210,15 @@ describe('the research tracks', () => {
    */
   it('opens the trade the URL names rather than the first on the rail', async () => {
     stub();
-    open('/game/research?track=scout');
-    const panel = await screen.findByTestId('tech-track-scout');
+    open('/game/research?track=cartographer');
+    const panel = await screen.findByTestId('tech-track-cartographer');
     expect(
-      within(panel).getByRole('heading', { name: OFFICER_ROLE_LABELS.scout }),
+      within(panel).getByRole('heading', { name: OFFICER_ROLE_LABELS.cartographer }),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('research-track-scout')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('research-track-cartographer')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     // ...and the first trade on the rail, which is what a page ignoring the URL would have shown.
     const first = OFFICER_ROLES[0];
     if (!first) throw new Error('need a role');
@@ -233,14 +236,16 @@ describe('the research tracks', () => {
   it('switches the whole panel when another trade is chosen', async () => {
     stub();
     const rail = await openTracks();
-    fireEvent.click(within(rail).getByTestId('research-track-scout'));
-    const panel = await screen.findByTestId('tech-track-scout');
+    fireEvent.click(within(rail).getByTestId('research-track-cartographer'));
+    const panel = await screen.findByTestId('tech-track-cartographer');
     expect(
-      within(panel).getByRole('heading', { name: OFFICER_ROLE_LABELS.scout }),
+      within(panel).getByRole('heading', { name: OFFICER_ROLE_LABELS.cartographer }),
     ).toBeInTheDocument();
-    const scoutRungs = F.research.technologies.filter((tech) => tech.track === 'scout');
-    expect(scoutRungs).toHaveLength(RESEARCH_TRACK_STEPS);
-    for (const item of scoutRungs) {
+    const cartographerRungs = F.research.technologies.filter(
+      (tech) => tech.track === 'cartographer',
+    );
+    expect(cartographerRungs).toHaveLength(RESEARCH_TRACK_STEPS);
+    for (const item of cartographerRungs) {
       expect(within(panel).getByTestId(`tech-${item.id}`)).toBeInTheDocument();
     }
   });
@@ -249,10 +254,10 @@ describe('the research tracks', () => {
     stub();
     const rail = await openTracks();
     const shut = F.research.technologies.find(
-      (tech) => tech.blocker !== null && !tech.known && tech.track === 'scout',
+      (tech) => tech.blocker !== null && !tech.known && tech.track === 'cartographer',
     );
-    if (!shut) throw new Error('the fixture has no shut scout rung');
-    fireEvent.click(within(rail).getByTestId('research-track-scout'));
+    if (!shut) throw new Error('the fixture has no shut cartographer rung');
+    fireEvent.click(within(rail).getByTestId('research-track-cartographer'));
     const card = within(await screen.findByTestId(`tech-${shut.id}`));
     const button = card.getByRole('button');
     expect(button).toHaveTextContent(shut.blocker ?? '');
@@ -262,8 +267,8 @@ describe('the research tracks', () => {
   it('shows both marks a rung asks for, and only the Head one where there is one', async () => {
     stub();
     const rail = await openTracks();
-    fireEvent.click(within(rail).getByTestId('research-track-scout'));
-    const rungs = F.research.technologies.filter((tech) => tech.track === 'scout');
+    fireEvent.click(within(rail).getByTestId('research-track-cartographer'));
+    const rungs = F.research.technologies.filter((tech) => tech.track === 'cartographer');
     const shallow = rungs.find((tech) => tech.requiresHeadMark === null);
     const deep = rungs.find((tech) => tech.requiresHeadMark !== null);
     if (!shallow || !deep) throw new Error('need one rung of each kind');
@@ -310,11 +315,11 @@ describe('the research tracks', () => {
   it('starts a rung through the tech route, naming it', async () => {
     stub();
     const rail = await openTracks();
-    fireEvent.click(within(rail).getByTestId('research-track-scout'));
-    const open = F.research.technologies.find(
-      (tech) => tech.track === 'scout' && tech.blocker === null && !tech.known,
-    );
-    if (!open) throw new Error('the fixture has no startable scout rung');
+    // Whichever track the fixture leaves a rung startable on: the test is about the route, not
+    // about one chair, and the fixture's chairs are the fixture's business.
+    const open = F.research.technologies.find((tech) => tech.blocker === null && !tech.known);
+    if (!open) throw new Error('the fixture has no startable rung on any track');
+    fireEvent.click(within(rail).getByTestId(`research-track-${open.track}`));
 
     const card = within(await screen.findByTestId(`tech-${open.id}`));
     fireEvent.click(card.getByRole('button', { name: 'Put them on it' }));

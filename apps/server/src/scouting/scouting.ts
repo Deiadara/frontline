@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { tallyScoutingRun } from '../feats/tally.js';
 import {
-  LEADER_HOLD_MESSAGES,
+  SCOUTING_RESEARCH_ID,
   findDistrict,
   officerBattleStats,
-  scoutMinutesFor,
   scoutRecallable,
   scoutRecalledReturnsAt,
   scoutRunMinutes,
@@ -15,7 +14,6 @@ import {
   type ScoutingRun,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
-import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 
@@ -28,10 +26,11 @@ import { notifyBase } from '../social/notify.js';
  *
  * ## Who goes
  *
- * The officer in the **Scout's chair** by default, because that is what the chair is for. Any
- * officer may be sent, and a crew that has not filled the chair is meant to feel that in the
- * clock rather than be refused: sending the Head of Finance to case the Undergrid is a slow night,
- * not an impossible one.
+ * Nobody, since 2026-09-22. A run is a **scout party**: the Master of Whispers' people, sent from
+ * their chair, which has to be filled and has to have finished its first rung (`SCOUTING_RESEARCH_ID`).
+ * The clock is priced off their sheet exactly as it was priced off the Scout's, but the officer
+ * never leaves and is never held; the Scout's chair itself is gone. That makes the Master of
+ * Whispers the early hire that opens the map, which is what the maintainer asked the chair to be.
  */
 
 const MINUTE_MS = 60_000;
@@ -45,21 +44,23 @@ export interface ScoutPlan {
 }
 
 /**
- * Who the crew would send, given a choice and no instruction.
+ * Whose sheet a party is priced off, and whether one can go at all (2026-09-22).
  *
- * The Scout if there is one, then whoever reads the ground fastest. Falling back to the best sheet
- * rather than to the first name on the roster matters: an accidental default that sends the worst
- * person on the books is a trap, and the player who has not thought about it is exactly the one
- * this decides for.
+ * The Master of Whispers, seated, with the first rung of their track finished. Nobody walks: the
+ * party is the chair's people, so the officer is not held and not written onto the run, but the
+ * clock is read off their sheet exactly as it was read off the Scout's. A crew with nobody in the
+ * chair, or with the chair filled and the rung unresearched, is told which of the two it is.
  */
-export function defaultScout(base: Base): Commander | undefined {
-  const seated = base.commanders.find((officer) => officer.role === 'scout');
-  if (seated) return seated;
-  // Fewest minutes on the ground first, ties by id so the answer never depends on roster order.
-  return [...base.commanders].sort(
-    (a, b) =>
-      scoutMinutesFor(a.attributes) - scoutMinutesFor(b.attributes) || a.id.localeCompare(b.id),
-  )[0];
+export function scoutParty(base: Base): Commander | undefined {
+  return base.commanders.find((officer) => officer.role === 'master_of_whispers');
+}
+
+export function scoutBlocker(
+  base: Base,
+): Extract<ScoutRefusal, 'no_whispers' | 'not_researched'> | null {
+  if (scoutParty(base) === undefined) return 'no_whispers';
+  if (!base.research.technologies.includes(SCOUTING_RESEARCH_ID)) return 'not_researched';
+  return null;
 }
 
 /** What a run to `districtId` would cost this crew with this officer, before it is committed to. */
@@ -123,7 +124,7 @@ export type SendScoutResult =
  */
 export function sendScout(
   repos: Repositories,
-  input: { base: Base; districtId: string; officerId?: string; now: Date },
+  input: { base: Base; districtId: string; now: Date },
 ): SendScoutResult {
   const { base, districtId, now } = input;
 
@@ -143,36 +144,18 @@ export function sendScout(
     return { kind: 'refused', reason: 'already_out' };
   }
 
-  const officer =
-    input.officerId === undefined
-      ? defaultScout(base)
-      : base.commanders.find((held) => held.id === input.officerId);
-  if (!officer) return { kind: 'refused', reason: 'no_officer' };
-  /*
-   * §D4, and the one-job rule, which this door used to skip entirely.
-   *
-   * `scoutRunMinutes` reads the officer's full sheet, so an injured Head Spy sent scouting handed
-   * the crew the best part of an officer straight through their recovery, and a mission and a
-   * battle could both be holding the same person at the same time. `officerDuty` asks both
-   * questions in one place so the three dispatch doors cannot answer them differently.
-   */
-  const duty = officerDuty(repos, base, officer, now);
-  if (duty !== null) {
-    return {
-      kind: 'refused',
-      reason: duty.held === 'injury' ? 'officer_injured' : 'officer_busy',
-      message: `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}`,
-    };
-  }
-
-  const plan = planScout(repos, base, districtId, officer, now);
-  if (!plan) return { kind: 'refused', reason: 'no_officer' };
+  const blocked = scoutBlocker(base);
+  if (blocked !== null) return { kind: 'refused', reason: blocked };
+  const whispers = scoutParty(base)!;
+  // No duty check and no hold: the officer stays in the chair. See `scoutParty`.
+  const plan = planScout(repos, base, districtId, whispers, now);
+  if (!plan) return { kind: 'refused', reason: 'no_whispers' };
 
   const run: ScoutingRun = {
     id: randomUUID(),
     baseId: base.id,
     districtId,
-    officerId: officer.id,
+    officerId: null,
     departedAt: now.toISOString(),
     returnsAt: plan.returnsAt.toISOString(),
     // The leg the recall window is measured against, frozen here with the mark.
@@ -225,7 +208,7 @@ export function settleScouting(repos: Repositories, now: Date): number {
     tallyScoutingRun(repos, run.baseId);
     notifyBase(repos, run.baseId, {
       kind: 'scout_home',
-      title: 'Your scout is back',
+      title: 'Your scout party is back',
       body: `${findDistrict(run.districtId)?.name ?? run.districtId} is on your map.`,
       // The district itself: `/game/city` matches no route and fell through to the map.
       link: `/game/city/${run.districtId}`,

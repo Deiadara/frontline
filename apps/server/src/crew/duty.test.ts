@@ -137,39 +137,7 @@ async function declareFight(stack: Stack): Promise<string> {
   return battleId;
 }
 
-async function scout(stack: Stack, districtId: string) {
-  return stack.app.inject({
-    method: 'POST',
-    url: '/api/city/scout',
-    headers: auth(stack.token),
-    payload: { districtId, officerId: stack.officerId },
-  });
-}
-
 describe('an officer who is already committed', () => {
-  it('cannot be sent scouting while they are out on a job', async () => {
-    const stack = await makeStack();
-    const sent = await launch(stack, stack.officerId);
-    expect(sent.statusCode, sent.body.slice(0, 300)).toBe(200);
-
-    const scouting = await scout(stack, 'rustyard');
-    expect(scouting.statusCode, scouting.body).toBe(400);
-    // The scouting party names the officer and the hold, rather than the old flat "they are
-    // already out": three different jobs used to read the same and a player could not tell which
-    // one to go and undo.
-    expect(scouting.json<ApiError>().error.message).toBe('Halvard Nyx is out leading a run');
-  });
-
-  it('cannot be sent on a job while they are out scouting', async () => {
-    const stack = await makeStack();
-    const scouting = await scout(stack, 'rustyard');
-    expect(scouting.statusCode, scouting.body.slice(0, 300)).toBe(200);
-
-    const sent = await launch(stack, stack.officerId);
-    expect(sent.statusCode, sent.body).toBe(409);
-    expect(sent.json<ApiError>().error.message).toBe('Halvard Nyx is out scouting');
-  });
-
   it('cannot be named to lead a fight while they are out on a job', async () => {
     const stack = await makeStack();
     const battleId = await declareFight(stack);
@@ -214,23 +182,6 @@ describe('an officer who is already committed', () => {
     expect(after.json<BattlesResponse>().coming[0]!.leaders).toEqual([]);
   });
 
-  it('cannot be sent scouting while they are laid up (§D4)', async () => {
-    const stack = await makeStack();
-    const base = stack.app.repos.bases.findById(stack.baseId);
-    if (!base) throw new Error('no base');
-    stack.app.repos.bases.updateCommanders(
-      stack.baseId,
-      base.commanders.map((officer) => ({
-        ...officer,
-        injuredUntil: new Date(Date.now() + 3_600_000).toISOString(),
-      })),
-    );
-
-    const scouting = await scout(stack, 'rustyard');
-    expect(scouting.statusCode, scouting.body).toBe(400);
-    expect(scouting.json<ApiError>().error.message).toBe('Halvard Nyx is still laid up');
-  });
-
   it('is free to be sent when nothing else holds them, which is the ordinary case', async () => {
     const stack = await makeStack();
     // Nothing on them yet, which is what the board says and what the door then allows.
@@ -238,8 +189,9 @@ describe('an officer who is already committed', () => {
     expect(free.held).toBeNull();
     expect(free.heldUntil).toBeNull();
 
-    const scouting = await scout(stack, 'rustyard');
-    expect(scouting.statusCode, scouting.body.slice(0, 300)).toBe(200);
+    // The launch is the door that reads the hold; scouting stopped being one on 2026-09-22.
+    const sent = await launch(stack, stack.officerId);
+    expect(sent.statusCode, sent.body.slice(0, 300)).toBe(200);
   });
 });
 
@@ -271,20 +223,6 @@ describe('what holds a leader, on the wire and at the launch', () => {
     const sent = await launch(stack, stack.officerId);
     expect(sent.statusCode, sent.body.slice(0, 300)).toBe(409);
     expect(sent.json<ApiError>().error.message).toBe('Halvard Nyx is at a fight');
-  });
-
-  it('a scouting run, until they are back through the gate', async () => {
-    const stack = await makeStack();
-    const scouting = await scout(stack, 'rustyard');
-    expect(scouting.statusCode, scouting.body.slice(0, 300)).toBe(200);
-
-    const row = await heldOn(stack);
-    expect(row.held).toBe('scouting');
-    expect(row.heldUntil).toBe(stack.app.repos.scouting.activeFor(stack.baseId)[0]?.returnsAt);
-
-    const sent = await launch(stack, stack.officerId);
-    expect(sent.statusCode, sent.body.slice(0, 300)).toBe(409);
-    expect(sent.json<ApiError>().error.message).toBe('Halvard Nyx is out scouting');
   });
 
   it('a bed, until they are well again (\u00a7D4)', async () => {

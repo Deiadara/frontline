@@ -1,52 +1,14 @@
-import type { OverseerChoicesResponse } from '@frontline/shared';
+import type { OverseerChoicesResponse, OverseerPreset } from '@frontline/shared';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiRequestError } from '../lib/api';
 import { useCreateOverseer, useOverseerChoices } from '../lib/queries';
-import { Button } from '../components/ui/Button';
+import { DrawnButton } from '../components/ui/DrawnButton';
+import { DrawnRule } from '../components/ui/DrawnMarks';
 import { LoadFailure } from '../components/ui/LoadFailure';
-import { OverseerCard } from '../features/overseer/OverseerCard';
-
-interface RowLayout {
-  /** Viewport height that shows a whole number of card rows; `undefined` until first measured. */
-  readonly height: number | undefined;
-  /** Cards left below the cut, which the scroll hint has to advertise. */
-  readonly hiddenCards: number;
-}
-
-const UNMEASURED: RowLayout = { height: undefined, hiddenCards: 0 };
-
-/** Bottom edge of every card, relative to the grid's top. */
-function cardBottoms(grid: HTMLElement): number[] {
-  const gridTop = grid.getBoundingClientRect().top;
-  return [...grid.children].map((card) => card.getBoundingClientRect().bottom - gridTop);
-}
-
-/**
- * Size the scroll viewport to whole card rows.
- *
- * A viewport that ends part-way down a row slices its cards through the middle of the attribute
- * digits, which reads as a rendering fault however little scrolling would recover it. Ending on a
- * row boundary instead means an overflowing roster simply shows fewer cards: a state the scroll
- * hint below explains, and which `snap-y snap-mandatory` keeps true once the player scrolls.
- */
-function measureRows(frame: HTMLElement, grid: HTMLElement, hint: HTMLElement | null): RowLayout {
-  const bottoms = cardBottoms(grid);
-  if (bottoms.length === 0) return UNMEASURED;
-
-  const style = getComputedStyle(frame);
-  const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-  // The hint is rendered inside the frame, so it spends the space it advertises.
-  const available = frame.clientHeight - padding - (hint?.offsetHeight ?? 0);
-
-  const rowBottoms = [...new Set(bottoms)].sort((a, b) => a - b);
-  const fitting = rowBottoms.filter((bottom) => bottom <= available + 0.5);
-  // A row taller than the frame has nowhere to go but scroll; never collapse to nothing.
-  const height = fitting.at(-1) ?? available;
-
-  return { height, hiddenCards: bottoms.filter((bottom) => bottom > height + 0.5).length };
-}
+import { OverseerPortrait } from '../features/overseer/OverseerPortrait';
+import { OverseerSheet } from '../features/overseer/OverseerSheet';
 
 /**
  * How long the four on screen stay held, measured on the server's clock (§F6, 2026-09-17).
@@ -86,68 +48,56 @@ function asClock(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+/**
+ * The first screen, in two steps (maintainer, 2026-09-22).
+ *
+ * **Portraits, then the file.** It used to be four cards holding a thumbnail, a clamped bio, a
+ * radar and a 4-column sheet each, all fighting for one viewport: nothing was big enough to look
+ * at and the bios were cut mid-word. So the landing is four paintings and a title, and pressing
+ * one replaces the screen with that overseer's file at a size worth reading. Two buttons under
+ * it: back to the four, or take them.
+ *
+ * Nothing but the paintings at first on purpose. The pick cannot be undone and the operator is
+ * off the board for every other player, so the screen asks for one deliberate press before it
+ * shows the numbers anybody would compare on.
+ */
 export function CharacterSelectScreen() {
   const navigate = useNavigate();
   const createOverseer = useCreateOverseer();
   /*
    * §F6: the four are the **server's**, not the whole table.
    *
-   * The preset catalogue ships in `@frontline/shared` and this screen used to map straight over it,
-   * which was right while there were four of them and is wrong now there are thirty and a pool that
-   * drains. Only the server knows who is left.
+   * The preset catalogue ships in `@frontline/shared` and this screen used to map straight over
+   * it, which was right while there were four of them and is wrong now there are thirty and a
+   * pool that drains. Only the server knows who is left.
    */
   const offer = useOverseerChoices();
   const choices = offer.data?.choices ?? [];
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [rows, setRows] = useState<RowLayout>(UNMEASURED);
-
-  const frameRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const hintRef = useRef<HTMLParagraphElement>(null);
-
-  // Re-runs when the hint appears or disappears, because that changes the space left for rows.
-  useLayoutEffect(() => {
-    const frame = frameRef.current;
-    const grid = gridRef.current;
-    if (!frame || !grid) return undefined;
-
-    const measure = () => {
-      const next = measureRows(frame, grid, hintRef.current);
-      setRows((prev) =>
-        prev.height === next.height && prev.hiddenCards === next.hiddenCards ? prev : next,
-      );
-    };
-
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(frame);
-    observer.observe(grid);
-    return () => observer.disconnect();
-  }, [rows.hiddenCards, choices.length]);
+  const [openedId, setOpenedId] = useState<string | null>(null);
 
   /*
    * §F6: the ten minutes are up, so draw four more without making the player find the reload key.
    *
-   * The server has already let the hold go by the time this fires, and pressing Confirm on a lapsed
-   * batch is a 410. Refetching here is what turns "the page needs refreshing" into the page having
-   * refreshed itself. It cannot loop: a successful draw moves the deadline forward, and a failed
-   * one leaves `lapsed` exactly as it was, so the effect's dependencies do not change.
+   * The server has already let the hold go by the time this fires, and pressing Confirm on a
+   * lapsed batch is a 410. Refetching here is what turns "the page needs refreshing" into the
+   * page having refreshed itself. It cannot loop: a successful draw moves the deadline forward,
+   * and a failed one leaves `lapsed` exactly as it was, so the dependencies do not change.
    */
   const msLeft = useHoldCountdown(offer);
   const lapsed = msLeft === 0;
   const { refetch } = offer;
   useEffect(() => {
     if (!lapsed) return;
-    setSelectedId(null);
+    setOpenedId(null);
     void refetch();
   }, [lapsed, refetch]);
 
-  const selected = choices.find((p) => p.presetId === selectedId) ?? null;
+  const opened = choices.find((preset) => preset.presetId === openedId) ?? null;
 
   const confirm = () => {
-    if (!selected) return;
+    if (!opened) return;
     createOverseer.mutate(
-      { presetId: selected.presetId },
+      { presetId: opened.presetId },
       {
         onSuccess: () => {
           void navigate('/game');
@@ -170,46 +120,44 @@ export function CharacterSelectScreen() {
     <main className="relative flex h-screen flex-col overflow-hidden bg-surface-950">
       <div className="grain pointer-events-none absolute inset-0" />
 
-      <header className="relative shrink-0 border-b border-surface-600/70 px-8 py-3">
-        <div className="flex items-start justify-between gap-4">
-          <p className="font-display text-[11px] tracking-[0.5em] text-brass-300">
-            // OVERSEER SELECTION //
-          </p>
-          {msLeft !== null && (
-            <p
-              data-testid="overseer-hold"
-              className={`shrink-0 font-display text-[11px] uppercase tracking-[0.2em] ${
-                lapsed ? 'text-oxblood-300' : 'text-ink-300'
-              }`}
-            >
-              {lapsed ? 'Offer lapsed // drawing four more' : `Held for you // ${asClock(msLeft)}`}
-            </p>
-          )}
+      {/* The title, and the hold in the corner. Nothing else: the pool figures and the "each
+          rewrites how the war is fought" paragraph came off at the maintainer's request. */}
+      <header className="relative flex shrink-0 items-start justify-between gap-4 px-6 pb-2 pt-5 sm:px-10">
+        <div className="min-w-0">
+          <h1
+            className="font-stamp text-[clamp(24px,4vw,44px)] leading-none tracking-[0.06em] text-ink-100"
+            data-testid="overseer-title"
+          >
+            CHOOSE YOUR OVERSEER
+          </h1>
+          <span aria-hidden className="mt-2 block h-2 w-[min(28rem,60vw)] text-brass-300/70">
+            <DrawnRule />
+          </span>
         </div>
-        <h1 className="mt-1 font-display text-2xl font-bold tracking-[0.2em] text-ink-100">
-          CHOOSE YOUR OVERSEER
-        </h1>
-        {/* The failure branch is not decoration. `offer.data` is undefined both while the request
-            is in flight and after it has failed, so without it a failed read left this header
-            saying "Reading the files." over an empty grid and a disabled button, which is the
-            exact failure `LoadFailure` was written for, on the one screen a player cannot get
-            past. */}
-        <p className="mt-1 font-body text-xs text-ink-300" data-testid="overseer-pool">
-          {offer.isError
-            ? 'The files would not open.'
-            : offer.data === undefined
-              ? 'Reading the files.'
-              : choices.length === 0
-                ? `Every operator still unspoken for is sitting in somebody else's booking. There are ${offer.data.remaining} of them left and the bookings run out on their own, so this screen is waiting for the first one to.`
-                : `${choices.length} of the ${offer.data.total} operators are free to take your call, and ${offer.data.remaining} are still unspoken for. Each rewrites how the war is fought, and whoever you take is off the board for everybody.`}
-        </p>
+        {msLeft !== null && (
+          <p
+            data-testid="overseer-hold"
+            /* Small, drawn, top right. `ink-box` is the pen's own rectangle, the same one the
+               note-to-yourself controls wear. */
+            className={`ink-box shrink-0 px-3 py-1.5 text-center font-stamp text-[13px] leading-tight ${
+              lapsed ? 'text-oxblood-300' : 'text-brass-300'
+            }`}
+          >
+            {lapsed ? (
+              'Drawing four more'
+            ) : (
+              <>
+                <span className="block text-[9px] uppercase tracking-[0.2em] text-ink-300">
+                  Held for you
+                </span>
+                <span className="tabular-nums">{asClock(msLeft)}</span>
+              </>
+            )}
+          </p>
+        )}
       </header>
 
-      {/* Centred so the space a dropped row leaves over reads as framing, not as a dead band. */}
-      <div
-        ref={frameRef}
-        className="relative flex min-h-0 flex-1 flex-col justify-center overflow-hidden px-8 py-1.5"
-      >
+      <div className="relative flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-y-auto px-6 pb-5 pt-1 sm:px-10">
         {offer.isError && (
           <div className="mx-auto w-full max-w-5xl">
             <LoadFailure
@@ -219,54 +167,129 @@ export function CharacterSelectScreen() {
             />
           </div>
         )}
-        <div
-          className="mx-auto w-full max-w-5xl snap-y snap-mandatory overflow-y-auto"
-          style={{ maxHeight: rows.height }}
-        >
-          {/* Row gap only: widening the columns would rewrap the bios and change card height. */}
-          <div ref={gridRef} className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
-            {choices.map((preset) => (
-              <OverseerCard
-                key={preset.presetId}
-                preset={preset}
-                selected={preset.presetId === selectedId}
-                onSelect={() => setSelectedId(preset.presetId)}
-              />
-            ))}
+
+        {!offer.isError && opened === null && (
+          <PortraitWall choices={choices} loading={offer.data === undefined} onOpen={setOpenedId} />
+        )}
+
+        {/* `min-h-0` on the column so the file can give ground rather than pushing the two
+            buttons past the foot of the frame: a single pixel over and the drawn faces are cut. */}
+        {opened !== null && (
+          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-col gap-3">
+            <OverseerSheet preset={opened} />
+            {serverError && (
+              <p role="alert" className="font-body text-[13px] text-oxblood-300">
+                {serverError}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <DrawnButton size="md" onClick={() => setOpenedId(null)} data-testid="overseer-back">
+                Go back
+              </DrawnButton>
+              <DrawnButton
+                size="md"
+                onClick={confirm}
+                disabled={createOverseer.isPending}
+                data-testid="overseer-confirm"
+              >
+                {createOverseer.isPending ? 'Deploying…' : 'Confirm overseer'}
+              </DrawnButton>
+            </div>
           </div>
-        </div>
-        {rows.hiddenCards > 0 && (
-          <p
-            ref={hintRef}
-            // Padding, not margin: `measureRows` budgets for the hint by `offsetHeight`.
-            className="shrink-0 pt-1.5 text-center font-display text-[10px] uppercase tracking-[0.2em] text-brass-300"
-          >
-            ▼ Scroll for {rows.hiddenCards} more {rows.hiddenCards === 1 ? 'overseer' : 'overseers'}
-          </p>
         )}
       </div>
-
-      <footer className="relative flex shrink-0 items-center justify-between gap-4 border-t border-surface-600/70 bg-surface-900 px-8 py-3">
-        <div className="min-w-0">
-          {selected ? (
-            <p className="truncate font-display text-xs uppercase tracking-[0.2em] text-brass-300">
-              Selected // {selected.name}
-            </p>
-          ) : (
-            <p className="font-display text-xs uppercase tracking-[0.2em] text-ink-300">
-              No overseer selected
-            </p>
-          )}
-          {serverError && (
-            <p role="alert" className="mt-1 font-body text-[12px] text-oxblood-300">
-              {serverError}
-            </p>
-          )}
-        </div>
-        <Button onClick={confirm} disabled={!selected || createOverseer.isPending} size="md">
-          {createOverseer.isPending ? 'Deploying…' : 'Confirm Overseer'}
-        </Button>
-      </footer>
     </main>
+  );
+}
+
+/**
+ * The four, as paintings and nothing else.
+ *
+ * A name under each, because a player who has met one before is looking for them by name; no
+ * archetype chip, no bio, no numbers. Pressing one opens the file.
+ */
+function PortraitWall({
+  choices,
+  loading,
+  onOpen,
+}: {
+  choices: readonly OverseerPreset[];
+  loading: boolean;
+  onOpen: (presetId: string) => void;
+}) {
+  if (loading) {
+    return (
+      <p
+        className="text-center font-display text-[12px] uppercase tracking-[0.2em] text-ink-300"
+        data-testid="overseer-pool"
+      >
+        Reading the files.
+      </p>
+    );
+  }
+  if (choices.length === 0) {
+    return (
+      <p
+        className="mx-auto max-w-2xl text-center font-body text-[13px] leading-relaxed text-ink-300"
+        data-testid="overseer-pool"
+      >
+        Every operator still unspoken for is sitting in somebody else&apos;s booking. The bookings
+        run out on their own, so this screen is waiting for the first one to.
+      </p>
+    );
+  }
+
+  return (
+    /*
+     * As big as the screen will let them be.
+     *
+     * Four across from `lg` and two below it, and every painting takes the **height** the wall
+     * has left over rather than a height derived from its column. That is the brief ("a big
+     * full portrait, your four choices taking a lot of the screen"): on a laptop the paintings
+     * run from under the title to the names at the foot of the screen.
+     *
+     * `min-h-0` on the grid and on each button, or a flex child refuses to shrink below its
+     * content and the row overflows the frame instead of fitting inside it.
+     */
+    <div
+      className="mx-auto grid min-h-0 w-full max-w-[86rem] flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-6 lg:grid-cols-4 lg:grid-rows-1"
+      data-testid="overseer-wall"
+    >
+      {choices.map((preset) => (
+        <button
+          key={preset.presetId}
+          type="button"
+          onClick={() => onOpen(preset.presetId)}
+          data-testid={`overseer-card-${preset.presetId}`}
+          className="group flex min-h-0 min-w-0 flex-col items-stretch gap-2 text-left"
+        >
+          {/* The frame is the edge of the picture, not a box with a picture in it: the portrait
+              is `fill`, so the painting takes the whole of whatever this is. */}
+          {/*
+           * The frame is the whole of the column and the whole of the row.
+           *
+           * No aspect ratio on it, and that is deliberate rather than an omission: four fixed
+           * columns and a full-height row already decide the shape, and a ratio declared here
+           * would simply be overridden by the two of them. The painting takes whatever that
+           * shape is and crops to it (`aspect="fill"`, with the crop aimed high), so a tall
+           * viewport gets tall panels and a short one gets squarer ones, and the face is
+           * centred in both.
+           */}
+          <span className="ink-frame relative block h-full w-full overflow-hidden rounded-sm p-1.5 transition-transform duration-200 group-hover:-translate-y-1">
+            <span className="block h-full w-full overflow-hidden rounded-sm">
+              <OverseerPortrait
+                portraitId={preset.portraitId}
+                aspect="fill"
+                showTag={false}
+                className="border-brass-500/30 transition-[filter] duration-200 group-hover:brightness-110"
+              />
+            </span>
+          </span>
+          <span className="min-w-0 shrink-0 break-words text-center font-stamp text-[clamp(14px,1.4vw,20px)] leading-tight text-ink-200 transition-colors group-hover:text-brass-300">
+            {preset.name}
+          </span>
+        </button>
+      ))}
+    </div>
   );
 }

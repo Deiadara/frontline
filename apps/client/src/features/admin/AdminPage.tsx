@@ -103,6 +103,15 @@ const PRESETS: readonly Preset[] = [
       buildingLevel: 8,
       playerLevel: 12,
       infamy: 900,
+      /*
+       * Half the chairs, at a middling rating (maintainer, 2026-09-22).
+       *
+       * An officer is the Bar's to give and the Bar settles at midnight, so a preset that does
+       * not seat anybody hands a reviewer a mid-game crew with nineteen empty chairs: no
+       * scouting, no spying, no research track, no role fit. Half is the shape of the era. The
+       * count is derived rather than typed, so a nineteenth role does not leave this at nine.
+       */
+      officers: { count: Math.ceil(OFFICER_ROLES.length / 2), rating: 55 },
       resources: {
         caps: 60_000,
         supplies: 60_000,
@@ -151,6 +160,8 @@ const PRESETS: readonly Preset[] = [
       buildingLevel: BUILDING_MAX_LEVEL,
       playerLevel: 30,
       infamy: 25_000,
+      /* Every chair, well rated: at the ceiling there is nobody left to hire. */
+      officers: { count: OFFICER_ROLES.length, rating: 85 },
       resources: {
         caps: 400_000,
         supplies: 400_000,

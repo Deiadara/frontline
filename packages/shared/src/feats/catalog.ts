@@ -2627,6 +2627,49 @@ const CITY: FeatSpec[] = [
       reward: lesson('mid', 'medium'),
     },
   ]),
+  /*
+   * Spying (maintainer, 2026-09-22). A report that stood: one under the floor is caps spent and
+   * nothing learnt, and the ladder counts what was learnt. Early on a looter camp at Loose Ears is
+   * the first rung; the deep rungs are a crew that reads the city rather than walks it.
+   */
+  ...chain('spying', 'spy_reports', [
+    {
+      id: 'spying_1',
+      name: 'Loose Ears',
+      blurb: 'Three spy reports. A drink bought for the right person, three times over.',
+      era: 'early',
+      size: 'small',
+      target: 3,
+      reward: kit('early', 'small'),
+    },
+    {
+      id: 'spying_2',
+      name: 'Somebody on the Inside',
+      blurb: 'Twenty reports. Nothing stands on ground near you that you have not had counted.',
+      era: 'mid',
+      size: 'small',
+      target: 20,
+      reward: kit('mid', 'small'),
+    },
+    {
+      id: 'spying_3',
+      name: 'The Whole Wire',
+      blurb: 'Eighty reports. There is no garrison in this city you would have to guess at.',
+      era: 'late',
+      size: 'small',
+      target: 80,
+      reward: kit('late', 'small'),
+    },
+    {
+      id: 'spying_4',
+      name: 'Total Intelligence',
+      blurb: 'Two hundred and fifty reports. The city reads like your own books.',
+      era: 'late',
+      size: 'medium',
+      target: 250,
+      reward: lesson('late', 'medium'),
+    },
+  ]),
   ...chain('scouting', 'scouting_runs', [
     {
       id: 'scouting_1',
@@ -4893,7 +4936,9 @@ const NAME: FeatSpec[] = [
       blurb: 'Every programme the Lab has ever been able to run.',
       era: 'late',
       size: 'large',
-      target: 190,
+      // 180 since 2026-09-22: eighteen chairs, ten rungs each. It was 190 with the Scout's track,
+      // and a target above the ceiling is a feat that sits at 94% for ever.
+      target: 180,
       reward: rise(5, 'schooling'),
     },
   ]),

@@ -134,6 +134,10 @@ interface Assembled {
    * from the armies alone.
    */
   fromHomeRoster: boolean;
+  /** A call on the resident's own door: met by the gate garrison, not the district army (2026-09-22). */
+  atTheGate: boolean;
+  /** Faction allies' postings on the ground, by crew: theirs, fighting for the holder. */
+  posted: { baseId: string; army: Army }[];
 }
 
 /**
@@ -162,7 +166,18 @@ export function assemble(
   if (battle.target.kind === 'location') {
     const control = repos.city.control(battle.target.locationId);
     if (control) defending = mergeArmies(defending, control.garrison);
-    return { attacking, defending, attackerRing, defenderRing, fromHomeRoster: false };
+    // Allies posted on the ground stand in the line with the garrison (2026-09-22).
+    const posted = repos.alliedGarrisons.at(battle.target.locationId);
+    for (const row of posted) defending = mergeArmies(defending, row.army);
+    return {
+      attacking,
+      defending,
+      attackerRing,
+      defenderRing,
+      fromHomeRoster: false,
+      atTheGate: false,
+      posted,
+    };
   }
 
   /*
@@ -195,14 +210,28 @@ export function assemble(
    * at a distance is defended by the column you send to it.
    */
   const livesHere = defenderBase?.districtId === battle.target.districtId;
+  const atTheGate = livesHere && battle.target.kind === 'gate';
   if (livesHere) {
-    defending = mergeArmies(defending, defenderBase.army);
+    // Each half of the army defends its own place (2026-09-22): the door is met by the gate
+    // garrison, and a raid inside a breach by whoever is standing in the district.
+    defending = mergeArmies(
+      defending,
+      atTheGate ? (defenderBase.gateArmy ?? {}) : defenderBase.army,
+    );
   } else if (!defenderBase) {
     for (const { locationId, control } of controlsIn(repos, battle.target.districtId)) {
       defending = mergeArmies(defending, withoutTheLeader(locationId, control.garrison));
     }
   }
-  return { attacking, defending, attackerRing, defenderRing, fromHomeRoster: livesHere };
+  return {
+    attacking,
+    defending,
+    attackerRing,
+    defenderRing,
+    fromHomeRoster: livesHere,
+    atTheGate,
+    posted: [],
+  };
 }
 
 /**
@@ -1507,7 +1536,25 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * been handed every surviving Razor.
    */
   const principalKey: string | null = defenderBase?.id ?? null;
-  const allyRows = defenderRows.filter((row) => row.baseId !== principalKey);
+  /*
+   * An ally's posting on the ground is a row of theirs in the line (2026-09-22): folded into
+   * their deployment row when they have one, so the split hands each crew one share. What is
+   * left of a posting after a held fight goes back onto the ground; after a lost one, home.
+   */
+  const postedIds = new Set(assembled.posted.map((row) => row.baseId));
+  const deployedAllies = defenderRows.filter((row) => row.baseId !== principalKey);
+  const allyRows: BattleDeployment[] = [
+    ...deployedAllies.map((row) => {
+      const posting = assembled.posted.find((posted) => posted.baseId === row.baseId);
+      return posting ? { ...row, army: mergeArmies(row.army, posting.army) } : row;
+    }),
+    ...assembled.posted
+      .filter((posted) => !deployedAllies.some((row) => row.baseId === posted.baseId))
+      .map((posted) => ({
+        ...emptyDeployment(battle.id, posted.baseId, 'defender', battle.scheduledFor),
+        army: posted.army,
+      })),
+  ];
   const alliesSent = allyRows.reduce<Army>((total, row) => mergeArmies(total, row.army), {});
   const alliesRinged = allyRows.reduce<Army>((total, row) => mergeArmies(total, row.perimeter), {});
   const principalRow: BattleDeployment = {
@@ -1709,13 +1756,27 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
      * floor: it had left the roster when it marched and nothing put it back.
      */
     const stayedAsGarrison = battle.target.kind === 'location' && !attackerWon;
-    const roster = assembled.fromHomeRoster
-      ? mergeArmies(principalLine, principalRing)
-      : mergeArmies(
+    if (assembled.atTheGate) {
+      // The door (2026-09-22). Held: the survivors stay at the gate, and the ring, which came up
+      // from the district, goes back to it. Fallen: whoever is left falls back into the district.
+      repos.bases.updateGateArmy(defenderBase.id, attackerWon ? {} : principalLine);
+      repos.bases.updateArmy(
+        defenderBase.id,
+        mergeArmies(
           defenderBase.army,
-          mergeArmies(stayedAsGarrison ? {} : principalLine, principalRing),
-        );
-    repos.bases.updateArmy(defenderBase.id, roster, defenderBase.trainingQueue);
+          attackerWon ? mergeArmies(principalLine, principalRing) : principalRing,
+        ),
+        defenderBase.trainingQueue,
+      );
+    } else {
+      const roster = assembled.fromHomeRoster
+        ? mergeArmies(principalLine, principalRing)
+        : mergeArmies(
+            defenderBase.army,
+            mergeArmies(stayedAsGarrison ? {} : principalLine, principalRing),
+          );
+      repos.bases.updateArmy(defenderBase.id, roster, defenderBase.trainingQueue);
+    }
     // Their Bone Market too. Holding one is worth the same whichever end of the fight you are on,
     // which is the whole reason it pays on a loss as well as a win.
     const theirRefund = refundFor(defenderFallen, defenderGround?.salvageRefundPercent ?? 0);
@@ -1775,14 +1836,23 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   // And the defending side's, line and ring together, to the crews that sent them.
   for (const allyId of new Set([...defenderLineShares.keys(), ...defenderRingShares.keys()])) {
     if (allyId === null || allyId === principalKey) continue;
-    const share = mergeArmies(
-      defenderLineShares.get(allyId) ?? {},
-      defenderRingShares.get(allyId) ?? {},
-    );
+    const lineShare = defenderLineShares.get(allyId) ?? {};
+    const ringShare = defenderRingShares.get(allyId) ?? {};
+    // A posting that held stays posted; one that fell walks home with everybody else.
+    const postedOn =
+      battle.target.kind === 'location' && postedIds.has(allyId) && !attackerWon
+        ? battle.target.locationId
+        : null;
+    if (postedOn !== null) repos.alliedGarrisons.set(postedOn, allyId, lineShare);
+    const share = postedOn !== null ? ringShare : mergeArmies(lineShare, ringShare);
     if (Object.keys(share).length === 0) continue;
     const ally = repos.bases.findById(allyId);
     if (!ally) continue;
     repos.bases.updateArmy(ally.id, mergeArmies(ally.army, share), ally.trainingQueue);
+  }
+  // Ground that changed hands has no postings left on it: their survivors went home above.
+  if (battle.target.kind === 'location' && attackerWon) {
+    repos.alliedGarrisons.clearAt(battle.target.locationId);
   }
 
   /*

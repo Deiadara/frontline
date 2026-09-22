@@ -14,6 +14,10 @@ import {
   officerIsInjured,
   removeFleet,
   RecallColumnRequestSchema,
+  MoveUnitsRequestSchema,
+  RecallMoveRequestSchema,
+  type MoveQuoteResponse,
+  type MoveRefusal,
   boostAvailable,
   findBattleBoost,
   findBlackMarketGood,
@@ -38,6 +42,7 @@ import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
 import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
 import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
+import { moveMinutes, recallMove, sendMove } from '../moves/moves.js';
 import { projectActions, projectBattles } from './view.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
@@ -54,6 +59,32 @@ import { officerDuty } from '../crew/duty.js';
  * off before anybody declares the next one, or a crew could call a fight on ground the world has not
  * noticed changing hands yet.
  */
+
+/** Why a column between the crew's own places was refused (2026-09-22). */
+const MOVE_ERRORS: Record<MoveRefusal, { code: ErrorCode; message: string }> = {
+  same_place: { code: 'VALIDATION_ERROR', message: 'They are already there' },
+  nobody_sent: { code: 'VALIDATION_ERROR', message: 'Nobody was named' },
+  not_enough_units: { code: 'NO_FORCE', message: 'You do not have those units standing there' },
+  not_enough_vehicles: {
+    code: 'NO_FORCE',
+    message: 'The yard does not have those machines, or the column is not leaving from it',
+  },
+  not_a_fighting_force: {
+    code: 'NO_FORCE',
+    message: 'Scavengers carry. They do not hold ground. Send them on a mission instead',
+  },
+  needs_infamy: {
+    code: 'NOT_ENOUGH_INFAMY',
+    message: 'They will not stand on ground for a name like yours',
+  },
+  not_yours: { code: 'FORBIDDEN', message: 'You have nobody standing there' },
+  unscouted: { code: 'VALIDATION_ERROR', message: 'Nobody of yours has been there yet' },
+  held_by_others: {
+    code: 'INVALID_TARGET',
+    message: 'Somebody else holds that. Call a fight on it instead',
+  },
+  no_road: { code: 'NOT_FOUND', message: 'There is no road to that' },
+};
 
 const RECALL_ERRORS: Record<RecallRefusal, { code: ErrorCode; message: string }> = {
   unknown_movement: { code: 'NOT_FOUND', message: 'Nothing on the road by that name' },
@@ -551,6 +582,53 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     }
     const fresh = app.repos.bases.findById(base.id) ?? base;
     return projectActions(app.repos, fresh, now);
+  });
+
+  /**
+   * Moving units between the crew's own places (maintainer, 2026-09-22): district, gate, held
+   * ground and a faction ally's ground. The quote is the same arithmetic with nothing moved.
+   */
+  app.post('/actions/move', { preHandler: app.authenticate }, (request): ActionsResponse => {
+    const body = parseBody(MoveUnitsRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(request.currentUser.id, now);
+    const result = app.db.transaction(() => sendMove(app.repos, { base, ...body, now }))();
+    if (result.kind === 'refused') {
+      const { code, message } = MOVE_ERRORS[result.reason];
+      throw new AppError(code, message);
+    }
+    return projectActions(app.repos, result.base, now);
+  });
+
+  app.post(
+    '/actions/move/quote',
+    { preHandler: app.authenticate },
+    (request): MoveQuoteResponse => {
+      const body = parseBody(MoveUnitsRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(request.currentUser.id, now);
+      const minutes = moveMinutes(app.repos, base, body.from, body.to, {
+        army: body.army,
+        vehicles: body.vehicles,
+      });
+      if (minutes === null) throw new AppError('NOT_FOUND', 'There is no road to that');
+      return { minutes };
+    },
+  );
+
+  app.post('/actions/move/recall', { preHandler: app.authenticate }, (request): ActionsResponse => {
+    const { moveId } = parseBody(RecallMoveRequestSchema, request.body);
+    const now = new Date();
+    const base = settled(request.currentUser.id, now);
+    const result = app.db.transaction(() => recallMove(app.repos, base, moveId, now))();
+    if (result.kind === 'refused') {
+      const { code, message } =
+        result.reason === 'unknown_move'
+          ? RECALL_ERRORS.unknown_movement
+          : RECALL_ERRORS[result.reason];
+      throw new AppError(code, message);
+    }
+    return projectActions(app.repos, base, now);
   });
 
   app.post(

@@ -67,7 +67,12 @@ export const GATE_DEFENSE_PERCENT_PER_LEVEL = 2.5;
  * district nobody can count. Slower than the defence figure on purpose: a maxed Gate is 30 points
  * of resistance, which coarsens a scout's report without ever blanking it.
  */
-export const GATE_INTEL_RESISTANCE_PER_LEVEL = 1.5;
+/**
+ * What a level of Gate is worth against spies (2026-09-22): the same figure the spy contest
+ * charges per level (`SPY_GATE_POINTS_PER_LEVEL`), so the board's "against spies" line and the
+ * budget a job is priced against are one number. Pinned equal in `spying.test.ts`.
+ */
+export const GATE_INTEL_RESISTANCE_PER_LEVEL = 10;
 
 /** §B7: what the Gate adds to every defender's `defensePercent`, modifications included. */
 export function gateDefensePercent(buildings: readonly Building[]): number {

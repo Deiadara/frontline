@@ -124,13 +124,10 @@ export function CrewProfilePage() {
               </PortraitFrame>
             </div>
             <div className="flex flex-col gap-2.5 p-3.5" data-testid="profile-identity">
+              {/* The player's mark was the plate on the left of this row and is gone
+                  (maintainer, 2026-09-22): it is not drawn anywhere any more, so the name
+                  starts the row rather than sitting in a gap where a glyph used to be. */}
               <div className="flex items-center gap-2.5">
-                <span
-                  aria-hidden
-                  className="icon-plate flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-brass-300 [&_svg]:h-5 [&_svg]:w-5"
-                >
-                  <Icon name={player.icon} />
-                </span>
                 <div className="min-w-0">
                   <h2
                     className="break-words font-stamp text-[20px] leading-tight text-ink-100"

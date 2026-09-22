@@ -55,9 +55,12 @@ test.describe("a location's window", () => {
       const labels = (await card.getByTestId('sheet-label').allInnerTexts()).map((label) =>
         label.toUpperCase(),
       );
-      // The last section is the one thing that depends on the reader: your options on your own
-      // ground, the way to take it on anybody else's. Everything before it is the template.
-      const fixed = labels.filter((label) => label !== 'YOUR OPTIONS' && label !== 'TAKING IT');
+      // The last two sections are the ones that depend on the reader: your options on your own
+      // ground, the way to take it and the spying door on anybody else's (2026-09-22).
+      // Everything before them is the template.
+      const fixed = labels.filter(
+        (label) => label !== 'YOUR OPTIONS' && label !== 'TAKING IT' && label !== 'SPYING',
+      );
       shapes.add(fixed.join('|'));
       expect(labels.at(-1), location.id).toMatch(/^(YOUR OPTIONS|TAKING IT)$/);
     }

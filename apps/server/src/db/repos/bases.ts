@@ -50,6 +50,7 @@ interface BaseRow {
   buildings_json: string;
   build_queue_json: string;
   army_json: string;
+  gate_army_json: string | null;
   training_queue_json: string;
   commanders_json: string;
   training_json: string | null;
@@ -174,6 +175,8 @@ export interface BasesRepo {
    * units and failed to drop the order would train them again on the next read.
    */
   updateArmy(baseId: string, army: Army, queue: TrainingQueue): void;
+  /** The gate garrison alone (2026-09-22). */
+  updateGateArmy(baseId: string, army: Army): void;
 }
 
 /**
@@ -441,6 +444,9 @@ function rowToBase(row: BaseRow): Base {
     buildings: knownBuildings(readJson(row.buildings_json)),
     buildQueue: knownBuildQueue(readJson(row.build_queue_json)),
     army: withoutRetiredUnits(readJson(row.army_json)),
+    // Null is a crew from before the split: nobody at the door (migration 0110).
+    gateArmy:
+      row.gate_army_json === null ? undefined : withoutRetiredUnits(readJson(row.gate_army_json)),
     trainingQueue: knownTrainingQueue(readJson(row.training_queue_json)),
     commanders: knownCommanders(readJson(row.commanders_json)),
     // Left to the schema's own default when the column is empty, rather than defaulted here: a
@@ -602,6 +608,10 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
   const updateArmyStmt = db.prepare(
     'UPDATE bases SET army_json = ?, training_queue_json = ? WHERE id = ?',
   );
+  // Lazy, for the reason above: prepared once the column exists.
+  let gateArmyStmt: ReturnType<AppDatabase['prepare']> | undefined;
+  const updateGateArmyStmt = () =>
+    (gateArmyStmt ??= db.prepare('UPDATE bases SET gate_army_json = ? WHERE id = ?'));
 
   return {
     insert(base) {
@@ -629,6 +639,11 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         JSON.stringify(base.addons ?? { researched: [], built: [] }),
         base.createdAt,
       );
+      // The door, in its own statement (0110): `stockpile-integrity.test.ts` inserts into a save
+      // migrated only part way, and a column in the INSERT would refuse the whole row there.
+      if (base.gateArmy && Object.keys(base.gateArmy).length > 0) {
+        updateGateArmyStmt().run(JSON.stringify(base.gateArmy), base.id);
+      }
     },
     replace(base) {
       replaceStmt.run(
@@ -654,6 +669,7 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
         base.createdAt,
         base.id,
       );
+      updateGateArmyStmt().run(JSON.stringify(base.gateArmy ?? {}), base.id);
     },
     findById(id) {
       const row = byIdStmt.get(id) as BaseRow | undefined;
@@ -758,6 +774,9 @@ export function createBasesRepo(db: AppDatabase): BasesRepo {
     },
     updateArmy(baseId, army, queue) {
       updateArmyStmt.run(JSON.stringify(army), JSON.stringify(queue), baseId);
+    },
+    updateGateArmy(baseId, army) {
+      updateGateArmyStmt().run(JSON.stringify(army), baseId);
     },
   };
 }

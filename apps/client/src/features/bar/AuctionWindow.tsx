@@ -413,8 +413,6 @@ function BidPanel({
 
   /** The increment from wherever the field currently stands, so `+1 step` is the legal next number. */
   const stepFrom = (value: number) => Math.max(1, nextMinimumBid(auction.reserve, value) - value);
-  const raiseBy = (percent: number) => () =>
-    setAmount((current) => Math.ceil(current * (1 + percent / 100)));
 
   return (
     <div className="flex min-w-0 flex-col gap-2.5" data-testid="bid-panel">
@@ -459,28 +457,6 @@ function BidPanel({
             <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
               / wk
             </span>
-          </div>
-          {/* Two quick raises. The "+ 1 step" button went at the maintainer's request (2026-09-11):
-              the field's own arrows step by the legal increment, so it was the same control twice. */}
-          <div className="flex flex-wrap gap-1.5">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={refusal !== null}
-              onClick={raiseBy(5)}
-              data-testid="bid-plus-5"
-            >
-              + 5%
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={refusal !== null}
-              onClick={raiseBy(10)}
-              data-testid="bid-plus-10"
-            >
-              + 10%
-            </Button>
           </div>
           <Button
             disabled={refusal !== null || overBook || bid.isPending}

@@ -134,10 +134,7 @@ export function NotorietyLadderPage() {
   const pct = cost === null ? 100 : Math.max(0, Math.min(100, (infamy / cost) * 100));
 
   return (
-    <StandingSheet
-      title="The name they give you"
-      lede="Fourteen ranks, what each one costs in infamy, and what each one pays."
-    >
+    <StandingSheet title="The name they give you">
       <PaperBlock
         className="flex flex-wrap items-center gap-x-6 gap-y-3"
         data-testid="notoriety-standing"

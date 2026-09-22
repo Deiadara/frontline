@@ -277,10 +277,19 @@ export const ICON_GLYPHS: Record<IconName, ReactNode> = {
       />
     </>
   ),
+  /*
+   * A head and shoulders, drawn (maintainer, 2026-09-22: "a hand drawn icon for it that is used
+   * everywhere"). The ring round the head is open at the crown and overshoots itself, the
+   * shoulders are one stroke that does not quite meet the ground on either side, and a short
+   * second pass sits under the left shoulder: the same pen every drawn mark in the game is held
+   * in. Used at 12px on a card's subtitle and at 16px on the district's slot chip, so every line
+   * is a full stroke rather than a detail.
+   */
   'unit-slots': (
     <>
-      <circle cx="12" cy="8" r="3.2" {...S} />
-      <path d="M5.5 20c0-3.6 2.9-6.2 6.5-6.2s6.5 2.6 6.5 6.2" {...S} />
+      <path d="M12.6 4.7 A3.2 3.2 0 1 1 11.9 4.65 A3.2 3.2 0 0 1 13.4 5.2" {...S} />
+      <path d="M5.4 20.3 C5.7 16.1 8.5 13.8 12.1 13.7 C15.6 13.7 18.3 16.1 18.6 19.9" {...S} />
+      <path d="M5 20.6 L9.4 20.2" {...S} strokeWidth="1" opacity="0.45" />
     </>
   ),
   build: (
@@ -299,11 +308,19 @@ export const ICON_GLYPHS: Record<IconName, ReactNode> = {
       <path d="M12 16.6v.3" {...S} />
     </>
   ),
+  /*
+   * A padlock somebody drew rather than a glyph (maintainer, 2026-09-22: "use a hand drawn lock
+   * everywhere"). The body is four strokes that do not quite close and are not quite square, the
+   * shackle is an arc that lands a hair inside the body on one side and a hair outside on the
+   * other, and the pen goes round the bottom edge a second time, short. Every `Icon name="lock"`
+   * in the game draws this one, so the nav tiles, the shut doors and the card slots agree.
+   */
   lock: (
     <>
-      <rect x="5" y="10.5" width="14" height="9.5" rx="1.6" {...S} />
-      <path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" {...S} />
-      <path d="M12 14v2.5" {...S} />
+      <path d="M5.3 10.8 L18.8 10.4 L19.1 19.6 L5 19.9 L5.2 11.2" {...S} />
+      <path d="M8.6 10.7 L8.4 7.7 A3.6 3.6 0 0 1 15.5 7.3 L15.7 10.1" {...S} />
+      <path d="M12.1 13.5 L11.9 16.3" {...S} />
+      <path d="M5.4 20.2 L10.6 19.9" {...S} strokeWidth="1" opacity="0.45" />
     </>
   ),
   clock: (

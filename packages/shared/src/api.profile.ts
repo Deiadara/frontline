@@ -6,7 +6,6 @@ import { BadgeSchema } from './factions/badge.js';
 import { FactionRankSchema } from './factions/factions.js';
 import { OverseerArchetypeSchema } from './overseer.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
-import { PlayerIconSchema } from './user.js';
 
 /**
  * A crew's file, as any other player may read it (maintainer request, 2026-09-11).
@@ -48,7 +47,6 @@ export const CrewProfileResponseSchema = z.object({
     userId: IdSchema,
     /** What they chose to be called, or the name they log in with. */
     name: z.string().min(1),
-    icon: PlayerIconSchema,
     /** When the account was made: how long they have been in the city. */
     since: IsoDateTimeSchema,
   }),

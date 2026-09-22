@@ -13,6 +13,7 @@ import { Button } from '../../components/ui/Button';
 import { LabelRow } from '../../components/ui/LabelChip';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
+import { UnitTrigger } from '../units/UnitWindow';
 
 /**
  * The after-action report (GDD §A5, battle rework).
@@ -378,14 +379,26 @@ function UnitRow({ unit }: { unit: UnitPerformance }) {
   return (
     <tr className="border-t border-surface-700/60">
       <td className="min-w-0 py-1.5">
-        <span
-          className={cn(
-            'block truncate font-display text-[12px] tracking-[0.06em]',
-            unit.unique ? 'text-brass-300' : 'text-ink-200',
-          )}
+        {/* The name opens the sheet (maintainer, 2026-09-22: "make sure these units are all
+            visible when seeing the battle report against combine"). A Combine unit is met here
+            and nowhere on the player's own screens, so this row is the one door to its card,
+            portrait and marks included: `UnitTrigger` draws the same card the roster does, with
+            the ownership claims off for a sheet nobody can hold (`UnitWindow`). */}
+        <UnitTrigger
+          unitId={unit.unitId}
+          label={`${unit.name}: the sheet`}
+          className="block w-full min-w-0 text-left"
+          data-testid={`report-unit-${unit.unitId}`}
         >
-          {unit.name}
-        </span>
+          <span
+            className={cn(
+              'block truncate font-display text-[12px] tracking-[0.06em] underline decoration-dotted decoration-surface-500 underline-offset-2',
+              unit.unique ? 'text-brass-300' : 'text-ink-200',
+            )}
+          >
+            {unit.name}
+          </span>
+        </UnitTrigger>
         <span className="block truncate font-body text-[11px] text-ink-300">{unit.state}</span>
       </td>
       <td className="py-1.5 text-right font-display text-[12px] tabular-nums text-ink-300">

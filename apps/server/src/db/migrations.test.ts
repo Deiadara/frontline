@@ -5,6 +5,7 @@ import {
   ATTRIBUTE_NAMES,
   ArmySchema,
   AttributesSchema,
+  BaseSchema,
   BUILDING_KINDS,
   BadgeSchema,
   DEFAULT_BADGE,
@@ -496,6 +497,10 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0105_intimidated.sql',
     '0106_intimidated_again.sql',
     '0107_second_chair.sql',
+    '0108_master_of_whispers.sql',
+    '0109_spying.sql',
+    '0110_gate_and_moves.sql',
+    '0111_level_floor.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -1136,7 +1141,9 @@ describe('0075: signals, craft and encyclopedia', () => {
       name: 'Legacy Crew',
       district_id: 'rustyard',
       created_at: NOW,
-      commanders_json: JSON.stringify([{ id: 'c1', role: 'head_spy', attributes: before }]),
+      commanders_json: JSON.stringify([
+        { id: 'c1', role: 'master_of_whispers', attributes: before },
+      ]),
     });
 
     runMigrations(db);
@@ -1171,7 +1178,7 @@ describe('0077: the retired desk projects', () => {
     id: `r-${kind}`,
     project:
       kind === 'investigation'
-        ? { kind, role: 'head_spy', leadOfficerId: 'off-1', crossReference: true }
+        ? { kind, role: 'master_of_whispers', leadOfficerId: 'off-1', crossReference: true }
         : kind === 'training'
           ? { kind, attribute: 'logic' }
           : { kind, modificationId: 'lab_quantum_modeling' },
@@ -1879,6 +1886,136 @@ describe('0107, the retired Professor rung', () => {
     const after = ROWS.map((_row, index) => known(db, index));
     runMigrations(db);
     expect(ROWS.map((_row, index) => known(db, index))).toEqual(after);
+    db.close();
+  });
+});
+
+/**
+ * 0111: a level below one, which is a row the game cannot read.
+ *
+ * The Console's Clean slate wrote `bases.level = 0` until 2026-09-22. `BaseSchema` puts a floor of
+ * one under the column, and the world clock reads every base once a second, so a single such row
+ * turned every tick into a ZodError and took the server down for everybody on the table. The fix
+ * has two halves and this is the half that repairs saves already holding one: the writer was
+ * corrected in `routes/admin.ts` at the same time, which does nothing for a database that already
+ * has the row in it.
+ *
+ * Checked against the two neighbours as well. A location's level and a captured gate's carry the
+ * same floor in their schemas, and a sweep that cleaned only the table the crash was reported
+ * from would leave the other two to surface the identical failure later, from a different reader.
+ */
+describe('0111: a level below one', () => {
+  const THEN = '0111_level_floor.sql';
+
+  /** One save per table holding a zero, and one good row beside each to catch an over-broad sweep. */
+  const legacy = (): AppDatabase => {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, THEN);
+    // One base per account since 0074, so the two saves need an owner each.
+    for (const suffix of ['zero', 'grown']) {
+      db.prepare(
+        'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+      ).run(`u111-${suffix}`, `legacy111-${suffix}`, 'x', NOW);
+    }
+    insert(db, 'bases', {
+      id: 'b111-zero',
+      owner_id: 'u111-zero',
+      name: 'Cleared',
+      district_id: 'rustyard',
+      created_at: NOW,
+      level: 0,
+    });
+    insert(db, 'bases', {
+      id: 'b111-grown',
+      owner_id: 'u111-grown',
+      name: 'Grown',
+      district_id: 'rustyard',
+      created_at: NOW,
+      level: 7,
+    });
+    insert(db, 'location_control', {
+      location_id: 'rustyard-press',
+      holder_kind: 'government',
+      holder_base_id: null,
+      level: 0,
+    });
+    insert(db, 'location_control', {
+      location_id: 'rustyard-ramp',
+      holder_kind: 'government',
+      holder_base_id: null,
+      level: 4,
+    });
+    insert(db, 'captured_gates', { district_id: 'rustyard', level: 0 });
+    insert(db, 'captured_gates', { district_id: 'kessler', level: 3 });
+    return db;
+  };
+
+  const levels = (db: AppDatabase): Record<string, number> => ({
+    zeroBase: (
+      db.prepare('SELECT level FROM bases WHERE id = ?').get('b111-zero') as { level: number }
+    ).level,
+    grownBase: (
+      db.prepare('SELECT level FROM bases WHERE id = ?').get('b111-grown') as { level: number }
+    ).level,
+    zeroLocation: (
+      db
+        .prepare('SELECT level FROM location_control WHERE location_id = ?')
+        .get('rustyard-press') as {
+        level: number;
+      }
+    ).level,
+    heldLocation: (
+      db
+        .prepare('SELECT level FROM location_control WHERE location_id = ?')
+        .get('rustyard-ramp') as {
+        level: number;
+      }
+    ).level,
+    zeroGate: (
+      db.prepare('SELECT level FROM captured_gates WHERE district_id = ?').get('rustyard') as {
+        level: number;
+      }
+    ).level,
+    heldGate: (
+      db.prepare('SELECT level FROM captured_gates WHERE district_id = ?').get('kessler') as {
+        level: number;
+      }
+    ).level,
+  });
+
+  it('is the floor the readers actually enforce', () => {
+    // The reason the migration exists, asserted rather than assumed. A schema that quietly stopped
+    // refusing zero would make every other line here agree with a migration nothing needs.
+    expect(BaseSchema.shape.level.safeParse(0).success).toBe(false);
+    expect(BaseSchema.shape.level.safeParse(1).success).toBe(true);
+  });
+
+  it('raises every level below one and leaves the rest alone', () => {
+    const db = legacy();
+    // The positive control: the fixture really is in the broken state before the sweep runs.
+    expect(levels(db).zeroBase).toBe(0);
+    expect(levels(db).zeroLocation).toBe(0);
+    expect(levels(db).zeroGate).toBe(0);
+
+    runMigrations(db);
+
+    expect(levels(db)).toEqual({
+      zeroBase: 1,
+      grownBase: 7,
+      zeroLocation: 1,
+      heldLocation: 4,
+      zeroGate: 1,
+      heldGate: 3,
+    });
+    db.close();
+  });
+
+  it('changes nothing on a second run', () => {
+    const db = legacy();
+    runMigrations(db);
+    const after = levels(db);
+    runMigrations(db);
+    expect(levels(db)).toEqual(after);
     db.close();
   });
 });

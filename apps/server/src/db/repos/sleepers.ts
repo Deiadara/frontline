@@ -19,6 +19,8 @@ export interface SleeperRepo {
   forBase(baseId: string): SleeperCell[];
   /** The cell this crew has waiting on this ground, if any. What `assemble` asks. */
   waitingAt(baseId: string, locationId: string): SleeperCell | undefined;
+  /** Every crew's cells in place on one location, for a spy report with the rung that lists them. */
+  waitingOn(locationId: string): SleeperCell[];
   findById(id: string): SleeperCell | undefined;
   /** Landed: the phase becomes `waiting` and `arrivesAt` becomes the moment they went to ground. */
   markWaiting(id: string, atIso: string): void;
@@ -84,6 +86,9 @@ export function createSleeperRepo(db: AppDatabase): SleeperRepo {
   const waitingStmt = lazy(
     "SELECT * FROM sleeper_cells WHERE base_id = ? AND location_id = ? AND phase = 'waiting'",
   );
+  const waitingOnStmt = lazy(
+    "SELECT * FROM sleeper_cells WHERE location_id = ? AND phase = 'waiting' ORDER BY arrives_at",
+  );
   const byIdStmt = lazy('SELECT * FROM sleeper_cells WHERE id = ?');
   const waitStmt = lazy("UPDATE sleeper_cells SET phase = 'waiting', arrives_at = ? WHERE id = ?");
   const returnStmt = lazy(
@@ -114,6 +119,9 @@ export function createSleeperRepo(db: AppDatabase): SleeperRepo {
     waitingAt(baseId, locationId) {
       const row = waitingStmt().get(baseId, locationId) as Row | undefined;
       return row ? read(row) : undefined;
+    },
+    waitingOn(locationId) {
+      return (waitingOnStmt().all(locationId) as Row[]).map(read);
     },
     findById(id) {
       const row = byIdStmt().get(id) as Row | undefined;

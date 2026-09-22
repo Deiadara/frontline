@@ -306,6 +306,11 @@ export function tallyScoutingRun(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('scouting_runs')]);
 }
 
+/** A spy report that stood: one under the floor is caps spent, not a report. */
+export function tallySpyReport(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('spy_reports')]);
+}
+
 /**
  * Something out of the Scrapyard.
  *

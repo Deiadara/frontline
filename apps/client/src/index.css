@@ -416,6 +416,28 @@
   }
 
   /**
+   * The same sheet, one step up off the ground (maintainer, 2026-09-22).
+   *
+   * `.card-paper` is ink black, which is right for a panel sitting on the game's own dark shell
+   * and wrong inside a window: a structure's window is a lit paper Modal, and four near-black
+   * boxes on it read as holes rather than as panels. The maintainer's note is that the building
+   * windows are too dark, at *any* level, so this is not a max-level state: it is the material
+   * every panel inside a window is printed on.
+   *
+   * Same recipe as `.card-paper`, lifted about three steps: the gradient keeps its angle and its
+   * highlight so a panel in one material still reads as the same hand as a panel in the other,
+   * and `background-color` is restated as the longhand for the reason written over there (a
+   * later `background-image` from `.rivets` would otherwise leave it transparent).
+   */
+  .card-paper-lit {
+    position: relative;
+    background:
+      linear-gradient(152deg, rgb(64 62 74 / 0.92), rgb(50 48 60 / 0.95) 60%, rgb(42 40 50 / 0.97)),
+      radial-gradient(circle at 22% 8%, rgb(225 225 235 / 0.07), transparent 62%);
+    background-color: rgb(42 40 50);
+  }
+
+  /**
    * A rule drawn by hand, wobble and all.
    *
    * Replaces the 1px divider under headings. A straight line is fine; a line that is *nearly*
@@ -756,6 +778,24 @@
   }
 
   /* Lit from inside, and standing slightly proud of the row. The one you are in. */
+  /*
+   * A shut door's plate (maintainer, 2026-09-22: "grey out the box behind").
+   *
+   * The lilac glow and the top sheen go, and the plate is the same grey the ink and the paper are
+   * ruled on. A `saturate(0)` filter on the tile was the first attempt and it took the colour out
+   * of the padlock drawn *over* the plate as well, which is the one thing on the tile that has to
+   * be red; a plate styled grey leaves whatever is drawn on it alone.
+   */
+  .door-tile-locked {
+    background-image:
+      radial-gradient(circle at 50% 38%, rgb(120 118 132 / 0.1), rgb(120 118 132 / 0) 68%),
+      linear-gradient(to bottom, rgb(46 45 54 / 0.96), rgb(28 27 34 / 0.98));
+    box-shadow:
+      inset 0 1px 0 rgb(200 200 210 / 0.08),
+      inset 0 -2px 3px rgb(0 0 0 / 0.5),
+      0 2px 5px rgb(0 0 0 / 0.45);
+  }
+
   .door-tile-active {
     background-image:
       radial-gradient(circle at 50% 36%, rgb(245 194 96 / 0.42), rgb(245 194 96 / 0.06) 70%),

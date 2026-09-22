@@ -91,6 +91,26 @@ export function travelMsTo(
  * a district that is not on the map, which is what the column did before and is the honest answer:
  * there is no road to measure.
  */
+/**
+ * The pace of a column of this crew's, machines and cards folded in, on the standing fold: the
+ * same reading `travelMsTo` makes for a road to a fight, for a road between the crew's own places
+ * (`moves/moves.ts`).
+ */
+export function columnSpeedFor(
+  repos: Repositories,
+  base: Base,
+  riding: { vehicles: Fleet; force: Army },
+): number {
+  const effects = standingEffectsFor(repos, base);
+  return columnSpeed(riding.vehicles, riding.force, (unitId) =>
+    unitColumnSpeed(unitId, {
+      percent: effects.unitSpeedPercent,
+      fitted: fittedFor(base.unitLoadouts, unitId),
+      anyRide: effects.anyRide,
+    }),
+  );
+}
+
 function roadMs(base: Base, districtId: string, speed: number, effects: CrewEffects): number {
   const from = CITY_DISTRICTS.find((district) => district.id === base.districtId);
   const to = CITY_DISTRICTS.find((district) => district.id === districtId);

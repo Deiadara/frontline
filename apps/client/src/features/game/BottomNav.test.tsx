@@ -168,11 +168,17 @@ describe('§I3: the doors, and what shuts them', () => {
     });
   }
 
-  /** The line under a door's name: `Lv 5`, `Build it`, and so on. `null` when the door is open. */
-  const captionUnder = (label: string): string | null => {
+  /**
+   * Whether a door is drawn shut.
+   *
+   * The padlock, since 2026-09-22: the caption under the icon ("Lv 15", "Hire one") is gone at
+   * the maintainer's request, on the grounds that pressing a shut door already says why. So the
+   * lock over the glyph is the whole of the signal, and it is what these tests read. Found
+   * inside the door rather than by area id, so a door whose gate changes kind still measures.
+   */
+  const shut = (label: string): boolean => {
     const door = screen.getByTestId(`nav-${label.toLowerCase().replace(/\s+/g, '-')}`);
-    const caption = (door.textContent ?? '').slice(label.length).trim();
-    return caption === '' ? null : caption;
+    return door.querySelector('[data-testid^="nav-locked-"]') !== null;
   };
 
   const lockOver = (area: string) => screen.queryByTestId(`nav-locked-${area}`);
@@ -188,31 +194,31 @@ describe('§I3: the doors, and what shuts them', () => {
       }),
     );
     for (const label of ['City', 'District', 'Units', 'Missions']) {
-      expect(captionUnder(label), `${label} was gated`).toBeNull();
+      expect(shut(label), `${label} was gated`).toBe(false);
     }
     // ...and the doors that are meant to be shut on this crew are, so the case above is a
     // measurement of the loop rather than of a bar that gates nothing at all.
-    expect(captionUnder('Market')).toBe('Lv 15');
+    expect(shut('Market')).toBe(true);
     expect(lockOver('market')).not.toBeNull();
   });
 
-  it('shuts the level doors on a level-1 crew, and names the level on each', async () => {
+  it('shuts the level doors on a level-1 crew', async () => {
     await drawSettledBar(crewWith({ level: 1 }));
-    expect(captionUnder('Training')).toBe('Lv 3');
-    expect(captionUnder('The Bar')).toBe('Lv 5');
-    expect(captionUnder('Crew')).toBe('Lv 5');
-    expect(captionUnder('Faction')).toBe('Lv 10');
-    expect(captionUnder('Market')).toBe('Lv 15');
+    expect(shut('Training')).toBe(true);
+    expect(shut('The Bar')).toBe(true);
+    expect(shut('Crew')).toBe(true);
+    expect(shut('Faction')).toBe(true);
+    expect(shut('Market')).toBe(true);
   });
 
   it('opens each level door at its own level and not one before it', async () => {
     await drawSettledBar(crewWith({ level: 5 }));
     // Three and five are behind this crew; ten and fifteen are not.
-    expect(captionUnder('Training')).toBeNull();
-    expect(captionUnder('The Bar')).toBeNull();
-    expect(captionUnder('Crew')).toBeNull();
-    expect(captionUnder('Faction')).toBe('Lv 10');
-    expect(captionUnder('Market')).toBe('Lv 15');
+    expect(shut('Training')).toBe(false);
+    expect(shut('The Bar')).toBe(false);
+    expect(shut('Crew')).toBe(false);
+    expect(shut('Faction')).toBe(true);
+    expect(shut('Market')).toBe(true);
   });
 
   /**
@@ -226,11 +232,11 @@ describe('§I3: the doors, and what shuts them', () => {
     const yard = { id: 'b-yard', kind: 'scrapyard' as const, level: 1, modifications: [] };
     const without = F.lateGame.base!.buildings.filter((b) => b.kind !== 'scrapyard');
     await drawSettledBar(crewWith({ level: 40, buildings: without }));
-    expect(captionUnder('Scrapyard')).toBe('Build it');
+    expect(shut('Scrapyard')).toBe(true);
     expect(lockOver('scrapyard')).not.toBeNull();
 
     await drawSettledBar(crewWith({ level: 40, buildings: [...without, yard] }));
-    expect(captionUnder('Scrapyard')).toBeNull();
+    expect(shut('Scrapyard')).toBe(false);
     expect(lockOver('scrapyard')).toBeNull();
   });
 
@@ -251,11 +257,11 @@ describe('§I3: the doors, and what shuts them', () => {
       300,
     );
     await drawSettledBar(crewWith({ level: 40, commanders: [{ ...person, role: null }] }));
-    expect(captionUnder('Research')).toBe('Hire one');
+    expect(shut('Research')).toBe(true);
 
     await drawSettledBar(
       crewWith({ level: 40, commanders: [{ ...person, role: 'head_of_research' }] }),
     );
-    expect(captionUnder('Research')).toBeNull();
+    expect(shut('Research')).toBe(false);
   });
 });

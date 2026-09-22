@@ -2,6 +2,7 @@ import { areaLockCaption, badgeCount, isAreaUnlocked, type GatedArea } from '@fr
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '../../components/ui/Icon';
+import { DrawnGlyph } from '../../components/ui/DrawnMarks';
 import { FeatsDoorGlyph } from '../feats/marks';
 import { cn } from '../../lib/cn';
 import { useAdmin, useMe } from '../../lib/queries';
@@ -210,6 +211,12 @@ function Destination({
                 'group-hover:-translate-y-1 group-hover:scale-[1.04] group-hover:border-iris-300/80 ' +
                 'group-hover:text-iris-100 group-hover:shadow-lifted group-active:translate-y-0 ' +
                 'group-active:scale-100',
+          // Greyed out behind the padlock (maintainer, 2026-09-22): the plate loses its colour
+          // and its shine, so a shut door reads as shut from across the room and not only once
+          // the eye lands on the lock. A plate class rather than a filter, because a filter on
+          // the tile would grey the red lock drawn over it too. The glyph under it is dimmed
+          // separately, below.
+          locked !== null && 'door-tile-locked border-surface-600/70',
         )}
       >
         {destination.glyph === undefined ? (
@@ -259,7 +266,14 @@ function Destination({
             className="absolute inset-0 z-[2] flex items-center justify-center"
             data-testid={`nav-locked-${destination.area ?? ''}`}
           >
-            <Icon name="lock" className="h-5 w-5 text-brass-300" />
+            {/* Red, bigger, and drawn (maintainer, 2026-09-22). It was a 20px brass glyph over a
+                dimmed plate, which read as a detail of the door; at 30px in oxblood, through the
+                pen, it is the thing the door is wearing. `drop-shadow` rather than a plate under
+                it, so nothing drawn crosses the glyph it sits over. */}
+            <DrawnGlyph
+              name="lock"
+              className="h-[30px] w-[30px] text-oxblood-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.8)]"
+            />
           </span>
         )}
         {/* The lit plinth under the active door. Drawn rather than implied by colour alone, because
@@ -279,11 +293,6 @@ function Destination({
       >
         {destination.label}
       </span>
-      {locked !== null && (
-        <span className="-mt-1.5 font-display text-[10px] uppercase tracking-[0.12em] text-brass-300">
-          {locked}
-        </span>
-      )}
     </>
   );
 

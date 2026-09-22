@@ -12,7 +12,7 @@ import { z } from 'zod';
  */
 
 export const OFFICER_ROLES = [
-  'head_spy',
+  'master_of_whispers',
   'lead_engineer',
   'finance_officer',
   'head_of_growth',
@@ -28,7 +28,6 @@ export const OFFICER_ROLES = [
   'chief_medic',
   'instructor_of_the_young',
   'raid_boss',
-  'scout',
   'consigliere',
   'professor',
 ] as const;
@@ -37,7 +36,7 @@ export const OfficerRoleSchema = z.enum(OFFICER_ROLES);
 export type OfficerRole = z.infer<typeof OfficerRoleSchema>;
 
 export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
-  head_spy: 'Head Spy',
+  master_of_whispers: 'Master of Whispers',
   lead_engineer: 'Lead Engineer',
   finance_officer: 'Head of Finance',
   head_of_growth: 'Head of Growth',
@@ -53,7 +52,6 @@ export const OFFICER_ROLE_LABELS: Record<OfficerRole, string> = {
   chief_medic: 'Chief Medic',
   instructor_of_the_young: 'Instructor of the Young',
   raid_boss: 'Raid Boss',
-  scout: 'Scout',
   consigliere: 'Consigliere',
   professor: 'Professor',
 };
@@ -69,7 +67,7 @@ export const BENCH_LABEL = 'On the bench';
 /**
  * The faces an officer can have (§C).
  *
- * A **pool**, not a portrait per role: the art is a hundred and sixty-four people, and a Head Spy
+ * A **pool**, not a portrait per role: the art is a hundred and sixty-four people, and a Master of Whispers
  * is a job rather than a face. Which one a given officer wears is derived from their id rather than
  * stored (see `officerPortraitId`), so every officer already on a save has a face the moment the
  * pool lands, with no migration and no column.

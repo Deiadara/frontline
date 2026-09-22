@@ -55,15 +55,14 @@ const BATTLE_ODDS_TONES: Readonly<Record<BattleOdds, ChanceTone>> = {
  *
  * ## The radii, outside in
  *
- * `R_RIM` is the pen line round the whole instrument. The bands are painted in the channel
- * between `R_CHANNEL_OUT` and the ticks, and `R_CHANNEL_OUT` is where the inner rule is ruled, so
- * the colour reads as a wash inside a drawn channel rather than as four arcs floating free.
+ * There is no rim any more (2026-09-22): the outermost line is `R_CHANNEL_OUT`, the hairline the
+ * bands are washed inside. The bands are painted in the channel between it and the ticks, so the
+ * colour reads as a wash inside a drawn channel rather than as four arcs floating free.
  */
 const PIVOT = { x: 110, y: 112 } as const;
 /** The whole drawing, so the geometry and the viewBox cannot drift apart. */
 const BOX = { w: 220, h: 120 } as const;
 const R_FACE = 97;
-const R_RIM = 101;
 const R_CHANNEL_OUT = 94;
 const R_BAND = 86;
 const R_CHANNEL_IN = 78;
@@ -326,48 +325,20 @@ export function MissionGauge({
           </g>
 
           {/*
-           * The rim, once, running past both ends the way a pen does.
+           * No rim (maintainer, 2026-09-22: "remove the yellow circular line going around the
+           * hand drawn meter, keep only the hand drawn orange line at the bottom").
            *
-           * It went round twice: the heavy bezel and a light `#e0b65a` line inside it. The second
-           * pass is gone (maintainer, 2026-09-19: "remove the yellow line going around the
-           * circle, keep it only at the bottom"). The bright line the dial needs is the one along
-           * the baseplate, where it reads as the bench the instrument is bolted to; following the
-           * arc as well, it read as a second rim and was the last thing on the drawing still
-           * looking machined.
-           */}
-          <path d={arc(R_RIM, -OVERSHOOT, 1 + OVERSHOOT)} className="gauge-bezel" />
-
-          {/*
-           * ...and the oxide in it.
-           *
-           * **Narrower than the rim, not wider.** The first cut drew the rust at 5.4 against a
-           * bezel of 5, so every patch the mask left stood a fraction proud of the brass on both
-           * sides, and through the pen's displacement on top of that it came out as clods of mud
-           * stuck to the outside of the instrument rather than as metal going off. Kept inside
-           * the rim at 3.6 and 2.2 it stains the brass instead of replacing it.
-           *
-           * Lighter, too. Oxide on brass is a warm ochre, not the near-black the first pass used:
-           * at 0.85 opacity in `#6d3a1c` the patches read as holes in the rim.
+           * It went round twice once, then once: the heavy brass bezel, and for a while a light
+           * line inside it. The 2026-09-19 pass took the inner line off and kept the bezel; this
+           * one takes the bezel, and the oxide that was drawn into it, since rust on a rim that
+           * is not there is a stain floating in the air. What is left ruling the outside of the
+           * bands is the grey channel line below, which is a hairline and reads as the edge of a
+           * painted scale rather than as a ring. The one bright brass line the dial keeps is the
+           * baseplate above, the bench the instrument is bolted to, with its own run of oxide.
            */}
           <g filter={`url(#${pen}-rust)`}>
-            <path
-              d={arc(R_RIM, -OVERSHOOT * 0.5, 1 + OVERSHOOT * 0.5)}
-              fill="none"
-              stroke="#bb7538"
-              strokeOpacity="0.55"
-              strokeWidth="3.6"
-              strokeLinecap="round"
-            />
-            <path
-              d={arc(R_RIM - 1.1, 0.07, 0.92)}
-              fill="none"
-              stroke="#8a4a24"
-              strokeOpacity="0.3"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-            />
-            {/* A little of it has run down the plate under the left shoulder, along the grain of
-                the baseplate rather than across it. */}
+            {/* A little rust run down the plate under the left shoulder, along the grain of the
+                baseplate rather than across it. */}
             <path
               d={`M 24 ${PIVOT.y - 1.4} L 52 ${PIVOT.y - 0.8}`}
               fill="none"

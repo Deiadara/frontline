@@ -97,13 +97,13 @@ export function bandFor(value: number): SkillBonusBand {
  * hundred and sixty-five rows nobody will read, and the shape of a job is what it singles out.
  *
  * **Exactly one `irreplaceable` per role**, checked at load below. It is the skill the chair is
- * *for*: a Head Spy who cannot move unseen is not a Head Spy who is a bit worse, they are somebody
+ * *for*: a Master of Whispers who cannot move unseen is not a Master of Whispers who is a bit worse, they are somebody
  * else. Everything else is a matter of degree.
  */
 export const ROLE_IMPORTANCE: Readonly<
   Record<OfficerRole, Readonly<Partial<Record<AttributeName, AttributeImportance>>>>
 > = {
-  head_spy: {
+  master_of_whispers: {
     stealth: 'irreplaceable',
     deception: 'essential',
     signals: 'essential',
@@ -230,14 +230,6 @@ export const ROLE_IMPORTANCE: Readonly<
     improvisation: 'useful',
     resolve: 'useful',
     leadership: 'useful',
-  },
-  scout: {
-    speed: 'irreplaceable',
-    stealth: 'essential',
-    navigation: 'essential',
-    dexterity: 'useful',
-    stamina: 'useful',
-    reflexes: 'useful',
   },
   consigliere: {
     logic: 'irreplaceable',

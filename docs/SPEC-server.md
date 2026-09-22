@@ -371,6 +371,92 @@ The city as authored starts with two contested districts open, Chrome Row and th
 Fields, and six shut, so breaking a gate is what puts a new board on the screen.
 `missions/board.test.ts` holds that count.
 
+### Spying (maintainer, 2026-09-22)
+
+Nothing about somebody else's garrison is free. The city read serves `garrisonSize: null` and a
+`defense` figure of the ground and the digging alone on every location the caller does not hold,
+and the battle board's `enemySize` is null unless the caller has a spy report on that ground. The
+old blur (their counter-intel against your intel, coarsened) is gone with `battle/intel.ts`; the
+`intel` bonus is spy points now and `intel_resistance` counter-spy points.
+
+A job is a scout party with a target and a price, sent from the Master of Whispers' chair
+(`spying/spying.ts`, shared arithmetic in `@frontline/shared`'s `spying/spying.ts`):
+
+- `POST /api/city/spy`: `{target, tier}`. `target` is `{kind: 'location', locationId}` on open
+  contested ground somebody else holds, or `{kind: 'gate', districtId}` on a player's district or
+  a contested district one party holds whole. The five tiers cost 100, 500, 2000, 5000 and 10000
+  caps (`SPY_TIER_SPECS`), taken at the send and never refunded. One job out at a time. The clock
+  is a scout party's (the road twice plus the looking, off the Whispers' sheet). Refusals:
+  `409 NO_FORCE` with nobody in the chair, `400 VALIDATION_ERROR` without the Scouting rung, on
+  your own ground, on unscouted ground or with a job already out; `400 INVALID_TARGET` on empty
+  ground or on a location inside a shut district ("the gate is the only thing to read");
+  `409 INSUFFICIENT_RESOURCES` without the caps. Answers with the district.
+- `POST /api/city/spy/recall`: `{}`. Inside the first tenth of the way out; the runners walk home
+  without a report and the caps stay spent.
+- The district read carries `spyRun` (the job out, wherever it is), `spyQuote` (`{minutes}`,
+  quoted on scouted ground away from home) and `spyBlocker` (`no_whispers` | `not_researched` |
+  null). Each location carries `latestSpyReport`. `GET /api/actions` carries `spyRun` for the
+  Monitor; `GET /api/battles` carries every report the crew ever wrote as `spyReports`.
+
+The contest (`spyScore` against `counterScore`): the spying side is the chair's fit points plus
+`intelYieldPercent` (people and ground), raised by the tier's share (0, 40%, 120%, 160%, 260%).
+The other side is a crew's Consigliere fit points plus `intelResistancePercent` (people only) plus
+ten points per gate level (the home Gate on a player's district, the captured gate on one held
+whole); looter and Combine ground carry flat points off the district's difficulty and the
+location's defence instead. The difference is a budget spent on bodies cheapest first, each body
+costing `1 + stealth / 36` at the stealth the holder actually fields. Accuracy is exposed bodies
+over countable bodies; under 25% the report fails and lists nothing. A report never names a unit
+that is not there, never a Specter (`UnitSpec.unspyable`), and never a Sleeper without the Whispers'
+seventh rung. The accuracy figure and the "unseen" estimate are frozen onto the report only when
+the crew has the fourth and sixth rungs at writing time.
+
+The world clock writes the report (`settleSpying`, after scouting) on the ground as it stands when
+the runners arrive, files it for ever, rings `spy_report` with a link to
+`/game/battles?spy=<id>`, and bumps the `spy_reports` tally on a report that stood. The holder
+hears nothing unless their Consigliere has the third rung (`spied_on`: which place), and learns who
+and how much with the fifth. Migration 0109 adds `spy_runs` and `spy_reports` and drops the six
+retired Whispers and Consigliere rung ids from saves.
+
+### The gate and the district, and moving between places (maintainer, 2026-09-22)
+
+A crew's army stands in three kinds of place, and each defends only its own:
+
+- **The district** (`Base.army`): home, where new units land. A raid inside a breach is met by
+  this and nothing else.
+- **The gate** (`Base.gateArmy`, migration 0110): the garrison at the door. A call on the gate is
+  met by this and nothing else. When the gate falls, whoever is left standing falls back into the
+  district; when it holds, they stay at the door and the ring goes back to the district. A spy on
+  a player's gate reads this garrison. It starts empty on every save: nobody is at the door until
+  somebody is walked there.
+- **Locations**: the garrison on ground the crew holds, plus any faction ally's posting on it
+  (`allied_garrisons`). Both stand in the line; a posting that held stays posted, one that fell
+  walks home to its owner, and ground that changed hands has no postings left on it. A posting is
+  reported as `garrisoned` on the roster and taken back out of `abroad`, so the census counts it
+  once.
+
+Winning attackers **stay and hold** what they took (`holdAfterCapture` defaults to true and the
+client no longer asks). Walking onto ground nobody holds **claims** it on arrival with no fight,
+the level as it stands and nothing dug in, and counts as a capture for the feats.
+
+`POST /api/actions/move`: `{from, to, army, vehicles}`, where a place is `{kind: 'district'}`,
+`{kind: 'gate'}` or `{kind: 'location', locationId}`. The source is anywhere the crew has people
+standing; the destination is the district, the gate, ground the crew holds or ground a faction
+ally holds (`UnitsResponse.moveDestinations`, with `standingAt` for what is on each). Vehicles
+ride only from the district, and they come back **on their own**: the column drops its people and
+the machines walk the same road home with nobody aboard, which is visible on the Monitor, is not
+recallable, and keeps drawing its unit slots until they are parked.
+
+The clock: district to gate or back is `MOVE_GATE_MINUTES` (10) at base, cut by the column's
+speed and the crew's road bonuses; inside the crew's own district, the same leg; from outside to
+the gate, the road between the districts; from outside to the district, the road and then the
+door. `POST /api/actions/move/quote` answers `{minutes}` for the same body with nothing moved.
+`POST /api/actions/move/recall`: `{moveId}`, inside the first tenth; the column walks back to
+where it came from. Refusals: `400` for the same place, nobody named, unscouted ground or a
+location somebody else holds ("call a fight instead"); `409 NO_FORCE` for units or machines not
+standing at the source, or scavengers bound for ground; `403` for a source the crew has nobody
+on. Columns settle on the world clock beside the ones bound for a fight, and `GET /api/actions`
+lists them as `moves`. The census counts the gate as its own place (`UnitsResponse.gateArmy`).
+
 ### Calling things off (maintainer, 2026-09-12)
 
 One rule for everything that takes time, in `@frontline/shared`'s `time/cancel.ts`: a thing can be
@@ -520,11 +606,13 @@ district, resolved history included, so the repo carries no legacy branch.
   Garage section below for what a machine is worth on the road.
 - `POST /api/battles/lead`: `{battleId, officerId}`, or `officerId: null` to stand somebody down.
   One officer, one fight, and one duty at a time (`crew/duty.ts`): somebody already leading a fight,
-  walking home from a scouting run, laid up, or **out leading a run** is refused with `403` and the
-  hold's own sentence, the same one the missions board dims them with and the launch refuses them
-  with. `POST /api/city/scout` reads the same function and refuses the same way, with the sentence
-  in place of its flat "they are already out". The rule runs in both directions: a leader in a
-  fight cannot lead a run, and a leader on a run cannot be named to a fight or sent scouting.
+  laid up, or **out leading a run** is refused with `403` and the hold's own sentence, the same one
+  the missions board dims them with and the launch refuses them with. The rule runs in both
+  directions: a leader in a fight cannot lead a run, and a leader on a run cannot be named to a
+  fight. Scouting is no longer a hold (2026-09-22): a scout party is the Master of Whispers'
+  people, sent from their chair, and nobody of yours walks. `POST /api/city/scout` needs that chair
+  filled and its first rung, Scouting, finished; it refuses `NO_FORCE` without the chair and
+  `VALIDATION_ERROR` without the rung, and the district read says which as `scoutBlocker`.
 - `POST /api/battles/trap`: `{locationId, trapId}`. One armed trap per location, gated on the Lab.
 - `POST /api/battles/boost`: `{battleId, boostId}`. Burns a name on one fight, and only the crew
   whose fight it is may do it, so an ally cannot spend the slot the principal was going to use.
@@ -547,14 +635,14 @@ the crew's runs, what just came home, the boards, the army at home, and two fiel
 - **`leaders`** is the bench, from `apps/server/src/missions/leaders.ts`: the **Overseer first**,
   kind `overseer`, then every officer on the books in roster order, kind `officer`. Each carries the
   sheet the screen scores them with and one reason they cannot go: `held`, one of `run`, `fight`,
-  `scouting`, `injury` or `null`, with `heldUntil` set to the mark they are free at wherever the
-  server knows one (the run's return, the scouting run's, the end of the injury). A declared fight
+  `injury` or `null`, with `heldUntil` set to the mark they are free at wherever the server knows
+  one (the run's return, the end of the injury). A declared fight
   has no such mark until it settles, so `held: 'fight'` always carries `heldUntil: null`.
   - An officer's `held` is `officerDuty` (`apps/server/src/crew/duty.ts`), the same question the
-    three dispatch doors ask before they refuse, asked in one order: injured, at a fight, out on a
-    run, out scouting. A dimmed row and a `409` therefore never disagree about why.
+    dispatch doors ask before they refuse, asked in one order: injured, at a fight, out on a
+    run. A dimmed row and a `409` therefore never disagree about why.
   - **The Overseer is only ever held by a run they lead.** They are not on the books, so no
-    declared fight and no scouting party can name them, and §D4's injuries belong to officers.
+    declared fight can name them, and §D4's injuries belong to officers.
     Their half is the run join alone: the row's `overseerLed` flag, where an officer's is
     `officerId`.
   - Both this and the boards read the runs still out through `listActiveByBaseId`, never by

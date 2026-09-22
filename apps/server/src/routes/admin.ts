@@ -352,7 +352,10 @@ export function registerAdminRoutes(app: FastifyInstance): void {
           ...control,
           holder: { kind: 'unoccupied' },
           garrison: {},
-          level: 0,
+          // Level 1, not 0: `LocationControlSchema.level` has a floor of 1, and a row written
+          // under it made every read of the control table throw, so the world clock failed on
+          // every tick after a Clean slate and the game never came back (maintainer, 2026-09-22).
+          level: 1,
           fortification: 0,
           fortifyingUntil: null,
           upgradingUntil: null,

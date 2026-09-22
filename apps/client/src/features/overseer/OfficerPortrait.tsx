@@ -74,7 +74,16 @@ export function OfficerPortrait({
         <img
           src={painted}
           alt=""
-          // The delivery frames the face in the central seventy percent, so any crop keeps it.
+          /*
+           * The delivery frames the face in the central seventy percent, and the crop is aimed
+           * high (maintainer, 2026-09-22: the top of the head is sometimes cropped).
+           *
+           * Centred, a box even slightly wider than the delivery's 4:5 takes its first bite out
+           * of the skull. `-10%` puts the picture's top edge level with the box's and then
+           * slides it a tenth of the overflow lower still, so the air above the head grows and
+           * the bite comes off the bottom. A box that is exactly 4:5 has no overflow to spend.
+           */
+          style={{ objectPosition: '50% -10%' }}
           className={cn(
             '!absolute inset-0 h-full w-full object-cover',
             // Desaturated under the wash rather than only tinted: a red film over a full-colour

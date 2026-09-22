@@ -22,6 +22,7 @@ import { Button } from '../../components/ui/Button';
 import { DeltaFloat } from '../../components/ui/Delta';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
+import { DrawnGlyph } from '../../components/ui/DrawnMarks';
 import { NumberField } from '../../components/ui/NumberField';
 import { InfoWindow, WindowSection } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
@@ -360,7 +361,20 @@ export function UnitCard({
                     2026-09-15), so the cost a unit puts on it is a slot, not a "pop". Not on a
                     Combine sheet: nothing of theirs sleeps in the player's beds (maintainer,
                     2026-09-21). */}
-                {!enemy && ` · ${unit.unitSlots} ${unit.unitSlots === 1 ? 'slot' : 'slots'}`}
+                {!enemy && (
+                  <>
+                    {' · '}
+                    {/* The slot figure wears the same drawn head-and-shoulders the district's
+                        slot chip and the Monitor draw (maintainer, 2026-09-22), so "1 slot" on
+                        a card and "17 / 26" on the chip are visibly the same count. Inline and
+                        a hair under the cap height, so it sits in the line rather than on it. */}
+                    <DrawnGlyph
+                      name="unit-slots"
+                      className="relative -top-px inline-block h-3 w-3 text-ink-200"
+                    />{' '}
+                    {unit.unitSlots} {unit.unitSlots === 1 ? 'slot' : 'slots'}
+                  </>
+                )}
               </span>
             </HoverCard>
           </span>

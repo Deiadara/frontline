@@ -105,8 +105,8 @@ function renderCrew() {
 /** Open the chair window on an empty seat, which is where the roster line is drawn. */
 async function openEmptyChair() {
   renderCrew();
-  await waitFor(() => expect(screen.getByTestId('seat-head_spy')).toBeInTheDocument());
-  fireEvent.click(screen.getByTestId('seat-head_spy'));
+  await waitFor(() => expect(screen.getByTestId('seat-master_of_whispers')).toBeInTheDocument());
+  fireEvent.click(screen.getByTestId('seat-master_of_whispers'));
   return screen.getByTestId('chair-window');
 }
 
@@ -219,7 +219,7 @@ describe('when the books refuse a change', () => {
 
     renderCrew();
     // An empty chair, opened from the grid: assigning from the bench is the same mutation.
-    fireEvent.click(await screen.findByTestId('seat-head_spy'));
+    fireEvent.click(await screen.findByTestId('seat-master_of_whispers'));
     const bench = await screen.findByTestId('bench-picker');
     fireEvent.click(within(bench).getAllByRole('button')[0]!);
 

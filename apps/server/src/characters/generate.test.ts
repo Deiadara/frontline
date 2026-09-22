@@ -170,7 +170,7 @@ describe('generateCharacter', () => {
  *    answer. Strengths used to be the template's own top-k, so containment was automatic and
  *    ~91% of sheets named their role outright.
  *  - **signal**: is the affinity still genuinely the recruit's best role? It has to be: a
- *    recruit shaped for head_spy really is the best head_spy. The player simply cannot *prove*
+ *    recruit shaped for master_of_whispers really is the best master_of_whispers. The player simply cannot *prove*
  *    it, and cannot compute `roleFit` at all, because the weights never leave the server.
  *    Selling that certainty is what the §B9 research task (W7) is for.
  */
@@ -332,7 +332,7 @@ describe('what a sheet gives away about its affinity (B8)', () => {
 
   /**
    * The other direction, and the reason the leak bounds above are bounds rather than targets: the
-   * roll still has to *mean* something. A recruit shaped for head_spy really is the best head_spy
+   * roll still has to *mean* something. A recruit shaped for master_of_whispers really is the best master_of_whispers
    * on the roster; the player simply cannot prove it. Had de-fingerprinting reduced the sheet to
    * noise, mean rank would sit near 10 of 19 and every assertion above would still pass.
    *

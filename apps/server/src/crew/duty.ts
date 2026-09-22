@@ -69,9 +69,6 @@ export function officerDuty(
     .listActiveByBaseId(base.id)
     .find((entry) => entry.mission.officerId === officer.id);
   if (run) return { held: 'run', until: missionCompletesAt(run.mission).toISOString() };
-  const scouting = repos.scouting
-    .activeFor(base.id)
-    .find((entry) => entry.officerId === officer.id);
-  if (scouting) return { held: 'scouting', until: scouting.returnsAt };
+  // No scouting hold since 2026-09-22: a scout party takes nobody with it.
   return null;
 }

@@ -41,6 +41,13 @@ import {
   UnledRuleSchema,
 } from './missions.leading.js';
 import { OverseerPresetSchema, OverseerSchema } from './overseer.js';
+import { MoveDestinationSchema, MovePlaceSchema } from './moves/index.js';
+import {
+  SpyReportSchema,
+  SpyRunViewSchema,
+  SpyTargetSchema,
+  SpyTierSchema,
+} from './spying/index.js';
 import { TrainingSessionSchema } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { ResourceKeySchema } from './resources.js';
@@ -321,14 +328,28 @@ export const LocationViewSchema = z.object({
    */
   upgradingSince: IsoDateTimeSchema.nullable(),
   fortifyingSince: IsoDateTimeSchema.nullable(),
-  /** What an attacker has to beat: the ground, the digging and whoever is standing on it. */
+  /**
+   * What an attacker has to beat. On this crew's own ground: the ground, the digging and whoever
+   * is standing on it. On anybody else's: the ground and the digging alone, because the standing
+   * part is a head count and a head count is what a spy job is for (maintainer, 2026-09-22).
+   */
   defense: z.number().nonnegative(),
-  garrisonSize: z.number().int().nonnegative(),
+  /**
+   * How many are standing here: **only** for locations this crew holds. Null on anybody else's
+   * ground, where nothing about the garrison is known until a spy report says it. It used to be a
+   * blurred figure for free; the blur is gone with the intel it was sharpened by.
+   */
+  garrisonSize: z.number().int().nonnegative().nullable(),
   /**
    * Exactly who is standing here: **only** for locations this crew holds. Null otherwise, because
-   * the composition of somebody else's garrison is the thing scouting would be for.
+   * the composition of somebody else's garrison is the thing spying is for.
    */
   garrison: ArmySchema.nullable(),
+  /**
+   * The last spy report this crew wrote on this place, or null. The sheet quotes it rather than
+   * a live figure: what the spies saw the night they looked is what the crew knows.
+   */
+  latestSpyReport: SpyReportSchema.nullable().default(null),
   /** Each hold bonus in one line, at this location's current level. */
   bonuses: z.array(z.string().min(1)),
   reward: z.string().min(1),
@@ -352,7 +373,9 @@ export type LocationView = z.infer<typeof LocationViewSchema>;
 export const ScoutingRunViewSchema = z.object({
   districtId: IdSchema,
   districtName: z.string(),
-  officerId: IdSchema,
+  /** Null since 2026-09-22: a scout party is nobody in particular. Old runs still name who went. */
+  officerId: IdSchema.nullable(),
+  /** "Scout Party" for a run with nobody on it, which is every run sent since 2026-09-22. */
   officerName: z.string(),
   departedAt: IsoDateTimeSchema,
   returnsAt: IsoDateTimeSchema,
@@ -440,12 +463,41 @@ export const DistrictDetailResponseSchema = z.object({
    */
   scoutPlan: z
     .object({
-      officerId: IdSchema,
-      officerName: z.string(),
-      /** There, on the ground, and back. */
+      /** There, on the ground, and back. Priced off the Master of Whispers' sheet. */
       minutes: z.number().int().nonnegative(),
     })
     .nullable(),
+  /**
+   * Why a party cannot be sent from here today, or null when it can (2026-09-22). Said on the
+   * wire rather than worked out on the client, so the panel and the route refuse for one reason.
+   */
+  scoutBlocker: z.enum(['no_whispers', 'not_researched']).nullable(),
+  /**
+   * The spy job this crew has out, wherever it is looking, or null (maintainer, 2026-09-22).
+   * One at a time, like a scout party, and for the same reason the scout run is on every
+   * district read: a player pricing a second job needs to know the runners are already out.
+   */
+  spyRun: SpyRunViewSchema.nullable().default(null),
+  /**
+   * How long a job on ground in this district would take, or null when none could be sent.
+   * The caps are the tier's, off `SPY_TIER_SPECS`, and are not quoted twice.
+   */
+  spyQuote: z.object({ minutes: z.number().int().nonnegative() }).nullable().default(null),
+  /**
+   * Why no job can be sent today, or null.
+   *
+   * One reason, unlike the scout panel's two: spying is gated on the chair alone (maintainer,
+   * 2026-09-22), so there is no rung to be missing.
+   */
+  spyBlocker: z.literal('no_whispers').nullable().default(null),
+  /**
+   * The last report this crew wrote on **this district's gate**, or null.
+   *
+   * A location carries its own on `LocationView.latestSpyReport`; a gate is not a location and
+   * had nowhere to put one, so the door's own window told a crew that had already read it that
+   * nobody of theirs had ever looked.
+   */
+  spyGateReport: SpyReportSchema.nullable().default(null),
   serverNow: IsoDateTimeSchema,
 });
 export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema>;
@@ -491,15 +543,9 @@ export const UpgradeLocationRequestSchema = z.object({
 });
 export type UpgradeLocationRequest = z.infer<typeof UpgradeLocationRequestSchema>;
 
+/** Nobody is named: a scout party is the Master of Whispers' to send (2026-09-22). */
 export const ScoutRequestSchema = z.object({
   districtId: IdSchema,
-  /**
-   * Who goes. Omitted, the crew sends its Scout, or its best sheet if the chair is empty.
-   *
-   * Optional rather than required because the default is nearly always the right answer and a
-   * required field would make the common case a two-step decision. See `defaultScout`.
-   */
-  officerId: IdSchema.optional(),
 });
 export type ScoutRequest = z.infer<typeof ScoutRequestSchema>;
 
@@ -675,6 +721,14 @@ export const UnitsResponseSchema = z.object({
   serverNow: IsoDateTimeSchema,
   units: z.array(UnitOptionSchema),
   army: ArmySchema,
+  /** The gate garrison (2026-09-22): at the door, drawing the same beds as everybody else. */
+  gateArmy: ArmySchema.default({}),
+  /** Every place a column could be walked to, for the Move dialog: yours, then the faction's. */
+  moveDestinations: z.array(MoveDestinationSchema).default([]),
+  /** What stands on each held or posted location, by location id, for the Move dialog's source. */
+  standingAt: z.record(z.string(), ArmySchema).default({}),
+  /** The yard, for the machines a column from the district can ride in. */
+  fleet: FleetSchema.default({}),
   /** Units standing on captured places, summed across the city. */
   garrisoned: ArmySchema,
   /**
@@ -802,6 +856,37 @@ export type CancelLocationWorkRequest = z.infer<typeof CancelLocationWorkRequest
 /** `POST /city/scout/recall`: the one scout out. */
 export const RecallScoutRequestSchema = z.object({});
 export type RecallScoutRequest = z.infer<typeof RecallScoutRequestSchema>;
+
+/** `POST /city/spy`: one place, one tier. The caps are the tier's and are taken at the send. */
+export const SpyRequestSchema = z.object({
+  target: SpyTargetSchema,
+  tier: SpyTierSchema,
+});
+export type SpyRequest = z.infer<typeof SpyRequestSchema>;
+
+/** `POST /city/spy/recall`: the one job out. The caps stay spent. */
+export const RecallSpyRequestSchema = z.object({});
+export type RecallSpyRequest = z.infer<typeof RecallSpyRequestSchema>;
+
+/** `POST /actions/move`: a column from one of the crew's places to another (2026-09-22). */
+export const MoveUnitsRequestSchema = z.object({
+  from: MovePlaceSchema,
+  to: MovePlaceSchema,
+  army: ArmySchema,
+  /** Only from the district: the yard is at home. */
+  vehicles: FleetSchema.default({}),
+});
+export type MoveUnitsRequest = z.infer<typeof MoveUnitsRequestSchema>;
+
+/** `POST /actions/move/quote`: the same body, answered with the clock and nothing moved. */
+export const MoveQuoteResponseSchema = z.object({
+  minutes: z.number().int().nonnegative(),
+});
+export type MoveQuoteResponse = z.infer<typeof MoveQuoteResponseSchema>;
+
+/** `POST /actions/move/recall`: one column, inside its first tenth. */
+export const RecallMoveRequestSchema = z.object({ moveId: IdSchema });
+export type RecallMoveRequest = z.infer<typeof RecallMoveRequestSchema>;
 
 /** `POST /training/cancel`: one officer's drill. */
 export const CancelDrillRequestSchema = z.object({ sessionId: IdSchema });

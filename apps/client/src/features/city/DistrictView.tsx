@@ -26,6 +26,7 @@ import { WeatherBanner } from '../../components/ui/WeatherBanner';
 import { CombineLeaderTag } from './CombineLeader';
 import { ContestedScene, hasPainting } from './ContestedScene';
 import { LocationSheet, cardHeadingId, cardId, crewFileHref } from './LocationSheet';
+import { SpyDialog } from './SpyPanel';
 import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
 import { DistrictScene } from '../base/DistrictScene';
 import { cn } from '../../lib/cn';
@@ -74,6 +75,8 @@ export function DistrictView() {
   const [calling, setCalling] = useState<BattleTarget | null>(null);
   /** The location whose sign was last clicked on the painting, ringed until the next click. */
   const [picked, setPicked] = useState<string | null>(null);
+  /** The gate's own spy window on the panel view, which has no painting to hang one off. */
+  const [spyingGate, setSpyingGate] = useState(false);
 
   const data = query.data;
   const army = me.data?.base?.army ?? {};
@@ -101,6 +104,11 @@ export function DistrictView() {
    * whole twenty. `ScoutPanel` below learnt the same lesson first and says why.
    */
   const now = useServerClock(data?.serverNow, query.dataUpdatedAt);
+  // A door this crew is standing behind is not one it spies on: the route refuses `own_ground`.
+  const ownGround =
+    data?.holder?.kind === 'crew'
+      ? data.holder.baseId === baseId
+      : data?.base?.id !== undefined && data.base.id === baseId;
 
   if (!data) {
     /*
@@ -177,6 +185,8 @@ export function DistrictView() {
         declare={declare}
         onDone={() => setCalling(null)}
         now={now}
+        baseId={baseId}
+        caps={me.data?.base?.resources.caps ?? 0}
       />
     );
   }
@@ -297,8 +307,8 @@ export function DistrictView() {
                       ? 'One party holds every location in here, so there is no way in but the front. Break the gate and everything behind it is reachable for a day.'
                       : `The way in is open until ${formatClock(new Date(gate.brokenUntil), zone)}. Everything behind it can be taken while it lasts.`}
                   </p>
-                  {gate.brokenUntil === null && (
-                    <div>
+                  <div className="flex flex-wrap gap-2">
+                    {gate.brokenUntil === null && (
                       <Button
                         size="sm"
                         variant="danger"
@@ -307,8 +317,21 @@ export function DistrictView() {
                       >
                         Call a fight at the gate
                       </Button>
-                    </div>
-                  )}
+                    )}
+                    {/* The other thing to do about a shut door (maintainer, 2026-09-22): read
+                        it. A district held end to end has nothing inside it a runner can reach,
+                        so the gate is the one target, and the route refuses a crew's own door. */}
+                    {!ownGround && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        data-testid="spy-gate"
+                        onClick={() => setSpyingGate(true)}
+                      >
+                        Spy on the gate
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </Panel>
             )}
@@ -358,6 +381,7 @@ export function DistrictView() {
                   resources={me.data?.base?.resources ?? EMPTY_STOCK}
                   shut={gate?.shut === true && gate.brokenUntil === null}
                   now={now}
+                  spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
                   onCall={() =>
                     setCalling({
                       kind: 'location',
@@ -369,6 +393,24 @@ export function DistrictView() {
               ))}
             </div>
           </>
+        )}
+
+        {spyingGate && (
+          <SpyDialog
+            target={{ kind: 'gate', districtId: data.district.id }}
+            title="Spy on the gate"
+            eyebrow={districtDisplayName(data.district, viewer)}
+            blurb="One party holds the whole district, so the door is armed and it is the only thing your runners can read from outside. What comes back is what stands behind it."
+            placeName="the gate"
+            districtId={data.district.id}
+            baseId={baseId}
+            caps={me.data?.base?.resources.caps ?? 0}
+            spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+            latest={data.spyGateReport}
+            now={now}
+            testId="spy-gate-panel"
+            onClose={() => setSpyingGate(false)}
+          />
         )}
 
         {calling && (
@@ -467,7 +509,7 @@ function ScoutPanel({
     <>
       <CancelMark
         windowMs={scoutRecallWindowMs(run, now)}
-        label={`Turn ${run.officerName} round`}
+        label={`Turn the ${run.officerName} round`}
         pending={recall.isPending}
         onCancel={() => recall.mutate({})}
         data-testid="recall-scout"
@@ -487,13 +529,13 @@ function ScoutPanel({
         <p className="font-body text-xs leading-relaxed text-ink-300">
           {run.recalledAt === null ? (
             <>
-              <span className="text-ink-100">{run.officerName}</span> is on the road. The street
+              The <span className="text-ink-100">{run.officerName}</span> is on the road. The street
               opens when they are back.
             </>
           ) : (
             <>
-              <span className="text-ink-100">{run.officerName}</span> turned round and is walking
-              home. The street stays shut: they never got here.
+              The <span className="text-ink-100">{run.officerName}</span> turned round and is
+              walking home. The street stays shut: they never got here.
             </>
           )}
         </p>
@@ -508,9 +550,9 @@ function ScoutPanel({
     return (
       <div className="flex flex-col gap-2 p-4" data-testid="scout-elsewhere">
         <p className="font-body text-xs leading-relaxed text-ink-300">
-          Nobody from this crew has been here, and{' '}
+          Nobody from this crew has been here, and the{' '}
           <span className="text-ink-100">{run.officerName}</span> is already out at{' '}
-          <span className="text-ink-100">{run.districtName}</span>. One scout at a time.
+          <span className="text-ink-100">{run.districtName}</span>. One party at a time.
         </p>
         <Waiting until={run.returnsAt} now={now} />
         {turnRound}
@@ -519,27 +561,37 @@ function ScoutPanel({
   }
 
   const plan = data.scoutPlan;
+  /*
+   * Scouting is the Master of Whispers' work (maintainer, 2026-09-22): a party of theirs goes,
+   * nobody of yours walks. The two ways it can be refused are said here in the words the route
+   * refuses in, so a player is never told "send them" over a button that answers no.
+   */
+  const blocker = data.scoutBlocker;
   return (
     <div className="flex flex-col gap-3 p-4">
       <p className="font-body text-xs leading-relaxed text-ink-300">
-        Nobody from this crew has been here. Send somebody to walk it and the street opens up.
+        Nobody from this crew has been here. Send a scout party and the street opens up.
       </p>
-      {plan === null ? (
+      {blocker !== null || plan === null ? (
         <p
           className="font-body text-xs leading-relaxed text-oxblood-300"
           data-testid="scout-nobody"
         >
-          You have nobody to send. Sign somebody at the Bar first.
+          {blocker === 'not_researched'
+            ? 'Your Master of Whispers has not worked Scouting out yet. It is the first thing on their track.'
+            : blocker === 'no_whispers'
+              ? 'Nobody is in the Master of Whispers chair. Scouting is their work: sign one at the Bar and seat them.'
+              : 'There is no road between here and home for a party to walk.'}
         </p>
       ) : (
         <>
           <p className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
-            <span className="text-brass-300">{plan.officerName}</span> would be gone{' '}
+            <span className="text-brass-300">A scout party</span> would be gone{' '}
             <span className="tabular-nums text-brass-300">{formatSpan(plan.minutes)}</span>
           </p>
           <div>
             <Button size="sm" disabled={pending} onClick={onSend} data-testid="send-scout">
-              {pending ? 'Sending…' : 'Send them'}
+              {pending ? 'Sending…' : 'Send a scout party'}
             </Button>
           </div>
         </>
@@ -595,6 +647,8 @@ function VisitedDistrict({
   declare,
   onDone,
   now,
+  baseId,
+  caps,
 }: {
   data: DistrictDetailResponse;
   gate: { districtId: string; shut: boolean; brokenUntil: string | null } | undefined;
@@ -607,8 +661,12 @@ function VisitedDistrict({
   declare: ReturnType<typeof useDeclareBattle>;
   onDone: () => void;
   now: Date;
+  /** The reader, for the spy control: their own door is not something they spy. */
+  baseId: string | undefined;
+  caps: number;
 }) {
   const [picked, setPicked] = useState<BuildingKind | null>(null);
+  const [spying, setSpying] = useState(false);
   const standing =
     picked === null ? undefined : data.residentBuildings.find((b) => b.kind === picked);
 
@@ -703,6 +761,18 @@ function VisitedDistrict({
               Break the gate
             </Button>
           )}
+          {/* Spying (2026-09-22): a player's district is read at its gate and nowhere else. The
+              dialog is the same panel a location sheet carries, pointed at the door. */}
+          {data.base && data.base.id !== baseId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="spy-gate"
+              onClick={() => setSpying(true)}
+            >
+              Spy on the gate
+            </Button>
+          )}
           {data.raidable && breached && (
             <Button
               size="sm"
@@ -722,6 +792,24 @@ function VisitedDistrict({
           standing={standing}
           districtName={name}
           onClose={() => setPicked(null)}
+        />
+      )}
+
+      {spying && (
+        <SpyDialog
+          target={{ kind: 'gate', districtId: data.district.id }}
+          title="Spy on the gate"
+          eyebrow={name}
+          blurb="A crew's district is read at its door and nowhere else. What comes back is what stands behind the gate, as far as your runners could see past it."
+          placeName="the gate"
+          districtId={data.district.id}
+          baseId={baseId}
+          caps={caps}
+          spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+          latest={data.spyGateReport}
+          now={now}
+          testId="spy-gate-panel"
+          onClose={() => setSpying(false)}
         />
       )}
 
@@ -846,6 +934,8 @@ function ContestedDistrict({
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [standing, setStanding] = useState(false);
+  const [spying, setSpying] = useState(false);
+  const heldByYou = data.holder?.kind === 'crew' && data.holder.baseId === baseId;
   const picked = data.locations.find((view) => view.location.id === open);
   const shut = gate?.shut === true && gate.brokenUntil === null;
   /*
@@ -989,6 +1079,26 @@ function ContestedDistrict({
               The gate is armed
             </span>
           )}
+          {/*
+           * Spying a shut district (maintainer, 2026-09-22).
+           *
+           * One party holds every location here, so the gate is armed and the only thing a
+           * runner can read from outside is the door itself (`spying/spying.ts` refuses a
+           * location inside it with `not_the_gate`). Without this the rule had no door on the
+           * client: the location sheets sent the player to "the district's own screen" and the
+           * district's own screen offered nothing. Not on a district this crew holds end to
+           * end, where the route refuses its own door (`own_ground`).
+           */}
+          {shut && !heldByYou && (
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="spy-gate"
+              onClick={() => setSpying(true)}
+            >
+              Spy on the gate
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1030,6 +1140,24 @@ function ContestedDistrict({
         )}
       </div>
 
+      {spying && (
+        <SpyDialog
+          target={{ kind: 'gate', districtId: data.district.id }}
+          title="Spy on the gate"
+          eyebrow={data.district.name}
+          blurb="One party holds the whole district, so the door is armed and it is the only thing your runners can read from outside. What comes back is what stands behind it."
+          placeName="the gate"
+          districtId={data.district.id}
+          baseId={baseId}
+          caps={resources.caps}
+          spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
+          latest={data.spyGateReport}
+          now={now}
+          testId="spy-gate-panel"
+          onClose={() => setSpying(false)}
+        />
+      )}
+
       {picked && (
         <Modal
           onClose={() => setOpen(null)}
@@ -1056,6 +1184,7 @@ function ContestedDistrict({
               resources={resources}
               shut={shut}
               now={now}
+              spying={{ run: data.spyRun, quote: data.spyQuote, blocker: data.spyBlocker }}
               onCall={() => {
                 onCall({
                   kind: 'location',

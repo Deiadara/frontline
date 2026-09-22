@@ -34,7 +34,8 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { trainingBreakdownFor } from './breakdown.js';
 import { trainingRatesFor, unlockContextFor } from './training.js';
-import { mergeArmies } from '../battle/forces.js';
+import { mergeArmies, removeForce } from '../battle/forces.js';
+import { moveDestinationsFor, postedUnits } from '../moves/moves.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
 
@@ -45,6 +46,20 @@ import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
  * needs to see that the Colossus wants a Garage at 16 *and* a war machine graveyard: a list that
  * hid everything unavailable would hide exactly the thing that makes the campaign legible.
  */
+
+/** The same, per location, with the crew's postings on allies' ground beside its own garrisons. */
+function standingAtFor(repos: Repositories, base: Base): Record<string, Army> {
+  const controls = repos.city.controls();
+  const out: Record<string, Army> = {};
+  for (const location of CITY_LOCATIONS) {
+    const control = controls.get(location.id);
+    if (control && isHeldBy(control, base.id) && Object.keys(control.garrison).length > 0) {
+      out[location.id] = control.garrison;
+    }
+  }
+  for (const posted of repos.alliedGarrisons.forBase(base.id)) out[posted.locationId] = posted.army;
+  return out;
+}
 
 /** Units this crew has standing on captured locations, summed across the city. */
 export function garrisonedUnits(repos: Repositories, base: Base): Army {
@@ -139,9 +154,19 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
   // The instant the roster is being drawn at, so a disrupted crew's price and its breakdown
   // agree about whether the raid is still biting.
   const rates = trainingRatesFor(repos, base, now);
-  const garrisoned = garrisonedUnits(repos, base);
-  const abroad = unitsAbroad(repos, base);
-  const slots = districtUnitSlots(repos, base, garrisoned);
+  /*
+   * Held ground: the crew's own garrisons and its postings on a faction ally's (2026-09-22).
+   *
+   * A posting is standing on ground, so it is reported as held, and it is taken back out of
+   * `abroad`: `unitsAbroad` counts it because the *slot* draw has to count it exactly once, and
+   * the census reads these two fields as separate places. Left in both, every posted unit was
+   * drawn twice on the one screen whose whole job is counting.
+   */
+  const posted = postedUnits(repos, base);
+  const held = garrisonedUnits(repos, base);
+  const garrisoned = mergeArmies(held, posted);
+  const abroad = removeForce(unitsAbroad(repos, base), posted);
+  const slots = districtUnitSlots(repos, base, held);
 
   // The player's roster: the Combine's sheets are met, never offered (`UnitSpec.faction`).
   const units: UnitOption[] = PLAYER_UNITS.map((unit) => {
@@ -224,6 +249,10 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
     serverNow: now.toISOString(),
     units,
     army: base.army,
+    gateArmy: base.gateArmy ?? {},
+    moveDestinations: moveDestinationsFor(repos, base),
+    standingAt: standingAtFor(repos, base),
+    fleet: base.fleet,
     garrisoned,
     abroad,
     /*

@@ -76,7 +76,7 @@ interface RecruitCardProps {
    * §C2: which chair to read this person's sheet against, if the player has picked one.
    *
    * Lives on the seat screen rather than on the card, so it survives stepping to the next person:
-   * the question a player is asking is "who here fits the Head Spy's chair", and having to
+   * the question a player is asking is "who here fits the Master of Whispers' chair", and having to
    * re-choose the chair for every candidate is the screen answering a different question.
    */
   highlightRole: OfficerRole | null;
@@ -616,7 +616,7 @@ function StoolDialog({
   /**
    * Which chair the sheet is being read against, held here rather than on the card.
    *
-   * The player's question is "who at this bar fits the Head Spy's chair", so the chair survives
+   * The player's question is "who at this bar fits the Master of Whispers' chair", so the chair survives
    * stepping to the next person. Held on the card it would reset every time an arrow was pressed,
    * which turns one question into nineteen.
    */

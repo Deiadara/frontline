@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { PRESS_WINDOW_MS, claimRow, forgetPresses, recentPress, releaseRow } from './lastPress';
+import {
+  PRESS_WINDOW_MS,
+  claimRow,
+  forgetPresses,
+  installLastPress,
+  recentPress,
+  releaseRow,
+} from './lastPress';
 
 /**
  * The press a receipt lands beside, and the rows figures from one press take.
@@ -19,7 +26,63 @@ describe('recentPress', () => {
   });
 });
 
+/**
+ * Two quick presses of one button are one column (maintainer, 2026-09-22).
+ *
+ * Every press minted a fresh id, and a readout stacks its figures per press id, so pressing Train
+ * twice drew the second pair of receipts over the first at the same pixel. A press on the same
+ * control inside the window keeps the id; a press somewhere else, or after the window, is new.
+ */
+describe('pressing the same control again', () => {
+  const box = (top: number, left: number) => ({
+    top,
+    bottom: top + 32,
+    left,
+    right: left + 80,
+    width: 80,
+    height: 32,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  });
+  const press = (button: HTMLButtonElement) =>
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+  it('keeps one press id for the same button, and mints another for a different one', () => {
+    installLastPress(document);
+    const train = document.createElement('button');
+    const other = document.createElement('button');
+    train.getBoundingClientRect = () => box(400, 600);
+    other.getBoundingClientRect = () => box(400, 900);
+    document.body.append(train, other);
+
+    press(train);
+    const first = recentPress();
+    expect(first).not.toBeNull();
+    press(train);
+    expect(recentPress()?.id, 'the second press of Train opened a second column').toBe(first!.id);
+    press(other);
+    expect(recentPress()?.id, 'a press elsewhere is not the same column').not.toBe(first!.id);
+    train.remove();
+    other.remove();
+  });
+});
+
 describe('rows under one press', () => {
+  /**
+   * One row per figure, not per readout (maintainer, 2026-09-22). A readout holding two receipts
+   * drew its second through the next readout's first: caps on rows 0 and 1, supplies on 1 and 2.
+   */
+  it('reserves as many rows as a readout has figures', () => {
+    expect(claimRow(9, 'caps', 2)).toBe(0);
+    expect(claimRow(9, 'supplies', 2)).toBe(2);
+    // A readout that grows keeps its place and pushes the ones after it down.
+    expect(claimRow(9, 'caps', 3)).toBe(0);
+    expect(claimRow(9, 'supplies', 2)).toBe(3);
+    releaseRow(9, 'caps');
+    releaseRow(9, 'supplies');
+  });
+
   it('hands each readout its own row, keeps it, and closes the gap when one leaves', () => {
     expect(claimRow(7, 'caps')).toBe(0);
     expect(claimRow(7, 'scrap')).toBe(1);

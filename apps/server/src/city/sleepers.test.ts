@@ -467,8 +467,11 @@ describe('what the ground says about them', () => {
       places.length,
       'the rival sees no locations at all, so this proves nothing',
     ).toBeGreaterThan(0);
+    // Since 2026-09-22 nobody's count is served for free, cell or no cell: the figure is null on
+    // every place the rival does not hold, and the report a spy job writes is where a cell would
+    // have to leak, which `spying/spying.test.ts` holds shut without the rung.
     const place = places.find((one) => one.location.id === world.locationId);
-    expect(place?.garrisonSize, 'the cell was counted as a garrison').toBe(0);
+    expect(place?.garrisonSize, 'the cell was counted as a garrison').toBeNull();
   });
 });
 

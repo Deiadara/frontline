@@ -295,7 +295,7 @@ describe('the leader picker', () => {
         OVERSEER,
         leader('h-run', 'Rosa Vey', 'officer', makeAttributes(20), 'run', backAt),
         leader('h-fight', 'Tam Brisk', 'officer', makeAttributes(20), 'fight', null),
-        leader('h-scout', 'Nils Amadi', 'officer', makeAttributes(20), 'scouting', backAt),
+        // No scouting hold since 2026-09-22: a scout party takes nobody with it.
         leader('h-hurt', 'Bea Quill', 'officer', makeAttributes(20), 'injury', backAt),
       ]),
     );
@@ -307,7 +307,6 @@ describe('the leader picker', () => {
     const expected: [string, string][] = [
       ['Rosa Vey', `out leading a run, ${HELD_TEXT}`],
       ['Tam Brisk', 'at a fight'],
-      ['Nils Amadi', `out scouting, ${HELD_TEXT}`],
       ['Bea Quill', `laid up, ${HELD_TEXT}`],
     ];
     for (const [name, reason] of expected) {
@@ -324,7 +323,7 @@ describe('the leader picker', () => {
 
   it('skips every held leader when it picks the most suitable one', async () => {
     const backAt = BACK_AT;
-    // All four holds, on sheets that would each win the button outright if it read the whole list.
+    // All three holds, on sheets that would each win the button outright if it read the whole list.
     const strong = makeAttributes(90, { logistics: 100, organization: 100, navigation: 100 });
     stub(
       boardWith('free', [
@@ -332,7 +331,6 @@ describe('the leader picker', () => {
         FREE_OFFICER,
         leader('h-run', 'Rosa Vey', 'officer', strong, 'run', backAt),
         leader('h-fight', 'Tam Brisk', 'officer', strong, 'fight', null),
-        leader('h-scout', 'Nils Amadi', 'officer', strong, 'scouting', backAt),
         leader('h-hurt', 'Bea Quill', 'officer', strong, 'injury', backAt),
       ]),
     );

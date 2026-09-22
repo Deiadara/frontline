@@ -4,6 +4,7 @@ import {
   findDistrict,
   makeAttributes,
   officerBattleStats,
+  SCOUTING_RESEARCH_ID,
   scoutMinutesFor,
   travelMinutesBetween,
   type CityResponse,
@@ -16,7 +17,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { tickWorld } from '../live/clock.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { defaultScout, planScout, sendScout, settleScouting } from './scouting.js';
+import { planScout, scoutParty, sendScout, settleScouting } from './scouting.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
 /**
@@ -67,12 +68,32 @@ async function makeStack(username: string): Promise<Stack> {
 }
 
 /** Somebody worth sending. A brand-new crew has nobody, which is its own test below. */
-function hire(stack: Stack, rating = 30, role: 'scout' | 'trader' = 'scout'): void {
+/**
+ * Somebody on the books. A Master of Whispers by default, since 2026-09-22 they are the only
+ * chair a party goes out from, and with the Scouting rung finished, because a crew that hired
+ * the chair and has not researched it is the other refusal and has its own case below.
+ */
+function hire(
+  stack: Stack,
+  rating = 30,
+  role: 'master_of_whispers' | 'trader' = 'master_of_whispers',
+): void {
   const base = stack.app.repos.bases.findById(stack.baseId)!;
   stack.app.repos.bases.updateCommanders(base.id, [
     ...base.commanders,
     createCommander(`o-${base.commanders.length}`, 'Wire', role, makeAttributes(rating), []),
   ]);
+  if (role === 'master_of_whispers') teach(stack);
+}
+
+/** The Scouting rung, finished: the Master of Whispers' first. */
+function teach(stack: Stack): void {
+  const base = stack.app.repos.bases.findById(stack.baseId)!;
+  if (base.research.technologies.includes(SCOUTING_RESEARCH_ID)) return;
+  stack.app.repos.bases.updateResearch(base.id, {
+    ...base.research,
+    technologies: [...base.research.technologies, SCOUTING_RESEARCH_ID],
+  });
 }
 
 const city = async (stack: Stack): Promise<CityResponse> =>
@@ -88,12 +109,12 @@ async function darkDistrict(stack: Stack): Promise<string> {
   return dark.district.id;
 }
 
-const send = (stack: Stack, districtId: string, officerId?: string) =>
+const send = (stack: Stack, districtId: string) =>
   stack.app.inject({
     method: 'POST',
     url: '/api/city/scout',
     headers: auth(stack.token),
-    payload: { districtId, ...(officerId === undefined ? {} : { officerId }) },
+    payload: { districtId },
   });
 
 describe('sending somebody to look', () => {
@@ -258,12 +279,41 @@ describe('what it costs, and who pays it', () => {
     expect(fast.minutes).toBe(walk * 2 + scoutMinutesFor(good!.attributes));
   });
 
-  it('refuses a crew with nobody to send', async () => {
+  /** Scouting is the Master of Whispers' work (2026-09-22): no chair, no party. */
+  it('refuses a crew with nobody in the Master of Whispers chair', async () => {
     const stack = await makeStack('nobody');
+    // Somebody on the books, in another chair, so it is the chair being refused and not the roster.
+    hire(stack, 60, 'trader');
     const res = await send(stack, await darkDistrict(stack));
 
     expect(res.statusCode).not.toBe(200);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NO_FORCE');
+    expect(res.json<{ error: { message: string } }>().error.message).toContain(
+      'Master of Whispers',
+    );
+  });
+
+  /** ...and the chair filled is not enough until its first rung is researched. */
+  it('refuses a Master of Whispers who has not researched Scouting', async () => {
+    const stack = await makeStack('unread');
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(base.id, [
+      createCommander('w', 'Wire', 'master_of_whispers', makeAttributes(60), []),
+    ]);
+    const districtId = await darkDistrict(stack);
+    const refused = await send(stack, districtId);
+    expect(refused.statusCode).not.toBe(200);
+    expect(refused.json<{ error: { message: string } }>().error.message).toContain('Scouting');
+    // The district screen says the same thing before the button is pressed.
+    const detail = await stack.app.inject({
+      method: 'GET',
+      url: `/api/city/${districtId}`,
+      headers: auth(stack.token),
+    });
+    expect(detail.json<{ scoutBlocker: string | null }>().scoutBlocker).toBe('not_researched');
+
+    teach(stack);
+    expect((await send(stack, districtId)).statusCode).toBe(200);
   });
 
   /** One run at a time, which is what makes the order a player opens the map in a decision. */
@@ -305,11 +355,10 @@ describe('what it costs, and who pays it', () => {
     const dark = (await city(stack)).districts.filter((entry) => !entry.scouted).slice(0, 3);
     expect(dark.length).toBe(3);
 
-    // Named, because the second party is a second *officer*: the one-job rule still holds, and
-    // `defaultScout` would otherwise pick the same person for both runs and refuse the second.
-    const [first, second] = stack.app.repos.bases.findById(stack.baseId)!.commanders;
-    expect((await send(stack, dark[0]!.district.id, first!.id)).statusCode).toBe(200);
-    expect((await send(stack, dark[1]!.district.id, second!.id)).statusCode).toBe(200);
+    // Both parties are the Master of Whispers' own: nobody walks, so nobody is held, and the
+    // second run needs no second officer.
+    expect((await send(stack, dark[0]!.district.id)).statusCode).toBe(200);
+    expect((await send(stack, dark[1]!.district.id)).statusCode).toBe(200);
     // Two, not unlimited: the third is refused exactly as the second was without the holding.
     expect((await send(stack, dark[2]!.district.id)).statusCode).not.toBe(200);
   });
@@ -324,29 +373,30 @@ describe('what it costs, and who pays it', () => {
     expect(res.statusCode).not.toBe(200);
   });
 
-  /** Sends the Scout by default, and the best sheet when that chair is empty. */
-  it('picks the Scout over anybody else', async () => {
+  /**
+   * The party is priced off the Master of Whispers' sheet and nobody else's (2026-09-22), and it
+   * takes nobody with it: the run carries no officer and the chair is not held.
+   */
+  it('prices the party off the Master of Whispers, and holds nobody', async () => {
     const stack = await makeStack('picking');
     hire(stack, 90, 'trader');
-    hire(stack, 20, 'scout');
+    hire(stack, 20);
     const base = stack.app.repos.bases.findById(stack.baseId)!;
+    expect(scoutParty(base)?.role).toBe('master_of_whispers');
 
-    expect(defaultScout(base)?.role).toBe('scout');
-  });
-
-  it('falls back to the fastest sheet when there is no Scout', async () => {
-    const stack = await makeStack('fallback');
-    hire(stack, 10, 'trader');
-    const base = stack.app.repos.bases.findById(stack.baseId)!;
-    stack.app.repos.bases.updateCommanders(base.id, [
-      ...base.commanders,
-      createCommander('best', 'Best', 'raid_boss', makeAttributes(80), []),
-    ]);
-    const fuller = stack.app.repos.bases.findById(stack.baseId)!;
-
-    // The better sheet, not the first name on the roster: an accidental default that sent the
-    // worst person on the books would be a trap for exactly the player who has not thought about it.
-    expect(defaultScout(fuller)?.id).toBe('best');
+    const districtId = await darkDistrict(stack);
+    expect((await send(stack, districtId)).statusCode).toBe(200);
+    const run = stack.app.repos.scouting.activeFor(base.id)[0]!;
+    expect(run.officerId).toBeNull();
+    // ...and the road page names the party, not a person.
+    const road = await stack.app.inject({
+      method: 'GET',
+      url: '/api/actions',
+      headers: auth(stack.token),
+    });
+    expect(road.json<{ scoutingRun: { officerName: string } }>().scoutingRun.officerName).toBe(
+      'Scout Party',
+    );
   });
 
   it('will not send anybody to the district the crew lives in', async () => {
@@ -374,7 +424,8 @@ describe('what it costs, and who pays it', () => {
 describe('what a recall is measured against', () => {
   it('freezes the walk out, not half the whole run', async () => {
     const stack = await makeStack('walkout');
-    hire(stack, 5, 'trader');
+    // A slow Master of Whispers, so the looking is long and the gap this guards is wide.
+    hire(stack, 5);
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     const officer = base.commanders[0]!;
     const districtId = await darkDistrict(stack);
@@ -394,7 +445,7 @@ describe('what a recall is measured against', () => {
     // The looking is real, so half the mark is strictly longer than the walk. That gap is the bug.
     expect(plan.minutes / 2).toBeGreaterThan(walk);
 
-    const sent = sendScout(stack.app.repos, { base, districtId, officerId: officer.id, now });
+    const sent = sendScout(stack.app.repos, { base, districtId, now });
     expect(sent.kind).toBe('sent');
     if (sent.kind !== 'sent') return;
     expect(sent.run.travelMinutes).toBe(walk);

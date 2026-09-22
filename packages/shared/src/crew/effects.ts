@@ -143,7 +143,7 @@ export interface CrewOnlyEffects {
   /** Taken off what the next `Increase Payroll` step costs. */
   payrollStepDiscountPercent: number;
   // `intelYieldPercent` used to live here. It is a `TerritoryEffects` channel now, because a
-  // Watchtower and a Head Spy with a Logic of 80 buy the same thing and should land in one place.
+  // Watchtower and a Master of Whispers with a Logic of 80 buy the same thing and should land in one place.
   /** How much of *your* district a rival's scout fails to bring home. */
   intelResistancePercent: number;
   /** How much faster the wounded come back after a fight instead of staying dead. */
@@ -786,7 +786,7 @@ export interface CrewMember {
  * An officer contributes their full rating in the attributes their seat actually uses
  * (`ROLE_DUTIES`) and {@link OFF_DUTY_SHARE} of it everywhere else. That one clause is what turns
  * nineteen role slots from a filing system into a puzzle: hiring a cryptographer is half the move,
- * and sitting them as Head Spy rather than as Fabricator is the other half. Before it, the two
+ * and sitting them as Master of Whispers rather than as Fabricator is the other half. Before it, the two
  * assignments produced literally identical numbers and the §G screen was decoration.
  *
  * Best-of rather than a sum, for the reason at the top of this file, but best-of *after* the
@@ -1325,55 +1325,6 @@ export function discounted(cost: PartialResources, percent: number): PartialReso
       return [[key, Math.max(1, Math.round(amount * (1 - off)))] as const];
     }),
   );
-}
-
-/**
- * A count as somebody else's counter-intelligence lets you see it.
- *
- * The holder's Cryptography and Deception blur what a scout brings back; the reader's Logic,
- * Intuition and Signals cut through it. Only the difference matters, so a crew that has invested
- * in reading sees a well-protected place the way an unprotected one looks to everybody.
- *
- * Coarsening rather than lying: the number reported is the true count rounded to a grain, so it is
- * never further from the truth than half a grain and never systematically high or low. A blurred
- * report says "about forty", which is what a scout actually comes back with, instead of a
- * fabricated forty-three that a player would plan against and be wrong.
- */
-export const INTEL_PERCENT_PER_GRAIN = 8;
-
-/**
- * Rounds to the nearest multiple of `grain`, splitting exact ties evenly.
- *
- * `Math.round` breaks every tie upward, which at grain 2 turns 1, 3, 5 into 2, 4, 6 and makes the
- * blur biased high by a quarter of a grain across a uniform spread. Half-to-even sends alternate
- * ties in alternate directions, which is what "never systematically high or low" has to mean.
- */
-function toGrain(exact: number, grain: number): number {
-  const quotient = exact / grain;
-  const below = Math.floor(quotient);
-  const part = quotient - below;
-  if (part > 0.5) return (below + 1) * grain;
-  if (part < 0.5) return below * grain;
-  return (below % 2 === 0 ? below : below + 1) * grain;
-}
-
-export function blurredCount(exact: number, blurPercent: number): number {
-  const grain = 1 + Math.floor(Math.max(0, blurPercent) / INTEL_PERCENT_PER_GRAIN);
-  if (grain <= 1) return exact;
-  /*
-   * Zero is not a coarse number. It is a different claim.
-   *
-   * Every count below half a grain used to round to it: one unit standing on a location, read
-   * through a blur of 16 (a rival's Cryptography 64 on its own), reported as "Standing there: 0",
-   * and a player sent a token force at ground that looked empty. The whole point of coarsening is
-   * that it is never *further* from the truth than half a grain, and "nobody" against "somebody" is
-   * a different kind of error from "about six" against five. So an occupied place reports at least
-   * one grain. That biases the smallest counts upward and it is the right direction: it is the
-   * defender's counter-intelligence doing what it is paid for, and it costs the reader caution
-   * rather than a column.
-   */
-  const rounded = toGrain(exact, grain);
-  return exact > 0 ? Math.max(grain, rounded) : rounded;
 }
 
 /**

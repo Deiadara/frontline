@@ -3,7 +3,6 @@ import {
   findLocation,
   combineLeaderOf,
   combineLeaderAlive,
-  capturedGateIntelResistancePercent,
   CITY_DISTRICTS,
   findDistrict,
   CITY_LOCATIONS,
@@ -12,7 +11,6 @@ import {
   describeHoldBonus,
   displayNameOf,
   districtHolder,
-  gateIntelResistancePercent,
   garrisonSize,
   isDistrictRaidable,
   isHeldBy,
@@ -28,8 +26,8 @@ import {
   type DistrictSummary,
   type LocationControl,
   type LocationView,
+  type SpyReport,
   type TerritoryEffects,
-  blurredCount,
   bonusesAt,
   mergeLabels,
   upgradeCost,
@@ -39,12 +37,13 @@ import {
   BUILDING_KINDS,
   type Building,
 } from '@frontline/shared';
-import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { upgradeSeconds, upgradingSince } from './upgrade.js';
 import { fortifyingSince } from './actions.js';
 import type { Repositories } from '../db/repos/index.js';
-import { defaultScout, planScout } from '../scouting/scouting.js';
-import { capturedGatesFor, gateFor, holdsDistrictWhole } from './gates.js';
+import { scoutBlocker, scoutParty, planScout } from '../scouting/scouting.js';
+import { planSpy, spyBlocker, spyRunView } from '../spying/spying.js';
+import { capturedGatesFor } from './gates.js';
 
 /**
  * Reading the city (GDD §A4).
@@ -57,12 +56,6 @@ import { capturedGatesFor, gateFor, holdsDistrictWhole } from './gates.js';
 
 /** Everything the city read needs, gathered once rather than per district. */
 export interface CityContext {
-  /**
-   * §F2/§A4: how much a scout report tells this crew beyond the bare count, people and ground
-   * folded together. Exposed so the battle board reads the same figure the city view does instead
-   * of re-deriving it from a different fold, which is how the two came to disagree.
-   */
-  intelYieldPercent: number;
   base: Base;
   controls: Map<string, LocationControl>;
   visible: Set<string>;
@@ -77,15 +70,8 @@ export interface CityContext {
    * anybody else.
    */
   playerOf: (baseId: string) => string | null;
-  /**
-   * §F2: how much of somebody else's garrison count this crew fails to bring back, in percent.
-   *
-   * The holder's counter-intelligence minus this crew's own reading. Zero for a location we hold, and
-   * for the unaligned holders, who keep no secrets worth the name.
-   */
-  blurAgainst: (baseId: string) => number;
-  /** §B7: what the gate on one district adds, when that crew holds the whole of it. */
-  gateBlurOn: (districtId: string, baseId: string) => number;
+  /** The last spy report this crew wrote on a location, or null (2026-09-22). */
+  latestSpyReport: (locationId: string) => SpyReport | null;
 }
 
 export function cityContextFor(repos: Repositories, base: Base): CityContext {
@@ -97,29 +83,14 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
   // of them belong to the same two or three crews.
   const owners = new Map(summaries.map((summary) => [summary.id, summary.ownerId]));
   const players = new Map<string, string | null>();
-  /*
-   * What a scout brings home: **the people and the ground together**.
-   *
-   * `crewEffectsFor` is the crew-only fold, and reading it here was a silent hole. `intelYield`
-   * became a `TerritoryEffects` channel when the Watchtower arrived: precisely so a location and
-   * a Head Spy would push the same lever, and this line kept asking the fold that has no
-   * locations in it. The Watchtower's whole advertised reward ("everything your scouts do, they
-   * do better") moved nothing at all, and neither did the Planetarium's or the Pirate Radio's.
-   *
-   * `effects` on the line above is already the combined fold, so this costs nothing.
-   */
-  const reading = effects.intelYieldPercent;
-  // One lookup per rival, cached for the whole projection: a district page draws a dozen locations
-  // and most of them belong to the same two or three crews.
-  const resistance = new Map<string, number>();
-
   return {
     base,
     controls,
     effects,
-    intelYieldPercent: reading,
     visible: visibleDistricts(repos, base, controls, effects),
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
+    latestSpyReport: (locationId) =>
+      repos.spying.latestFor(base.id, { kind: 'location', locationId }) ?? null,
     playerOf: (baseId) => {
       let player = players.get(baseId);
       if (player === undefined) {
@@ -129,26 +100,6 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
         players.set(baseId, player);
       }
       return player;
-    },
-    blurAgainst: (baseId) => {
-      if (baseId === base.id) return 0;
-      let held = resistance.get(baseId);
-      if (held === undefined) {
-        const rival = repos.bases.findById(baseId);
-        // §B7: their Gate is half of what a scout has to see past. Folded here rather than into
-        // `crewEffectsFor`, which is about the people: a wall is not one of the crew.
-        held = rival
-          ? crewEffectsFor(repos, rival).intelResistancePercent +
-            gateIntelResistancePercent(rival.buildings)
-          : 0;
-        resistance.set(baseId, held);
-      }
-      return Math.max(0, held - reading);
-    },
-    gateBlurOn: (districtId, baseId) => {
-      if (baseId === base.id) return 0;
-      if (!holdsDistrictWhole(repos, baseId, districtId)) return 0;
-      return capturedGateIntelResistancePercent(gateFor(repos, districtId).level);
     },
   };
 }
@@ -312,28 +263,18 @@ function projectLocation(
     // So the sheet can offer to call the work off in its first tenth (`time/cancel.ts`).
     upgradingSince: upgradingSince(location, control),
     fortifyingSince: fortifyingSince(control),
-    defense: locationDefense(location, control),
-    // §F2: what a scout can actually count. Exact on our own ground; on somebody else's, only as
-    // sharp as their cryptography lets it be.
-    garrisonSize: mine
-      ? garrisonSize(control)
-      : blurredCount(
-          garrisonSize(control),
-          /*
-           * §B7: their crew's counter-intel, their home Gate, and the gate on *this* ground.
-           *
-           * The board's rule is that the spying half is true for all gates. A district somebody
-           * has taken whole and walled is exactly as hard to read as a home district behind the
-           * same level of wall, so the captured gate lands on the same channel rather than on a
-           * parallel one nobody would remember to check.
-           */
-          control.holder.kind === 'crew'
-            ? context.blurAgainst(control.holder.baseId) +
-                context.gateBlurOn(location.districtId, control.holder.baseId)
-            : 0,
-        ),
-    // Somebody else's composition is what scouting would be for. Ours, we know.
+    /*
+     * Nothing about somebody else's garrison is free any more (maintainer, 2026-09-22). The
+     * count used to be blurred by their counter-intel and served anyway; now the defence figure
+     * on their ground is the ground and the digging alone, the count is null, and what the crew
+     * knows is whatever its last spy report on the place said. Ours, we know exactly.
+     */
+    defense: mine
+      ? locationDefense(location, control)
+      : locationDefense(location, { ...control, garrison: {} }),
+    garrisonSize: mine ? garrisonSize(control) : null,
     garrison: mine ? control.garrison : null,
+    latestSpyReport: mine ? null : context.latestSpyReport(location.id),
     bonuses: bonusesAt(location.kind, control.level).map(describeHoldBonus),
     reward: spec.reward,
     /*
@@ -361,9 +302,10 @@ export function scoutingRunView(
     districtId: run.districtId,
     districtName: findDistrict(run.districtId)?.name ?? run.districtId,
     officerId: run.officerId,
-    // A run whose officer was let go mid-journey still has to draw: the walk is under way whoever
-    // is doing it, and a card that renders nothing is worse than one that says "somebody".
-    officerName: officer?.name ?? 'Somebody',
+    // A party since 2026-09-22, which is what every run sent since then is drawn as. A run from
+    // before that still names who went, and one whose officer was let go mid-journey still has
+    // to draw: the walk is under way whoever is doing it.
+    officerName: run.officerId === null ? 'Scout Party' : (officer?.name ?? 'Somebody'),
     departedAt: run.departedAt,
     returnsAt: run.returnsAt,
     // The leg the screen times its recall window off: see `ScoutingRunViewSchema`.
@@ -379,11 +321,21 @@ function quoteScout(
   district: District,
   now: Date,
 ): DistrictDetailResponse['scoutPlan'] {
-  const officer = defaultScout(base);
-  if (!officer) return null;
-  const plan = planScout(repos, base, district.id, officer, now);
+  const whispers = scoutParty(base);
+  if (!whispers) return null;
+  const plan = planScout(repos, base, district.id, whispers, now);
   if (!plan) return null;
-  return { officerId: officer.id, officerName: officer.name, minutes: plan.minutes };
+  return { minutes: plan.minutes };
+}
+
+function quoteSpy(
+  repos: Repositories,
+  base: Base,
+  district: District,
+  now: Date,
+): DistrictDetailResponse['spyQuote'] {
+  const plan = planSpy(repos, base, district.id, 'loose_ears', now);
+  return plan ? { minutes: plan.minutes } : null;
 }
 
 /**
@@ -474,6 +426,19 @@ export function projectDistrict(
     // noise, and one beside your own front door is nonsense.
     scoutPlan:
       scouted || district.id === base.districtId ? null : quoteScout(repos, base, district, now),
+    scoutBlocker: scoutBlocker(base),
+    spyRun: spyRunView(repos, base),
+    // Quoted where a job could be sent: open ground somebody else holds. The tier is the
+    // client's choice and only moves the caps, so any tier prices the clock.
+    spyQuote:
+      scouted && district.id !== base.districtId ? quoteSpy(repos, base, district, now) : null,
+    spyBlocker: spyBlocker(base),
+    // The door's own last look, for the gate window (`SpyPanel`). Only where a gate is a thing
+    // a stranger could read: never on the crew's own district.
+    spyGateReport:
+      district.id === base.districtId
+        ? null
+        : (repos.spying.latestFor(base.id, { kind: 'gate', districtId: district.id }) ?? null),
     serverNow: now.toISOString(),
   };
 }

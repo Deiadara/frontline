@@ -31,7 +31,7 @@ export interface RoleRequirement {
 }
 
 export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
-  head_spy: {
+  master_of_whispers: {
     primary: 'stealth',
     weights: { stealth: 5, deception: 3, signals: 2, logic: 2, resolve: 1 },
   },
@@ -94,10 +94,6 @@ export const ROLE_REQUIREMENTS: Record<OfficerRole, RoleRequirement> = {
   raid_boss: {
     primary: 'intimidation',
     weights: { intimidation: 5, strength: 3, toughness: 2, improvisation: 2, leadership: 1 },
-  },
-  scout: {
-    primary: 'speed',
-    weights: { speed: 5, dexterity: 3, resolve: 2, navigation: 2, stealth: 1 },
   },
   consigliere: {
     primary: 'logic',

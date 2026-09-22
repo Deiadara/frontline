@@ -103,7 +103,7 @@ test('draws a locked bench with one sentence saying what is missing', async ({ p
  * Reimagining rung is the sixth on the *Fabricator's* track, which nobody guesses, so the press has
  * to land on that rail with that trade open. Before the URL carried the trade the archive always
  * opened on the first of nineteen, and a door reading "research it on the track" dropped a player
- * on the Head Spy with the rung nine rows away and no clue which.
+ * on the Master of Whispers with the rung nine rows away and no clue which.
  */
 test('walks a crew with the chair but not the rung to the rung own track', async ({ page }) => {
   await installApi(page, lateGame);
