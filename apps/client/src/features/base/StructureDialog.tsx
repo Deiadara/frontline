@@ -3,7 +3,7 @@ import {
   BUILDING_CATALOG,
   levelCeilingFor,
   CENTRAL_BUILDING,
-  MAX_BUILD_QUEUE,
+  buildQueueCapacity,
   MAX_MODIFICATION_SLOTS,
   buildingBuildSeconds,
   buildingCost,
@@ -164,7 +164,7 @@ export function StructureDialog({
   const ceiling = nextLevel === null ? ceilingReason(kind, base) : null;
   const partsInHand =
     nextLevel === null || hasItems(base.inventory, buildingParts(kind, nextLevel));
-  const queueFull = buildQueue.length >= MAX_BUILD_QUEUE;
+  const queueFull = buildQueue.length >= buildQueueCapacity(base.research.technologies);
 
   const slots = modificationCapacity(standing);
   const nextSlotAt = nextModificationSlotLevel(standing?.level ?? 0);

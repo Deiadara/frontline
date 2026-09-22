@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RESEARCH_ITEMS } from '../research/tracks.js';
 import { infirmaryRecoveryPercent } from './standing.js';
 import { recoverCasualties } from '../crew/effects.js';
 import { RESOURCE_KEYS, STARTING_RESOURCES, canAfford, type Resources } from '../resources.js';
@@ -93,7 +94,10 @@ import {
   researchTimeReduction,
 } from './standing.js';
 import {
+  BASE_BUILD_QUEUE,
+  BUILD_QUEUE_RESEARCH_ID,
   MAX_BUILD_QUEUE,
+  buildQueueCapacity,
   applyQueueEntry,
   isUnlockedForQueue,
   nextQueuedLevel,
@@ -999,8 +1003,33 @@ describe('the build queue (§A1)', () => {
     parts: {},
   });
 
-  it('holds six orders', () => {
+  /**
+   * Four orders, and six once the Fabricator's third rung is in (maintainer, 2026-09-22).
+   *
+   * It was a flat six from the first minute of a run. The rung is `Batch Runs`, whose line is
+   * about running work in parallel rather than one at a time, and the two slots it adds take the
+   * queue back to the six the game shipped with.
+   *
+   * The id is asserted against the research catalogue rather than taken on trust: it is a string
+   * literal standing in for a rung, and a renamed rung would leave the slots unreachable for ever
+   * while every other test here still passed.
+   */
+  it('holds four orders, and six once Batch Runs is in', () => {
+    expect(BASE_BUILD_QUEUE).toBe(4);
     expect(MAX_BUILD_QUEUE).toBe(6);
+    expect(buildQueueCapacity([])).toBe(4);
+    expect(buildQueueCapacity(['tech_jigs_and_fixtures', 'tech_tool_steel'])).toBe(4);
+    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID])).toBe(6);
+    expect(buildQueueCapacity([BUILD_QUEUE_RESEARCH_ID, 'tech_cold_forming'])).toBe(6);
+  });
+
+  it('names a rung the research catalogue actually has, on the track and step it claims', () => {
+    const rung = RESEARCH_ITEMS.find((item) => item.id === BUILD_QUEUE_RESEARCH_ID);
+    expect(rung, BUILD_QUEUE_RESEARCH_ID).toBeDefined();
+    expect(rung?.track).toBe('fabricator');
+    // The third entry, which is what the maintainer asked for and what the unlock line promises.
+    expect(rung?.step).toBe(3);
+    expect(rung?.payout.unlocks).toContain('build slots');
   });
 
   it('starts an order now when the queue is empty, and behind the last one when it is not', () => {

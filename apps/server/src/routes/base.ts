@@ -3,7 +3,7 @@ import {
   BUILDING_CATALOG,
   levelCeilingFor,
   BuildStructureRequestSchema,
-  MAX_BUILD_QUEUE,
+  buildQueueCapacity,
   RenameDistrictRequestSchema,
   type BaseDetailResponse,
   type BuildStructureResponse,
@@ -294,8 +294,12 @@ function refusalMessage(
         short?.needed ?? nexusLevelForUpgrade(kind, buildingLevel(base.buildings, kind) + 1);
       return `${spec.name} needs the Nexus at level ${needed}. Yours is at ${short?.at ?? at}`;
     }
-    case 'queue_full':
-      return `All ${MAX_BUILD_QUEUE} build slots are working`;
+    case 'queue_full': {
+      // The crew's own number, not the ceiling: a player on four slots being told that all six
+      // are working would go looking for the two that are not there.
+      const slots = buildQueueCapacity(base.research.technologies);
+      return `All ${slots} build slots are working`;
+    }
     case 'cannot_afford':
       return 'You cannot cover the materials';
     case 'missing_parts': {

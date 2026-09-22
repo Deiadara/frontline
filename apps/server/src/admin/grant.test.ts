@@ -34,11 +34,11 @@ async function makeApp(admin: boolean): Promise<FastifyInstance> {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-async function crew(app: FastifyInstance): Promise<string> {
+async function crew(app: FastifyInstance, username = 'operator'): Promise<string> {
   const registered = await app.inject({
     method: 'POST',
     url: '/api/auth/register',
-    payload: { username: 'operator', password: 'hunter2pass' },
+    payload: { username, password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
   await chooseOverseer(app, token);
@@ -47,6 +47,10 @@ async function crew(app: FastifyInstance): Promise<string> {
 
 const grant = (app: FastifyInstance, token: string, body: Record<string, unknown>) =>
   app.inject({ method: 'POST', url: '/api/admin/grant', headers: auth(token), payload: body });
+
+/** The bench knobs live on their own route: `/admin/grant` hands out things, this sets state. */
+const knobs = (app: FastifyInstance, token: string, body: Record<string, unknown>) =>
+  app.inject({ method: 'POST', url: '/api/admin/knobs', headers: auth(token), payload: body });
 
 async function me(app: FastifyInstance, token: string): Promise<Base> {
   const res = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
@@ -103,5 +107,46 @@ describe('the Console hands over', () => {
     const on = await makeApp(true);
     const other = await crew(on);
     expect((await grant(on, other, {})).statusCode).toBe(400);
+  });
+});
+
+/**
+ * The Console's officers are people, not slots (maintainer, 2026-09-22).
+ *
+ * They used to be called `Bench 1` through `Bench 19` while being seated in chairs, and every
+ * screen that prints the person under the trade then contradicted itself: the research rail read
+ * `Master of Whispers` over `Bench 1`, which is a crew simultaneously seated and benched. The
+ * word was only ever the fixture's own id leaking onto the page.
+ */
+describe('the Console seats people with names', () => {
+  it('gives every seated officer a name that is not a bench slot', async () => {
+    const app = await makeApp(true);
+    const token = await crew(app);
+    expect((await knobs(app, token, { officers: { count: 6, rating: 7 } })).statusCode).toBe(200);
+    const base = await me(app, token);
+
+    expect(base.commanders).toHaveLength(6);
+    for (const officer of base.commanders) {
+      // Seated, so the chair is the half that is true.
+      expect(officer.role, officer.name).not.toBeNull();
+      // And the name says nothing about a bench.
+      expect(officer.name, officer.name).not.toMatch(/bench/i);
+      expect(officer.name.trim().length).toBeGreaterThan(2);
+    }
+    // Real names off the Bar's own list, so they are not nineteen copies of one string either.
+    expect(new Set(base.commanders.map((officer) => officer.name)).size).toBeGreaterThan(1);
+  });
+
+  it('draws the same crew every time, so a screenshot of the preset is stable', async () => {
+    const app = await makeApp(true);
+    const first = await crew(app);
+    await knobs(app, first, { officers: { count: 5, rating: 7 } });
+    const one = (await me(app, first)).commanders.map((officer) => officer.name);
+
+    const second = await crew(app, 'another');
+    await knobs(app, second, { officers: { count: 5, rating: 7 } });
+    const two = (await me(app, second)).commanders.map((officer) => officer.name);
+
+    expect(two).toEqual(one);
   });
 });

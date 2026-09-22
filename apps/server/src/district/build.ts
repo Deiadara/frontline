@@ -1,7 +1,7 @@
 import { adminWaives } from '../admin/mode.js';
 import {
   CENTRAL_BUILDING,
-  MAX_BUILD_QUEUE,
+  buildQueueCapacity,
   buildingBuildSeconds,
   buildingCost,
   creditedLevel,
@@ -122,7 +122,7 @@ function refusalFor(
       : 'nexus_cap';
   }
 
-  if (buildQueue.length >= MAX_BUILD_QUEUE) return 'queue_full';
+  if (buildQueue.length >= buildQueueCapacity(base.research.technologies)) return 'queue_full';
   // The part gate before the price: "you need a Coolant Cell" is a thing a player can go and do
   // something about today, and "you are short of scrap" fixes itself while they read the message.
   if (!hasItems(base.inventory, buildingParts(structure, level))) return 'missing_parts';

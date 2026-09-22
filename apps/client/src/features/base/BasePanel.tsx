@@ -1,6 +1,6 @@
 import {
   BUILDING_CATALOG,
-  MAX_BUILD_QUEUE,
+  buildQueueCapacity,
   RESOURCE_KEYS,
   districtProduction,
   unitSlotCapacity,
@@ -199,7 +199,9 @@ export function BasePanel() {
       )}
 
       <ReportsDrawer>
-        <Panel title={`Build queue (${base.buildQueue.length} / ${MAX_BUILD_QUEUE})`}>
+        <Panel
+          title={`Build queue (${base.buildQueue.length} / ${buildQueueCapacity(base.research.technologies)})`}
+        >
           <BuildQueue
             base={base}
             serverNow={baseQuery.data?.serverNow}
@@ -322,8 +324,8 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
   if (base.buildQueue.length === 0) {
     return (
       <p className="p-4 font-body text-xs leading-relaxed text-ink-300">
-        Nothing under way. Click a plot to order a level. Up to {MAX_BUILD_QUEUE} at a time, worked
-        one after another.
+        Nothing under way. Click a plot to order a level. Up to{' '}
+        {buildQueueCapacity(base.research.technologies)} at a time, worked one after another.
       </p>
     );
   }
@@ -610,7 +612,7 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
         <span>
           Under way
           <span className="ml-1.5 tabular-nums text-brass-300">
-            {base.buildQueue.length}/{MAX_BUILD_QUEUE}
+            {base.buildQueue.length}/{buildQueueCapacity(base.research.technologies)}
           </span>
         </span>
         <span aria-hidden className={cn('transition-transform', open ? 'rotate-90' : '')}>

@@ -59,6 +59,7 @@ import {
   scrapyardLevelForUpgrade,
   labelText,
   LOCATION_CATALOG,
+  upgradeCost,
   MISC_AREA_ID,
   FEATS,
   FEAT_ERAS,
@@ -565,7 +566,9 @@ function locationsSection(): Section {
       String(spec.baseDefense),
       spec.bonuses.map(describeHoldBonus).join(', '),
       spec.labels.map(labelText).join(', '),
-      money(spec.upgradeCost),
+      // The whole first order, not the plank figure the catalogue stores: the mix is the same
+      // everywhere now, and a reader wants to know what the bill looks like.
+      money(upgradeCost(kind, 1) ?? {}),
       clip(spec.blurb),
       clip(spec.reward, 60),
     ];

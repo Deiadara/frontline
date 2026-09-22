@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RESOURCE_KEYS } from '../resources.js';
+import { BUILDING_KINDS, levelCeilingFor } from '../building/kinds.js';
+import { storageCapacityFor } from '../building/production.js';
 import { LocationControlSchema } from './control.js';
 import { CITY_DISTRICTS, CONTESTED_DISTRICTS, RESIDENTIAL_DISTRICTS } from './districts.js';
 import {
@@ -10,6 +12,7 @@ import {
   LOCATION_KINDS,
   MAX_LOCATION_LEVEL,
   UPGRADE_COST_SCALE,
+  UPGRADE_MIX,
   bonusesAt,
   clampLevel,
   describeHoldBonus,
@@ -62,10 +65,36 @@ describe('a location at a level', () => {
       );
     expect([1, 2, 3, 4].map(oilAt)).toEqual([18, 27, 36, 45]);
 
-    // And the three upgrades it used to have cost exactly what they used to cost.
-    expect(upgradeCost('gas_station', 1)).toEqual({ caps: 260, scrap: 120, planks: 70 });
-    expect(upgradeCost('gas_station', 2)).toEqual({ caps: 572, scrap: 264, planks: 154 });
-    expect(upgradeCost('gas_station', 3)).toEqual({ caps: 1170, scrap: 540, planks: 315 });
+    /*
+     * What an upgrade is *made of* did move, on 2026-09-22, and deliberately.
+     *
+     * The prices used to be a hand-written bundle per kind, mostly caps. They are one mix now
+     * (`UPGRADE_MIX`) over a per-kind plank figure, so these three literals are the new ladder
+     * rather than the old one. What has to hold across that change is the *curve*: the three
+     * steps still stand in the 1 : 2.2 : 4.5 ratio the line above pins, which is what a saved
+     * control row at level 3 is priced against.
+     */
+    expect(upgradeCost('gas_station', 1)).toEqual({
+      planks: 120,
+      highQualityMetal: 12,
+      scrap: 36,
+      oil: 48,
+      caps: 24,
+    });
+    expect(upgradeCost('gas_station', 2)).toEqual({
+      planks: 264,
+      highQualityMetal: 26,
+      scrap: 79,
+      oil: 106,
+      caps: 53,
+    });
+    expect(upgradeCost('gas_station', 3)).toEqual({
+      planks: 540,
+      highQualityMetal: 54,
+      scrap: 162,
+      oil: 216,
+      caps: 108,
+    });
   });
 
   /**
@@ -286,6 +315,122 @@ describe('the city as a board', () => {
           expect(describeHoldBonus(bonus), `${kind}@${level}`).toBeTruthy();
         }
       }
+    }
+  });
+});
+
+/**
+ * One mix for every location, anchored on planks (maintainer, 2026-09-22).
+ *
+ * The prices used to be forty-six hand-written resource bundles, mostly caps, and a level was
+ * something you bought rather than something you built. Every order is now 50% planks, 5%
+ * high-quality metal, 15% scrap, 20% oil and 10% caps, which is the 10 : 1 : 3 : 4 : 2 that
+ * `UPGRADE_MIX` states, and the only thing a location's own entry decides is how big the order is.
+ *
+ * Worth holding because it is the kind of rule that rots quietly. A kind added later with a
+ * hand-written bundle, or a mix edited to five numbers that no longer sum to a hundred, reads
+ * perfectly well and would never fail a test that only checked that upgrades get dearer.
+ */
+describe('what every upgrade is made of', () => {
+  /** The percentages the maintainer asked for, written out rather than read off `UPGRADE_MIX`. */
+  const SHARE = {
+    planks: 0.5,
+    highQualityMetal: 0.05,
+    scrap: 0.15,
+    oil: 0.2,
+    caps: 0.1,
+  } as const;
+
+  it('is the ratio the mix claims, and the ratio adds up to the whole order', () => {
+    expect(UPGRADE_MIX).toEqual({
+      planks: 1,
+      highQualityMetal: 0.1,
+      scrap: 0.3,
+      oil: 0.4,
+      caps: 0.2,
+    });
+    const parts = Object.values(UPGRADE_MIX).reduce((sum, share) => sum + share, 0);
+    for (const [key, share] of Object.entries(SHARE)) {
+      expect(UPGRADE_MIX[key as keyof typeof UPGRADE_MIX] / parts, key).toBeCloseTo(share, 10);
+    }
+  });
+
+  it('bills every kind at every level in that ratio, and in nothing else', () => {
+    for (const kind of LOCATION_KINDS) {
+      for (let level = 1; level < MAX_LOCATION_LEVEL; level += 1) {
+        const cost = upgradeCost(kind, level);
+        if (!cost) throw new Error(`${kind} @${level} has no price`);
+        // Five channels, always the same five. Supplies fed nine of the old bundles and are gone.
+        expect(Object.keys(cost).sort(), `${kind} @${level}`).toEqual(
+          ['caps', 'highQualityMetal', 'oil', 'planks', 'scrap'].sort(),
+        );
+        expect(cost.supplies, `${kind} @${level}`).toBeUndefined();
+        const planks = cost.planks ?? 0;
+        for (const [key, share] of Object.entries(UPGRADE_MIX)) {
+          const amount = cost[key as keyof typeof cost] ?? 0;
+          // Within a unit of the ratio: every channel is rounded, and the scarce one is floored
+          // at 1 so that no order can quietly stop mentioning a material.
+          expect(Math.abs(amount - planks * share), `${kind} @${level} ${key}`).toBeLessThanOrEqual(
+            1,
+          );
+          expect(amount, `${kind} @${level} ${key}`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+  /**
+   * The anchors the maintainer set: about 100 planks for a first upgrade, about 500 for the
+   * dearest kind's, and a final level that runs to roughly five figures.
+   *
+   * Bounds rather than exact numbers, because the point is the shape of the ladder and not any
+   * one kind's entry. A kind priced at 5 planks or at 5,000 would be a typo that every other
+   * test in this file would wave through.
+   */
+  it('opens where the maintainer put it and tops out five figures up', () => {
+    const opening = LOCATION_KINDS.map((kind) => upgradeCost(kind, 1)?.planks ?? 0);
+    expect(Math.min(...opening)).toBeGreaterThanOrEqual(60);
+    expect(Math.max(...opening)).toBeLessThanOrEqual(600);
+
+    const final = LOCATION_KINDS.map(
+      (kind) => upgradeCost(kind, MAX_LOCATION_LEVEL - 1)?.planks ?? 0,
+    );
+    expect(Math.min(...final)).toBeGreaterThan(2_000);
+    expect(Math.max(...final)).toBeLessThan(20_000);
+    // A dearer kind is dearer the whole way up, which is what makes the single mix safe: the
+    // catalogue's own spread is the only thing separating a Pawn Shop from a Construction Site.
+    expect(Math.max(...final) / Math.min(...final)).toBeCloseTo(
+      Math.max(...opening) / Math.min(...opening),
+      1,
+    );
+  });
+
+  /**
+   * Storage is the quiet ceiling on all of this.
+   *
+   * An order a maxed district cannot physically hold is an order nobody can ever place, and the
+   * shelf is not one number: planks get the whole bulk shelf and high-quality metal a third of
+   * it, so the scarce channel can bind first even at a tenth of the timber.
+   */
+  it('asks for nothing a fully built district cannot hold', () => {
+    const maxed = BUILDING_KINDS.map((kind) => ({
+      id: kind,
+      kind,
+      level: levelCeilingFor(kind),
+      modifications: [] as string[],
+    }));
+    const dearest = LOCATION_KINDS.reduce((worst, kind) =>
+      (upgradeCost(kind, MAX_LOCATION_LEVEL - 1)?.planks ?? 0) >
+      (upgradeCost(worst, MAX_LOCATION_LEVEL - 1)?.planks ?? 0)
+        ? kind
+        : worst,
+    );
+    const cost = upgradeCost(dearest, MAX_LOCATION_LEVEL - 1);
+    if (!cost) throw new Error('the dearest kind has no top price');
+    for (const key of ['planks', 'scrap', 'oil', 'highQualityMetal'] as const) {
+      expect(cost[key] ?? 0, `${dearest} ${key}`).toBeLessThanOrEqual(
+        storageCapacityFor(maxed, key),
+      );
     }
   });
 });

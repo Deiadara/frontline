@@ -1,4 +1,10 @@
-import { MAX_BUILD_QUEUE, MAX_OPEN_AUCTIONS, type BarResponse } from '@frontline/shared';
+import {
+  BASE_BUILD_QUEUE,
+  BUILD_QUEUE_RESEARCH_ID,
+  MAX_BUILD_QUEUE,
+  MAX_OPEN_AUCTIONS,
+  type BarResponse,
+} from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
@@ -111,7 +117,7 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
     expect(ordered.json<{ error: { code: string } }>().error.code).toBe('INSUFFICIENT_RESOURCES');
   });
 
-  it('refuses a seventh build order', async () => {
+  it('refuses a fifth build order, and a seventh once Batch Runs is in', async () => {
     const app = await makeApp();
     const { token, baseId } = await makePlayer(app, 'eager');
     const base = app.repos.bases.findById(baseId);
@@ -131,23 +137,45 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
       ),
     );
 
-    for (let order = 0; order < MAX_BUILD_QUEUE; order += 1) {
-      const res = await app.inject({
+    const order = () =>
+      app.inject({
         method: 'POST',
         url: '/api/base/build',
         headers: auth(token),
         payload: { kind: 'quarters' },
       });
+
+    /*
+     * The queue is four wide before anything is researched (maintainer, 2026-09-22) and six after
+     * the Fabricator's third rung. Both halves are walked here rather than only the second,
+     * because a capacity that ignored the crew's research would sit at six for everybody and the
+     * old version of this test, which queued six and expected a refusal on the seventh, would
+     * have passed all the way through the change without noticing.
+     */
+    for (let placed = 0; placed < BASE_BUILD_QUEUE; placed += 1) {
+      const res = await order();
       expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
     }
-    const overflow = await app.inject({
-      method: 'POST',
-      url: '/api/base/build',
-      headers: auth(token),
-      payload: { kind: 'quarters' },
+    const fifth = await order();
+    expect(fifth.statusCode).toBe(409);
+    expect(errorOf(fifth.body).toLowerCase()).toContain('build slots');
+    // The crew's own number, not the ceiling: four slots, so the refusal says four.
+    expect(errorOf(fifth.body)).toContain(String(BASE_BUILD_QUEUE));
+
+    const researched = app.repos.bases.findById(baseId);
+    if (!researched) throw new Error('no base');
+    app.repos.bases.updateResearch(baseId, {
+      ...researched.research,
+      technologies: [...researched.research.technologies, BUILD_QUEUE_RESEARCH_ID],
     });
-    expect(overflow.statusCode).toBe(409);
-    expect(errorOf(overflow.body).toLowerCase()).toContain('build slots');
+
+    for (let placed = BASE_BUILD_QUEUE; placed < MAX_BUILD_QUEUE; placed += 1) {
+      const res = await order();
+      expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
+    }
+    const seventh = await order();
+    expect(seventh.statusCode).toBe(409);
+    expect(errorOf(seventh.body)).toContain(String(MAX_BUILD_QUEUE));
   });
 
   /**

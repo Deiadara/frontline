@@ -31,8 +31,9 @@ implemented mechanic (the `role` field on `BuildingSpec` is the contract that ke
 ✅ Nexus gating: it caps every other structure at its own level, unlocks the rest as it grows
 (ladder from level 1 to 12), and discounts everyone else's materials and clock.
 
-✅ **Build queue**, six slots, worked sequentially. Materials taken at order time; price and
-duration frozen onto the entry. Settled lazily on read: no scheduler.
+✅ **Build queue**, four slots and six once the Fabricator's third rung (`Batch Runs`) is
+researched, worked sequentially. Materials taken at order time; price and duration frozen onto the
+entry. Settled lazily on read: no scheduler.
 
 ✅ **Production**, accrued lazily and piecewise (the window is cut at each completed build, so a
 structure that finished an hour ago is not paid for the three days nobody looked). Greenhouse →

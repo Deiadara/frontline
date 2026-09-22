@@ -137,7 +137,9 @@ function TrackRow({
           selected ? 'text-brass-300' : status.mark === null ? 'text-ink-400' : 'text-ink-200',
         )}
       >
-        <TrackSigil role={status.role} className="h-6 w-6" ringed={false} />
+        {/* 7 of the plate's 9, up from 6: the mark is the only thing telling nineteen rows
+            apart, and it was drawn at two thirds of the space it had. */}
+        <TrackSigil role={status.role} className="h-7 w-7" ringed={false} />
       </span>
       {/*
        * The board's own type, to the pixel (maintainer, 2026-09-17).
@@ -189,7 +191,7 @@ function TrackHeader({
           aria-hidden
           className="icon-plate relative flex h-14 w-14 shrink-0 items-center justify-center rounded-sm text-brass-300"
         >
-          <TrackSigil role={status.role} className="h-11 w-11" />
+          <TrackSigil role={status.role} className="h-12 w-12" />
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="break-words font-stamp text-[19px] leading-tight text-ink-100">
@@ -399,6 +401,16 @@ function TracksSection({
 }) {
   const statuses = data.tracks;
   /*
+   * Chairs with somebody in them first, the empty ones gathered below (maintainer, 2026-09-22).
+   *
+   * Nineteen trades in catalogue order put the empty chairs wherever the catalogue happened to
+   * put them, so the one question a player is actually asking of this rail, "who is not covered",
+   * was answered by scanning nineteen rows for a red line. The two groups keep their own internal
+   * order, so a trade does not move around inside its group as other chairs fill.
+   */
+  const seated = statuses.filter((entry) => entry.mark !== null);
+  const empty = statuses.filter((entry) => entry.mark === null);
+  /*
    * The open trade lives in the URL (`?track=head_of_research`), the way the roster's tabs do.
    *
    * It was component state, which made the rail unreachable from anywhere else: the shut
@@ -453,7 +465,36 @@ function TracksSection({
           className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1.5 py-2"
           data-testid="research-tracks"
         >
-          {statuses.map((entry) => (
+          {seated.map((entry) => (
+            <li key={entry.role}>
+              <TrackRow
+                status={entry}
+                selected={entry.role === track}
+                onSelect={() => setParams({ track: entry.role }, { replace: true })}
+              />
+            </li>
+          ))}
+          {empty.length > 0 && (
+            /*
+             * The divider is a list item rather than a sibling of the list, because the rows are
+             * `<li>` and a bare `<span>` between them is not something a list may contain. It
+             * carries the count, which is the number a player is here for.
+             */
+            <li
+              aria-hidden
+              className="flex shrink-0 items-center gap-2 px-1 pb-0.5 pt-2"
+              data-testid="research-empty-chairs"
+            >
+              <span className="font-display text-[10px] uppercase tracking-[0.18em] text-oxblood-300">
+                Nobody in the chair
+              </span>
+              <span className="font-display text-[10px] tabular-nums text-oxblood-300/70">
+                {empty.length}
+              </span>
+              <span className="ink-rule h-px flex-1 opacity-60" />
+            </li>
+          )}
+          {empty.map((entry) => (
             <li key={entry.role}>
               <TrackRow
                 status={entry}

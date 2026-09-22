@@ -430,3 +430,60 @@ describe('a garrison order names units, and only units', () => {
     });
   }
 });
+
+/**
+ * Any ground you hold, anywhere in the city (maintainer, 2026-09-22).
+ *
+ * The maintainer asked for every captured location to be workable and for the level to be on show.
+ * Both were already true, and neither was written down anywhere a change could trip over: nothing
+ * in this file said that the ground it works up is in a district the crew does not live in, and
+ * nothing said that a level is legible on ground held by somebody else.
+ *
+ * The rule the server actually enforces is holder-based and has no geography in it at all
+ * (`startUpgrade` asks whether the control row names your crew). These two pin that, so a
+ * district-scoped guard added later fails here rather than quietly halving the map.
+ */
+describe('working up ground anywhere in the city', () => {
+  /** Every location in the game sits in a contested district; a crew lives in a residential one. */
+  it('works up a location in a district the crew does not live in', async () => {
+    const stack = await makeStack();
+    const home = stack.app.repos.bases.findById(stack.baseId)?.districtId;
+    expect(home, 'the fixture crew should not live on the ground it is working').not.toBe(
+      'rustyard',
+    );
+
+    // A second contested district, so the pass is not an accident of the one this file uses.
+    const FAR = 'chrome-row-anvil';
+    const far = stack.app.repos.city.control(FAR);
+    if (!far) throw new Error(`fixture: no control row for ${FAR}`);
+    expect(far.holder.kind, 'fixture: the far location should start in other hands').not.toBe(
+      'crew',
+    );
+    stack.app.repos.city.put({ ...far, holder: { kind: 'crew', baseId: stack.baseId } });
+
+    const started = await upgrade(stack, FAR);
+    expect(started.statusCode, started.body.slice(0, 200)).toBe(200);
+    finishWork(stack, FAR);
+    await stack.app.inject({
+      method: 'GET',
+      url: '/api/city/chrome-row',
+      headers: auth(stack.token),
+    });
+    expect(stack.app.repos.city.control(FAR)?.level).toBe(2);
+  });
+
+  it('shows the level of a location the crew does not hold', async () => {
+    const stack = await makeStack();
+    const press = stack.app.repos.city.control(PRESS.locationId);
+    if (!press) throw new Error('fixture: no Kessler Press');
+    // Somebody else's ground, worked up by them. The number is the map's, not a secret.
+    stack.app.repos.city.put({ ...press, level: 6 });
+
+    const view = await read(stack, PRESS.locationId);
+    expect(view.holder.kind, 'fixture: the Press should not be ours').not.toBe('crew');
+    expect(view.level).toBe(6);
+    // And there is no offer on it, because it is not ours to work on.
+    const refused = await upgrade(stack, PRESS.locationId);
+    expect(refused.statusCode).toBe(409);
+  });
+});

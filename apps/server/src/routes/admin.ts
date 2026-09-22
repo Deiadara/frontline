@@ -33,6 +33,7 @@ import {
   declarationWindow,
   type BattleTarget,
   type ScheduledBattle,
+  seedFrom,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { startingBase } from '../crew/starting.js';
@@ -42,6 +43,8 @@ import { AppError, parseBody } from '../errors.js';
 import { declareBattle } from '../battle/declare.js';
 import { forfeitOffers } from '../market/board.js';
 import { ownBase } from './own-base.js';
+import { rollName } from '../bar/names.js';
+import { createRng } from '../characters/rng.js';
 
 /**
  * The bench: knobs that put the game at a chosen stage, in one click.
@@ -486,11 +489,23 @@ export function registerAdminRoutes(app: FastifyInstance): void {
          *
          * One per role, in the catalogue's order, at a flat rating. Flat because a bench that
          * rolled a sheet would make every measurement taken against it a measurement of the draw.
+         *
+         * **Named like people, not like slots** (maintainer, 2026-09-22). They used to be called
+         * `Bench 1` through `Bench 19`, and every screen that prints the person under the chair
+         * then read as a contradiction: the research rail said `Master of Whispers` on one line
+         * and `Bench 1` on the next, which is a crew that is somehow seated and benched at once.
+         * Nobody here is on the bench. They are in chairs, and the word was only ever the id of
+         * the fixture that made them.
+         *
+         * The name is rolled off the Bar's own list, seeded on the role, so the Console still
+         * produces the same crew every time it is pressed: a screenshot taken against this preset
+         * is stable, which is most of what it is for. Only the *name* is drawn; the sheet stays
+         * flat, so no measurement taken here is a measurement of a roll.
          */
-        const seated = OFFICER_ROLES.slice(0, body.officers.count).map((role, index) =>
+        const seated = OFFICER_ROLES.slice(0, body.officers.count).map((role) =>
           createCommander(
             `bench-${role}`,
-            `Bench ${index + 1}`,
+            rollName(createRng(seedFrom(`console-officer:${role}`))),
             role,
             Object.fromEntries(
               ATTRIBUTE_NAMES.map((name) => [name, body.officers!.rating]),

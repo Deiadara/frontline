@@ -281,6 +281,33 @@ export const UPGRADE_COST_SCALE: readonly number[] = [
   1, 2.2, 4.5, 6.3, 8.8, 12.3, 17.2, 24.1, 33.7,
 ];
 
+/**
+ * What every location upgrade is made of, as a ratio against its planks (maintainer, 2026-09-22).
+ *
+ * One mix for every kind in the catalogue. It used to be authored per kind as a resource bundle,
+ * mostly caps with some scrap and timber, and the trouble with that was what it said about the
+ * city: a level was something you *bought*, and the number that stopped you was the one resource
+ * no structure produces. Working a location up is building work, so it is paid for in building
+ * materials, and the shape of the bill is the same wherever you are doing it.
+ *
+ * Read as percentages of the order it is 50% planks, 5% high-quality metal, 15% scrap, 20% oil
+ * and 10% caps, which is the 10 : 1 : 3 : 4 : 2 below. Anchored on planks because planks are the
+ * half: an order reading `100 planks, 10 HQ metal, 30 scrap, 40 oil, 20 caps` is one number and
+ * four consequences of it.
+ *
+ * Supplies are deliberately absent. They fed nine of the old bundles and they are food, which is
+ * what a crew eats rather than what a roof is made of.
+ */
+export const UPGRADE_MIX: Readonly<
+  Record<'planks' | 'highQualityMetal' | 'scrap' | 'oil' | 'caps', number>
+> = {
+  planks: 1,
+  highQualityMetal: 0.1,
+  scrap: 0.3,
+  oil: 0.4,
+  caps: 0.2,
+};
+
 export interface LocationSpec {
   label: string;
   /** One line for the map tooltip: what the location *is*. */
@@ -300,8 +327,16 @@ export interface LocationSpec {
   baseDefense: number;
   /** What the ground is like, before the sky gets a say (`labels.ts`). */
   labels: readonly EnvLabel[];
-  /** What the first upgrade costs. Every later one scales by {@link UPGRADE_COST_SCALE}. */
-  upgradeCost: PartialResources;
+  /**
+   * Planks for the first upgrade, and through {@link UPGRADE_MIX} the whole of its bill.
+   *
+   * One number rather than a bundle, because the bundle's *shape* is now the same everywhere and
+   * only its size is a property of the place. A Pawn Shop opens at 80 and a Construction Site at
+   * 460, which is the spread the hand-written bundles already had; every later level scales by
+   * {@link UPGRADE_COST_SCALE}, so the top of the ladder runs from about 2,700 planks to about
+   * 15,500.
+   */
+  upgradeCost: number;
   /**
    * What the first three upgrades actually *are*, in three short lines: level 2, 3 and 4.
    *
@@ -338,7 +373,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 2,
     labels: [L('noisy', 3), L('crammed', 2)],
-    upgradeCost: { caps: 320, scrap: 180, planks: 90 },
+    upgradeCost: 160,
     upgrades: [
       'The second baler comes back online and the sorting floor stops backing up.',
       'A magnetic separator over the belt, so nobody is picking metal out by hand.',
@@ -352,7 +387,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'resource', resource: 'oil', perHour: 14 }],
     baseDefense: 4,
     labels: [L('toxic', 3), L('crammed', 2), L('noisy', 2)],
-    upgradeCost: { caps: 420, scrap: 140, highQualityMetal: 10, planks: 70 },
+    upgradeCost: 170,
     upgrades: [
       'The third cracking tower is repacked and lit.',
       'Feedstock lines rerouted off the ruined header. Nothing is being flared off any more.',
@@ -370,7 +405,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'resource', resource: 'oil', perHour: 20 }],
     baseDefense: 5,
     labels: [L('noisy', 2), L('crammed', 1)],
-    upgradeCost: { caps: 500, scrap: 200, highQualityMetal: 15, planks: 80 },
+    upgradeCost: 230,
     upgrades: [
       'The cracked tank at the north end is patched and brought back into service.',
       'Valve gear replaced, so one leak stops taking the whole bund out of use with it.',
@@ -384,7 +419,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'resource', resource: 'supplies', perHour: 26 }],
     baseDefense: 3,
     labels: [L('wet', 2), L('crammed', 1), L('noisy', 1)],
-    upgradeCost: { caps: 300, scrap: 150, planks: 90 },
+    upgradeCost: 150,
     upgrades: [
       'Better plumbing: the leaking main under the yard is dug up and replaced.',
       'The settling beds are dredged and the intake screens stop clogging weekly.',
@@ -398,7 +433,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'resource', resource: 'highQualityMetal', perHour: 3 }],
     baseDefense: 4,
     labels: [L('hot', 2), L('noisy', 3), L('crammed', 2)],
-    upgradeCost: { caps: 600, scrap: 260, oil: 120, planks: 100 },
+    upgradeCost: 290,
     upgrades: [
       'The second cupola is relined and lit for the first time in a decade.',
       'A proper sand plant, so a bad mould stops costing a whole pour.',
@@ -417,7 +452,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 2,
     labels: [L('open', 2), L('toxic', 1)],
-    upgradeCost: { caps: 260, scrap: 120, planks: 70 },
+    upgradeCost: 120,
     upgrades: [
       'The underground tanks are pumped out properly instead of siphoned by hand.',
       'A filtration rig in the back bay, so what comes up is worth selling.',
@@ -436,7 +471,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 7,
     labels: [L('toxic', 4), L('dark', 3), L('crammed', 2), L('eerie', 2)],
-    upgradeCost: { caps: 900, scrap: 300, highQualityMetal: 40, planks: 110 },
+    upgradeCost: 400,
     upgrades: [
       'The turbine hall is shored and lit, so the salvage crews stop working blind.',
       'One coolant loop is brought back under control. The building stops getting worse.',
@@ -454,7 +489,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 2)],
-    upgradeCost: { caps: 200, supplies: 120, planks: 90 },
+    upgradeCost: 100,
     upgrades: [
       'A second serving line, so the queue clears before the food does.',
       'Cold store out the back. Nothing is thrown away at the end of a day any more.',
@@ -474,7 +509,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 1,
     labels: [L('crammed', 3), L('open', 2), L('noisy', 2), L('cold', 1)],
-    upgradeCost: { caps: 240, supplies: 200, planks: 220 },
+    upgradeCost: 170,
     upgrades: [
       'Standpipes and latrines. The camp stops being an outbreak waiting to happen.',
       'Timber and sheet steel go up where the tarpaulins were. It becomes a place people stay.',
@@ -490,7 +525,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'resource', resource: 'caps', perHour: 30 }],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 3)],
-    upgradeCost: { caps: 380, planks: 180 },
+    upgradeCost: 130,
     upgrades: [
       'The pitches are numbered and rented instead of fought over.',
       'A covered row along the north side, so the market keeps trading in the rain.',
@@ -508,7 +543,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 4,
     labels: [L('crammed', 2), L('noisy', 3), L('open', 1)],
-    upgradeCost: { caps: 550, planks: 220 },
+    upgradeCost: 170,
     upgrades: [
       'Your people are on the floor at open, which is where the day’s price is decided.',
       'A seat on the board. The number goes up when you say it does.',
@@ -522,7 +557,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'loot_capacity', percent: 15 }],
     baseDefense: 1,
     labels: [L('crammed', 3), L('dark', 1)],
-    upgradeCost: { caps: 240, planks: 100 },
+    upgradeCost: 80,
     upgrades: [
       'The back room is cleared and shelved. Twice the stock, half the arguments.',
       'A second counter for people who would rather not queue where they can be seen.',
@@ -537,7 +572,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'salvage_refund', percent: 12 }],
     baseDefense: 3,
     labels: [L('eerie', 2), L('crammed', 2), L('noisy', 1)],
-    upgradeCost: { caps: 460, scrap: 120, planks: 140 },
+    upgradeCost: 180,
     upgrades: [
       'Your own recovery crew works the field before anybody else gets there.',
       'A rendering shed, so what comes back is sorted rather than sold in a heap.',
@@ -556,7 +591,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 5,
     labels: [L('open', 3), L('elevated', 2)],
-    upgradeCost: { caps: 400, scrap: 100, planks: 70 },
+    upgradeCost: 130,
     upgrades: [
       'The plinth is cleaned and the inscription re-cut. People start meeting here again.',
       'Floodlights. It is the first thing anybody sees coming into the district.',
@@ -574,7 +609,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'defense_percent', percent: 12 }],
     baseDefense: 4,
     labels: [L('open', 3), L('elevated', 3), L('windy', 1)],
-    upgradeCost: { caps: 340, scrap: 200, planks: 180 },
+    upgradeCost: 210,
     upgrades: [
       'Sandbagged firing positions instead of whatever people were crouching behind.',
       'A cut stair up the back, so the position can be reinforced under fire.',
@@ -599,7 +634,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 5,
     labels: [L('crammed', 2), L('open', 1)],
-    upgradeCost: { caps: 300, scrap: 260, planks: 280 },
+    upgradeCost: 260,
     upgrades: [
       'The gaps are filled and the whole line is tied together with rebar.',
       'A second course of containers, offset, so nothing has a straight run at it.',
@@ -626,7 +661,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 5,
     labels: [L('elevated', 4), L('open', 2), L('windy', 2), L('crammed', 1)],
-    upgradeCost: { caps: 420, scrap: 180, highQualityMetal: 10, planks: 200 },
+    upgradeCost: 240,
     upgrades: [
       'The cabin is glazed and manned around the clock instead of at somebody’s convenience.',
       'Optics off a dead Combine spotter post, and somebody who knows how to use them.',
@@ -640,7 +675,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_stealth', percent: 15 }],
     baseDefense: 2,
     labels: [L('crammed', 4), L('dark', 3), L('wet', 2), L('toxic', 1)],
-    upgradeCost: { caps: 220, scrap: 140, planks: 90 },
+    upgradeCost: 130,
     upgrades: [
       'The collapsed eastern run is dug out. Two more ways in and out.',
       'Duckboards and lamps the whole length, so a crew moves at walking pace.',
@@ -655,7 +690,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'mission_speed', percent: 12 }],
     baseDefense: 4,
     labels: [L('crammed', 4), L('dark', 4), L('eerie', 1)],
-    upgradeCost: { caps: 480, scrap: 200, planks: 240 },
+    upgradeCost: 250,
     upgrades: [
       'The flooded section is pumped and the shoring replaced. It is safe at a run.',
       'A second shaft at the far end, so traffic stops meeting itself in the middle.',
@@ -674,7 +709,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 6,
     labels: [L('crammed', 3), L('dark', 2)],
-    upgradeCost: { caps: 520, scrap: 220, highQualityMetal: 20, planks: 130 },
+    upgradeCost: 270,
     upgrades: [
       'The armourer’s bench is set up properly and somebody is on it every day.',
       'Pattern jigs, so a unit modification is repeatable instead of one man’s good afternoon.',
@@ -700,7 +735,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 6,
     labels: [L('open', 3), L('eerie', 2), L('toxic', 1)],
-    upgradeCost: { caps: 560, scrap: 320, oil: 100, planks: 120 },
+    upgradeCost: 300,
     upgrades: [
       'A gantry crane over the north field. Whole hulls instead of what could be carried.',
       'The sunk row is dug out and drained: the best of it was always at the bottom.',
@@ -721,7 +756,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 6,
     labels: [L('open', 3), L('elevated', 2), L('noisy', 2), L('windy', 1)],
-    upgradeCost: { caps: 700, scrap: 340, highQualityMetal: 30, planks: 380 },
+    upgradeCost: 460,
     upgrades: [
       'The tower crane is recommissioned and passes a load test at full radius.',
       'A second crane on the east raft, so two things can be built at once.',
@@ -747,7 +782,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 2,
     labels: [L('crammed', 3), L('noisy', 4)],
-    upgradeCost: { caps: 300, supplies: 80, planks: 160 },
+    upgradeCost: 130,
     upgrades: [
       'Tiered benches and a bell. Twice the crowd and four times the noise.',
       'A card every night instead of whenever somebody feels like it.',
@@ -762,7 +797,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'training_sessions', flat: 1 }],
     baseDefense: 2,
     labels: [L('crammed', 3), L('noisy', 2), L('hot', 1)],
-    upgradeCost: { caps: 380, scrap: 80, planks: 120 },
+    upgradeCost: 140,
     upgrades: [
       'The upstairs room is cleared out, which doubles the floor.',
       'Proper plates and a rack that is not welded together. Nobody is waiting.',
@@ -777,7 +812,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'intimidation', flat: 6 }],
     baseDefense: 3,
     labels: [L('noisy', 3), L('crammed', 2)],
-    upgradeCost: { caps: 420, supplies: 160, highQualityMetal: 10, planks: 130 },
+    upgradeCost: 180,
     upgrades: [
       'The surgery gets a clean room, and the survival rate stops being a talking point.',
       'A run and a scent yard, so the animals are trained rather than merely kept.',
@@ -795,7 +830,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 4,
     labels: [L('open', 3), L('noisy', 2), L('windy', 1)],
-    upgradeCost: { caps: 480, scrap: 280, planks: 200 },
+    upgradeCost: 270,
     upgrades: [
       'The turntable is freed off, so stock stops having to be dragged out backwards.',
       'A lifting shop over the pit road. Bogies come out whole instead of in pieces.',
@@ -822,7 +857,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 2), L('dark', 1)],
-    upgradeCost: { caps: 400, scrap: 220, oil: 60, planks: 150 },
+    upgradeCost: 230,
     upgrades: [
       'Two cars are made roadworthy and the depot road is cleared to the street.',
       'The overhead is repaired as far as the junction. No more towing.',
@@ -838,7 +873,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'research_speed', percent: 12 }],
     baseDefense: 3,
     labels: [L('crammed', 2), L('dark', 1)],
-    upgradeCost: { caps: 460, highQualityMetal: 10, planks: 180 },
+    upgradeCost: 160,
     upgrades: [
       'The east reading room is reopened and catalogued.',
       'Power to the workshops, so the equipment in them stops being furniture.',
@@ -857,7 +892,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 3,
     labels: [L('dark', 4), L('crammed', 1), L('eerie', 1)],
-    upgradeCost: { caps: 620, highQualityMetal: 25, planks: 90 },
+    upgradeCost: 190,
     upgrades: [
       'The projector is rebuilt and the dome is dark again for the first time in years.',
       'The optical bench is stripped and repurposed. It is the best glass in the district.',
@@ -871,7 +906,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'vision', districts: 2 }],
     baseDefense: 5,
     labels: [L('open', 2), L('elevated', 3), L('windy', 2)],
-    upgradeCost: { caps: 560, highQualityMetal: 30, planks: 70 },
+    upgradeCost: 180,
     upgrades: [
       'The dish is re-aimed properly and the signal stops dropping out at dusk.',
       'A second receiver, so two birds can be tracked instead of one.',
@@ -885,7 +920,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'intimidation', flat: 10 }],
     baseDefense: 5,
     labels: [L('elevated', 3), L('open', 2), L('windy', 2)],
-    upgradeCost: { caps: 480, highQualityMetal: 20, planks: 80 },
+    upgradeCost: 150,
     upgrades: [
       'Output doubled. The signal reaches the upper levels for the first time.',
       'A standby set, so being knocked off air stops being a thing that happens.',
@@ -900,7 +935,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'officer_group', group: 'social', flat: 5 }],
     baseDefense: 4,
     labels: [L('crammed', 2), L('dark', 1)],
-    upgradeCost: { caps: 540, planks: 110 },
+    upgradeCost: 130,
     upgrades: [
       'Studio two is brought back, so training stops competing with transmission.',
       'The records library is catalogued. Nine thousand hours of how people talked.',
@@ -918,7 +953,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 2,
     labels: [L('crammed', 3), L('elevated', 1), L('dark', 2)],
-    upgradeCost: { caps: 280, scrap: 60, planks: 70 },
+    upgradeCost: 100,
     upgrades: [
       'A directional aerial. Twice the reach and half the chance of being found.',
       'A second set in another building, so being raided stops meaning being off air.',
@@ -934,7 +969,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_vitality', percent: 8 }],
     baseDefense: 6,
     labels: [L('crammed', 3), L('cold', 1), L('eerie', 1)],
-    upgradeCost: { caps: 640, highQualityMetal: 30, planks: 80 },
+    upgradeCost: 200,
     upgrades: [
       'Theatre two is recommissioned and the cold store is stocked properly.',
       'A sequencer that works, which changes what can be attempted here at all.',
@@ -948,7 +983,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_vitality', percent: 12 }],
     baseDefense: 3,
     labels: [L('crammed', 2), L('noisy', 1)],
-    upgradeCost: { caps: 500, supplies: 100, planks: 160 },
+    upgradeCost: 170,
     upgrades: [
       'The generator is overhauled, so a theatre stops going dark mid-operation.',
       'A blood bank. The thing they most often ran out of stops running out.',
@@ -964,7 +999,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'battle_stims', flat: 2 }],
     baseDefense: 4,
     labels: [L('crammed', 3), L('dark', 2), L('toxic', 1)],
-    upgradeCost: { caps: 520, supplies: 60, highQualityMetal: 10, planks: 90 },
+    upgradeCost: 150,
     upgrades: [
       'A second bench and a chemist on it. Output goes from a trickle to a supply.',
       'Cold storage, so a batch stops going off before it is used.',
@@ -983,7 +1018,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 7,
     labels: [L('crammed', 3), L('toxic', 3), L('dark', 3), L('eerie', 3)],
-    upgradeCost: { caps: 800, highQualityMetal: 45, oil: 100, planks: 100 },
+    upgradeCost: 290,
     upgrades: [
       'The tanks are drained, cleaned and refilled. Whatever was in them is gone.',
       'Power off your own grid rather than the generator, so nothing is interrupted again.',
@@ -1000,7 +1035,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_morale', flat: 5 }],
     baseDefense: 3,
     labels: [L('crammed', 4), L('noisy', 4), L('dark', 2)],
-    upgradeCost: { caps: 360, supplies: 80, planks: 140 },
+    upgradeCost: 130,
     upgrades: [
       'The cellar is restocked and the back room is yours whenever you want it.',
       'A door policy. The people worth meeting stop being drowned out by the people who are not.',
@@ -1015,7 +1050,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_morale', flat: 12 }],
     baseDefense: 2,
     labels: [L('dark', 4), L('crammed', 2)],
-    upgradeCost: { caps: 340, planks: 120 },
+    upgradeCost: 100,
     upgrades: [
       'The projector is rebuilt and the sound comes back. It stops being a silent film.',
       'The balcony is reopened, which is another three hundred seats a night.',
@@ -1029,7 +1064,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'training_speed', percent: 12 }],
     baseDefense: 1,
     labels: [L('crammed', 3), L('noisy', 3), L('dark', 2)],
-    upgradeCost: { caps: 260, scrap: 60, planks: 90 },
+    upgradeCost: 100,
     upgrades: [
       'Half the dead cabinets are cannibalised into working ones.',
       'A back room wired for two-player rigs. People start practising on purpose.',
@@ -1043,7 +1078,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_speed', percent: 12 }],
     baseDefense: 1,
     labels: [L('open', 3), L('noisy', 1)],
-    upgradeCost: { caps: 220, scrap: 90, planks: 140 },
+    upgradeCost: 130,
     upgrades: [
       'The cracked half is resurfaced, which doubles the usable ground.',
       'Lights on poles. The couriers train after dark, which is when they work.',
@@ -1071,7 +1106,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 2,
     labels: [L('eerie', 2), L('dark', 2), L('crammed', 1), L('cold', 1)],
-    upgradeCost: { caps: 380, planks: 160 },
+    upgradeCost: 120,
     upgrades: [
       'The roof is made good and the bell rings on the hour again.',
       'A vestry for people who want to talk without a congregation listening.',
@@ -1090,7 +1125,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 3,
     labels: [L('eerie', 4), L('dark', 2), L('open', 2), L('cold', 1)],
-    upgradeCost: { caps: 300, scrap: 60, planks: 80 },
+    upgradeCost: 100,
     upgrades: [
       'The lodge is manned and the gates are shut at night. It becomes yours visibly.',
       'The subsided terrace is worked properly instead of dug at by whoever turns up.',
@@ -1106,7 +1141,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     bonuses: [{ kind: 'unit_morale', flat: 10 }],
     baseDefense: 4,
     labels: [L('open', 4), L('elevated', 2)],
-    upgradeCost: { caps: 360, scrap: 90, planks: 60 },
+    upgradeCost: 120,
     upgrades: [
       'The plinth is scrubbed and the name re-cut. People stop to read it again.',
       'Floodlit. The first thing anybody sees coming into the district, and it is yours.',
@@ -1130,7 +1165,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     // Hot and Wet by nature (maintainer, 2026-09-15): a glass house is a warm, dripping room in any
     // weather. Crammed because the aisles between the beds are one unit wide.
     labels: [L('hot', 3), L('wet', 2), L('crammed', 1)],
-    upgradeCost: { caps: 300, scrap: 120, planks: 160 },
+    upgradeCost: 160,
     upgrades: [
       'The broken panes are glazed and the lamps rewired. Nothing freezes in the night beds any more.',
       'A second pump on the intake line, so every bed is wet on the hour instead of when somebody remembers.',
@@ -1163,7 +1198,7 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     ],
     baseDefense: 9,
     labels: [L('elevated', 3), L('crammed', 2), L('dark', 1)],
-    upgradeCost: { caps: 900, scrap: 260, highQualityMetal: 60, planks: 120 },
+    upgradeCost: 420,
     upgrades: [
       'The long table is yours, and the people who used to sit at it know it.',
       'The vault is lit again. Whoever looks up at the spire sees a different flag on it.',
@@ -1250,11 +1285,13 @@ export function upgradeCost(kind: LocationKind, level: number): PartialResources
   const from = clampLevel(level);
   if (from >= MAX_LOCATION_LEVEL) return null;
   const scale = UPGRADE_COST_SCALE[from - 1] as number;
-  const base = LOCATION_CATALOG[kind].upgradeCost;
+  const planks = LOCATION_CATALOG[kind].upgradeCost * scale;
   const cost: PartialResources = {};
-  for (const key of RESOURCE_KEYS) {
-    const amount = base[key];
-    if (amount !== undefined && amount > 0) cost[key] = Math.round(amount * scale);
+  for (const [key, share] of Object.entries(UPGRADE_MIX)) {
+    // Floored at one. The scarce channel is a tenth of the timber, so the cheapest kind's first
+    // level would round its high-quality metal to 8 and a hypothetical cheaper one to nothing,
+    // and a material the order does not mention is a material the order does not teach.
+    cost[key as keyof PartialResources] = Math.max(1, Math.round(planks * share));
   }
   return cost;
 }
@@ -1727,7 +1764,7 @@ for (const kind of LOCATION_KINDS) {
   if (spec.upgrades.length !== AUTHORED_UPGRADE_NOTES) {
     throw new Error(`${kind} needs ${AUTHORED_UPGRADE_NOTES} upgrade notes`);
   }
-  if (Object.keys(spec.upgradeCost).length === 0) {
+  if (!Number.isInteger(spec.upgradeCost) || spec.upgradeCost <= 0) {
     throw new Error(`${kind} has no upgrade price, so it can never be worked up`);
   }
   if (spec.labels.length === 0) {

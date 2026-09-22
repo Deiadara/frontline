@@ -88,7 +88,17 @@ next read of the city: the same lazy contract fortifying uses, and the same sett
 
 A location can be worked to `MAX_LOCATION_LEVEL` (10). Each level pays more (`LEVEL_SCALE`, linear
 at +0.5 of the level-1 value per level) and each upgrade costs more than the last
-(`UPGRADE_COST_SCALE`, a doubling for the first three steps and a flat 1.4x after that). Each level
+(`UPGRADE_COST_SCALE`, a doubling for the first three steps and a flat 1.4x after that).
+
+Every order is the same mix of materials (`UPGRADE_MIX`): 50% planks, 5% high-quality metal, 15%
+scrap, 20% oil and 10% caps, which is a ratio of 10 : 1 : 3 : 4 : 2 against the planks. A kind's
+own catalogue entry sets one number, the planks its first upgrade asks for, and the rest of the
+bill follows from it. That figure runs from 80 for a Pawn Shop to 460 for a Construction Site, so
+the last level on the ladder costs between about 2,700 and about 15,500 planks. Supplies are not
+part of it: working ground up is building work, and a crew eats supplies rather than building
+with them.
+
+Each level
 above the first also adds `POPULATION_PER_LOCATION_LEVEL` (3) unit slots on top of the flat
 `POPULATION_PER_LOCATION` (20) every held location pays, and takes 2% off the price and 3% off the
 clock of any unit that location unlocks (`homeTrainingBonus`).
@@ -126,7 +136,7 @@ Refusals, all `409`, in the order they are checked:
 | An unlock clause is unmet: Nexus, another structure, or crew level | `STRUCTURE_LOCKED`       |
 | Already at `BUILDING_MAX_LEVEL`                                    | `STRUCTURE_AT_MAX_LEVEL` |
 | Held down by the Nexus's own level                                 | `NEXUS_CAP`              |
-| All `MAX_BUILD_QUEUE` slots working                                | `BUILD_QUEUE_FULL`       |
+| All `buildQueueCapacity` slots working (4, or 6 with `Batch Runs`) | `BUILD_QUEUE_FULL`       |
 | Materials short                                                    | `INSUFFICIENT_RESOURCES` |
 
 Materials are taken at order time. Price and duration are read off the district **as it stands**

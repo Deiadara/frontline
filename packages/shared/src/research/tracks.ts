@@ -826,6 +826,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Batch Runs',
       blurb: 'Forty of them, then set up for the next thing. Never one at a time.',
       bonus: { kind: 'training_cost', percent: 7 },
+      unlocks: 'two more build slots, taking the queue from four to six',
     },
     {
       name: 'Standard Parts',

@@ -362,3 +362,69 @@ describe('the running programme, on a fast machine', () => {
     }
   });
 });
+
+/**
+ * The rail is in two groups: chairs with somebody in them, then the empty ones (maintainer,
+ * 2026-09-22).
+ *
+ * Nineteen trades in catalogue order scattered the empty chairs through the list, so the question
+ * the rail is actually asked, "which trades is nobody covering", meant scanning nineteen rows for
+ * a red line. Order is the answer rather than a filter, because every trade still has to be
+ * reachable in one press.
+ */
+describe('the rail puts the empty chairs together, underneath', () => {
+  /** Where each row sits in the rendered list, by role. */
+  const order = (rail: HTMLElement): string[] =>
+    [...rail.querySelectorAll('[data-testid^="research-track-"]')].map((node) =>
+      (node.getAttribute('data-testid') ?? '').replace('research-track-', ''),
+    );
+
+  it('draws every filled chair above every empty one, and loses none of them', async () => {
+    stub();
+    const rail = await openTracks();
+    const rows = order(rail);
+    // Nothing is dropped by the grouping: the rail is still the whole catalogue.
+    expect(rows).toHaveLength(OFFICER_ROLES.length);
+    expect([...rows].sort()).toEqual([...OFFICER_ROLES].sort());
+
+    const emptyRoles = new Set<string>(
+      F.research.tracks.filter((track) => track.mark === null).map((track) => track.role),
+    );
+    // The precondition that makes this test mean anything: the fixture has some of each, and the
+    // catalogue order does **not** already put them this way round.
+    expect(emptyRoles.size).toBeGreaterThan(0);
+    expect(emptyRoles.size).toBeLessThan(OFFICER_ROLES.length);
+
+    const firstEmpty = rows.findIndex((role) => emptyRoles.has(role));
+    const lastFilled = rows.reduce(
+      (last, role, index) => (emptyRoles.has(role) ? last : index),
+      -1,
+    );
+    expect(firstEmpty).toBeGreaterThan(lastFilled - 1);
+    expect(lastFilled).toBeLessThan(firstEmpty);
+  });
+
+  it('marks the break, and counts what is under it', async () => {
+    stub();
+    const rail = await openTracks();
+    const divider = within(rail).getByTestId('research-empty-chairs');
+    const empties = F.research.tracks.filter((track) => track.mark === null).length;
+    expect(divider).toHaveTextContent(String(empties));
+    expect(divider).toHaveTextContent(/nobody in the chair/i);
+  });
+
+  it('draws no break at all when every chair is filled', async () => {
+    const allSeated: ResearchResponse = {
+      ...F.research,
+      tracks: F.research.tracks.map((track) => ({
+        ...track,
+        mark: track.mark ?? 'B',
+        officerName: track.officerName ?? 'Somebody',
+      })),
+    };
+    stub(allSeated);
+    const rail = await openTracks();
+    expect(within(rail).queryByTestId('research-empty-chairs')).toBeNull();
+    expect(order(rail)).toHaveLength(OFFICER_ROLES.length);
+  });
+});

@@ -159,6 +159,7 @@ import {
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
   createCommander,
+  BUILD_QUEUE_RESEARCH_ID,
   TECH_DISTRICT_OFFERS,
   findMissionTemplate,
   makeAttributes,
@@ -464,12 +465,21 @@ export const lateGame: MeResponse = {
  * get, and on a narrow frame it is what a name plate has to stay clear of. The two were measured
  * apart on 2026-09-15 and only the full one was covering plates.
  *
+ * **It carries `Batch Runs`** (maintainer, 2026-09-22), and has to. The queue is four wide until
+ * that rung is researched and six after it, so six orders is not a state a crew without it can
+ * reach: the fixture would be drawing a rail the game cannot produce, and the readout above it
+ * would say `6/4`. The rung is what makes this save's own ceiling six.
+ *
  * The orders run back to back off one clock, so the countdowns read like a queue that is being
  * worked rather than six things finishing at once, and they are relative to *now* for the reason
  * `lateGameBase`'s three are: a queue pinned to `NOW` shows every order as already done.
  */
 export const fullQueueBase: Base = {
   ...lateGameBase,
+  research: {
+    ...lateGameBase.research,
+    technologies: [...lateGameBase.research.technologies, BUILD_QUEUE_RESEARCH_ID],
+  },
   buildQueue: (['quarters', 'greenhouse', 'gate', 'lab', 'garage', 'infirmary'] as const).map(
     (kind, index) => {
       const durationSeconds = (20 + 10 * index) * 60;

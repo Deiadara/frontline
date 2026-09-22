@@ -12,6 +12,7 @@
  */
 import {
   CENTRAL_BUILDING,
+  BASE_BUILD_QUEUE,
   MAX_BUILD_QUEUE,
   MODIFICATIONS,
   levelCapForNexus,
@@ -529,9 +530,14 @@ for (const size of VIEWPORTS) {
      * one line at 1024x768. Down the left from `RAIL_COLUMN_MIN_WIDTH_PX` up, across the top under
      * it; either way every plate has to answer its own click.
      */
-    for (const [depth, queue, orders] of [
-      ['three orders', lateGame, 3],
-      ['a full queue', fullQueue, MAX_BUILD_QUEUE],
+    /*
+     * The denominator is the crew's own, not the ceiling (maintainer, 2026-09-22): the queue is
+     * four wide until `Batch Runs` and six after it. `lateGame` has not researched it and reads
+     * `3/4`; `fullQueue` has, which is the only way six orders is a state that exists.
+     */
+    for (const [depth, queue, orders, slots] of [
+      ['three orders', lateGame, 3, BASE_BUILD_QUEUE],
+      ['a full queue', fullQueue, MAX_BUILD_QUEUE, MAX_BUILD_QUEUE],
     ] as const) {
       test(`the in-flight rail keeps off every plate with ${depth} at ${tag}`, async ({ page }) => {
         await installApi(page, queue);
@@ -539,9 +545,7 @@ for (const size of VIEWPORTS) {
         await expect(page.getByTestId('build-rail-gate')).toBeVisible();
         // The fixture is as deep as this case claims: a `fullQueue` that quietly lost an order
         // would leave the six-order geometry untested while still passing everything below.
-        await expect(page.getByTestId('build-rail-toggle')).toContainText(
-          `${orders}/${MAX_BUILD_QUEUE}`,
-        );
+        await expect(page.getByTestId('build-rail-toggle')).toContainText(`${orders}/${slots}`);
 
         await expectRailKeepsOffThePlates(page);
         // A queue this size fits beside the picture at every viewport in the matrix, so every

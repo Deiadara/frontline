@@ -19,7 +19,8 @@ import {
 } from './state.js';
 
 /**
- * The build queue (§A1): up to six orders, worked one at a time in the order they were placed.
+ * The build queue (§A1): four orders to begin with and six once earned, worked one at a time in
+ * the order they were placed.
  *
  * Like every other clock in this game it is settled **lazily**: entries carry absolute start and
  * duration, and whatever has come due is applied the next time the district is read. Nothing wakes
@@ -31,7 +32,40 @@ import {
  * clock ran.
  */
 
-export const MAX_BUILD_QUEUE = 6;
+/**
+ * What a crew can queue before it has earned anything (maintainer, 2026-09-22).
+ *
+ * It was a flat six from the first minute of a run, which made the opening's real constraint
+ * materials and nothing else: a new crew could line up every structure it could afford and then
+ * stop thinking about the order. Four is still enough to plan with and few enough that *which*
+ * four is a decision.
+ */
+export const BASE_BUILD_QUEUE = 4;
+
+/** What Batch Runs adds. Two, so the earned queue is the six the game shipped with. */
+export const BUILD_QUEUE_RESEARCH_BONUS = 2;
+
+/**
+ * The rung that buys the other two slots: the Fabricator track's third, `Batch Runs`.
+ *
+ * Declared here rather than in `research/tracks.ts`, which is the pattern the other earned
+ * unlocks follow (`SCOUTING_RESEARCH_ID`, the five spy rungs): the id lives beside the rule that
+ * reads it, so a rename has one place to fail rather than two places to drift.
+ *
+ * "Forty of them, then set up for the next thing. Never one at a time" is a line about running
+ * work in parallel, which is what the slots are.
+ */
+export const BUILD_QUEUE_RESEARCH_ID = 'tech_batch_runs';
+
+/** The most any crew can reach, which is what a screen prints as the denominator's ceiling. */
+export const MAX_BUILD_QUEUE = BASE_BUILD_QUEUE + BUILD_QUEUE_RESEARCH_BONUS;
+
+/** How many orders this crew may have standing, given what it has researched. */
+export function buildQueueCapacity(technologies: readonly string[]): number {
+  return technologies.includes(BUILD_QUEUE_RESEARCH_ID)
+    ? BASE_BUILD_QUEUE + BUILD_QUEUE_RESEARCH_BONUS
+    : BASE_BUILD_QUEUE;
+}
 
 export const BuildQueueEntrySchema = z.object({
   id: IdSchema,
@@ -119,8 +153,8 @@ export function queueDrainsAt(queue: BuildQueue, now: Date): Date {
  *
  * Everything that gates an order, the level cap, the Nexus unlock ladder, is judged against
  * *this* rather than against what is standing, so a player can queue the Nexus and the structure it
- * unlocks in the same breath. Refusing that would make the six slots useful only for six copies of
- * the same decision.
+ * unlocks in the same breath. Refusing that would make the slots useful only for several copies
+ * of the same decision.
  */
 export function projectedBuildings(buildings: readonly Building[], queue: BuildQueue): Building[] {
   const projected = buildings.map((building) => ({ ...building }));

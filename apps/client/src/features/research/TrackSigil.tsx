@@ -122,7 +122,28 @@ export function TrackSigil({
             opacity="0.75"
           />
         )}
-        <g transform="translate(26 26) scale(2)" strokeWidth={ringed ? 2 : 1.8}>
+        {/*
+         * As big as the frame it is in will take (maintainer, 2026-09-22).
+         *
+         * The glyph used to sit at `translate(26 26) scale(2)`, which is a 24 unit drawing filling
+         * the middle 48 of a 100 unit box: under half the mark was ink, and inside a 36px plate
+         * that left a 24px drawing floating in the centre with a wide margin of nothing around it.
+         *
+         * Two sizes, because the two uses have different room. Ringed, the roundel is the limit:
+         * a square drawing inscribed in a radius-44 circle can be 62 units across before its
+         * corners cross the ink, so 60 keeps a hair of clearance. Unringed the frame is a square
+         * plate that already draws its own edge, so the glyph takes 78 of the 100 and reads at
+         * small sizes the way the infamy spade does.
+         *
+         * Stroke is set per size rather than shared, so the *absolute* weight of the line stays
+         * where it was. A width that scaled with the drawing would have turned a 30% bigger glyph
+         * into a 30% heavier one, and these are pen strokes rather than an outline that should
+         * thicken with the shape.
+         */}
+        <g
+          transform={ringed ? 'translate(20 20) scale(2.5)' : 'translate(11 11) scale(3.25)'}
+          strokeWidth={ringed ? 1.76 : 1.29}
+        >
           {GLYPHS[role].map((d) => (
             <path key={d} d={d} />
           ))}

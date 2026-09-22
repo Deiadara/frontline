@@ -322,8 +322,10 @@ export function LocationSheet({
           {/*
            * Working it up (§A4): the board-game half of holding ground, and the first thing
            * offered because it is the decision the sheet exists for. Fortifying makes a location
-           * *harder to take*; a level makes it *worth more*. Both are lost on capture, which is
-           * what makes pouring into a location you cannot hold a real mistake.
+           * *harder to take*; a level makes it *worth more*. What happens to each on capture is
+           * not the same, and the sheet used to say here that both were lost: a fortification is
+           * lost, and a banked level changes hands with the ground (§A4, `battle/resolve.ts`).
+           * What a capture does destroy is an upgrade still running, paid for and not yet banked.
            *
            * The authored sentence is shown, not the percentage: "you get the underground tanks
            * pumping again" is a thing that happens to a petrol station you own, and "+50% oil" is

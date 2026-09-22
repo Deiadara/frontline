@@ -484,7 +484,8 @@ export function registerCityRoutes(app: FastifyInstance): void {
    * The other half of holding ground, and deliberately the same shape as fortifying: charged up
    * front, a clock on the row, banked by the settler on the next read. What separates them is what
    * they buy: a fortification makes a location *harder to take*, a level makes it *worth more*,
-   * and what happens on capture, which is that a level is lost and a fortification is too.
+   * and what happens on capture, which is that a fortification is lost and a banked level is not
+   * (§A4). Work still running is lost either way.
    */
   app.post('/city/upgrade', { preHandler: app.authenticate }, (request): CityMutationResponse => {
     const { locationId } = parseBody(UpgradeLocationRequestSchema, request.body);
