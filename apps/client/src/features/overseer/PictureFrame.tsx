@@ -16,13 +16,15 @@ import { cn } from '../../lib/cn';
  * - **The corners.** A rosette in each, a few strokes each, turned so the four are one drawing.
  * - **No mat.** There was a band of paper between the moulding and the picture, and it read as
  *   a gap of background rather than a mount (maintainer, 2026-09-23), so the picture meets the
- *   brass, with only a dark bevel line between them. The moulding lost a quarter of its width in
- *   the same note.
+ *   brass, with only a dark bevel line between them. The moulding has been narrowed twice since,
+ *   by the same hand.
  *
  * The child is the picture and sets the size: the frame wraps it, so a 2:3 painting stays 2:3 and
  * uncropped inside a frame that is 2:3 plus one band.
  */
-const MOULDING = 12;
+// 16 at first, then a quarter off, then a fifth off again (maintainer, 2026-09-23): 9.6, drawn
+// as the nearest whole pixel.
+const MOULDING = 10;
 
 export function PictureFrame({ children, className }: { children: ReactNode; className?: string }) {
   const id = useId();

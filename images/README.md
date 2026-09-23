@@ -2,6 +2,11 @@
 
 Drop new art here in whatever the tool named it. Nothing in this directory is read by the game.
 
+Cleared on 2026-09-23 (maintainer request): the raw deliveries that sat here, 156 files and
+249 MB, were copies of what `art-src/` and `assets/` already carry, and the game reads neither
+this folder nor the copies. They are in the history before that date if a source is ever needed;
+the ART-BIBLE's provenance column still names them.
+
 To get a file into the build it has to be **renamed to its manifest key** and moved to `art-src/`,
 which is what the pipeline opens:
 

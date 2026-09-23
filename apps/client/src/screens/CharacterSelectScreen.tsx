@@ -122,7 +122,7 @@ export function CharacterSelectScreen() {
 
       {/* The title, and the hold in the corner. Nothing else: the pool figures and the "each
           rewrites how the war is fought" paragraph came off at the maintainer's request. */}
-      <header className="relative flex shrink-0 items-start justify-between gap-4 px-6 pb-2 pt-5 sm:px-10">
+      <header className="relative flex shrink-0 items-start justify-between gap-4 px-4 pb-2 pt-5 sm:px-6">
         <div className="min-w-0">
           <h1
             className="font-stamp text-[clamp(24px,4vw,44px)] leading-none tracking-[0.06em] text-ink-100"
@@ -167,7 +167,7 @@ export function CharacterSelectScreen() {
        * foot ran past the two buttons. `my-auto` centres it while it fits and does nothing once
        * it does not, which is the behaviour that was wanted both times.
        */}
-      <div className="relative flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-y-auto px-6 pb-5 pt-1 sm:px-10">
+      <div className="relative flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-y-auto px-4 pb-5 pt-1 sm:px-6">
         {offer.isError && (
           <div className="mx-auto w-full max-w-5xl">
             <LoadFailure
@@ -275,9 +275,14 @@ function PortraitWall({
      *
      * `min-h-0` on the grid and on each button, or a flex child refuses to shrink below its
      * content and the row overflows the frame instead of fitting inside it.
+     *
+     * The wall runs edge to edge (maintainer, 2026-09-23): no width cap, and the screen's side
+     * padding (`px-4 sm:px-6`, on the scroller and the header alike) is the grid's own column gap
+     * (`gap-x-4 sm:gap-x-6`), so the room left of the first painting and right of the last is
+     * exactly the room between any two of them.
      */
     <div
-      className="mx-auto grid min-h-0 w-full max-w-[86rem] flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-6 lg:grid-cols-4 lg:grid-rows-1"
+      className="mx-auto grid min-h-0 w-full flex-1 grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-6 lg:grid-cols-4 lg:grid-rows-1"
       data-testid="overseer-wall"
     >
       {choices.map((preset) => (
