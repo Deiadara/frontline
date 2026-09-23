@@ -74,11 +74,6 @@ export function removeItems(inventory: Inventory, spent: ItemCost): Inventory {
   return next;
 }
 
-/** How many distinct kinds of thing are being held: the number the Inventory tab shows. */
-export function inventorySize(inventory: Inventory): number {
-  return heldItems(inventory).length;
-}
-
 /**
  * Which blueprint pages arrived between two reads of an inventory, and how many of each.
  *

@@ -23,7 +23,6 @@ export const TechnologyProjectSchema = z.object({
   kind: z.literal('technology'),
   techId: z.string().min(1),
 });
-export type TechnologyProject = z.infer<typeof TechnologyProjectSchema>;
 
 /**
  * What the Lab can be put on.
@@ -34,7 +33,6 @@ export type TechnologyProject = z.infer<typeof TechnologyProjectSchema>;
  */
 export const ResearchProjectSchema = z.discriminatedUnion('kind', [TechnologyProjectSchema]);
 export type ResearchProject = z.infer<typeof ResearchProjectSchema>;
-export type ResearchProjectKind = ResearchProject['kind'];
 
 /**
  * A project in flight.

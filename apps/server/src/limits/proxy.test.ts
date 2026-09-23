@@ -97,7 +97,7 @@ describe('the address bucket behind a proxy', () => {
  * on this machine with the repo's own `bcryptjs`), i.e. twice the crypto of a login, and it sat on
  * the 120/minute write bucket. One account could spend 12.5 seconds of CPU a minute on the single
  * thread that serves every player's reads, settles and battle resolutions, and a wrong
- * `currentPassword` is refused *after* the compare, so the refusal costs the server and not the
+ * a change is hashed before it is written, so every call costs the server and not the
  * caller.
  */
 describe('which bucket a route falls in', () => {
@@ -128,7 +128,7 @@ describe('which bucket a route falls in', () => {
         method: 'POST',
         url: '/api/settings/password',
         headers: { authorization: `Bearer ${token}` },
-        payload: { currentPassword: 'wrongpassword', newPassword: 'anotherpassword' },
+        payload: { newPassword: 'anotherpassword' },
       });
 
     for (let i = 0; i < AUTH_LIMIT.quota; i += 1) {

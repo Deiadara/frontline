@@ -3,15 +3,17 @@
  *
  * A view names a *thing* (this overseer, this district), never a file. It gets pixels back only
  * when a delivery file for that thing exists in `assets/`; otherwise it gets `null` and paints its
- * own interim look. Dropping `portrait-overseer-1.webp` into `assets/` flips the portrait from
+ * own interim look. Dropping `portrait-overseer-01.webp` into `assets/` flips the portrait from
  * gradient to painted with no TypeScript edit.
+ *
+ * One function, and it hands back a **URL**. There was a second that handed back a Pixi `Texture`,
+ * for a rendering layer nothing ever mounted; it went with that layer on 2026-09-24.
  *
  * Plates and planes do not come through here by *key*: their art is an `AssetKey` rather than a
  * domain id needing resolution. Grepping this module finds every *domain-addressed* consumer of
  * delivered art, not every consumer.
  */
 import { tryResolveAssetKey, type AssetRef, type BuildingKind } from '@frontline/shared';
-import type { Texture } from 'pixi.js';
 import { artLoader, type ArtLoader } from './loader';
 import { DELIVERED_ART } from './source';
 
@@ -20,12 +22,6 @@ export function deliveredUrl(ref: AssetRef, loader: ArtLoader = artLoader): stri
   const key = tryResolveAssetKey(ref);
   const source = key === undefined ? undefined : loader.sourceOf(key);
   return source?.kind === 'file' ? source.url : null;
-}
-
-/** For Pixi views: the delivered texture, or `null` while it is loading or procedural. */
-export function deliveredTexture(ref: AssetRef, loader: ArtLoader = artLoader): Texture | null {
-  const key = tryResolveAssetKey(ref);
-  return key === undefined ? null : loader.textureOf(key);
 }
 
 /**
@@ -43,4 +39,28 @@ export function deliveredTexture(ref: AssetRef, loader: ArtLoader = artLoader): 
  */
 export function buildingPortraitUrl(kind: BuildingKind): string | null {
   return DELIVERED_ART.get(`portrait-${kind}.webp`) ?? null;
+}
+
+/**
+ * A city's painting on the world screen, pending a manifest entry for it.
+ *
+ * Named off the city id, so dropping `city-ashfall.webp` (and `city-saltmarch.webp`, and so on for
+ * the five in `CITIES`) into `assets/` puts the painting on the card with no TypeScript edit.
+ * Until one lands, `CityPortrait` draws its procedural skyline and nothing is missing.
+ *
+ * ## Why it is not on the art manifest yet
+ *
+ * It should be, and it is the one thing here that is a stopgap rather than a rule: these are
+ * paintings somebody has to make, which is exactly what the manifest exists to keep a list of.
+ * Adding the five keys means five subjects in ART-PROMPTS, five rows regenerated into
+ * ART-ORDER.md, a `type: 'city'` arm on `AssetRef` and the prompt-transcription test moved with
+ * them, and that is a change to the art pipeline rather than to the world screen. Filed as the
+ * follow-up it is.
+ *
+ * Note for whoever audits `assets/` next: like {@link buildingPortraitUrl}, this is a **bare
+ * filename** lookup that never touches `ART_MANIFEST`, so a file it resolves looks orphaned to
+ * anything that diffs the delivery directory against the manifest's keys. It is not.
+ */
+export function cityPortraitUrl(cityId: string): string | null {
+  return DELIVERED_ART.get(`city-${cityId}.webp`) ?? null;
 }

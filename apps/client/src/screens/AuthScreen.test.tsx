@@ -37,6 +37,10 @@ function renderAuth() {
   );
 }
 
+/** The door has two handles before it has a form: pick one, the way a player does. */
+const choose = (which: 'login' | 'register') =>
+  fireEvent.click(screen.getByTestId(`auth-choose-${which}`));
+
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
@@ -50,8 +54,15 @@ describe('AuthScreen MVP dev prefill', () => {
   const usernameField = () => screen.getByLabelText<HTMLInputElement>(/Operator ID/);
   const passwordField = () => screen.getByLabelText<HTMLInputElement>(/Password/);
 
+  it('opens on the two handles and nothing else', () => {
+    renderAuth();
+    expect(screen.getByTestId('auth-choice')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Operator ID/)).toBeNull();
+  });
+
   it('prefills the seeded dev credentials in login mode and flags the build', () => {
     renderAuth();
+    choose('login');
 
     expect(usernameField().value).toBe(MVP_DEV_CREDENTIALS.username);
     expect(passwordField().value).toBe(MVP_DEV_CREDENTIALS.password);
@@ -60,7 +71,7 @@ describe('AuthScreen MVP dev prefill', () => {
 
   it('clears both fields when switching to register', () => {
     renderAuth();
-    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+    choose('register');
 
     // The 5-character dev password would fail the >= 8 register rule, so it must not linger.
     expect(usernameField().value).toBe('');
@@ -70,9 +81,10 @@ describe('AuthScreen MVP dev prefill', () => {
 
   it('restores the prefill when switching back to login', () => {
     renderAuth();
-    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+    choose('register');
     fireEvent.change(usernameField(), { target: { value: 'someone_else' } });
-    fireEvent.click(screen.getByRole('button', { name: 'login' }));
+    // The link under the form, for whoever picked the wrong handle.
+    fireEvent.click(screen.getByRole('button', { name: 'Jack in' }));
 
     expect(usernameField().value).toBe(MVP_DEV_CREDENTIALS.username);
     expect(passwordField().value).toBe(MVP_DEV_CREDENTIALS.password);
@@ -88,6 +100,7 @@ describe('AuthScreen MVP dev prefill', () => {
     });
 
     renderAuth();
+    choose('login');
     fireEvent.click(screen.getByRole('button', { name: 'Jack In' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -103,7 +116,7 @@ describe('AuthScreen MVP dev prefill', () => {
 describe('AuthScreen', () => {
   it('blocks submission and surfaces the schema error on invalid input', () => {
     renderAuth();
-    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+    choose('register');
     fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'ab' } });
     fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
@@ -128,7 +141,7 @@ describe('AuthScreen', () => {
     fetchMock.mockResolvedValueOnce(response);
 
     renderAuth();
-    fireEvent.click(screen.getByRole('button', { name: 'register' }));
+    choose('register');
     fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'operator' } });
     fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
@@ -172,6 +185,7 @@ describe('AuthScreen in a production build', () => {
       </QueryClientProvider>,
     );
 
+    choose('login');
     // The form is up, so the absences below are absences rather than an unmounted screen.
     expect(screen.getByRole('button', { name: 'Jack In' })).toBeInTheDocument();
     expect(screen.getByLabelText<HTMLInputElement>(/Operator ID/).value).toBe('');
@@ -193,6 +207,7 @@ describe('AuthScreen when the API cannot be reached', () => {
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
 
     renderAuth();
+    choose('login');
     fireEvent.click(screen.getByRole('button', { name: 'Jack In' }));
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Could not reach/));

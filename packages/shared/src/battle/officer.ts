@@ -138,7 +138,17 @@ export function officerStat(stat: OfficerStatKey, attributes: Attributes): numbe
   const formula = OFFICER_STAT_FORMULAS[stat];
   let raw = 0;
   for (const [name, weight] of Object.entries(formula.weights)) {
-    raw += attributes[name as AttributeName] * (weight ?? 0);
+    /*
+     * `?? 0` on the attribute too (bug pass, 2026-09-23).
+     *
+     * A sheet missing a key gave `undefined * w = NaN`, and NaN then walked through every guard
+     * downstream because a NaN comparison is false: `nerve` NaN, `intimidatePlan`'s `budget <= 0`
+     * not firing, `changeOfHeart`'s `whole <= 0` not firing, and finally `turned[unitId] = NaN`,
+     * which `takeFromArmy` reads as "not greater than zero" and deletes the crew's whole stack of
+     * that unit. `Commander.attributes` is schema-validated, so this is the belt rather than the
+     * braces, and it costs nothing.
+     */
+    raw += (attributes[name as AttributeName] ?? 0) * (weight ?? 0);
   }
   const whole = formula.rounding === 'ceil' ? Math.ceil(raw) : Math.round(raw);
   const capped = formula.cap === null ? whole : Math.min(formula.cap, whole);
@@ -254,8 +264,16 @@ export const OFFICER_TARGET_SHARE = 0.5;
 
 // --- injury (§D4) ---
 
-/** How long an injured officer's services and bonuses are off. The board's number. */
-export const OFFICER_INJURY_HOURS = 24;
+/**
+ * How long an injured officer is out: twelve hours (maintainer, 2026-09-23; it was 24).
+ *
+ * "Out" is total, and that is the other half of the same ruling. While this clock runs the person
+ * contributes **nothing**: not their ratings, not their perks, not their lift on anybody else's
+ * sheet, and not the services their chair unlocks. See `workingOfficers` in `crew/roster.ts`,
+ * which is the one place that decides who is working, and `officerLiftRoom`, which is the one
+ * place that decides whose sheet is in the fold.
+ */
+export const OFFICER_INJURY_HOURS = 12;
 
 /** Injury odds at an even fight, before the day's margin moves them. */
 export const OFFICER_INJURY_BASE_CHANCE = 0.45;
@@ -340,4 +358,3 @@ export const OfficerReportSchema = OfficerOutcomeSchema.extend({
   /** §D4: they came home hurt, and this side gets no report because of it. */
   injured: z.boolean(),
 });
-export type OfficerReport = z.infer<typeof OfficerReportSchema>;

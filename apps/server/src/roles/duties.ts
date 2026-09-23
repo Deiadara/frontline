@@ -64,11 +64,6 @@ export const ROLE_DUTIES: Readonly<Record<OfficerRole, readonly AttributeName[]>
   professor: ['intuition', 'diplomacy', 'improvisation', 'cryptography'],
 };
 
-/** Whether this seat puts that skill to work. The Overseer is not in a seat and uses everything. */
-export function roleUses(role: OfficerRole, attribute: AttributeName): boolean {
-  return ROLE_DUTIES[role].includes(attribute);
-}
-
 /** One officer, ready for `crewSheet`: their sheet, their chair and what they bring. */
 export function seatedMember(
   attributes: Attributes,

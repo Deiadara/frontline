@@ -25,15 +25,6 @@ export function holderToneOf(holder: LocationHolder, baseId: string | null): Hol
   return holder.kind;
 }
 
-/** One line of the game's own words for each, so a colour is never the only thing carrying it. */
-export const HOLDER_WORD: Record<HolderTone, string> = {
-  mine: 'Yours',
-  crew: 'Another crew',
-  looters: 'Looters',
-  government: 'The Combine',
-  unoccupied: 'Unoccupied',
-};
-
 /**
  * The sign on the painting, per holder.
  *

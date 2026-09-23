@@ -174,9 +174,21 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      Tag positions are hand-placed fractions of the painting (`DISTRICT_MARKS`), so a tag stays on
      its building at every window size; a district with no mark would have no way in, which
      `CityView.test.tsx` refuses. Clicking a tag goes to `/game/city/:id`, except your own ground,
-     which goes to the district.
-   - **All cities**: the same place one step back, as state on this screen rather than a route of
-     its own (`CitiesView`), reached by a control on the painting.
+     which goes to the district, and except **unscouted ground, which does not open** (maintainer,
+     2026-09-23): its tag opens the scout sheet (`ScoutMenu`) over the map instead, a hand-drawn
+     card with the district's name, the Combine leader's mark when there is one, and one of four
+     states off the district read. Blocked (`scoutBlocker`): a checklist of the two requirements,
+     a Master of Whispers in the chair and Scouting worked out on their track, each with a tick or
+     a cross, and a line saying where to go. Ready: how long the party would be gone, and Send
+     Scouts. A party on the road here: the countdown and the X to turn them round. A party out
+     elsewhere: where, and the countdown. A link straight to `/game/city/:id` for unscouted ground
+     bounces to `/game?scout=<id>`, which the map reads once, strips, and opens the sheet for.
+   - **All cities**: the world one step back, as state on this screen rather than a route of its
+     own (`CitiesView`), reached by a control on the painting. Five cities as a staggered row of
+     tall portraits filling the frame, each carrying a name, a nickname and what the place is, and
+     nothing else. Ashfall is the only pressable one; the other four are drawn at full strength
+     and simply do not respond. The shell's corner sprites are suppressed here
+     (`useBareCorners`) and the blurred district backdrop is kept.
 
    Both bars measure themselves (`ResizeObserver` → `--hud-h` / `--nav-h` on the shell root) and
    every screen clears them with those variables. A hard-coded `pt-24` is wrong at some viewport,

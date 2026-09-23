@@ -226,11 +226,6 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
   },
 };
 
-/** The kinds a player is never allowed to silence. */
-export const ALWAYS_ON_KINDS: readonly NotificationKind[] = NOTIFICATION_KINDS.filter(
-  (kind) => NOTIFICATION_KIND_SPECS[kind].alwaysOn === true,
-);
-
 export function isAlwaysOn(kind: NotificationKind): boolean {
   return NOTIFICATION_KIND_SPECS[kind].alwaysOn === true;
 }
@@ -293,10 +288,6 @@ export function withMuted(
   if (isAlwaysOn(kind)) return settings;
   const without = settings.muted.filter((entry) => entry !== kind);
   return { muted: muted ? [...without, kind] : without };
-}
-
-export function unreadCount(notifications: readonly Notification[]): number {
-  return notifications.filter((entry) => entry.readAt === null).length;
 }
 
 /**

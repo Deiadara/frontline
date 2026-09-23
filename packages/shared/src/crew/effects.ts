@@ -1,6 +1,5 @@
 import {
   ATTRIBUTE_NAMES,
-  ATTRIBUTE_LABELS,
   ATTRIBUTES_BY_GROUP,
   MAX_ATTRIBUTE,
   clampAttribute,
@@ -659,13 +658,6 @@ export const ATTRIBUTE_EFFECTS: Readonly<Record<AttributeName, AttributeEffect>>
 /** Which attributes drive a channel. Derived: the table above is the only place they are paired. */
 export function attributesDriving(channel: EffectChannel): AttributeName[] {
   return ATTRIBUTE_NAMES.filter((name) => ATTRIBUTE_EFFECTS[name].channel === channel);
-}
-
-/** How this attribute reads on a card: what it does, and what the rating is currently worth. */
-export function effectLine(name: AttributeName, rating: number): string {
-  const magnitude = contributionOf(rating);
-  const unit = ATTRIBUTE_EFFECTS[name].channel.endsWith('Flat') ? '' : '%';
-  return `${ATTRIBUTE_LABELS[name]} +${magnitude}${unit}`;
 }
 
 /** What one rating is worth on its channel, rounded to whole units. */

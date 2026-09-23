@@ -392,9 +392,19 @@ export function ResourceChip({ kind, value, capacity, deltas }: ResourceChipProp
       size="window"
       card={
         <InfoWindow
-          eyebrow="Stockpile"
           title={meta.label}
-          icon={<ResourceIcon kind={kind} className="h-full w-full" />}
+          /*
+           * The picture stands on nothing (maintainer, 2026-09-23).
+           *
+           * A resource master is a painted PNG with its own light and its own edge, and the pale
+           * plate behind it put a lilac square round every one of them. `plate="none"` is the
+           * option this window already carries for exactly that case, written for the unit
+           * portraits: nothing to stand on, no padding, and the box takes the picture's own shape
+           * rather than forcing it into a square. The eyebrow went with it: "Stockpile" over a
+           * figure and a ceiling is a category nobody needed naming.
+           */
+          plate="none"
+          icon={<ResourceIcon kind={kind} className="h-full w-auto" />}
           figure={
             <span className="flex items-baseline gap-2">
               <span className={cn('font-display text-2xl font-bold tabular-nums', meta.color)}>

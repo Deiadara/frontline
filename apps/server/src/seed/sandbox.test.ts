@@ -19,6 +19,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { applyUnlockedSandbox, UNLOCKED_LEVEL } from './sandbox.js';
+import { MVP_ALLY, MVP_BOT, MVP_RIVAL_SECOND } from './constants.js';
 
 /**
  * The sandbox switch, checked against the thing it exists for: can a reviewer see the end-game?
@@ -171,6 +172,59 @@ describe('UNLOCKED: the end-game sandbox', () => {
   });
 
   /** Applied on every boot, so it has to be safe to apply twice. */
+  /**
+   * The mailbox has something in it (maintainer, 2026-09-24).
+   *
+   * Every other screen in this save is built out and the mailbox opened on "Nothing in the box",
+   * so it could not be looked at without writing to yourself from a second account. The letters
+   * go through `sendMessage`, the route's own function, so each one is a real row with a real bell
+   * entry rather than a fixture the game would not have produced.
+   */
+  it('puts a few letters in the inbox, one of them unread', () => {
+    const repos = stack();
+    seedFreshPlayer(repos);
+    // The senders have to exist, or there is nobody for a letter to be from.
+    for (const bot of [MVP_ALLY, MVP_BOT, MVP_RIVAL_SECOND]) {
+      repos.users.insert({
+        id: `bot-${bot.username}`,
+        username: bot.username,
+        passwordHash: 'x',
+        createdAt: NOW,
+      });
+    }
+
+    expect(repos.social.inbox('u1', 20)).toHaveLength(0);
+    applyUnlockedSandbox(repos, 'Nikos');
+
+    const inbox = repos.social.inbox('u1', 20);
+    expect(inbox.length, 'the sandbox left the mailbox empty').toBeGreaterThan(1);
+    // One mark on the badge, not one per letter: the rest arrive already opened.
+    expect(repos.social.unreadMessages('u1')).toBe(1);
+    // Every one of them is from somebody the city actually holds.
+    const senders = new Set(inbox.map((message) => message.senderName));
+    expect([...senders].every((name) => name !== 'Nikos')).toBe(true);
+    // ...and the bell heard about it, which is what moves the badge on the bottom bar.
+    expect(repos.social.notifications('u1', 20).length).toBeGreaterThan(0);
+  });
+
+  /** Run twice on every boot, so a restart must not deal a second hand of letters. */
+  it('does not deal the mail again on the next boot', () => {
+    const repos = stack();
+    seedFreshPlayer(repos);
+    for (const bot of [MVP_ALLY, MVP_BOT, MVP_RIVAL_SECOND]) {
+      repos.users.insert({
+        id: `bot-${bot.username}`,
+        username: bot.username,
+        passwordHash: 'x',
+        createdAt: NOW,
+      });
+    }
+    applyUnlockedSandbox(repos, 'Nikos');
+    const once = repos.social.inbox('u1', 20).length;
+    applyUnlockedSandbox(repos, 'Nikos');
+    expect(repos.social.inbox('u1', 20)).toHaveLength(once);
+  });
+
   it('is idempotent', () => {
     const repos = stack();
     seedFreshPlayer(repos);

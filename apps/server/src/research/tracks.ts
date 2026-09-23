@@ -25,6 +25,7 @@ import {
 } from '@frontline/shared';
 import { standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { workingOfficer } from '../crew/roster.js';
 
 /**
  * §C: what the nineteen research tracks cost this particular crew, and which of them are open.
@@ -44,7 +45,9 @@ import type { Repositories } from '../db/repos/index.js';
 
 /** The officer sitting in a chair, or `undefined`. */
 function seated(base: Base, role: OfficerRole): Commander | undefined {
-  return base.commanders.find((officer) => officer.role === role);
+  // Working, not merely seated (maintainer, 2026-09-23): an injured officer's track stops with
+  // the rest of what they were worth, for the twelve hours they are out.
+  return workingOfficer(base.commanders, role);
 }
 
 /**

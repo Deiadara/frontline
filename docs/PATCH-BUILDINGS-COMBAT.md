@@ -224,7 +224,11 @@ An officer becomes a combatant with these stats. Source attributes are the offic
 ### D4. Injury
 
 - An officer who would have died comes home **injured**.
-- An injured officer's **services and bonuses are inactive** for **24 hours**.
+- An injured officer's **services and bonuses are inactive** for **12 hours** (maintainer,
+  2026-09-23; it was 24). Inactive is total: their ratings, their perks, the lift their perks put
+  on everybody else's sheet, and every service their chair unlocks. `workingOfficers`
+  (`crew/roster.ts`) is the one place that decides who is working; `seatedRoles` still answers
+  which chairs are **taken**, because a chair does not come free while the person in it is hurt.
 - **An officer returning injured means no battle report for that fight** ("the same as if he
   died"): the report is withheld, because the person who would have written it did not.
 - Recovery is a timestamp; settled lazily like every other clock.

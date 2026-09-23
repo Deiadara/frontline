@@ -58,6 +58,7 @@ async function openSession(browser: Browser): Promise<Session> {
   });
   const page = await context.newPage();
   await page.goto('/auth');
+  await page.getByTestId('auth-choose-login').click();
   await page.getByLabel('Operator ID').fill(USERNAME);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Jack In' }).click();
@@ -419,10 +420,19 @@ test.describe.serial('the Right Hand runs the board while the browser is shut', 
   }) => {
     const bearer = await token(request);
     await reachRung(request, bearer, 9);
-    // Fighters and a bag of caps, so a battle job can be covered.
+    // A bag of caps, so a battle job can be covered...
     await api(request, bearer, 'post', '/api/admin/knobs', {
       resources: { caps: 50_000, supplies: 50_000, oil: 50_000, scrap: 50_000, planks: 50_000 },
     });
+    /*
+     * ...and fighters, explicitly.
+     *
+     * This comment used to claim the knob above granted them and it never did: the crew was
+     * leaning on the eight Razors the opening once handed out. A crew is handed carriers now
+     * (`crew/starting.ts`, 2026-09-23), so a battles order had nothing it could legally send and
+     * stalled on the party rather than on the board, which is not what this test is about.
+     */
+    await api(request, bearer, 'post', '/api/admin/grant', { units: { razors: 20 } });
 
     /*
      * The board before anything is switched on. The seed schedules one fight on a fresh world,

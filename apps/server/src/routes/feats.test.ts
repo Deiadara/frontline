@@ -7,13 +7,17 @@ import {
   featMeasureKey,
   findFeat,
   MAX_LOCATION_LEVEL,
+  RESOURCE_KEYS,
   makeAttributes,
   mergeFeatRewards,
+  storageCapacity,
+  storageCapacityFor,
   unitSlotsUsed,
   type ClaimFeatResponse,
   type FeatReward,
   type FeatsResponse,
   type ItemId,
+  type Resources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -896,15 +900,86 @@ describe('collecting the whole backlog at once', () => {
 
     const response = await claimAll(app, one.token);
     expect(response.statusCode, response.body).toBe(200);
-    const body = response.json<{ featIds: string[]; feats: FeatsResponse }>();
+    const body = response.json<{ featIds: string[]; skipped: string[]; feats: FeatsResponse }>();
 
-    expect(body.featIds).toHaveLength(waiting);
-    expect(body.feats.claimed).toBe(waiting + ALREADY_COLLECTED);
-    expect(app.repos.feats.claimed(one.baseId).size).toBe(waiting + ALREADY_COLLECTED);
-    // Every feat that was waiting is now collected, and none of them is waiting any more.
+    /*
+     * Everything waiting is accounted for: collected, or passed over for want of room.
+     *
+     * Not `featIds.length === waiting` any more (maintainer, 2026-09-23). Collect-all leaves a
+     * rung ready when its reward has nowhere to go, which this fixture triggers in bulk: a fresh
+     * crew's Apothecary is small and nineteen ladders at once pay more scrap and planks than it
+     * can hold. The invariant that matters is that none of them is lost.
+     */
+    expect(body.featIds.length + body.skipped.length).toBe(waiting);
+    expect(body.featIds.length, 'nothing was collected at all').toBeGreaterThan(0);
+    expect(new Set([...body.featIds, ...body.skipped]).size).toBe(waiting);
+    expect(body.feats.claimed).toBe(body.featIds.length + ALREADY_COLLECTED);
+    expect(app.repos.feats.claimed(one.baseId).size).toBe(body.featIds.length + ALREADY_COLLECTED);
+    // Every feat that was collected is now collected, and every one passed over is still ready.
     for (const id of body.featIds) {
       expect(body.feats.progress.find((row) => row.id === id)?.state, id).toBe('claimed');
     }
+    for (const id of body.skipped) {
+      expect(body.feats.progress.find((row) => row.id === id)?.state, id).toBe('ready');
+    }
+  });
+
+  /**
+   * A full store leaves a rung ready rather than swallowing what it pays (maintainer, 2026-09-23).
+   *
+   * `addResources` has no ceiling and the settle clamps on the next tick, so a feat paying more
+   * scrap than the Apothecary can hold used to be collected and the overflow simply vanished. The
+   * teeth here are the pair: the same feat is passed over with the store full and collected once
+   * there is room, so the test cannot pass by never collecting anything.
+   */
+  it('passes over a feat whose pay has nowhere to go, and collects it once there is room', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_full');
+    give(app, one.baseId, featMeasureKey('missions_done'), 500);
+
+    const before = (await board(app, one.token)).ready;
+    expect(before, 'the fixture finished no ladders').toBeGreaterThan(0);
+
+    // Every store filled to its own ceiling, so anything paying a resource has nowhere to go.
+    const base = app.repos.bases.findByOwnerId(one.userId)!;
+    const bulk = storageCapacity(base.buildings);
+    // Caps are left where they are: their ceiling is Infinity, because the currency has no
+    // ceiling, and the repo refuses to write a non-finite figure. That is also why a feat paying
+    // caps is never passed over.
+    const brimming = Object.fromEntries(
+      RESOURCE_KEYS.map((key) => {
+        const ceiling = storageCapacityFor(base.buildings, key, bulk);
+        return [key, Number.isFinite(ceiling) ? ceiling : base.resources[key]];
+      }),
+    ) as Resources;
+    app.repos.bases.updateHoldings(base.id, brimming, base.inventory);
+
+    const full = await claimAll(app, one.token);
+    const fullBody = full.json<{ featIds: string[]; skipped: string[] }>();
+    expect(
+      fullBody.skipped.length,
+      'nothing was passed over with every store brimming',
+    ).toBeGreaterThan(0);
+
+    // Emptied, and the rungs that were passed over are collectable.
+    const drained = app.repos.bases.findById(base.id)!;
+    app.repos.bases.updateHoldings(
+      base.id,
+      Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])) as Resources,
+      drained.inventory,
+    );
+    const room = await claimAll(app, one.token);
+    const roomBody = room.json<{ featIds: string[]; skipped: string[] }>();
+    /*
+     * The teeth: rungs passed over with the stores full are collected now they are empty. Not
+     * *every* one of them, because a feat can also be passed over for want of unit slots and
+     * emptying a store does nothing about that, so what is pinned is that the set shrank and that
+     * the collection this time is drawn from what was skipped last time.
+     */
+    expect(roomBody.skipped.length).toBeLessThan(fullBody.skipped.length);
+    const wasSkipped = new Set(fullBody.skipped);
+    expect(roomBody.featIds.length, 'the emptied store collected nothing').toBeGreaterThan(0);
+    for (const id of roomBody.featIds) expect(wasSkipped.has(id), id).toBe(true);
   });
 
   /**

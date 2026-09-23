@@ -16,6 +16,7 @@ import {
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
+import { workingOfficer } from '../crew/roster.js';
 
 /**
  * Sending somebody to look at a district, and having them come back (§A4, maintainer rework).
@@ -51,14 +52,18 @@ export interface ScoutPlan {
  * clock is read off their sheet exactly as it was read off the Scout's. A crew with nobody in the
  * chair, or with the chair filled and the rung unresearched, is told which of the two it is.
  */
-export function scoutParty(base: Base): Commander | undefined {
-  return base.commanders.find((officer) => officer.role === 'master_of_whispers');
+export function scoutParty(base: Base, now: Date = new Date()): Commander | undefined {
+  // Fit to work, not merely seated: an injured Master of Whispers runs nothing while they are
+  // out (maintainer, 2026-09-23). `scoutBlocker` then reads as `no_whispers`, which is the
+  // truthful answer: there is nobody in that chair who can send anybody.
+  return workingOfficer(base.commanders, 'master_of_whispers', now);
 }
 
 export function scoutBlocker(
   base: Base,
+  now: Date = new Date(),
 ): Extract<ScoutRefusal, 'no_whispers' | 'not_researched'> | null {
-  if (scoutParty(base) === undefined) return 'no_whispers';
+  if (scoutParty(base, now) === undefined) return 'no_whispers';
   if (!base.research.technologies.includes(SCOUTING_RESEARCH_ID)) return 'not_researched';
   return null;
 }

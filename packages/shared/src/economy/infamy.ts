@@ -96,33 +96,61 @@ export function missionInfamyForKills(killed: Army): number {
 }
 
 /**
- * Making a unit run is worth half of killing it (maintainer, 2026-09-23), rounded **down** on the
- * whole bulk rather than per unit: three one-slot units that fled are 1.5, paid as 1. Universal,
- * so a declared fight and a battle job both pay it, each at its own kill rate. It exists so
- * intimidation units, which break the enemy rather than kill them, are not worth nothing.
+ * Making a unit run is worth half of killing it (maintainer, 2026-09-23). Universal, so a declared
+ * fight and a battle job both pay it, each at its own kill rate. It exists so intimidation units,
+ * which break the enemy rather than kill them, are not worth nothing.
+ *
+ * ## Rounded once, on the whole ledger
+ *
+ * The halves used to be floored where they were computed, which is where "worth nothing" came
+ * back in through the side door (bug pass, 2026-09-23). A runner the ring kills is promised a half
+ * for running and a half for dying, a whole; flooring the two bulks separately paid **0** for a
+ * single caught one-slot unit, 2 for three, and lost a flat half on every mixed case. So
+ * `infamyPointsFor*` are the exact figures and the caller floors the sum: see the ledger in
+ * `battle/resolve.ts`, which adds whole kills and half-points together and rounds at the end.
  */
 export const FLED_INFAMY_SHARE = 0.5;
 
-export function infamyForFled(fled: Army): number {
-  return Math.floor(infamyForKills(fled) * FLED_INFAMY_SHARE);
+/** The exact points a rout is worth, unrounded. Floor the ledger, not the line. */
+export function infamyPointsForFled(fled: Army): number {
+  return infamyForKills(fled) * FLED_INFAMY_SHARE;
 }
 
-/** The same half, off the battle job's own rate, floored on the bulk the same way. */
+/** The floored figure, for a caller that has nothing else to add it to. */
+export function infamyForFled(fled: Army): number {
+  return Math.floor(infamyPointsForFled(fled));
+}
+
+/**
+ * The same half, off the battle job's own rate.
+ *
+ * `Math.ceil`, to match `missionInfamyForKills` directly above it: the job's rate is already a
+ * half, so flooring a half of a half paid **nothing** for one, two or three routed one-slot units
+ * while killing a single one paid a point. A job has one rout figure and nothing to fold it into,
+ * so it rounds here rather than at a ledger.
+ */
 export function missionInfamyForFled(fled: Army): number {
-  return Math.floor(infamyForKills(fled) * MISSION_INFAMY_PER_UNIT_SLOT * FLED_INFAMY_SHARE);
+  const points = infamyForKills(fled) * MISSION_INFAMY_PER_UNIT_SLOT * FLED_INFAMY_SHARE;
+  return points > 0 ? Math.max(1, Math.ceil(points)) : 0;
 }
 
 /**
  * A death at the ring pays half (maintainer, 2026-09-23), whichever side it is.
  *
  * A runner the ring kills already paid half for running, so the two halves make the whole; a
- * ring unit that dies holding the road pays its half to the attacker. Floored on the bulk like
- * the fled share, because it is the same kind of number.
+ * ring unit that dies holding the road pays its half to the attacker. Exact like the fled share
+ * and for the same reason: the two halves only make a whole if nothing rounds between them.
  */
 export const RING_INFAMY_SHARE = 0.5;
 
+/** The exact points a death at the ring is worth, unrounded. */
+export function infamyPointsForRingDead(dead: Army): number {
+  return infamyForKills(dead) * RING_INFAMY_SHARE;
+}
+
+/** The floored figure, for a caller that has nothing else to add it to. */
 export function infamyForRingDead(dead: Army): number {
-  return Math.floor(infamyForKills(dead) * RING_INFAMY_SHARE);
+  return Math.floor(infamyPointsForRingDead(dead));
 }
 
 /** Infamy gained by taking any site by force (§D7), on top of whatever died taking it. */

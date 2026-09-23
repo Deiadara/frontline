@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CITIES, DEFAULT_CITY_ID, findCity } from './cities.js';
-import {
-  ALL_DISTRICTS,
-  ATLAS_UNIFIED_BONUSES,
-  cityCounts,
-  cityOf,
-  districtsOfCity,
-} from './atlas.js';
+import { ALL_DISTRICTS, ATLAS_UNIFIED_BONUSES, cityOf, districtsOfCity } from './atlas.js';
 import { CITY_DISTRICTS, DistrictSchema } from './districts.js';
 import { LOCATION_CATALOG, LOCATION_KINDS } from './locations.js';
 
@@ -19,7 +13,30 @@ import { LOCATION_CATALOG, LOCATION_KINDS } from './locations.js';
  * and the one thing it most has to catch is the atlas and `CITY_DISTRICTS` drifting apart.
  */
 
-const OTHER_CITIES = CITIES.filter((city) => city.id !== DEFAULT_CITY_ID);
+/**
+ * The cities the atlas has actually drawn ground for.
+ *
+ * Not every row in `CITIES` has a map behind it: a city can be a name and a blurb on the world
+ * screen for a while before anybody authors its districts, and Redline and Deepcut are that today.
+ * The rules below that are about *ground* are held against this set, and the one rule that keeps
+ * the gap honest is the last test in this block: a city with no ground may not be open.
+ */
+const SETTLED = CITIES.filter((city) => districtsOfCity(city.id).length > 0);
+
+/**
+ * How many of each kind a city holds.
+ *
+ * This was an export on the atlas and was drawn on the cities screen. That screen stopped showing
+ * the numbers on 2026-09-24, which left a shared export whose only reader was this file, so the
+ * counting came here rather than staying on the wire as a thing nothing asks for.
+ */
+const countsOf = (cityId: string) => {
+  const districts = districtsOfCity(cityId);
+  return {
+    contested: districts.filter((one) => one.kind === 'contested').length,
+    plots: districts.filter((one) => one.kind === 'residential').length,
+  };
+};
 
 describe('the atlas', () => {
   it('leaves Ashfall exactly as it was', () => {
@@ -30,8 +47,10 @@ describe('the atlas', () => {
     expect(CITY_DISTRICTS).toHaveLength(12);
   });
 
-  it('gives every city districts, and every district back to its city', () => {
-    for (const city of CITIES) {
+  it('gives every settled city districts, and every district back to its city', () => {
+    // A guard on the fixture: with nothing settled this loop asserts nothing at all.
+    expect(SETTLED.length).toBeGreaterThan(1);
+    for (const city of SETTLED) {
       const districts = districtsOfCity(city.id);
       expect(districts.length, city.id).toBeGreaterThan(0);
       for (const district of districts) {
@@ -43,15 +62,16 @@ describe('the atlas', () => {
     }
   });
 
-  it('builds each new city to the shape that was asked for: three contested, four plots', () => {
-    expect(OTHER_CITIES.length).toBe(2);
-    for (const city of OTHER_CITIES) {
-      const counts = cityCounts(city.id);
+  it('builds each settled new city to the shape that was asked for: three contested, four plots', () => {
+    const settledOthers = SETTLED.filter((city) => city.id !== DEFAULT_CITY_ID);
+    expect(settledOthers.length).toBe(2);
+    for (const city of settledOthers) {
+      const counts = countsOf(city.id);
       expect(counts, city.id).toEqual({ contested: 3, plots: 4 });
     }
     // The same number of homes as Ashfall, which is the half of the shape that matters: a city is
     // somewhere to live before it is somewhere to fight.
-    expect(cityCounts(DEFAULT_CITY_ID).plots).toBe(cityCounts(OTHER_CITIES[0]!.id).plots);
+    expect(countsOf(DEFAULT_CITY_ID).plots).toBe(countsOf(settledOthers[0]!.id).plots);
   });
 
   it('has no id used twice anywhere in the world', () => {
@@ -100,9 +120,25 @@ describe('the atlas', () => {
       expect(city.blurb.length, city.id).toBeGreaterThan(40);
       expect(typeof city.open, city.id).toBe('boolean');
     }
-    // Exactly one is playable today. The other two are authored ground with no server behind them,
-    // and the cities screen draws them shut rather than hiding them.
+    // Exactly one is playable today. The other four are drawn shut rather than hidden.
     expect(CITIES.filter((city) => city.open).map((city) => city.id)).toEqual([DEFAULT_CITY_ID]);
+  });
+
+  it('never opens a city the atlas has no ground for', () => {
+    /*
+     * The rule that makes "a city can be a name before it is a map" safe to keep doing.
+     *
+     * An open city is one a crew can walk into, and walking in means districts to stand in,
+     * locations to take and a mission board built out of them. Opening a row with nothing behind
+     * it in the atlas would be a door onto an empty map, and every symptom of it would show up
+     * somewhere else: an empty picker, a standings scope that counts nothing, a Bar with no
+     * calibre. Caught here instead, on the one line that would have to change to cause it.
+     */
+    const groundless = CITIES.filter((city) => districtsOfCity(city.id).length === 0);
+    // A guard on the fixture: once every city is drawn this test would otherwise pass vacuously,
+    // and it should be deleted rather than left green.
+    expect(groundless.length).toBeGreaterThan(0);
+    for (const city of groundless) expect(city.open, city.id).toBe(false);
   });
 
   /**
@@ -157,7 +193,7 @@ describe('the atlas', () => {
 
   it('answers with nothing for a city the world does not have', () => {
     expect(districtsOfCity('nowhere')).toEqual([]);
-    expect(cityCounts('nowhere')).toEqual({ contested: 0, plots: 0 });
+    expect(countsOf('nowhere')).toEqual({ contested: 0, plots: 0 });
     expect(findCity('nowhere')).toBeUndefined();
   });
 });

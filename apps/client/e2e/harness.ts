@@ -279,6 +279,30 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
     const visibleBand = (el: HTMLElement) => {
       const at = el.getBoundingClientRect();
       let [top, bottom] = [at.top, at.bottom];
+      /*
+       * Whether a **scroller** is one of the things cutting this element (2026-09-24).
+       *
+       * The bug this sweep is for is a fixed box with `overflow: hidden` slicing a line nobody can
+       * ever reach. A region that scrolls is the opposite: its last row being half under the fold
+       * is what a scrolling region *is*, and the reader reaches it by scrolling. Counting those
+       * made the gate a knife edge, exactly as the repo's own notes describe: twenty pixels off a
+       * page header somewhere moved one row from "entirely below the fold", which this never
+       * flagged, into "half shown", which it did, and reddened a screen nothing had touched.
+       *
+       * This is a **flag** rather than a skipped ancestor, and the difference is a whole class of
+       * phantom. Skipping the scroller leaves the element's own rect where it lies, which for a
+       * row parked eleven drills below the fold is a couple of hundred pixels further down the
+       * page, and the next `overflow: hidden` box up, usually the screen's own frame, then happens
+       * to bisect it. The training floor reported exactly that: "Cryptography" cut 7px of 16 by a
+       * frame ending at 686 while the scroller it lives in ends at 546. Clamping by the scroller
+       * too puts the element where it really is, entirely out of sight, and the flag is what says
+       * a reader can still get to it.
+       *
+       * `overflow: hidden` never sets it, because `scrollHeight > clientHeight` on a hidden box is
+       * precisely the unreachable cut. The test is "can this be scrolled to", not "does it
+       * overflow".
+       */
+      let reachable = false;
 
       // A `position: fixed` box is laid out against the viewport, not against its DOM parents, so
       // the overflow of the ancestors above it does not cut it. Walking past that, as this did
@@ -294,12 +318,18 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
         if (!escaped && style.overflowY !== 'visible') {
           const box = node.getBoundingClientRect();
           // Overflow is clipped at the padding box, so the border sits outside the cut.
-          top = Math.max(top, box.top + parseFloat(style.borderTopWidth));
-          bottom = Math.min(bottom, box.bottom - parseFloat(style.borderBottomWidth));
+          const clipTop = box.top + parseFloat(style.borderTopWidth);
+          const clipBottom = box.bottom - parseFloat(style.borderBottomWidth);
+          const scrolls =
+            (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+            node.scrollHeight > node.clientHeight + 1;
+          if (scrolls && (clipTop > top || clipBottom < bottom)) reachable = true;
+          top = Math.max(top, clipTop);
+          bottom = Math.min(bottom, clipBottom);
         }
         if (style.position === 'fixed') escaped = true;
       }
-      return { height: at.height, visible: bottom - top };
+      return { height: at.height, visible: bottom - top, reachable };
     };
 
     const scope = document.querySelector(selector);
@@ -308,8 +338,8 @@ export async function expectNothingClippedVertically(page: Page, root = 'body'):
     for (const el of scope.querySelectorAll<HTMLElement>('*')) {
       if (el.childElementCount > 0 || !el.textContent?.trim()) continue;
       if (getComputedStyle(el).visibility === 'hidden') continue;
-      const { height, visible } = visibleBand(el);
-      if (height === 0) continue;
+      const { height, visible, reachable } = visibleBand(el);
+      if (height === 0 || reachable) continue;
       if (visible > SLACK && visible < height - SLACK) {
         bad.add(
           `"${el.textContent.trim().slice(0, 24)}" (${visible.toFixed(0)}/${height.toFixed(0)}px shown)`,
@@ -365,21 +395,37 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
     const visibleBand = (el: Element, scope: Element) => {
       const at = el.getBoundingClientRect();
       let [left, right, top, bottom] = [at.left, at.right, at.top, at.bottom];
+      // A scroller's own edge is not a cut: the reader scrolls to it. Same rule and the same
+      // reason as `expectNothingClippedVertically`, where the note is written out in full,
+      // including why this is a flag and not a skipped ancestor.
+      let reachable = false;
       for (let node = el.parentElement; node; node = node.parentElement) {
         const style = getComputedStyle(node);
         const box = node.getBoundingClientRect();
+        const scrollsX =
+          (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+          node.scrollWidth > node.clientWidth + 1;
+        const scrollsY =
+          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          node.scrollHeight > node.clientHeight + 1;
         // Overflow is clipped at the padding box, so the border sits outside the cut.
         if (style.overflowX !== 'visible') {
-          left = Math.max(left, box.left + parseFloat(style.borderLeftWidth));
-          right = Math.min(right, box.right - parseFloat(style.borderRightWidth));
+          const clipLeft = box.left + parseFloat(style.borderLeftWidth);
+          const clipRight = box.right - parseFloat(style.borderRightWidth);
+          if (scrollsX && (clipLeft > left || clipRight < right)) reachable = true;
+          left = Math.max(left, clipLeft);
+          right = Math.min(right, clipRight);
         }
         if (style.overflowY !== 'visible') {
-          top = Math.max(top, box.top + parseFloat(style.borderTopWidth));
-          bottom = Math.min(bottom, box.bottom - parseFloat(style.borderBottomWidth));
+          const clipTop = box.top + parseFloat(style.borderTopWidth);
+          const clipBottom = box.bottom - parseFloat(style.borderBottomWidth);
+          if (scrollsY && (clipTop > top || clipBottom < bottom)) reachable = true;
+          top = Math.max(top, clipTop);
+          bottom = Math.min(bottom, clipBottom);
         }
         if (node === scope) break;
       }
-      return { width: right - left, height: bottom - top };
+      return { width: right - left, height: bottom - top, reachable };
     };
 
     /** Cut partway through: some of the axis survives the clip, but not all of it. */
@@ -417,6 +463,7 @@ export async function expectNoImagesClipped(page: Page, root = 'body'): Promise<
       }
 
       const shown = visibleBand(el, scope);
+      if (shown.reachable) continue;
       if (sliced(shown.width, at.width) || sliced(shown.height, at.height)) {
         bad.add(
           `${name(el)} sliced by a clipping edge ` +

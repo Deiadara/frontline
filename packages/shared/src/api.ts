@@ -703,7 +703,6 @@ export const BuiltUpgradeSchema = z.object({
   /** Its name, for the line the picker prints. Empty while it is on the shelf. */
   fittedToName: z.string().default(''),
 });
-export type BuiltUpgrade = z.infer<typeof BuiltUpgradeSchema>;
 
 /** §A4: plant a cell on a location this crew does not hold. See `sleepers.ts`. */
 export const PlantSleepersRequestSchema = z.object({

@@ -1,4 +1,6 @@
 import {
+  concurrentMissionSlots,
+  unitsBeyondNotoriety,
   CITY_DISTRICTS,
   bestFitParty,
   dealBattleTier,
@@ -8,7 +10,6 @@ import {
   automationPowers,
   bestLeader,
   composeProfile,
-  findDistrict,
   isResting,
   leaningsFor,
   missionBoardKey,
@@ -29,6 +30,7 @@ import { randomUUID } from 'node:crypto';
 import type { Repositories } from '../db/repos/index.js';
 import { areaStatesFor } from '../missions/board.js';
 import { launchMission } from '../missions/launch.js';
+import { rampFor } from '../missions/pricing.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { officerDuty } from '../crew/duty.js';
 import { removeForce } from '../battle/forces.js';
@@ -136,6 +138,19 @@ function rateOf(template: MissionTemplate, optimiseFor: ResourceKey | null): num
 
 /** The force this slot is committing, or null when what it was told to send is not at home. */
 function forceFor(base: Base, automation: Automation, template: MissionTemplate): Army | null {
+  /*
+   * §D7's ceiling, on this door too (bug pass, 2026-09-23).
+   *
+   * A standing order was the fourth way onto a field and the only one that did not ask what the
+   * crew's name is worth: `POST /missions` checks `unitsBeyondNotoriety` and refuses with "they
+   * will not take a contract from a name that small", and this did not, so a crew at Nobody could
+   * field a Colossus by writing an order instead of pressing send. Both branches needed it, and
+   * the fitted branch needed it most: `bestFitParty` ranks by offense per slot, so it actively
+   * *prefers* the heavy sheets the gate exists to withhold.
+   */
+  const fieldable = (party: Army): Army | null =>
+    unitsBeyondNotoriety(party, base.economy.notoriety).length === 0 ? party : null;
+
   if (automation.unitSlots === null) {
     // The third rung: exactly this party or nothing, which is the maintainer's rule for it.
     const asked = automation.force;
@@ -143,13 +158,25 @@ function forceFor(base: Base, automation: Automation, template: MissionTemplate)
     for (const [unitId, count] of Object.entries(asked)) {
       if ((base.army[unitId] ?? 0) < count) return null;
     }
-    return missionForceRefusal(asked, base.army, template.kind) === null ? asked : null;
+    return missionForceRefusal(asked, base.army, template.kind) === null ? fieldable(asked) : null;
   }
 
-  // The fifth rung: the size, in unit slots, filled most suitable unit first (`bestFitParty`).
-  const picked = bestFitParty(base.army, automation.unitSlots, template.kind);
+  /*
+   * The fifth rung: the size, in unit slots, filled most suitable unit first (`bestFitParty`).
+   *
+   * Fitted out of what the crew may *field*, not out of everything on the books, so a slot whose
+   * best party would be refused fills with the next best one instead of stalling. A crew whose
+   * whole roster is above its rank still stalls, which is correct: there is nothing to send.
+   */
+  const fieldableArmy = Object.fromEntries(
+    Object.entries(base.army).filter(
+      ([unitId, count]) =>
+        unitsBeyondNotoriety({ [unitId]: count }, base.economy.notoriety).length === 0,
+    ),
+  ) as Army;
+  const picked = bestFitParty(fieldableArmy, automation.unitSlots, template.kind);
   if (!picked) return null;
-  return missionForceRefusal(picked, base.army, template.kind) === null ? picked : null;
+  return missionForceRefusal(picked, base.army, template.kind) === null ? fieldable(picked) : null;
 }
 
 /** The officer this slot sends, or undefined for nobody. `null` back means "told to, cannot". */
@@ -241,22 +268,39 @@ const missionsRunner: AutomationRunner = {
       missionSpeedPercent: effects.missionSpeedPercent,
       missionSpoilsPercent: effects.missionSpoilsPercent,
       unitSpeedPercent: effects.unitSpeedPercent,
+      // §C3: the same road cuts the manual launch reads (maintainer, 2026-09-23). A standing
+      // order's party walks the same streets as a hand-sent one.
+      travelSpeedPercent: effects.travelSpeedPercent,
+      roadMinutesOff: effects.roadMinutesOff,
       anyRide: effects.anyRide,
+      // The opening band, for the same reason `admin` is here: a standing order and a hand-sent
+      // party on the same job must run on the same clock and be paid the same premium.
+      ramp: rampFor(repos, base),
     });
 
-    // The row and the roster move together, exactly as the manual launch does it: a crew that is
-    // out is a crew that is not at home to defend the district.
-    repos.missions.insert(stored);
-    repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
-    tallyAutomatedParty(repos, base.id);
-    repos.automations.put({
-      ...automation,
-      missionId: stored.mission.id,
-      restingSince: null,
-      stalled: null,
-      // The sequence advances on the *send*, so a mixed order does not repeat a kind when a job
-      // it could not fill is retried a minute later.
-      step: (automation.step + 1) % ORDER_SEQUENCES[automation.order].length,
+    /*
+     * The row and the roster move together, in **one transaction**, exactly as the manual launch
+     * does it (`routes/missions.ts`: "a split between these two would let the same people do
+     * both"). This comment already claimed that and the code did not do it (bug pass,
+     * 2026-09-23): `settleAutomations` runs inside `settleWorld`, which opens no transaction of
+     * its own, so a failure between the insert and the roster write left the party on a mission
+     * row *and* still at home, defending the district and deploying to fights while it was
+     * supposedly away. The slot's own bookkeeping is in here for the same reason: losing the
+     * `missionId` write orphans the slot and it fires again on the next tick.
+     */
+    repos.tx(() => {
+      repos.missions.insert(stored);
+      repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
+      tallyAutomatedParty(repos, base.id);
+      repos.automations.put({
+        ...automation,
+        missionId: stored.mission.id,
+        restingSince: null,
+        stalled: null,
+        // The sequence advances on the *send*, so a mixed order does not repeat a kind when a job
+        // it could not fill is retried a minute later.
+        step: (automation.step + 1) % ORDER_SEQUENCES[automation.order].length,
+      });
     });
     return null;
   },
@@ -308,6 +352,29 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
     // The real gap, in admin mode too (maintainer, 2026-09-23): see `automationCooldownMs`.
     if (isResting(slot, powers.cooldownMs, now)) continue;
 
+    /*
+     * §E's ceiling on crews out at once, on this door too (bug pass, 2026-09-23).
+     *
+     * `POST /missions` refuses with `MISSIONS_AT_CAPACITY` past it and this did not, so two
+     * standing orders on a level-1 crew put three parties on the road against a limit of two, and
+     * the missions screen drew `activeLimit: 2` beside them. Read inside the loop rather than
+     * once above it, so the second slot sees what the first one just sent.
+     *
+     * A stall rather than a silent skip: the slot has a real reason it did not fire and the
+     * screen has a place to say it. `missions` is the only kind with a ceiling, so the check is
+     * scoped to it; a battle order is a declaration and has its own.
+     */
+    if (slot.kind === 'missions') {
+      const out = repos.missions.countActiveByBaseId(base.id);
+      const ceiling =
+        concurrentMissionSlots(base.level) + standingEffectsFor(repos, base, now).missionSlotsFlat;
+      const full = `Every crew is out: ${out} of ${ceiling}`;
+      if (out >= ceiling) {
+        if (slot.stalled !== full) repos.automations.put({ ...slot, stalled: full });
+        continue;
+      }
+    }
+
     const stall = AUTOMATION_RUNNERS[slot.kind].run(repos, base, slot, now, admin);
     if (stall === null) {
       sent += 1;
@@ -331,9 +398,4 @@ export function settleAutomations(repos: Repositories, now: Date, admin = false)
  */
 export function automationCooldownMs(realMs: number): number {
   return realMs;
-}
-
-/** Named for the screen: the district a board belongs to, or the miscellaneous one. */
-export function boardName(areaId: string): string {
-  return areaId === MISC_AREA_ID ? 'Miscellaneous' : (findDistrict(areaId)?.name ?? areaId);
 }

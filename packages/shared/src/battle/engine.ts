@@ -628,7 +628,9 @@ export const MAX_INTIMIDATED_SHARE = 0.75;
 function intimidatePlan(side: SideState, against: number): Map<Stack, number> {
   const plan = new Map<Stack, number>();
   let budget = against - nerve(side);
-  if (budget <= 0) return plan;
+  // `!(x > 0)` rather than `x <= 0`, so a NaN budget stops here instead of walking through a
+  // comparison that is false for NaN and ending as a NaN unit count (bug pass, 2026-09-23).
+  if (!(budget > 0)) return plan;
 
   // Cheapest nerve first. A unit with no morale at all costs nothing to silence, so it is taken
   // before anything that has to be paid for, and the loop cannot stall on it.
@@ -711,7 +713,8 @@ function changeOfHeart(
     const vitality = stack.effective.vitality;
     // The whole bodies leave first; the wounded one at the front stays with its own side.
     const whole = Math.min(take, Math.max(0, Math.floor(stack.pool / vitality)));
-    if (whole <= 0) continue;
+    // The same NaN-safe shape as `intimidatePlan`'s budget guard above.
+    if (!(whole > 0)) continue;
     // The whole bodies stand at the back of the ledger; the wounded one at the front stays.
     const crossing = stack.bodies.splice(stack.bodies.length - whole, whole);
     stack.started -= whole;

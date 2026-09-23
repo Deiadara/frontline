@@ -9,7 +9,6 @@ import {
   canAfford,
   canSettle,
   creditResources,
-  hasItems,
   marketDay,
   nextVendorOpening,
   offerHasExpired,
@@ -29,7 +28,6 @@ import {
   vendorVisitAt,
   visibleTo,
   type Base,
-  type ItemCost,
   type MarketOffer,
   type MarketResponse,
   type ResourceKey,
@@ -38,7 +36,7 @@ import {
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { citiesFor } from '../city/stakes.js';
-import { seatedRoles } from '../crew/roster.js';
+import { workingRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { tellPagesFound } from '../social/pages.js';
 import {
@@ -223,7 +221,9 @@ export function projectMarket(
     // §G4: the two things the Blueprints screen cannot see for itself. Read from the same base
     // record the trade route re-reads, so the panel and the refusal never disagree.
     reimagining: {
-      hasHeadOfResearch: seatedRoles(base.commanders).includes('head_of_research'),
+      // Working, not merely seated: a Head of Research in a hospital bed reads nothing
+      // (maintainer, 2026-09-23).
+      hasHeadOfResearch: workingRoles(base.commanders, now).includes('head_of_research'),
       hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
     },
   };
@@ -554,16 +554,4 @@ export function marketRefusalText(
 ): string {
   const text = MARKET_REFUSAL_TEXT[reason];
   return typeof text === 'string' ? text : text(figures);
-}
-
-/**
- * Whether a crew holds a set of parts.
- *
- * The blueprint sibling that used to sit here went with the flat `blueprint_*` items it was written
- * for: a document is assembled out of pages now and every gate asks `blueprintGateMet`, so nothing
- * had called it since. A `describeParts` beside it was dead too, and `routes/workshop.ts` already
- * carries its own private copy of the same four lines, which is the one that was actually running.
- */
-export function holdsParts(base: Base): (parts: ItemCost) => boolean {
-  return (parts) => hasItems(base.inventory, parts);
 }

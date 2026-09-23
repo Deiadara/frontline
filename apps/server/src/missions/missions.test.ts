@@ -284,6 +284,44 @@ async function makeStack(username = 'runner'): Promise<Stack> {
 const scrapRun = findMissionTemplate('scrap-run') as MissionTemplate;
 
 /**
+ * A mission's road, as the launch computes it (maintainer, 2026-09-23).
+ *
+ * Every walk in the game reads the crew's own `travelSpeedPercent` and the whole minutes
+ * `road_shortcut` cuts, and a mission's road was the one that did not. It does now, so a test
+ * pinning the arithmetic has to sum the same three things the launch sums: the column's pace,
+ * which divides, the ground's and the crew's percentages, which multiply, and the flat cut last.
+ */
+function roadFor(
+  bandMinutes: number,
+  speed: number,
+  effects: { missionSpeedPercent: number; travelSpeedPercent: number; roadMinutesOff: number },
+): number {
+  return hastenedRoadMinutes(
+    bandMinutes,
+    speed,
+    effects.missionSpeedPercent + Math.max(0, effects.travelSpeedPercent),
+    Math.max(0, effects.roadMinutesOff),
+  );
+}
+
+/**
+ * Takes the stack past the opening ramp (`missions.ramp.ts`, maintainer 2026-09-23).
+ *
+ * A new crew's first runs are compressed into one to three minutes and paid double for it, which
+ * is the right opening and the wrong fixture for a test about what the board's own clock does:
+ * every assertion below against `templateTimings`, a column's pace or a leader's Short Way is an
+ * assertion about the full board, and the band would answer all of them with the same two minutes.
+ *
+ * Level seven rather than a tally bump, because the ramp ends on the level and nothing else: see
+ * `earlyMissionRamp`, which refuses to look at the count above the last band. Nothing in the tests
+ * that call this reads an absolute payout; they compare two runs at one level against each other.
+ */
+function pastTheOpening(stack: Stack): void {
+  const base = stack.repos.bases.findByOwnerId(stack.base.ownerId) ?? stack.base;
+  stack.repos.bases.updateProgression(base.id, 7, base.progression);
+}
+
+/**
  * Puts an officer on the books and returns their id.
  *
  * The stack's base starts with nobody hired, so a test that wants an *officer* at the head of a run
@@ -937,6 +975,7 @@ describe('the mission routes', () => {
 
   it('freezes the clock at launch so retuning the board cannot retime a run in flight', async () => {
     const stack = await makeStack();
+    pastTheOpening(stack);
     const { app, token } = stack;
     // An officer at the head of it, so this stays a test about the freeze.
     const leaderId = withOfficer(stack);
@@ -952,7 +991,11 @@ describe('the mission routes', () => {
     const mission = res.json<{ mission: Mission }>().mission;
     // The template's road at the column's own pace: one Razor walking, and nothing else on it.
     expect(mission.travelMinutes).toBe(
-      hastenedRoadMinutes(templateTimings(template).travelMinutes, findUnit('razors')!.stats.speed),
+      roadFor(
+        templateTimings(template).travelMinutes,
+        findUnit('razors')!.stats.speed,
+        standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
+      ),
     );
     expect(mission.durationMinutes).toBe(template.durationMinutes);
   });
@@ -1864,6 +1907,7 @@ describe('vehicles on a mission (§C3)', () => {
    */
   it('reads a mission road at the pace the crew actually moves at', async () => {
     const stack = await makeStack('skater');
+    pastTheOpening(stack);
     const skate = CITY_LOCATIONS.find((location) => location.kind === 'skate_ground');
     if (!skate) throw new Error('no Skate Ground on the map');
     const control = stack.repos.city.control(skate.id);
@@ -1896,13 +1940,11 @@ describe('vehicles on a mission (§C3)', () => {
     const printed = findUnit('razors')!.stats.speed;
     const quickened = effectiveSpeed(printed, { percent: effects.unitSpeedPercent });
     expect(res.json<{ mission: Mission }>().mission.travelMinutes).toBe(
-      hastenedRoadMinutes(band, quickened, effects.missionSpeedPercent),
+      roadFor(band, quickened, effects),
     );
     // The teeth: the printed sheet is a different number on this leg, so the assertion above
     // cannot pass by reading the channel and by ignoring it both.
-    expect(hastenedRoadMinutes(band, printed, effects.missionSpeedPercent)).toBeGreaterThan(
-      hastenedRoadMinutes(band, quickened, effects.missionSpeedPercent),
-    );
+    expect(roadFor(band, printed, effects)).toBeGreaterThan(roadFor(band, quickened, effects));
   });
 
   /**
@@ -1916,6 +1958,7 @@ describe('vehicles on a mission (§C3)', () => {
    */
   it('reads the road at the sheet the workshop actually fitted', async () => {
     const stack = await makeStack('laced');
+    pastTheOpening(stack);
     // The largest of them, so the two sheets are more than a rounding step apart on this road.
     const quickening = [...UNIT_MODIFICATIONS]
       .sort((a, b) => (b.effect.speed ?? 0) - (a.effect.speed ?? 0))
@@ -1945,11 +1988,9 @@ describe('vehicles on a mission (§C3)', () => {
     });
     expect(fitted).toBeGreaterThan(printed);
     expect(res.json<{ mission: Mission }>().mission.travelMinutes).toBe(
-      hastenedRoadMinutes(band, fitted, effects.missionSpeedPercent),
+      roadFor(band, fitted, effects),
     );
-    expect(hastenedRoadMinutes(band, printed, effects.missionSpeedPercent)).toBeGreaterThan(
-      hastenedRoadMinutes(band, fitted, effects.missionSpeedPercent),
-    );
+    expect(roadFor(band, printed, effects)).toBeGreaterThan(roadFor(band, fitted, effects));
   });
 });
 
@@ -2158,6 +2199,8 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
   /** A crew with one officer on the books who knows a short way, seated and fit to lead. */
   async function crewWithAShortWay(username: string): Promise<{ stack: Stack; leaderId: string }> {
     const stack = await makeStack(username);
+    // The Short Way is a fact about the full board's road: see `pastTheOpening`.
+    pastTheOpening(stack);
     const officer = createCommander('off-short', 'Ilva Rask', 'field_commander', {}, ['short_way']);
     stack.repos.bases.updateCommanders(stack.base.id, [officer]);
     return { stack, leaderId: officer.id };

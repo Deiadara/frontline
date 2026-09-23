@@ -1,11 +1,5 @@
 import { z } from 'zod';
-import {
-  FEAT_MEASURE_SPECS,
-  FeatMeasureSchema,
-  featValue,
-  type FeatMeasure,
-  type FeatSnapshot,
-} from './measures.js';
+import { FeatMeasureSchema, featValue, type FeatSnapshot } from './measures.js';
 import { FeatEraSchema, FeatRewardSchema, FeatSizeSchema, type FeatReward } from './rewards.js';
 
 /**
@@ -163,11 +157,6 @@ export function readyCount(progress: readonly FeatProgress[]): number {
  */
 export function canClaimFeat(progress: FeatProgress | undefined): boolean {
   return progress?.state === 'ready';
-}
-
-/** Whether this measure needs a scope, for the catalogue check and for the route that reads it. */
-export function measureIsScoped(measure: FeatMeasure): boolean {
-  return FEAT_MEASURE_SPECS[measure].scoped;
 }
 
 /**

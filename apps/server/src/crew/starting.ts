@@ -82,15 +82,16 @@ export function startingBase({
     ],
     buildQueue: [],
     /**
-     * §A5: enough Razors to walk into Steelbelt on day one and win.
+     * §A5: eight Scavengers, and no fighters at all (maintainer, 2026-09-23).
      *
-     * An empty army plus a Gauntlet they have not built yet is a first session with no move,
-     * and so, it turned out, was four: NPC places are garrisoned now, Steelbelt's easiest
-     * holds four, and a defender at parity wins every time. Measured: eight takes it, four
-     * loses forty out of forty. The number has to be the one that makes the opening move
-     * *available*, not the one that sounds modest.
+     * The opening kit used to be eight Razors, chosen so a new crew could walk into Steelbelt on
+     * day one and win. The opening is a different shape now: the board's first runs are minutes
+     * rather than hours (`earlyMissionRamp`), so what a new crew needs on the first evening is
+     * loot capacity, and carriers are what carries loot. Fighters are earned instead: off the
+     * early feat bands that pay them, and off the training floor once the Gauntlet is up. The
+     * maintainer's rule is that you start with carriers and you earn the rest.
      */
-    army: { razors: 8 },
+    army: { scavengers: 8 },
     gateArmy: {},
     trainingQueue: [],
     training: startingTraining(now),

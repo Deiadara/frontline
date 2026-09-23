@@ -1,4 +1,5 @@
 import {
+  type EarlyRampBand,
   TRAVEL_BAND_MINUTES,
   pagePrizeFor,
   FAILED_MISSION_XP_SHARE,
@@ -112,8 +113,16 @@ export function offerFor(
    * carries its own frozen prize rather than re-reading the board it came off.
    */
   board?: { areaId: string; day: string },
+  /**
+   * The opening band this crew is in, or null (`missions.ramp.ts`).
+   *
+   * The clock only. The band's pay premium is already inside `payPercent` above, folded in by
+   * `projectAreas` with the ground's and the level's, because that is the figure the card prints
+   * and the launch freezes.
+   */
+  ramp: EarlyRampBand | null = null,
 ): MissionOffer {
-  const timings = pricedTimings(template, speedPercent);
+  const timings = pricedTimings(template, speedPercent, ramp);
   /*
    * A fight's tier is dealt on the card off the crew's level (maintainer, 2026-09-23), seeded on
    * the board the card is on, and it moves the pay and the XP the card quotes. A quote with no
@@ -196,14 +205,20 @@ export function projectAreas(
    * widens the pay. Defaulted so a caller that does not have them still gets the old, bare quote
    * rather than a compile error at every call site.
    */
-  standing: { speedPercent?: number; spoilsPercent?: number } = {},
+  standing: { speedPercent?: number; spoilsPercent?: number; ramp?: EarlyRampBand | null } = {},
 ): MissionArea[] {
   const runningIn = new Map(active.map((stored) => [stored.mission.areaId, stored.mission.id]));
 
   const board = (id: string, name: string, blurb: string, difficulty: number): MissionArea => {
     const activeMissionId = runningIn.get(id) ?? null;
     // The ground's premium and the crew's own, folded into one figure the card quotes.
-    const payPercent = areaPayPercent(id) + levelPayPercent(level) + (standing.spoilsPercent ?? 0);
+    const payPercent =
+      areaPayPercent(id) +
+      levelPayPercent(level) +
+      (standing.spoilsPercent ?? 0) +
+      // The opening band's premium, which is what stops a two-minute first job paying two minutes
+      // of loot (`missions.ramp.ts`). Zero once the crew is out of the ramp.
+      (standing.ramp?.payPercent ?? 0);
     return {
       id,
       name,
@@ -214,10 +229,14 @@ export function projectAreas(
         activeMissionId === null
           ? ((key) =>
               missionOffers(id, key).map((template) =>
-                offerFor(template, payPercent, level, standing.speedPercent ?? 0, {
-                  areaId: id,
-                  day: key,
-                }),
+                offerFor(
+                  template,
+                  payPercent,
+                  level,
+                  standing.speedPercent ?? 0,
+                  { areaId: id, day: key },
+                  standing.ramp ?? null,
+                ),
               ))(missionBoardKey(id, now))
           : [],
       activeMissionId,

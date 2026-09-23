@@ -243,15 +243,11 @@ export default function App() {
           />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="admin" element={<AdminPage />} />
-          {/* The Blueprints page lived in the Inventory page until §I1d moved it into research. Kept as a
-              redirect rather than dropped: the old path is in bookmarks and in old notifications. */}
-          <Route
-            path="inventory/blueprints"
-            element={<Navigate to="/game/research/blueprints" replace />}
-          />
-          {/* The Workshop folded into the Scrapyard (maintainer request, 2026-09-10). The old path is
-              in bookmarks and in old notifications, so it redirects rather than 404s. */}
-          <Route path="workshop" element={<Navigate to="/game/scrapyard" replace />} />
+          {/* Two legacy redirects stood here, `inventory/blueprints` and `workshop`, kept for
+              bookmarks and old notifications after §I1d moved the Blueprints page into research
+              and the Workshop folded into the Scrapyard. Both went on 2026-09-24: the game has
+              never shipped, so there are no bookmarks and no old notifications to honour, and the
+              catch-all below sends an unknown path to the city. */}
           {/* §B9: the Scrapyard's own page: the nav's door, and the plot's dialog. Behind the
               structure itself (maintainer, 2026-09-19), which is the one gate that needs no
               explaining: the screen is what the building does. */}

@@ -1,4 +1,4 @@
-import { CITIES, DEFAULT_CITY_ID } from './cities.js';
+import { DEFAULT_CITY_ID } from './cities.js';
 import { ALL_DISTRICTS } from './atlas.js';
 
 /**
@@ -106,11 +106,6 @@ export function cityCalibre(participants: readonly CityParticipant[]): number | 
     weight += share;
   }
   return weight === 0 ? null : weighted / weight;
-}
-
-/** Every city id the map has, in the order the cities table lists them. */
-export function cityIds(): readonly string[] {
-  return CITIES.map((city) => city.id);
 }
 
 /** Which city a district belongs to, or the default city for an id the map does not have. */

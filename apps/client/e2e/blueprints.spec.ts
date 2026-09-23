@@ -152,14 +152,8 @@ test('opens one drawer at a time and counts the other two', async ({ page }) => 
   await page.screenshot({ path: 'e2e-out/blueprints-upgrades.png', fullPage: true });
 });
 
-/** The Inventory page's old address still resolves: it is in bookmarks and in old notifications. */
-test('redirects the old inventory address to the new one', async ({ page }) => {
-  await installApi(page, lateGame);
-  await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
-  });
-
-  await page.goto('/game/inventory/blueprints');
-  await expect(page).toHaveURL(/\/game\/research\/blueprints$/);
-  await expect(page.getByTestId('blueprint-bp_snipers')).toBeVisible();
-});
+/*
+ * The Inventory page's old address used to redirect here, and the redirect went on 2026-09-24
+ * along with the Workshop's: the game has never shipped, so there are no bookmarks and no old
+ * notifications to honour. An unknown path now falls through to the city.
+ */

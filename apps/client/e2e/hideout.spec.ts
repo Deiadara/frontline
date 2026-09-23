@@ -679,16 +679,26 @@ for (const size of VIEWPORTS) {
       await page.getByRole('button', { name: /^The Garage,/ }).click();
       await expect(page.getByRole('dialog')).toBeVisible();
 
-      // The dialog's own overflow, so the cut is one a fixed box genuinely suffers.
-      //
-      // The height has to leave the unit **partially** visible, because a cut is what this gate
-      // reports and a row squeezed to nothing is hidden rather than sliced. Too small and the
-      // header and footer alone fill the box, the unit collapses to zero, and the gate is
-      // correctly quiet, which reads exactly like a gate that has stopped working. This was 260px
-      // when the header carried a 128px portrait of the building; without it the whole dialog fits
-      // inside that and nothing is cut, so the clamp follows the header down.
+      /*
+       * The dialog's own overflow, so the cut is one a fixed box genuinely suffers.
+       *
+       * The height has to leave the unit **partially** visible, because a cut is what this gate
+       * reports and a row squeezed to nothing is hidden rather than sliced. Too small and the
+       * header and footer alone fill the box, the unit collapses to zero, and the gate is
+       * correctly quiet, which reads exactly like a gate that has stopped working. This was 260px
+       * when the header carried a 128px portrait of the building; without it the whole dialog fits
+       * inside that and nothing is cut, so the clamp follows the header down.
+       *
+       * The body is pinned shut along with it (2026-09-24). The dialog's body is `overflow-y-auto`,
+       * and the gate stopped counting a scroller's own edge as a cut, correctly: a row under a
+       * scroller's fold is one the reader reaches by scrolling. So clamping the dialog alone no
+       * longer stages an unreachable cut, which is the thing this control exists to prove the gate
+       * can see. Shutting the body is what makes the cut real.
+       */
       await page.addStyleTag({
-        content: '[role="dialog"] { max-height: 200px !important; overflow-y: hidden !important; }',
+        content:
+          '[role="dialog"] { max-height: 200px !important; overflow-y: hidden !important; }' +
+          '[role="dialog"] * { overflow-y: hidden !important; }',
       });
       await expect(expectNothingClippedVertically(page, '[role="dialog"]')).rejects.toThrow(
         /sliced/,

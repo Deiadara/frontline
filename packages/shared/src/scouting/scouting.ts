@@ -162,8 +162,3 @@ export function scoutRecalledReturnsAt(
 ): Date {
   return new Date(now.getTime() + turnaroundMs(run, now));
 }
-
-/** Whether this run is done, against a clock the server owns. */
-export function scoutRunIsDue(run: ScoutingRun, now: Date): boolean {
-  return Date.parse(run.returnsAt) <= now.getTime();
-}

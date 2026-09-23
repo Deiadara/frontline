@@ -1,4 +1,8 @@
 import {
+  RESOURCE_KEYS,
+  storageCapacity,
+  storageCapacityFor,
+  type PartialResources,
   ClaimFeatRequestSchema,
   addItems,
   addToStash,
@@ -23,7 +27,7 @@ import { projectFeats, progressFor } from '../feats/project.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
 import { settleBase } from '../district/settle.js';
 import { mergeArmies } from '../battle/forces.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyInfamyEarned, tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -183,14 +187,48 @@ export function registerFeatRoutes(app: FastifyInstance): void {
        * are still there when the crew has made room.
        */
       let room = districtUnitSlots(app.repos, fresh).spare;
+      /*
+       * ...and the same walk over the stockpile's ceilings (maintainer, 2026-09-23).
+       *
+       * A feat that pays more scrap than the Apothecary can hold used to be collected anyway, and
+       * the overflow went nowhere: `addResources` has no ceiling, the settle clamps on the next
+       * tick, and the difference was simply gone. Collect-all now leaves such a rung ready, the
+       * way it already leaves one whose bodies have nowhere to sleep, so the reward is still
+       * there when the player has built the room for it.
+       *
+       * Caps are exempt and have to be: `storageCapacityFor` answers Infinity for them, because
+       * the currency has no ceiling, so `spare` below is Infinity and every caps reward fits.
+       */
+      const bulk = storageCapacity(
+        fresh.buildings,
+        crewEffectsFor(app.repos, fresh, now).storageCapacityPercent,
+      );
+      const spare: PartialResources = {};
+      for (const key of RESOURCE_KEYS) {
+        spare[key] = storageCapacityFor(fresh.buildings, key, bulk) - fresh.resources[key];
+      }
+
       const skipped: string[] = [];
       const payable = waiting.filter((one) => {
-        const asking = unitSlotsUsed(findFeat(one.id)?.reward.units ?? {});
+        const reward = findFeat(one.id)?.reward;
+        const asking = unitSlotsUsed(reward?.units ?? {});
         if (asking > room) {
           skipped.push(one.id);
           return false;
         }
+        // Every line of the reward has to fit, not the bundle on average: a feat paying scrap and
+        // planks is left ready if either store is full.
+        const overflows = RESOURCE_KEYS.some(
+          (key) => (reward?.resources?.[key] ?? 0) > (spare[key] ?? 0),
+        );
+        if (overflows) {
+          skipped.push(one.id);
+          return false;
+        }
         room -= asking;
+        for (const key of RESOURCE_KEYS) {
+          spare[key] = (spare[key] ?? 0) - (reward?.resources?.[key] ?? 0);
+        }
         return true;
       });
       // Each still writes its own claim row, so the ledger records what was collected rather than

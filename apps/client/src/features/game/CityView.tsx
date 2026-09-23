@@ -6,8 +6,8 @@ import {
   type CapturedGateView,
   type District,
 } from '@frontline/shared';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
@@ -19,6 +19,7 @@ import { CitiesView } from '../cities/CitiesView';
 import { cn } from '../../lib/cn';
 import { OnPlate, PlateRoom, type OnPlateAt } from './PlateRoom';
 import { Tutorial } from '../tutorial/Tutorial';
+import { ScoutMenu } from '../city/ScoutMenu';
 
 /**
  * The `/game` index: the city itself, painted, with a tag on every district (GDD §A4).
@@ -192,6 +193,24 @@ export function CityView() {
    */
   const [pulledOut, setPulledOut] = useState(false);
 
+  /*
+   * The scout sheet over the map (maintainer, 2026-09-23): which unscouted district it is open
+   * for, or null. Unscouted ground does not open as a page; its tag opens this instead. A link
+   * straight to such a district (`DistrictView`) bounces here with `?scout=<id>`, which is read
+   * once and stripped, the way the mailbox reads `?to=`: a refresh or a back button must not
+   * re-open a sheet the player has closed.
+   */
+  const [scouting, setScouting] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const asked = params.get('scout');
+  useEffect(() => {
+    if (asked === null || asked === '') return;
+    setScouting(asked);
+    const next = new URLSearchParams(params);
+    next.delete('scout');
+    setParams(next, { replace: true });
+  }, [asked, params, setParams]);
+
   if (!myBase) return null;
 
   if (pulledOut) {
@@ -214,6 +233,7 @@ export function CityView() {
       {/* The opening three land here: this is the game's index route, so it is where a player
           arrives straight off the character screen. */}
       <Tutorial screen="city" />
+      {scouting !== null && <ScoutMenu districtId={scouting} onClose={() => setScouting(null)} />}
       <PlateRoom plate="city" aspect={CITY_ASPECT} fit="width" testId="city-room">
         {CITY_DISTRICTS.map((district) => {
           const at = DISTRICT_MARKS[district.id];
@@ -239,7 +259,23 @@ export function CityView() {
                  * screen is for reading a place you do not hold: who is on it, what it would take.
                  * Standing on your own, the thing you actually want is the base.
                  */
-                onOpen={() => void navigate(mine ? '/game/base' : `/game/city/${district.id}`)}
+                onOpen={() => {
+                  if (mine) {
+                    void navigate('/game/base');
+                    return;
+                  }
+                  // The map's own reading of the fog: a district this crew has not been to
+                  // opens the scout sheet, not the page. Unknown (the city read not in yet)
+                  // falls through to the page, which bounces back here itself.
+                  const summary = city.data?.districts.find(
+                    (entry) => entry.district.id === district.id,
+                  );
+                  if (summary && !summary.scouted) {
+                    setScouting(district.id);
+                    return;
+                  }
+                  void navigate(`/game/city/${district.id}`);
+                }}
               />
             </OnPlate>
           );

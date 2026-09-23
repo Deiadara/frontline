@@ -1,4 +1,5 @@
 import {
+  type LineRules,
   combineLeaderAt,
   combinePresenceOver,
   capturedGateDefensePercent,
@@ -17,9 +18,9 @@ import {
   earnedInfamy,
   gainInfamy,
   homeBattlefield,
-  infamyForFled,
+  infamyPointsForFled,
   infamyForKills,
-  infamyForRingDead,
+  infamyPointsForRingDead,
   infamyForRaidWon,
   isBattleDue,
   itemCount,
@@ -599,6 +600,8 @@ function appliedBoost(
   deployment: BattleDeployment | undefined,
   force: Army,
   cityLevel: number,
+  /** This side's own line rules, threaded to `oneBoost`. See the note there. */
+  rules: LineRules,
 ): BattleBoost {
   const ids = deployment?.boostIds ?? [];
   if (ids.length === 0) return NO_BOOST;
@@ -611,7 +614,7 @@ function appliedBoost(
    * name is meant to be worth the first one again rather than worth more than it.
    */
   return ids.reduce<BattleBoost>((total, id) => {
-    const one = oneBoost(repos, baseId, id, force, cityLevel);
+    const one = oneBoost(repos, baseId, id, force, cityLevel, rules);
     return {
       offensePercent: total.offensePercent + one.offensePercent,
       defensePercent: total.defensePercent + one.defensePercent,
@@ -627,9 +630,21 @@ function oneBoost(
   id: string,
   force: Army,
   cityLevel: number,
+  /**
+   * What this side counts as a fighting sheet (bug pass, 2026-09-23).
+   *
+   * `boostBundle` prices a narrow boost by the share of **the line** it reaches, and it defaulted
+   * to `bareLineRules()` here, which leaves the porters out. The engine under `carriers_fight`
+   * puts those same porters *in* the line, so the denominator and the fight disagreed: a crew
+   * holding that channel stuffed the deployment with carriers, bought the narrowest name it
+   * covered, and every body on the ground got the full percentage. Measured at 7x on a Plated
+   * Overnight and 34x on The Colossus Walks. `boostCoverage`'s own note names the invariant this
+   * broke: "a crew whose porters do fight passes it in, so the two answers cannot drift apart".
+   */
+  rules: LineRules,
 ): BattleBoost {
   const name = findBattleBoost(id);
-  if (name) return boostBundle(name.effect, force);
+  if (name) return boostBundle(name.effect, force, rules);
 
   const crate = findBlackMarketGood(id);
   const stash = repos.blackMarket.stashFor(baseId);
@@ -906,6 +921,16 @@ function resolveOne(
   // priced and stocked for a veteran street hands out veteran contraband, and this is where that
   // lands. Read once for the fight, so both sides' bags are weighted by the same number.
   const cityLevel = cityLevelFor(repos);
+  /*
+   * Each side's standing, read once, before the boost rather than after it.
+   *
+   * The boost is folded *into* these effects a few lines down (`boosted`), so the read has to come
+   * first, and the line rules a boost is priced against come out of the same read: `carriersFight`
+   * is a holding, not something a syringe grants. Read once also means the two reads cannot
+   * disagree, and it saves a second settle of the same fold per side.
+   */
+  const attackerStanding = standingEffectsFor(repos, attacker, now);
+  const defenderStanding = defenderBase ? standingEffectsFor(repos, defenderBase, now) : undefined;
   // §D7: what a name bought for *this* fight, folded down against the force it actually reaches.
   // See `battle/boosts.ts`: a boost on one weight class is worth its own percentage times that
   // class's share of the unit slots standing on the ground. Contraband reaches the whole force.
@@ -915,6 +940,7 @@ function resolveOne(
     sideForce(repos, battle.id, 'attacker', battle.scheduledFor),
     assembled.attacking,
     cityLevel,
+    attackerStanding,
   );
   const defenderBoost = defenderBase
     ? appliedBoost(
@@ -923,6 +949,7 @@ function resolveOne(
         sideForce(repos, battle.id, 'defender', battle.scheduledFor),
         assembled.defending,
         cityLevel,
+        defenderStanding ?? bareLineRules(),
       )
     : NO_BOOST;
 
@@ -982,20 +1009,18 @@ function resolveOne(
         )
       : undefined;
 
-  const attackerEffects = situational(
-    boosted(standingEffectsFor(repos, attacker, now), attackerBoost),
-    {
-      allied: attackerAllied,
-      wholeDistrict: holdsWholeDistrict(repos, attacker),
-    },
-  );
+  const attackerEffects = situational(boosted(attackerStanding, attackerBoost), {
+    allied: attackerAllied,
+    wholeDistrict: holdsWholeDistrict(repos, attacker),
+  });
   const attackerFinal = attackerLead ? leading(attackerEffects) : attackerEffects;
-  const defenderEffects = defenderBase
-    ? situational(boosted(standingEffectsFor(repos, defenderBase, now), defenderBoost), {
-        allied: defenderAllied,
-        wholeDistrict: holdsWholeDistrict(repos, defenderBase),
-      })
-    : undefined;
+  const defenderEffects =
+    defenderBase && defenderStanding
+      ? situational(boosted(defenderStanding, defenderBoost), {
+          allied: defenderAllied,
+          wholeDistrict: holdsWholeDistrict(repos, defenderBase),
+        })
+      : undefined;
   const defenderFinal =
     defenderEffects && defenderLead ? leading(defenderEffects) : defenderEffects;
 
@@ -1555,8 +1580,22 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   ];
   const alliesSent = allyRows.reduce<Army>((total, row) => mergeArmies(total, row.army), {});
   const alliesRinged = allyRows.reduce<Army>((total, row) => mergeArmies(total, row.perimeter), {});
+  /*
+   * The principal's own machines, carried onto the synthetic row (bug pass, 2026-09-23).
+   *
+   * `emptyDeployment` has an empty yard, and the vehicle settle used to be handed the raw
+   * `defenderRows` for exactly that reason. That was the bug: `splitSurvivors` skips a unit id no
+   * row committed, so on any defence where part of the line came from a garrison, an allied
+   * posting or the home roster, the survivors of the row-less principal were credited to whoever
+   * *did* have a row, that row's share came out above 1, and `wrecked` clamped the loss to zero.
+   * The defending side's machines were effectively unwreckable, and the attacker was never paid
+   * the infamy for them. With the yard on the row, the same `splitRows` can settle the line, the
+   * ring and the vehicles, which is what makes those three agree.
+   */
+  const principalDeployed = defenderRows.find((row) => row.baseId === principalKey);
   const principalRow: BattleDeployment = {
     ...emptyDeployment(battle.id, principalKey, 'defender', battle.scheduledFor),
+    ...(principalDeployed ? { vehicles: principalDeployed.vehicles } : {}),
     army: removeForce(assembled.defending, alliesSent),
     perimeter: removeForce(assembled.defenderRing, alliesRinged),
   };
@@ -1599,7 +1638,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
   const attackerVehicles = settleSideVehicles(repos, attackerRows, attackerLived, now);
   const defenderVehicles = settleSideVehicles(
     repos,
-    defenderRows,
+    // `splitRows`, not the raw deployment rows: see the note on `principalRow` for the survivors
+    // that went to the wrong crew when these two disagreed.
+    splitRows,
     mergeArmies(defenderSurvivors, defenderRingHome),
     now,
   );
@@ -1616,20 +1657,32 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * figures are all zero when the attacker won.
    */
   const loserRan = mergeArmies(outcome.fled, outcome.perimeterCaught);
-  const attackerInfamy = attackerWon
-    ? infamyForKills(defenderFallen) +
-      infamyForFled(loserRan) +
-      captureInfamy +
-      vehicleInfamy(defenderVehicles.destroyed)
-    : infamyForKills(defenderDead) +
-      infamyForRingDead(outcome.perimeterLosses) +
-      vehicleInfamy(defenderVehicles.destroyed);
-  const defenderInfamy = attackerWon
-    ? infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed)
-    : infamyForKills(removeForce(attackerFallen, outcome.perimeterCaught)) +
-      infamyForFled(loserRan) +
-      infamyForRingDead(outcome.perimeterCaught) +
-      vehicleInfamy(attackerVehicles.destroyed);
+  /*
+   * Summed in half-points and floored **once** (bug pass, 2026-09-23).
+   *
+   * The two halves are only a whole if nothing rounds between them, and they used to be floored
+   * one at a time: a single caught one-slot runner was promised a half for running and a half for
+   * dying and paid nothing at all, which is precisely the "worth nothing" that `FLED_INFAMY_SHARE`
+   * exists to prevent. Every mixed case lost a flat half the same way.
+   */
+  const attackerInfamy = Math.floor(
+    attackerWon
+      ? infamyForKills(defenderFallen) +
+          infamyPointsForFled(loserRan) +
+          captureInfamy +
+          vehicleInfamy(defenderVehicles.destroyed)
+      : infamyForKills(defenderDead) +
+          infamyPointsForRingDead(outcome.perimeterLosses) +
+          vehicleInfamy(defenderVehicles.destroyed),
+  );
+  const defenderInfamy = Math.floor(
+    attackerWon
+      ? infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed)
+      : infamyForKills(removeForce(attackerFallen, outcome.perimeterCaught)) +
+          infamyPointsForFled(loserRan) +
+          infamyPointsForRingDead(outcome.perimeterCaught) +
+          vehicleInfamy(attackerVehicles.destroyed),
+  );
 
   /**
    * §A4: the Bone Market. A share of what you lost comes back as caps rather than as nothing.

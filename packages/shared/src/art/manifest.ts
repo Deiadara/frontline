@@ -7,7 +7,7 @@
  * Resolutions and aspects come from the ART-BIBLE §6 table; prompts come from `./prompts.js`.
  */
 import { z } from 'zod';
-import { BUILDING_KINDS, VEHICLE_IDS, type BuildingKind } from '../building/index.js';
+import { VEHICLE_IDS } from '../building/index.js';
 import {
   CITY_DISTRICTS,
   DISTRICT_KINDS,
@@ -20,7 +20,6 @@ import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
 import { UNIT_CATALOG, UNIT_IDS } from '../units/index.js';
 import {
   ARCHETYPE_ICON_SUBJECTS,
-  BUILDING_SUBJECTS,
   DISTRICT_KIND_ICON_SUBJECTS,
   LOCATION_ICON_SUBJECTS,
   VEHICLE_ICON_SUBJECTS,
@@ -173,7 +172,6 @@ export const AssetPromptSchema = z.object({
   /** The per-class framing block, appended after the subject. */
   framing: z.string().min(1),
 });
-export type AssetPrompt = z.infer<typeof AssetPromptSchema>;
 
 /**
  * ART-BIBLE §7: `variant` ∈ `damaged` | `selected` | `night` | `alt1..n`. Matched against the
@@ -458,20 +456,17 @@ const OVERSEER_PORTRAIT_DELIVERY = {
 } as const satisfies Partial<AssetSpec>;
 
 /**
- * The four heroes ART-PROMPTS §1 was written for, and the only portraits still on a text-to-image
- * path. Their ids are unpadded, which is the whole of what keeps them clear of the thirty below.
+ * The one hero ART-PROMPTS §1 was written for that still has a job.
  *
- * A literal rather than `OVERSEER_PRESETS.map`, which is what it used to be. The preset table is
- * the *game's* list of who a player may be, and it is being rewritten to the thirty; the art is the
- * list of what has been painted. Deriving one from the other meant a preset retired in `overseer.ts`
- * silently orphaned a delivered file, and a preset added there failed the manifest at import.
+ * There were four, unpadded so they stayed clear of the thirty below, and no preset can ask for
+ * any of them: migration `0096_overseer_faces.sql` padded every stored id and `OVERSEER_PRESETS`
+ * issues `overseer-01`..`overseer-30`. Three of the four went on 2026-09-24 with their files.
+ *
+ * `overseer-1` stays, and it is not a face the game can draw: it is one of the two
+ * `STYLE_REFERENCE_KEYS`, so `scripts/gen-art.ts` reads its delivered file off disk and passes it
+ * to every later generation. Deleting it would break the art pipeline rather than tidy it.
  */
-const LEGACY_OVERSEER_PORTRAIT_IDS: readonly string[] = [
-  'overseer-1',
-  'overseer-2',
-  'overseer-3',
-  'overseer-4',
-];
+const LEGACY_OVERSEER_PORTRAIT_IDS: readonly string[] = ['overseer-1'];
 
 const legacyPortraitDrafts = LEGACY_OVERSEER_PORTRAIT_IDS.map((portraitId, index) =>
   draft({
@@ -831,14 +826,21 @@ const plateDrafts = (
   }),
 );
 
-const buildingDrafts = BUILDING_KINDS.map((kind, index) =>
-  draft({
-    key: `building-${toKebab(kind)}`,
-    class: 'building',
-    seed: SEED_BASE.building + index + 1,
-    prompt: { subject: BUILDING_SUBJECTS[kind], framing: FRAMING.building },
-  }),
-);
+/*
+ * There were eleven `building-<kind>` masters here, one per structure, and they went on
+ * 2026-09-24 with their files.
+ *
+ * They were separate drawings of each building, made for the previous district plate, and against
+ * the delivered painting they read as the wrong building, which is what they were reported as.
+ * What draws a structure now is `buildingPortraitUrl` in the client: a cut-out of the district
+ * painting itself, made by `scripts/building-portraits.ts` from the same traced outline the map
+ * hit-tests, so the picture in the window *is* the building the player clicked. That path resolves
+ * by filename and never touches this manifest, which is why the masters had no reader at all: no
+ * production code ever built a `{ type: 'building' }` ref.
+ *
+ * The `building` asset class stays in `ASSET_CLASSES` and `CLASS_SPECS`: it is the shape a
+ * structure master would be drawn at, and nothing is served by forgetting it.
+ */
 
 const unitDrafts = UNIT_CATALOG.map((unit, index) =>
   draft({
@@ -925,7 +927,6 @@ export const ART_MANIFEST: readonly AssetSpec[] = [
   ...officerDrafts,
   ...districtDrafts,
   ...plateDrafts,
-  ...buildingDrafts,
   ...unitDrafts,
   ...uiDrafts,
   ...iconDrafts,
@@ -937,8 +938,6 @@ export const ART_MANIFEST: readonly AssetSpec[] = [
 const ASSET_BY_KEY: ReadonlyMap<AssetKey, AssetSpec> = new Map(
   ART_MANIFEST.map((spec) => [spec.key, spec]),
 );
-
-export const ASSET_KEYS: readonly AssetKey[] = ART_MANIFEST.map((spec) => spec.key);
 
 export function findAssetSpec(key: AssetKey): AssetSpec | undefined {
   return ASSET_BY_KEY.get(key);
@@ -965,7 +964,6 @@ export type AssetRef =
   | { type: 'portrait'; portraitId: string }
   | { type: 'officer'; portraitId: string }
   | { type: 'district'; districtId: string }
-  | { type: 'building'; building: BuildingKind }
   | { type: 'unit'; unitId: string }
   | { type: 'plate'; plate: string }
   | { type: 'resource-icon'; resource: ResourceKey }
@@ -982,8 +980,6 @@ function assetKeyFor(ref: AssetRef): AssetKey {
       return `officer-${ref.portraitId}`;
     case 'district':
       return `district-${ref.districtId}`;
-    case 'building':
-      return `building-${toKebab(ref.building)}`;
     case 'unit':
       return `unit-${toKebab(ref.unitId)}`;
     case 'plate':
@@ -1059,8 +1055,6 @@ export function subjectResolvesToDomainId(assetClass: AssetClass, subject: strin
       return OFFICER_PORTRAIT_IDS.includes(subject);
     case 'district':
       return CITY_DISTRICTS.some((district) => district.id === subject);
-    case 'building':
-      return (BUILDING_KINDS as readonly string[]).includes(toSnake(subject));
     case 'unit':
       return UNIT_IDS.includes(toSnake(subject));
     case 'icon':

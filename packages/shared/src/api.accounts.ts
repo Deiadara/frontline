@@ -16,6 +16,7 @@ import { PLAYER_LEVEL_UNLOCKS } from './progression/unlocks.js';
 import { PartialResourcesSchema } from './resources.js';
 import { TimezoneSchema } from './time/zone.js';
 import { PlayerIconSchema, SoundVolumeSchema, UserSchema } from './user.js';
+import { ArmySchema } from './units/training.js';
 
 /**
  * The account half of the REST contract: who you are, what you have set, what the back room is
@@ -117,14 +118,13 @@ export const SaveAutomationRequestSchema = z.object({
 export type SaveAutomationRequest = z.infer<typeof SaveAutomationRequestSchema>;
 
 /**
- * Changing a password needs the old one, always.
+ * Changing a password takes the new one and nothing else (maintainer, 2026-09-23).
  *
- * The session token proves the browser had the password *once*. It does not prove the person at
- * the keyboard is the one who typed it, and a token lifted off a shared machine should not be
- * enough to lock the owner out of their own account.
+ * It used to ask for the current one as well, on the argument that a token lifted off a shared
+ * machine should not be enough to lock the owner out. The maintainer's call is that the session
+ * is the proof: a player who is logged in changes it at will.
  */
 export const ChangePasswordRequestSchema = z.object({
-  currentPassword: z.string().min(1),
   newPassword: z.string().min(8).max(128),
 });
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
@@ -231,7 +231,6 @@ export const AdminStateSchema = z.object({
   /** Whether a click actually costs the resources the UI shows. */
   chargesResources: z.boolean(),
 });
-export type AdminState = z.infer<typeof AdminStateSchema>;
 
 /**
  * How high the level knob goes: the deepest level the game authors content at.
@@ -340,6 +339,16 @@ export const AdminGrantRequestSchema = z
     consumables: z.number().int().min(1).max(99).optional(),
     /** This many of every battle boost the back room sells, onto the shelf. */
     boosts: z.number().int().min(1).max(99).optional(),
+    /**
+     * Bodies, straight onto the roster at home (maintainer, 2026-09-23).
+     *
+     * The one thing a reviewer could not reach through the API at all. A crew is handed carriers
+     * and no fighters now (`crew/starting.ts`), and every fighting unit is behind a Gauntlet at
+     * Nexus 3, so a live test that wants to watch a *battle* had to build and train its way there
+     * or lean on whatever the opening happened to hand out. Added to the roster rather than
+     * setting it, like every other grant on this route.
+     */
+    units: ArmySchema.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to grant');
 export type AdminGrantRequest = z.infer<typeof AdminGrantRequestSchema>;

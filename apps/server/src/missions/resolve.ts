@@ -363,7 +363,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
        * the losses on the one mission kind that has any. Empty when the crew holds no refund, which
        * is the common case and costs nothing.
        */
-      refund: battle ? refundFor(battle.lost, crew?.salvageRefundPercent ?? 0) : {},
+      // Gated on `reported` like every other payout on this object (bug pass, 2026-09-23). The
+      // spec's rule is that a run nobody came home from "banks nothing: no pay, no salvage, no page,
+      // no XP, no infamy", and the Bone Market's caps-for-bodies was the one line that ignored it.
+      refund: battle && reported ? refundFor(battle.lost, crew?.salvageRefundPercent ?? 0) : {},
       /*
        * §C3: and so do the machines, every time.
        *

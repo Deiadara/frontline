@@ -145,7 +145,12 @@ export function winnerCasualties(winning: SideState): Army {
     // The officer is never a casualty: see `routSurvivors`, same reason.
     if (stack.officer !== undefined) continue;
     const dead = stack.started - stack.alive;
-    if (dead > 0) killed[stack.unit.id] = dead;
+    // Accumulated, not assigned (bug pass, 2026-09-23). Every sibling that builds an army out of
+    // stacks uses `+=`, and this one did not. No winner's side holds two stacks with the same unit
+    // id today, because `loyal()` strips the turncoats before this runs, but `changeOfHeart` is
+    // the one thing in the engine that makes such a pair and `breakOut` calls this on sides it did
+    // not build that invariant for.
+    if (dead > 0) killed[stack.unit.id] = (killed[stack.unit.id] ?? 0) + dead;
   }
   return killed;
 }

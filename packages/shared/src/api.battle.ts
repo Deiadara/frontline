@@ -51,7 +51,6 @@ export type BattleLeader = z.infer<typeof BattleLeaderSchema>;
 /** How the caller stands to a battle. `bystander` is a fight in a district they can merely see. */
 export const BATTLE_ROLES = ['attacker', 'defender', 'bystander'] as const;
 export const BattleRoleSchema = z.enum(BATTLE_ROLES);
-export type BattleRole = z.infer<typeof BattleRoleSchema>;
 
 /**
  * What the caller has standing on one side of a coming fight.
@@ -67,7 +66,6 @@ export const BattleMusterSchema = z.object({
   /** Units, both forces counted. */
   size: z.number().int().nonnegative(),
 });
-export type BattleMuster = z.infer<typeof BattleMusterSchema>;
 
 /**
  * One thing a name will buy for one fight (§D7), priced against what the caller currently has.

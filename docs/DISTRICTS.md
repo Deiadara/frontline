@@ -1,9 +1,20 @@
 # The districts
 
-Two cities are authored to full size. **Ashfall** is playable today and is documented first.
-**Terminus** is the second, and its section is at the bottom of this file. Saltmarch is still the
-three district sketch in `packages/shared/src/city/atlas.ts` and is not documented here yet. The
-city list itself is `packages/shared/src/city/cities.ts`.
+The world has five cities and they are at four different stages, which is worth knowing before
+reading any of this.
+
+| City      | Ground                                                      | Documented here |
+| --------- | ----------------------------------------------------------- | --------------- |
+| Ashfall   | Twelve districts, playable                                  | Yes, first      |
+| Terminus  | Three contested and four plots, authored as `verge-station` | Yes, at the end |
+| Saltmarch | Three contested and four plots, a sketch in `atlas.ts`      | Not yet         |
+| Redline   | None. A name, a nickname and a blurb                        | Nothing to say  |
+| Deepcut   | None. A name, a nickname and a blurb                        | Nothing to say  |
+
+Redline and Deepcut exist so the world screen can show five places (maintainer, 2026-09-24). A city
+can be a row in the list long before anybody draws its districts, and `atlas.test.ts` holds the one
+rule that keeps that honest: a city with no ground may not be `open`. The city list itself is
+`packages/shared/src/city/cities.ts`.
 
 Nothing about a map is generated: a map is only worth learning if it is the same map tomorrow.
 

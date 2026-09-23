@@ -24,7 +24,6 @@ export const UNIT_UPGRADE_SLOTS = 3;
 
 /** A slot is a card id or an empty bracket. Length is capped; short arrays pad on read. */
 export const UnitLoadoutSchema = z.array(z.string().nullable()).max(UNIT_UPGRADE_SLOTS);
-export type UnitLoadout = z.infer<typeof UnitLoadoutSchema>;
 
 /**
  * Keyed by unit id, and deliberately not one entry per unit in the catalogue: a crew that has

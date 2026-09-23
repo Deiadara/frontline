@@ -542,9 +542,16 @@ test('the city leads to the district screen, except on your own ground', async (
 test('a district named in initials spells itself out on its own screen', async ({ page }) => {
   await installApi(page, lateGame);
 
+  /*
+   * The CCS through the scout sheet, because it is the fixture's *unscouted* district and
+   * unscouted ground no longer opens as a page (maintainer, 2026-09-23): the link bounces to the
+   * map and the sheet names the place. The sheet is where a player meets this district's name, so
+   * it is where the abbreviation has to be spelled out.
+   */
   await page.goto('/game/city/combine-spire');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('CCS');
+  await expect(page.getByTestId('scout-menu-title')).toHaveText('CCS');
   await expect(page.getByTestId('district-formal-name')).toHaveText('Civic Command Sector');
+  await page.keyboard.press('Escape');
 
   // Steelbelt is not an abbreviation, so it carries no second line at all.
   await page.goto('/game/city/rustyard');
@@ -1199,6 +1206,20 @@ test('an empty chair can be filled from the bench', async ({ page }) => {
 test('scouting a district sends somebody rather than opening it', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto(`/game/city/${UNSCOUTED_DISTRICT_ID}`);
+
+  /*
+   * Unscouted ground does not open (maintainer, 2026-09-23): the link bounces to the map, the
+   * `?scout=` that carried the district is consumed, and the scout sheet is up with the district's
+   * name on it. Tapping the tag on the map opens the same sheet.
+   */
+  const menu = page.getByTestId('scout-menu');
+  await expect(menu).toBeVisible();
+  await expect(page).toHaveURL(/\/game$/);
+  await expect(menu.getByTestId('scout-menu-title')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await page.getByTestId(`district-tag-${UNSCOUTED_DISTRICT_ID}`).click();
+  await expect(page.getByTestId('scout-menu')).toBeVisible();
 
   // Quoted first: a run is measured in hours, so how long is a decision, not a surprise.
   const send = page.getByTestId('send-scout');

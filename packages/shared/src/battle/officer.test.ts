@@ -330,18 +330,31 @@ describe('officer injury (§D4)', () => {
     // Back on the millisecond the duration says, and not before it.
     expect(officerIsInjured(until, new Date(Date.parse(until) - 1))).toBe(true);
     expect(officerIsInjured(until, new Date(until))).toBe(false);
-    // An hour later on the wall clock than they went down, because the night was an hour short.
+    /*
+     * ...and an hour later on the wall clock than the arithmetic alone would put them, because the
+     * night was an hour short. Expressed as the comparison rather than as a literal time: the
+     * duration moved from 24 hours to 12 on 2026-09-23 and a hand-written `00:30` was the one
+     * thing in this file that had to be recomputed by hand when it did.
+     *
+     * An instant an hour earlier, labelled under the *new* offset, reads as this instant would
+     * have under the old one. That the two disagree is the whole of "a duration, not a time of
+     * day".
+     */
     expect(formatClock(hurt)).toBe('23:30');
-    expect(formatClock(new Date(until)), 'a duration, not a time of day').toBe('00:30');
+    const asIfTheClocksHadNotMoved = new Date(Date.parse(until) - 3_600_000);
+    expect(formatClock(new Date(until)), 'a duration, not a time of day').not.toBe(
+      formatClock(asIfTheClocksHadNotMoved),
+    );
   });
 
   it('settles recovery off a stored timestamp rather than a running clock', () => {
     const now = new Date('2026-08-31T12:00:00.000Z');
     const until = officerRecoveryAt(now);
-    expect(until).toBe('2026-09-01T12:00:00.000Z');
+    // Off the constant, not a literal: the duration is the board's number and it has moved once.
+    expect(until).toBe(new Date(now.getTime() + OFFICER_INJURY_HOURS * 3_600_000).toISOString());
     expect(officerIsInjured(until, now)).toBe(true);
-    expect(officerRecoverySeconds(until, now)).toBe(24 * 3600);
-    const later = new Date('2026-09-01T12:00:00.001Z');
+    expect(officerRecoverySeconds(until, now)).toBe(OFFICER_INJURY_HOURS * 3600);
+    const later = new Date(Date.parse(until) + 1);
     expect(officerIsInjured(until, later)).toBe(false);
     expect(officerRecoverySeconds(until, later)).toBe(0);
     expect(officerIsInjured(null, now)).toBe(false);

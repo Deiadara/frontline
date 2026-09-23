@@ -1,4 +1,5 @@
 import {
+  OFFICER_INJURY_HOURS,
   CITY_DISTRICTS,
   DECLARE_INFAMY_COST,
   DEFAULT_BADGE,
@@ -459,8 +460,10 @@ describe('coming home hurt (§D4)', () => {
 
     const after = stack.app.repos.bases.findById(stack.baseId)!.commanders[0]!;
     expect(officerIsInjured(after.injuredUntil, now)).toBe(true);
-    // 24 hours, to the minute.
-    expect(Date.parse(after.injuredUntil!) - now.getTime()).toBe(24 * 3_600_000);
+    // The board's number, to the minute, read off the constant rather than typed: it moved from
+    // 24 to 12 on 2026-09-23 and a hand-written 24 here would have been the only thing left
+    // claiming otherwise.
+    expect(Date.parse(after.injuredUntil!) - now.getTime()).toBe(OFFICER_INJURY_HOURS * 3_600_000);
   });
 
   /*

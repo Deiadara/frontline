@@ -2,7 +2,6 @@ import {
   REIMAGINING_PAGES_SPENT,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
-  RESEARCH_TRACK_BLURBS,
   RESEARCH_TRACK_STEPS,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
@@ -186,7 +185,11 @@ function TrackHeader({
 }) {
   return (
     <header className="flex flex-col gap-3 border-b border-surface-600/70 pb-3">
-      <div className="flex items-start gap-3">
+      {/* `items-center`, and the name is the only thing beside the sigil (maintainer, 2026-09-24).
+          The blurb under it went: a line of prose saying what a track is for, under a name that
+          says the same thing, on a card whose rungs say it a third time. With the name alone the
+          two are one row, so it reads against the middle of the mark rather than against its top. */}
+      <div className="flex items-center gap-3">
         <span
           aria-hidden
           className="icon-plate relative flex h-14 w-14 shrink-0 items-center justify-center rounded-sm text-brass-300"
@@ -197,9 +200,6 @@ function TrackHeader({
           <h3 className="break-words font-stamp text-[19px] leading-tight text-ink-100">
             {OFFICER_ROLE_LABELS[status.role]}
           </h3>
-          <p className="break-words font-body text-[13px] leading-relaxed text-ink-300">
-            {RESEARCH_TRACK_BLURBS[status.role]}
-          </p>
         </div>
         {status.mark !== null && (
           <span className="relative h-14 w-14 shrink-0 text-oxblood-300">

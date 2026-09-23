@@ -12,4 +12,3 @@ import { z } from 'zod';
  */
 
 export const MissionDifficultySchema = z.enum(['easy', 'hard']);
-export type MissionDifficulty = z.infer<typeof MissionDifficultySchema>;

@@ -118,6 +118,18 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
   app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
 
+  /*
+   * Razors on the books, explicitly.
+   *
+   * A new crew is handed eight Scavengers now and no fighters at all (`crew/starting.ts`,
+   * maintainer 2026-09-23), and every assertion in this file counts Razors sent, lost and brought
+   * home. Arming the fixture here rather than leaning on whatever the opening happens to hand out
+   * is the repair the repo's own lesson asks for: a fixture that depends on an unrelated default
+   * expires the day that default moves, which is exactly what happened.
+   */
+  const armed = app.repos.bases.findById(baseId)!;
+  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
+
   // Every district in the city starts wholly held by one NPC party, which means every gate in the
   // city starts armed: see the test that pins exactly that. Most of what is worth testing here is
   // about a district with a seam in it, so the fixture opens one.

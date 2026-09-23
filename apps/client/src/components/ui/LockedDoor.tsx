@@ -156,9 +156,10 @@ function figureFor(requirement: ReturnType<typeof areaRequirement>): string {
 /**
  * Where the player currently is against this door's condition.
  *
- * The two ladder conditions can name a distance, so they do: "four more and this is yours" is the
- * sentence that makes a gate feel like a target rather than a wall. The three yes-or-no ones
- * cannot, and saying so plainly beats manufacturing a number.
+ * Each line says the one thing that opens the door and nothing else (maintainer, 2026-09-23).
+ * The level line used to lead with the player's own level and the distance left; the building
+ * line used to explain where a structure goes; the officer line used to explain where a chair is
+ * filled from. All three were restating a mechanic over the sign that names it.
  *
  * Every branch also handles the already-satisfied case, because this screen does get rendered with
  * the condition met: a stale `/me` between a finished build and the next poll puts a player in
@@ -169,17 +170,16 @@ function standing(requirement: ReturnType<typeof areaRequirement>, facts: Unlock
   switch (requirement.kind) {
     case 'level': {
       if (facts.level >= requirement.level) return 'The door should be open. Reload the page.';
-      const togo = requirement.level - facts.level;
-      return `You are level ${facts.level}. ${togo} more and this is yours. Levels come off missions, fights, finished builds, finished research and anybody you sign at the Bar.`;
+      return 'Levels come off missions, fights, finished builds, finished research and anybody you sign at the Bar.';
     }
     case 'building':
       return facts.buildings.includes(requirement.building)
         ? 'It is standing. Reload the page.'
-        : 'You have not put one up yet. It goes on an empty plot in your district.';
+        : 'You have not put one up yet.';
     case 'officer':
       return facts.officers.includes(requirement.role)
         ? 'They are in the chair. Reload the page.'
-        : 'Nobody is in that chair. Officers are signed at the Bar and seated from the Crew screen.';
+        : 'Nobody is in that chair. Officers are signed at the Bar.';
     case 'notoriety':
       return facts.notoriety >= requirement.rank
         ? 'You have the rank. Reload the page.'

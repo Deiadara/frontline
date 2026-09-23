@@ -690,6 +690,10 @@ describe('§I4c: migration 0078 on a deployment written before it', () => {
     // 0045 rebuilds this very table and ends by turning them on again.
     db.pragma('foreign_keys = OFF');
     db.prepare(
+      // `boost_id` is written here on purpose, and it is not a dead column *at this point in the
+      // chain*: the fixture stops before 0078, and 0091 is what moves the value into
+      // `boost_ids_json`. 0117 then drops the old column. That the assertion below still finds
+      // the boost is the proof that the backfill outlived the drop.
       `INSERT INTO battle_deployments
          (battle_id, base_id, side, army_json, perimeter_json, boost_id, officer_id,
           vehicles_json, updated_at)

@@ -26,14 +26,9 @@ describe('the hero set', () => {
    * a hero asset. Derived from the preset table, that reads as the set shrinking by twenty-six;
    * derived from the sizes, which is what {@link isHeroAsset} actually asks, it never moved.
    */
-  const HERO_PORTRAIT_KEYS = [
-    'portrait-overseer-1',
-    'portrait-overseer-2',
-    'portrait-overseer-3',
-    'portrait-overseer-4',
-  ];
+  const HERO_PORTRAIT_KEYS = ['portrait-overseer-1'];
 
-  it('is the four hero portraits, the district illustrations and the machines', () => {
+  it('is the style reference portrait, the district illustrations and the machines', () => {
     expect(HERO_ASSETS).toHaveLength(
       HERO_PORTRAIT_KEYS.length + CITY_DISTRICTS.length + VEHICLE_IDS.length,
     );

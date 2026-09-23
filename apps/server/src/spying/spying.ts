@@ -50,6 +50,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { tallySpyReport } from '../feats/tally.js';
 import { planScout, scoutParty } from '../scouting/scouting.js';
 import { notifyBase } from '../social/notify.js';
+import { workingOfficer } from '../crew/roster.js';
 
 /**
  * Spying (maintainer ruling, 2026-09-22): a paid look at somebody else's ground.
@@ -105,8 +106,18 @@ export type SpyGroundResult =
   { kind: 'refused'; reason: SpyRefusal } | { kind: 'ground'; ground: SpyGround };
 
 function crewStealthReader(repos: Repositories, holder: Base): (unitId: string) => number {
-  // Off the holder's own books: fitted cards, then the crew's channel, the order the line uses.
-  const percent = crewEffectsFor(repos, holder).unitStealthPercent;
+  /*
+   * Off the holder's whole standing, not the people-only fold (bug pass, 2026-09-23).
+   *
+   * `crewEffectsFor` is the officers and the Overseer; `standingEffectsFor` is those plus the
+   * ground they hold and the table they sit at. `unitStealthPercent` is paid by the Sewer
+   * Junction, +15% at level one up to +83% at its ceiling, and both of the other readers of this
+   * channel (`battle/effects.ts` and `battle/deploy.ts`) take the standing fold. So a crew that
+   * had bought and held the one location in the game whose whole reward line is "they will not see
+   * you" got it in a fight and got nothing at all against a spy, which is the half it was bought
+   * for. The same mistake `missions/resolve.ts` records having made once with `infamy_gain`.
+   */
+  const percent = standingEffectsFor(repos, holder).unitStealthPercent;
   return (unitId) => {
     const unit = findUnit(unitId);
     if (!unit) return 0;
@@ -119,12 +130,23 @@ const printedStealth = (unitId: string): number => findUnit(unitId)?.stats.steal
 
 /** A crew's counter: their Consigliere's fit for the chair, their people's counter-intel, the gate. */
 function crewCounter(repos: Repositories, holder: Base, gateLevel: number): CounterStrength {
-  const consigliere = holder.commanders.find((officer) => officer.role === 'consigliere');
+  // Working, not merely seated (maintainer, 2026-09-23): an injured Consigliere counters nothing.
+  const consigliere = workingOfficer(holder.commanders, 'consigliere');
   return {
     kind: 'crew',
     consigliereChairPoints: consigliere
       ? officerFitReader(repos, holder).pointsFor(consigliere, 'consigliere')
       : null,
+    /*
+     * The **people-only** fold here, deliberately, and not the standing one (bug pass,
+     * 2026-09-23: tried and reverted).
+     *
+     * `standingEffectsFor` folds in the district's own buildings, and the Gate is a building whose
+     * `intelResistancePercent` this contest already counts explicitly, in points, a few lines
+     * down. Reading the wider fold counted the same door twice and doubled what a maxed Gate was
+     * worth against a spy. `crewStealthReader` above takes the standing fold because the channel
+     * it reads is paid by a held *location* nothing else in this contest counts.
+     */
     intelResistancePercent: crewEffectsFor(repos, holder).intelResistancePercent,
     gateLevel,
   };

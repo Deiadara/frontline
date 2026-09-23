@@ -2,6 +2,7 @@ import type { TerritoryEffects } from '../city/locations.js';
 import { findUnit, type Army, type UnitLoadouts } from '../units/index.js';
 import { simulate, type SideSetup, type SideState, type Simulation } from './engine.js';
 import { winnerCasualties, type FleeContext } from './rout.js';
+import { bareLineRules, standsInLine, type LineRules } from './line.js';
 
 /**
  * The ring around the fight (GDD §A4, battle rework).
@@ -62,11 +63,25 @@ const total = (force: Army): number =>
  * well as a Sniper, and making the ring scale with offense would turn "deny them a report" into
  * "bring your best units and do it twice".
  */
-export function perimeterUnits(perimeter: Army): number {
-  return Object.entries(perimeter).reduce(
-    (sum, [unitId, count]) => (findUnit(unitId) ? sum + Math.max(0, count) : sum),
-    0,
-  );
+export function perimeterUnits(perimeter: Army, rules: LineRules = bareLineRules()): number {
+  /*
+   * Only what the engine would actually field (bug pass, 2026-09-23).
+   *
+   * This counted anything `findUnit` could resolve, while `buildStacks` drops anything
+   * `standsInLine` rejects. So a ring of porters passed the "is there a ring" gate, built zero
+   * stacks, and the breakout ended in a **zero-round fight** the runners won by default with the
+   * whole ring dead: the units were deleted off the row and the attacker was paid for a fight
+   * that never happened. Reachable, because a crew holding `carriers_fight` may post porters to
+   * the ring and that holding can be lost between the deployment and the mark.
+   *
+   * The rules are the guards' own, so a crew that really does field its porters really does have
+   * a ring made of them. The toll path reads the same answer, which closes the other half of the
+   * inconsistency: one model said the porters were a ring and the other said they did not exist.
+   */
+  return Object.entries(perimeter).reduce((sum, [unitId, count]) => {
+    const unit = findUnit(unitId);
+    return unit && standsInLine(unit, rules) ? sum + Math.max(0, count) : sum;
+  }, 0);
 }
 
 /**
@@ -255,7 +270,12 @@ export function breakOut(input: BreakoutInput, _next: () => number): Breakout {
     brokeThrough: true,
     rounds: 0,
   });
-  if (total(input.fleeing) === 0 || perimeterUnits(input.ring) === 0) return clear();
+  if (
+    total(input.fleeing) === 0 ||
+    perimeterUnits(input.ring, input.guards?.territory ?? bareLineRules()) === 0
+  ) {
+    return clear();
+  }
 
   /*
    * The ring stands *outside* the works, so it does not get to stand behind them.

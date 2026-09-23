@@ -13,6 +13,7 @@ import { SceneBackdrop } from '../features/game/PageShell';
 import { Wordmark } from '../brand/Wordmark';
 import { cn } from '../lib/cn';
 import { Button } from '../components/ui/Button';
+import { DrawnButton } from '../components/ui/DrawnButton';
 import { Icon, type IconName } from '../components/ui/Icon';
 import { useSession } from '../store/session';
 
@@ -83,6 +84,12 @@ const PROMISES: readonly { icon: IconName; title: string; line: string }[] = [
 export function AuthScreen() {
   const setSession = useSession((s) => s.login);
   const [mode, setMode] = useState<Mode>('login');
+  /*
+   * The door has two handles before it has a form (maintainer, 2026-09-23): Sign up and Log in,
+   * and nothing else on the card until one is pressed. The tabs that used to sit over the form
+   * are gone; what is under the form still switches, for whoever picked the wrong one.
+   */
+  const [chosen, setChosen] = useState(false);
   const [username, setUsername] = useState(prefillFor('login').username);
   const [password, setPassword] = useState(prefillFor('login').password);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -96,6 +103,7 @@ export function AuthScreen() {
   const switchMode = (next: Mode) => {
     const prefill = prefillFor(next);
     setMode(next);
+    setChosen(true);
     setUsername(prefill.username);
     setPassword(prefill.password);
     setFieldErrors({});
@@ -204,95 +212,116 @@ export function AuthScreen() {
           </div>
 
           <div className="glass-strong rusted rivets taped edge-lit relative w-full max-w-sm rounded-sm border border-surface-600/80 shadow-panel">
-            <div className="grid grid-cols-2">
-              {(['login', 'register'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => switchMode(m)}
-                  className={cn(
-                    'relative border-b py-3.5 font-display text-xs font-semibold uppercase tracking-[0.25em] transition-colors',
-                    mode === m
-                      ? 'border-brass-300 bg-brass-300/10 text-brass-300'
-                      : 'border-surface-700 text-ink-300 hover:bg-surface-800/60 hover:text-ink-200',
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-
-            <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6" noValidate>
-              <p className="font-body text-[13px] leading-snug text-ink-300">
-                {mode === 'login'
-                  ? 'Back to the district. Nothing waited for you.'
-                  : 'Pick a handle the street can shout. Eight characters on the password, minimum.'}
-              </p>
-
-              <Field
-                label="Operator ID"
-                value={username}
-                onChange={setUsername}
-                autoComplete="username"
-                error={fieldErrors.username}
-              />
-              <Field
-                label="Password"
-                type="password"
-                value={password}
-                onChange={setPassword}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                error={fieldErrors.password}
-              />
-
-              {DEV_PREFILL && mode === 'login' && (
-                <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[12px] leading-relaxed text-warning/90">
-                  MVP build. Dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
-                  {MVP_DEV_CREDENTIALS.password})
+            {!chosen ? (
+              <div className="flex flex-col gap-4 p-6" data-testid="auth-choice">
+                <p className="text-center font-body text-[13px] leading-snug text-ink-300">
+                  New to the district, or back for more?
                 </p>
-              )}
-
-              {serverError && (
-                <p
-                  role="alert"
-                  className="border border-oxblood-500/40 bg-oxblood-300/15 px-3 py-2 font-body text-xs text-oxblood-300"
+                <DrawnButton
+                  onClick={() => switchMode('register')}
+                  className="w-full justify-center"
+                  data-testid="auth-choose-register"
                 >
-                  {serverError}
+                  Sign up
+                </DrawnButton>
+                <DrawnButton
+                  onClick={() => switchMode('login')}
+                  className="w-full justify-center"
+                  data-testid="auth-choose-login"
+                >
+                  Log in
+                </DrawnButton>
+              </div>
+            ) : (
+              <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6" noValidate>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-display text-xs font-semibold uppercase tracking-[0.25em] text-brass-300">
+                    {mode === 'login' ? 'Log in' : 'Sign up'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setChosen(false)}
+                    data-testid="auth-back"
+                    className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400 hover:text-brass-300"
+                  >
+                    Back
+                  </button>
+                </div>
+                <p className="font-body text-[13px] leading-snug text-ink-300">
+                  {mode === 'login'
+                    ? 'Back to the district. Nothing waited for you.'
+                    : 'Pick a handle the street can shout. Eight characters on the password, minimum.'}
                 </p>
-              )}
 
-              <Button type="submit" disabled={mutation.isPending} className="w-full justify-center">
-                {mutation.isPending ? 'Linking…' : mode === 'login' ? 'Jack In' : 'Enlist'}
-              </Button>
+                <Field
+                  label="Operator ID"
+                  value={username}
+                  onChange={setUsername}
+                  autoComplete="username"
+                  error={fieldErrors.username}
+                />
+                <Field
+                  label="Password"
+                  type="password"
+                  value={password}
+                  onChange={setPassword}
+                  autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  error={fieldErrors.password}
+                />
 
-              <span aria-hidden className="ink-rule" />
-
-              <p className="text-center font-body text-[12px] leading-snug text-ink-300">
-                {mode === 'login' ? (
-                  <>
-                    No handle yet?{' '}
-                    <button
-                      type="button"
-                      onClick={() => switchMode('register')}
-                      className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
-                    >
-                      Enlist
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Already down here?{' '}
-                    <button
-                      type="button"
-                      onClick={() => switchMode('login')}
-                      className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
-                    >
-                      Jack in
-                    </button>
-                  </>
+                {DEV_PREFILL && mode === 'login' && (
+                  <p className="border border-dashed border-warning/40 bg-warning/5 px-3 py-2 font-body text-[12px] leading-relaxed text-warning/90">
+                    MVP build. Dev login prefilled ({MVP_DEV_CREDENTIALS.username} /{' '}
+                    {MVP_DEV_CREDENTIALS.password})
+                  </p>
                 )}
-              </p>
-            </form>
+
+                {serverError && (
+                  <p
+                    role="alert"
+                    className="border border-oxblood-500/40 bg-oxblood-300/15 px-3 py-2 font-body text-xs text-oxblood-300"
+                  >
+                    {serverError}
+                  </p>
+                )}
+
+                <Button
+                  type="submit"
+                  disabled={mutation.isPending}
+                  className="w-full justify-center"
+                >
+                  {mutation.isPending ? 'Linking…' : mode === 'login' ? 'Jack In' : 'Enlist'}
+                </Button>
+
+                <span aria-hidden className="ink-rule" />
+
+                <p className="text-center font-body text-[12px] leading-snug text-ink-300">
+                  {mode === 'login' ? (
+                    <>
+                      No handle yet?{' '}
+                      <button
+                        type="button"
+                        onClick={() => switchMode('register')}
+                        className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
+                      >
+                        Enlist
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Already down here?{' '}
+                      <button
+                        type="button"
+                        onClick={() => switchMode('login')}
+                        className="font-display uppercase tracking-[0.14em] text-brass-300 underline-offset-2 hover:underline"
+                      >
+                        Jack in
+                      </button>
+                    </>
+                  )}
+                </p>
+              </form>
+            )}
           </div>
         </section>
       </div>

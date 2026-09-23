@@ -26,6 +26,7 @@ import { useChangePassword, useSettings, useUpdateProfile } from '../../lib/quer
 import { playSound, setSoundVolume } from '../../lib/sound';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
+import { useSession } from '../../store/session';
 
 /**
  * The player's own file.
@@ -215,10 +216,7 @@ function ClockPanel({
     >
       <div className="flex flex-col gap-4 p-4">
         <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          Every clock, countdown and refresh in the game runs on {zoneCity(GAME_TIMEZONE)} time: the
-          day the black market turns over on, and the day the Runner&apos;s hours are quoted
-          against. Changing this changes what you are <em>shown</em>; it does not move the day
-          boundary, because that one is shared with everybody in the city.
+          The game clock runs in {zoneCity(GAME_TIMEZONE)} time.
         </p>
 
         <Field label="Show times in">
@@ -401,6 +399,29 @@ function VolumeBar({
 }
 
 /**
+ * The way out (maintainer, 2026-09-23). There was none on any screen: the only log-out the game
+ * had was the one the API forced on a 401. It sits under the clock and is stretched to the foot
+ * of its column, so its bottom edge is the sounds panel's bottom edge across the way.
+ */
+function LogOutPanel() {
+  const logout = useSession((s) => s.logout);
+  return (
+    <Panel title="Log out" tone="paper" data-testid="settings-logout-panel" className="flex-1">
+      <div className="flex h-full flex-col justify-between gap-4 p-4">
+        <p className="font-body text-[13px] leading-relaxed text-ink-300">
+          Signs this browser out. The crew keeps running while you are gone.
+        </p>
+        <div>
+          <DrawnButton size="sm" tone="danger" onClick={logout} data-testid="settings-logout">
+            Log out
+          </DrawnButton>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/**
  * How loud the game is.
  *
  * The bar drives the engine on every movement, because the click it plays when you let go is the
@@ -427,6 +448,9 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
       title="Sounds"
       tone="paper"
       data-testid="settings-sounds-panel"
+      // Stretched to the foot of its column, as the log-out panel across the way is: whichever
+      // column is taller sets the line both end on.
+      className="flex-1"
       action={
         <span
           className="font-display text-[13px] tabular-nums tracking-[0.14em] text-brass-300"
@@ -437,10 +461,6 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
       }
     >
       <div className="flex flex-col gap-4 p-4">
-        <p className="font-body text-[13px] leading-relaxed text-ink-300">
-          One bar for every sound the game makes. At 0 the game is silent.
-        </p>
-
         {/* Not a `Field`: that wraps its children in a `<label>`, and a `<label>` finds nothing to
             label when the control inside it is a div with `role="slider"` rather than an input. The
             bar carries its own `aria-label`. */}
@@ -471,14 +491,13 @@ function SoundsPanel({ soundVolume }: { soundVolume: number }) {
 
 function PasswordPanel() {
   const change = useChangePassword();
-  const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [again, setAgain] = useState('');
   const [done, setDone] = useState<string | null>(null);
 
   const mismatch = again !== '' && next !== again;
   const tooShort = next !== '' && next.length < 8;
-  const blocked = current === '' || next.length < 8 || next !== again;
+  const blocked = next.length < 8 || next !== again;
 
   return (
     <Panel title="Password" tone="paper">
@@ -490,11 +509,10 @@ function PasswordPanel() {
           if (blocked) return;
           setDone(null);
           change.mutate(
-            { currentPassword: current, newPassword: next },
+            { newPassword: next },
             {
               onSuccess: () => {
                 setDone('Changed. Your session stays open.');
-                setCurrent('');
                 setNext('');
                 setAgain('');
               },
@@ -502,19 +520,6 @@ function PasswordPanel() {
           );
         }}
       >
-        <Field
-          label="Current"
-          hint="Asked for even though you are logged in. It is the only proof."
-        >
-          <input
-            type="password"
-            value={current}
-            autoComplete="current-password"
-            onChange={(event) => setCurrent(event.target.value)}
-            data-testid="settings-current-password"
-            className={INPUT}
-          />
-        </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="New" hint="Eight characters at least.">
             <input
@@ -577,15 +582,27 @@ export function SettingsPage() {
   }
 
   return (
-    <PageShell quote="The only part that the city allows you to control">
-      <div className="grid items-start gap-5 xl:grid-cols-2">
-        <ProfilePanel username={data.user.username} displayName={data.user.displayName} />
-        <ClockPanel
-          timezone={data.user.timezone}
-          serverNow={data.serverNow}
-          receivedAt={query.dataUpdatedAt}
-        />
-        <SoundsPanel soundVolume={data.user.soundVolume} />
+    <PageShell quote="The only part that the city allows you to control" ruled>
+      {/*
+       * Two columns, each a stack (maintainer, 2026-09-23). It was one grid of three panels, so
+       * the sounds sat in the second row under whichever of the first two was taller, with the
+       * difference as dead space over it. Now the left column is who you are and then the sounds,
+       * the right is the clock and then the way out, and the way out is pushed to the foot of its
+       * column so the two columns end on one line above the sound preferences.
+       */}
+      <div className="grid items-stretch gap-5 xl:grid-cols-2">
+        <div className="flex flex-col gap-5">
+          <ProfilePanel username={data.user.username} displayName={data.user.displayName} />
+          <SoundsPanel soundVolume={data.user.soundVolume} />
+        </div>
+        <div className="flex flex-col gap-5">
+          <ClockPanel
+            timezone={data.user.timezone}
+            serverNow={data.serverNow}
+            receivedAt={query.dataUpdatedAt}
+          />
+          <LogOutPanel />
+        </div>
       </div>
 
       {/* The maintainer asked for the filter to live here. It is the same control the bell's own second
@@ -613,7 +630,8 @@ export function SettingsPage() {
             box, so its lead line and rows ran flush against the panel's own drawn edge and read as
             outside it (maintainer report, 2026-09-15). */}
         <div className="flex flex-col p-4" data-testid="settings-notify-body">
-          <NotificationFilters />
+          {/* Without its opening paragraph (maintainer, 2026-09-23): the rows say enough here. */}
+          <NotificationFilters lede={false} />
         </div>
       </Panel>
 

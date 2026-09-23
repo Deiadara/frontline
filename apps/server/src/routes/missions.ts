@@ -33,6 +33,7 @@ import { standingEffectsFor } from '../crew/standing.js';
 import { officerDuty } from '../crew/duty.js';
 import { resolveDueMissions } from '../missions/resolve.js';
 import { takeLevelUp } from '../progression/award.js';
+import { rampFor } from '../missions/pricing.js';
 
 /** Why a crew cannot go, in the player's words. */
 const FORCE_ERRORS: Record<MissionForceRefusal, { code: ErrorCode; message: string }> = {
@@ -134,6 +135,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         (({ missionSpeedPercent, missionSpoilsPercent }) => ({
           speedPercent: missionSpeedPercent,
           spoilsPercent: missionSpoilsPercent,
+          // The opening band, which shortens the first runs and pays the premium that keeps them
+          // worth taking (`missions.ramp.ts`).
+          ramp: rampFor(app.repos, settlement.base),
         }))(standingEffectsFor(app.repos, settlement.base, now)),
       ),
       army: settlement.base.army,
@@ -357,6 +361,9 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       now,
       leader,
       unled,
+      // The band this crew is in, read before the run goes out and frozen on the row with the
+      // clock and the pay it decides (`missions.ramp.ts`).
+      ramp: rampFor(app.repos, base),
       admin: app.config.admin,
       // §A4/§E: the ground this crew holds takes time off the road (the Smuggler's Tunnel), and
       // the people on the books take a bigger cut of what the job pays. Read once: two calls would
@@ -378,9 +385,17 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         leadLootPercent,
         leadArrivalPercent,
         unitSpeedPercent,
+        travelSpeedPercent,
+        roadMinutesOff,
         anyRide,
       }) => ({
         missionSpeedPercent,
+        // §C3: every walk in the game reads these, and a mission's road is a walk (maintainer,
+        // 2026-09-23). Off the **unled** fold, so the leader's own Short Way is not counted twice:
+        // `leading()` folds `leadArrivalPercent` into this channel, and it is spent separately
+        // below as `leadSpeedPercent`.
+        travelSpeedPercent,
+        roadMinutesOff,
         leadSpeedPercent: officer ? leadArrivalPercent : 0,
         missionSpoilsPercent: missionSpoilsPercent + (officer ? leadLootPercent : 0),
         // §C3: the same channel the march reads (`battle/movement.ts`). The Skate Ground says
@@ -467,6 +482,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           (({ missionSpeedPercent, missionSpoilsPercent }) => ({
             speedPercent: missionSpeedPercent,
             spoilsPercent: missionSpoilsPercent,
+            ramp: rampFor(app.repos, settled),
           }))(standingEffectsFor(app.repos, settled, now)),
         ),
         army: settled.army,

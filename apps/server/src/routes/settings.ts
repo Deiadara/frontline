@@ -101,7 +101,7 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
   /**
    * Changing a password.
    *
-   * The current one is required even though the request already carries a valid token: see
+   * The session is the proof (maintainer, 2026-09-23): the current password is not asked for, see
    * `ChangePasswordRequestSchema`. The answer deliberately carries no new token: the JWT holds only
    * `{sub}`, so it survives a password change, and minting a fresh one would imply a revocation
    * this system does not do.
@@ -111,15 +111,11 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     const record = app.repos.users.findById(request.currentUser.id);
     if (!record) throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
 
-    const matches = await bcrypt.compare(body.currentPassword, record.passwordHash);
-    if (!matches) throw new AppError('INVALID_CREDENTIALS', 'That is not your current password');
-
     const passwordHash = await bcrypt.hash(body.newPassword, BCRYPT_COST);
     /*
-     * Re-read under the write. Two awaits sat between the compare and the write, and a second
-     * change landing in that gap (two tabs, one form each) passed its own compare against the
-     * same old hash and then silently overwrote the first. The row is the arbiter: if the hash
-     * moved while this request was hashing, this request lost, and says so.
+     * Re-read under the write. An await sits between the read and the write, and a second change
+     * landing in that gap (two tabs, one form each) would silently overwrite the first. The row is
+     * the arbiter: if the hash moved while this request was hashing, this request lost, and says so.
      */
     const fresh = app.repos.users.findById(record.id);
     if (!fresh || fresh.passwordHash !== record.passwordHash) {

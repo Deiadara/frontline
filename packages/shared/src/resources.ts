@@ -217,26 +217,6 @@ export function mergeResources(a: PartialResources, b: PartialResources): Partia
   return total;
 }
 
-/**
- * A stockpile forced back to whole, non-negative units.
- *
- * The repair function, not a licence to be sloppy: every producer is expected to hand over integers
- * of its own, and the schema refuses anything else. This exists for the two places that are reading
- * numbers they did not compute: a save written before the rule existed, and the sandbox filling a
- * district to a derived ceiling: where throwing would cost a player their game over an old row.
- *
- * Floors rather than rounds. A stockpile is what you are holding, and the one direction it must
- * never move on its own is up.
- */
-export function wholeResources(stock: Resources): Resources {
-  return Object.fromEntries(
-    RESOURCE_KEYS.map((key) => {
-      const amount = stock[key];
-      return [key, Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0];
-    }),
-  ) as Resources;
-}
-
 /** What a resource *is*, and what a player actually spends it on. */
 export interface ResourceLore {
   /** One line of flavour: what the stuff is. */

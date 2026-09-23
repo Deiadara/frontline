@@ -38,7 +38,6 @@ import { ArmySchema, type Army } from '../units/training.js';
 
 export const BATTLE_TARGET_KINDS = ['location', 'gate', 'district'] as const;
 export const BattleTargetKindSchema = z.enum(BATTLE_TARGET_KINDS);
-export type BattleTargetKind = z.infer<typeof BattleTargetKindSchema>;
 
 /**
  * Every target carries its district.

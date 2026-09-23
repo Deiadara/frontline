@@ -2,7 +2,6 @@ import {
   AUTOMATION_KINDS,
   SaveAutomationRequestSchema,
   automationPowers,
-  boardIsAutomated,
   officerIsInjured,
   type AutomationsResponse,
 } from '@frontline/shared';
@@ -132,11 +131,5 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
         .map((one) => ({ id: one.id, name: one.name, role: one.role })),
       serverNow: now.toISOString(),
     };
-  });
-
-  /** Whether the board is currently the Right Hand's, for the missions screen to draw. */
-  app.get('/automations/board', { preHandler: app.authenticate }, (request) => {
-    const base = ownBase(app, request.currentUser.id);
-    return { automated: boardIsAutomated(app.repos.automations.forBase(base.id)) };
   });
 }

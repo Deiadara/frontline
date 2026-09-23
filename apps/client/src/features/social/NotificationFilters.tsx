@@ -19,7 +19,7 @@ import { useNotificationSettings, useNotifications } from '../../lib/queries';
  * there is no second copy of the state to fall out of step: this is a shared control, not a
  * duplicated screen.
  */
-export function NotificationFilters() {
+export function NotificationFilters({ lede = true }: { lede?: boolean }) {
   const query = useNotifications();
   const save = useNotificationSettings();
   const settings = query.data?.settings;
@@ -27,11 +27,13 @@ export function NotificationFilters() {
 
   return (
     <div className="flex flex-col gap-5" data-testid="notification-settings">
-      <p className="font-body text-[13px] leading-relaxed text-ink-300">
-        A kind you switch off is never recorded, so turning it back on is about what happens next
-        rather than about unpacking what you missed. Two cannot be switched off: a battle report and
-        an attack on your district are how you find out something irreversible has happened.
-      </p>
+      {lede && (
+        <p className="font-body text-[13px] leading-relaxed text-ink-300">
+          A kind you switch off is never recorded, so turning it back on is about what happens next
+          rather than about unpacking what you missed. Two cannot be switched off: a battle report
+          and an attack on your district are how you find out something irreversible has happened.
+        </p>
+      )}
       {/* A refused save left the box exactly as it was, with nothing said: indistinguishable from a
           click that missed, and the player walks away believing a kind is muted when it is not. The
           checkbox is not optimistic (`checked` is derived from `settings.muted`, which only moves on

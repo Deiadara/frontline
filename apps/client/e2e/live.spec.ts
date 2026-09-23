@@ -118,6 +118,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   // --- STEP 1: login as the seeded MVP operator (credentials arrive prefilled) ---
   await page.goto('/auth');
   await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
+  await page.getByTestId('auth-choose-login').click();
   await expect(page.getByLabel('Operator ID')).toHaveValue(MVP_DEV_CREDENTIALS.username);
   await expect(page.getByLabel('Password')).toHaveValue(MVP_DEV_CREDENTIALS.password);
   await expect(page.getByText(/MVP build. Dev login prefilled/)).toBeVisible();
@@ -276,14 +277,14 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   /*
    * Fog first: a district nobody has been to says nothing about what is inside it.
    *
-   * Both the fog and the scouts are read on the district's own screen now. They used to be in an
-   * intel panel floating on the city map, and the map went when the city became a painting: one
-   * click on a tag is the whole walk in, so there is no in-between screen left to say it on.
+   * Both the fog and the scouts are read on the **scout sheet** now (maintainer, 2026-09-23):
+   * unscouted ground does not open at all, and its tag puts a hand-drawn card over the map
+   * instead of walking the player into a screen with nothing on it.
    */
   const dark = findDistrict('undergrid');
   if (!dark) throw new Error('fixture error: the Undergrid is missing from the city');
   await page.getByTestId(`district-tag-${dark.id}`).click();
-  await expect(page.getByRole('heading', { name: dark.name })).toBeVisible();
+  await expect(page.getByTestId('scout-menu-title')).toHaveText(dark.name);
   await expect(page.getByTestId('locations')).toHaveCount(0);
   await shootEveryViewport(page, 'city-fog');
 
@@ -298,6 +299,12 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
    */
   await expect(page.getByTestId('scout-nobody')).toBeVisible();
   await expect(page.getByTestId('send-scout')).toHaveCount(0);
+  // Both requirements are drawn unmet, which is the whole of what this account can be told.
+  await expect(page.getByTestId('scout-need-whispers')).toHaveAttribute('data-met', 'no');
+  await expect(page.getByTestId('scout-need-research')).toHaveAttribute('data-met', 'no');
+  // The sheet is a window over the map, so it has to be shut before the nav is reachable again.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('scout-menu')).toHaveCount(0);
 
   /*
    * So the fight happens on the ground the game hands a new crew.

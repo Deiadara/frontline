@@ -1,5 +1,5 @@
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
-import { LOCATION_CATALOG, type FortifyDifficulty, type Location } from './locations.js';
+import { type FortifyDifficulty, type Location } from './locations.js';
 
 /**
  * Digging in (GDD §A4).
@@ -124,18 +124,4 @@ export function quoteFortify(location: Location, current: number): FortifyQuote 
     seconds: fortifySeconds(level),
     bonusPercent: fortifyBonusPercent(location.fortifyDifficulty, level),
   };
-}
-
-/**
- * How much harder this location is to take than the bare ground, as a multiplier.
- *
- * Reported rather than folded into `baseDefense` so a location card can say what the *digging* is
- * doing separately from what the ground was worth to begin with.
- */
-export function fortifiedDefense(location: Location, level: number): number {
-  const ground = LOCATION_CATALOG[location.kind].baseDefense;
-  return (
-    Math.round(ground * (1 + fortifyBonusPercent(location.fortifyDifficulty, level) / 100) * 10) /
-    10
-  );
 }

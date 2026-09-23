@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BUILDING_KINDS } from '../building/index.js';
 import { CITY_DISTRICTS, DISTRICT_KINDS } from '../city/index.js';
 import { OVERSEER_ARCHETYPES } from '../overseer.js';
 import { OVERSEER_PORTRAIT_IDS } from '../roles.js';
@@ -32,9 +31,6 @@ import { FRAMING, NEGATIVE, PLATE_SUBJECTS, STYLE_ANCHOR } from './prompts.js';
  */
 const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] = [
   ['portrait-overseer-1', 'portrait-overseer-1.webp', 110001],
-  ['portrait-overseer-2', 'portrait-overseer-2.webp', 110002],
-  ['portrait-overseer-3', 'portrait-overseer-3.webp', 110003],
-  ['portrait-overseer-4', 'portrait-overseer-4.webp', 110004],
   ['portrait-overseer-01', 'portrait-overseer-01.webp', 111001],
   ['portrait-overseer-02', 'portrait-overseer-02.webp', 111002],
   ['portrait-overseer-03', 'portrait-overseer-03.webp', 111003],
@@ -257,17 +253,6 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district-glasshouse-fields', 'plate-district-glasshouse-fields.webp', 130014],
   ['plate-district-blacksite-7', 'plate-district-blacksite-7.webp', 130015],
   ['plate-district-combine-spire', 'plate-district-combine-spire.webp', 130016],
-  ['building-nexus', 'building-nexus.webp', 140001],
-  ['building-quarters', 'building-quarters.webp', 140002],
-  ['building-greenhouse', 'building-greenhouse.webp', 140003],
-  ['building-generator', 'building-generator.webp', 140004],
-  ['building-scrapyard', 'building-scrapyard.webp', 140005],
-  ['building-apothecary', 'building-apothecary.webp', 140006],
-  ['building-gate', 'building-gate.webp', 140007],
-  ['building-lab', 'building-lab.webp', 140008],
-  ['building-gauntlet', 'building-gauntlet.webp', 140009],
-  ['building-infirmary', 'building-infirmary.webp', 140010],
-  ['building-garage', 'building-garage.webp', 140011],
   ['unit-razors', 'unit-razors.webp', 145001],
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
@@ -450,9 +435,14 @@ describe('ART_MANIFEST', () => {
     );
   });
 
-  // 346 since 2026-09-20: the seven Combine portraits, the Chosen Chapel's icon, and the CCS plate.
-  it('holds the 346 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(346);
+  /*
+   * 332 since 2026-09-24. Fourteen went that day and none of them could be drawn: three of the
+   * four unpadded hero portraits, whose faces no preset can ask for, and the eleven
+   * `building-<kind>` masters, which no production code ever built a ref for. 346 before that,
+   * which was the seven Combine portraits, the Chosen Chapel's icon and the CCS plate on 337.
+   */
+  it('holds the 332 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(332);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -628,11 +618,13 @@ describe('ART_MANIFEST', () => {
    * does not: it takes exactly three sizes. So the pin on them records the only backend that
    * *could* have produced them, which is the same thing the officer pool's pin records.
    */
-  it('routes the four hero portraits to gpt-image-1 per ADR 0001 §6.6', () => {
+  it('routes the style reference portrait to gpt-image-1 per ADR 0001 §6.6', () => {
     const portraits = ART_MANIFEST.filter((spec) => spec.class === 'portrait');
     const heroes = portraits.filter((spec) => /^portrait-overseer-\d$/.test(spec.key));
     const pool = portraits.filter((spec) => /^portrait-overseer-\d\d$/.test(spec.key));
-    expect([heroes.length, pool.length]).toEqual([4, 30]);
+    // One unpadded portrait is left and it is `STYLE_REFERENCE_KEYS`' own: the other three went
+    // on 2026-09-24 with the faces no preset can ask for.
+    expect([heroes.length, pool.length]).toEqual([1, 30]);
     expect(heroes.length + pool.length).toBe(portraits.length);
     for (const spec of heroes) expect(spec.backend, spec.key).toBe('openai');
     for (const spec of pool) expect(spec.backend, spec.key).toBe('fal');
@@ -728,9 +720,9 @@ describe('ART_MANIFEST', () => {
      * and delivery agree needs no step at all, which is the whole reason `postProcess` is derived
      * rather than written down.
      */
-    // 71 since 2026-09-19: the Chosen Chapel's icon is one more downscale. The seven Combine
-    // portraits are delivered at their own size and add nothing here.
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(71);
+    // 60 since 2026-09-24: the eleven `building-<kind>` masters went with the ref nothing built,
+    // and each of them was a downscale. 71 before that, when the Chosen Chapel's icon was added.
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(60);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {
@@ -833,9 +825,12 @@ describe('subject resolution (ART-BIBLE §7)', () => {
     for (const id of OVERSEER_PORTRAIT_IDS) {
       expect(subjectResolvesToDomainId('portrait', id), id).toBe(true);
     }
-    // The four heroes are not in that list and still have to resolve: their art is delivered.
-    for (const id of ['overseer-1', 'overseer-2', 'overseer-3', 'overseer-4']) {
-      expect(subjectResolvesToDomainId('portrait', id), id).toBe(true);
+    // The one unpadded hero left is not in that list and still has to resolve: its art is
+    // delivered and `gen-art.ts` reads the file as a style reference.
+    expect(subjectResolvesToDomainId('portrait', 'overseer-1')).toBe(true);
+    // ...and the three retired on 2026-09-24 resolve to nothing, like any other unknown id.
+    for (const id of ['overseer-2', 'overseer-3', 'overseer-4']) {
+      expect(subjectResolvesToDomainId('portrait', id), id).toBe(false);
     }
     // `overseer-9` is neither a hero nor a padded pool id, which is the point of the padding.
     expect(subjectResolvesToDomainId('portrait', 'overseer-9')).toBe(false);
@@ -849,12 +844,11 @@ describe('subject resolution (ART-BIBLE §7)', () => {
     expect(subjectResolvesToDomainId('district', 'nowhere')).toBe(false);
   });
 
-  it('resolves every building subject to a BuildingKind', () => {
-    for (const kind of BUILDING_KINDS) {
-      expect(subjectResolvesToDomainId('building', kind.replaceAll('_', '-'))).toBe(true);
-    }
-    expect(subjectResolvesToDomainId('building', 'sky-hook')).toBe(false);
-  });
+  /*
+   * There was a case here pinning that every `BuildingKind` resolved a `building` subject. The
+   * eleven `building-<kind>` masters went on 2026-09-24 with the ref nothing built, so there is
+   * no building subject left to resolve and nothing for it to say.
+   */
 
   it('resolves resource, archetype and district-kind icon subjects', () => {
     for (const resource of RESOURCE_KEYS) {
@@ -1021,9 +1015,8 @@ describe('resolveAssetKey', () => {
     expect(resolveAssetKey({ type: 'district', districtId: 'neon-docks' })).toBe(
       'district-neon-docks',
     );
-    expect(resolveAssetKey({ type: 'building', building: 'scrapyard' })).toBe('building-scrapyard');
-    expect(resolveAssetKey({ type: 'portrait', portraitId: 'overseer-2' })).toBe(
-      'portrait-overseer-2',
+    expect(resolveAssetKey({ type: 'portrait', portraitId: 'overseer-01' })).toBe(
+      'portrait-overseer-01',
     );
     expect(resolveAssetKey({ type: 'resource-icon', resource: 'highQualityMetal' })).toBe(
       'icon-high-quality-metal',
@@ -1045,8 +1038,8 @@ describe('resolveAssetKey', () => {
 
 describe('tryResolveAssetKey', () => {
   it('resolves a known id and answers undefined for an unknown one', () => {
-    expect(tryResolveAssetKey({ type: 'portrait', portraitId: 'overseer-2' })).toBe(
-      'portrait-overseer-2',
+    expect(tryResolveAssetKey({ type: 'portrait', portraitId: 'overseer-01' })).toBe(
+      'portrait-overseer-01',
     );
     expect(tryResolveAssetKey({ type: 'portrait', portraitId: 'overseer-9' })).toBeUndefined();
   });

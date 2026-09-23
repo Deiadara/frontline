@@ -337,12 +337,3 @@ const DISTRICT_CITY: ReadonlyMap<string, string> = new Map(
 export function cityOf(districtId: string): string | undefined {
   return DISTRICT_CITY.get(districtId);
 }
-
-/** How many of each kind a city holds, for the card on the cities screen. */
-export function cityCounts(cityId: string): { contested: number; plots: number } {
-  const districts = districtsOfCity(cityId);
-  return {
-    contested: districts.filter((one) => one.kind === 'contested').length,
-    plots: districts.filter((one) => one.kind === 'residential').length,
-  };
-}

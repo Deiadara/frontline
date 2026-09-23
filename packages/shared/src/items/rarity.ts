@@ -1,7 +1,6 @@
 import {
   MODIFICATION_RARITIES,
   MODIFICATION_RARITY_LABELS,
-  ModificationRaritySchema,
   type ModificationRarity,
 } from '../modification-rarity.js';
 
@@ -23,7 +22,6 @@ import {
  * module-load time.
  */
 export const ITEM_RARITIES = MODIFICATION_RARITIES;
-export const ItemRaritySchema = ModificationRaritySchema;
 export type ItemRarity = ModificationRarity;
 export const ITEM_RARITY_LABELS = MODIFICATION_RARITY_LABELS;
 

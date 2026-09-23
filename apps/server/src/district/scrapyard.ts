@@ -69,6 +69,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { tallyAddonBuilt } from '../feats/tally.js';
 import { officerFitReader } from '../crew/standing.js';
 import { unlockContextFor } from '../units/training.js';
+import { workingOfficer } from '../crew/roster.js';
 
 /**
  * The Scrapyard's own page (§B9).
@@ -125,7 +126,8 @@ const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapya
  * the answer cannot change between two lines of the same page.
  */
 function yardCutFor(repos: Repositories, base: Base): number {
-  const fabricator = base.commanders.find((one) => one.role === 'fabricator');
+  // Working, not merely seated (maintainer, 2026-09-23): an injured Fabricator cuts nothing.
+  const fabricator = workingOfficer(base.commanders, 'fabricator');
   if (!fabricator) return 0;
   return yardCostCutPercent(officerFitReader(repos, base).pointsFor(fabricator, 'fabricator'));
 }

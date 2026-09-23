@@ -255,10 +255,22 @@ function performanceFor(
 
   return (
     side.stacks
-      // §D1: the officer is not a unit row. `committed`, `lost` and `survived` are sums of these and
-      // every one of them is a unit count the settler acts on; an officer is a person who was there,
-      // and they get their own field on the side. See `SideAnalysis.officer`.
-      .filter((stack) => stack.started > 0 && stack.officer === undefined)
+      /*
+       * §D1: the officer is not a unit row. `committed`, `lost` and `survived` are sums of these
+       * and every one of them is a unit count the settler acts on; an officer is a person who was
+       * there, and they get their own field on the side. See `SideAnalysis.officer`.
+       *
+       * Nor is a turncoat (bug pass, 2026-09-23). Directive Xero's `changeOfHeart` pushes the
+       * units it turns onto the **defender's** stacks, so they were becoming unit rows on the
+       * defender's own report and counting towards its `committed`, `lost` and `survived`. The
+       * attacker's side already adds `total(turned)` back deliberately, so the same bodies were
+       * counted on both reports; measured at 147 disagreements in 3,000 seeded fights. They are
+       * reported through `turned` / `turnedAlive`, which the schema already carries, and
+       * `outcomeFrom` has always stripped them for the rout and the casualties.
+       */
+      .filter(
+        (stack) => stack.started > 0 && stack.officer === undefined && stack.turncoat !== true,
+      )
       .map((stack): UnitPerformance => {
         // Two entirely different accountings, because the two sides end a fight in different states.
         // A winner's roster is what it started with less its dead; a loser's is only the people who

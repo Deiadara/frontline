@@ -217,7 +217,6 @@ export function ActionsPage() {
      */
     <PageShell
       title="The Monitor"
-      icon="actions"
       action={page === 'road' && data ? <Counts road={road} /> : null}
       wide
       fills

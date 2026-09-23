@@ -45,6 +45,7 @@ import { forfeitOffers } from '../market/board.js';
 import { ownBase } from './own-base.js';
 import { rollName } from '../bar/names.js';
 import { createRng } from '../characters/rng.js';
+import { mergeArmies } from '../battle/forces.js';
 
 /**
  * The bench: knobs that put the game at a chosen stage, in one click.
@@ -278,6 +279,16 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         }
         next = { ...next, inventory };
         app.repos.bases.updateHoldings(next.id, next.resources, inventory);
+      }
+
+      /*
+       * Bodies on the roster, added rather than set: see `AdminGrantRequestSchema.units`. The
+       * training queue is handed back untouched, because a grant is a gift and not an order.
+       */
+      if (body.units !== undefined) {
+        const army = mergeArmies(next.army, body.units);
+        next = { ...next, army };
+        app.repos.bases.updateArmy(next.id, army, next.trainingQueue);
       }
 
       if (body.technologies !== undefined || body.researchDepth !== undefined) {

@@ -43,7 +43,6 @@ export const NOTORIETY_TIERS = [
   'Nightmare',
   'Nameless',
 ] as const;
-export const NotorietyTierSchema = z.enum(NOTORIETY_TIERS);
 export type NotorietyTier = (typeof NOTORIETY_TIERS)[number];
 
 /** A crew's rank, as an index into {@link NOTORIETY_TIERS}. Starts at 0 and never falls. */
@@ -130,9 +129,4 @@ export const NOTORIETY_BLURBS: Readonly<Record<NotorietyTier, string>> = {
 /** Whether a crew's rank clears a gate. Every threshold in the game reads through this. */
 export function meetsNotoriety(tier: number, required: number): boolean {
   return clampNotoriety(tier) >= clampNotoriety(required);
-}
-
-/** The tier a gate wants, by name, for a refusal a player can act on. */
-export function notorietyRequirement(required: number): string {
-  return notorietyTier(required);
 }

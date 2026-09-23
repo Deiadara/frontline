@@ -174,7 +174,12 @@ test.describe('settings', () => {
       // The painted picker shows the *city*, which is the only part a player reads. The IANA name
       // is what it sends; `Athens (house)` is what it says.
       await expect(page.getByTestId('settings-timezone')).toContainText('Athens (house)');
-      await expect(page.getByTestId('settings-current-password')).toBeVisible();
+      // The password panel takes the new one and nothing else (maintainer, 2026-09-23): the
+      // session is the proof, so there is no `Current` field to find.
+      await expect(page.getByTestId('settings-current-password')).toHaveCount(0);
+      await expect(page.getByTestId('settings-new-password')).toBeVisible();
+      // ...and the way out is on the sheet, under the clock.
+      await expect(page.getByTestId('settings-logout')).toBeVisible();
 
       expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
       await expectSheetNotWashedOut(page);

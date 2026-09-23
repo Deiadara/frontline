@@ -131,7 +131,10 @@ describe('renderSheet', () => {
     const magenta = { r: 255, g: 0, b: 255 };
     const cells: Cell[] = [
       { spec: PORTRAIT, bytes: await delivery(PORTRAIT, magenta) },
-      { spec: spec('portrait-overseer-2'), bytes: undefined },
+      // A second cell that has no delivery yet, so the sheet draws one painted and one empty.
+      // `portrait-overseer-2` stood here until 2026-09-24, when it went with the three hero
+      // portraits no preset could ask for.
+      { spec: spec('portrait-overseer-02'), bytes: undefined },
     ];
 
     const sheet = sharp(await renderSheet(cells, counts));

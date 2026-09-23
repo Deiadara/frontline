@@ -667,9 +667,9 @@ const WORK: FeatSpec[] = [
   /**
    * The haulage ladder opens on the second beat of the opening (maintainer, 2026-09-18).
    *
-   * `overseer_taken` pays a new crew five Scavengers, which is enough to send one party out. This
-   * rung is what using them buys: three more carriers, so a player who did the thing the game
-   * just handed them the means to do comes back able to do it twice over. Three standard jobs at
+   * A new crew is handed eight Scavengers, which is enough to send one party out. This rung is
+   * what using them buys: three more carriers, so a player who did the thing the game just handed
+   * them the means to do comes back able to do it twice over. Three standard jobs at
    * the Scrap Run's three minutes is ten minutes of play rather than an evening.
    *
    * Caps as well as bodies, because caps are what the opening is actually short of: nothing a new
@@ -3697,14 +3697,17 @@ const CREW: FeatSpec[] = [
    * The opening had no move in it (maintainer, 2026-09-18). A new crew stands a Nexus and a
    * Generator, holds 600 caps against the 512 a second Nexus level costs, produces six oil an
    * hour and no caps at all, and every unit in the game was behind a Gauntlet that needs Nexus 3
-   * and Quarters 2. The eight Razors it is handed were therefore the only bodies it would ever
-   * see until missions paid for a barracks, and missions need bodies.
+   * and Quarters 2, so whatever it is handed is the only bodies it will see until missions pay
+   * for a barracks, and missions need bodies.
    *
-   * Five Scavengers is the answer to that, paid for the one thing a player has already done by
-   * the time they read this sentence. They are one unit slot each against the twenty six a bare
-   * district houses, they are the cheapest loot capacity in the game, and with the carriers
-   * re-gated on the Nexus (`units/catalog.ts`) the crew can train more of them the moment it can
-   * afford to. The rung after this one is `first_jobs`, which pays three more for using them.
+   * The opening kit changed on 2026-09-23: a crew is handed eight **Scavengers** rather than
+   * eight Razors (`crew/starting.ts`), because the board's first runs are minutes long now and
+   * what they want is loot capacity. This feat still pays five more, for the one thing a player
+   * has already done by the time they read this sentence, and it has to: the rule this rung is
+   * held to below is that what it pays is **trainable by a bare district**, so the player can go
+   * and buy more of what just landed, and every fighter in the game is behind a Gauntlet that
+   * wants Nexus 3. Fighters are earned instead, off the early reward bands and the training floor
+   * once the Gauntlet is up. The rung after this one is `first_jobs`, which pays three more.
    *
    * Standalone rather than the head of a ladder, because it is the one feat in the catalogue
    * whose measure can never reach two: `POST /overseer` refuses a second character.
@@ -5568,5 +5571,3 @@ const BY_ID = new Map(FEATS.map((feat) => [feat.id, feat]));
 export function findFeat(id: string): FeatSpec | undefined {
   return BY_ID.get(id);
 }
-
-export const FEAT_IDS: readonly string[] = FEATS.map((feat) => feat.id);

@@ -37,12 +37,6 @@ export const RULE_INK: Record<RuleTone, string> = {
   negative: 'text-oxblood-300',
 };
 
-/** The frame a rule's own window wears. `InfoWindow`'s tones, not a second palette. */
-export const RULE_WINDOW_TONE: Record<RuleTone, 'brass' | 'oxblood'> = {
-  positive: 'brass',
-  negative: 'oxblood',
-};
-
 /**
  * The rule that keeps a unit off every vehicle (`units/catalog.ts`, `UNIT_RULES.no_ride`).
  *

@@ -10,6 +10,7 @@ import type { ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { buildingPortraitUrl } from '../../assets/delivered';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
+import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { PerkTags } from '../../components/PerkTags';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
@@ -229,7 +230,7 @@ export function CrewProfilePage() {
         <div className="flex min-w-0 flex-col gap-3" data-testid="file-body">
           <FileSection icon="standings" title="Standing" note="Where they sit in the city">
             <dl
-              className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6"
+              className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6"
               data-testid="profile-standing"
             >
               <Stat label="Level" value={String(standing.level)} />
@@ -412,15 +413,32 @@ function Holdings({ holdings, hidden }: { holdings: ProfileHolding[]; hidden: nu
   );
 }
 
+/**
+ * One figure on the standing row, drawn rather than boxed (maintainer, 2026-09-23).
+ *
+ * It was a flat bordered cell with the label and the figure both left-aligned, which read as a
+ * table of six on a page made of paper. It is a slip of the same paper now, in the ink frame every
+ * other panel wears, with a hand-ruled line between the two halves and both of them centred: the
+ * word is what the figure is, the figure is what a reader came for, and neither is competing with
+ * the left edge of a cell for attention.
+ *
+ * The figure is set in the pen (`font-stamp`) rather than the display face, which is the whole of
+ * "hand drawn" here: the same hand the district plaques, the overseer's name and the feats board
+ * are written in. Centred, so `tabular-nums` buys nothing and is gone: it exists to line digits up
+ * down a column, and nothing is lined up down a column any more.
+ */
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 rounded-sm border border-surface-700 bg-surface-950/40 px-2.5 py-2">
-      <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">{label}</dt>
+    <div className="ink-frame card-paper washed relative flex min-w-0 flex-col items-center gap-1.5 rounded-sm px-2 py-2.5 text-center">
+      <dt className="font-display text-[9px] font-bold uppercase leading-none tracking-[0.2em] text-ink-400">
+        {label}
+      </dt>
+      <span aria-hidden className="block h-1.5 w-10 shrink-0 text-brass-300/60">
+        <DrawnRule />
+      </span>
       {/* Wraps rather than truncates: a notoriety tier is two words ("Back-Alley Runner") and a
           six-across grid at 1280 gives each cell about 130px, which is one word's worth. */}
-      <dd className="break-words font-display text-[15px] font-bold leading-tight tabular-nums text-brass-100">
-        {value}
-      </dd>
+      <dd className="break-words font-stamp text-[18px] leading-[1.15] text-brass-100">{value}</dd>
     </div>
   );
 }

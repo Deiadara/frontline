@@ -81,11 +81,6 @@ export function capturedGateIntelResistancePercent(level: number): number {
   return Math.max(0, level) * GATE_INTEL_RESISTANCE_PER_LEVEL;
 }
 
-/** Whether this gate's work has landed by `now`. */
-export function capturedGateUpgradeDue(gate: CapturedGate, now: Date): boolean {
-  return gate.upgradingUntil !== null && Date.parse(gate.upgradingUntil) <= now.getTime();
-}
-
 /** Why a crew cannot raise this gate right now, already worded, or null when they can. */
 export type CapturedGateRefusal = 'not_held' | 'already_working' | 'at_ceiling' | 'cannot_afford';
 

@@ -1,11 +1,16 @@
 import {
+  earlyMissionRamp,
   TRAVEL_BAND_MINUTES,
   hastenedMinutes,
   hastenedRoadMinutes,
   missionTimings,
+  rampedTimings,
+  type EarlyRampBand,
   type MissionTemplate,
   type MissionTimings,
+  type Base,
 } from '@frontline/shared';
+import type { Repositories } from '../db/repos/index.js';
 
 /**
  * The clock a run's pay is quoted on: the card's own, and the only one the settle is allowed to
@@ -43,9 +48,35 @@ import {
  * Leading a job moves its odds now and not its clock (`missions.leading.ts`), so there is nothing
  * left to leave out.
  */
-export function pricedTimings(template: MissionTemplate, speedPercent: number): MissionTimings {
-  return missionTimings({
+export function pricedTimings(
+  template: MissionTemplate,
+  speedPercent: number,
+  /**
+   * The opening band this crew is in, or null once they are out of it (`missions.ramp.ts`).
+   *
+   * In here rather than in the caller, and for the same reason everything else in this function
+   * is: the card and the launch both read this, so a band applied in one and not the other is a
+   * crew quoted one clock and run on another. It is applied *after* the crew's own speed, so a
+   * Smuggler's Tunnel does not shorten a run that is already down to two minutes.
+   */
+  ramp: EarlyRampBand | null = null,
+): MissionTimings {
+  const timings = missionTimings({
     travelMinutes: hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, speedPercent),
     durationMinutes: hastenedMinutes(template.durationMinutes, speedPercent),
   });
+  return ramp === null ? timings : rampedTimings(timings, ramp);
+}
+
+/**
+ * The opening band a crew is in, read off the two things that decide it.
+ *
+ * One function because three callers need the same answer and must not be able to disagree: the
+ * board that draws the cards, the board the launch answers with, and the launch itself, which
+ * freezes the band's clock and premium onto the row. The count is the lifetime `missions_done`
+ * tally, which is the same number the feats board reads, so a run that finished is a run that
+ * counted whether or not the player has looked at the ledger.
+ */
+export function rampFor(repos: Repositories, base: Base): EarlyRampBand | null {
+  return earlyMissionRamp(base.level, repos.feats.tallies(base.id).missions_done ?? 0);
 }

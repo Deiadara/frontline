@@ -31,20 +31,11 @@ import { expect, test, type Page } from '@playwright/test';
  */
 async function arrive(page: Page, handle: string): Promise<void> {
   await page.goto('/auth');
-  /*
-   * Through the Enlist link rather than the tab above it.
-   *
-   * The two tabs render their labels in lower case and are upper-cased in CSS, which Chrome folds
-   * into the accessible name: a locator asking for "register" matches nothing, the click lands on
-   * nothing, and the form quietly stays on login. That fails later, at the Overseer picker, as
-   * what looks like a broken registration rather than a broken locator. The link underneath says
-   * what it does in the markup, so it is the one to press.
-   */
-  await page.getByRole('button', { name: 'Enlist' }).click();
+  // The door has two handles before it has a form (maintainer, 2026-09-23): Sign up is the one.
+  await page.getByTestId('auth-choose-register').click();
   await page.getByLabel('Operator ID').fill(handle);
   await page.getByLabel('Password').fill('hunter2pass');
-  // Two buttons read `Enlist` now, the link that switched the form and the submit under it.
-  await page.getByRole('button', { name: 'Enlist' }).last().click();
+  await page.getByRole('button', { name: 'Enlist' }).click();
 
   await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
   // §F6: whichever character this account was offered, not a named one. The pool drains and the

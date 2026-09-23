@@ -25,6 +25,8 @@ describe('App routing', () => {
   it('redirects an unauthenticated visitor to the auth terminal', async () => {
     renderApp('/');
     expect(await screen.findByRole('heading', { name: 'FRONTLINE' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Jack In' })).toBeInTheDocument();
+    // The door opens on its two handles (maintainer, 2026-09-23); the form is behind them.
+    expect(screen.getByRole('button', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument();
   });
 });

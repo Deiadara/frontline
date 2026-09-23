@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { tallyOfficerHired } from '../feats/tally.js';
 import {
+  MAX_WAGE_DISCOUNT,
   askingWage,
   assessJoin,
   buildingLevel,
@@ -164,11 +165,22 @@ export function bidCeilingFor(available: number, discountPercent: number): numbe
  * every leaderboard read the price, and only this crew's ledger and their officer's `weeklyWage`
  * carry the figure below it.
  *
- * Deliberately not capped at `MAX_WAGE_DISCOUNT`, which belongs to the asking price: the floor
- * here is one cap, because a contract nobody is paid for is not a contract.
+ * Capped at `MAX_WAGE_DISCOUNT`, like the asking price (bug pass, 2026-09-23).
+ *
+ * The note here used to say the opposite, that the ceiling "belongs to the asking price" and the
+ * floor here is one cap. It was reachable: Authority, Negotiation and Empathy at eighty are 60
+ * points on their own, the seven research rungs add 41 and `sig_paymaster` another 18, so a
+ * late crew reaches 119 and every officer it signs costs **one cap a week**. The payroll ceiling
+ * is the only thing limiting how many people a crew can have on the books, and at a wage of one
+ * it stops binding entirely, which takes the cost out of the whole Bar.
+ *
+ * Half off is a large discount and the right ceiling for both halves: the two are the same
+ * channel talking the same number down, and a player who reads "-50% wages" on the crew sheet
+ * should not be paid a different rule by the auction than by the shelf.
  */
 export function committedWage(price: number, discountPercent: number): number {
-  return Math.max(1, Math.round(price * (1 - Math.max(0, discountPercent) / 100)));
+  const discount = Math.min(MAX_WAGE_DISCOUNT, Math.max(0, discountPercent));
+  return Math.max(1, Math.round(price * (1 - discount / 100)));
 }
 
 /**

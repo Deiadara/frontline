@@ -150,7 +150,8 @@ describe('the clock preview', () => {
  *
  * The strings are the assertion. The quotation is the one line the screen opens on, the standing
  * note under it is gone rather than reworded, the filter panel is called "Sound Preferences", the
- * volume bar is described in one line, and the credential is a password everywhere the page speaks.
+ * volume bar carries no line over it and the filters no opening paragraph (maintainer,
+ * 2026-09-23), and the credential is a password everywhere the page speaks.
  */
 describe('the sheet reads as asked', () => {
   it('opens on the city line and carries no standing note', async () => {
@@ -171,13 +172,19 @@ describe('the sheet reads as asked', () => {
     expect(screen.queryByText(/passphrase/i)).toBeNull();
   });
 
-  it('describes the volume bar in one line that names every sound and silence at 0', async () => {
+  it('says nothing over the volume bar, nothing over the filters, and one line about the clock', async () => {
     renderSettings();
-    const panel = await screen.findByTestId('settings-sounds-panel');
-    const line = panel.querySelector('p')!.textContent.trim();
-    expect(line).toBe('One bar for every sound the game makes. At 0 the game is silent.');
-    // One line, ten to fifteen words: the paragraph it replaced ran to five sentences.
-    expect(line.split(/\s+/).length).toBeGreaterThanOrEqual(10);
-    expect(line.split(/\s+/).length).toBeLessThanOrEqual(15);
+    await screen.findByTestId('settings-sounds-panel');
+    expect(screen.queryByText(/One bar for every sound/)).toBeNull();
+    expect(screen.queryByText(/A kind you switch off is never recorded/)).toBeNull();
+    expect(screen.getByText(/^The game clock runs in .+ time\.$/)).toBeTruthy();
+    expect(screen.queryByText(/Every clock, countdown and refresh/)).toBeNull();
+  });
+
+  it('changes the password without asking for the old one', async () => {
+    renderSettings();
+    await screen.findByRole('heading', { name: 'Password' });
+    expect(screen.queryByTestId('settings-current-password')).toBeNull();
+    expect(screen.getByTestId('settings-new-password')).toBeTruthy();
   });
 });

@@ -1,3 +1,5 @@
+import { useEffect, useSyncExternalStore } from 'react';
+
 /**
  * The things living in the corners of the frame.
  *
@@ -160,7 +162,52 @@ function HangingConduit() {
  * fly. It sits above the artwork and below the HUD, which is what lets the patina over the top of
  * everything tie the two together.
  */
+/**
+ * How many mounted screens have asked for a bare frame.
+ *
+ * A counter and not a boolean: React mounts the incoming screen before it unmounts the outgoing
+ * one, so two screens that both want the junk gone overlap for a tick, and a boolean would be set
+ * false by the one leaving and leave the arm flickering back on over the one arriving.
+ */
+let suppressors = 0;
+const watchers = new Set<() => void>();
+
+function subscribe(onChange: () => void): () => void {
+  watchers.add(onChange);
+  return () => {
+    watchers.delete(onChange);
+  };
+}
+
+/**
+ * Take the corner junk off the screen for as long as the calling component is mounted.
+ *
+ * The world screen asked for it (maintainer, 2026-09-24): five city portraits laid edge to edge
+ * fill the frame, and a robot arm lying across the bottom-left card reads as part of that picture
+ * rather than as furniture in the room behind it. Every other screen keeps its corners.
+ *
+ * A store rather than a prop because `Ambience` is mounted by the shell, beside the `<Outlet />`
+ * the screens are drawn into, so there is no path down the tree from one to the other.
+ */
+export function useBareCorners(): void {
+  useEffect(() => {
+    suppressors += 1;
+    for (const watcher of watchers) watcher();
+    return () => {
+      suppressors -= 1;
+      for (const watcher of watchers) watcher();
+    };
+  }, []);
+}
+
 export function Ambience() {
+  const bare = useSyncExternalStore(
+    subscribe,
+    () => suppressors > 0,
+    () => false,
+  );
+  if (bare) return null;
+
   return (
     <div
       aria-hidden

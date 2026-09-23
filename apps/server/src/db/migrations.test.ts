@@ -506,6 +506,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0114_mixed_order.sql',
     '0115_battle_tier.sql',
     '0116_bio_punctuation.sql',
+    '0117_drop_dead_columns.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);

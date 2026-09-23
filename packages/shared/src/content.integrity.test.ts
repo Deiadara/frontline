@@ -205,12 +205,12 @@ describe('every id points at something that exists', () => {
       for (const unit of UNIT_CATALOG) {
         expect(tryResolveAssetKey({ type: 'unit', unitId: unit.id }), unit.id).toBeDefined();
       }
-      for (const building of Object.keys(BUILDING_CATALOG)) {
-        expect(
-          tryResolveAssetKey({ type: 'building', building: building as never }),
-          building,
-        ).toBeDefined();
-      }
+      /*
+       * Buildings are not in this sweep any more (2026-09-24). Their `building-<kind>` masters
+       * were retired: a structure's picture is a cut-out of the district painting now, resolved by
+       * filename through the client's `buildingPortraitUrl`, which this package cannot see. The
+       * client holds that coverage (`assets/delivered.test.ts`).
+       */
       for (const district of CITY_DISTRICTS) {
         expect(
           tryResolveAssetKey({ type: 'district', districtId: district.id }),

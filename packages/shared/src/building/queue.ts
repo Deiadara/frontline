@@ -143,11 +143,6 @@ export function queueStartsAt(queue: BuildQueue, now: Date): Date {
   return after > now ? after : now;
 }
 
-/** When the whole queue drains. `now` when it is empty. */
-export function queueDrainsAt(queue: BuildQueue, now: Date): Date {
-  return queueStartsAt(queue, now);
-}
-
 /**
  * The district as it will stand once the queue has drained.
  *

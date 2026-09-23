@@ -12,6 +12,14 @@ import {
   type Resources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { sendMessage } from '../social/send.js';
+import {
+  MVP_ALLY,
+  MVP_BOT,
+  MVP_FACTION,
+  MVP_RIVAL_FACTION,
+  MVP_RIVAL_SECOND,
+} from './constants.js';
 
 /**
  * `UNLOCKED=true`: the whole game, standing, on the seeded dev account.
@@ -117,5 +125,89 @@ export function applyUnlockedSandbox(repos: Repositories, username: string): San
   repos.bases.updateResources(base.id, unlockedResources(buildings));
   repos.bases.updateDistrict(base.id, buildings, []);
   repos.bases.updateArmy(base.id, fullArmy(), []);
+  seedMailbox(repos, user.id, new Date());
   return { applied: true, baseId: base.id };
+}
+
+/**
+ * A few letters in the sandbox account's inbox (maintainer, 2026-09-24).
+ *
+ * Every other screen in this save has something on it: the district is built out, the roster is
+ * full, the board has work. The mailbox was the one that opened on "Nothing in the box", so the
+ * screen could not be looked at without writing to yourself from a second account first.
+ *
+ * Sent through `sendMessage`, the same function the route uses, so each one lands as a real row
+ * with a real bell entry behind it rather than as a fixture the game would not have produced. The
+ * senders are the seeded neighbours, and one is left unread so the badge on the bottom bar has a
+ * number in it.
+ */
+function seedMailbox(repos: Repositories, userId: string, now: Date): void {
+  // Idempotent: the sandbox runs on every boot, and three more letters every restart would be a
+  // mailbox nobody could read by the end of the week.
+  if (repos.social.inbox(userId, 1).length > 0) return;
+
+  const letters: readonly {
+    from: { username: string };
+    faction: string | null;
+    subject: string;
+    body: string;
+    minutesAgo: number;
+    read: boolean;
+  }[] = [
+    {
+      from: MVP_ALLY,
+      faction: MVP_FACTION.name,
+      subject: 'The Tideline Market, oh-three-thirty',
+      body: 'Bringing eight Ironsides and the snipers. If anybody has bodies spare, the market is wide open on the north side.',
+      minutesAgo: 40,
+      read: false,
+    },
+    {
+      from: MVP_BOT,
+      faction: MVP_RIVAL_FACTION.name,
+      subject: 'You are on the wrong street',
+      body: 'Consider this the only warning you get. The Steelbelt is ours and it stays ours.',
+      minutesAgo: 6 * 60,
+      read: true,
+    },
+    {
+      from: MVP_RIVAL_SECOND,
+      faction: null,
+      subject: 'A word about the south quay',
+      body: 'I have no quarrel with you and no interest in one. Keep off the quay and we can both keep working.',
+      minutesAgo: 26 * 60,
+      read: true,
+    },
+  ];
+
+  for (const letter of letters) {
+    const sender = repos.users.findByUsername(letter.from.username);
+    if (!sender) continue;
+    const sentAt = new Date(now.getTime() - letter.minutesAgo * 60_000);
+    sendMessage(repos, {
+      sender: { id: sender.id, username: sender.username },
+      senderFaction: letter.faction,
+      recipients: [userId],
+      audience: 'player',
+      addressedTo: repos.users.findById(userId)?.username ?? 'you',
+      subject: letter.subject,
+      body: letter.body,
+      sentAt,
+      notification: {
+        kind: 'message_received',
+        title: `${sender.username} wrote to you`,
+        body: letter.subject,
+        link: '/game/messages',
+      },
+      keepSentCopy: false,
+    });
+    if (!letter.read) continue;
+    // Opened already, so the badge counts one letter rather than three: a mailbox where
+    // everything is unread says less about the screen than one with a single mark on it.
+    for (const message of repos.social.inbox(userId, 20)) {
+      if (message.subject === letter.subject && message.readAt === null) {
+        repos.social.markMessageRead(message.id, userId, sentAt.toISOString());
+      }
+    }
+  }
 }

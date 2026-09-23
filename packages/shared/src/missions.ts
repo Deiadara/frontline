@@ -12,7 +12,7 @@ import {
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
-import { effortScale, EFFORT_BASELINE_MINUTES, EFFORT_EXPONENT } from './progression/effort.js';
+import { effortScale, EFFORT_BASELINE_MINUTES } from './progression/effort.js';
 import { MAX_MISSION_SPEED_BONUS, roadMinutes } from './time/speed.js';
 import { BlueprintCategorySchema, BlueprintPageIdSchema } from './blueprints/catalog.js';
 
@@ -62,7 +62,6 @@ export const MissionStatusSchema = z.enum(['active', 'resolved']);
  * module that runs at import time is a `Cannot read properties of undefined` at boot.
  */
 export const MissionAreaIdSchema = z.string().min(1);
-export type MissionStatus = z.infer<typeof MissionStatusSchema>;
 
 export const MissionTemplateSchema = z.object({
   id: IdSchema,
@@ -740,7 +739,6 @@ export function templateTimings(template: MissionTemplate): MissionTimings {
  * content and test code reads them.
  */
 export const REWARD_BASELINE_MINUTES = EFFORT_BASELINE_MINUTES;
-export const REWARD_TIME_EXPONENT = EFFORT_EXPONENT;
 
 /** Battles pay a premium over standard work for the same time on the clock (§E5). */
 export const KIND_REWARD_MULTIPLIER: Record<MissionKind, number> = {

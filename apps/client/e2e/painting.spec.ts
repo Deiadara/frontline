@@ -135,8 +135,10 @@ test('shows the painting only once the ground has been scouted', async ({ page }
     }),
   );
   await page.goto('/game/city/neon-docks');
-  await expect(page.getByText('Unscouted')).toBeVisible();
+  // Unscouted ground does not open: the link bounces to the map with the scout sheet up.
+  await expect(page.getByTestId('scout-menu')).toBeVisible();
   await expect(page.getByTestId('district-painting-neon-docks')).toHaveCount(0);
+  await page.keyboard.press('Escape');
 
   // Fog lifted, nothing else changed: the picture is there.
   await page.unroute('**/api/city/neon-docks');

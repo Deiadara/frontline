@@ -6,7 +6,7 @@
  * the manifest nor `scripts/gen-art.ts` may restate or paraphrase one. Whitespace is collapsed so
  * the hard wrapping in the doc (and in this file) never reaches a backend.
  */
-import type { BuildingKind, VehicleId } from '../building/index.js';
+import type { VehicleId } from '../building/index.js';
 import type { DistrictKind, LocationKind } from '../city/index.js';
 import type { OverseerArchetype } from '../overseer.js';
 import type { ResourceKey } from '../resources.js';
@@ -786,34 +786,6 @@ export const PORTRAIT_SUBJECTS: Readonly<Record<string, string>> = {
     bounce from below rakes the underside of his jaw and armour ridges. Behind him, a barricade line
     dissolving into smog.
   `),
-  'overseer-2': block(`
-    A wiry woman in her late twenties, legendary intrusion specialist. Undercut black hair
-    with a bleached streak, damp with sweat and stuck to her temple. Pale cool-toned skin taking the
-    cyan key almost fully, warmed only along the jaw by the sodium bounce. Four dermal interface ports
-    in a neat surgical row behind her right ear, one leaking a hairline of cyan #7ff0ff light. Layered
-    technical jacket over a mesh underlayer, cuffs frayed, forearm sleeve pushed up over a splice
-    bruise. Expression: mid-thought, focused past the viewer, faintly amused. Her own face is the
-    brightest cool value in frame; the background is near-black with two dim #12a2bd server-rack
-    glows far behind.
-  `),
-  'overseer-3': block(`
-    A lean man of indeterminate age, forties, a broker of favours and contraband. Slicked
-    dark hair going silver at the temples, sharp cheekbones, a fine old blade scar through one eyebrow.
-    Deep olive skin, warmly lit. He is the one portrait where the amber #f59e0b bounce leads and the
-    cyan key is the rim. Immaculate but decades-out-of-date tailoring: a long charcoal coat over a
-    mandarin collar, one gold-toned ring, everything else deliberately unremarkable. Expression: a
-    courteous half-smile that does not reach the eyes. Behind him, a market arcade at night reduced to
-    warm hanging-lamp smears and one cold sign.
-  `),
-  'overseer-4': block(`
-    A composed Black woman in her forties, former arcology infrastructure director. Close-cropped
-    natural hair, strong brow, deep rich skin holding both lights cleanly: cyan along the
-    cheekbone and brow, amber under the jaw. Practical engineer's coat over a utility harness, sleeves
-    rolled, a smear of conduit grease on one forearm she has not noticed. A slim monocular data lens
-    folded up against her temple, its edge catching a thin #7ff0ff line. Expression: tired, certain,
-    already three steps into a plan. Behind her, the ribbed interior of a reactor gallery falling away
-    into #1b2233 haze with one warm #8a5209 inspection lamp.
-  `),
   'overseer-01': block(`
     A man in his fifties, dark grey-streaked waves and a red-lined black coat, half smiling, the
     tiered green benches of an assembly chamber lit by desk lamps behind him.
@@ -1205,84 +1177,6 @@ export const PLATE_SUBJECTS = {
     The most romantic and most haunting image in the game.
   `),
 } as const;
-
-/**
- * ART-PROMPTS §4: keyed by `BuildingKind`, one per plot in the district view.
- *
- * Thirteen silhouettes that have to be told apart at roughly 90px wide, side by side, in one
- * palette. Each entry therefore names the *shape* it must read as before it names any detail: the
- * Nexus is the tallest, the Gate the widest, the Lab the thinnest, the Garage the deepest. Detail
- * that survives at plot size is a roofline and one light; everything below that is for the dialog.
- */
-export const BUILDING_SUBJECTS: Readonly<Record<BuildingKind, string>> = {
-  nexus: block(`
-    A commandeered transit hub turned command post: a low armoured drum with a canted upper
-    observation ring of slit windows glowing cold #22d3ee, a cluster of antenna masts and a dish
-    offset to one side, an external stair spiralling to a roof hatch, and a faded transit chevron
-    still legible on the drum. Sandbagged at the base, cabling bundled down one flank. Authoritative,
-    squat, the tallest silhouette by a small margin.
-  `),
-  quarters: block(`
-    Stacked living containers: three tiers of shipping cans welded into a block, external
-    stairs zigzagging the face, a drying line strung between two tiers, window cutouts glowing warm
-    #f59e0b in an irregular scatter. A stove flue trails thin smoke from the top tier. The most
-    obviously inhabited silhouette: personal clutter, a chair, boots.
-  `),
-  greenhouse: block(`
-    A grow-house: a long low barrel-vault of mismatched salvaged glazing on a steel rib
-    frame, condensation fogging the panels, dense green foliage pressed against them from inside.
-    Grow lamps burn a flat magenta-white #f0abfc through the fog in even bands. A rainwater tank
-    strapped to one gable. Horizontal, softly glowing, the only green in the district.
-  `),
-  generator: block(`
-    A turbine block: a fat containment drum in a scaffold cradle, ribbed cooling fins, three
-    exhaust stacks venting white vapour, and a bunded fuel tank fused to one flank with a hose run
-    to the drum. Seams and inspection ports leak hot #f59e0b light; one warning-striped panel is
-    missing and field-patched. Heavy, industrial, faintly menacing.
-  `),
-  scrapyard: block(`
-    A salvage works: an angled press house with a torch bay open to the air, a raised sorting
-    deck, a crooked flue stack trailing dark smoke, a gantry crane over a scrap heap fused into its
-    flank. Cutting sparks throw #ffd166 light up under the deck. Widest and lowest of the industrial
-    group, and the most cluttered silhouette in the district.
-  `),
-  apothecary: block(`
-    A dispensary-warehouse: a windowless block with one heavy roller shutter half raised,
-    deep racking visible in the gap, a small barred serving hatch beside it lit warm #f59e0b, and
-    hand-painted apothecary symbols weathering off the render. Crates stacked under an awning.
-    Closed, orderly, guarded: the only building that looks locked.
-  `),
-  gate: block(`
-    A perimeter gate: a ferrocrete slab wall with a razorwire crown, one buttressed pier, a
-    firing step behind, and a single armoured gate leaf hung slightly out of true. Impact scarring
-    and hasty patch-plates across the face. Lowest and widest silhouette; must read as horizontal
-    against everything else.
-  `),
-  lab: block(`
-    A research stack: a vertical black slab of racked datacores behind a louvred skin, cold
-    #12a2bd status light bleeding through the louvres in horizontal bands, a whiteboard wall visible
-    through one lit ground-floor window. A dense fan of fibre trunking sweeps out of its base.
-    Thermal shimmer above. The tallest and thinnest silhouette.
-  `),
-  gauntlet: block(`
-    A training ground: an open run of welded obstacles, a climbing frame of scaffold pipe, a
-    rope wall and a low crawl tunnel, with a single-storey equipment shed at one end and a flood
-    lamp on a pole throwing hard white light across the course. Mostly open ground: the one plot
-    that reads as an *area* rather than a structure.
-  `),
-  infirmary: block(`
-    A clinic: a small clean-walled prefab with a red-cross panel repainted over something
-    else, a wide entry ramp, a sealed vestibule with an interior lamp burning steady cold white, and
-    a stack of gas cylinders chained beside the door. An air handler grumbling on the roof. The
-    tidiest building on the ground, deliberately at odds with everything around it.
-  `),
-  garage: block(`
-    A motor pool: a deep-mouthed open bay tall enough for a mast, a gantry crane on rails
-    across the opening, an inspection pit with a stripped chassis over it, and a half-built rotor
-    assembly on trestles to one side under a tarpaulin. Work lamps on stands throw long shadows out
-    of the bay. The deepest silhouette: the only one that reads as an interior.
-  `),
-};
 
 /** ART-PROMPTS §5: UI frames and HUD plates, keyed by asset key. */
 export const UI_SUBJECTS = {

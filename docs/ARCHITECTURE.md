@@ -109,11 +109,12 @@ why the client can render the same numbers the server enforces without a DTO for
   Migrations are plain ordered SQL files (`src/db/migrations/NNNN_*.sql`) applied by a tiny
   runner tracked in `schema_migrations`. Fallback if the native module ever breaks: Node 24's
   built-in `node:sqlite` (`DatabaseSync`) has a near-identical API.
-- **Pixi.js (v8)**: kept for the asset pipeline only. It was chosen for a pan-and-zoom WebGL city
-  map, and that map is gone: the city is a painted plate with DOM tags on it (`CityView`), so
-  **nothing mounts a Pixi `Application` any more**. What still uses the library is `assets/loader.ts`
-  (texture loading) and `render/procedural.ts` (the code-drawn fallback art). The whole UI is plain
-  React + Tailwind.
+- **No Pixi.js.** It was chosen for a pan-and-zoom WebGL city map, and that map went when the city
+  became a painted plate with DOM tags on it (`CityView`). Nothing mounted a Pixi `Application`
+  after that, and on 2026-09-24 the rest of the path went with it: the texture half of
+  `assets/loader.ts`, the bundle prefetch and its hook, and the code-drawn fallback art in
+  `render/procedural.ts`. `assets/loader.ts` is now a resolver that answers with a **URL**, which
+  an `<img>` fetches when it is on screen. The whole UI is plain React + Tailwind.
 - **Zod (v4)**: runtime validation + static types from one declaration; used on both sides of
   the wire.
 - **JWT (stateless)**: no session table; token carries `{sub: userId}`. Fine for this scale;

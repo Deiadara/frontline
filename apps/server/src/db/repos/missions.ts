@@ -1,4 +1,7 @@
 import {
+  BATTLE_TIERS,
+  BLUEPRINT_CATEGORIES,
+  BLUEPRINT_PAGE_IDS,
   MissionSchema,
   withoutRetiredUnits,
   withoutRetiredVehicles,
@@ -99,6 +102,18 @@ export interface MissionsRepo {
   findById(missionId: string): StoredMission | undefined;
 }
 
+/**
+ * A frozen catalogue id, or null when the catalogue no longer has it.
+ *
+ * The repair `rowToStored` applies to three columns. Narrow rather than `as`: the cast it replaces
+ * told the compiler the database held a legal value and told the runtime nothing at all.
+ */
+function known<T extends string>(stored: string | null, catalogue: readonly T[]): T | null {
+  return stored !== null && (catalogue as readonly string[]).includes(stored)
+    ? (stored as T)
+    : null;
+}
+
 function rowToStored(row: MissionRow): StoredMission {
   return {
     mission: MissionSchema.parse({
@@ -130,9 +145,25 @@ function rowToStored(row: MissionRow): StoredMission {
       spoils: readJson(row.spoils_json),
       found: readJson(row.found_json),
       resolvedAt: row.resolved_at,
-      pagePrize: row.page_prize as Mission['pagePrize'],
-      pageWon: row.page_won,
-      battleTier: (row.battle_tier ?? null) as Mission['battleTier'],
+      /*
+       * The three frozen enum columns, repaired on the way out like the force and the fleet above,
+       * and for the same reason spelled out there (bug pass, 2026-09-23).
+       *
+       * Each is a catalogue id written onto the row at launch and read back months later. A value
+       * that has since left its catalogue fails `MissionSchema.parse`, and an unparseable row does
+       * not merely break its own screen: `basesWithActiveRuns` feeds `settleCrewsComingHome`,
+       * whose throw escapes `settleWorld` and skips everything sequenced after it, so one bad row
+       * silently stops the automations, the scouts, the spies and every auction in the world for
+       * as long as it exists. The crew on that run never comes home either.
+       *
+       * Forgotten rather than repaired to a neighbour: a page category the game has dropped is not
+       * some other category, and null is the shape both of these already carry for a run that won
+       * nothing. A battle tier that has left the ladder reads as the bottom of it, which is what
+       * `resolveDueMissions` already does with a null tier on a fight row.
+       */
+      pagePrize: known(row.page_prize, BLUEPRINT_CATEGORIES),
+      pageWon: known(row.page_won, BLUEPRINT_PAGE_IDS),
+      battleTier: known(row.battle_tier, BATTLE_TIERS),
     }),
     seed: row.seed,
     successChance: row.success_chance,

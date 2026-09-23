@@ -105,8 +105,8 @@ describe('a brand new crew', () => {
     // What came out of the till, then what is standing in the district.
     expect(claimed.json<ClaimFeatResponse>().paid.units).toEqual({ scavengers: 5 });
     const roster = await app.inject({ method: 'GET', url: '/api/units', headers: auth(token) });
-    // Eight Razors is what a crew is handed; the five carriers are what the feat added.
-    expect(roster.json<UnitsResponse>().army).toMatchObject({ razors: 8, scavengers: 5 });
+    // Eight Scavengers is what a crew is handed; the feat's five bring it to thirteen.
+    expect(roster.json<UnitsResponse>().army).toMatchObject({ scavengers: 13 });
 
     // Collected, not merely paid: a second press has to find the row already there.
     const twice = await app.inject({

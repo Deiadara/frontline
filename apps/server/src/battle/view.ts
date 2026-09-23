@@ -1,4 +1,5 @@
 import {
+  type LineRules,
   blueprintGateMet,
   describeBlueprintGate,
   BUILDING_CATALOG,
@@ -52,7 +53,7 @@ import {
   gateDefensePercent,
   gateIntelResistancePercent,
 } from '@frontline/shared';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { sideForce } from './side.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
@@ -69,7 +70,7 @@ import {
   targetName,
 } from './ground.js';
 import { assemble, battlefieldOf } from './resolve.js';
-import { seatedRoles } from '../crew/roster.js';
+import { workingRoles } from '../crew/roster.js';
 import { officerDuty } from '../crew/duty.js';
 import { officerTravelMinutesTo } from './movement.js';
 
@@ -199,6 +200,7 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
           assemble(repos, battle, defenderBase)[side === 'attacker' ? 'attacking' : 'defending'],
           repos.blackMarket.stashFor(base.id),
           cityLevelFor(repos),
+          standingEffectsFor(repos, base),
         )
       : [],
     boostIds: deployment?.boostIds ?? [],
@@ -354,12 +356,20 @@ function boostsFor(
   force: Army,
   stash: BoostStash,
   cityLevel: number,
+  /**
+   * What this crew counts as a fighting sheet, for the same reason the settler needs it
+   * (bug pass, 2026-09-23): a crew holding `carriers_fight` fights with its porters, so a boost's
+   * reach has to be priced against a line that includes them. Quoted off `bareLineRules` here, the
+   * drop-down promised one number and the fight paid another.
+   */
+  rules: LineRules,
 ): BattleBoostOption[] {
   const crew = {
     technologies: base.research.technologies,
     // Chairs, not headcount: a boost unlocked by having a Raid Boss is not unlocked by having
     // signed one and left them on the bench.
-    roles: seatedRoles(base.commanders),
+    // Working chairs, not merely filled ones: an injured officer unlocks nothing (2026-09-23).
+    roles: workingRoles(base.commanders),
   };
   // §D12e: the four manufactured boosts are behind their blueprint as well as behind whoever
   // proposed them. Bound once here rather than per row: the inventory does not change mid-list.
@@ -387,7 +397,7 @@ function boostsFor(
         ? (describeBlueprintGate('battle_boost', spec.id) ??
           describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id))
         : describeBoostUnlock(spec.unlock, (id) => findTech(id)?.name ?? id),
-    reach: Math.round(boostCoverage(spec.effect, force) * 100),
+    reach: Math.round(boostCoverage(spec.effect, force, rules) * 100),
     affordable: hasInfamy(base.economy.infamy, spec.cost),
     available: boostAvailable(spec, crew, boostGate),
     held: false,

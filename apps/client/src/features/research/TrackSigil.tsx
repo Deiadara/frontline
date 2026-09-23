@@ -33,7 +33,22 @@ const GLYPHS: Readonly<Record<OfficerRole, string[]>> = {
     'M12 13C9 13 6 11 6 6c4.5 0 6 3 6 7z',
     'M12 15c3 0 6-2 6-6.5-4.5 0-6 3-6 6.5z',
   ],
-  field_commander: ['M4 14l8-7 8 7', 'M4 20l8-7 8 7'],
+  /*
+   * A medal, not a rank (maintainer, 2026-09-24).
+   *
+   * It was two chevrons, which read as sergeant's stripes: a *rank*, and the one thing this
+   * chair is not about. A medal is what a field commander is given for the thing they did, and it
+   * is the glyph a player already knows from every other game with an army in it. Drawn in four
+   * strokes like the rest of this table: the clasp, the two sides of the ribbon tapering down, and
+   * a struck five-point star inside its roundel.
+   */
+  field_commander: [
+    'M8.5 3.5h7',
+    'M9.5 3.5L11 11.4',
+    'M14.5 3.5L13 11.4',
+    'M12 11.6a3.6 3.6 0 1 0 .1 0z',
+    'M12 12L12.76 14.15 15.04 14.21 13.24 15.6 13.88 17.79 12 16.5 10.12 17.79 10.76 15.6 8.96 14.21 11.24 14.15z',
+  ],
   head_of_research: [
     'M9 3h6',
     'M10.5 3v6l-5 10a2 2 0 0 0 1.8 3h9.4a2 2 0 0 0 1.8-3l-5-10V3',

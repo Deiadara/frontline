@@ -2,10 +2,8 @@ import {
   formatClock,
   BUILDING_CATALOG,
   type DistrictDetailResponse,
-  formatCountdown,
   districtDisplayName,
   garrisonOf,
-  scoutRecallWindowMs,
   type Army,
   type BattleTarget,
   type Building,
@@ -14,11 +12,10 @@ import {
   plateAspect,
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
-import { CancelMark } from '../../components/ui/CancelMark';
 import { Modal } from '../../components/ui/Modal';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { Panel } from '../../components/ui/Panel';
@@ -31,14 +28,7 @@ import { GroundBox, GroundToggle, UnifiedBonusLines } from './GroundBox';
 import { DistrictScene } from '../base/DistrictScene';
 import { cn } from '../../lib/cn';
 import { useMeasuredSize } from '../../lib/useMeasuredHeight';
-import {
-  useBattles,
-  useDeclareBattle,
-  useDistrict,
-  useMe,
-  useRecallScout,
-  useScout,
-} from '../../lib/queries';
+import { useBattles, useDeclareBattle, useDistrict, useMe } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { DeclareDialog } from '../battle/DeclareDialog';
 import { useServerClock } from '../missions/useServerClock';
@@ -69,7 +59,6 @@ export function DistrictView() {
   const zone = usePlayerZone();
   const query = useDistrict(districtId);
 
-  const scout = useScout();
   const battles = useBattles();
   const declare = useDeclareBattle();
   const [calling, setCalling] = useState<BattleTarget | null>(null);
@@ -101,7 +90,7 @@ export function DistrictView() {
   /*
    * The server's clock, for the two countdowns on a location card. They read `Date.now()`, and on
    * a machine twenty minutes fast an upgrade with twenty minutes to run said "0s left" for the
-   * whole twenty. `ScoutPanel` below learnt the same lesson first and says why.
+   * whole twenty. The scout sheet (`ScoutMenu`) learnt the same lesson first and says why.
    */
   const now = useServerClock(data?.serverNow, query.dataUpdatedAt);
   // A door this crew is standing behind is not one it spies on: the route refuses `own_ground`.
@@ -126,6 +115,16 @@ export function DistrictView() {
         onRetry={() => void query.refetch()}
       />
     );
+  }
+
+  /*
+   * Unscouted ground does not open (maintainer, 2026-09-23). A tag on the map opens the scout
+   * sheet instead (`ScoutMenu`), and a link straight here, from a notification, a pasted URL or
+   * the back button, is bounced to the map with that sheet already open, so the page below is
+   * never drawn for a district this crew has not been to.
+   */
+  if (!data.scouted) {
+    return <Navigate to={`/game?scout=${encodeURIComponent(data.district.id)}`} replace />;
   }
 
   /*
@@ -258,16 +257,7 @@ export function DistrictView() {
           <WeatherBanner at={new Date(data.serverNow)} className="mt-3" />
         </div>
 
-        {!data.scouted ? (
-          <Panel title="Unscouted">
-            <ScoutPanel
-              data={data}
-              receivedAt={query.dataUpdatedAt}
-              pending={scout.isPending}
-              onSend={() => scout.mutate({ districtId: data.district.id })}
-            />
-          </Panel>
-        ) : data.district.kind === 'residential' ? (
+        {data.district.kind === 'residential' ? (
           <>
             {/* The painting itself is not here: a district another crew lives on opens as a full
                 screen of its own (`VisitedDistrict`, above), the same way yours does. What is left
@@ -462,161 +452,6 @@ function Tag({
     >
       {label}
     </span>
-  );
-}
-
-/**
- * What it takes to open a district (§A4, maintainer rework).
- *
- * Scouting used to be a button that did it. It is a journey now, so this panel has three states
- * and the middle one is the whole point of the change: **somebody is walking there**, and until
- * they walk back this ground tells you nothing.
- *
- * The price is quoted before the press, like every other price in the game. A run is measured in
- * hours, so finding out how long it was afterwards is not a decision a player got to make.
- */
-function ScoutPanel({
-  data,
-  receivedAt,
-  pending,
-  onSend,
-}: {
-  data: DistrictDetailResponse;
-  /**
-   * When this payload arrived, so the countdown can be corrected to the server's clock.
-   *
-   * It was `undefined`, which is the hook's documented way of saying "no response yet" and makes it
-   * fall back to `Date.now()`. Passing it for a payload we *have* threw the correction away, so the
-   * one countdown on this screen ran on the browser's clock: skewed machines saw the wrong time
-   * remaining, and nudging the system clock forward made a scouting run look closer to home. Every
-   * other caller of this hook passes `dataUpdatedAt`, which is the whole reason the hook takes it.
-   */
-  receivedAt: number;
-  pending: boolean;
-  onSend: () => void;
-}) {
-  const now = useServerClock(data.serverNow, receivedAt);
-  const run = data.scoutingRun;
-  const recall = useRecallScout(data.district.id);
-
-  /*
-   * The one thing a player can do about a scout on the road, and only in the first tenth of the
-   * way out (maintainer request, 2026-09-12): turn them round. They walk home the distance covered and
-   * the ground stays shut, so the panel says so once they have.
-   */
-  const turnRound = run && (
-    <>
-      <CancelMark
-        windowMs={scoutRecallWindowMs(run, now)}
-        label={`Turn the ${run.officerName} round`}
-        pending={recall.isPending}
-        onCancel={() => recall.mutate({})}
-        data-testid="recall-scout"
-      />
-      {recall.error && (
-        <p role="alert" className="font-body text-xs text-oxblood-300">
-          {recall.error.message}
-        </p>
-      )}
-    </>
-  );
-
-  // Somebody is out, and it is this district: a countdown, and the X while it is still open.
-  if (run && run.districtId === data.district.id) {
-    return (
-      <div className="flex flex-col gap-2 p-4" data-testid="scout-underway">
-        <p className="font-body text-xs leading-relaxed text-ink-300">
-          {run.recalledAt === null ? (
-            <>
-              The <span className="text-ink-100">{run.officerName}</span> is on the road. The street
-              opens when they are back.
-            </>
-          ) : (
-            <>
-              The <span className="text-ink-100">{run.officerName}</span> turned round and is
-              walking home. The street stays shut: they never got here.
-            </>
-          )}
-        </p>
-        <Waiting until={run.returnsAt} now={now} />
-        {turnRound}
-      </div>
-    );
-  }
-
-  // Somebody is out, somewhere else. Say where, rather than refusing at the press.
-  if (run) {
-    return (
-      <div className="flex flex-col gap-2 p-4" data-testid="scout-elsewhere">
-        <p className="font-body text-xs leading-relaxed text-ink-300">
-          Nobody from this crew has been here, and the{' '}
-          <span className="text-ink-100">{run.officerName}</span> is already out at{' '}
-          <span className="text-ink-100">{run.districtName}</span>. One party at a time.
-        </p>
-        <Waiting until={run.returnsAt} now={now} />
-        {turnRound}
-      </div>
-    );
-  }
-
-  const plan = data.scoutPlan;
-  /*
-   * Scouting is the Master of Whispers' work (maintainer, 2026-09-22): a party of theirs goes,
-   * nobody of yours walks. The two ways it can be refused are said here in the words the route
-   * refuses in, so a player is never told "send them" over a button that answers no.
-   */
-  const blocker = data.scoutBlocker;
-  return (
-    <div className="flex flex-col gap-3 p-4">
-      <p className="font-body text-xs leading-relaxed text-ink-300">
-        Nobody from this crew has been here. Send a scout party and the street opens up.
-      </p>
-      {blocker !== null || plan === null ? (
-        <p
-          className="font-body text-xs leading-relaxed text-oxblood-300"
-          data-testid="scout-nobody"
-        >
-          {blocker === 'not_researched'
-            ? 'Your Master of Whispers has not worked Scouting out yet. It is the first thing on their track.'
-            : blocker === 'no_whispers'
-              ? 'Nobody is in the Master of Whispers chair. Scouting is their work: sign one at the Bar and seat them.'
-              : 'There is no road between here and home for a party to walk.'}
-        </p>
-      ) : (
-        <>
-          <p className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-400">
-            <span className="text-brass-300">A scout party</span> would be gone{' '}
-            <span className="tabular-nums text-brass-300">{formatSpan(plan.minutes)}</span>
-          </p>
-          <div>
-            <Button size="sm" disabled={pending} onClick={onSend} data-testid="send-scout">
-              {pending ? 'Sending…' : 'Send a scout party'}
-            </Button>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** Hours and minutes, in the shape a player reads an evening in. */
-function formatSpan(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${rest}m`;
-  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
-}
-
-/** The clock on a run under way, ticking against the server's own time. */
-function Waiting({ until, now }: { until: string; now: Date }) {
-  const remaining = Date.parse(until) - now.getTime();
-  return (
-    <p
-      className="font-display text-[15px] font-bold tabular-nums text-brass-300"
-      data-testid="scout-countdown"
-    >
-      {remaining <= 0 ? 'Walking back in' : formatCountdown(remaining)}
-    </p>
   );
 }
 

@@ -44,7 +44,7 @@ import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
 import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
 import { moveMinutes, recallMove, sendMove } from '../moves/moves.js';
 import { projectActions, projectBattles } from './view.js';
-import { seatedRoles } from '../crew/roster.js';
+import { workingRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
 import { officerDuty } from '../crew/duty.js';
@@ -340,7 +340,9 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           {
             technologies: base.research.technologies,
             // A benched officer is in no chair, so they unlock nothing a chair unlocks.
-            roles: seatedRoles(base.commanders),
+            // The chairs that are *working*: an injured officer unlocks nothing while they are
+            // out (maintainer, 2026-09-23). See `workingRoles`.
+            roles: workingRoles(base.commanders, now),
           },
           // §D12e: and the drawings, for the ones that are made rather than proposed.
           (boostId) => blueprintGateMet(base.inventory, 'battle_boost', boostId),

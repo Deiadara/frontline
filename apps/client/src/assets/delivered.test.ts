@@ -1,19 +1,17 @@
-import { resolveAssetKey, type AssetKey } from '@frontline/shared';
-import { Texture } from 'pixi.js';
+import {
+  BUILDING_KINDS,
+  resolveAssetKey,
+  type AssetKey,
+  type BuildingKind,
+} from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
-import { deliveredTexture, deliveredUrl } from './delivered';
+import { buildingPortraitUrl, deliveredUrl } from './delivered';
 import type { ArtLoader } from './loader';
 import type { AssetSource } from './source';
 
-/** Only the two lookups `delivered.ts` uses; the rest of the loader is irrelevant here. */
+/** Only the lookup `delivered.ts` uses; the rest of the loader is irrelevant here. */
 function stubLoader(sources: Partial<Record<AssetKey, AssetSource>>): ArtLoader {
-  return {
-    ensure: () => undefined,
-    stateOf: () => ({ status: 'ready', loaded: 0, total: 0, progress: 1, error: null }),
-    subscribe: () => () => undefined,
-    sourceOf: (key) => sources[key],
-    textureOf: (key) => (sources[key]?.kind === 'file' ? Texture.EMPTY : null),
-  };
+  return { sourceOf: (key) => sources[key] };
 }
 
 const portraitKey = resolveAssetKey({ type: 'portrait', portraitId: 'overseer-1' });
@@ -50,15 +48,23 @@ describe('deliveredUrl', () => {
   });
 });
 
-describe('deliveredTexture', () => {
-  it('returns the loaded texture for a delivered key', () => {
-    expect(deliveredTexture({ type: 'district', districtId: 'neon-docks' }, delivered)).toBe(
-      Texture.EMPTY,
-    );
+/**
+ * Every structure a screen can draw has a picture (moved here 2026-09-24).
+ *
+ * `content.integrity.test.ts` in the shared package used to sweep this, through a
+ * `{ type: 'building' }` asset ref. That ref and the eleven `building-<kind>` masters behind it
+ * are gone: a structure's picture is a cut-out of the district painting, resolved by filename
+ * through `buildingPortraitUrl`, which the shared package cannot see. So the sweep lives here,
+ * against the real glob rather than a stub, which is also what catches a delivery going missing.
+ */
+describe('buildingPortraitUrl', () => {
+  it('finds a picture for every building the catalogue can put up', () => {
+    for (const kind of BUILDING_KINDS) {
+      expect(buildingPortraitUrl(kind), kind).not.toBeNull();
+    }
   });
 
-  it('returns null for a procedural key and for an unknown id', () => {
-    expect(deliveredTexture({ type: 'portrait', portraitId: 'overseer-1' }, procedural)).toBeNull();
-    expect(deliveredTexture({ type: 'district', districtId: 'nowhere' }, delivered)).toBeNull();
+  it('answers null for a kind nobody builds, rather than a broken src', () => {
+    expect(buildingPortraitUrl('sky_hook' as BuildingKind)).toBeNull();
   });
 });

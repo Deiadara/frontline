@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 /**
  * The opening tutorial (maintainer, 2026-09-22).
  *
@@ -38,7 +36,6 @@ export const TUTORIAL_STEPS = [
   'base',
 ] as const;
 export type TutorialStep = (typeof TUTORIAL_STEPS)[number];
-export const TutorialStepSchema = z.enum(TUTORIAL_STEPS);
 
 /**
  * Which screen raises each card.
@@ -56,8 +53,6 @@ export const TUTORIAL_SCREENS = {
   battles: 'battles',
   base: 'base',
 } as const satisfies Record<TutorialStep, string>;
-
-export type TutorialScreen = (typeof TUTORIAL_SCREENS)[TutorialStep];
 
 /** What each card says. Kept here so the copy is in the package the tests can price it against. */
 export interface TutorialCardSpec {

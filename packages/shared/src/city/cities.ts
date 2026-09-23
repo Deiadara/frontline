@@ -3,11 +3,21 @@ import { z } from 'zod';
 /**
  * The cities of the world (maintainer request, §J9a).
  *
- * There is one today. It exists as a **list** rather than as an implicit "everywhere" because the
- * board is adding more, and the difference between the two shapes is what the standings screen is
- * built on: a scope of "my city" and a scope of "all cities" are the same set right now and will
- * stop being the same set the day a second row appears here. Writing the filter against a city id
- * now means that day is a data change.
+ * One is playable today. The list exists rather than an implicit "everywhere" because the board is
+ * adding more, and the difference between the two shapes is what the standings screen is built on:
+ * a scope of "my city" and a scope of "all cities" are the same set right now and will stop being
+ * the same set the day a second row opens. Writing the filter against a city id now means that day
+ * is a data change.
+ *
+ * ## A city can be a name before it is a map
+ *
+ * Redline and Deepcut are rows here with nothing in the atlas behind them (maintainer, 2026-09-24:
+ * the world screen shows five). That is deliberate and it is the cheap half of adding a city: the
+ * screen that tells a player what the world is can say there are five places in it long before
+ * three contested districts and four plots have been drawn for each. Every reader of this list
+ * either walks the atlas for ground, and finds none, or shows the name, which is the thing the row
+ * is carrying. `atlas.test.ts` holds the one rule that keeps it honest: a city with no ground is
+ * shut.
  *
  * ## A district belongs to a city, and a crew belongs to its district
  *
@@ -26,10 +36,12 @@ export const CitySchema = z.object({
   /**
    * Whether a crew can actually play here yet.
    *
-   * Ashfall is the one with a painted map, a seeded world and a mission board. The other two are
-   * authored ground with no art and no server behind them, and a card that pretended otherwise
-   * would be a door onto an empty room. The screen draws them either way, because "there is a
-   * frontier and it is called Verge Station" is the thing worth knowing.
+   * Ashfall is the one with a painted map, a seeded world and a mission board. The other four are
+   * shut, and they are shut in two different ways: Saltmarch and Verge Station have authored ground
+   * in the atlas with no art and no server behind it, and Redline and Deepcut have no ground at all
+   * yet, only a name and what the place is. A card that pretended either was playable would be a
+   * door onto an empty room. The screen draws all five, because "there is a frontier and it is
+   * called Verge Station" is the thing worth knowing.
    */
   open: z.boolean(),
 });
@@ -58,6 +70,22 @@ export const CITIES: readonly City[] = [
     nickname: 'the Last Platform',
     blurb:
       'The junction at the end of the line, kept by real soldiers because it is the only way out. Hold the yards and you decide what leaves the frontier.',
+    open: false,
+  },
+  {
+    id: 'redline',
+    name: 'Redline',
+    nickname: 'the Company Town',
+    blurb:
+      'Combine ground from the gate to the fence, and everyone inside it is on the books. Nobody there is owed a wage; they are owed against one.',
+    open: false,
+  },
+  {
+    id: 'deepcut',
+    name: 'Deepcut',
+    nickname: 'the Six Levels',
+    blurb:
+      'A town that grew downward instead of outward, six galleries deep into the cut. The people on the bottom level have not stood under weather in a generation.',
     open: false,
   },
 ];

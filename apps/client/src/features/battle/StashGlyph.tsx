@@ -96,11 +96,6 @@ const GLYPHS: Readonly<Record<string, JSX.Element>> = {
   ),
 };
 
-/** Whether this shelf has a mark of its own for `id`. Everything on the tab currently does. */
-export function hasStashGlyph(id: string): boolean {
-  return id in GLYPHS;
-}
-
 /**
  * One mark, at whatever size the caller gives it.
  *

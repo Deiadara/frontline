@@ -1,4 +1,4 @@
-import { isAreaUnlocked, noUnlocks, type GatedArea, type UnlockFacts } from '@frontline/shared';
+import { noUnlocks, type UnlockFacts } from '@frontline/shared';
 import { useMe } from './queries';
 
 /**
@@ -32,15 +32,4 @@ export function useUnlockFacts(): UnlockFacts | null {
     notoriety: base.economy.notoriety,
     technologies: base.research.technologies,
   };
-}
-
-/**
- * Whether one door is open, for a caller that has a single area in mind.
- *
- * `null` while `/me` is still in flight, which is not the same as `false`: a nav that treated the
- * loading frame as locked would flash eleven padlocks on every hard refresh.
- */
-export function useAreaUnlocked(area: GatedArea): boolean | null {
-  const facts = useUnlockFacts();
-  return facts === null ? null : isAreaUnlocked(area, facts);
 }

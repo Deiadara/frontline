@@ -42,8 +42,8 @@ export const STREAM_LIMIT: LimitRule = { quota: 60, windowMs: 60_000 };
  * login (a `bcrypt.compare` and a `bcrypt.hash`, measured at 49ms and 55ms on this machine with the
  * repo's own `bcryptjs`) and sat on the 120/minute write bucket, so one account could spend 12.5
  * seconds of CPU a minute, on the single thread that serves every player's reads, settles and
- * battle resolutions. A wrong `currentPassword` is refused *after* the compare, so the refusal costs
- * the server 49ms and the caller nothing.
+ * battle resolutions. Every change is hashed before it is written, so each call costs the server
+ * the hash and the caller nothing.
  */
 const PASSWORD_PATHS: readonly string[] = ['/api/settings/password'];
 

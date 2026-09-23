@@ -394,12 +394,3 @@ function earlierStart(a: Disruption, b: Disruption): Disruption {
  * decides. The share here is the ceiling before that bound applies.
  */
 export const BREACH_LOOT_SHARE = 0.35;
-
-export function breachLoot(stock: Resources, share = BREACH_LOOT_SHARE): PartialResources {
-  return Object.fromEntries(
-    RESOURCE_KEYS.flatMap((key) => {
-      const taken = Math.floor(stock[key] * share);
-      return taken > 0 ? [[key, taken] as const] : [];
-    }),
-  );
-}

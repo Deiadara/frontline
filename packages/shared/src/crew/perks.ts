@@ -1516,8 +1516,6 @@ export const ROLLABLE_PERK_IDS: readonly string[] = PERK_IDS.filter(
 
 const BY_ID = new Map(CATALOG.map((entry) => [entry.id, entry]));
 
-export type PerkId = string;
-
 /**
  * A perk id, validated against the catalogue.
  *

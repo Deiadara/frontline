@@ -85,12 +85,6 @@ export const SCHEDULE_REFUSALS = ['off_slot', 'too_soon', 'too_late'] as const;
 export const ScheduleRefusalSchema = z.enum(SCHEDULE_REFUSALS);
 export type ScheduleRefusal = z.infer<typeof ScheduleRefusalSchema>;
 
-export const SCHEDULE_REFUSAL_MESSAGES: Readonly<Record<ScheduleRefusal, string>> = {
-  off_slot: 'Fights are called on the half hour, and only on the half hour',
-  too_soon: `Nobody gets less than ${MIN_DECLARE_LEAD_HOURS} hours to see you coming`,
-  too_late: `Nothing is called more than ${MAX_DECLARE_LEAD_HOURS} hours out`,
-};
-
 /**
  * Why a time is not declarable, or `null` when it is.
  *

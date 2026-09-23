@@ -42,11 +42,6 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** The one draw a battle currently takes. Same seed in, same number out, forever. */
-export function seededRoll(seed: string): number {
-  return mulberry32(seedFrom(seed))();
-}
-
 /**
  * One entry out of a weighted pool, off a hash rather than a stream.
  *

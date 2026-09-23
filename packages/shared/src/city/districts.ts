@@ -840,11 +840,6 @@ export function unifiedBonusFor(districtId: string): UnifiedBonus | null {
   return UNIFIED_BONUSES[districtId] ?? null;
 }
 
-/** Which allegiance nominally garrisons a district's locations before anybody takes them. */
-export function defaultHolderFaction(district: District): Allegiance {
-  return district.allegiance;
-}
-
 /**
  * Guards at module load that the authored content is complete and self-consistent: cheaper to
  * trip here than to discover from a `undefined` on a map tooltip.

@@ -181,7 +181,7 @@ describe('the console wipes a crew', () => {
     expect(wiped!.research.technologies).toEqual([]);
     expect(wiped!.inventory).toEqual({});
     expect(wiped!.buildings.map((one) => one.kind).sort()).toEqual(['generator', 'nexus']);
-    expect(wiped!.army).toEqual({ razors: 8 });
+    expect(wiped!.army).toEqual({ scavengers: 8 });
     expect(app.repos.blackMarket.stashFor(baseId), 'the shelf is cleared too').toEqual({});
 
     // The ground went back to the city rather than staying held by a crew that no longer exists.

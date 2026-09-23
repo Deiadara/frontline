@@ -1,5 +1,7 @@
 import { randomInt } from 'node:crypto';
 import {
+  rampedTimings,
+  type EarlyRampBand,
   missionBoardKey,
   pagePrizeFor,
   columnSpeed,
@@ -111,6 +113,32 @@ export function launchMission(args: {
    */
   missionSpeedPercent?: number;
   /**
+   * §C3: what the crew's people and ground take off **any** road (`travelSpeedPercent`), and the
+   * whole minutes the `road_shortcut` holding cuts off the end of it (`roadMinutesOff`).
+   *
+   * Every other walk in the game has read these since they existed: a march (`battle/movement.ts`),
+   * a move between districts, a scouting run, and the city's own travel estimate. A mission's road
+   * did not, which made Stamina and Navigation, both labelled "Time on the road", worth nothing on
+   * the road a player uses most (maintainer, 2026-09-23: "speed should affect every walk, missions
+   * too").
+   *
+   * On the run's own clock and **not** on the priced one, like the column's pace and the leader's
+   * Short Way beside it. `rewardScale` is monotonic in the minutes, so pricing a crew's speed into
+   * the card would pay a faster crew less for being faster, which is the §A4 bug `pricedTimings`
+   * was written against.
+   */
+  travelSpeedPercent?: number;
+  roadMinutesOff?: number;
+  /**
+   * The opening band this crew is in, or null once they are past it (`missions.ramp.ts`).
+   *
+   * It moves both clocks and the pay. The priced clock, because the card quoted the band and the
+   * settle has to pay the same one; the run's own clock, because the wait is the whole point of
+   * the ramp; and `payPercent`, because a compressed clock pays compressed loot and the first two
+   * bands exist to cancel exactly that.
+   */
+  ramp?: EarlyRampBand | null;
+  /**
    * §D5: what the officer *leading this run* takes off the road (`leadArrivalPercent`), or 0.
    *
    * Separate from `missionSpeedPercent` above, and the separation is the whole point. That one is a
@@ -175,6 +203,9 @@ export function launchMission(args: {
     battleTier = null,
     admin = false,
     missionSpeedPercent = 0,
+    travelSpeedPercent = 0,
+    roadMinutesOff = 0,
+    ramp = null,
     leadSpeedPercent = 0,
     missionSpoilsPercent = 0,
     unitSpeedPercent = 0,
@@ -216,12 +247,28 @@ export function launchMission(args: {
     hastenedMinutes(template.durationMinutes, runSpeedPercent),
     admin,
   );
-  const timings = missionTimings({
+  const walked = missionTimings({
     travelMinutes: admin
       ? 0
-      : hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], pace, runSpeedPercent),
+      : hastenedRoadMinutes(
+          TRAVEL_BAND_MINUTES[template.travelBand],
+          pace,
+          // The road's own cuts, summed the way every other road in the game sums them: the
+          // ground's shortcut, the leader's Short Way and the crew's own pace off `travelSpeedPercent`.
+          // `roadMinutes` clamps the total at `MAX_TRAVEL_SPEED_BONUS`, so this cannot run away.
+          runSpeedPercent + Math.max(0, travelSpeedPercent),
+          Math.max(0, roadMinutesOff),
+        ),
     durationMinutes,
   });
+  /*
+   * The wait the crew actually runs on, with the opening band applied last.
+   *
+   * Admin mode is left alone: it has already flattened the run to a minute, and a band would only
+   * ever lengthen that back out. Outside admin the band is the point of the ramp, so it lands here
+   * as well as on the priced clock below.
+   */
+  const timings = ramp === null || admin ? walked : rampedTimings(walked, ramp);
   /*
    * ...and the clock the pay is priced on, which is the card's and nobody else's.
    *
@@ -231,7 +278,7 @@ export function launchMission(args: {
    * (`MissionSchema.pricedMinutes`) so a retune landing mid-flight cannot re-price a crew already
    * out.
    */
-  const priced = pricedTimings(template, missionSpeedPercent);
+  const priced = pricedTimings(template, missionSpeedPercent, ramp);
 
   /*
    * The odds the run goes out with, from the one function the card and the gauge also read.
@@ -257,7 +304,12 @@ export function launchMission(args: {
       // The crew's own cut on top of the area's premium and the player's level: `missionSpoilsPercent`
       // is the perk channel for officers who negotiate the contracts (`crew/perks.ts`). Frozen here
       // with everything else, so hiring a better fixer does not retroactively repay a run already out.
-      payPercent: areaPayPercent(areaId) + levelPayPercent(base.level) + missionSpoilsPercent,
+      payPercent:
+        areaPayPercent(areaId) +
+        levelPayPercent(base.level) +
+        missionSpoilsPercent +
+        // The opening band's premium, the same figure the card printed (`missions.ramp.ts`).
+        (ramp?.payPercent ?? 0),
       xp: missionXp(template, priced.totalMinutes, base.level, battleTier),
       battleTier,
       force,

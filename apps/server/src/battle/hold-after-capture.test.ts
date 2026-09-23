@@ -102,6 +102,11 @@ async function makeStack(winner: 'attacker' | 'defender' = 'attacker'): Promise<
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
+  // Razors on the books, explicitly: a new crew is handed Scavengers and no fighters
+  // (`crew/starting.ts`, 2026-09-23), and every count below is of Razors sent and returned.
+  const armed = app.repos.bases.findById(baseId)!;
+  app.repos.bases.updateArmy(baseId, { ...armed.army, razors: 20 }, armed.trainingQueue);
+
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.

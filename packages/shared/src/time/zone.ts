@@ -75,7 +75,6 @@ export const TimezoneSchema = z
   .string()
   .min(1)
   .refine(isValidTimezone, 'Not a recognised timezone name');
-export type Timezone = z.infer<typeof TimezoneSchema>;
 
 /** Formatter cache. `Intl.DateTimeFormat` is expensive to build and every clock rebuilds one. */
 const formatters = new Map<string, Intl.DateTimeFormat>();

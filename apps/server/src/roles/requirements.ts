@@ -1,9 +1,4 @@
-import {
-  OFFICER_ROLES,
-  type AttributeName,
-  type Attributes,
-  type OfficerRole,
-} from '@frontline/shared';
+import { type AttributeName, type Attributes, type OfficerRole } from '@frontline/shared';
 
 /**
  * What each officer role actually wants (GDD §C2, §B8, §B8a).
@@ -134,6 +129,3 @@ export function weightedAttributesOf(role: OfficerRole): AttributeName[] {
 export function attributeWeightsOf(role: OfficerRole): [AttributeName, number][] {
   return Object.entries(ROLE_REQUIREMENTS[role].weights) as [AttributeName, number][];
 }
-
-/** Every role, in declaration order. Re-exported so callers need only this module. */
-export const REQUIREMENT_ROLES: readonly OfficerRole[] = OFFICER_ROLES;

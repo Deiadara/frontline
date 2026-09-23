@@ -111,7 +111,17 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   }
   // Only the defender may set a ring (maintainer, 2026-09-23): the attacker chose the ground and
   // the hour, and the ring is what the defender does about having been chosen.
-  if (side === 'attacker' && Object.values(input.perimeterChanges).some((delta) => delta !== 0)) {
+  /*
+   * Only the defender may *post* a ring, and either side may take one home (bug pass, 2026-09-23).
+   *
+   * This refused any change at all, withdrawals included, which stranded units for good on any
+   * attacker row that already carried a ring: a row written before the 2026-09-23 rule, or a
+   * column dispatched before it and landed after (`battle/movement.ts` merges a column's
+   * perimeter into the row for either side). `assemble` reads only the defender's ring, so those
+   * units never fight; nothing folds an attacker's ring back into a roster; and this refusal was
+   * the last door out. `delta > 0` refuses the posting and allows the retrieval.
+   */
+  if (side === 'attacker' && Object.values(input.perimeterChanges).some((delta) => delta > 0)) {
     return { kind: 'refused', reason: 'ring_is_the_defenders' };
   }
 

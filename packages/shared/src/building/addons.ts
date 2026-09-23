@@ -8,7 +8,6 @@ import {
   MODIFICATION_SLOT_LEVELS,
   SET_BONUSES,
   MAX_MODIFICATION_SLOTS,
-  findModification,
   modificationFits,
   modificationSlotsAt,
   type ModificationSpec,
@@ -185,68 +184,6 @@ export const SLOT_REFUSALS = [
 export type SlotRefusalReason = (typeof SLOT_REFUSALS)[number];
 
 /**
- * Whether this modification may go into this slot, and why not.
- *
- * The single gate §E's "a slot that cannot be filled yet says why" is written out of, and the same
- * one the route enforces, so a dead button and a 409 can never disagree about the reason.
- */
-export function fitSlotRefusal(input: {
-  kind: BuildingKind;
-  modificationId: string;
-  buildings: readonly Building[];
-  addons: Addons;
-}): SlotRefusalReason | null {
-  const { kind, modificationId, buildings, addons } = input;
-  const standing = findBuilding(buildings, kind);
-  if (!standing) return 'no_structure';
-
-  // The first free slot, or the fact that there is not one: §E's "says why" is mostly this line.
-  const slots = modificationSlots(standing);
-  const target = slots.find((slot) => slot.open && slot.modificationId === null);
-  if (!target) {
-    return slots.some((slot) => slot.modificationId === null) ? 'slot_locked' : 'slot_taken';
-  }
-
-  const spec = findModification(modificationId);
-  if (!spec) return 'unknown_modification';
-  /*
-   * Fits, not home.
-   *
-   * This read `spec.building !== kind`, which was right while every card belonged to exactly one
-   * structure. Cross-building fittings (2026-09-14) name a set, and leaving this line alone would
-   * have made the district's picker offer a plumbing run for the Quarters that the route then
-   * refused with `wrong_structure`: the gate the UI asks and the gate the write enforces have to
-   * be the same gate.
-   */
-  if (!modificationFits(spec, kind)) return 'wrong_structure';
-  if (standing.modifications.includes(modificationId)) return 'already_fitted';
-  if (!shelvedModifications(addons, buildings).includes(modificationId)) return 'not_built';
-  return null;
-}
-
-/** The player-facing sentence for every refusal. The client never writes one of its own. */
-export function describeSlotRefusal(reason: SlotRefusalReason, kind: BuildingKind): string {
-  switch (reason) {
-    case 'no_structure':
-      return 'Build this first';
-    case 'bad_slot':
-      return 'There is no slot there';
-    case 'slot_locked':
-      return 'Raise this structure to open the slot';
-    case 'slot_taken':
-      return 'Something is already in that slot';
-    case 'unknown_modification':
-      return 'No such modification';
-    case 'wrong_structure':
-      return 'That does not fit here';
-    case 'not_built':
-      return 'The Scrapyard has not built one';
-    case 'already_fitted':
-      return `Already fitted to the ${kind}`;
-  }
-}
-
-/**
  * `buildings` with `modificationId` fitted to `kind`, in the first slot that is free.
  *
  * The stored array stays **dense**: slot *n* is `modifications[n]`, and there are no holes. That is
@@ -337,24 +274,6 @@ export const ADDON_REFUSALS = [
   'already_fitted',
 ] as const;
 export type AddonRefusal = (typeof ADDON_REFUSALS)[number];
-
-export interface AddonEntry {
-  id: string;
-  kind: 'modification' | 'upgrade';
-  name: string;
-  description: string;
-  /** The structure a modification bolts to, for grouping. Null for a unit upgrade. */
-  building: BuildingKind | null;
-  /** One line: what it actually does. */
-  effect: string;
-  cost: PartialResources;
-  advanced: boolean;
-  /** The blueprint it wants, in the player's words, or null when it needs none. */
-  blueprint: string | null;
-  /** Already in stock. A modification can be built again; an upgrade cannot. */
-  built: boolean;
-  blocker: AddonRefusal | null;
-}
 
 /**
  * Whether the crew holds the retrofit blueprint that gates a modification.
@@ -512,26 +431,4 @@ export function describeAddonEffect(spec: ModificationSpec | UnitModificationSpe
       typeof amount === 'number' ? [`${amount > 0 ? '+' : ''}${amount} ${stat}`] : [],
     )
     .join(', ');
-}
-
-/** The level a structure has to reach before its `slot`th bracket opens. */
-export function slotOpensAt(slot: number): number {
-  return MODIFICATION_SLOT_LEVELS[slot] ?? Number.POSITIVE_INFINITY;
-}
-
-/** How many slots this structure has open, and how many are filled. Read by the dialog's heading. */
-export function slotSummary(
-  buildings: readonly Building[],
-  kind: BuildingKind,
-): { open: number; filled: number } {
-  const slots = modificationSlots(findBuilding(buildings, kind));
-  return {
-    open: slots.filter((slot) => slot.open).length,
-    filled: slots.filter((slot) => slot.modificationId !== null).length,
-  };
-}
-
-/** Convenience for callers that only have a level to hand. */
-export function slotsOpenAtLevel(level: number): number {
-  return modificationSlotsAt(level);
 }

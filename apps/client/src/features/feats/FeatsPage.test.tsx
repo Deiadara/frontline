@@ -494,9 +494,12 @@ describe('the CLAIM button', () => {
 
     await waitFor(() => expect(screen.getByTestId('feats-no-room')).toBeInTheDocument());
     expect(screen.getByTestId('feats-no-room')).toHaveTextContent('1 feat is still waiting');
+    // Two reasons a rung is passed over now (maintainer, 2026-09-23), nowhere to put the bodies
+    // and no room in the stores, so the line names the room rather than one of the two.
     expect(screen.getByTestId('feats-no-room')).toHaveTextContent(
-      FEAT_CLAIM_REFUSAL_TEXT.no_unit_slots,
+      'there is no room for what it pays',
     );
+    expect(screen.getByTestId('feats-no-room')).toHaveTextContent('district or in the stores');
     // Nothing was paid, so no receipt: the two strips never contradict each other.
     expect(screen.queryByTestId('feats-receipt')).toBeNull();
   });

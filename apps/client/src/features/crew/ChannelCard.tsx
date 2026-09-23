@@ -105,7 +105,11 @@ export function ChannelCard({
             style.ink,
           )}
         >
-          +{amount}
+          {/* Rounded to a tenth (bug pass, 2026-09-23). A disrupted channel is scaled by a
+              fraction, so a raid on the district turned a clean +13% into `+11.700000000000001%`
+              on the card. `Math.round(x * 10) / 10` keeps the half-points some channels really do
+              carry and loses the float dust. */}
+          +{Math.round(amount * 10) / 10}
           {unit === 'percent' ? '%' : ''}
         </span>
       </div>

@@ -36,7 +36,6 @@ import { pursuitSpeed, routSurvivors, winnerCasualties } from './rout.js';
  */
 
 export const SkirmishSideSchema = z.enum(['attacker', 'defender']);
-export type SkirmishSide = z.infer<typeof SkirmishSideSchema>;
 
 /** The board's coin flip. Still the middle of the range `rout.ts` tilts around. */
 export const UNIT_FLEE_CHANCE = 0.5;
@@ -193,37 +192,6 @@ export type SkirmishOutcome = z.infer<typeof SkirmishOutcomeSchema>;
 
 export interface SkirmishEngine {
   resolve(input: SkirmishInput): SkirmishOutcome;
-}
-
-/**
- * A complete outcome from whichever fields a caller cares about.
- *
- * For test doubles. The outcome grew five fields when the coin flip was replaced, and every stub
- * engine in the server suite had to be edited to say `winnerLosses: {}`, which is noise that
- * teaches nothing and will have to be done again on the next field. A stub says what it is testing
- * and this fills in the rest.
- */
-export function skirmishOutcome(partial: Partial<SkirmishOutcome> = {}): SkirmishOutcome {
-  return {
-    winner: 'attacker',
-    log: [],
-    fled: {},
-    killed: {},
-    winnerLosses: {},
-    turned: {},
-    executed: 0,
-    executedForce: {},
-    turnedAlive: {},
-    rounds: 1,
-    findings: [],
-    standing: { attacker: [], defender: [] },
-    perimeterCaught: {},
-    perimeterLosses: {},
-    brokeThrough: true,
-    officers: { attacker: null, defender: null },
-    jam: { attacker: 0, defender: 0 },
-    ...partial,
-  };
 }
 
 const total = (force: Army): number => Object.values(force).reduce((sum, count) => sum + count, 0);

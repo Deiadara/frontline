@@ -21,11 +21,6 @@ import {
 export const forceSize = (force: Army): number =>
   Object.values(force).reduce((total, count) => total + count, 0);
 
-/** Whether `army` really contains everything `force` claims to be taking. */
-export function hasForce(army: Army, force: Army): boolean {
-  return Object.entries(force).every(([unitId, count]) => (army[unitId] ?? 0) >= count);
-}
-
 /**
  * Whether every unit in this force is one that can actually be put in a line (§A5).
  *

@@ -72,6 +72,12 @@ interface PageShellProps {
    * slogan arguing.
    */
   quote?: string;
+  /**
+   * A ruled line under the quotation, the one a titled screen's header ends in (maintainer,
+   * 2026-09-23, for the settings). Off by default: a quote-only screen has no header and most of
+   * them want the body to start straight under the line of poetry.
+   */
+  ruled?: boolean;
   /** Pinned to the right of the heading: a filter, a count, a primary action. */
   action?: ReactNode;
   /**
@@ -119,6 +125,7 @@ export function PageShell({
   icon,
   lede,
   quote,
+  ruled = false,
   action,
   wide = false,
   fills = false,
@@ -213,6 +220,13 @@ export function PageShell({
                   <Quote>{quote}</Quote>
                   {onQuoteLine && action}
                 </span>
+              )}
+              {quote !== undefined && ruled && (
+                <span
+                  aria-hidden
+                  className="ink-rule -mt-2 block w-full"
+                  data-testid="quote-rule"
+                />
               )}
               {children}
             </div>

@@ -20,6 +20,7 @@ import { DrawnFace } from '../../components/ui/DrawnMarks';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
+import { DrawnDisc } from '../../components/ui/DrawnMarks';
 import { InfoWindow } from '../../components/ui/InfoWindow';
 import { cn } from '../../lib/cn';
 import { announceWaived, useDeltaMarks } from '../../lib/deltas';
@@ -212,10 +213,21 @@ export function UnitsPage() {
           // over the number the card was opened to read.
           card={
             <InfoWindow
-              eyebrow="The district"
               title="Unit Slots"
               tone={overSupply ? 'oxblood' : 'brass'}
-              icon={<Icon name="unit-slots" className="h-full w-full text-brass-300" />}
+              /*
+               * The mark in the hand the infamy card's is drawn in (maintainer, 2026-09-23): a
+               * ringed disc round a white glyph, standing on nothing. It used to be a brass icon
+               * on the window's pale plate, under an eyebrow that said "The district", which was
+               * a category nobody needed over a figure that is two numbers.
+               */
+              plate="none"
+              icon={
+                <span className="relative flex h-[4.25rem] w-[4.25rem] items-center justify-center text-ink-100">
+                  <DrawnDisc />
+                  <Icon name="unit-slots" className="relative h-8 w-8" />
+                </span>
+              }
               figure={
                 <span className="font-display text-2xl font-bold tabular-nums text-ink-100">
                   {data.unitSlotsUsed} / {data.unitSlotsCap}

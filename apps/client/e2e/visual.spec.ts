@@ -2284,6 +2284,16 @@ test('the vertical clipping guard rejects a bisected card row', async ({ page })
 
     const top = viewport.getBoundingClientRect().top;
     viewport.style.maxHeight = `${glyph.top + glyph.height / 2 - top}px`;
+    /*
+     * Shut, not scrolled (2026-09-24).
+     *
+     * The frame is `overflow-y-auto`, and clamping it leaves a scroller the reader can simply
+     * scroll: the gate no longer counts a scroller's own fold as a cut, because a half-shown last
+     * row is what a scrolling region is. The defect this reproduces is the other thing, a viewport
+     * that ends part-way down its content with no way to reach the rest, so the frame is shut here
+     * to stage exactly that.
+     */
+    viewport.style.overflowY = 'hidden';
   });
 
   await expect(expectNothingClippedVertically(page)).rejects.toThrow(/sliced by a clipping edge/);

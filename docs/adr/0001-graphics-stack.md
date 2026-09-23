@@ -193,7 +193,9 @@ apps/client/src/render/
   layers.ts       parallax plane registry (§5.2)
   paint/          procedural painterly generators: the interim look (§5.3)
 apps/client/src/assets/
-  useAssetBundle.ts  React hook: lazy `Assets.loadBundle` + progress state
+  loader.ts          resolves every manifest key to a delivered URL, once, at module load
+                     (the lazy `Assets.loadBundle` hook this line described was never mounted
+                      by any screen and went on 2026-09-24, with the rest of the Pixi path)
 scripts/gen-art.ts   pluggable ImageBackend + manifest-driven runner + --dry-run
 ```
 

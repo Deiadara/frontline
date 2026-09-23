@@ -92,7 +92,27 @@ export function tickWorld(
   // §A4: the scouts and the crews coming home are settled inside it. What a finished run writes is
   // a receipt, and a receipt only matters when it arrives. A player who sent somebody out and closed
   // the tab should come back to open ground and a rung bell, not cause both by opening a screen.
-  return settleWorld(repos, engine, now, settleCrewsComingHome, admin);
+  /*
+   * The crews' own failures are collected rather than thrown (bug pass, 2026-09-23).
+   *
+   * `settleWorld` calls this callback *before* the automations, the scouts, the spies and every
+   * auction, so a throw from inside it skipped all of them, for every player, once a second, for
+   * as long as one unparseable row existed. The failure is still surfaced, just after the rest of
+   * the world has had its tick: `startWorldClock` catches what is thrown here and hands it to
+   * `onError`.
+   */
+  const unsettled: string[] = [];
+  const resolved = settleWorld(
+    repos,
+    engine,
+    now,
+    (r, at) => settleCrewsComingHome(r, at, unsettled),
+    admin,
+  );
+  if (unsettled.length > 0) {
+    throw new Error(`could not settle crews for ${unsettled.join(', ')}`);
+  }
+  return resolved;
 }
 
 /**
@@ -100,19 +120,36 @@ export function tickWorld(
  *
  * The candidate set is districts with a crew still out, which is small: a player runs a handful of
  * jobs at a time and a finished one leaves the set. Each is settled in its own transaction, so one
- * unreadable run cannot roll back the crews that came home cleanly beside it, and a throw is left
- * to the caller's guard rather than swallowed here.
+ * unreadable run cannot roll back the crews that came home cleanly beside it, and a base that
+ * throws is collected into `failed` rather than ending the sweep: `tickWorld` re-throws once the
+ * rest of the world has had its tick. See the note there.
  *
  * The cost of the sweep grows with the number of *runs in flight*, not with the number of accounts,
  * and every second it does a primary-key lookup per district with one. That is the right shape for
  * a game of this size and the wrong one for a very large one: past a few thousand concurrent runs
  * this wants an index on a stored return time and a query that asks only for what is actually due.
  */
-function settleCrewsComingHome(repos: Repositories, now: Date): void {
+function settleCrewsComingHome(repos: Repositories, now: Date, failed: string[]): void {
   for (const baseId of repos.missions.basesWithActiveRuns()) {
     const base = repos.bases.findById(baseId);
     if (!base) continue;
-    repos.tx(() => resolveDueMissions(repos, base, now));
+    try {
+      repos.tx(() => resolveDueMissions(repos, base, now));
+    } catch {
+      /*
+       * One unreadable crew is one unreadable crew (bug pass, 2026-09-23).
+       *
+       * The comment above already claimed this and only half of it was true: each base settles in
+       * its own transaction, so a throw rolled back nothing but its own work, and then escaped
+       * into `settleWorld`, which runs this *before* the automations, the scouts, the spies and
+       * every auction. So one row nothing could parse stopped all of those for **every player**,
+       * once a second, silently, for as long as the row existed. The clock's own guard swallowed
+       * it, so nothing in the logs said which base it was either.
+       *
+       * Caught per base and named, so the sweep carries on and the row can be found.
+       */
+      failed.push(baseId);
+    }
   }
 }
 

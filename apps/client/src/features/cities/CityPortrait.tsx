@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { cityPortraitUrl } from '../../assets/delivered';
 import { generateSkyline, type DepthBand } from '../../render/skyline';
 
 /**
@@ -17,8 +18,13 @@ import { generateSkyline, type DepthBand } from '../../render/skyline';
  * broken and the other is tall and regular, because the seeds differ, and that reads as two cities
  * before a single word is read.
  *
- * The import path stays open. When `plate-city-<id>` masters exist, this component takes a
- * `src` and paints it over the skyline with no other change to the card.
+ * ## The maintainer's own painting
+ *
+ * The drop seam is live: `city-<id>.webp` in `assets/` replaces the skyline for that city and
+ * nothing else changes. `cityPortraitUrl` is the lookup, and the five names it wants are
+ * `city-ashfall`, `city-saltmarch`, `city-verge-station`, `city-redline` and `city-deepcut`.
+ * A painting is drawn `object-cover`, because the card it sits in is a column of the world screen
+ * and its height comes off the window rather than off the picture.
  */
 
 /** Back to front, and the order they are painted in. */
@@ -34,17 +40,21 @@ function seedOf(cityId: string): number {
   return Math.abs(hash) % 100000;
 }
 
-export function CityPortrait({ cityId, dim = false }: { cityId: string; dim?: boolean }) {
+export function CityPortrait({ cityId }: { cityId: string }) {
+  const painted = cityPortraitUrl(cityId);
+
   /*
-   * 390 by 520 is exactly 3:4, which is the aspect of the box this sits in.
+   * 390 by 640 is a hair under 1:1.64, which is the middle of the range the card actually takes.
    *
-   * It was 400 by 520 (0.769 against the card's 0.75), and with `slice` that cropped eleven pixels
-   * off the bottom of every portrait. Small enough to miss by eye and caught by the image gate,
-   * which is what that gate is for. Matching the ratio means `meet` and `slice` are the same thing
-   * here and nothing is cut: the drawing fills the card exactly.
+   * The card used to be a fixed 3:4 box and the viewBox matched it exactly, so `meet` and `slice`
+   * were the same thing and nothing was ever cut. The card is a full-height column now and its
+   * aspect runs from about 1:1.3 at three columns to 1:2.1 on a tall wide window, so no single
+   * viewBox can match it. `slice` is the right half of that trade: it fills the card and crops the
+   * overhang, the way the painting that replaces it will. `meet` would letterbox instead, and
+   * transparent bands top and bottom of a skyline read as a broken image rather than as a choice.
    */
   const width = 390;
-  const height = 520;
+  const height = 640;
 
   const bands = useMemo(
     () =>
@@ -57,10 +67,21 @@ export function CityPortrait({ cityId, dim = false }: { cityId: string; dim?: bo
     [cityId],
   );
 
+  if (painted !== null) {
+    return (
+      <img
+        src={painted}
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+    );
+  }
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="xMidYMid slice"
       aria-hidden
       className="absolute inset-0 h-full w-full"
     >
@@ -79,7 +100,7 @@ export function CityPortrait({ cityId, dim = false }: { cityId: string; dim?: bo
       <rect width={width} height={height} fill={`url(#sky-${cityId})`} />
       <rect width={width} height={height} fill={`url(#glow-${cityId})`} />
 
-      <g opacity={dim ? 0.55 : 1}>
+      <g>
         {bands.map(({ band, skyline }) => (
           <g key={band}>
             {skyline.towers.map((tower, at) => (

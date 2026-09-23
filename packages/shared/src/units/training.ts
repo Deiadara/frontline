@@ -1,18 +1,11 @@
 import { z } from 'zod';
 import { CANCEL_REFUND, CANCEL_WINDOW } from '../time/cancel.js';
-import type { Building } from '../building/index.js';
 import { VehicleIdSchema } from '../building/vehicles.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { MAX_TRAINING_SPEED_BONUS } from '../time/speed.js';
 import { PartialResourcesSchema, RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import type { LocationKind } from '../city/locations.js';
-import {
-  PLAYER_UNITS,
-  UnitIdSchema,
-  findUnit,
-  locationsTraining,
-  type UnitSpec,
-} from './catalog.js';
+import { UnitIdSchema, findUnit, locationsTraining, type UnitSpec } from './catalog.js';
 
 /**
  * Making units (GDD §A5).
@@ -557,9 +550,4 @@ export function alreadyHolds(unit: UnitSpec, army: Army, queue: TrainingQueue): 
     .filter((order) => order.unitId === unit.id)
     .reduce((total, order) => total + order.count, 0);
   return (army[unit.id] ?? 0) + queued;
-}
-
-/** Units this crew could train at `building`, before any unlock or affordability check. */
-export function unitsTrainedAt(building: Building['kind']): UnitSpec[] {
-  return PLAYER_UNITS.filter((unit) => unit.trainedAt === building);
 }

@@ -425,10 +425,18 @@ told to do is a new runner and nothing else. `missions` is the one kind today.
   they are not errors.
 - **The board lock is the strong rule:** while any slot is on, `POST /missions` is refused with
   "Your Right Hand has the board", and the screen says so first.
+- **A slot obeys every door a player does** (bug pass, 2026-09-23). It was the fourth way onto a
+  field and the only one that asked none of the questions the other three ask. It now checks the
+  crews-out ceiling before it fires (`concurrentMissionSlots` plus `missionSlotsFlat`, stalling
+  with "Every crew is out: N of M") and `unitsBeyondNotoriety` on the party it would send, for the
+  named branch and the fitted one; `bestFitParty` is fitted out of what the crew may legally
+  field, so a slot fills with the next best party rather than stalling. Its row, its roster write,
+  its tally and its own bookkeeping go in **one transaction**, as the manual launch's do.
 
 Routes: `GET /automations` (powers off the crew's research, the slots, the officers that could be
 named), `POST /automations` (`SaveAutomationRequestSchema`, the whole slot, refused above the crew's
-rungs and refused when it names both a party and a size), `GET /automations/board`.
+rungs and refused when it names both a party and a size), `GET /automations/board` (registered and
+called by nothing: the missions screen reads its automation state off another payload).
 
 ## Spying (maintainer, 2026-09-22)
 
@@ -692,6 +700,32 @@ district, resolved history included, so the repo carries no legacy branch.
 
 `GET /api/missions` settles first (see **Lazy settlement**) and then answers the whole screen:
 the crew's runs, what just came home, the boards, the army at home, and two fields about leading.
+
+**The opening ramp (maintainer, 2026-09-23).** A new crew's board is compressed into minutes and
+opens out over the first six levels. `packages/shared/src/missions.ramp.ts` holds the bands and
+`missions/pricing.ts`'s `rampFor` reads which one a crew is in, off its level and the lifetime
+`missions_done` tally:
+
+| when                   | door to door    | what it pays    |
+| ---------------------- | --------------- | --------------- |
+| the first three runs   | 1 to 3 min      | twice the clock |
+| after that, to level 3 | 3 to 10 min     | half again      |
+| levels 4 to 6          | 10 to 30 min    | the clock       |
+| level 7 and up         | the board's own | the board's own |
+
+**Every walk reads the crew's speed (maintainer, 2026-09-23).** A mission's travel legs now take
+`travelSpeedPercent` off the clock and the `road_shortcut` holding's whole minutes off the end of
+it, exactly as a march, a move between districts, a scouting run and the city's travel estimate
+already did. It lands on the **run's** clock and not on the priced one, beside the column's pace
+and the leader's Short Way: `rewardScale` is monotonic in the minutes, so pricing a crew's own
+speed into the card would pay a faster crew less for being faster.
+
+The band is applied last, after the crew's own speed, in `pricedTimings`, so the card and the
+launch quote the same clock; its premium is folded into `payPercent` beside the ground's and the
+level's, so a run already out keeps it. The board's ordering survives: a job's own clock is mapped
+into the band on a log scale, so the longest job in a band is still the longest. Above the last
+band `earlyMissionRamp` answers null before it looks at the count, so the ramp is unreachable for a
+crew that is past the opening whatever their history.
 
 - **`leaders`** is the bench, from `apps/server/src/missions/leaders.ts`: the **Overseer first**,
   kind `overseer`, then every officer on the books in roster order, kind `officer`. Each carries the

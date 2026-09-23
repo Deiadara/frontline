@@ -238,7 +238,7 @@ describe('PATCH /api/settings/profile', () => {
 });
 
 describe('POST /api/settings/password', () => {
-  it('changes the password when the old one is given', async () => {
+  it('changes the password on the session alone, without the old one', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
 
@@ -246,7 +246,7 @@ describe('POST /api/settings/password', () => {
       method: 'POST',
       url: '/api/settings/password',
       headers: auth(token),
-      payload: { currentPassword: PASSWORD, newPassword: 'a-much-longer-one' },
+      payload: { newPassword: 'a-much-longer-one' },
     });
     expect(res.statusCode).toBe(200);
 
@@ -265,27 +265,6 @@ describe('POST /api/settings/password', () => {
     expect(fresh.statusCode).toBe(200);
   });
 
-  it('refuses without the old password, even with a valid token', async () => {
-    const { app } = await makeApp();
-    const token = await register(app, 'operator');
-
-    // The token proves the browser had the password once. It does not prove who is at the keyboard.
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/settings/password',
-      headers: auth(token),
-      payload: { currentPassword: 'not-it', newPassword: 'a-much-longer-one' },
-    });
-    expect(res.statusCode).toBe(401);
-
-    const login = await app.inject({
-      method: 'POST',
-      url: '/api/auth/login',
-      payload: { username: 'operator', password: PASSWORD },
-    });
-    expect(login.statusCode).toBe(200);
-  });
-
   it('refuses a new password shorter than the registration rule', async () => {
     const { app } = await makeApp();
     const token = await register(app, 'operator');
@@ -293,7 +272,7 @@ describe('POST /api/settings/password', () => {
       method: 'POST',
       url: '/api/settings/password',
       headers: auth(token),
-      payload: { currentPassword: PASSWORD, newPassword: 'short' },
+      payload: { newPassword: 'short' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -305,7 +284,7 @@ describe('POST /api/settings/password', () => {
       method: 'POST',
       url: '/api/settings/password',
       headers: auth(token),
-      payload: { currentPassword: PASSWORD, newPassword: 'a-much-longer-one' },
+      payload: { newPassword: 'a-much-longer-one' },
     });
 
     const rows = db.prepare('SELECT kind, payload_json FROM game_events').all() as {

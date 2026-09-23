@@ -36,7 +36,7 @@ import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
 import { AppError, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
-import { seatedRoles } from '../crew/roster.js';
+import { workingRoles } from '../crew/roster.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { tallyBenchTrade, tallyPageReimagined, tallyPagesIn } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
@@ -166,7 +166,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
         const context: ReimaginingContext = {
-          hasHeadOfResearch: seatedRoles(base.commanders).includes('head_of_research'),
+          hasHeadOfResearch: workingRoles(base.commanders).includes('head_of_research'),
           hasReimaginingResearch: isReimaginingResearched(base.research.technologies),
         };
         const input = {

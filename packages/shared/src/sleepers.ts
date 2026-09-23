@@ -39,7 +39,6 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
  */
 export const SLEEPER_PHASES = ['outbound', 'waiting', 'returning'] as const;
 export const SleeperPhaseSchema = z.enum(SLEEPER_PHASES);
-export type SleeperPhase = z.infer<typeof SleeperPhaseSchema>;
 
 export const SleeperCellSchema = z.object({
   id: IdSchema,

@@ -1217,8 +1217,6 @@ export const MODIFICATIONS: readonly ModificationSpec[] = SPECS.map((spec) => ({
   id: idFor(spec),
 }));
 
-export const MODIFICATION_IDS: readonly string[] = MODIFICATIONS.map((mod) => mod.id);
-
 const BY_ID = new Map(MODIFICATIONS.map((mod) => [mod.id, mod]));
 
 export function findModification(id: string): ModificationSpec | undefined {
@@ -1237,7 +1235,6 @@ export function isModificationId(id: string): boolean {
 export const ModificationIdSchema = z
   .string()
   .refine(isModificationId, { message: 'unknown modification' });
-export type ModificationId = string;
 
 /**
  * The cards that call this structure home, in catalogue order.

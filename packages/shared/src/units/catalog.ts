@@ -2086,11 +2086,6 @@ export function gauntletLevelFor(unitId: string): number | null {
   return null;
 }
 
-/** Every unit the Gauntlet opens at this level, so the dialog can say what a level buys. */
-export function unitsUnlockedAtGauntlet(level: number): UnitSpec[] {
-  return UNIT_CATALOG.filter((unit) => gauntletLevelFor(unit.id) === level);
-}
-
 /**
  * Guards the catalogue at module load.
  *

@@ -143,7 +143,11 @@ export function InfoWindow({
           <span
             className={cn(
               'flex shrink-0 items-center justify-center rounded-sm',
-              iconSize === 'sm' ? 'h-9' : 'h-24 shadow-lifted',
+              iconSize === 'sm' ? 'h-9' : 'h-24',
+              // The lift belongs to a *plate*, not to a picture. On `plate="none"` there is
+              // nothing to raise off the paper, and the shadow drew a square behind a cut-out
+              // resource master (maintainer, 2026-09-23).
+              iconSize !== 'sm' && plate !== 'none' && 'shadow-lifted',
               plate === 'none'
                 ? // The picture *is* the plate. `w-auto` so a 3:4 portrait comes out 72x96 rather
                   // than sitting in a 96-wide square with a mat down both sides.

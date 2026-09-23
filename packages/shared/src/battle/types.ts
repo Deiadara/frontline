@@ -21,4 +21,3 @@ export const BattleResultSchema = z.object({
   /** What came home. Empty on a loss, and bounded by what the force could carry on a win. */
   rewards: PartialResourcesSchema,
 });
-export type BattleResult = z.infer<typeof BattleResultSchema>;

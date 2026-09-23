@@ -1,4 +1,5 @@
 import {
+  officerIsInjured,
   markFromPoints,
   type AttributeLift,
   type Attributes,
@@ -102,4 +103,41 @@ export function seatedRoles(commanders: readonly Commander[]): OfficerRole[] {
   return commanders
     .map((officer) => officer.role)
     .filter((role): role is OfficerRole => role !== null);
+}
+
+/**
+ * The people who are actually working, which is not everybody on the books (maintainer, 2026-09-23).
+ *
+ * An injured officer is **out**: no ratings, no perks, no lift on anybody else, and none of the
+ * services their chair unlocks, until their twelve hours are up (`OFFICER_INJURY_HOURS`). The
+ * sheet fold already honoured that (`officerLiftRoom` drops them before best-of); the chairs did
+ * not, so a crew whose Consigliere was in a hospital bed still had their counter-intel, their
+ * Master of Whispers still ran the network, and their Fabricator still cut cards.
+ *
+ * Deliberately separate from {@link seatedRoles}, which answers a different question and must keep
+ * answering it: the Bar asks "is this chair taken" so it can refuse to seat two people in one, and
+ * a chair does not come free because the person in it is hurt.
+ */
+export function workingOfficers(
+  commanders: readonly Commander[],
+  now: Date = new Date(),
+): Commander[] {
+  return commanders.filter((officer) => !officerIsInjured(officer.injuredUntil, now));
+}
+
+/** The chair, if somebody is in it and fit to work. See {@link workingOfficers}. */
+export function workingOfficer(
+  commanders: readonly Commander[],
+  role: OfficerRole,
+  now: Date = new Date(),
+): Commander | undefined {
+  return workingOfficers(commanders, now).find((officer) => officer.role === role);
+}
+
+/** The chairs whose services are open right now. See {@link workingOfficers}. */
+export function workingRoles(
+  commanders: readonly Commander[],
+  now: Date = new Date(),
+): OfficerRole[] {
+  return seatedRoles(workingOfficers(commanders, now));
 }

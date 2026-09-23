@@ -31,7 +31,6 @@ import {
 
 export const FINDING_VISIBILITIES = ['shared', 'own', 'implied'] as const;
 export const FindingVisibilitySchema = z.enum(FINDING_VISIBILITIES);
-export type FindingVisibility = z.infer<typeof FindingVisibilitySchema>;
 
 export const FINDING_KINDS = [
   'ground',
@@ -50,7 +49,6 @@ export const FINDING_KINDS = [
   'support',
 ] as const;
 export const FindingKindSchema = z.enum(FINDING_KINDS);
-export type FindingKind = z.infer<typeof FindingKindSchema>;
 
 export const BattleFindingSchema = z.object({
   side: z.enum(['attacker', 'defender']),
