@@ -65,6 +65,22 @@ export function rollSalvage(
   return found;
 }
 
+/**
+ * Components a run is owed whatever the dice say: the Siege's guarantee (maintainer, 2026-09-23).
+ *
+ * The same rarity ladder and the same pool as a found item, so a guaranteed part is not a better
+ * part, only a certain one. `count` rolls, every one a hit. Drawn off the same stream as the rest
+ * of the settle, so two reads of the finished run agree about what came home.
+ */
+export function guaranteedSalvage(count: number, random: () => number): ItemCost {
+  const found: ItemCost = {};
+  for (let roll = 0; roll < count; roll++) {
+    const id = pickByRarity(random);
+    found[id] = (found[id] ?? 0) + 1;
+  }
+  return found;
+}
+
 /** One item, drawn against the rarity weights above. Blueprints are excluded: those are traded. */
 function pickByRarity(random: () => number): ItemId {
   const target = random();

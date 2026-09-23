@@ -21,6 +21,7 @@
  */
 import {
   BLUEPRINTS,
+  REIMAGINING_COMPLETE_XP,
   REIMAGINING_PAGES_SPENT,
   REIMAGINING_RESEARCH_ID,
   createCommander,
@@ -154,7 +155,7 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     // Persisted, rather than only answered.
     const after = heldBy(stack);
     expect(after[PAID] ?? 0).toBe(1);
-    expect(after[body.gained] ?? 0).toBe(1);
+    expect(after[body.gained ?? ''] ?? 0).toBe(1);
   });
 
   /**
@@ -226,7 +227,15 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     expect(res.body).toContain('not_available');
   });
 
-  it('refuses once the crew holds every page there is, rather than trading for nothing', async () => {
+  /**
+   * The end of the collection pays experience (maintainer, 2026-09-23).
+   *
+   * It used to refuse, which left a live-looking machine with a dead lever under it for the one
+   * crew that had finished. Now the three pages go in and `REIMAGINING_COMPLETE_XP` comes out
+   * through the same funnel every other award uses, so the district's and the crew's bonuses ride
+   * on it: the figure in the answer is what was actually banked, not the table entry.
+   */
+  it('pays experience once the crew holds every page there is, and still takes the three', async () => {
     const stack = await crew();
     openTheLab(stack);
     // One of everything, plus enough spares of the first to pay with.
@@ -234,10 +243,27 @@ describe('the Reimagining trade (§G2, §G3)', () => {
       ...Object.fromEntries(ALL_PAGES.map((id) => [id, 1])),
       [PAID]: REIMAGINING_PAGES_SPENT + 1,
     });
+    const before = stack.app.repos.bases.findById(stack.baseId);
+    if (!before) throw new Error('no base');
 
     const res = await post(stack, THREE);
-    expect(res.statusCode).toBe(409);
-    expect(res.body).toContain('nothing_left_to_find');
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json<{ gained: string | null; xp: number; spent: string[] }>();
+    expect(body.gained).toBeNull();
+    expect(body.xp).toBeGreaterThanOrEqual(REIMAGINING_COMPLETE_XP);
+    expect(body.spent).toEqual(THREE);
+    expect(heldBy(stack)[PAID]).toBe(1);
+
+    const after = stack.app.repos.bases.findById(stack.baseId);
+    if (!after) throw new Error('no base');
+    // Banked: either the level moved or the bar did, by the amount the answer named.
+    const climbed =
+      after.level > before.level || after.progression.xpIntoLevel > before.progression.xpIntoLevel;
+    expect(climbed).toBe(true);
+    // The lever counts, and so does the payout that replaced a page.
+    const tallies = stack.app.repos.feats.tallies(stack.baseId);
+    expect(tallies.bench_trades).toBe(1);
+    expect(tallies.bench_experience).toBe(1);
   });
 
   /**
@@ -277,7 +303,7 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     const body = res.json<ReimagineResponse>();
 
     // The page really landed, or the counter below is measuring a trade that never happened.
-    expect(heldBy(stack)[body.gained] ?? 0).toBe(1);
+    expect(heldBy(stack)[body.gained ?? ''] ?? 0).toBe(1);
     // One page found. Not the three that were spent, and not the four the crew is now holding.
     expect(read() - before).toBe(1);
   });
@@ -330,7 +356,7 @@ describe('the Reimagining trade (§G2, §G3)', () => {
     expect(MASTERPIECE_PAGES, `the bench paid ${body.gained}`).not.toContain(body.gained);
     expect(masterpiecesReimagined(stack)).toBe(0);
     // The trade happened, so a zero above is the tier check and not a refused request.
-    expect(heldBy(stack)[body.gained] ?? 0).toBe(1);
+    expect(heldBy(stack)[body.gained ?? ''] ?? 0).toBe(1);
   });
 
   it('says the Lab is open on the board once both halves are met', async () => {

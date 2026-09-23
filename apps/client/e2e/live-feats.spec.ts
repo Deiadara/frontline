@@ -108,7 +108,7 @@ test.describe('the real server, over the new screens', () => {
     await page.goto('/game/messages?to=Sable_Ninth');
     const form = page.getByTestId('compose-form');
     await expect(form).toBeVisible();
-    await expect(form.getByTestId('compose-to')).toHaveValue('Sable_Ninth');
+    await expect(form.getByTestId('compose-recipient-Sable_Ninth')).toBeVisible();
     await form.getByTestId('compose-subject').fill('A word');
     await form.getByTestId('compose-body').fill('About the ground on Ninth Street.');
     await form.getByRole('button', { name: 'Send it' }).click();

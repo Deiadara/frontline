@@ -429,22 +429,6 @@ export function InfamyChip({
                * (`economy/renown.ts`), and the card is where a player is told so, because it is
                * where a rank is bought.
                */}
-              {buys.length > 0 && (
-                <ul
-                  className="flex flex-wrap gap-1"
-                  data-testid="notoriety-grant"
-                  aria-label={`What ${next} pays`}
-                >
-                  {buys.map((line) => (
-                    <li
-                      key={line}
-                      className="rounded-sm border border-brass-300/40 bg-brass-500/10 px-1.5 py-px font-display text-[11px] font-bold tracking-[0.04em] text-brass-100"
-                    >
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              )}
               {/* The shortfall as a figure, not a sentence about how to earn it. */}
               {!affordable && (
                 <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
@@ -454,17 +438,48 @@ export function InfamyChip({
                   short
                 </p>
               )}
-              <DrawnButton
-                size="sm"
-                className="self-start"
-                disabled={!affordable || upgrade.isPending}
-                // The rung this chip is showing: the server refuses a press that names one the
-                // row has already left, so a double click buys one rank and not two.
-                onClick={() => upgrade.mutate({ fromNotoriety: notoriety })}
-                data-testid="upgrade-tier"
-              >
-                Upgrade Tier
-              </DrawnButton>
+              {/*
+               * What the rank pays and the button that buys it, on one line: the grant on the
+               * left, the button on the right (maintainer request, 2026-09-23). They were stacked,
+               * and a card that is a price, a bar, a tag and a button read as four rows for two
+               * facts.
+               *
+               * The grant is in the channels' own words. A rank used to be a gate and nothing
+               * else, and the top eight rungs of the ladder gated nothing at all: every unit tier
+               * is fieldable by `Marked`. They pay now (`economy/renown.ts`), and the card is
+               * where a player is told so, because it is where a rank is bought.
+               */}
+              <div className="flex items-center justify-between gap-3">
+                {buys.length > 0 ? (
+                  <ul
+                    className="flex min-w-0 flex-wrap gap-1"
+                    data-testid="notoriety-grant"
+                    aria-label={`What ${next} pays`}
+                  >
+                    {buys.map((line) => (
+                      <li
+                        key={line}
+                        className="rounded-sm border border-brass-300/40 bg-brass-500/10 px-1.5 py-px font-display text-[11px] font-bold tracking-[0.04em] text-brass-100"
+                      >
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span />
+                )}
+                <DrawnButton
+                  size="sm"
+                  className="shrink-0"
+                  disabled={!affordable || upgrade.isPending}
+                  // The rung this chip is showing: the server refuses a press that names one the
+                  // row has already left, so a double click buys one rank and not two.
+                  onClick={() => upgrade.mutate({ fromNotoriety: notoriety })}
+                  data-testid="upgrade-tier"
+                >
+                  Upgrade Tier
+                </DrawnButton>
+              </div>
             </div>
           )}
         </DrawnCard>

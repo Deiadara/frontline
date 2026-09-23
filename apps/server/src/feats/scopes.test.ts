@@ -1,4 +1,6 @@
 import {
+  BATTLE_TIERS,
+  type BattleTier,
   COMBINE_LEADERS,
   COMBINE_UNITS,
   FEATS,
@@ -120,10 +122,41 @@ describe('a scoped tally is written under the scope the catalogue asks for', () 
     expect([...SCOPED_TALLY_MEASURES].sort()).toEqual([
       'combine_kills_of',
       'combine_leaders_slain',
+      'fights_won_at_tier',
       'missions_in_area',
       'missions_of_kind',
       'resources_earned',
     ]);
+  });
+
+  it('spells a fight tier the way the catalogue does, and counts a win only', () => {
+    const tiers = scopesWanted('fights_won_at_tier');
+    expect(tiers.length).toBeGreaterThan(0);
+    for (const tier of tiers) expect(BATTLE_TIERS, tier).toContain(tier);
+    for (const tier of tiers) {
+      tallyMissionHome(repos, BASE_ID, {
+        areaId: 'misc',
+        kind: 'battle',
+        succeeded: false,
+        tier: tier as BattleTier,
+      });
+    }
+    const lost = tallies();
+    for (const tier of tiers) {
+      expect(lost[featMeasureKey('fights_won_at_tier', tier)] ?? 0, tier).toBe(0);
+    }
+    for (const tier of tiers) {
+      tallyMissionHome(repos, BASE_ID, {
+        areaId: 'misc',
+        kind: 'battle',
+        succeeded: true,
+        tier: tier as BattleTier,
+      });
+    }
+    const won = tallies();
+    for (const tier of tiers) {
+      expect(won[featMeasureKey('fights_won_at_tier', tier)], tier).toBe(1);
+    }
   });
 
   it('spells a mission area and a mission kind the way the catalogue does', () => {

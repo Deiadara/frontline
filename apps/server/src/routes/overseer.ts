@@ -27,7 +27,7 @@ import { applyUnlockedSandbox } from '../seed/sandbox.js';
 import { startingBase } from '../crew/starting.js';
 import { MVP_PLAYER } from '../seed/constants.js';
 import { seededFactionId } from '../seed/index.js';
-import { notify } from '../social/notify.js';
+import { sendMessage } from '../social/send.js';
 import { tallyOverseerTaken } from '../feats/tally.js';
 import { AppError, parseBody } from '../errors.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -411,24 +411,55 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
        * to a table they never agreed to join would have been the shorter route and the wrong one.
        */
       const seeded = seededFactionId(app.repos);
-      if (seeded && app.repos.factions.memberCount(seeded) < MAX_FACTION_MEMBERS) {
+      const faction = seeded === undefined ? undefined : app.repos.factions.find(seeded);
+      if (seeded && faction && app.repos.factions.memberCount(seeded) < MAX_FACTION_MEMBERS) {
         const leader = app.repos.factions
           .members(seeded)
           .find((member) => member.rank === 'leader');
+        const inviteId = randomUUID();
         app.repos.factions.invite({
-          id: randomUUID(),
+          id: inviteId,
           factionId: seeded,
           invitedUserId: user.id,
           invitedByUserId: leader?.userId ?? user.id,
           sentAt: now,
         });
-        notify(app.repos, {
-          userId: user.id,
-          kind: 'faction_invite',
-          title: 'A faction has asked you to join',
-          body: 'There is a table with a seat open.',
-          link: '/game/faction',
-          now: new Date(now),
+        /*
+         * Delivered as a **message**, the way every other invitation is (`routes/factions.ts`).
+         *
+         * It used to be a bell entry alone, pointing at `/game/faction`. That screen is behind
+         * `RequireUnlock area="faction"`, which is level 10, and this invitation arrives at level
+         * one: the first notification a new account ever received was a door it could not open,
+         * for an offer it had no way to answer. The mailbox is not gated, and a message carrying
+         * `invite` is what makes `InviteCard` draw an Accept button, so this is the only delivery
+         * that is actually actionable on the day it is sent. `FoundFaction`'s own copy already
+         * told the player their invitation would be "in your messages, with a button on it".
+         *
+         * The bell still rings `faction_invite` rather than `message_received`, so a player who
+         * has muted ordinary mail still hears this one.
+         */
+        const inviter = leader?.userId ?? user.id;
+        sendMessage(app.repos, {
+          sender: { id: inviter, username: faction.name },
+          senderFaction: faction.name,
+          recipients: [user.id],
+          audience: 'player',
+          addressedTo: user.username,
+          subject: `An invitation to ${faction.name}`,
+          body:
+            `${faction.name} has asked you to join them.\n\n` +
+            `${faction.blurb || 'They have not written down what they are for.'}\n\n` +
+            'Accepting puts your district at their table: your army shows up on their roster, ' +
+            'their fights show up on yours, and either of you can send help to the other.',
+          sentAt: new Date(now),
+          invite: { inviteId, factionId: faction.id },
+          notification: {
+            kind: 'faction_invite',
+            title: `${faction.name} has asked you to join`,
+            body: 'There is a table with a seat open.',
+            link: '/game/messages',
+          },
+          keepSentCopy: false,
         });
       }
 

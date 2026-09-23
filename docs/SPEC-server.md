@@ -283,11 +283,13 @@ so the inventory updates from the response instead of racing a refetch.
   names the three (maintainer, 2026-09-10); the Lab used to pick the most duplicated itself. The tuple is
   parsed against the page catalogue, so anything but exactly three real page ids is a
   `400 VALIDATION_ERROR` at the door. Then `reimaginingRefusal` re-checks against the _base record_:
-  `not_available` (no Head of Research seated, or the rung not banked), `nothing_left_to_find` (the
-  crew holds or has already bound every page in the game), `wrong_page_count`, and `pages_not_held`
-  when a named page is not held, or is named more times than it is held. Every one is a
-  `409 REIMAGINING_REFUSED` carrying the machine name, and `REIMAGINING_REFUSAL_MESSAGES` in shared
-  is the sentence each one prints.
+  `not_available` (no Head of Research seated, or the rung not banked), `wrong_page_count`, and
+  `pages_not_held` when a named page is not held, or is named more times than it is held. Every one
+  is a `409 REIMAGINING_REFUSED` carrying the machine name, and `REIMAGINING_REFUSAL_MESSAGES` in
+  shared is the sentence each one prints. A crew that holds or has bound every page in the game is
+  **not** refused (maintainer, 2026-09-23): the three pages go in and `REIMAGINING_COMPLETE_XP`
+  (5000, source `pagesReimagined`, through `awardPlayerXp` so the usual bonuses apply) comes out, and
+  the answer carries `gained: null` and the `xp` actually banked.
 
 What comes back is never the caller's choice, but since the maintainer's 2026-09-18 call it does
 depend on what went in. The trade is two seeded draws off a seed of the base id and the moment, so a
@@ -381,7 +383,54 @@ The city as authored starts with two contested districts open, Chrome Row and th
 Fields, and six shut, so breaking a gate is what puts a new board on the screen.
 `missions/board.test.ts` holds that count.
 
-### Spying (maintainer, 2026-09-22)
+Every board deals **one fight and two plain jobs** (`FIGHTS_PER_AREA`, maintainer 2026-09-23); the
+coin that used to deal two fights on half the boards is gone. A fight's tier is dealt off the
+crew's level (`dealBattleTier`) and frozen on the row when the crew leaves.
+
+### Standing orders: the Right Hand's automations (§C2b)
+
+The Right Hand's sheet buys three things, none of which existed before 2026-09-22: every other
+officer is lifted on every attribute (`MAX_RIGHT_HAND_LIFT`, 5, on the standard fit curve, through
+the same `LiftSource` machinery the teaching perks use, and never on themselves), the Overseer's
+own sheet is lifted (`MAX_OVERSEER_LIFT`, 3, the only source that reaches the player's character),
+and standing orders.
+
+A standing order is a **slot** (`automations` table, one row per `(base_id, slot)`) holding a
+`kind`, an order, a force and a cooldown. The server spends a slot through a runner looked up by
+`kind` (`automations/runners.ts`, `AUTOMATION_RUNNERS`), so a second thing the Right Hand can be
+told to do is a new runner and nothing else. `missions` is the one kind today.
+
+- **It runs on the world tick.** `settleAutomations` is called from `settleWorld` immediately after
+  crews coming home, and only when the caller is the world clock (`bringCrewsHome` is passed), so
+  a page load settles the world and sends nobody. A party goes out, comes home and its slot rests,
+  with nobody connected.
+- **The ladder is the Right Hand's research track** (`AUTOMATION_RUNGS`): rung 3 one slot, an
+  exact party and a named officer, non-fight jobs only; rung 5 name a size in unit slots and the
+  party is filled most suitable unit first (`bestFitParty`: hardest hitter per slot for a fight,
+  best carrier per slot otherwise, all of one unit before the next) behind the best free officer; rung 6 the gap drops from fifteen minutes to five; rung 7 a second slot; rung
+  8 chase one resource by best return per minute; rung 9 battle jobs; rung 10 the alternating order (a mission, then a fight).
+  The ladder is re-read every tick, so a cancelled rung stops its slot.
+- **Each slot keeps its own clock.** Both slots send the moment they are on. After that a slot
+  rests from the moment its own party walks in (`restingSince` is stamped from the mission's
+  `resolvedAt`, not from the tick that noticed) for the full gap, fifteen minutes or five after
+  rung 6, and the other slot's clock is not consulted. **Admin mode does not flatten the gap**
+  (maintainer, 2026-09-23): missions still run a minute on the bench, the rest is real. The
+  Console's `automationsRested` knob clears every slot's rest for a test that cannot wait it out. Slots are settled one after another inside
+  the tick's transaction, each re-reading the base and the active missions, so two slots cannot
+  send the same officer or work the same area.
+- **Never a fight on a location.** A battle here is a battle-kind job off the board. The kind list
+  has no entry for attacking ground and the runner table nowhere to put one.
+- **Which job:** at random across every open board, or the best rate when a resource is chosen.
+  Stalls (nothing on offer, the named party or officer not free) are written to `stalled` and shown;
+  they are not errors.
+- **The board lock is the strong rule:** while any slot is on, `POST /missions` is refused with
+  "Your Right Hand has the board", and the screen says so first.
+
+Routes: `GET /automations` (powers off the crew's research, the slots, the officers that could be
+named), `POST /automations` (`SaveAutomationRequestSchema`, the whole slot, refused above the crew's
+rungs and refused when it names both a party and a size), `GET /automations/board`.
+
+## Spying (maintainer, 2026-09-22)
 
 Nothing about somebody else's garrison is free. The city read serves `garrisonSize: null` and a
 `defense` figure of the ground and the digging alone on every location the caller does not hold,
@@ -608,7 +657,9 @@ district, resolved history included, so the repo carries no legacy branch.
 - `POST /api/battles/deploy`: `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
   sends, negative withdraws. Units leave the roster when sent and return when pulled, less whatever
   the enemy's ring takes on the way out. Refused past the cutoff, for units the crew does not have,
-  and for units whose tier asks for a notoriety rank the crew has not bought (`unitsBeyondNotoriety`).
+  for units whose tier asks for a notoriety rank the crew has not bought (`unitsBeyondNotoriety`),
+  and (`ring_is_the_defenders`) for any `perimeterChanges` from the attacker: only the defender may
+  set a ring (maintainer, 2026-09-23).
 - `POST /api/battles/vehicles`: `{battleId, vehicles}`, **absolute** rather than a delta and the
   whole set in one request. Committed machines leave the Garage exactly as deployed units leave the
   roster and come back the moment the set is narrowed. A column already walking is re-timed from its
@@ -708,9 +759,16 @@ A `battle` template no longer rolls against its frozen chance. At the settle
 
 1. The enemy is built from the row's own seed: `enemyForce(tier, base.level, seed)`
    (`missions/enemy.ts`), a force of catalogue units whose `fieldStrength` lands within
-   `ENEMY_STRENGTH_TOLERANCE` of `enemyStrength(tier, level)`. Each tier draws from its own short
-   roster: razors and scrapers for a skirmish, ash walkers and wardens behind them for a fight,
-   wardens, breakers, snipers and juggernauts for a siege.
+   `ENEMY_STRENGTH_TOLERANCE` of `enemyStrength(tier, level)`. Six tiers (maintainer,
+   2026-09-23): Fight I to Fight V and, from level 90, the Siege. Each draws from its own short
+   roster (`ENEMY_TIER_ROSTERS`), from razors and scrapers at the bottom to wardens, breakers,
+   snipers and juggernauts at the top. The tier is **dealt on the card** off the crew's level
+   (`dealBattleTier`, seeded on the board and the job; the odds per level are `battleTierOdds`,
+   fixed at 2 / 6 / 12 / 30 / 50 from level 70, the Siege taking 5 points off Fight V from 90)
+   and **frozen on the row** (`battleTier`, migration 0115), so a level gained on the road changes
+   nothing. Pay and XP climb the ladder with `BATTLE_TIER_REWARD`. A won Siege always brings
+   `SIEGE_GUARANTEED_PARTS` components and a page home on top of the haul. A fight row from
+   before this carries null and settles as a Fight I.
 2. `TacticalSkirmishEngine` runs it with the crew as the attacker and the enemy as the defender, on
    a bare battlefield, **with no ring on either side**: whoever breaks and runs is not pursued and
    comes home. Whoever led the run is folded in as the side's officer, the way a declared battle
@@ -781,9 +839,12 @@ Leading a job moves its odds and not its clock now: see the missions section abo
 through `pricedTotalMinutes`. What an officer leading a run _does_ buy on the pay side is
 `leadLootPercent`, which goes into the frozen `payPercent`.
 
-The **report** is withheld rather than redacted: the winner always gets one, the loser only if at
-least one unit fled and made it home. A redacted report leaks the shape of what was kept back, and a
-perimeter is bought to buy a silence.
+The **report** is withheld rather than redacted. A defender always gets one, whatever happened to
+their line or their officer: it is their ground. An attacker gets one if they won or if at least
+one unit fled and made it home past the ring; the officer counts for nothing towards it
+(maintainer, 2026-09-23). A redacted report leaks the shape of what was kept back, and a ring is
+bought to buy a silence. The ledger pays a kill whole, a rout half (floored on the bulk) and every
+death at the ring half (`economy/infamy.ts`); `units_routed` counts the rout for the feats.
 
 ## Status code summary
 

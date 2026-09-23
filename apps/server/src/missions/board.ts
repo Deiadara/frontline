@@ -5,7 +5,7 @@ import {
   MISC_AREA_ID,
   RESOURCE_KG,
   areaPayPercent,
-  battleTierFor,
+  dealBattleTier,
   leaningsFor,
   levelPayPercent,
   missionXp,
@@ -114,11 +114,22 @@ export function offerFor(
   board?: { areaId: string; day: string },
 ): MissionOffer {
   const timings = pricedTimings(template, speedPercent);
+  /*
+   * A fight's tier is dealt on the card off the crew's level (maintainer, 2026-09-23), seeded on
+   * the board the card is on, and it moves the pay and the XP the card quotes. A quote with no
+   * board behind it (a bare template) prices as a Fight I, the bottom of the ladder.
+   */
+  const battleTier =
+    template.kind !== 'battle'
+      ? null
+      : board === undefined
+        ? 'fight_1'
+        : dealBattleTier(board.areaId, board.day, template.id, level);
   const rewards = scaledSpoils(
-    missionRewards(template, 'success', timings.totalMinutes),
+    missionRewards(template, 'success', timings.totalMinutes, battleTier),
     payPercent,
   );
-  const xp = missionXp(template, timings.totalMinutes, level);
+  const xp = missionXp(template, timings.totalMinutes, level, battleTier);
   return {
     templateId: template.id,
     name: template.name,
@@ -151,7 +162,7 @@ export function offerFor(
      */
     authoredChance: scaledSuccessChance(template.successChance, level),
     leanings: [...leaningsFor(template)],
-    battleTier: battleTierFor(template),
+    battleTier,
   };
 }
 

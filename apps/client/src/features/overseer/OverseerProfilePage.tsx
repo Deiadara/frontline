@@ -1,41 +1,36 @@
-import { Link } from 'react-router-dom';
-import { Icon } from '../../components/ui/Icon';
+import { PerkTags } from '../../components/PerkTags';
+import { DrawnRule } from '../../components/ui/DrawnMarks';
+import { InkButton } from '../../components/ui/InkButton';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
-import { Panel } from '../../components/ui/Panel';
-import { PortraitFrame } from '../../components/ui/PortraitFrame';
 import { useCrewStanding } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 import { AttributeSheet } from './AttributeSheet';
 import { OverseerPortrait } from './OverseerPortrait';
-import { PerkTags } from '../../components/PerkTags';
+import { PictureFrame } from './PictureFrame';
 
 /**
- * Who you are, and what the people around you are worth (§F1, §F2).
+ * Who you are (§F1, §F2), drawn as the file somebody keeps on you.
  *
- * The second half is the part that did not exist. A sheet of thirty-five numbers is unreadable
- * unless it says what the numbers *do*, and until now they did nothing at all, so this page is
- * built the other way round from a character sheet: it leads with the outcomes, and each outcome
- * names the attributes that moved it and the crew's rating in each. A player asking "why is my
- * research slow" gets the answer on one line, along with who they would need to hire to fix it.
- *
- * The crew sheet is best-of across the Overseer and every officer, which is why an officer's good
- * number shows up here as *yours*. That is the point of hiring one.
+ * Redrawn on 2026-09-23 at the maintainer's request: more of the game's own hand in it, more of a
+ * card, and the same paper the feats ledger and the yard are written on, **on the shape the page
+ * already had**. The panels are paper, the groups of numbers sit on paper cards under hand-ruled
+ * headings, and the painting hangs in a drawn picture frame (`PictureFrame`). Where things are
+ * did not move: the person down the left, the picture big and the words under it, the numbers on
+ * the right, and the door to the training floor at the foot of the numbers.
  *
  * ## The shape of it
  *
- * A fixed frame with the person down the left and their numbers in the middle, the same console
- * shape the Training, Research and Bar screens use. It was a scrolling document, and the twenty-two
- * outcome rows are the longest thing on it: the radar that reads them ended up stranded in a
- * column beside a list that ran off the bottom of the screen.
- */
-
-/**
- * What each outcome touches, so twenty-two rows read as three kinds of thing.
+ * The console shape the Training, Research and Bar screens use: a fixed frame, nothing scrolls
+ * the page. The painting is shown whole (maintainer, 2026-09-23: "use all of it so it's not cut
+ * at all"): the frame is the delivery's own 2:3, and it takes whatever height the words under it
+ * leave, so a short viewport gets a smaller painting rather than a cropped one or a scrolling
+ * rail. The record on the right fits without a scrollbar from 1440x900 up; below that the
+ * thirty-five rows do not fit in the column and it scrolls on its own, which is the one place a
+ * bar is still drawn.
  *
- * A `Record` over the channel union rather than a lookup with a fallback: a channel added to
- * `EFFECT_CHANNELS` and not grouped here is a **compile error**, which is the only kind of
- * exhaustiveness worth relying on. A `?? 'district'` would have shipped the next one silently in
- * the wrong bucket.
+ * The crew sheet is best-of across the Overseer and every officer, which is why an officer's good
+ * number shows up on *your* file. What the crew is buying with those numbers is its own screen,
+ * reached from the crew page.
  */
 export function OverseerProfilePage() {
   const query = useCrewStanding();
@@ -53,126 +48,104 @@ export function OverseerProfilePage() {
   }
 
   const { overseer } = data;
+  const archetype = overseer.archetype.charAt(0).toUpperCase() + overseer.archetype.slice(1);
 
   return (
     <PageShell wide fills>
-      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[21rem_minmax(0,1fr)]">
-        {/* Who. The one block on the screen that is about the person rather than the numbers. */}
-        <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <Panel className="flex min-h-0 flex-1 flex-col border border-surface-500/70">
-            {/*
-             * The portrait takes what the words leave, and the words are never cut.
-             *
-             * Two earlier attempts got this the wrong way round. Capping the portrait at `30vh` and
-             * hiding the overflow cut the bottom third off a painting of a person. Sizing it off
-             * the viewport instead (`33vh` of width for `44vh` of height) showed the whole painting
-             * and pushed the biography into a scroll, where it was bisected mid-sentence at the
-             * panel's edge, which is the same bug wearing different clothes.
-             *
-             * Neither is a layout. The name, the rule, the biography and the perks are `shrink-0`,
-             * so they always get the height they need; the portrait is `flex-1 min-h-0`, so it
-             * takes exactly what is left. On a short viewport the picture gets smaller. Nothing
-             * gets cut, at any size.
-             *
-             * What changed on 2026-09-13 is the frame, and where the shape lives (maintainer request:
-             * too much dead space, and no frame). The shape is on the frame now and the painting
-             * takes all of the frame, so the drawn edge is the edge of the *picture*. It used to
-             * be the edge of the panel with the picture floating in the middle of it, which at
-             * 1920 meant a 332px box round a 332px painting and at 720 a 332px box round a 120px
-             * one: the same code, and only the second one looked like a mistake.
-             *
-             * `aspect-square h-full max-w-full` is the shape, and it is a **ceiling on how wide the
-             * frame may be, not a square**: `h-full` is the specified height, the ratio fills in
-             * the width from it, and `max-w-full` clamps that to the rail. So the frame is as wide
-             * as it is tall, or as wide as the rail, whichever is less.
-             *
-             * Both ends come out right from that one line. At 1920 the rail is the narrow side, so
-             * the frame is 332 by 540 and the painting fills it and crops at the sides. At 1280x720
-             * the leftover height is 180, so the frame is 180 square and the painting is cropped to
-             * two thirds of its height from the top: the whole head, and the coat below it gone.
-             *
-             * The two things it is not are the two things that were tried first. Filling the panel
-             * unconditionally makes the frame 332 by 180 at that viewport, and cover-cropping a
-             * 2:3 painting into a box that flat is a band across the eyes. Keeping the delivery's
-             * own 2:3 makes it 120 wide, which is the dead space the maintainer reported.
-             *
-             * `p-2.5` went with the change: a drawn frame hard against the picture is a frame, and
-             * 10px of panel between the two is a mount.
-             */}
-            <div
-              data-testid="profile-portrait"
-              className="painted washed flex min-h-0 flex-1 justify-center border-b border-surface-600/70"
-            >
-              <PortraitFrame className="aspect-square h-full max-w-full">
-                <OverseerPortrait
-                  portraitId={overseer.portraitId}
-                  archetype={overseer.archetype}
-                  aspect="fill"
-                  showTag={false}
-                />
-              </PortraitFrame>
+      <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        {/*
+         * The person's card, on the left: one paper sheet in the ink frame the feats ledger wears.
+         * The picture first, the words under it. The words are `shrink-0` and get the height they
+         * need; the picture is `flex-1 min-h-0` and takes what is left, so nothing on the card is
+         * ever cut and the card never scrolls.
+         */}
+        <aside className="flex min-h-0 min-w-0 flex-col" data-testid="profile-rail">
+          <section
+            className="ink-frame card-paper washed grain relative flex min-h-0 flex-1 flex-col gap-3 rounded-sm p-4 shadow-panel"
+            data-testid="profile-portrait"
+          >
+            <div className="flex min-h-0 flex-1 items-start justify-center">
+              {/*
+               * The whole painting, framed. The picture box is the delivery's own 2:3, so
+               * `object-cover` inside it crops nothing; the frame wraps the box and takes its
+               * height from the card, so a short viewport gets a smaller painting rather than a
+               * cropped one.
+               */}
+              <PictureFrame className="max-w-full">
+                <span className="block aspect-[2/3] h-full max-w-full">
+                  <OverseerPortrait
+                    portraitId={overseer.portraitId}
+                    archetype={overseer.archetype}
+                    aspect="fill"
+                    showTag={false}
+                  />
+                </span>
+              </PictureFrame>
             </div>
-            <div data-testid="profile-identity" className="flex shrink-0 flex-col gap-2.5 p-3.5">
-              <div>
+
+            <div data-testid="profile-identity" className="flex shrink-0 flex-col gap-2.5">
+              <div className="flex flex-col gap-1">
                 <h1
-                  className="break-words font-stamp text-[20px] leading-tight text-ink-100"
+                  className="break-words font-stamp text-[24px] leading-tight text-ink-100"
                   data-testid="overseer-name"
                 >
                   {overseer.name}
                 </h1>
-                <p className="font-display text-[11px] font-bold uppercase tracking-[0.2em] text-brass-300">
-                  Overseer
+                <p className="font-display text-[11px] font-bold uppercase tracking-[0.22em] text-brass-300">
+                  Overseer · {archetype}
                 </p>
               </div>
-              <span aria-hidden className="ink-rule block w-full" />
-              <p className="font-body text-[13px] italic leading-relaxed text-ink-200">
+              <span aria-hidden className="block h-1.5 w-full text-brass-300/60">
+                <DrawnRule />
+              </span>
+              {/* The biography on a lighter slip of the same paper, the way a note is pinned to a
+                  file rather than typed onto it, and the signature in the hand-inked chips. */}
+              <p className="card-paper-lit rounded-sm border border-brass-500/25 px-3 py-2.5 font-body text-[13px] italic leading-relaxed text-ink-200">
                 {overseer.bio}
               </p>
               <PerkTags perks={overseer.perks} tone="profile" />
             </div>
-          </Panel>
+          </section>
+        </aside>
 
-          {/* The one thing you can do about any of it, at the foot of the rail. */}
-          <Link
-            to="/game/training"
-            className="door-tile mt-auto flex shrink-0 items-center justify-center gap-2 rounded-md border border-brass-500/60 px-3 py-2.5 font-display text-[12px] font-bold uppercase tracking-[0.16em] text-brass-300 transition-all duration-150 hover:-translate-y-0.5 hover:border-brass-300 hover:text-brass-100"
-          >
-            <span aria-hidden className="relative z-[2] [&_svg]:h-4 [&_svg]:w-4">
-              <Icon name="training" />
-            </span>
-            <span className="relative z-[2]">Training</span>
-          </Link>
-        </div>
-
+        {/*
+         * The record, on the right. `fills` hands the page a fixed frame and this column names
+         * itself the scroller for the one case it has to be (see the note at the top); `min-h-0`
+         * so a flex child does not grow to its content and leave nothing to scroll.
+         */}
         <div
-          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto"
+          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-0.5"
           data-testid="file-body"
         >
           {/*
-           * Two by two, each group in its own frame (maintainer request).
-           *
-           * Four groups in one row was a 34-number field read left to right, and it left the
-           * bottom half of the screen empty on every viewport taller than about 800px: the sheet
-           * was a strip across the top of a page with nothing under it. Two by two is the shape
-           * the rest of the game uses for four related panels, it fills the space it is given, and
-           * `roomy` puts each group behind its own border so the four read as four things.
-           *
-           * ## No `FileSection` round it (maintainer request, 2026-09-14)
-           *
-           * It used to sit inside one titled "Your own sheet", which put four labelled boxes
-           * inside a fifth labelled box: the frame said nothing the four frames did not, and the
-           * note under it ("every attribute you carry") repeated the page a player had just
-           * clicked their own face to reach.
-           *
-           * It also cost about 120px of height, and that was the real problem. The sheet wants
-           * 585px and the column is 611 at 1440x900, so with the wrapper it was 96px over and
-           * scrolled on the most ordinary laptop there is, cutting the last three rows off
-           * Technical. Without it the whole file is on screen at that size and no bar is drawn.
-           *
-           * The scroller itself stays, because it is still right below about 1400x850: the sheet
-           * cannot shrink to a 768px-tall window and a cut sheet is worse than a scrolled one.
+           * The numbers, two by two, each group on a paper card of its own under a hand-ruled
+           * heading (`paper`). The sheet grows to the column (`flex: 1 0 auto`: it fills what the
+           * door leaves and never shrinks below its rows, so where it does not fit the column
+           * scrolls instead of clipping). Where the screen is tall enough to hold them (1080) its
+           * two rows share that height equally, so the four cards are as big as the screen allows
+           * (maintainer, 2026-09-23); on a 900-tall screen equal rows cost the 40px that keep the
+           * bar off the column, so the rows keep their own heights there.
            */}
-          <AttributeSheet attributes={overseer.attributes} columns={2} roomy />
+          <div className="flex shrink-0 flex-grow flex-col [&>div]:flex-1 [@media(min-height:1000px)]:[&>div]:grid-rows-[repeat(2,minmax(min-content,1fr))]">
+            <AttributeSheet attributes={overseer.attributes} columns={2} roomy paper />
+          </div>
+
+          {/*
+           * The one thing you can do about any of it, at the foot of the column: the same
+           * two-column grid as the sheet, so the door sits under the Social card with the card's
+           * left edge, the same 12px under it that separates the two rows of cards, and its
+           * bottom edge on the bottom edge of the person's card beside it (maintainer, 2026-09-23).
+           */}
+          <div className="grid shrink-0 gap-x-5 sm:grid-cols-2">
+            <InkButton
+              to="/game/training"
+              icon="training"
+              className="self-stretch"
+              data-testid="profile-training-door"
+            >
+              The training floor
+            </InkButton>
+          </div>
         </div>
       </div>
     </PageShell>

@@ -11,6 +11,7 @@ import {
   SPY_TIER_SPECS,
   spyRecallWindowMs,
   moveRecallWindowMs,
+  offerOfMission,
   type SpyRunView,
   type UnitMoveView,
   type BattleView,
@@ -21,18 +22,22 @@ import {
   type SleeperCellView,
   type Fleet,
 } from '@frontline/shared';
-import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { RewardLine } from '../../components/Resources';
 import { CancelMark } from '../../components/ui/CancelMark';
+import { HoverCard } from '../../components/ui/HoverCard';
+import { Modal } from '../../components/ui/Modal';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
-import { Icon, type IconName } from '../../components/ui/Icon';
+import { Icon } from '../../components/ui/Icon';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
 import {
   useActions,
   useBattles,
+  useMe,
   useMissions,
   useRecallColumn,
   useRecallMission,
@@ -46,8 +51,12 @@ import { useServerClock } from '../missions/useServerClock';
 import { PageShell } from '../game/PageShell';
 import { FileSection } from '../overseer/FileSection';
 import { UnitChip } from '../units/UnitChip';
+import { OfferCard } from '../missions/MissionBoard';
 import { Census } from './Census';
-import { HomeMark, OutMark } from './CensusMarks';
+import { InProgressPage } from './InProgressPage';
+import { Row, Section } from './rows';
+import { AutomationsPage } from './AutomationsPage';
+import { HomeMark, OutMark, OrdersMark, WorkMark } from './CensusMarks';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './road';
 
 /**
@@ -90,6 +99,20 @@ const MONITOR_PAGES = [
     label: 'Total units',
     /** ...and how many of them there are in the first place. */
     Mark: HomeMark,
+  },
+  {
+    id: 'progress' as const,
+    path: '/game/actions/progress',
+    label: 'In progress',
+    /** Every clock running at home: builds, the Archive, the bench, the floor, the ground. */
+    Mark: WorkMark,
+  },
+  {
+    id: 'automations' as const,
+    path: '/game/actions/automations',
+    label: 'Automations',
+    /** §C2b: the standing orders the Right Hand carries out while you are away. */
+    Mark: OrdersMark,
   },
 ];
 
@@ -162,6 +185,7 @@ function MonitorTab({
 export function ActionsPage() {
   const query = useActions();
   const missions = useMissions();
+  const me = useMe();
   const battles = useBattles();
   const recall = useRecallColumn();
   const recallJob = useRecallMission();
@@ -173,7 +197,13 @@ export function ActionsPage() {
   const recallMove = useRecallMove();
   const recallCell = useRecallSleepers();
   const { pathname } = useLocation();
-  const page: MonitorPage = pathname.endsWith('/units') ? 'census' : 'road';
+  const page: MonitorPage = pathname.endsWith('/units')
+    ? 'census'
+    : pathname.endsWith('/progress')
+      ? 'progress'
+      : pathname.endsWith('/automations')
+        ? 'automations'
+        : 'road';
 
   return (
     /*
@@ -217,6 +247,10 @@ export function ActionsPage() {
 
       {page === 'census' ? (
         <Census />
+      ) : page === 'progress' ? (
+        <InProgressPage />
+      ) : page === 'automations' ? (
+        <AutomationsPage />
       ) : !data ? (
         <ScreenLoad
           what="The road"
@@ -340,18 +374,14 @@ export function ActionsPage() {
           )}
 
           {road.jobs.length > 0 && (
-            <Section
-              icon="missions"
-              title="Out on a job"
-              note="Crews on the mission board's work. Inside the first tenth of the road out they can still be called back."
-              count={road.jobs.length}
-            >
+            <Section icon="missions" title="Out on a job" count={road.jobs.length}>
               <ul className="flex flex-col gap-2.5" data-testid="jobs">
                 {road.jobs.map((mission) => (
                   <Job
                     key={mission.id}
                     mission={mission}
                     now={now}
+                    level={me.data?.base?.level ?? 1}
                     pending={recallJob.isPending}
                     onRecall={() => recallJob.mutate({ missionId: mission.id })}
                   />
@@ -400,12 +430,7 @@ export function ActionsPage() {
           )}
 
           {road.spy !== null && (
-            <Section
-              icon="eye"
-              title="Spying"
-              note="The Master of Whispers' runners, out on a job. The report lands on the battle board when they are back; turned round in the first tenth, they bring nothing and the caps stay spent."
-              count={1}
-            >
+            <Section icon="eye" title="Spying" count={1}>
               <ul className="flex flex-col gap-2.5">
                 <SpyJob
                   run={road.spy}
@@ -455,35 +480,6 @@ function Counts({ road }: { road: Road }) {
  * bare small-caps heading over a stack of panels, which on this screen read as a list somebody had
  * not finished laying out.
  */
-function Section({
-  icon,
-  title,
-  note,
-  count,
-  children,
-}: {
-  icon: IconName;
-  title: string;
-  note: string;
-  count: number;
-  children: ReactNode;
-}) {
-  return (
-    <FileSection
-      icon={icon}
-      title={title}
-      note={note}
-      action={
-        <span className="rounded-sm border border-brass-500/50 bg-brass-300/10 px-2 py-0.5 font-display text-[11px] font-bold tabular-nums tracking-[0.12em] text-brass-100">
-          {count}
-        </span>
-      }
-    >
-      {children}
-    </FileSection>
-  );
-}
-
 /**
  * One party on the road: who, where they are going, and how far along.
  *
@@ -547,46 +543,6 @@ function Cell({
         </div>
       )}
     </Row>
-  );
-}
-
-function Row({
-  testId,
-  name,
-  status,
-  tone = 'plain',
-  children,
-}: {
-  testId: string;
-  name: string;
-  status: string;
-  tone?: 'plain' | 'hot' | 'done';
-  children: ReactNode;
-}) {
-  return (
-    <li
-      data-testid={testId}
-      className="flex flex-col gap-2.5 rounded-sm border border-surface-700 bg-surface-950/40 p-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="min-w-0 break-words font-stamp text-[16px] leading-tight text-ink-100">
-          {name}
-        </h3>
-        <span
-          className={cn(
-            'shrink-0 rounded-sm border px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em]',
-            tone === 'hot'
-              ? 'border-oxblood-500/60 text-oxblood-300'
-              : tone === 'done'
-                ? 'border-verdigris-300/60 text-verdigris-100'
-                : 'border-surface-600 text-ink-300',
-          )}
-        >
-          {status}
-        </span>
-      </div>
-      {children}
-    </li>
   );
 }
 
@@ -748,11 +704,14 @@ const PHASE_LABEL: Record<MissionPhase, string> = {
 function Job({
   mission,
   now,
+  level,
   pending,
   onRecall,
 }: {
   mission: Mission;
   now: Date;
+  /** The crew's level, which the card the run was taken off read its odds at. */
+  level: number;
   pending: boolean;
   onRecall: () => void;
 }) {
@@ -761,13 +720,75 @@ function Job({
   const phase = missionPhaseAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
   const window = recallWindowMs(mission, now);
+  /*
+   * The card the job was taken off (maintainer, 2026-09-23): on the name's hover, and pinned open
+   * on a click so the things on it can be hovered in turn. Rebuilt from what the row froze
+   * (`offerOfMission`), with no crew to send, which is the one thing the board's card has that
+   * this one must not.
+   */
+  const card = template ? offerOfMission(mission, template, level) : null;
+  const [pinned, setPinned] = useState(false);
   return (
     <Row
       testId={`job-${mission.id}`}
       name={name}
+      heading={
+        card === null ? undefined : (
+          <HoverCard
+            label={`${name}: the card this job was taken off`}
+            size="window"
+            interactive
+            onActivate={() => setPinned(true)}
+            card={
+              <div className="w-[19rem]">
+                <OfferCard offer={card} readOnly />
+              </div>
+            }
+            data-testid={`job-card-${mission.id}`}
+          >
+            <span className="font-stamp text-[16px] leading-tight text-ink-100 underline decoration-brass-300/50 decoration-dotted underline-offset-4 hover:text-brass-100">
+              {name}
+            </span>
+          </HoverCard>
+        )
+      }
       tone={remaining === 0 ? 'done' : 'plain'}
       status={mission.recalledAt !== null ? 'Turned around' : PHASE_LABEL[phase]}
     >
+      {pinned && card !== null && (
+        <Modal
+          onClose={() => setPinned(false)}
+          labelledBy={`job-card-title-${mission.id}`}
+          className="max-w-sm"
+          data-testid={`job-card-open-${mission.id}`}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-surface-600/60 px-4 py-3">
+            <h2
+              id={`job-card-title-${mission.id}`}
+              className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300"
+            >
+              The card this job was taken off
+            </h2>
+            <Button size="sm" onClick={() => setPinned(false)} data-testid="job-card-close">
+              Close
+            </Button>
+          </div>
+          <div className="p-4">
+            <OfferCard offer={card} readOnly />
+          </div>
+        </Modal>
+      )}
+      {card !== null && (
+        <div className="flex flex-col gap-1" data-testid={`job-worth-${mission.id}`}>
+          <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+            If it comes off
+          </span>
+          <RewardLine rewards={card.rewards} />
+          <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
+            +{card.xp.toLocaleString()} XP
+          </span>
+        </div>
+      )}
       <Route
         from="Home"
         to={name}

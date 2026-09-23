@@ -14,6 +14,9 @@ import {
   gateIntelResistancePercent,
   raidLootBonus,
   liftedSheet,
+  rightHandLift,
+  MAX_RIGHT_HAND_LIFT,
+  MAX_OVERSEER_LIFT,
   peerLift,
   officerIsInjured,
   FACTION_CARD_SPECS,
@@ -161,14 +164,30 @@ export function crewEffectsFor(
 export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new Date()): LiftRoom {
   const owner = repos.users.findById(base.ownerId);
   const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
+  const fit = base.commanders.filter(
+    (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
+  );
+  /*
+   * The Right Hand, read once for the room (§C2b).
+   *
+   * Their fit is measured on their **printed** sheet rather than their lifted one, deliberately:
+   * every other officer's lift includes the Right Hand's, so reading theirs after the room was
+   * built would make the answer depend on the order the officers were walked in.
+   */
+  const rightHand = fit.find((officer) => officer.role === 'right_hand') ?? null;
   return {
-    fit: base.commanders.filter(
-      (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
-    ),
+    fit,
     byGroup: territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls()).officerGroupFlat,
     fromTheLab: researchEffects(base.research.technologies),
     fromTheOverseer: overseer?.perks ?? [],
     overseerName: overseer?.name ?? 'your Overseer',
+    rightHand: rightHand
+      ? {
+          id: rightHand.id,
+          name: rightHand.name,
+          points: roleFit(rightHand.attributes, 'right_hand'),
+        }
+      : null,
   };
 }
 
@@ -180,6 +199,23 @@ export interface LiftRoom {
   fromTheLab: CrewEffects;
   fromTheOverseer: readonly string[];
   overseerName: string;
+  /** The seated Right Hand and their fit, or null with the chair empty. See `rightHandLift`. */
+  rightHand: { id: string; name: string; points: number } | null;
+}
+
+/**
+ * The Overseer's sheet as the crew fields it: their own points plus the Right Hand's, and nothing
+ * else (§C2b). Teachers do not reach the player's own character; the second in command does.
+ */
+export function liftedOverseerSheet(own: Attributes, room: LiftRoom): Attributes {
+  if (!room.rightHand) return own;
+  const flat = rightHandLift(room.rightHand.points, MAX_OVERSEER_LIFT);
+  return liftedSheet(own, [
+    {
+      from: room.rightHand.name,
+      groupFlat: { physical: flat, mental: flat, social: flat, technical: flat },
+    },
+  ]).attributes;
 }
 
 export function liftedOfficerSheet(
@@ -195,6 +231,21 @@ export function liftedOfficerSheet(
     attributeFlat: overseer.officerAttributeFlat,
     attributeAtLeast: overseer.officerAttributeAtLeast,
   });
+
+  /*
+   * §C2b: the Right Hand lifts everybody but themselves.
+   *
+   * Between the Overseer and the peers on purpose: at the cap, the order decides who gets the
+   * last point, and a lift the player bought by filling one chair well should land before the
+   * incidental ones from whoever else happens to be on the books.
+   */
+  if (room.rightHand && room.rightHand.id !== officer.id) {
+    const flat = rightHandLift(room.rightHand.points, MAX_RIGHT_HAND_LIFT);
+    sources.push({
+      from: room.rightHand.name,
+      groupFlat: { physical: flat, mental: flat, social: flat, technical: flat },
+    });
+  }
 
   // Per teacher rather than per crew, so the receipt names the person. It costs one `peerLift` per
   // peer instead of one for the room, which is a handful of table lookups over a list that is
@@ -380,7 +431,10 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
   return overseer
     ? {
-        sheets: [overseerMember(overseer.attributes, overseer.perks), ...officers],
+        sheets: [
+          overseerMember(liftedOverseerSheet(overseer.attributes, room), overseer.perks),
+          ...officers,
+        ],
         names: [overseer.name, ...names],
       }
     : { sheets: officers, names };

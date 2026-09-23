@@ -95,6 +95,36 @@ export function missionInfamyForKills(killed: Army): number {
   return Math.ceil(infamyForKills(killed) * MISSION_INFAMY_PER_UNIT_SLOT);
 }
 
+/**
+ * Making a unit run is worth half of killing it (maintainer, 2026-09-23), rounded **down** on the
+ * whole bulk rather than per unit: three one-slot units that fled are 1.5, paid as 1. Universal,
+ * so a declared fight and a battle job both pay it, each at its own kill rate. It exists so
+ * intimidation units, which break the enemy rather than kill them, are not worth nothing.
+ */
+export const FLED_INFAMY_SHARE = 0.5;
+
+export function infamyForFled(fled: Army): number {
+  return Math.floor(infamyForKills(fled) * FLED_INFAMY_SHARE);
+}
+
+/** The same half, off the battle job's own rate, floored on the bulk the same way. */
+export function missionInfamyForFled(fled: Army): number {
+  return Math.floor(infamyForKills(fled) * MISSION_INFAMY_PER_UNIT_SLOT * FLED_INFAMY_SHARE);
+}
+
+/**
+ * A death at the ring pays half (maintainer, 2026-09-23), whichever side it is.
+ *
+ * A runner the ring kills already paid half for running, so the two halves make the whole; a
+ * ring unit that dies holding the road pays its half to the attacker. Floored on the bulk like
+ * the fled share, because it is the same kind of number.
+ */
+export const RING_INFAMY_SHARE = 0.5;
+
+export function infamyForRingDead(dead: Army): number {
+  return Math.floor(infamyForKills(dead) * RING_INFAMY_SHARE);
+}
+
 /** Infamy gained by taking any site by force (§D7), on top of whatever died taking it. */
 export const INFAMY_PER_RAID_WON = 25;
 /**

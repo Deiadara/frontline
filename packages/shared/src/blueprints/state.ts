@@ -230,8 +230,21 @@ export function heldPages(inventory: Inventory): HeldPage[] {
  * the moment, so a request retried because the connection dropped cannot be retried until the Lab
  * offers something better.
  */
-export type ReimaginingRefusal =
-  'not_available' | 'nothing_left_to_find' | 'wrong_page_count' | 'pages_not_held';
+export type ReimaginingRefusal = 'not_available' | 'wrong_page_count' | 'pages_not_held';
+
+/**
+ * What the bench pays once there is nothing left to find (maintainer, 2026-09-23).
+ *
+ * A crew that holds or has bound every page in the game used to meet a refusal here, which is the
+ * one state where a machine with three sockets and a lever does nothing and says so in a sentence
+ * nobody wants to read at the end of a collection. It pays experience instead: the pages still go
+ * in, and what comes back is worth having on a screen where nothing else is.
+ *
+ * Flat, and deliberately not priced off what went in. Every other payout on this bench is steered
+ * by the rarity of the three sheets (`reimagine-odds.ts`); this one cannot be, because there is no
+ * page on the other side of it to be better or worse.
+ */
+export const REIMAGINING_COMPLETE_XP = 5000;
 
 /**
  * What each refusal says to the player, beside `BLUEPRINT_UNLOCK_MESSAGES` and for the same
@@ -240,8 +253,6 @@ export type ReimaginingRefusal =
  */
 export const REIMAGINING_REFUSAL_MESSAGES: Readonly<Record<ReimaginingRefusal, string>> = {
   not_available: 'The Lab is not doing this yet.',
-  nothing_left_to_find:
-    'Every page there is, you either hold or have already bound into a document. Nothing left to want.',
   wrong_page_count: 'The machine takes three pages. No more, no fewer.',
   pages_not_held: 'You are not holding three pages like that.',
 };
@@ -292,13 +303,11 @@ function holdsNamedPages(inventory: Inventory, pages: readonly string[]): boolea
 /**
  * The refusals, in the order a player wants to hear them.
  *
- * "Nothing left to find" comes before anything about the three sockets, because it is a fact about
- * the crew rather than about what they have just dropped in: a player at the end of the collection
- * should read it on an empty machine rather than after filling it.
+ * A finished collection is not one of them any more: the bench takes the three pages and pays
+ * {@link REIMAGINING_COMPLETE_XP} instead of handing one over (maintainer, 2026-09-23).
  */
 export function reimaginingRefusal(input: ReimaginingInput): ReimaginingRefusal | null {
   if (!reimaginingAvailable(input.context)) return 'not_available';
-  if (unseenPages(input.inventory).length === 0) return 'nothing_left_to_find';
   if (input.pages.length !== REIMAGINING_PAGES_SPENT) return 'wrong_page_count';
   if (!holdsNamedPages(input.inventory, input.pages)) return 'pages_not_held';
   return null;
@@ -308,8 +317,10 @@ export interface Reimagined {
   inventory: Inventory;
   /** What went in, so the report can say what it cost. */
   spent: string[];
-  /** ...and what came back. */
-  gained: string;
+  /** The page that came back, or null once there is no page left in the game to hand over. */
+  gained: string | null;
+  /** Experience paid instead of a page. {@link REIMAGINING_COMPLETE_XP} or zero, never both. */
+  xp: number;
 }
 
 /**
@@ -333,10 +344,10 @@ export function rarityOfPage(pageId: string): ItemRarity | undefined {
  * The tier the bench actually pays out in, once the tier it rolled is checked against the shelf.
  *
  * A roll can name a tier the crew has nothing left to find in: a player who has seen every Basic
- * page still rolls Basic four times in five off a cheap input. The trade is guaranteed (§G2) and
- * `nothing_left_to_find` is the only refusal for an empty pool, so an exhausted tier cannot be a
- * refusal and cannot be a reroll either, since a reroll is just this rule with the seed spent
- * twice.
+ * page still rolls Basic four times in five off a cheap input. The trade is guaranteed (§G2), so an
+ * exhausted tier cannot be a refusal, and it cannot be a reroll either, since a reroll is just this
+ * rule with the seed spent twice. (An empty pool *everywhere* is the other case, and it never
+ * reaches here: `reimagine` pays experience and returns before the roll.)
  *
  * **The fallback is the nearest stocked tier, and a tie goes downwards.** Nearest, because a
  * Masterpiece roll landing on Advanced is the closest thing to the payout that was earned, where
@@ -380,7 +391,29 @@ export function reimagine(input: ReimaginingInput): Reimagined | null {
   if (reimaginingRefusal(input) !== null) return null;
 
   const spent = [...input.pages];
+  const cost: ItemCost = {};
+  for (const pageId of spent) {
+    const id = pageId as ItemId;
+    cost[id] = (cost[id] ?? 0) + 1;
+  }
+
   const unseen = unseenPages(input.inventory);
+  /*
+   * Nothing left to find: the pages still go in, and what comes out is experience.
+   *
+   * Before the rarity roll rather than after it, because every line below is about *which* page to
+   * hand back and there is no page to hand back at all. `payoutRarity` would have nothing to fall
+   * back to and the draw would be over an empty pool.
+   */
+  if (unseen.length === 0) {
+    return {
+      inventory: removeItems(input.inventory, cost),
+      spent,
+      gained: null,
+      xp: REIMAGINING_COMPLETE_XP,
+    };
+  }
+
   // Every named page passed `holdsNamedPages`, so it is a real page and has a rarity.
   const odds = reimaginingOdds(spent.map((pageId) => rarityOfPage(pageId)!));
   const rolled = drawWeighted(
@@ -390,14 +423,10 @@ export function reimagine(input: ReimaginingInput): Reimagined | null {
   const paying = payoutRarity(rolled, unseen);
   const pool = unseen.filter((pageId) => rarityOfPage(pageId) === paying);
   const gained = pool[seedFrom(`reimagine:${input.seed}`) % pool.length]!;
-  const cost: ItemCost = {};
-  for (const pageId of spent) {
-    const id = pageId as ItemId;
-    cost[id] = (cost[id] ?? 0) + 1;
-  }
   return {
     inventory: addItems(removeItems(input.inventory, cost), { [gained as ItemId]: 1 }),
     spent,
     gained,
+    xp: 0,
   };
 }

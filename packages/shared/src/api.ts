@@ -1727,8 +1727,10 @@ export const ReimagineResponseSchema = z.object({
   market: MarketResponseSchema,
   /** The page ids spent, so the report can name them. Three of them, possibly the same one thrice. */
   spent: z.array(z.string()),
-  /** ...and the one that came back. */
-  gained: z.string(),
+  /** The page that came back, or null when the crew's collection is complete and it paid in XP. */
+  gained: z.string().nullable(),
+  /** The experience paid instead of a page. Zero whenever a page came out. */
+  xp: z.number().int().nonnegative(),
 });
 export type ReimagineResponse = z.infer<typeof ReimagineResponseSchema>;
 export type MarketMutationResponse = z.infer<typeof MarketMutationResponseSchema>;

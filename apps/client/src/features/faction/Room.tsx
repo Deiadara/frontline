@@ -16,9 +16,17 @@ import { releaseHover } from './parts';
 /**
  * The back room, with the five of you at the table.
  *
- * The room's own plate (`plate-faction-room`) drawn `whole`, and the five seats as a row of plates
+ * The room's own plate (`plate-faction-room`) drawn `width`, and the five seats as a row of plates
  * along its foot, the leader in the middle: the seat's card (`CardGlyph`), a name and a rank, or a
  * marked spare chair. The painted people stay the picture; nothing hangs on a face (`seats.ts`).
+ *
+ * `width` rather than `whole`, which is what the city and both district screens already use for
+ * the same 21:10 plate. Under `whole` the picture is fitted by height whenever the band is wider
+ * than 2.1:1, and the band is: measured at 118px of blurred surround down each side at 1280x720,
+ * 34px at 1280x800 and 24px at 1024x768. That surround is the plate itself over-scaled and blurred,
+ * which reads as glow on the Bar's warm plate and as a flat grey border on this dim interior one.
+ * Filling the width instead crops a little off the top and the foot, and the seats ride it: they
+ * are fractions of the picture and `OnPlate` clamps them into the part of it that is on screen.
  *
  * Nothing on this screen touches `features/bar`; the room borrowed the Bar's plate until the maintainer
  * delivered this one.
@@ -47,7 +55,7 @@ export function Room({
   const places = seated(members);
 
   return (
-    <PlateRoom plate="faction-room" aspect={ROOM_ASPECT} fit="whole" testId="faction-room">
+    <PlateRoom plate="faction-room" aspect={ROOM_ASPECT} fit="width" testId="faction-room">
       {SEAT_PLACES.map((place, at) => {
         const member = places[at] ?? null;
         return (

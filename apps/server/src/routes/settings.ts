@@ -1,6 +1,7 @@
 import {
   ChangePasswordRequestSchema,
   GAME_TIMEZONE,
+  TutorialSeenRequestSchema,
   UpdateProfileRequestSchema,
   UserSchema,
   type SettingsResponse,
@@ -39,6 +40,26 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     const record = app.repos.users.findById(request.currentUser.id);
     if (!record) throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
     return settingsFor(record);
+  });
+
+  /**
+   * §Tutorial: remember that these cards have been shown.
+   *
+   * On the account, which is what stops the opening playing again on a second machine. The write
+   * is a union rather than a replace (`markTutorialSeen`), so this is safe to call twice and safe
+   * to call from two tabs. Skip is the same route with every step in the body, which is why there
+   * is no second endpoint for it and no `skipped` flag anywhere.
+   *
+   * Answers with the settings sheet, like every other write here, so a client that wants to know
+   * what the account now holds does not need a second read.
+   */
+  app.post('/settings/tutorial', { preHandler: app.authenticate }, (request): SettingsResponse => {
+    const body = parseBody(TutorialSeenRequestSchema, request.body);
+    const userId = request.currentUser.id;
+    app.repos.users.markTutorialSeen(userId, body.steps);
+    const updated = app.repos.users.findById(userId);
+    if (!updated) throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
+    return settingsFor(updated);
   });
 
   /**

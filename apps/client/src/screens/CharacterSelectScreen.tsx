@@ -157,7 +157,17 @@ export function CharacterSelectScreen() {
         )}
       </header>
 
-      <div className="relative flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-y-auto px-6 pb-5 pt-1 sm:px-10">
+      {/*
+       * `justify-start` with the file centred by its own `my-auto`, not `justify-center`.
+       *
+       * A flex container that centres its children and also scrolls cannot scroll to the top of
+       * an overflowing child: the overflow is split above and below, and the part above is
+       * unreachable. At 1280x720 the overseer's file is taller than the space left under the
+       * title, and with `justify-center` the head of the sheet went under the heading while the
+       * foot ran past the two buttons. `my-auto` centres it while it fits and does nothing once
+       * it does not, which is the behaviour that was wanted both times.
+       */}
+      <div className="relative flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-y-auto px-6 pb-5 pt-1 sm:px-10">
         {offer.isError && (
           <div className="mx-auto w-full max-w-5xl">
             <LoadFailure
@@ -175,19 +185,34 @@ export function CharacterSelectScreen() {
         {/* `min-h-0` on the column so the file can give ground rather than pushing the two
             buttons past the foot of the frame: a single pixel over and the drawn faces are cut. */}
         {opened !== null && (
-          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-col gap-3">
+          <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-3">
             <OverseerSheet preset={opened} />
             {serverError && (
               <p role="alert" className="font-body text-[13px] text-oxblood-300">
                 {serverError}
               </p>
             )}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <DrawnButton size="md" onClick={() => setOpenedId(null)} data-testid="overseer-back">
+            {/*
+             * Centred and colour-coded (maintainer, 2026-09-22).
+             *
+             * They used to sit at opposite ends of the sheet in the same brass, which is the
+             * layout for a toolbar and the wrong one for the last decision on the screen: the
+             * two reads of a pair pushed to the corners are "these are unrelated" and "these are
+             * equal". Together in the middle, in red and green, they read as one question with
+             * two answers. Red is the way out, green is the way on.
+             */}
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8">
+              <DrawnButton
+                size="md"
+                tone="danger"
+                onClick={() => setOpenedId(null)}
+                data-testid="overseer-back"
+              >
                 Go back
               </DrawnButton>
               <DrawnButton
                 size="md"
+                tone="go"
                 onClick={confirm}
                 disabled={createOverseer.isPending}
                 data-testid="overseer-confirm"

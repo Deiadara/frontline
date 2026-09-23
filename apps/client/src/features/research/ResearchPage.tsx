@@ -655,7 +655,7 @@ export function ResearchPage() {
       // the sockets after that.
       action={
         section === 'reimagining' ? (
-          <InfoNote label="How Reimagining Works" drawn>
+          <InfoNote label="How Reimagining Works" drawn ink="iris">
             If you look at {REIMAGINING_PAGES_SPENT} random pages hard enough, you are guaranteed to
             come up with some new research. That&rsquo;s how it usually works anyway.
           </InfoNote>

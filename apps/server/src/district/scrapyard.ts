@@ -45,6 +45,7 @@ import {
   scrapyardLevelForUpgrade,
   scrapyardLevelRefusal,
   scrapyardPrice,
+  yardCostCutPercent,
   discounted,
   spendResources,
   upgradePrice,
@@ -111,24 +112,45 @@ const NO_STANDING: YardStanding = { refitDiscountPercent: 0 };
 const yardLevel = (base: Base): number => buildingLevel(base.buildings, 'scrapyard');
 
 /**
+ * What the Fabricator takes off every bill on this bench (maintainer, 2026-09-22).
+ *
+ * Their sheet reached nothing outside their own research track: the chair gates no card here
+ * (`OFFICER_FOR_UNIT_FALLBACK` never fires, because every unit card has a louder stat already),
+ * and nothing else in the game read it. It buys price now, on the same curve and ceiling each
+ * research chair already uses on its own track.
+ *
+ * Read off the **lifted** sheet through `officerFitReader`, so the Overseer's teaching perks, the
+ * ground and the Lab all count, exactly as they do for a research chair. Computed once per
+ * request at the two entry points and passed down, because the reader walks the whole roster and
+ * the answer cannot change between two lines of the same page.
+ */
+function yardCutFor(repos: Repositories, base: Base): number {
+  const fabricator = base.commanders.find((one) => one.role === 'fabricator');
+  if (!fabricator) return 0;
+  return yardCostCutPercent(officerFitReader(repos, base).pointsFor(fabricator, 'fabricator'));
+}
+
+/**
  * Every price the yard quotes, in one place: the list price, then the ground's cut on a unit card,
  * then the yard's own level. Floored at one per line by `scrapyardPrice`, so nothing is free.
  */
-function modificationBill(base: Base, spec: ModificationSpec): PartialResources {
-  return scrapyardPrice(modificationPrice(spec), yardLevel(base));
+function modificationBill(base: Base, spec: ModificationSpec, cut: number): PartialResources {
+  return scrapyardPrice(modificationPrice(spec), yardLevel(base), cut);
 }
 function upgradeBill(
   base: Base,
   spec: UnitModificationSpec,
   standing: YardStanding,
+  cut: number,
 ): PartialResources {
   return scrapyardPrice(
     discounted(upgradePrice(spec), standing.refitDiscountPercent),
     yardLevel(base),
+    cut,
   );
 }
-function trapBill(base: Base, spec: TrapSpec): PartialResources {
-  return scrapyardPrice(spec.cost, yardLevel(base));
+function trapBill(base: Base, spec: TrapSpec, cut: number): PartialResources {
+  return scrapyardPrice(spec.cost, yardLevel(base), cut);
 }
 
 /**
@@ -153,7 +175,7 @@ function documentFor(spec: ModificationSpec | UnitModificationSpec): string | nu
  * for the same reason: sending somebody to the Lab for a rung when they are four pages short of
  * the drawings sends them to the wrong building.
  */
-function trapBlockerFor(base: Base, spec: TrapSpec): string | null {
+function trapBlockerFor(base: Base, spec: TrapSpec, cut: number): string | null {
   const shut = scrapyardLevelRefusal(yardLevel(base), scrapyardLevelForTrap(spec));
   if (shut !== null) return shut;
   if (!blueprintGateMet(base.inventory, 'trap', spec.id)) {
@@ -162,7 +184,7 @@ function trapBlockerFor(base: Base, spec: TrapSpec): string | null {
   if (!base.research.technologies.includes(spec.requiresTech)) {
     return `Needs ${findTech(spec.requiresTech)?.name ?? spec.requiresTech} from the Lab`;
   }
-  return canAfford(base.resources, trapBill(base, spec)) ? null : 'You cannot cover that';
+  return canAfford(base.resources, trapBill(base, spec, cut)) ? null : 'You cannot cover that';
 }
 
 /**
@@ -283,6 +305,7 @@ function modificationTargets(
   base: Base,
   spec: ModificationSpec,
   markFor: (role: OfficerRole) => OfficerMark | null,
+  cut: number,
 ): ScrapyardEntry['targets'] {
   return fitsIn(spec).map((kind) => {
     const standing = findBuilding(base.buildings, kind);
@@ -296,7 +319,7 @@ function modificationTargets(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor,
-      affordable: (one) => canAfford(base.resources, modificationBill(base, one)),
+      affordable: (one) => canAfford(base.resources, modificationBill(base, one, cut)),
     });
     /*
      * A card already in a bracket is not blocked, it is done.
@@ -322,6 +345,7 @@ function upgradeTargets(
   standingYard: YardStanding,
   markFor: (role: OfficerRole) => OfficerMark | null,
   trainable: ReadonlySet<string>,
+  cut: number,
 ): ScrapyardEntry['targets'] {
   return PLAYER_UNITS.filter((unit) => modificationFitsUnit(spec, unit.id)).map((unit) => {
     const slots = slotsFor(base.unitLoadouts, unit.id);
@@ -339,7 +363,7 @@ function upgradeTargets(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor,
-      affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standingYard)),
+      affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standingYard, cut)),
       hasParts: (parts) =>
         Object.entries(parts).every(
           ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
@@ -369,10 +393,12 @@ export function projectScrapyard(
    * thirty for the units, on a page that is opened constantly.
    */
   const markFor = officerFitReader(repos, base).markFor;
+  // The Fabricator's cut, once for the page, for the same reason: it walks the whole roster.
+  const cut = yardCutFor(repos, base);
   const trainable = new Set(unlockedUnits(unlockContextFor(repos, base)).map((unit) => unit.id));
 
   const modifications: ScrapyardEntry[] = MODIFICATIONS.map((spec) => {
-    const targets = modificationTargets(base, spec, markFor);
+    const targets = modificationTargets(base, spec, markFor, cut);
     const requirement = modificationRequirement(spec, spec.building);
     return {
       id: spec.id,
@@ -381,7 +407,7 @@ export function projectScrapyard(
       description: spec.description,
       building: spec.building,
       effect: describeAddonEffect(spec),
-      cost: modificationBill(base, spec),
+      cost: modificationBill(base, spec, cut),
       advanced: isAdvancedModification(spec),
       rarity: findModification(spec.id)?.rarity ?? null,
       blueprint: documentFor(spec),
@@ -406,7 +432,7 @@ export function projectScrapyard(
   // The unit bench: thirty cards in catalogue order, which is rarity order. The page groups them
   // by the `rarity` on each row rather than by anything it knows about the catalogue.
   const upgrades: ScrapyardEntry[] = UNIT_MODIFICATIONS.map((spec) => {
-    const targets = upgradeTargets(base, spec, standing, markFor, trainable);
+    const targets = upgradeTargets(base, spec, standing, markFor, trainable, cut);
     const requirement = unitModificationRequirement(spec);
     return {
       id: spec.id,
@@ -415,7 +441,7 @@ export function projectScrapyard(
       description: spec.description,
       building: null,
       effect: describeAddonEffect(spec),
-      cost: upgradeBill(base, spec, standing),
+      cost: upgradeBill(base, spec, standing, cut),
       advanced: isAdvancedUpgrade(spec),
       rarity: spec.rarity,
       blueprint: documentFor(spec),
@@ -451,14 +477,14 @@ export function projectScrapyard(
     description: spec.description,
     building: null,
     effect: describeTrap(spec),
-    cost: trapBill(base, spec),
+    cost: trapBill(base, spec, cut),
     advanced: (spec.cost.highQualityMetal ?? 0) > 0,
     rarity: null,
     blueprint: blueprintForTrap(spec.id)?.name ?? null,
     owned: itemCount(base.inventory, spec.id as ItemId),
     requiresLevel: scrapyardLevelForTrap(spec),
     documentHeld: blueprintGateMet(base.inventory, 'trap', spec.id),
-    blocker: trapBlockerFor(base, spec),
+    blocker: trapBlockerFor(base, spec, cut),
     targets: [],
     requirement: [],
   }));
@@ -488,6 +514,13 @@ export function buildAddon(
   /** The structure or the unit it is being bolted to. A trap names nothing. */
   target?: string,
 ): AddonBuildResult {
+  /*
+   * The Fabricator's cut, taken here as well as on the read.
+   *
+   * The two have to agree to the coin: a page that quotes a discounted bill and a write that
+   * charges the list price is how a player gets refused for money the screen says they have.
+   */
+  const cut = yardCutFor(repos, base);
   if (buildingLevel(base.buildings, 'scrapyard') < SCRAPYARD_REQUIRED_LEVEL) {
     return { kind: 'refused', reason: 'Build the Scrapyard first' };
   }
@@ -501,12 +534,12 @@ export function buildAddon(
   if (kind === 'trap') {
     const spec = findTrap(id);
     if (!spec) return { kind: 'refused', reason: 'No such trap' };
-    const blocker = trapBlockerFor(base, spec);
+    const blocker = trapBlockerFor(base, spec, cut);
     if (blocker !== null) return { kind: 'refused', reason: blocker };
 
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, trapBill(base, spec)),
+      resources: spendResources(base.resources, trapBill(base, spec, cut)),
       inventory: addItems(base.inventory, { [spec.id]: 1 }),
     };
     repos.bases.updateHoldings(built.id, built.resources, built.inventory);
@@ -535,7 +568,7 @@ export function buildAddon(
       // §D7: the top two bands ask for a rank, which is the gate the ladder never had.
       notoriety: base.economy.notoriety,
       markFor: officerFitReader(repos, base).markFor,
-      affordable: (one) => canAfford(base.resources, modificationBill(base, one)),
+      affordable: (one) => canAfford(base.resources, modificationBill(base, one, cut)),
     });
     if (refusal !== null) {
       return { kind: 'refused', reason: boltInMessage(refusal, base, spec, into) };
@@ -552,7 +585,7 @@ export function buildAddon(
     const buildings = withModificationFitted(base.buildings, into, spec.id);
     const built: Base = {
       ...base,
-      resources: spendResources(base.resources, modificationBill(base, spec)),
+      resources: spendResources(base.resources, modificationBill(base, spec, cut)),
       buildings,
     };
     repos.bases.updateResources(built.id, built.resources);
@@ -581,7 +614,7 @@ export function buildAddon(
     crewLevel: base.level,
     notoriety: base.economy.notoriety,
     markFor: officerFitReader(repos, base).markFor,
-    affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standing)),
+    affordable: (one) => canAfford(base.resources, upgradeBill(base, one, standing, cut)),
     hasParts: (parts) =>
       Object.entries(parts).every(
         ([item, count]) => (base.inventory[item as ItemId] ?? 0) >= count,
@@ -598,7 +631,7 @@ export function buildAddon(
   };
   const built: Base = {
     ...base,
-    resources: spendResources(base.resources, upgradeBill(base, spec, standing)),
+    resources: spendResources(base.resources, upgradeBill(base, spec, standing, cut)),
     // Spent, not merely checked. A requirement that is verified and never consumed is a one-off
     // toll that buys every card in the catalogue for ever.
     inventory: removeItems(base.inventory, spec.parts),

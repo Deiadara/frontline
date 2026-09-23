@@ -1,4 +1,4 @@
-import { maxOpenAuctionsFor, OFFICER_ROLES, type CrewResponse } from '@frontline/shared';
+import { OFFICER_ROLES, type CrewResponse } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -123,44 +123,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('when the Bar turns over', () => {
-  it('quotes the house boundary on the clock the player reads the game in', async () => {
-    stub('America/New_York');
-
-    const window = await openEmptyChair();
-    await waitFor(() => expect(window).toHaveTextContent('signs them at 17:00'));
-    expect(window).not.toHaveTextContent(/midnight/i);
-  });
-
-  it('still says 00:00 for a player on the house clock itself', async () => {
+describe('the door to the Bar', () => {
+  it('opens the Bar and says nothing about the auction (maintainer, 2026-09-23)', async () => {
     stub('Europe/Athens');
 
     const window = await openEmptyChair();
-    await waitFor(() => expect(window).toHaveTextContent('signs them at 00:00'));
-  });
-
-  it('describes the auction, not the hire button it replaced', async () => {
-    stub('Europe/Athens');
-
-    const window = await openEmptyChair();
-    await waitFor(() => expect(window).toHaveTextContent('The Bar is an auction'));
-    // The cap is on tables, and it is the shared number the server gates bids on.
-    expect(window).toHaveTextContent(`${maxOpenAuctionsFor(crew.level)} tables at once`);
-    // What it must not still promise: a hire on the spot, or a daily allowance of people.
-    expect(window).not.toHaveTextContent(/sign a limited number/i);
-    expect(window).not.toHaveTextContent(/hires? a day/i);
+    await waitFor(() => expect(window).toHaveTextContent('Sign somebody'));
+    expect(window.querySelector('a[href="/game/bar"]')).not.toBeNull();
+    // The sentence that used to sit here is gone: no auction, no clock, no table cap.
+    expect(window).not.toHaveTextContent(/The Bar is an auction/i);
+    expect(window).not.toHaveTextContent(/tables at once/i);
+    expect(window).not.toHaveTextContent(/signs them at/i);
   });
 });
 
-/**
- * A refused write says what the server said.
- *
- * The release banner printed one guess ("You may not have the caps") for every failure, including
- * the two other refusals `releaseOfficer` produces and every transport failure, so a player whose
- * request failed for any other reason was sent to check a number that was fine. Reassignment printed
- * nothing at all: the mutation was read only for `isPending`, and the window staying open was the
- * whole of the feedback.
- */
 describe('when the books refuse a change', () => {
   const stubWith = (
     officers: CrewResponse,

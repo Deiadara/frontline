@@ -326,13 +326,42 @@ There are five, and each names what would close it:
 | `progression/unlocks.ts:6` | The §I3 unlock catalogue.                                            |
 | `missions.ts:296`          | Historical note only: the driver it describes is live.               |
 
+✅ **The Right Hand's standing orders** (2026-09-22): automated parties on the world tick, a six-rung
+ladder on the Right Hand's track, the Monitor's third page, and the whole mission board locked while
+any order is on. The chair also lifts every other officer and the Overseer. `docs/SPEC-server.md`.
+
+## Chairs whose sheet buys nothing (maintainer, 2026-09-22)
+
+An audit of all 18 officer roles asked a single question: does the seated officer's sheet change
+any outcome **outside their own research track**? Fourteen do. The Fabricator did not and now cuts
+the yard's bill (`yardCostCutPercent`). Two are deliberately left open, at the maintainer's call,
+to be designed later:
+
+| Chair                     | State                                                                                                                                                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `professor`               | **TODO.** Gates no Scrapyard card and moves no outcome. Duties are intuition, diplomacy, improvisation, cryptography. The Reimagining bench is the obvious home: its odds are fixed today and no sheet touches them. |
+| `instructor_of_the_young` | **TODO.** Gates three cards, but officer drilling pays a flat `TRAINING_GAIN` of 2 regardless of who teaches, so the chair is disconnected from the mechanic it is named after.                                      |
+
+Two mapping rows are dead and worth knowing before anybody trusts them:
+
+- `OFFICER_FOR_EFFECT.faction_xp_percent` names the `consigliere`, but all four `faction_xp_percent`
+  cards are `basic` and a basic card's band sets `mark: null`, so no officer is ever asked for.
+- `OFFICER_FOR_UNIT_FALLBACK` names the `fabricator`, and every one of the 31 unit cards already
+  has a louder stat that `OFFICER_FOR_UNIT_STAT` names, so the fallback never fires.
+
 ---
 
 ## Gotchas worth knowing before you change something
 
-- **Everything settles lazily on read.** There is no scheduler and no tick anywhere in the system.
-  `settleBase` runs the district first and payroll second, and that order is load-bearing in both
-  directions.
+- **There IS a tick, and this line used to deny it** (corrected 2026-09-22). `startWorldClock`
+  (`live/clock.ts`) runs `tickWorld` every `WORLD_TICK_MS`, which is one second, and that calls
+  `settleWorld` for the whole world whether anybody is connected or not: fortifications, unit
+  movements, sleepers, captured gates, **battles**, crews coming home, scouts, spy jobs, and both
+  auction rooms. So a fight lands on its mark, a crew comes home, and loot changes hands while its
+  owner is offline. The stale claim here is what made the architecture look absent.
+- **A base's own economy still settles lazily on read.** `settleBase` runs the district first and
+  payroll second, and that order is load-bearing in both directions. The tick above settles the
+  _world_; production and wages are settled when that base is next read.
 - **Rounding an accrual robs fast-polling clients.** The district settle skips windows shorter
   than `PRODUCTION_MIN_STEP_MS` _without advancing its clock_, so nothing is lost.
 - **`cn()` is plain `clsx`.** It does not resolve Tailwind conflicts. A base class and a caller's

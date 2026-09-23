@@ -304,7 +304,6 @@ export function LocationSheet({
           target={{ kind: 'location', locationId: view.location.id }}
           title={`Spy on ${view.location.name}`}
           eyebrow={district?.name ?? spec.label}
-          blurb="Your runners go and look. What comes back is what they could uncover of whoever is standing there, and never a soul that is not."
           placeName={view.location.name}
           districtId={districtId}
           baseId={baseId}
@@ -482,7 +481,7 @@ export function LocationSheet({
                 onClick={() => setSpyingOpen(true)}
                 data-testid={`spy-open-${view.location.id}`}
               >
-                Spy on it
+                Spy
               </Button>
             )}
           </div>

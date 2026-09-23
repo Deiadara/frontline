@@ -120,20 +120,22 @@ export function OverseerPortrait({
          * view available *is* the full width of the delivery. Showing the face smaller than that
          * needs a taller box, which is the standing bar's layout rather than this component's.
          *
-         * And ten percent lower in the frame (maintainer, 2026-09-22: the top of the head is
-         * sometimes cropped).
+         * It is **not** shifted lower than that, and was for one day (maintainer, 2026-09-22).
          *
-         * A negative `object-position` spends part of the crop's own overflow: at `0%` the top
-         * edge of the picture is level with the top of the box, and `-10%` slides it a tenth of
-         * the overflow further down, so the air above the skull grows and the bite comes off the
-         * bottom instead. A box that matches the delivery's shape exactly has no overflow to
-         * spend and is left as it was, which is right: nothing was being cut there either.
+         * `50% -10%` was meant to answer "the top of the head is sometimes cropped" by sliding
+         * the picture down a tenth of the crop's overflow. A percentage in `object-position`
+         * places the picture inside the box, and `0%` already sits the top edge of the delivery
+         * flush with the top of the box, so every negative value pushes it *below* that line and
+         * opens a strip of bare panel above the art. The overseer's file showed exactly that band.
+         *
+         * There is no image above `0%` to slide in. Moving the head down the frame needs a taller
+         * box or more sky in the delivery, which is layout and art rather than this component.
          */
         <img
           src={painted}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ objectPosition: '50% -10%' }}
+          style={{ objectPosition: '50% 0%' }}
         />
       ) : (
         <Silhouette />

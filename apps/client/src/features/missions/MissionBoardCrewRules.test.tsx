@@ -102,6 +102,7 @@ function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = 
       level={10}
       now={NOW}
       atCapacity={false}
+      automated={false}
       pendingTemplateId={null}
       refusal={null}
       onLaunch={vi.fn()}

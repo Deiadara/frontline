@@ -252,10 +252,13 @@ describe("a location's work", () => {
 });
 
 describe('a scout', () => {
-  it('turns round in the first tenth of the way out, walks home as far as they came, and opens nothing', () => {
+  it('turns round in the first tenth of the whole run, walks home as far as they came, and opens nothing', () => {
     const { repos, base } = stack();
-    // Two hours out, an hour looking and two hours home. The window is a tenth of the *walk*,
-    // so twelve minutes, and the hour on the ground buys none of it.
+    /*
+     * Two hours out, an hour looking and two hours home: 300 minutes, so the window is 30
+     * (maintainer, 2026-09-22). It was a tenth of the *walk* until then, which is 12, and the
+     * hour on the ground bought none of it.
+     */
     repos.scouting.insert({
       id: 's1',
       baseId: base.id,
@@ -266,20 +269,34 @@ describe('a scout', () => {
       travelMinutes: 120,
       recalledAt: null,
     });
-    expect(recallScout(repos, base, at(12))).toEqual({ kind: 'refused', reason: 'window_closed' });
+    expect(recallScout(repos, base, at(31))).toEqual({ kind: 'refused', reason: 'window_closed' });
+    // ...and twelve minutes, which used to be past the window, is inside it now.
+    expect(recallScout(repos, base, at(12)).kind).toBe('recalled');
 
-    const recalled = recallScout(repos, base, at(8));
+    const { repos: second, base: other } = stack();
+    second.scouting.insert({
+      id: 's2',
+      baseId: other.id,
+      districtId: 'blacksite-7',
+      officerId: 'nobody',
+      departedAt: HOUR,
+      returnsAt: at(300).toISOString(),
+      travelMinutes: 120,
+      recalledAt: null,
+    });
+    const recalled = recallScout(second, other, at(8));
     expect(recalled.kind).toBe('recalled');
     if (recalled.kind !== 'recalled') return;
-    // Eight minutes out, eight minutes home.
+    // Eight minutes out, eight minutes home: still the distance covered, because the cap at the
+    // two-hour walk out does not bind this early.
     expect(recalled.run.returnsAt).toBe(at(16).toISOString());
     expect(recalled.run.recalledAt).toBe(at(8).toISOString());
-    expect(recallScout(repos, base, at(9))).toEqual({ kind: 'refused', reason: 'nobody_out' });
+    expect(recallScout(second, other, at(9))).toEqual({ kind: 'refused', reason: 'nobody_out' });
 
     // Home, settled, and the ground stays shut: they never got there.
-    settleScouting(repos, at(16));
-    expect(repos.scouting.activeFor(base.id)).toEqual([]);
-    expect(repos.city.scouted(base.id).has('blacksite-7')).toBe(false);
+    settleScouting(second, at(16));
+    expect(second.scouting.activeFor(other.id)).toEqual([]);
+    expect(second.city.scouted(other.id).has('blacksite-7')).toBe(false);
   });
 });
 

@@ -4,7 +4,6 @@ import { useLiveEvents } from '../lib/live';
 import { useMe, usePrefetchScreens } from '../lib/queries';
 import { useMeasuredHeight } from '../lib/useMeasuredHeight';
 import { BottomNav } from '../features/game/BottomNav';
-import { QueueRail } from '../features/game/QueueRail';
 import { SceneBackdrop } from '../features/game/PageShell';
 import { ShellLevelUp } from '../features/game/ShellLevelUp';
 import { TopHud } from '../features/game/TopHud';
@@ -90,11 +89,10 @@ export function GameScreen() {
         </div>
         {/* The world's middle stays clear: nothing floats over it at all. */}
         <div className="min-h-0 flex-1" />
-        {/* The rail and the switcher are measured together, and `--nav-h` is the pair. A screen
-            that lays itself out around the chrome cares how much of the bottom is taken, not how
-            many bars are taking it, and the rail comes and goes with what the crew is doing. */}
+        {/* Measured into `--nav-h`, so a screen that lays itself out around the chrome knows how
+            much of the bottom is taken. The strip of in-flight chips that used to sit above the
+            switcher is the Monitor's In progress page now (maintainer, 2026-09-23). */}
         <div ref={navRef}>
-          <QueueRail />
           <BottomNav />
         </div>
       </div>

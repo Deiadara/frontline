@@ -24,6 +24,7 @@ import {
   type AlliedGarrisonsRepo,
   type MovesRepo,
 } from './moves.js';
+import { createAutomationsRepo, type AutomationsRepo } from './automations.js';
 import { createFeatsRepo, type FeatsRepo } from './feats.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
@@ -62,6 +63,8 @@ export interface Repositories {
   spying: SpyingRepo;
   /** Columns walking between the crew's own places (2026-09-22). */
   moves: MovesRepo;
+  /** The Right Hand's standing orders (`automations/`). */
+  automations: AutomationsRepo;
   /** Units posted on a faction ally's ground: theirs, fighting for the holder. */
   alliedGarrisons: AlliedGarrisonsRepo;
   /** Feats: the lifetime counters a feat asks about, and what each crew has collected. */
@@ -105,6 +108,7 @@ export function createRepositories(
     scouting: createScoutingRepo(db),
     spying: createSpyingRepo(db),
     moves: createMovesRepo(db),
+    automations: createAutomationsRepo(db),
     alliedGarrisons: createAlliedGarrisonsRepo(db),
     tx: (work) => db.transaction(work)(),
   };

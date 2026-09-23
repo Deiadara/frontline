@@ -183,7 +183,13 @@ function standing(requirement: ReturnType<typeof areaRequirement>, facts: Unlock
     case 'notoriety':
       return facts.notoriety >= requirement.rank
         ? 'You have the rank. Reload the page.'
-        : `You are at rank ${facts.notoriety}. Rank is bought with infamy, and once bought it is never lost.`;
+        : /*
+           * The name, not the index, for the same reason `figureFor` gives above (bug pass,
+           * 2026-09-22). This line printed `You are at rank 0` directly under `Opens at Marked`,
+           * so the door named one ladder in words and the player's place on it in a number, and
+           * the two did not look like the same scale at all.
+           */
+          `You are at ${notorietyTier(facts.notoriety)}. Rank is bought with infamy, and once bought it is never lost.`;
     case 'research':
       return facts.technologies.includes(requirement.technology)
         ? 'It is finished. Reload the page.'

@@ -1,7 +1,6 @@
 import {
   BENCH_LABEL,
   dismissalFee,
-  maxOpenAuctionsFor,
   OFFICER_ROLES,
   OFFICER_ROLE_LABELS,
   officerPortraits,
@@ -24,7 +23,6 @@ import { cn } from '../../lib/cn';
 import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
-import { useDayResetClock } from '../settings/usePlayerZone';
 
 /**
  * The crew (GDD §C1, §C2): the nineteen chairs, and who is sitting in them.
@@ -309,7 +307,6 @@ function ChairWindow({
   role,
   bench,
   faces,
-  level,
   pending,
   onAssign,
   onClose,
@@ -317,15 +314,10 @@ function ChairWindow({
   role: OfficerRole;
   bench: readonly CrewOfficer[];
   faces: ReadonlyMap<string, string>;
-  /** The crew's level, because the table cap moves at 40 (`maxOpenAuctionsFor`). */
-  level: number;
   pending: boolean;
   onAssign: (officerId: string) => void;
   onClose: () => void;
 }) {
-  // The roster is keyed on an Athens date, so "midnight" was only ever true for a player on the
-  // house clock. `useDayResetClock` puts the same instant on the clock this player reads.
-  const resetsAt = useDayResetClock();
   return (
     <Modal onClose={onClose} labelledBy="chair-window-title" size="wide">
       <div className="flex min-h-0 flex-col" data-testid="chair-window">
@@ -346,16 +338,8 @@ function ChairWindow({
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-5 py-4">
           <div className="flex flex-col gap-2">
             <Heading>Sign somebody</Heading>
-            {/* The Bar has not been a hire button since it became an auction (§H7a): nobody is
-                signed on the spot, the room turns over whole at midnight, and what is limited is
-                how many tables a crew can sit at rather than how many people it can take in a day.
-                The cap is read from the shared function the server gates on, so the sentence and
-                the refusal cannot say different numbers. */}
-            <p className="font-body text-[13px] leading-relaxed text-ink-300">
-              The Bar is an auction. Bid against the rest of the city and the highest bid signs them
-              at {resetsAt}, when the room turns over. You can be at {maxOpenAuctionsFor(level)}{' '}
-              tables at once.
-            </p>
+            {/* No sentence about the auction here any more (maintainer, 2026-09-23): the Bar
+                explains itself on its own screen, and this window is a door to it. */}
             <InkButton to="/game/bar" icon="bar" className="self-start">
               Go to the Bar
             </InkButton>
@@ -699,7 +683,6 @@ function Layout({ data }: { data: CrewResponse }) {
           role={chair}
           bench={bench}
           faces={faces}
-          level={data.level}
           pending={reassign.isPending}
           onAssign={(officerId) => {
             reassign.mutate({ officerId, role: chair }, { onSuccess: () => setChair(null) });

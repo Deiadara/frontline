@@ -311,6 +311,8 @@ export const MILESTONE_BROKERS_RESPECT = 'brokers_respect';
 export const MILESTONE_DEEP_POCKETS = 'deep_pockets';
 /** Level 80: a third crew out at once, in a third area (§E). */
 export const MILESTONE_THIRD_CREW = 'third_crew';
+/** Level 90: the Siege, the sixth weight of fight job, starts turning up on the board. */
+export const MILESTONE_SIEGE = 'siege';
 
 const MILESTONES: readonly PlayerLevelUnlock[] = [
   {
@@ -342,6 +344,13 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
     level: 80,
     name: 'A Third Crew',
     description: 'Three jobs running at once, in three different parts of the city.',
+  },
+  {
+    id: MILESTONE_SIEGE,
+    level: 90,
+    name: 'The Siege',
+    description:
+      'A sixth weight of fight starts turning up on the board, above Fight V. It always pays a page and components on top of the haul.',
   },
 ];
 

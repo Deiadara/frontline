@@ -44,6 +44,8 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       icon: DEFAULT_PLAYER_ICON,
       timezone: GAME_TIMEZONE,
       soundVolume: DEFAULT_SOUND_VOLUME,
+      // Nothing seen yet, which is what makes the opening tutorial play exactly once.
+      tutorialSeen: [],
       passwordHash,
     };
     app.repos.users.insert(record);

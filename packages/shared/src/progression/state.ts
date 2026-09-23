@@ -60,6 +60,15 @@ export const PLAYER_XP_AWARDS = {
   unitTrained: 20,
   /** Signing somebody out of the Bar. Once a day at most, so it can be worth something. */
   officerHired: 70,
+  /**
+   * Three pages into the Lab with nothing left in the game to find (`REIMAGINING_COMPLETE_XP`).
+   *
+   * Far and away the largest entry here, and it is meant to be: it is only reachable by a crew
+   * holding or having bound every page there is, it costs three pages a press, and it is the only
+   * thing left that bench can do. Priced flat rather than off the sheets that went in, because
+   * there is no payout on the other side of it for their rarity to steer.
+   */
+  pagesReimagined: 5000,
 } as const;
 
 export type PlayerXpSource = keyof typeof PLAYER_XP_AWARDS;

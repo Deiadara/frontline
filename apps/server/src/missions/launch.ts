@@ -22,6 +22,7 @@ import {
   type MissionTemplate,
   hastenedMinutes,
   hastenedRoadMinutes,
+  type BattleTier,
 } from '@frontline/shared';
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
@@ -62,6 +63,11 @@ export function launchMission(args: {
   base: Base;
   template: MissionTemplate;
   now: Date;
+  /**
+   * The fight's tier, as the board dealt it (`dealBattleTier`). Frozen on the row and priced
+   * into the pay and the XP; null on plain work.
+   */
+  battleTier?: BattleTier | null;
   /**
    * Who is leading it, or absent for a run nobody leads (maintainer, 2026-09-10).
    *
@@ -166,6 +172,7 @@ export function launchMission(args: {
     now,
     leader,
     unled,
+    battleTier = null,
     admin = false,
     missionSpeedPercent = 0,
     leadSpeedPercent = 0,
@@ -251,7 +258,8 @@ export function launchMission(args: {
       // is the perk channel for officers who negotiate the contracts (`crew/perks.ts`). Frozen here
       // with everything else, so hiring a better fixer does not retroactively repay a run already out.
       payPercent: areaPayPercent(areaId) + levelPayPercent(base.level) + missionSpoilsPercent,
-      xp: missionXp(template, priced.totalMinutes, base.level),
+      xp: missionXp(template, priced.totalMinutes, base.level, battleTier),
+      battleTier,
       force,
       vehicles,
       pricedMinutes: priced.totalMinutes,

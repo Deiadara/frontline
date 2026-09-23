@@ -501,6 +501,11 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0109_spying.sql',
     '0110_gate_and_moves.sql',
     '0111_level_floor.sql',
+    '0112_tutorial_seen.sql',
+    '0113_automations.sql',
+    '0114_mixed_order.sql',
+    '0115_battle_tier.sql',
+    '0116_bio_punctuation.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);

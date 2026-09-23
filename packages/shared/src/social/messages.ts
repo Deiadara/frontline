@@ -40,6 +40,13 @@ import { FactionNameSchema } from '../factions/factions.js';
 
 export const MESSAGE_SUBJECT_MAX = 80;
 export const MESSAGE_BODY_MAX = 2000;
+/**
+ * How many people one letter may be addressed to (maintainer request, 2026-09-23).
+ *
+ * A faction message fans out to a table of five, and a letter to a hand-picked few is the same
+ * shape with the names chosen one at a time; the cap keeps the composer from being a broadcast.
+ */
+export const MESSAGE_RECIPIENTS_MAX = 5;
 
 /**
  * How much of the body a quoted original may take.

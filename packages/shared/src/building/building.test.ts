@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { RESEARCH_ITEMS } from '../research/tracks.js';
 import { infirmaryRecoveryPercent } from './standing.js';
 import { recoverCasualties } from '../crew/effects.js';
-import { RESOURCE_KEYS, STARTING_RESOURCES, canAfford, type Resources } from '../resources.js';
+import {
+  RESOURCE_KEYS,
+  STARTING_RESOURCES,
+  canAfford,
+  type PartialResources,
+  type Resources,
+} from '../resources.js';
 import { UNIT_SLOTS_PER_LOCATION, districtUnitSlotCapacity } from './unit-slots.js';
 import {
   BUILDING_CATALOG,
   BUILDING_KINDS,
+  type BuildingKind,
   BUILDING_LEVEL_CEILINGS,
   BUILDING_MAX_LEVEL,
   CENTRAL_BUILDING,
@@ -399,6 +406,63 @@ describe('what a level costs and how long it takes (§A1, §D3)', () => {
     // Not a formality: this is the whole opening. A starting stockpile that covers nothing is a
     // dead first session, and one that covers everything is no decision at all.
     expect(affordable.length).toBeGreaterThanOrEqual(2);
+  });
+
+  /**
+   * The shape of the opening, pinned (bug pass, 2026-09-22).
+   *
+   * `STARTING_RESOURCES` carried a paragraph describing that shape and naming a `build.test.ts`
+   * that pinned it. No such file has ever existed, and every claim in the paragraph was wrong:
+   * it said oil was the resource that ended the opening when oil over the same plots is 40
+   * against 120 held, and that the level-2 Nexus "stays out of reach" when it is affordable on
+   * the starting stockpile with 88 caps to spare. A comment nothing checks is a comment that
+   * drifts, and this one had drifted all the way to the opposite of the truth.
+   *
+   * So this is the missing test. The claims are written as properties rather than as the four
+   * numbers, except where a number *is* the claim, so a retune moves the figures without
+   * reddening, and a retune that changes the **shape** reddens.
+   */
+  describe('the shape of the opening', () => {
+    /** Every plot a Nexus-1 district can actually lay, which is the whole of the first session. */
+    const layable = BUILDING_KINDS.filter(
+      (kind) =>
+        !NEW_DISTRICT.some((standing) => standing.kind === kind) &&
+        isBuildingUnlocked(kind, NEW_DISTRICT, 1),
+    );
+
+    const billFor = (kinds: readonly BuildingKind[]): PartialResources =>
+      kinds.reduce<PartialResources>((total, kind) => {
+        for (const [key, amount] of Object.entries(buildingCost(kind, 1, NEW_DISTRICT))) {
+          total[key as keyof PartialResources] =
+            (total[key as keyof PartialResources] ?? 0) + (amount ?? 0);
+        }
+        return total;
+      }, {});
+
+    it('lets a new crew lay every opening plot on its own, and not all of them at once', () => {
+      expect(layable.length).toBeGreaterThanOrEqual(3);
+      for (const kind of layable) {
+        expect(canAfford(STARTING_RESOURCES, buildingCost(kind, 1, NEW_DISTRICT)), kind).toBe(true);
+      }
+      // Tight but not dead: the whole opening together is out of reach, so which plots and in
+      // what order is a real decision rather than a formality.
+      expect(canAfford(STARTING_RESOURCES, billFor(layable))).toBe(false);
+    });
+
+    it('runs out of planks first, which is the wall the opening is tuned around', () => {
+      const bill = billFor(layable);
+      const short = RESOURCE_KEYS.filter((key) => (bill[key] ?? 0) > STARTING_RESOURCES[key]);
+      // Exactly one material binds, and it is timber. Two would mean the opening is walled twice
+      // and the tuning note in `resources.ts` is describing something else again.
+      expect(short).toEqual(['planks']);
+    });
+
+    it('does not put the second Nexus out of reach, whatever the old comment said', () => {
+      // The correction itself, asserted: the level-2 Nexus is affordable on day one. If a retune
+      // ever does push it out of reach that is a real design change, and it should be made
+      // deliberately rather than discovered in a stale paragraph.
+      expect(canAfford(STARTING_RESOURCES, buildingCost('nexus', 2, NEW_DISTRICT))).toBe(true);
+    });
   });
 });
 

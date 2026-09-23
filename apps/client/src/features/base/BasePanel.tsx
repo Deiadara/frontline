@@ -47,6 +47,7 @@ import { StructureDialog } from './StructureDialog';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { DistrictScene } from './DistrictScene';
 import { formatRate, formatRemaining } from './format';
+import { Tutorial } from '../tutorial/Tutorial';
 
 /**
  * The district (GDD §A1): a place you look at and click, not a list of structure rows.
@@ -151,6 +152,8 @@ export function BasePanel() {
         } as React.CSSProperties
       }
     >
+      {/* First visit to the district raises its card, once. */}
+      <Tutorial screen="base" />
       <DistrictScene
         buildings={base.buildings}
         queue={base.buildQueue}

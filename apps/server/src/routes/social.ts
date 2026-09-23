@@ -60,7 +60,7 @@ export function registerSocialRoutes(app: FastifyInstance): void {
   });
 
   app.post('/messages', { preHandler: app.authenticate }, (request): MessageMutationResponse => {
-    const { toUsername, subject, body } = parseBody(SendMessageRequestSchema, request.body);
+    const { toUsernames, subject, body } = parseBody(SendMessageRequestSchema, request.body);
     const sender = request.currentUser;
 
     return app.db.transaction(() => {
@@ -79,7 +79,7 @@ export function registerSocialRoutes(app: FastifyInstance): void {
       let addressedTo: string;
       let audience: 'player' | 'faction';
 
-      if (toUsername === null) {
+      if (toUsernames === null) {
         if (!membership || !faction) refuseMessage('not_in_a_faction');
         audience = 'faction';
         addressedTo = faction.name;
@@ -89,12 +89,20 @@ export function registerSocialRoutes(app: FastifyInstance): void {
           .filter((id) => id !== sender.id);
         if (recipients.length === 0) refuseMessage('nobody_to_write_to');
       } else {
-        const to = app.repos.users.findByUsername(toUsername);
-        if (!to) refuseMessage('no_such_player');
-        if (to.id === sender.id) refuseMessage('cannot_write_to_yourself');
+        /*
+         * Every name resolved before anything is written, so a letter to three people with one
+         * name wrong is refused whole rather than reaching two of them. The same name twice is
+         * one recipient: the composer cannot pick a name twice, but a hand-written request can.
+         */
+        const to = [...new Set(toUsernames)].map((username) => {
+          const user = app.repos.users.findByUsername(username);
+          if (!user) refuseMessage('no_such_player');
+          if (user.id === sender.id) refuseMessage('cannot_write_to_yourself');
+          return user;
+        });
         audience = 'player';
-        addressedTo = to.username;
-        recipients = [to.id];
+        addressedTo = to.map((user) => user.username).join(', ');
+        recipients = to.map((user) => user.id);
       }
 
       const sentAt = new Date();

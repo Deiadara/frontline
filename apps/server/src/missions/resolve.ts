@@ -3,6 +3,7 @@ import {
   mergeFleets,
   earnedInfamy,
   gainInfamy,
+  missionInfamyForFled,
   missionInfamyForKills,
   MISSION_INFAMY_DELTA,
   FAILED_MISSION_XP_SHARE,
@@ -15,7 +16,8 @@ import {
   findMissionTemplate,
   isMissionDue,
   missionRewards,
-  battleTierFor,
+  BLUEPRINT_CATEGORIES,
+  guaranteedSalvage,
   pricedTotalMinutes,
   type BattleOfficer,
   type Base,
@@ -28,6 +30,9 @@ import {
   rollSalvage,
 } from '@frontline/shared';
 import { forceSize, mergeArmies } from '../battle/forces.js';
+
+/** Components a won Siege brings home whatever the dice say (maintainer, 2026-09-23). */
+export const SIEGE_GUARANTEED_PARTS = 3;
 import { createRng } from '../characters/rng.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { overseerOf } from '../crew/training.js';
@@ -40,6 +45,7 @@ import type { StoredMission } from '../db/repos/missions.js';
 import { awardPlayerXp } from '../progression/award.js';
 import {
   tallyInfamyEarned,
+  tallyUnitsRouted,
   tallyMissionHome,
   tallyPagesIn,
   tallyResourcesEarned,
@@ -160,7 +166,16 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      * promise. Same for the level: the figure the tier fields scales on the crew's level, and the
      * crew's level is what it is when the fight happens.
      */
-    const tier = recalled || !template ? null : battleTierFor(template);
+    /*
+     * The tier is the row's (maintainer, 2026-09-23): dealt on the card off the crew's level and
+     * frozen when the crew left, so a level gained on the road changes neither what is waiting
+     * nor what it pays. A fight row from before tiers were frozen carries null and fights a
+     * Fight I, the bottom of the ladder, which is the pay it was quoted.
+     */
+    const tier =
+      recalled || !template || template.kind !== 'battle'
+        ? null
+        : (stored.mission.battleTier ?? 'fight_1');
     const battle =
       template && tier !== null
         ? fightMissionBattle({
@@ -225,7 +240,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     const pricedMinutes = pricedTotalMinutes(stored.mission);
     const paid =
       template && !recalled && reported
-        ? scaledSpoils(missionRewards(template, outcome, pricedMinutes), stored.mission.payPercent)
+        ? scaledSpoils(
+            missionRewards(template, outcome, pricedMinutes, tier),
+            stored.mission.payPercent,
+          )
         : {};
     // Off the crew's loadouts as they stand at the mark, the same way the roster folds them.
     const rewards = carriedHome(
@@ -254,8 +272,17 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
      */
     const rng = createRng(stored.seed);
     rng(); // The outcome's own draw, consumed so the finds do not reuse it.
-    const found =
+    const rolled =
       recalled || !reported ? {} : rollSalvage(pricedMinutes, outcome === 'success', rng);
+    /*
+     * The Siege's guarantee (maintainer, 2026-09-23): a won Siege always brings components home,
+     * on top of whatever the dice said, and always a page (below). Off the same stream, one draw
+     * further along, so the run is as reproducible as any other.
+     */
+    const siegeWon = tier === 'siege' && outcome === 'success' && !recalled && reported;
+    const found = siegeWon
+      ? addItems(rolled, guaranteedSalvage(SIEGE_GUARANTEED_PARTS, rng))
+      : rolled;
     /*
      * §F1e/§F1f: the page, decided on arrival rather than when the card was drawn.
      *
@@ -267,7 +294,14 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
     const pageWon =
       stored.mission.pagePrize !== null && outcome === 'success' && !recalled && reported
         ? pageWonFrom(stored.mission.pagePrize, stored.seed)
-        : null;
+        : siegeWon
+          ? // The Siege pays a page whether or not the card carried one: the category comes off
+            // the seed, the sheet off the same draw every other page comes off.
+            pageWonFrom(
+              BLUEPRINT_CATEGORIES[stored.seed % BLUEPRINT_CATEGORIES.length] ?? 'unit',
+              `${String(stored.seed)}:siege`,
+            )
+          : null;
 
     return {
       mission: {
@@ -298,12 +332,16 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
        * everything that earns any" (§D8). It reached the declared-battle settler and not this one,
        * so the Graveyard and `sig_name_maker` paid on a raid and nothing on a job.
        */
+      /** Enemy units the crew made run, for the `units_routed` ladder. Zero on plain work. */
+      routed: battle && reported ? forceSize(battle.fledEnemy) : 0,
       infamyDelta:
         template && reported
           ? Math.round(
               earnedInfamy(
                 MISSION_INFAMY_DELTA[template.kind][outcome] +
-                  (battle ? missionInfamyForKills(battle.killed) : 0),
+                  (battle
+                    ? missionInfamyForKills(battle.killed) + missionInfamyForFled(battle.fledEnemy)
+                    : 0),
                 crew?.infamyGainPercent ?? 0,
               ),
             )
@@ -438,8 +476,10 @@ export function resolveDueMissions(repos: Repositories, base: Base, now: Date): 
         areaId: settlement.mission.areaId,
         kind: template?.kind ?? 'standard',
         succeeded: settlement.outcome === 'success',
+        tier: template?.kind === 'battle' ? (settlement.mission.battleTier ?? 'fight_1') : null,
       });
     }
+    tallyUnitsRouted(repos, base.id, settlement.routed);
     tallyResourcesEarned(repos, base.id, settlement.rewards);
     tallyInfamyEarned(repos, base.id, settlement.infamyDelta);
     // Pages only. `found` is the whole inventory haul, so it carries salvaged components too, and

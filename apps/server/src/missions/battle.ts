@@ -58,6 +58,8 @@ export interface MissionBattle {
    * that buys the other reading.
    */
   carrying: Army;
+  /** The enemy's units that broke and ran on a win. Empty on a loss. */
+  fledEnemy: Army;
   /** The machines that came back. */
   vehicles: Fleet;
   /** §C3: and the ones whose riders all died. */
@@ -120,6 +122,9 @@ export function fightMissionBattle(args: {
   // The engine names the dead by who lost the field: `killed` is the loser's and `winnerLosses` the
   // winner's, so which list is ours and which is theirs turns on who held it.
   const killed = won ? fought.killed : fought.winnerLosses;
+  // The enemy's runners, on a win: worth half a kill each (`missionInfamyForFled`). On a loss the
+  // runners are the crew's own, and nobody pays for those.
+  const fledEnemy = won ? fought.fled : {};
   /*
    * §F2 and §B10: the medics take some of the crew's dead off the list, on a win.
    *
@@ -154,6 +159,7 @@ export function fightMissionBattle(args: {
     enemy,
     lost,
     killed,
+    fledEnemy,
     home,
     carrying,
     vehicles: mergeFleets(idle, removeFleet(riding, wreckedVehicles)),

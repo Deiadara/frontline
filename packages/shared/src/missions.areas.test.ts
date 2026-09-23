@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FIGHTS_PER_AREA,
   BASE_CONCURRENT_MISSIONS,
   MISC_AREA_ID,
   MISC_BOARD_ROTATION_MINUTES,
@@ -41,24 +42,17 @@ describe('the boards work comes off (§E)', () => {
   });
 
   /**
-   * The board's own rule: one battle and two standard, or two battle and one standard. Never
-   * three of a kind either way, which is what makes a board readable by a crew with an army and
-   * by one without.
+   * The board's own rule (maintainer, 2026-09-23): one fight and two plain jobs, every board.
+   * Never three of a kind, which is what makes a board readable by a crew with an army and by
+   * one without, and never two fights either, which is what the coin used to deal.
    */
-  it('always mixes the kinds: one or two fights, never none and never three', () => {
+  it('deals exactly one fight and two plain jobs on every board', () => {
     for (const areaId of AREAS) {
-      const battles = missionOffers(areaId).filter((t) => t.kind === 'battle').length;
-      expect(battles, areaId).toBeGreaterThanOrEqual(1);
-      expect(battles, areaId).toBeLessThanOrEqual(2);
+      const offers = missionOffers(areaId);
+      expect(offers, areaId).toHaveLength(MISSIONS_PER_AREA);
+      expect(offers.filter((t) => t.kind === 'battle').length, areaId).toBe(FIGHTS_PER_AREA);
+      expect(FIGHTS_PER_AREA).toBe(1);
     }
-  });
-
-  /** And both mixes actually turn up: a coin that always lands the same way is not a coin. */
-  it('flips between the two mixes across the city', () => {
-    const shapes = new Set(
-      AREAS.map((areaId) => missionOffers(areaId).filter((t) => t.kind === 'battle').length),
-    );
-    expect(shapes).toEqual(new Set([1, 2]));
   });
 
   it('never offers the same job twice in one area', () => {

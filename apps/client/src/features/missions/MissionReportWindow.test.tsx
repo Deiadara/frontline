@@ -50,6 +50,7 @@ function mission(fields: Partial<Mission> = {}): Mission {
     durationMinutes: 50,
     status: 'resolved',
     officerId: null,
+    battleTier: null,
     overseerLed: true,
     lost: {},
     reported: true,

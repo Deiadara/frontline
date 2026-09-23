@@ -1,9 +1,16 @@
-import { OverseerSchema, isPerkId, type Attributes, type Overseer } from '@frontline/shared';
+import {
+  OverseerSchema,
+  findOverseerPreset,
+  isPerkId,
+  type Attributes,
+  type Overseer,
+} from '@frontline/shared';
 import { readJson } from '../json.js';
 import type { AppDatabase } from '../index.js';
 
 interface OverseerRow {
   id: string;
+  preset_id: string;
   name: string;
   archetype: string;
   portrait_id: string;
@@ -94,7 +101,14 @@ function rowToOverseer(row: OverseerRow): Overseer {
     name: row.name,
     archetype: row.archetype,
     portraitId: row.portrait_id,
-    bio: row.bio,
+    /*
+     * The preset's words, not the row's copy.
+     *
+     * The biography is authored copy stamped onto the row when the file was opened, and a preset
+     * rewritten since then (the dashes came out of every one on 2026-09-23) never reached a file
+     * already on the shelf. The row's copy is only read for a preset that has left the pool.
+     */
+    bio: findOverseerPreset(row.preset_id)?.bio ?? row.bio,
     attributes: readJson(row.attributes_json),
     perks: knownPerks(readJson(row.perks_json)),
   });

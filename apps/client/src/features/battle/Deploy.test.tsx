@@ -1,4 +1,5 @@
 import {
+  TUTORIAL_STEPS,
   STARTING_RESOURCES,
   battlefieldFor,
   startingEconomy,
@@ -59,6 +60,8 @@ const me: MeResponse = {
     icon: 'shield',
     timezone: 'Europe/Athens',
     soundVolume: 60,
+    // Seen, so the opening tutorial does not draw over a test about something else.
+    tutorialSeen: [...TUTORIAL_STEPS],
   },
   overseer: null,
   base,

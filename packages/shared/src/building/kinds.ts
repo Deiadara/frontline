@@ -490,9 +490,20 @@ export function describeBuildingRequirement(clause: BuildingRequirement): string
 /**
  * Guards the ladder at module load.
  *
- * Three ways to write a structure nobody can ever build, all of them easy to type and none of them
+ * Four ways to write a structure nobody can ever build, all of them easy to type and none of them
  * visible on a screen: a clause naming a structure that does not exist, a structure that requires
- * itself, and a Nexus clause above the level ceiling.
+ * itself, a **ring** of structures that require each other, and a Nexus clause above the level
+ * ceiling.
+ *
+ * The ring is the one this missed until 2026-09-22 (bug pass). `clause.building === kind` catches
+ * the one-step case and the doc above it promised to catch "a structure that requires itself",
+ * which a reader takes to mean the whole family. A two-step ring, the Garage wanting the Lab and
+ * the Lab wanting the Garage, passed every guard, every test and the whole suite, and would have
+ * stranded both structures for ever with no screen able to say why: `isBuildingUnlocked` would
+ * simply answer no to each of them and the district would draw two plots that never open.
+ *
+ * Walked rather than special-cased at depth two, because a three-step ring is exactly as easy to
+ * type and exactly as invisible.
  */
 for (const kind of BUILDING_KINDS) {
   for (const clause of BUILDING_CATALOG[kind].requires) {
@@ -505,6 +516,28 @@ for (const kind of BUILDING_KINDS) {
       throw new Error(`${kind} needs ${clause.building} at ${clause.level}, past its ceiling`);
     }
   }
+}
+
+/**
+ * The ring check, as a depth-first walk from every structure.
+ *
+ * `seen` is the path currently being followed rather than everything visited, so meeting a
+ * structure twice on *one* path is a ring and meeting it on two different paths is just a shared
+ * prerequisite, which is ordinary and true of almost everything that hangs off the Nexus.
+ */
+for (const start of BUILDING_KINDS) {
+  const walk = (kind: BuildingKind, path: readonly BuildingKind[]): void => {
+    for (const clause of BUILDING_CATALOG[kind].requires) {
+      if (clause.kind !== 'building') continue;
+      if (path.includes(clause.building)) {
+        throw new Error(
+          `${[...path, clause.building].join(' needs ')}: a ring nobody can ever build`,
+        );
+      }
+      walk(clause.building, [...path, clause.building]);
+    }
+  };
+  walk(start, [start]);
 }
 
 /**

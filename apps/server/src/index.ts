@@ -86,6 +86,7 @@ async function main(): Promise<void> {
   const stopClock = startWorldClock({
     repos: app.repos,
     engine: app.skirmishEngine,
+    admin: config.admin,
     onSettled: (resolved, at) => app.log.info({ resolved, at }, 'world clock settled fights'),
     onError: (error) => app.log.error({ error }, 'world clock tick failed'),
   });

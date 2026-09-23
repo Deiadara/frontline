@@ -317,9 +317,15 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    `missions.leading.ts` is what the launch is priced with, and the dial reads the same functions.
 
    - **The card** says what the job leans on, as chips off `MISSION_LEANING_LABELS`
-     (`A haul`, `Salvage`, `A long road`). A battle says its tier instead (`A skirmish`, `A fight`,
-     `A siege`) and nothing else: what a fight actually fields is the job's secret. The band is a
+     (`A haul`, `Salvage`, `A long road`); each chip's hover is the attributes it reads and how much
+     each matters, nothing else. A fight says its tier instead (`Fight I` to `Fight V`, or `Siege`),
+     in red, with no hover: what a fight actually fields is the job's secret. There is no Standard
+     or Battle keyword any more (maintainer, 2026-09-23): red is the mark of a fight. The band is a
      fixed height like every other band on the card, so three offers stay comparable line for line.
+   - **What a run out is worth.** The In flight panel quotes each crew's haul and XP if it comes
+     off, rebuilt from the row (`offerOfMission`). The Monitor's job rows do the same, and a job's
+     name there is a hover that shows the card it was taken off (`OfferCard` read-only, no Send);
+     a click pins it open so the things on it can be hovered in turn, with a Close.
    - **The leader picker** in the send window lists everybody with their kind and their fit for
      _this_ job (`leaderFit(attributes, composeProfile(offer.leanings))` as a percentage). Somebody
      who is held is drawn dimmed, cannot be picked, and carries the reason in the server's own
@@ -355,6 +361,79 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      what did not (`force` less `lost`, and `lost`), or `Everybody came home`. A run with
      `reported: false` reads `Nobody came back`, with no outcome tag and no haul: there is nobody
      to have reported either.
+
+## The Overseer's file
+
+`/game/overseer` (`features/overseer/OverseerProfilePage.tsx`), reached from the identity in the
+HUD. Redrawn as a dossier on 2026-09-23 (maintainer: more graphics, more of the game's hand, a card):
+the person's card on the left on the feats ledger's paper (`ink-frame card-paper washed grain`),
+sealed at the corner with a drawn rosette carrying the archetype's initial, the portrait in a brass
+ink frame, the name in the stamp face over a hand-ruled line, the signature as ink chips and the
+biography on a lighter slip; on the right "The file", the four-axis radar beside the best attribute
+of each group in numbered ink boxes, then the four attribute groups on paper cards of their own
+(`AttributeSheet` `paper`). The console shape is kept and pinned by the visual gate: the name fully
+in view, the record beside it, only the record scrolls. Under 820px tall the painting sits beside
+the words and the words scroll behind a fade rather than a cut.
+
+## The Monitor's In progress page
+
+`/game/actions/progress` (`features/actions/InProgressPage.tsx`), between Total units and
+Automations (maintainer, 2026-09-23). Every clock running _at home_, on one sheet in the road's own
+row style (`features/actions/rows.tsx`): levels being built, the programme in the Archive, batches
+on the bench (units and vehicles), officers' drills, places being worked up or dug in on ground the
+crew holds (one section per held district, read off `/city/:id`), and officers laid up. Each row
+carries where it is, the time left, a progress bar and, inside its first tenth, the X that calls it
+off through the same write the owning page uses. Nothing here is the only copy: the district, the
+Archive, the bench, the training floor and a location's sheet still draw their own. "On the road"
+is everything that is somewhere else.
+
+It replaced the strip of "In flight" chips that sat under the Monitor (`QueueRail`, gone). The
+clock is the missions board's `serverNow` paired with its own arrival time; the rail once paired
+that clock with the `/me` query's arrival and every countdown jumped twenty seconds as the two
+polls interleaved.
+
+## The Monitor's third page: Automations
+
+`/game/actions/automations` (`features/actions/AutomationsPage.tsx`). Before the third rung of the
+Right Hand's track it is a shut door naming that rung. After it: a ladder strip of what is earned,
+each rung carrying its own one-line `data-tip`, and one drawn sheet per slot holding the order, who
+goes (an exact party with a named officer, or a size the Right Hand fills), the resource to chase,
+and a state line the poll keeps current (off, out, resting with a countdown, or waiting with the
+reason). A slot is posted whole. While any slot is on, the mission board's every Send reads "The
+Right Hand has the board" and the panel head links here.
+
+Three things about the form are load-bearing and were each a bug first:
+
+- **It is keyed, not re-seeded.** The sheet is seeded from the held row once and rebuilt only when
+  the row's id or its switch changes (`key` in `AutomationsPage`). An effect watching the row put
+  the whole form back every five seconds, because the poll's `force` is a fresh object each time,
+  so a party being typed was wiped and "Best fit" fell back to "This party" while it was pressed.
+- **The controls are the game's own.** `Dropdown` for the three menus (a native `<select>` drew its
+  arrow outside the hand-inked box), and `NumberField` with `QuickAmount`'s Half and Max on every
+  unit row, which is what the mission board's send dialog uses.
+- **Best fit shows nothing.** The size is in unit slots (the beds' and the trucks' currency), with
+  1/4, Half and All beside the field. Who goes and who leads are the Right Hand's to pick when the
+  party leaves (`bestFitParty`: most suitable unit first, all of it, then the next, to the slot),
+  and the sheet says none of it. The player trusts the chair.
+
+## Opening tutorial
+
+Six cards, shown once each, on the screens they are about. `packages/shared/src/tutorial/steps.ts`
+holds the catalogue and the rules; `apps/client/src/features/tutorial/Tutorial.tsx` is the element
+a screen drops in, naming its own screen (`<Tutorial screen="missions" />`).
+
+- **Trigger:** first visit to a screen, not first action. The city carries three (welcome, the
+  Combine, the map) because it is the index route a player lands on straight from character
+  select; missions, battles and the district carry one each.
+- **Voice:** the game's, not a character's. The Combine card shows Directive Xero's portrait
+  because he is the face of what it describes, and no card is a quotation.
+- **Controls:** `Skip tutorial` and `Next`, and no close cross. Skip writes every step id, so
+  "skipped" and "seen them all" are one state rather than two flags that can disagree.
+- **Memory:** `user.tutorialSeen` on the account, so it survives a reload, a second tab and a
+  second machine. Written by `POST /settings/tutorial`, which unions rather than replaces.
+- Every fixture in `e2e/fixtures.ts` has the whole set marked seen except `meNewPlayer`, which is
+  the one the tutorial's own specs use. A fixture with an empty set puts a modal in front of every
+  test that touches those four screens.
 
 ## Layout rules (STRICT: these prevent the classic visual bugs)
 
@@ -424,6 +503,13 @@ Panels: 1px borders in `neon-cyan/20`-`/30` on `night-raised` surfaces; square c
 minimal radius. All colors come from `src/theme/tokens.ts` / Tailwind theme: no ad-hoc hex.
 
 ## Testing
+
+**Two real servers behind the browser suite.** `playwright.config.ts` starts the API twice: the
+usual one on 4010 with `ADMIN=false`, which `live.spec.ts` depends on because it asserts a build
+is actually charged, and an admin-mode twin on 4011 with its own database. `live-automations.spec.ts`
+rewrites the browser's `/api` traffic to the twin at the network layer, so the Right Hand's standing
+orders can be watched on five-second clocks in a real browser, shut and reopened between checks,
+without touching the server every other spec relies on.
 
 - Vitest + Testing Library (configured; see `App.test.tsx`): cover the auth form validation, the
   character-select rendering of all 4 presets, and the api client's parse/error paths (mock

@@ -8,6 +8,7 @@ import type {
   NotificationsResponse,
 } from '@frontline/shared';
 import {
+  TUTORIAL_STEPS,
   DECLARE_INFAMY_COST,
   DEFAULT_CITY_ID,
   TRAVEL_BAND_MINUTES,
@@ -134,7 +135,7 @@ import {
   RESOURCE_KG,
   UNIT_MODIFICATIONS,
   areaPayPercent,
-  battleTierFor,
+  dealBattleTier,
   leaningsFor,
   scaledSuccessChance,
   type LeaderHold,
@@ -306,6 +307,15 @@ const user: User = {
   icon: 'shield',
   timezone: GAME_TIMEZONE,
   soundVolume: DEFAULT_SOUND_VOLUME,
+  /*
+   * Everything already seen, on purpose.
+   *
+   * The opening tutorial draws over the city, missions, battles and the district on a first
+   * visit, and a fixture with an empty set would put a modal in front of several hundred tests
+   * that are about something else. The tutorial's own specs use `meNewPlayer` below, which is the
+   * one fixture that has seen nothing.
+   */
+  tutorialSeen: [...TUTORIAL_STEPS],
 };
 const userNoOverseer: User = { ...user, overseerId: null };
 
@@ -315,6 +325,18 @@ export const me: MeResponse = {
   overseer,
   base,
 };
+/**
+ * The one fixture that has seen no tutorial card, for the specs that are about the tutorial.
+ *
+ * Every other fixture here has the whole set marked seen, because the cards draw over four
+ * screens on a first visit and a modal in front of a test about the build queue is noise. This is
+ * the same crew with the memory wiped, which is exactly the state a new account is in.
+ */
+export const meNewPlayer: MeResponse = {
+  ...me,
+  user: { ...user, tutorialSeen: [] },
+};
+
 export const meNoOverseer: MeResponse = {
   admin: false,
   user: userNoOverseer,
@@ -1615,12 +1637,15 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
              *
              * Priced off the template through the same two functions the board uses, so a retune
              * of either cannot leave the fixture quoting odds the server never offers. The
-             * leanings and the tier are `leaningsFor` and `battleTierFor`, which is what a
-             * template without either authored resolves to.
+             * leanings are `leaningsFor` and the tier is dealt by `dealBattleTier` on the same
+             * key the offers were dealt on, at this crew's level.
              */
             authoredChance: scaledSuccessChance(template.successChance, lateGameBase.level),
             leanings: [...leaningsFor(template)],
-            battleTier: battleTierFor(template),
+            battleTier:
+              template.kind === 'battle'
+                ? dealBattleTier(id, '', template.id, lateGameBase.level)
+                : null,
           }))
         : [],
     activeMissionId,
@@ -1663,6 +1688,7 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     // §G6: these fixtures send delegations, not officer-led runs. `missionsResponse` names a
     // leader on the one crew that has an officer out on it.
     officerId: null,
+    battleTier: null,
     overseerLed: false,
     // Standard work kills nobody and always reports. The battle fixture below is where the other
     // half of that lives.

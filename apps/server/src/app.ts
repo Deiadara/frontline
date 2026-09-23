@@ -26,6 +26,7 @@ import { registerBattleRoutes } from './battle/routes.js';
 import { registerUnitRoutes } from './routes/units.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerMissionRoutes } from './routes/missions.js';
+import { registerAutomationRoutes } from './routes/automations.js';
 import { registerOverseerRoutes } from './routes/overseer.js';
 import { registerResearchRoutes } from './routes/research.js';
 import { registerTrainingRoutes } from './routes/training.js';
@@ -170,6 +171,7 @@ export async function buildApp({
       registerBaseRoutes(api);
       registerUnitRoutes(api);
       registerMissionRoutes(api);
+      registerAutomationRoutes(api);
       registerBarRoutes(api);
       registerResearchRoutes(api);
       registerCrewRoutes(api);

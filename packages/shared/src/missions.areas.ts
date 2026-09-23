@@ -10,6 +10,7 @@ import { GAME_TIMEZONE, dayInZone } from './time/zone.js';
 import { MILESTONE_THIRD_CREW, isPlayerUnlockActive } from './progression/unlocks.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from './resources.js';
 import { seedFrom } from './rng.js';
+import type { BattleTier } from './missions.leading.js';
 import { isCombatUnit, type Army, type UnitLoadouts } from './units/index.js';
 import { bareLineRules, type LineRules } from './battle/line.js';
 import { lootCapacityOf } from './raid.js';
@@ -47,6 +48,8 @@ export const MISC_AREA_ID = 'misc';
 
 /** Jobs on offer in one area at a time. Three, and taking one closes the other two. */
 export const MISSIONS_PER_AREA = 3;
+/** Of which exactly one is a fight (maintainer, 2026-09-23); the other two are plain work. */
+export const FIGHTS_PER_AREA = 1;
 
 /** Crews a base can have out at once, before any milestone lifts it. */
 export const BASE_CONCURRENT_MISSIONS = 2;
@@ -64,10 +67,10 @@ export function concurrentMissionSlots(level: number): number {
 /**
  * The three jobs an area offers, and the mix they come in.
  *
- * **One battle and two standard, or two battle and one standard**, decided per area on a coin the
- * area's own id flips. That is the maintainer's rule and it is a good one: a board of three fights is a
- * board a crew with no army cannot read, and a board of three scrap runs is a board nobody with an
- * army wants. Every board has both kinds on it, and half of them lead with the fighting.
+ * **One fight and two plain jobs**, on every board (maintainer, 2026-09-23). It was a coin per
+ * area between one fight and two; the rule now is the same mix everywhere, because a board of
+ * three fights is a board a crew with no army cannot read and a board of three scrap runs is a
+ * board nobody with an army wants, and one fight is enough of the first.
  *
  * Deterministic in the area **and the UTC day**: the pick walks each kind's own pool from a seeded
  * start in a seeded stride, so the three are stable for the whole day and two players looking at
@@ -80,9 +83,10 @@ export function concurrentMissionSlots(level: number): number {
  */
 export function missionOffers(areaId: string, day = ''): MissionTemplate[] {
   const seed = seedFrom(`${areaId}:${day}`);
-  // The coin. One bit off the hash rather than a second draw, so the mix and the picks below
-  // cannot be retuned independently by accident.
-  const battles = (seed & 1) === 0 ? 1 : 2;
+  // One fight and two plain jobs, every board, every day (maintainer, 2026-09-23). The coin that
+  // used to deal two fights half the time is gone: a board is read by crews with and without an
+  // army, and one of each kind is what both can use.
+  const battles = FIGHTS_PER_AREA;
 
   const chosen = [
     ...takeFrom(byKind('battle'), seed, battles),
@@ -267,8 +271,14 @@ export function scaledSuccessChance(base: number, level: number): number {
  * `PLAYER_XP_AWARDS.missionCompleted` is still the anchor: a thirty-minute standard job pays
  * exactly it, and everything else is that figure moved by the same §E5 curve the money uses.
  */
-export function missionXp(template: MissionTemplate, totalMinutes: number, level: number): number {
-  const scaled = PLAYER_XP_AWARDS.missionCompleted * rewardScale(totalMinutes, template.kind);
+export function missionXp(
+  template: MissionTemplate,
+  totalMinutes: number,
+  level: number,
+  /** The fight's tier, dealt on the card and frozen on the row. Null on plain work. */
+  tier: BattleTier | null = null,
+): number {
+  const scaled = PLAYER_XP_AWARDS.missionCompleted * rewardScale(totalMinutes, template.kind, tier);
   // Harder ground is worth more to learn from, at the same rate the pay climbs.
   return Math.max(1, Math.round(scaled * (1 + levelPayPercent(level) / 100)));
 }

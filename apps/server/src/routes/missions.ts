@@ -5,6 +5,7 @@ import {
   LEADER_HOLD_MESSAGES,
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
+  dealBattleTier,
   RecallMissionRequestSchema,
   canRecall,
   concurrentMissionSlots,
@@ -14,6 +15,7 @@ import {
   unitsBeyondNotoriety,
   launchableBoardKeys,
   missionOffers,
+  boardIsAutomated,
   unledRule,
   type Base,
   type LaunchMissionResponse,
@@ -300,6 +302,21 @@ export function registerMissionRoutes(app: FastifyInstance): void {
      * choice here is between sending themselves and finishing a piece of research. The level-up
      * rides out on the envelope because the settle above may have banked one before this refused.
      */
+    /*
+     * §C2b: while any standing order is on, the board is the Right Hand's.
+     *
+     * The maintainer's rule is the strong one: not "the slots it is holding" but the whole board,
+     * so the state a player is in is one sentence rather than a count they cannot see. Refused
+     * here rather than hidden on the screen, because the screen is not the only way to post.
+     */
+    if (boardIsAutomated(app.repos.automations.forBase(base.id))) {
+      throw new AppError(
+        'MISSION_REFUSED',
+        'Your Right Hand has the board. Switch the automation off to send a crew yourself',
+        levelUp,
+      );
+    }
+
     const unled = unledRule(base.research.technologies);
     if (!leader && unled === 'forbidden') {
       throw new AppError(
@@ -329,6 +346,12 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       template,
       areaId,
       boardKey,
+      // The tier this card was dealt on this board at this level: what the crew walks into and
+      // what it pays, frozen with everything else the card promised.
+      battleTier:
+        template.kind === 'battle'
+          ? dealBattleTier(areaId, boardKey, template.id, base.level)
+          : null,
       force,
       vehicles,
       now,

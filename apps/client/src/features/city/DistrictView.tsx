@@ -400,7 +400,6 @@ export function DistrictView() {
             target={{ kind: 'gate', districtId: data.district.id }}
             title="Spy on the gate"
             eyebrow={districtDisplayName(data.district, viewer)}
-            blurb="One party holds the whole district, so the door is armed and it is the only thing your runners can read from outside. What comes back is what stands behind it."
             placeName="the gate"
             districtId={data.district.id}
             baseId={baseId}
@@ -800,7 +799,6 @@ function VisitedDistrict({
           target={{ kind: 'gate', districtId: data.district.id }}
           title="Spy on the gate"
           eyebrow={name}
-          blurb="A crew's district is read at its door and nowhere else. What comes back is what stands behind the gate, as far as your runners could see past it."
           placeName="the gate"
           districtId={data.district.id}
           baseId={baseId}
@@ -1145,7 +1143,6 @@ function ContestedDistrict({
           target={{ kind: 'gate', districtId: data.district.id }}
           title="Spy on the gate"
           eyebrow={data.district.name}
-          blurb="One party holds the whole district, so the door is armed and it is the only thing your runners can read from outside. What comes back is what stands behind it."
           placeName="the gate"
           districtId={data.district.id}
           baseId={baseId}

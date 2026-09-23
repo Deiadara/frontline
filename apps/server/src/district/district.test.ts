@@ -1,6 +1,8 @@
 import {
   territoryEffectsFor,
   BUILDING_MAX_LEVEL,
+  BASE_BUILD_QUEUE,
+  BUILD_QUEUE_RESEARCH_ID,
   MAX_BUILD_QUEUE,
   STARTING_RESOURCES,
   buildingBuildSeconds,
@@ -209,15 +211,48 @@ describe('ordering a level (§A1, §D3)', () => {
     });
   });
 
-  it('refuses a seventh order', () => {
+  /**
+   * The queue is four wide, and six once `Batch Runs` is researched (maintainer, 2026-09-22).
+   *
+   * This used to be called "refuses a seventh order" and seeded six entries on a crew with no
+   * research at all. It still passed, because four is that crew's real cap and the refusal simply
+   * fired three orders earlier than the name claimed, against a queue depth the game can no
+   * longer produce. Both halves are walked now, and the fixture for each is a state that exists.
+   */
+  it('refuses a fifth order, and a seventh once the rung is in', () => {
     const repos = openStack();
     const full = seedBase(repos, {
       buildings: [build('nexus', BUILDING_MAX_LEVEL)],
-      buildQueue: Array.from({ length: MAX_BUILD_QUEUE }, (_, i) =>
+      buildQueue: Array.from({ length: BASE_BUILD_QUEUE }, (_, i) =>
         entry('quarters', i + 1, NOW, 60),
       ),
     });
-    expect(queueBuild(repos, { base: full, structure: 'greenhouse', id: 'q7', now: NOW })).toEqual({
+    expect(queueBuild(repos, { base: full, structure: 'greenhouse', id: 'q5', now: NOW })).toEqual({
+      kind: 'refused',
+      reason: 'queue_full',
+    });
+
+    // The same crew with the rung: the four it is holding are now inside its cap, so the order
+    // that was refused a line ago goes through.
+    const researched = {
+      ...full,
+      research: {
+        ...full.research,
+        technologies: [...full.research.technologies, BUILD_QUEUE_RESEARCH_ID],
+      },
+    };
+    expect(
+      queueBuild(repos, { base: researched, structure: 'greenhouse', id: 'q5b', now: NOW }),
+    ).not.toEqual({ kind: 'refused', reason: 'queue_full' });
+
+    // ...and it is still a cap, six entries up.
+    const six = {
+      ...researched,
+      buildQueue: Array.from({ length: MAX_BUILD_QUEUE }, (_, i) =>
+        entry('quarters', i + 1, NOW, 60),
+      ),
+    };
+    expect(queueBuild(repos, { base: six, structure: 'greenhouse', id: 'q7', now: NOW })).toEqual({
       kind: 'refused',
       reason: 'queue_full',
     });

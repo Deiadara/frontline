@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { ArmySchema, type Army } from '../units/index.js';
-import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
+import { cancelWindowMs, cancelWindowOpen, turnaroundMs } from '../time/cancel.js';
 
 /**
  * Spying: what a Master of Whispers can find out about a place, and what it costs (maintainer
@@ -345,26 +345,36 @@ export const SpyReportSchema = z.object({
 });
 export type SpyReport = z.infer<typeof SpyReportSchema>;
 
-/** How long the job runs for the Monitor's countdown, and the tenth a recall is measured against. */
-export function spyRecallable(
-  run: Pick<SpyRun, 'departedAt' | 'travelMinutes' | 'recalledAt'>,
-  now: Date,
-): boolean {
-  if (run.recalledAt !== null) return false;
-  return cancelWindowOpen(Date.parse(run.departedAt), run.travelMinutes * 60_000, now.getTime());
+/**
+ * A tenth of the **whole job**, not a tenth of the way out (maintainer, 2026-09-22).
+ *
+ * `departedAt` to `returnsAt` is the round trip plus the look itself, which is the figure the
+ * send dialog quotes and the Monitor counts down. Measuring the outbound leg alone gave a window
+ * that shrank as the tier grew: `total_intelligence` spends far longer on the ground than on the
+ * road, so the dearest job in the game was the one a player had least time to call off.
+ */
+function spyTotalMs(run: Pick<SpyRun, 'departedAt' | 'returnsAt'>): number {
+  return Math.max(0, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
 }
 
-export function spyRecallWindowMs(
-  run: Pick<SpyRun, 'departedAt' | 'travelMinutes' | 'recalledAt'>,
-  now: Date,
-): number {
+type RecallableSpy = Pick<SpyRun, 'departedAt' | 'returnsAt' | 'recalledAt'>;
+
+export function spyRecallable(run: RecallableSpy, now: Date): boolean {
+  if (run.recalledAt !== null) return false;
+  return cancelWindowOpen(Date.parse(run.departedAt), spyTotalMs(run), now.getTime());
+}
+
+export function spyRecallWindowMs(run: RecallableSpy, now: Date): number {
   if (run.recalledAt !== null) return 0;
-  return cancelWindowMs(Date.parse(run.departedAt), run.travelMinutes * 60_000, now.getTime());
+  return cancelWindowMs(Date.parse(run.departedAt), spyTotalMs(run), now.getTime());
 }
 
 /** Turned round: home as far off as they had come, and no report. */
-export function spyRecalledReturnsAt(run: Pick<SpyRun, 'departedAt'>, now: Date): Date {
-  return new Date(now.getTime() + Math.max(0, now.getTime() - Date.parse(run.departedAt)));
+export function spyRecalledReturnsAt(
+  run: Pick<SpyRun, 'departedAt' | 'travelMinutes'>,
+  now: Date,
+): Date {
+  return new Date(now.getTime() + turnaroundMs(run, now));
 }
 
 /** The label a report or a row heads a gate target with. */

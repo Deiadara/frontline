@@ -7,6 +7,7 @@ import {
   missionProgressAt,
   missionRemainingMs,
   missionTimings,
+  offerOfMission,
   recallWindowMs,
   type LevelUp,
   type Mission,
@@ -28,14 +29,17 @@ import {
   useUnits,
   useLaunchMission,
   useMe,
+  useAutomations,
   useMissions,
   useRecallMission,
 } from '../../lib/queries';
 import { MissionBoard } from './MissionBoard';
+import { boardIsAutomated } from '@frontline/shared';
 import { MissionReportWindow } from './MissionReportWindow';
 import { ledBy } from './missionLines';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
+import { Tutorial } from '../tutorial/Tutorial';
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
   outbound: 'Outbound',
@@ -95,6 +99,7 @@ function InFlightRow({
   now,
   leaders,
   overseerName,
+  level,
   pending,
   onRecall,
 }: {
@@ -102,11 +107,16 @@ function InFlightRow({
   now: Date;
   leaders: readonly MissionLeader[];
   overseerName: string;
+  /** The crew's level, which the card the run was taken off read its odds at. */
+  level: number;
   pending: boolean;
   onRecall: () => void;
 }) {
   const template = findMissionTemplate(mission.templateId);
   const name = template?.name ?? mission.templateId;
+  // What it is worth if it comes off (maintainer, 2026-09-23): the card's haul and XP, rebuilt
+  // from what the row froze, so a crew that is out is quoted the terms it left under.
+  const worth = template ? offerOfMission(mission, template, level) : null;
   const phase = missionPhaseAt(mission, now);
   const progress = missionProgressAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
@@ -174,6 +184,21 @@ function InFlightRow({
         >
           {ledBy(mission, leaders, overseerName)}
         </span>
+
+        {worth !== null && (
+          <div
+            className="flex flex-col gap-1 border-t border-surface-700/70 pt-1.5"
+            data-testid={`mission-worth-${mission.id}`}
+          >
+            <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+              If it comes off
+            </span>
+            <RewardLine rewards={worth.rewards} />
+            <span className="font-display text-[11px] font-bold tabular-nums text-hextech-100">
+              +{worth.xp.toLocaleString()} XP
+            </span>
+          </div>
+        )}
       </Link>
 
       {/* The first tenth of the road out (maintainer request, 2026-09-12): call them back and they
@@ -324,6 +349,7 @@ function EmptyRow({ text }: { text: string }) {
  */
 export function MissionsPage() {
   const missionsQuery = useMissions();
+  const automations = useAutomations();
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
   const me = useMe();
@@ -388,6 +414,9 @@ export function MissionsPage() {
   const returned = recentlyReturned(missions);
   const limit = data?.activeLimit ?? 0;
   const atCapacity = limit > 0 && active.length >= limit;
+  // §C2b: any standing order on, and the board is the Right Hand's. The server refuses a launch
+  // too; the screen says so before anybody presses anything.
+  const automated = boardIsAutomated(automations.data?.slots ?? []);
 
   /*
    * Soonest home first. The server hands missions back in launch order, and a day-long expedition
@@ -406,6 +435,8 @@ export function MissionsPage() {
       wide
       fills
     >
+      {/* First visit to this screen raises its card, once. */}
+      <Tutorial screen="missions" />
       {/* The crew screen's line (maintainer, 2026-09-21). The crews-out count moved here from the
           In flight panel's head: the same number a second time on one screen, and this is the
           line that is meant to carry it. */}
@@ -488,6 +519,7 @@ export function MissionsPage() {
                       now={now}
                       leaders={leaders}
                       overseerName={overseerName}
+                      level={me.data?.base?.level ?? 1}
                       pending={recall.isPending}
                       onRecall={() => recall.mutate({ missionId: mission.id })}
                     />
@@ -538,7 +570,15 @@ export function MissionsPage() {
               title="Mission Board"
               className="xl:min-h-0 xl:flex-1"
               action={
-                atCapacity ? (
+                automated ? (
+                  <Link
+                    to="/game/actions/automations"
+                    className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-brass-300 hover:underline"
+                    data-testid="board-automated"
+                  >
+                    The Right Hand has the board
+                  </Link>
+                ) : atCapacity ? (
                   <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-warning">
                     All crews deployed
                   </span>
@@ -576,6 +616,7 @@ export function MissionsPage() {
                   anyRide={roster.data?.anyRide ?? false}
                   roster={roster.data}
                   atCapacity={atCapacity}
+                  automated={automated}
                   pendingTemplateId={
                     launch.isPending ? (launch.variables?.templateId ?? null) : null
                   }

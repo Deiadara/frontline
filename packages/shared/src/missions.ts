@@ -3,7 +3,12 @@ import { InventorySchema } from './items/inventory.js';
 import { cancelWindowMs, cancelWindowOpen } from './time/cancel.js';
 import { FleetSchema } from './building/vehicles.js';
 import { MissionDifficultySchema } from './delegation/delegation.js';
-import { BattleTierSchema, MissionLeaningSchema } from './missions.leading.js';
+import {
+  BATTLE_TIER_REWARD,
+  BattleTierSchema,
+  MissionLeaningSchema,
+  type BattleTier,
+} from './missions.leading.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
@@ -116,8 +121,6 @@ export const MissionTemplateSchema = z.object({
    * (`leaningsFor`). Most jobs leave it out and are read off their kind and their distance.
    */
   leanings: z.array(MissionLeaningSchema).min(1).optional(),
-  /** A battle job's tier, when it is not the one its difficulty and distance suggest. */
-  battleTier: BattleTierSchema.optional(),
 });
 export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
 
@@ -759,8 +762,19 @@ export const FAILURE_REWARD_SHARE: Record<MissionKind, number> = {
   battle: 0,
 };
 
-export function rewardScale(totalMinutes: number, kind: MissionKind): number {
-  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind];
+/**
+ * A fight's tier on top of the kind's premium (`BATTLE_TIER_REWARD`, maintainer 2026-09-23).
+ *
+ * Null on a plain job, and on a fight row written before tiers were frozen on the row, which
+ * prices as a Fight I: the ladder starts at one, so the oldest rows keep exactly the pay they had.
+ */
+export function rewardScale(
+  totalMinutes: number,
+  kind: MissionKind,
+  tier: BattleTier | null = null,
+): number {
+  const ladder = kind === 'battle' && tier !== null ? BATTLE_TIER_REWARD[tier] : 1;
+  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind] * ladder;
 }
 
 /**
@@ -782,9 +796,11 @@ export function missionRewards(
   template: MissionTemplate,
   outcome: MissionOutcome = 'success',
   totalMinutes: number = templateTimings(template).totalMinutes,
+  /** The fight's tier, which the card was dealt and the row froze. Null on plain work. */
+  tier: BattleTier | null = null,
 ): PartialResources {
   const share = outcome === 'success' ? 1 : FAILURE_REWARD_SHARE[template.kind];
-  const factor = rewardScale(totalMinutes, template.kind) * share;
+  const factor = rewardScale(totalMinutes, template.kind, tier) * share;
 
   const rewards: PartialResources = {};
   for (const [key, amount] of Object.entries(template.spoils) as [ResourceKey, number][]) {
@@ -902,6 +918,15 @@ export const MissionSchema = z.object({
    * line when the job turns out to be a fight.
    */
   officerId: IdSchema.nullable(),
+  /**
+   * A fight's tier, frozen when the crew left (maintainer, 2026-09-23).
+   *
+   * Dealt on the card off the crew's level (`dealBattleTier`) and kept here for the same reason
+   * the clock, the odds and the pay are: a level gained while the crew is out must not change
+   * what is waiting for them or what it pays. Null on plain work, and on a fight row written
+   * before this existed, which the settle reads as a Fight I.
+   */
+  battleTier: BattleTierSchema.nullable().default(null),
   /**
    * Whether the Overseer led this run (maintainer, 2026-09-10). The Overseer is not on the books, so
    * they cannot be named by `officerId`; the two together say who was in charge, and an unled
@@ -1067,26 +1092,32 @@ export function missionProgressAt(mission: Mission, now: Date): number {
  * outbound leg to notice the wrong job, and after that they do it. The walk home is still the
  * distance covered (`missionCompletesAt`), so a recall in the window costs exactly the time spent.
  */
+/**
+ * A tenth of the **whole run**, not a tenth of the road out (maintainer, 2026-09-22).
+ *
+ * `totalMinutes` is two legs of travel plus the time on site, which is what a player is told the
+ * run costs them and therefore the thing a tenth should be a tenth of. Measuring the outbound leg
+ * alone made the window vary with the shape of the job rather than its size: a long job close by
+ * could be called off for a shorter time than a short job far away, which is exactly backwards,
+ * and on the Anyride templates, where travel is a fraction of the total, the window was a few
+ * seconds on a run lasting hours. The same rule now holds for every clock in the game.
+ */
+function recallTotalMs(mission: Mission): number {
+  return missionTimings(mission).totalMinutes * MINUTE_MS;
+}
+
 export function canRecall(mission: Mission, now: Date): boolean {
   return (
     mission.status === 'active' &&
     mission.recalledAt === null &&
-    cancelWindowOpen(
-      Date.parse(mission.startedAt),
-      mission.travelMinutes * MINUTE_MS,
-      now.getTime(),
-    )
+    cancelWindowOpen(Date.parse(mission.startedAt), recallTotalMs(mission), now.getTime())
   );
 }
 
-/** How long is left to decide, or zero once the crew is past the tenth of the road out. */
+/** How long is left to decide, or zero once the run is past the tenth of its whole clock. */
 export function recallWindowMs(mission: Mission, now: Date): number {
   if (mission.status !== 'active' || mission.recalledAt !== null) return 0;
-  return cancelWindowMs(
-    Date.parse(mission.startedAt),
-    mission.travelMinutes * MINUTE_MS,
-    now.getTime(),
-  );
+  return cancelWindowMs(Date.parse(mission.startedAt), recallTotalMs(mission), now.getTime());
 }
 
 /** True once the clock is up but the payout has not been banked: what the resolver looks for. */

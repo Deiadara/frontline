@@ -554,10 +554,13 @@ for (const size of VIEWPORTS) {
        * brief is a line longer makes that comparison work. Measured on the deploy button, which is
        * the last thing in a card and therefore carries every drift above it.
        */
+      // The Send button by its own id: a plain job's leaning chips are hover triggers, which are
+      // buttons too, and `button:last-of-type` found the last chip on those cards and the Send on
+      // a fight's, which has no chip buttons since its tier chip explains nothing.
       const buttonTops = await offers.evaluateAll((cards) =>
         cards.map((card) =>
           Math.round(
-            (card.querySelector('button:last-of-type')?.getBoundingClientRect().top ?? 0) -
+            (card.querySelector('[data-testid^="send-"]')?.getBoundingClientRect().top ?? 0) -
               card.getBoundingClientRect().top,
           ),
         ),
@@ -661,7 +664,7 @@ for (const size of VIEWPORTS) {
       const openOne = async (wanted: 'standard' | 'battle'): Promise<boolean> => {
         for (let index = 0; index < (await cards.count()); index += 1) {
           const card = cards.nth(index);
-          const isBattle = (await card.getByText('Battle', { exact: true }).count()) > 0;
+          const isBattle = (await card.getAttribute('data-kind')) === 'battle';
           if (isBattle !== (wanted === 'battle')) continue;
           await card.getByRole('button', { name: /Send a crew/ }).click();
           await expect(dialog).toBeVisible();
@@ -1609,13 +1612,15 @@ for (const size of VIEWPORTS) {
       /*
        * The file is one screen, and the person on it is legible at every height.
        *
-       * The identity block sits under a 3:4 portrait at the rail's full width, which is 405px tall:
-       * on a 720-tall laptop that left nothing under it and the name was cut in half at the panel's
-       * own scroll edge. `toBeVisible` is no use for that class of defect, because an element
-       * clipped out of a scroll container still counts as visible, so the name is measured against
-       * the viewport instead.
+       * The identity block sits under a 3:4 portrait at the rail's full width (maintainer, 2026-09-23:
+       * the portrait is big, and the rail scrolls to make room for it). `toBeVisible` is no use
+       * for a name clipped at a scroll edge, because an element clipped out of a scroll container
+       * still counts as visible, so the name is brought into the rail's view and measured against
+       * the viewport: whole, and never cut in half.
        */
-      await expect(page.getByTestId('overseer-name')).toBeInViewport({ ratio: 1 });
+      const name = page.getByTestId('overseer-name');
+      await name.scrollIntoViewIfNeeded();
+      await expect(name).toBeInViewport({ ratio: 1 });
 
       const shape = await page.evaluate(() => {
         const rect = (id: string) =>
@@ -1672,14 +1677,14 @@ for (const size of VIEWPORTS) {
     });
 
     /**
-     * Grepolis' standing queue readout: what is in flight, on whatever screen you are on.
+     * The Monitor's In progress page: every clock running at home, on one sheet.
      *
      * Timestamps are made *live* here rather than taken from the shared fixture. The fixture's
-     * clock is a fixed date, so every order in it finished long ago and the rail would render a
+     * clock is a fixed date, so every order in it finished long ago and the page would render a
      * row of zeroes, which is exactly the state that cannot tell a working countdown from a
      * broken one. Overriding `/me` for this one test is what makes the assertion mean something.
      */
-    test(`the in-flight rail counts down at ${tag}`, async ({ page }) => {
+    test(`the In progress page counts down at ${tag}`, async ({ page }) => {
       await installApi(page, lateGame);
       await page.route('**/api/me', (route) =>
         route.fulfill({
@@ -1703,65 +1708,26 @@ for (const size of VIEWPORTS) {
           }),
         }),
       );
-      // The rail lives on the one screen that is about things being in flight (maintainer request).
-      // On the city and district screens it was a third band of chrome over the artwork, appearing
-      // and disappearing with what the crew was doing, so the painting moved under it; and on the
-      // missions page it wrapped under the board with two or three crews out, so that screen now
-      // stacks its own crews in a column and the strip stays off it.
+      // The strip of chips that used to sit under the chrome is gone from every screen
+      // (maintainer, 2026-09-23): what is running is read on the Monitor's own page.
       await page.goto('/game');
       await expect(page.getByTestId('queue-rail')).toHaveCount(0);
-      await page.goto('/game/missions');
+      await page.goto('/game/actions');
       await expect(page.getByTestId('queue-rail')).toHaveCount(0);
 
-      await page.goto('/game/actions');
-      const rail = page.getByTestId('queue-rail');
-      await expect(rail).toBeVisible();
-      const row = page.getByTestId('queue-rail-build-live-build');
-      await expect(row).toContainText('The Quarters');
+      await page.getByTestId('monitor-tab-progress').click();
+      await expect(page).toHaveURL(/\/game\/actions\/progress$/);
+      const row = page.getByTestId('progress-build-live-build');
+      await expect(row).toContainText('The Quarters to 4');
       // Nineteen minutes left of twenty, not zero and not the whole thing.
       await expect(row).toContainText(/1[89]m/);
-
-      /*
-       * The chip's underline is pinned to its bottom edge, across its whole width.
-       *
-       * Measured rather than trusted, because it was not: the chip is `painted`, and
-       * `.painted > *` sets `position: relative` on every direct child at the same specificity as
-       * a plain `absolute`, so the custom rule won on emission order. The bar fell into the chip's
-       * own flex row as a 3px item beside the countdown, and no chip on the road ever drew a
-       * progress edge. Geometry rather than a class check: the class was always there.
-       */
-      const underline = await row.evaluate((chip): { gap: number; span: number } | null => {
-        const drawn = chip.querySelector('span[class*="bottom-0"]');
-        if (drawn === null) return null;
-        const chipBox = chip.getBoundingClientRect();
-        const barBox = drawn.getBoundingClientRect();
-        return {
-          gap: Math.abs(barBox.bottom - chipBox.bottom),
-          span: chipBox.width === 0 ? 0 : barBox.width / chipBox.width,
-        };
-      });
-      expect(underline, 'the chip draws a progress underline at all').not.toBeNull();
-      // Within the chip's own 1px border of its bottom edge, and across all but that border's
-      // width. A ratio rather than the exact figure, so the assertion is about the bar spanning
-      // the chip rather than about the border being 1px: broken, the bar sat 15.5px up on the
-      // row's centre line, which is what the reverted-fix run measured.
-      expect(underline?.gap).toBeLessThanOrEqual(2);
-      expect(underline?.span).toBeGreaterThan(0.9);
-
-      // Clicking opens the clock rather than navigating: the rail has room for four words, and
-      // what a player wants from it is when the thing lands and whether they can change their mind.
-      await row.click();
-      const detail = page.getByRole('dialog');
-      await expect(detail).toBeVisible();
-      await expect(detail).toContainText('Your district');
-      await expect(detail).toContainText('Expected');
-
-      // And the window is the way *to* the screen that owns it.
-      await detail.getByRole('link', { name: 'Go there' }).click();
-      await expect(page).toHaveURL(/\/game\/base$/);
+      // A minute into twenty is inside the first tenth: the X is on the row.
+      await expect(page.getByTestId('cancel-build-live-build')).toBeVisible();
+      await settleFonts(page);
 
       await expectNothingOverflowsTheScreen(page);
       await expectNothingClippedHorizontally(page);
+      await page.screenshot({ path: `screenshots/in-progress-${tag}.png` });
     });
 
     /** The market: the Runner's window, the Broker's rate and the players' board. */

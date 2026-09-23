@@ -102,6 +102,7 @@ function open(): HTMLElement {
       level={10}
       now={NOW}
       atCapacity={false}
+      automated={false}
       pendingTemplateId={null}
       refusal={null}
       onLaunch={launch}

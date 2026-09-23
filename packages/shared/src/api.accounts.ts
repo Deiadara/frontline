@@ -4,6 +4,8 @@ import { MAX_NOTORIETY } from './economy/notoriety.js';
 import { BlueprintCategorySchema } from './blueprints/catalog.js';
 import { BuildingKindSchema } from './building/index.js';
 import { OfficerRoleSchema } from './roles.js';
+import { AutomationOrderSchema, AutomationSchema } from './automations/automations.js';
+import { ResourceKeySchema } from './resources.js';
 import {
   BlackMarketLotSchema,
   BlackMarketSlotSchema,
@@ -61,6 +63,58 @@ export const UpdateProfileRequestSchema = z
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to change');
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
+
+/**
+ * Marking opening tutorial cards as shown (`tutorial/steps.ts`).
+ *
+ * A list rather than one id, because Skip is this call with every step in it: one route and one
+ * write for both gestures, instead of a `seen` endpoint and a `skip` endpoint that have to agree
+ * about what skipping means. The server unions what arrives with what it holds, so the call is
+ * idempotent and two tabs cannot erase each other's progress.
+ *
+ * Unknown ids are accepted rather than refused. They cost a few bytes in a JSON column and the
+ * alternative is a client one version ahead of the server being unable to record anything at all.
+ */
+export const TutorialSeenRequestSchema = z.object({
+  steps: z.array(z.string().min(1).max(64)).min(1).max(64),
+});
+export type TutorialSeenRequest = z.infer<typeof TutorialSeenRequestSchema>;
+
+/**
+ * The Right Hand's standing orders, as a screen reads and writes them (§C2b).
+ *
+ * The whole slot goes over the wire, not a patch: the screen holds a form and posts what the form
+ * says, and a partial write would need a merge rule on both sides that nobody can see. What the
+ * crew's research allows is answered by the server, so a client one version ahead cannot talk its
+ * way into a rung it has not earned.
+ */
+export const AutomationsResponseSchema = z.object({
+  /** What the ladder currently allows. Everything the screen draws is gated on this. */
+  powers: z.object({
+    unlocked: z.boolean(),
+    slots: z.number().int().nonnegative(),
+    cooldownMs: z.number().int().nonnegative(),
+    bestFit: z.boolean(),
+    optimise: z.boolean(),
+    orders: z.array(AutomationOrderSchema),
+  }),
+  slots: z.array(AutomationSchema),
+  /** Officers who could be named as a leader: on the books, not out, not hurt. */
+  officers: z.array(z.object({ id: IdSchema, name: z.string(), role: z.string().nullable() })),
+  serverNow: IsoDateTimeSchema,
+});
+export type AutomationsResponse = z.infer<typeof AutomationsResponseSchema>;
+
+export const SaveAutomationRequestSchema = z.object({
+  slot: z.number().int().min(0).max(1),
+  enabled: z.boolean(),
+  order: AutomationOrderSchema,
+  force: z.record(z.string(), z.number().int().positive()).default({}),
+  officerId: IdSchema.nullable().default(null),
+  unitSlots: z.number().int().positive().nullable().default(null),
+  optimiseFor: ResourceKeySchema.nullable().default(null),
+});
+export type SaveAutomationRequest = z.infer<typeof SaveAutomationRequestSchema>;
 
 /**
  * Changing a password needs the old one, always.
@@ -234,6 +288,15 @@ export const AdminKnobsRequestSchema = z
     officers: z
       .object({ count: z.number().int().min(0).max(19), rating: z.number().int().min(1).max(100) })
       .optional(),
+    /**
+     * Clear the rest on every standing order, so the next party may leave on the next tick.
+     *
+     * The gap between automated parties is the one clock admin mode does not flatten (maintainer,
+     * 2026-09-23), which is right for a player and slow for a bench: a test that wants to watch a
+     * second party go would otherwise wait fifteen real minutes for it. This is the Console's
+     * way round that, and nothing else touches `restingSince` from outside the world clock.
+     */
+    automationsRested: z.boolean().optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to set');
 export type AdminKnobsRequest = z.infer<typeof AdminKnobsRequestSchema>;

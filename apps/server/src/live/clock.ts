@@ -65,6 +65,12 @@ export interface WorldClockOptions {
   onSettled?: (resolved: number, now: Date) => void;
   intervalMs?: number;
   now?: () => Date;
+  /**
+   * Admin mode, so the Right Hand's parties run on the five second clock like every manual one.
+   * The manual launch route passes `app.config.admin` into `launchMission`; the world clock has
+   * no request to read it off, so it is handed in once here.
+   */
+  admin?: boolean;
 }
 
 /**
@@ -73,7 +79,12 @@ export interface WorldClockOptions {
  * Returns how many fights it resolved, which is the only observable a caller has: everything else
  * it does is a write to the database the caller can go and read.
  */
-export function tickWorld(repos: Repositories, engine: SkirmishEngine, now: Date): number {
+export function tickWorld(
+  repos: Repositories,
+  engine: SkirmishEngine,
+  now: Date,
+  admin = false,
+): number {
   // One order, shared with every read path that settles the world: see `world/settle.ts` for why
   // each step is where it is. It used to be spelled out here and separately in `routes/city.ts` and
   // `battle/routes.ts`, and this comment used to claim the three agreed. They did not.
@@ -81,7 +92,7 @@ export function tickWorld(repos: Repositories, engine: SkirmishEngine, now: Date
   // §A4: the scouts and the crews coming home are settled inside it. What a finished run writes is
   // a receipt, and a receipt only matters when it arrives. A player who sent somebody out and closed
   // the tab should come back to open ground and a rung bell, not cause both by opening a screen.
-  return settleWorld(repos, engine, now, settleCrewsComingHome);
+  return settleWorld(repos, engine, now, settleCrewsComingHome, admin);
 }
 
 /**
@@ -119,11 +130,12 @@ export function startWorldClock({
   onSettled,
   intervalMs = WORLD_TICK_MS,
   now = () => new Date(),
+  admin = false,
 }: WorldClockOptions): () => void {
   const timer = setInterval(() => {
     try {
       const at = now();
-      const resolved = tickWorld(repos, engine, at);
+      const resolved = tickWorld(repos, engine, at, admin);
       if (resolved > 0) onSettled?.(resolved, at);
     } catch (error) {
       // Swallowed on purpose. One unreadable row must not stop every future fight in the world,

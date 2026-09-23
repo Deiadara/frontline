@@ -45,7 +45,6 @@ export function CrewEffectsPage() {
     <PageShell
       title="What the crew is buying"
       icon="spark"
-      lede="Every figure is the best anyone on your books has, yourself included. Hiring a specialist raises it; so does an hour at the bench."
       action={
         <Link
           to="/game/crew"

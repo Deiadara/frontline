@@ -109,6 +109,7 @@ function renderBoard() {
       level={10}
       now={NOW}
       atCapacity={false}
+      automated={false}
       pendingTemplateId={null}
       refusal={null}
       onLaunch={vi.fn()}

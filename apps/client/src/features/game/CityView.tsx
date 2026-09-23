@@ -18,6 +18,7 @@ import { Icon } from '../../components/ui/Icon';
 import { CitiesView } from '../cities/CitiesView';
 import { cn } from '../../lib/cn';
 import { OnPlate, PlateRoom, type OnPlateAt } from './PlateRoom';
+import { Tutorial } from '../tutorial/Tutorial';
 
 /**
  * The `/game` index: the city itself, painted, with a tag on every district (GDD §A4).
@@ -210,6 +211,9 @@ export function CityView() {
 
   return (
     <div className="relative h-full w-full bg-surface-950">
+      {/* The opening three land here: this is the game's index route, so it is where a player
+          arrives straight off the character screen. */}
+      <Tutorial screen="city" />
       <PlateRoom plate="city" aspect={CITY_ASPECT} fit="width" testId="city-room">
         {CITY_DISTRICTS.map((district) => {
           const at = DISTRICT_MARKS[district.id];

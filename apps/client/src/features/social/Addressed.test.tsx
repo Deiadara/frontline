@@ -49,8 +49,11 @@ describe('the mailbox, arrived at from somebody’s file', () => {
     open('/game/messages?to=Sable_Ninth');
 
     const form = await screen.findByTestId('compose-form');
-    const field = within(form).getByTestId('compose-to');
-    await waitFor(() => expect(field).toHaveValue('Sable_Ninth'));
+    // On the letter as a chosen name, not as text still to be matched: the door named a person.
+    await waitFor(() =>
+      expect(within(form).getByTestId('compose-recipient-Sable_Ninth')).toBeInTheDocument(),
+    );
+    expect(within(form).getByTestId('compose-to')).toHaveValue('');
     // Addressed to the person, not to the whole table: the row that was clicked was one person's.
     expect(within(form).getByTestId('to-faction')).not.toBeChecked();
   });

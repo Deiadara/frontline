@@ -122,10 +122,22 @@ export type FractionalResources = z.infer<typeof FractionalResourcesSchema>;
  * Stockpile every new base starts with.
  *
  * Sized against the level-1 `BUILDING_CATALOG` prices so the opening is tight but not dead: every
- * plot a new crew has to *lay* is affordable on its own, three of them can be raised, and then
- * **oil** is what runs out: GDD §D3's sink is what ends the first session, not an arbitrary wall.
- * The level-2 Command Center stays out of reach, so the cap that holds the village down has to be
- * earned. `build.test.ts` pins both halves of that shape.
+ * plot a new crew has to *lay* is affordable on its own, and the three of them together are not.
+ * **Planks** are what runs out, at 460 against the 420 here, which is what ends the first session.
+ *
+ * ## Corrected 2026-09-22
+ *
+ * This block used to say that **oil** was the binding resource and that the level-2 Nexus "stays
+ * out of reach", and cited a `build.test.ts` that pins both halves. All three were false, and had
+ * been for long enough that nothing noticed: oil over those same three plots is 40 against 120
+ * held, the level-2 Nexus costs 512 caps / 256 scrap / 154 planks / 77 oil and is affordable on
+ * the opening stockpile with 88 caps to spare, and there is no `build.test.ts` anywhere in the
+ * repo. The nearest real test asserted only that *at least two* structures were individually
+ * affordable, which is true of almost any stockpile.
+ *
+ * `building.test.ts` now pins the shape this paragraph describes, including which resource binds,
+ * so a retune that moves the wall to a different material fails rather than quietly making this
+ * comment wrong again.
  *
  * The Generator is the exception, and it is why a new district is handed one standing
  * (`crew/starting.ts`): its own level-1 bill is 220 oil against the 120 here, so a crew that had to
@@ -137,13 +149,13 @@ export const STARTING_RESOURCES: Resources = {
   oil: 120,
   scrap: 500,
   /*
-   * Sized so timber is never the thing that ends the opening.
-   *
    * 420 against a 1000-plank bill for one of every level-1 structure, where scrap is 500 against
-   * 1790: planks are proportionally *more* plentiful than scrap on purpose. Only the Quarters and
-   * the Greenhouse cost more timber than metal, and both by a little, so the pinch a new player
-   * hits is the caps-and-scrap one that was already there. Adding a sixth resource should widen
-   * the opening's vocabulary, not add a sixth wall to it.
+   * 1790: planks are proportionally more plentiful than scrap per unit of demand.
+   *
+   * This used to claim timber "is never the thing that ends the opening", which was not true and
+   * is not what the number does: the three plots a Nexus-1 district can lay come to 460 planks,
+   * so timber is exactly what ends it. What the ratio buys is that planks are not a *second* wall
+   * on top of the caps-and-scrap one; they are the first one, by about forty.
    */
   planks: 420,
   highQualityMetal: 40,

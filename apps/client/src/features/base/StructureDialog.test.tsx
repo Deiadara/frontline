@@ -1,4 +1,5 @@
 import {
+  TUTORIAL_STEPS,
   BUILDING_MAX_LEVEL,
   STARTING_RESOURCES,
   startingEconomy,
@@ -76,6 +77,8 @@ const me: MeResponse = {
     icon: 'shield',
     timezone: 'Europe/Athens',
     soundVolume: 60,
+    // Seen, so the opening tutorial does not draw over a test about something else.
+    tutorialSeen: [...TUTORIAL_STEPS],
   },
   overseer: null,
   base,

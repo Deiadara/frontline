@@ -32,15 +32,22 @@ export const SEAT_PLACES: readonly SeatPlace[] = Array.from({ length: 5 }, (_, a
 }));
 
 /**
- * The narrowest the picture is ever drawn: 1024x768, where the 21:10 plate is fitted by height into
- * the 470px band between the bars and comes out 987px wide.
+ * The narrowest the picture is ever drawn: 1024x488, at a 1024px viewport.
+ *
+ * The room is fitted by **width** (`Room.tsx`), so the picture is always the band's full width and
+ * its height follows from the 21:10 plate. That makes the narrowest picture the narrowest viewport
+ * the matrix covers, rather than the old height fit's 987x470, which was what the plate came out at
+ * when it was fitted into the 1024x768 band and left a grey margin down each side.
+ *
+ * Measured off the live boxes rather than computed, so a change to either bar's height is caught
+ * here rather than assumed away.
  */
-export const NARROWEST_PICTURE_PX = 987;
-export const NARROWEST_PICTURE_HEIGHT_PX = 470;
+export const NARROWEST_PICTURE_PX = 1024;
+export const NARROWEST_PICTURE_HEIGHT_PX = 488;
 
 /**
  * A plate's size on the narrowest picture: `w-[10.75rem]` below `xl`, about 58px tall
- * (`Room.tsx`). At `xl` and up the plate steps to `11.25rem`, and the picture is at least 1065px
+ * (`Room.tsx`). At `xl` and up the plate steps to `11.25rem`, and the picture is at least 1280px
  * wide there, so the cells are wider by more than the plate grows.
  */
 export const PLATE_PX = { width: 172, height: 58 } as const;

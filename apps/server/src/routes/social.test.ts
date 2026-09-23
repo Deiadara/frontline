@@ -436,7 +436,7 @@ describe('the mailbox', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(from.token),
-      payload: { toUsername: 'reader', subject: 'The docks', body: 'Tonight.' },
+      payload: { toUsernames: ['reader'], subject: 'The docks', body: 'Tonight.' },
     });
     expect(sent.statusCode).toBe(200);
 
@@ -463,6 +463,58 @@ describe('the mailbox', () => {
     expect((await messages(app, from.token)).sent[0]?.readBy).toBe(1);
   });
 
+  it('reaches several players as one letter, and refuses the whole letter over one wrong name', async () => {
+    const app = await makeApp();
+    const from = await player(app, 'writer');
+    const first = await player(app, 'reader');
+    const second = await player(app, 'other_reader');
+
+    // One wrong name and nobody gets it: a letter is not half-delivered.
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: {
+        toUsernames: ['reader', 'nobody_here'],
+        subject: 'The docks',
+        body: 'Tonight.',
+      },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('no_such_player');
+    expect((await messages(app, first.token)).inbox).toHaveLength(0);
+
+    // Named twice is one recipient, and the sender's own name is refused like any other letter.
+    const self = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: { toUsernames: ['reader', 'writer'], subject: 'Me', body: 'And you.' },
+    });
+    expect(self.json<{ error: { message: string } }>().error.message).toBe(
+      'cannot_write_to_yourself',
+    );
+
+    const sent = await app.inject({
+      method: 'POST',
+      url: '/api/messages',
+      headers: auth(from.token),
+      payload: {
+        toUsernames: ['reader', 'other_reader', 'reader'],
+        subject: 'The docks',
+        body: 'Tonight.',
+      },
+    });
+    expect(sent.statusCode, sent.body).toBe(200);
+
+    expect((await messages(app, first.token)).inbox).toHaveLength(1);
+    expect((await messages(app, second.token)).inbox).toHaveLength(1);
+    const outbox = await messages(app, from.token);
+    expect(outbox.sent, 'one letter, one sent copy').toHaveLength(1);
+    expect(outbox.sent[0]?.recipients).toBe(2);
+    expect(outbox.sent[0]?.addressedTo).toBe('reader, other_reader');
+  });
+
   it('fans a faction message out to everybody but the sender', async () => {
     const leader = await player(app, 'leader');
     const member = await player(app, 'member');
@@ -485,7 +537,7 @@ describe('the mailbox', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(leader.token),
-      payload: { toUsername: null, subject: 'Tonight', body: 'The docks.' },
+      payload: { toUsernames: null, subject: 'Tonight', body: 'The docks.' },
     });
 
     // Asserted on the faction-addressed message rather than on the size of the inbox: the member
@@ -509,7 +561,7 @@ describe('the mailbox', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(from.token),
-      payload: { toUsername: 'reader', subject: 'Private', body: 'Between us.' },
+      payload: { toUsernames: ['reader'], subject: 'Private', body: 'Between us.' },
     });
     const id = (await messages(app, to.token)).inbox[0]?.id;
 
@@ -529,7 +581,7 @@ describe('the mailbox', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(alone.token),
-      payload: { toUsername: null, subject: 'Anyone', body: 'Hello?' },
+      payload: { toUsernames: null, subject: 'Anyone', body: 'Hello?' },
     });
     expect(refused.statusCode).toBe(409);
     expect(refused.json<{ error: { message: string } }>().error.message).toBe('not_in_a_faction');
@@ -544,7 +596,7 @@ describe('the bell', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(from.token),
-      payload: { toUsername: 'reader', subject: 'The docks', body: 'Tonight.' },
+      payload: { toUsernames: ['reader'], subject: 'The docks', body: 'Tonight.' },
     });
 
     const bell = await notifications(app, to.token);
@@ -585,7 +637,7 @@ describe('the bell', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(from.token),
-      payload: { toUsername: 'reader', subject: 'Silent', body: 'Nothing rings.' },
+      payload: { toUsernames: ['reader'], subject: 'Silent', body: 'Nothing rings.' },
     });
 
     const bell = await notifications(app, to.token);
@@ -617,7 +669,7 @@ describe('the bell', () => {
         method: 'POST',
         url: '/api/messages',
         headers: auth(from.token),
-        payload: { toUsername: 'reader', subject, body: 'x' },
+        payload: { toUsernames: ['reader'], subject, body: 'x' },
       });
     }
     expect((await notifications(app, to.token)).unread).toBeGreaterThanOrEqual(3);

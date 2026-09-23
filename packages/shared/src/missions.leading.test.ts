@@ -14,7 +14,13 @@ import {
   RESEARCH_UNLED_PENALISED,
   UNLED_PENALTY,
   battleOdds,
-  battleTierFor,
+  BATTLE_TIERS,
+  BATTLE_TIER_REWARD,
+  SIEGE_SHARE,
+  SIEGE_UNLOCK_LEVEL,
+  battleTierOdds,
+  dealBattleTier,
+  type BattleTier,
   bestLeader,
   chanceTone,
   composeProfile,
@@ -219,25 +225,68 @@ describe('the gauge', () => {
 });
 
 describe('battles', () => {
-  it('tiers a battle off its difficulty and distance unless authored', () => {
-    expect(battleTierFor({ kind: 'standard', difficulty: 'hard', travelBand: 'close' })).toBeNull();
-    expect(battleTierFor({ kind: 'battle', difficulty: 'easy', travelBand: 'furthest' })).toBe(
-      'skirmish',
+  /**
+   * The deal, by level (maintainer, 2026-09-23): each tier peaks where the maintainer put it, the
+   * shares always sum to one, from 70 the table is fixed, and the Siege takes its sliver off Fight
+   * V and nothing else from 90.
+   */
+  it('deals each tier most often at the level the maintainer named', () => {
+    const top = (level: number): BattleTier =>
+      BATTLE_TIERS.reduce((best, tier) =>
+        battleTierOdds(level)[tier] > battleTierOdds(level)[best] ? tier : best,
+      );
+    expect(top(1)).toBe('fight_1');
+    expect(top(10)).toBe('fight_2');
+    expect(top(25)).toBe('fight_3');
+    expect(top(40)).toBe('fight_4');
+    expect(top(70)).toBe('fight_5');
+    for (const level of [1, 7, 10, 18, 25, 33, 40, 48, 55, 63, 70, 85, 90, 120]) {
+      const sum = BATTLE_TIERS.reduce((total, tier) => total + battleTierOdds(level)[tier], 0);
+      expect(sum, `level ${String(level)}`).toBeCloseTo(1, 10);
+    }
+  });
+
+  it('lets a heavier fight through rarely below its level, and never a Siege before ninety', () => {
+    // A Fight V at 38: possible, and rare. At 60: a real share, under the half it is at 70.
+    expect(battleTierOdds(38).fight_5).toBeGreaterThan(0);
+    expect(battleTierOdds(38).fight_5).toBeLessThan(0.05);
+    expect(battleTierOdds(60).fight_5).toBeGreaterThan(0.3);
+    expect(battleTierOdds(60).fight_5).toBeLessThan(0.5);
+    // Fixed from seventy: 2 / 6 / 12 / 30 / 50, and the same at eighty.
+    expect(battleTierOdds(70)).toEqual({
+      fight_1: 0.02,
+      fight_2: 0.06,
+      fight_3: 0.12,
+      fight_4: 0.3,
+      fight_5: 0.5,
+      siege: 0,
+    });
+    expect(battleTierOdds(80)).toEqual(battleTierOdds(70));
+    // Ninety: the Siege takes five points off Fight V and nothing off anything else.
+    expect(battleTierOdds(SIEGE_UNLOCK_LEVEL).siege).toBeCloseTo(SIEGE_SHARE, 10);
+    expect(battleTierOdds(SIEGE_UNLOCK_LEVEL).fight_5).toBeCloseTo(0.5 - SIEGE_SHARE, 10);
+    expect(battleTierOdds(SIEGE_UNLOCK_LEVEL).fight_4).toBe(0.3);
+    for (const level of [1, 40, 89]) expect(battleTierOdds(level).siege).toBe(0);
+  });
+
+  it('deals the same card the same tier, and the deal follows the odds', () => {
+    expect(dealBattleTier('misc', '2026-09-23', 'convoy-ambush', 12)).toBe(
+      dealBattleTier('misc', '2026-09-23', 'convoy-ambush', 12),
     );
-    expect(battleTierFor({ kind: 'battle', difficulty: 'hard', travelBand: 'further' })).toBe(
-      'fight',
-    );
-    expect(battleTierFor({ kind: 'battle', difficulty: 'hard', travelBand: 'furthest' })).toBe(
-      'siege',
-    );
-    expect(
-      battleTierFor({
-        kind: 'battle',
-        difficulty: 'easy',
-        travelBand: 'close',
-        battleTier: 'siege',
-      }),
-    ).toBe('siege');
+    // Over many boards at one level, every tier the odds allow turns up about as often as they
+    // say, and a tier the odds forbid never does.
+    const level = 25;
+    const counts: Record<string, number> = {};
+    const boards = 4_000;
+    for (let day = 0; day < boards; day += 1) {
+      const tier = dealBattleTier('kettle-row', `day-${String(day)}`, 'convoy-ambush', level);
+      counts[tier] = (counts[tier] ?? 0) + 1;
+    }
+    for (const tier of BATTLE_TIERS) {
+      const share = (counts[tier] ?? 0) / boards;
+      expect(Math.abs(share - battleTierOdds(level)[tier]), tier).toBeLessThan(0.03);
+    }
+    expect(counts.siege ?? 0).toBe(0);
   });
 
   it('measures a force by what it hits with and what it can take', () => {
@@ -249,10 +298,17 @@ describe('battles', () => {
   });
 
   it('fields more every level, from the tier’s figure at level one', () => {
-    expect(enemyStrength('fight', 1)).toBe(BATTLE_TIER_STRENGTH.fight);
-    expect(enemyStrength('fight', 11)).toBeGreaterThan(enemyStrength('fight', 1));
-    expect(enemyStrength('siege', 1)).toBeGreaterThan(enemyStrength('fight', 1));
-    expect(enemyStrength('fight', 1)).toBeGreaterThan(enemyStrength('skirmish', 1));
+    expect(enemyStrength('fight_3', 1)).toBe(BATTLE_TIER_STRENGTH.fight_3);
+    expect(enemyStrength('fight_3', 11)).toBeGreaterThan(enemyStrength('fight_3', 1));
+    // Every rung heavier than the one under it, the Siege on top.
+    for (let index = 1; index < BATTLE_TIERS.length; index += 1) {
+      expect(enemyStrength(BATTLE_TIERS[index]!, 1)).toBeGreaterThan(
+        enemyStrength(BATTLE_TIERS[index - 1]!, 1),
+      );
+      expect(BATTLE_TIER_REWARD[BATTLE_TIERS[index]!]).toBeGreaterThan(
+        BATTLE_TIER_REWARD[BATTLE_TIERS[index - 1]!],
+      );
+    }
   });
 
   it('bands the fight off the ratio, the leader folded in as a share of the force', () => {

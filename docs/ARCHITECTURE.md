@@ -158,12 +158,23 @@ Both kinds of fight go through the same engine: taking a location (§A4) and rai
 (`homeBattlefield`). The caller's job is to build a `Battlefield`: the route that forgets to is
 caught by `routes.test.ts`, which asserts the log names the ground.
 
-## Lazy settlement
+## Two clocks: a world tick, and lazy settlement per base
 
-There is **no scheduler and no tick anywhere in the system.** Payroll, missions, research, the
-build queue and production all settle on the read path, from stored timestamps. A base nobody has
-looked at for three days owes exactly the same amount whenever it is next opened, and there is no
-background job to keep alive.
+This section used to say there was **no scheduler and no tick anywhere in the system**. That has
+not been true for a long time and the line cost a design decision on 2026-09-22, so it is worth
+stating the split plainly.
+
+**The world ticks.** `startWorldClock` (`apps/server/src/live/clock.ts`) runs `tickWorld` every
+`WORLD_TICK_MS`, one second, from `index.ts`. It calls `settleWorld`
+(`apps/server/src/world/settle.ts`) across the whole world with nobody connected: fortifications,
+unit movements and moves, sleepers, captured gates, **battles**, crews coming home, scouts, spy
+reports, and the two auction rooms. This is what makes a fight land on its mark, a crew arrive
+home, and ground change hands while its owner is asleep. It is started in `index.ts` rather than
+in `buildApp` so a test that builds an app per case does not get fights resolving underneath it.
+
+**A base's own economy is lazy.** Payroll, research, the build queue and production settle on the
+read path, from stored timestamps. A base nobody has looked at for three days owes exactly the
+same amount whenever it is next opened.
 
 `settleBase` (`apps/server/src/district/settle.ts`) is the one entry point every route uses. It
 runs the district first, training second and the Lab third. There used to be a weekly upkeep pass

@@ -126,6 +126,8 @@ export default function App() {
               browser's Back button all land on the same tab. `ActionsPage` reads the section off
               the path, which is how the archive's three tabs already work. */}
           <Route path="actions/units" element={<ActionsPage />} />
+          <Route path="actions/progress" element={<ActionsPage />} />
+          <Route path="actions/automations" element={<ActionsPage />} />
           <Route path="leaderboard" element={<LeaderboardPage />} />
           <Route path="battles" element={<BattlePage />} />
           <Route

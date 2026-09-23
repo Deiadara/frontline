@@ -266,6 +266,7 @@ export function InfoNote({
   label = 'How this works',
   size = 'md',
   drawn = false,
+  ink = 'brass',
 }: {
   children: ReactNode;
   tone?: 'neutral' | 'warn';
@@ -278,6 +279,14 @@ export function InfoNote({
    * struck chip would be the one machine-made thing on it.
    */
   drawn?: boolean;
+  /**
+   * Which pen a drawn chip is inked in (maintainer, 2026-09-23).
+   *
+   * Brass is the game's "press this" colour, and a note is not a control. Iris is what an
+   * information window is already ringed in, so a chip that opens one can be drawn in the same
+   * ink and read as the label on that window rather than as the screen's main action.
+   */
+  ink?: 'brass' | 'iris';
 }) {
   return (
     <HoverCard
@@ -323,7 +332,12 @@ export function InfoNote({
         className={cn(
           'flex items-center gap-1.5',
           drawn
-            ? 'ink-box gap-2 px-3.5 py-1.5 font-stamp text-[13px] leading-none text-brass-300 transition-colors hover:text-brass-100'
+            ? cn(
+                'gap-2 px-3.5 py-1.5 font-stamp text-[13px] leading-none transition-colors',
+                ink === 'iris'
+                  ? 'ink-box-iris text-iris-100 hover:text-iris-300'
+                  : 'ink-box text-brass-300 hover:text-brass-100',
+              )
             : cn(
                 'rounded-sm border',
                 // `sm` is the height of the plaque chips a panel's head carries ("Always in"):

@@ -91,13 +91,18 @@ describe('the whole run', () => {
 });
 
 /**
- * Turning a scout round (maintainer request, 2026-09-12; `time/cancel.ts`).
+ * Turning a scout round (`time/cancel.ts`).
  *
- * The rule is the same one a mission recall keeps: the first tenth **of the way out**, and the
- * walk home is the distance already covered. The way out is `travelMinutes`, which is not half the
- * round trip: the round trip is the walk twice plus the hours spent looking, and the looking is
- * anything from forty minutes to four hours. Deriving the leg from the mark left the window open
- * long after the scout had arrived, which is a recall of somebody who is already standing there.
+ * The rule is the one every clock in the game keeps since 2026-09-22: **the first tenth of the
+ * whole job**, `departedAt` to `returnsAt`, which for a scout is the walk out, the looking and
+ * the walk home. It was a tenth of the way out until then, and the maintainer's call is that a
+ * player is deciding about the evening they committed rather than about the first leg of it.
+ *
+ * That rule has a consequence this file has to hold: the looking is anything from forty minutes
+ * to four hours, so a tenth of the whole run is often **longer than the walk out**, and a scout
+ * can be turned round while already standing on the ground. The walk home is therefore the
+ * distance covered *capped at the way out* (`turnaroundMs`), or somebody recalled at the far end
+ * would be sent home for longer than the entire journey took.
  */
 describe('turning a scout round', () => {
   const DEPART = Date.parse('2026-09-13T12:00:00.000Z');
@@ -112,44 +117,61 @@ describe('turning a scout round', () => {
     recalledAt: null,
   };
 
-  it('shuts the window a tenth of the way out, not a tenth of the whole run', () => {
-    // Half a minute: a tenth of the five minute walk, and nothing to do with the four hours of
-    // looking that follow it.
-    expect(scoutRecallWindowMs(run, new Date(DEPART))).toBe(0.1 * TRAVEL * 60_000);
-    expect(scoutRecallable(run, new Date(DEPART + 29_000))).toBe(true);
-    expect(scoutRecallable(run, new Date(DEPART + 31_000))).toBe(false);
-  });
+  /** The whole run, from leaving to being back, which is what the tenth is a tenth of. */
+  const totalMs = () => Date.parse(run.returnsAt) - DEPART;
 
-  it('never leaves the window open once the scout has arrived', () => {
-    expect(scoutRecallable(run, new Date(DEPART + TRAVEL * 60_000))).toBe(false);
+  it('shuts the window a tenth of the whole run, not a tenth of the way out', () => {
+    expect(scoutRecallWindowMs(run, new Date(DEPART))).toBe(0.1 * totalMs());
+    // Written out as well, so the assertion above is not simply agreeing with the code: five
+    // minutes out, four hours looking and five back is 250 minutes, a tenth of which is 25.
+    expect(totalMs()).toBe(250 * 60_000);
+    expect(scoutRecallWindowMs(run, new Date(DEPART))).toBe(25 * 60_000);
+
+    const shut = DEPART + 0.1 * totalMs();
+    expect(scoutRecallable(run, new Date(shut - 1_000))).toBe(true);
+    expect(scoutRecallable(run, new Date(shut + 1_000))).toBe(false);
   });
 
   /**
-   * The looking is the half the officer changes, so a poor scout has a much longer run and must
-   * not get a longer window for it: what they can undo is the walk they have started.
+   * The window outlasts the walk out, and that is the rule rather than a bug.
+   *
+   * A tenth of 250 minutes is 25, and the walk out is 5, so a scout can be turned round twenty
+   * minutes after arriving. This used to be forbidden and is now the point: the player is
+   * deciding about the whole evening.
    */
-  it('gives the same window whoever is doing the looking', () => {
+  it('stays open after the scout has arrived, because the tenth is of the whole run', () => {
+    expect(scoutRecallable(run, new Date(DEPART + TRAVEL * 60_000 + 60_000))).toBe(true);
+  });
+
+  /**
+   * The looking is the half the officer changes, so a quick scout has a shorter run, and under
+   * the new rule a correspondingly shorter window. That is the rule doing what it says: the
+   * window is a tenth of what was committed, and a quick scout commits less.
+   */
+  it('gives a shorter window for a shorter run', () => {
     const quick = makeAttributes(100);
     const quickRun = {
       ...run,
       returnsAt: new Date(DEPART + scoutRunMinutes(TRAVEL, quick) * 60_000).toISOString(),
     };
-    expect(scoutRecallWindowMs(quickRun, new Date(DEPART))).toBe(
+    expect(scoutRunMinutes(TRAVEL, quick)).toBeLessThan(scoutRunMinutes(TRAVEL, slow));
+    expect(scoutRecallWindowMs(quickRun, new Date(DEPART))).toBeLessThan(
       scoutRecallWindowMs(run, new Date(DEPART)),
     );
   });
 
   /**
-   * The walk home is the distance covered, so the window has to keep the recall inside the way
-   * out: a scout turned round at the last legal moment cannot take longer to get home than the
-   * whole walk out was going to take.
+   * The walk home is the distance covered, capped at the way out.
    *
-   * The instant is taken from the window helper rather than written down, because the claim is
-   * about the two agreeing: an open window that lands somebody home after they would have arrived
-   * is the bug, whatever the window is set to.
+   * The cap is what the wider window made necessary: recalled at the last legal moment, twenty
+   * minutes past arrival, "as far back as you have come" would be 25 minutes of walking for a
+   * journey whose entire outbound leg is 5.
    */
-  it('brings them home no later than the walk out would have finished', () => {
+  it('never sends them home for longer than the walk out took', () => {
     const last = new Date(DEPART + scoutRecallWindowMs(run, new Date(DEPART)) - 1);
-    expect(scoutRecalledReturnsAt(run, last).getTime()).toBeLessThan(DEPART + TRAVEL * 60_000);
+    expect(scoutRecalledReturnsAt(run, last).getTime() - last.getTime()).toBe(TRAVEL * 60_000);
+    // ...and a scout turned round early still only walks back as far as they have gone.
+    const early = new Date(DEPART + 60_000);
+    expect(scoutRecalledReturnsAt(run, early).getTime() - early.getTime()).toBe(60_000);
   });
 });

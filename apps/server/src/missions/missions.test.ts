@@ -16,10 +16,9 @@ import {
   scaledSpoils,
   MISSION_INFAMY_DELTA,
   PLAYER_XP_AWARDS,
-  battleTierFor,
   infamyForKills,
+  missionInfamyForFled,
   missionInfamyForKills,
-  type BattleTier,
   applyPlayerXp,
   createCommander,
   findMissionTemplate,
@@ -45,6 +44,7 @@ import {
   type Mission,
   type MissionTemplate,
   type Resources,
+  type BattleTier,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -322,6 +322,12 @@ function withOfficers(stack: Stack, count: number): string[] {
  */
 const BATTLE_FORCE = { ironsides: 120, razors: 240, haulers: 200 };
 
+/** The tier `planted` freezes on a fixture row: see the note there. */
+function legacyTier(template: MissionTemplate): BattleTier {
+  if (template.difficulty === 'easy') return 'fight_1';
+  return template.travelBand === 'furthest' ? 'fight_5' : 'fight_3';
+}
+
 function planted(
   stack: Stack,
   template: MissionTemplate,
@@ -349,6 +355,16 @@ function planted(
     // Nobody leading, and nothing docked for it: these rows are fixtures for the settle, and the
     // odds a leader would move are `missions.leading.test.ts`'s subject rather than this file's.
     unled: 'free',
+    // The tier each fixture was tuned against: the rule the board read off the job before tiers
+    // were dealt by level. Easy is Fight I, the furthest Fight V, everything else Fight III.
+    battleTier:
+      template.kind !== 'battle'
+        ? null
+        : template.difficulty === 'easy'
+          ? 'fight_1'
+          : template.travelBand === 'furthest'
+            ? 'fight_5'
+            : 'fight_3',
   });
   stack.repos.missions.insert(stored);
   return stored.mission;
@@ -583,7 +599,7 @@ describe('mission payout (§E1, §E5)', () => {
       jobName: template.name,
       force,
       vehicles: {},
-      tier: battleTierFor(template) as BattleTier,
+      tier: legacyTier(template),
       level: stack.base.level,
       anyRide: crew.anyRide,
       loadouts: stack.base.unitLoadouts,
@@ -615,9 +631,12 @@ describe('mission payout (§E1, §E5)', () => {
      * stated as arithmetic rather than read back through the function that implements it.
      */
     expect(MISSION_INFAMY_DELTA.battle.success).toBe(0);
-    expect(base.economy.infamy).toBe(stack.base.economy.infamy + Math.ceil(slots / 2));
+    // ...plus half, floored on the bulk, for the enemy's units that broke and ran (2026-09-23).
+    expect(base.economy.infamy).toBe(
+      stack.base.economy.infamy + Math.ceil(slots / 2) + missionInfamyForFled(fought.fledEnemy),
+    );
     expect(base.economy.infamy - stack.base.economy.infamy).toBe(
-      missionInfamyForKills(fought.killed),
+      missionInfamyForKills(fought.killed) + missionInfamyForFled(fought.fledEnemy),
     );
   });
 
@@ -644,7 +663,7 @@ describe('mission payout (§E1, §E5)', () => {
             jobName: strike.name,
             force,
             vehicles: {},
-            tier: battleTierFor(strike) as BattleTier,
+            tier: legacyTier(strike),
             level: stack.base.level,
             anyRide: false,
           });
@@ -694,7 +713,9 @@ describe('mission payout (§E1, §E5)', () => {
 
     // Past the old ceiling and by the whole of what the job killed: a clamp at a hundred would
     // leave the crew at 480 and a clamp anywhere would leave it short of this.
-    expect(base.economy.infamy).toBe(480 + missionInfamyForKills(fought.killed));
+    expect(base.economy.infamy).toBe(
+      480 + missionInfamyForKills(fought.killed) + missionInfamyForFled(fought.fledEnemy),
+    );
     expect(base.economy.infamy).toBeGreaterThan(480);
   });
 
@@ -729,7 +750,7 @@ describe('mission payout (§E1, §E5)', () => {
         jobName: strike.name,
         force: edge,
         vehicles: {},
-        tier: battleTierFor(strike) as BattleTier,
+        tier: legacyTier(strike),
         level: fitted.level,
         anyRide: crew.anyRide,
         loadouts,
@@ -1175,7 +1196,13 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
    */
   function expectedAfter(base: Base, runs: readonly { template: MissionTemplate; won: boolean }[]) {
     const total = runs.reduce((sum, run) => {
-      const xp = missionXp(run.template, templateTimings(run.template).totalMinutes, base.level);
+      // Priced with the tier `planted` froze on the row, the way the launch prices it.
+      const xp = missionXp(
+        run.template,
+        templateTimings(run.template).totalMinutes,
+        base.level,
+        run.template.kind === 'battle' ? legacyTier(run.template) : null,
+      );
       return sum + Math.round(xp * (run.won ? 1 : FAILED_MISSION_XP_SHARE));
     }, 0);
     return applyPlayerXp({ level: base.level, xpIntoLevel: base.progression.xpIntoLevel }, total);

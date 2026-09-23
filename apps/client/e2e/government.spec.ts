@@ -139,13 +139,14 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
        * purpose, so a chip below the fold there is the design working rather than a tag pushed
        * out of place, and asserting it is in the viewport fails at 1024 for the right reason.
        */
-      const tag = 'Standard';
-      const badged = page.locator('[data-testid^="offer-"]').filter({ hasText: tag }).first();
+      // The kind keyword is gone (maintainer, 2026-09-23): a fight is red and plain work is not.
+      // The measured tag is now the first chip in a plain job's leaning row.
+      const badged = page.locator('[data-testid^="offer-"][data-kind="standard"]').first();
       await badged.scrollIntoViewIfNeeded();
       await expect(badged).toBeVisible();
-      // The tag has to be *in the viewport*, not merely in the DOM: one pushed out of its row
+      // The chip has to be *in the viewport*, not merely in the DOM: one pushed out of its row
       // renders off-panel and reads as missing.
-      await expect(badged.getByText(tag, { exact: true }).first()).toBeInViewport();
+      await expect(badged.locator('[data-testid^="job-chips-"] span').first()).toBeInViewport();
 
       await settleFonts(page);
 
@@ -191,8 +192,9 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
       await chip.scrollIntoViewIfNeeded();
       await chip.hover();
       const tip = page.getByRole('tooltip');
-      await expect(tip).toContainText(MISSION_LEANING_REASONS.haul);
-      // The attribute the leaning actually reads is named, not just described in the abstract.
+      // The title and the attributes it reads, and no sentence (maintainer, 2026-09-23).
+      await expect(tip).toContainText(leaning);
+      await expect(tip).not.toContainText(MISSION_LEANING_REASONS.haul);
       await expect(tip).toContainText(ATTRIBUTE_LABELS.logistics, { ignoreCase: true });
       return true;
     });

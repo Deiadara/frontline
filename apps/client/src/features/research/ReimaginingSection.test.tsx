@@ -1,12 +1,14 @@
 import {
   DEFAULT_CITY_ID,
   BLUEPRINTS,
+  REIMAGINING_COMPLETE_XP,
   REIMAGINING_RESEARCH_ID,
   RESOURCE_KEYS,
   STORAGE_SHARES,
   findBlueprintPage,
   findResearchItem,
   supplyBoard,
+  unseenPages,
   type Inventory,
   type MarketResponse,
   type Resources,
@@ -108,9 +110,16 @@ function stub(
       }
       const after: Record<string, number> = { ...(current as Record<string, number>) };
       for (const pageId of body.pages) after[pageId] = (after[pageId] ?? 0) - 1;
-      after[GAINED] = (after[GAINED] ?? 0) + 1;
+      // A finished collection pays experience rather than a page, the way the route does.
+      const finished = unseenPages(current).length === 0;
+      if (!finished) after[GAINED] = (after[GAINED] ?? 0) + 1;
       current = Object.fromEntries(Object.entries(after).filter(([, count]) => count > 0));
-      return reply({ market: marketWith(current, reimagining), spent: body.pages, gained: GAINED });
+      return reply({
+        market: marketWith(current, reimagining),
+        spent: body.pages,
+        gained: finished ? null : GAINED,
+        xp: finished ? REIMAGINING_COMPLETE_XP : 0,
+      });
     }
     throw new Error(`unstubbed request: ${path}`);
   });
@@ -434,8 +443,13 @@ describe('a crew with nothing to feed it', () => {
     expect(button()).toBeDisabled();
   });
 
-  /** The end of the collection: every page held, so there is nothing the bench could hand back. */
-  it('says there is nothing left to want, before the sockets are even filled', async () => {
+  /**
+   * The end of the collection: every page held, so there is no page the bench could hand back.
+   *
+   * It pays experience instead (maintainer, 2026-09-23). The lever is live, the sentence that
+   * used to sit under the machine is gone, and the outfeed shows the figure rather than a sheet.
+   */
+  it('pays experience once every page is held, and says so in the outfeed', async () => {
     const everything: Record<string, number> = {};
     for (const spec of BLUEPRINTS) {
       for (const page of spec.pages) everything[page.id] = 2;
@@ -443,9 +457,20 @@ describe('a crew with nothing to feed it', () => {
     stub(everything);
     renderBench();
 
-    expect(await screen.findByTestId('reimagine-refusal')).toHaveTextContent(
-      'Nothing left to want',
-    );
-    expect(button()).toBeDisabled();
+    await screen.findByTestId('reimagine-machine');
+    expect(screen.queryByTestId('reimagine-refusal')).toBeNull();
+    expect(screen.queryByText(/Nothing left to want/)).toBeNull();
+    const [first, second, third] = BLUEPRINTS[0]?.pages.map((page) => page.id) ?? [];
+    fireEvent.click(screen.getByTestId(`tray-${first!}`));
+    fireEvent.click(screen.getByTestId(`tray-${second!}`));
+    fireEvent.click(screen.getByTestId(`tray-${third!}`));
+    expect(button()).toBeEnabled();
+    fireEvent.click(button());
+
+    const result = await screen.findByTestId('reimagine-result');
+    await waitFor(() => expect(result).toHaveAttribute('data-filled', 'xp'));
+    expect(result).toHaveTextContent('5,000');
+    expect(screen.getByTestId('reimagine-report')).toHaveTextContent(/5,000 experience/);
+    expect(posted).toHaveLength(1);
   });
 });

@@ -7,7 +7,8 @@ import {
   RESEARCH_UNLED_PENALISED,
   UNLED_PENALTY,
   areasOffering,
-  battleTierFor,
+  BATTLE_TIERS,
+  type BattleTier,
   composeProfile,
   createCommander,
   findMissionTemplate,
@@ -286,8 +287,10 @@ describe('what a card carries about the odds', () => {
       );
       expect(offer.authoredChance, offer.templateId).toBeLessThan(template.successChance);
       expect(offer.leanings, offer.templateId).toEqual(leaningsFor(template));
-      expect(offer.battleTier, offer.templateId).toBe(battleTierFor(template));
+      // A fight carries a dealt tier and plain work none; which tier is `dealBattleTier`'s and
+      // is pinned in shared, where the deal is a pure function of the board and the level.
       expect(offer.kind === 'battle', offer.templateId).toBe(offer.battleTier !== null);
+      if (offer.battleTier !== null) expect(BATTLE_TIERS).toContain(offer.battleTier);
     }
   });
 
@@ -514,12 +517,24 @@ function planted(
     seed,
     unled: 'free',
     leader,
+    battleTier: legacyTier(template),
   });
   stack.repos.missions.insert(stored);
   // The roster moves with the row, the way the launch route moves it: a crew that is out is not at
   // home, and without this the survivors merge back into an army they never left.
   stack.repos.bases.updateArmy(base.id, removeForce(base.army, force), base.trainingQueue);
   return stored.mission;
+}
+
+/**
+ * The tier each fixture was tuned against, which is the rule the board used to read off the job
+ * before tiers were dealt by level: an easy job fought what is now Fight I (1,400 at level one),
+ * the furthest what is now Fight V (7,900), and everything else Fight III (3,500).
+ */
+function legacyTier(template: MissionTemplate): BattleTier | null {
+  if (template.kind !== 'battle') return null;
+  if (template.difficulty === 'easy') return 'fight_1';
+  return template.travelBand === 'furthest' ? 'fight_5' : 'fight_3';
 }
 
 const after = (template: MissionTemplate) =>
@@ -535,7 +550,7 @@ function seedThatWipes(force: Army, jobName: string): number {
       jobName,
       force,
       vehicles: {},
-      tier: 'siege',
+      tier: 'fight_5',
       level: 1,
       anyRide: false,
     });

@@ -11,6 +11,7 @@ import {
   type ItemCost,
   type ItemId,
   type PartialResources,
+  type BattleTier,
 } from '@frontline/shared';
 import type { TallyBump } from '../db/repos/feats.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -82,13 +83,20 @@ export function tallyResourcesEarned(
 export function tallyMissionHome(
   repos: Repositories,
   baseId: string,
-  mission: { areaId: string; kind: 'battle' | 'standard'; succeeded: boolean },
+  mission: {
+    areaId: string;
+    kind: 'battle' | 'standard';
+    succeeded: boolean;
+    /** The fight's tier, for the ladder that counts wins by weight. Null on plain work. */
+    tier?: BattleTier | null;
+  },
 ): void {
   record(repos, baseId, [
     one('missions_done'),
     ...(mission.succeeded ? [one('missions_won')] : []),
     one('missions_in_area', mission.areaId),
     one('missions_of_kind', mission.kind),
+    ...(mission.succeeded && mission.tier ? [one('fights_won_at_tier', mission.tier)] : []),
   ]);
 }
 
@@ -132,6 +140,22 @@ export function tallyPagesIn(repos: Repositories, baseId: string, items: ItemCos
 export function tallyPageReimagined(repos: Repositories, baseId: string, pageId: string): void {
   if (rarityOfPage(pageId) !== 'masterpiece') return;
   record(repos, baseId, [one('masterpieces_reimagined')]);
+}
+
+/** A party sent by a standing order. Counted at the send, whether or not it comes home with anything. */
+export function tallyAutomatedParty(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('automated_parties')]);
+}
+
+/** The Reimagining lever pressed and three pages taken. `paidXp` is the finished collection's run. */
+export function tallyBenchTrade(repos: Repositories, baseId: string, paidXp: boolean): void {
+  record(repos, baseId, [one('bench_trades'), ...(paidXp ? [one('bench_experience')] : [])]);
+}
+
+/** Enemy units this crew made run, in a declared fight or off a battle job (2026-09-23). */
+export function tallyUnitsRouted(repos: Repositories, baseId: string, count: number): void {
+  if (count <= 0) return;
+  record(repos, baseId, [by('units_routed', count)]);
 }
 
 /** A drill started while another was already running: the second bench, used. */

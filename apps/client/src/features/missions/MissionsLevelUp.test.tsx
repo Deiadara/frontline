@@ -19,6 +19,14 @@ vi.mock('../../lib/queries', () => ({
   useUnits: () => ({ data: undefined }),
   useLaunchMission: () => ({ mutate: launchMutate, isPending: false, variables: undefined }),
   useRecallMission: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+  /*
+   * The opening tutorial hangs off this screen (`features/tutorial/Tutorial.tsx`), so the mock
+   * owes it both hooks. `useMe` above already answers `undefined`, which the tutorial reads as
+   * "the account has not been read yet" and draws nothing, so no card appears over this fixture.
+   */
+  useMarkTutorialSeen: () => ({ mutate: vi.fn(), isPending: false }),
+  // §C2b: the board asks whether the Right Hand holds it. Undefined is "no orders on".
+  useAutomations: () => ({ data: undefined }),
 }));
 
 const { MissionsPage } = await import('./MissionsPage');

@@ -482,7 +482,20 @@ test('the line and the ring are two windows, each with one column and its own Ha
   await page.screenshot({ path: 'e2e-out/battles-deploy.png', fullPage: true });
 
   // The ring, behind its own button, with the same controls over the other half of the request.
+  // Only a defender has the button (maintainer, 2026-09-23), so the board is re-served with this
+  // crew on the defending side of the same fight; the deploy write below still goes to the harness.
   await page.keyboard.press('Escape');
+  await page.route('**/api/battles', (route) =>
+    route.fulfill({
+      json: {
+        ...battles,
+        coming: battles.coming.map((view, index) =>
+          index === 0 ? { ...view, role: 'defender', side: 'defender' } : view,
+        ),
+      },
+    }),
+  );
+  await page.reload();
   await page.getByTestId(`perimeter-open-${fight}`).click();
   await expect(page.getByTestId('perimeter-dialog')).toBeVisible();
   await expect(page.getByTestId('ring-razors')).toBeVisible();

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { FleetSchema } from '../building/vehicles.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
-import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
+import { cancelWindowMs, cancelWindowOpen, turnaroundMs } from '../time/cancel.js';
 import { ArmySchema } from '../units/index.js';
 
 /**
@@ -107,7 +107,10 @@ export function moveRecallWindowMs(move: RecallableMove, now: Date): number {
   return cancelWindowMs(Date.parse(move.departedAt), move.travelMinutes * 60_000, now.getTime());
 }
 
-/** Turned round: home as far off as they had come. */
-export function moveRecalledReturnsAt(move: Pick<UnitMove, 'departedAt'>, now: Date): Date {
-  return new Date(now.getTime() + Math.max(0, now.getTime() - Date.parse(move.departedAt)));
+/** Turned round: home as far off as they had come, and never further than the way out. */
+export function moveRecalledReturnsAt(
+  move: Pick<UnitMove, 'departedAt' | 'travelMinutes'>,
+  now: Date,
+): Date {
+  return new Date(now.getTime() + turnaroundMs(move, now));
 }

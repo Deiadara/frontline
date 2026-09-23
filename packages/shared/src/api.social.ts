@@ -11,6 +11,7 @@ import {
 } from './factions/factions.js';
 import { BadgeSchema } from './factions/badge.js';
 import {
+  MESSAGE_RECIPIENTS_MAX,
   MessageBodySchema,
   MessageSchema,
   MessageSubjectSchema,
@@ -211,8 +212,14 @@ export const MessagesResponseSchema = z.object({
 export type MessagesResponse = z.infer<typeof MessagesResponseSchema>;
 
 export const SendMessageRequestSchema = z.object({
-  /** A username, or null to write to the whole faction. */
-  toUsername: z.string().trim().min(1).nullable(),
+  /**
+   * The usernames it goes to, or null to write to the whole faction.
+   *
+   * More than one at a time (maintainer request, 2026-09-23): the composer picks names off the
+   * standings the way the search there does, and a letter to three people is one letter, with
+   * one sent copy that counts three readers, rather than three letters.
+   */
+  toUsernames: z.array(z.string().trim().min(1)).min(1).max(MESSAGE_RECIPIENTS_MAX).nullable(),
   subject: MessageSubjectSchema,
   body: MessageBodySchema,
 });

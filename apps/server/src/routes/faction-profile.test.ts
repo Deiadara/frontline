@@ -298,7 +298,11 @@ describe('GET /factions/:id/profile', () => {
       method: 'POST',
       url: '/api/messages',
       headers: auth(writer.token),
-      payload: { toUsername: row!.handle, subject: 'About your street', body: 'We should talk.' },
+      payload: {
+        toUsernames: [row!.handle],
+        subject: 'About your street',
+        body: 'We should talk.',
+      },
     });
     expect(sent.statusCode, sent.body).toBe(200);
 

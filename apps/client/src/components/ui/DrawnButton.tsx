@@ -33,16 +33,48 @@ const SIZE: Record<DrawnButtonSize, string> = {
   md: 'px-3.5 py-[8.7px] text-[13px] tracking-[0.1em]',
 };
 
+/**
+ * What the press *means*, in colour (maintainer, 2026-09-22).
+ *
+ * Brass is the default and is the right answer for almost every drawn control: it is the ink the
+ * rest of the furniture is drawn in, and a screen where three buttons are three colours has no
+ * colour left to mean anything. The two that earn one are the pair at the foot of a decision a
+ * player cannot undo, where going back and going on must not look alike.
+ *
+ * The tone has to reach the **face** as well as the label, which is why this is a prop and not a
+ * `className` at the call site: the inked box behind the words is painted by `DrawnFace` inside
+ * this component, and a caller can only reach the text.
+ */
+export type DrawnButtonTone = 'brass' | 'danger' | 'go';
+
+/** Label and face per tone, at the four shades `theme/tokens.ts` actually ships for each family. */
+const TONE: Record<DrawnButtonTone, { label: string; face: string }> = {
+  brass: {
+    label: 'text-brass-300 hover:text-brass-100',
+    face: 'fill-brass-500/25 group-hover/drawn:fill-brass-500/40 group-active/drawn:fill-brass-500/15',
+  },
+  danger: {
+    label: 'text-oxblood-300 hover:text-oxblood-100',
+    face: 'fill-oxblood-500/25 group-hover/drawn:fill-oxblood-500/40 group-active/drawn:fill-oxblood-500/15',
+  },
+  go: {
+    label: 'text-verdigris-300 hover:text-verdigris-100',
+    face: 'fill-verdigris-500/25 group-hover/drawn:fill-verdigris-500/40 group-active/drawn:fill-verdigris-500/15',
+  },
+};
+
 export interface DrawnButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: DrawnButtonSize;
   /** A control nobody can press right now: drawn flat, with no lift and no brass in the face. */
   disabled?: boolean;
+  tone?: DrawnButtonTone;
   children: ReactNode;
 }
 
 export function DrawnButton({
   size = 'md',
   disabled = false,
+  tone = 'brass',
   className,
   children,
   type = 'button',
@@ -62,18 +94,13 @@ export function DrawnButton({
         SIZE[size],
         disabled
           ? 'cursor-not-allowed text-ink-400'
-          : 'text-brass-300 hover:-translate-y-px hover:text-brass-100 active:translate-y-px',
+          : cn(TONE[tone].label, 'hover:-translate-y-px active:translate-y-px'),
         className,
       )}
       {...rest}
     >
       <DrawnFace
-        face={cn(
-          'transition-all duration-150',
-          disabled
-            ? 'fill-surface-950/50'
-            : 'fill-brass-500/25 group-hover/drawn:fill-brass-500/40 group-active/drawn:fill-brass-500/15',
-        )}
+        face={cn('transition-all duration-150', disabled ? 'fill-surface-950/50' : TONE[tone].face)}
       />
       <span className="relative">{children}</span>
     </button>

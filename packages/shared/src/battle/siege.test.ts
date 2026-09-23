@@ -21,9 +21,8 @@ import {
   type SideSetup,
   type SideState,
 } from './engine.js';
-import { PERIMETER_FLEE_PENALTY, breakOut, perimeterFights, perimeterToll } from './perimeter.js';
+import { breakOut, perimeterFights, perimeterToll } from './perimeter.js';
 import { outcomeFrom } from './skirmish.js';
-import { pursuitSpeed, routSurvivors } from './rout.js';
 import { mulberry32, seedFrom } from '../rng.js';
 import {
   BATTLE_SLOT_MINUTES,
@@ -234,27 +233,6 @@ describe('the ring outside the fight (§A4)', () => {
   const standingUnits = (army: Record<string, number>): number =>
     Object.values(army).reduce((sum, count) => sum + count, 0);
 
-  /**
-   * One real lost fight, routed at a given hardship.
-   *
-   * A real simulation rather than a hand-built `SideState`, so the stacks carry the sheets the
-   * chance is computed from. The fight is the same every call: only the stream and the multiplier
-   * move, which is what makes the two totals comparable.
-   */
-  const routSurvivorsAt = (hardship: number, next: () => number) => {
-    const fight = simulate({
-      seed: 'penalty-fight',
-      attacker: { name: 'a', army: { razors: 30 }, defending: false },
-      defender: { name: 'b', army: { wardens: 40 }, defending: true },
-    });
-    const loser = fight.winner === 'attacker' ? fight.defender : fight.attacker;
-    return routSurvivors(
-      loser,
-      { pursuit: 0, lastRound: fight.rounds.length, away: true, hardship },
-      next,
-    );
-  };
-
   it('does nothing at all when nobody set one, and draws nothing either', () => {
     const used = stream();
     const untouched = stream();
@@ -336,28 +314,30 @@ describe('the ring outside the fight (§A4)', () => {
    * `breakOut` because the mapping is its own decision and it is the half that can be wired
    * backwards without any test in `perimeter.ts` noticing.
    */
-  it('hands the loser the runners book and the winner the ring book', () => {
+  it('hands the loser the runners book and the defender the ring book', () => {
+    // The defender wins, so the attacker's runners meet the defender's ring: the only ring there
+    // is (maintainer, 2026-09-23).
     const fight = simulate({
       seed: 'ring-wiring',
-      attacker: { name: 'them', army: { razors: 200 }, defending: false },
-      defender: { name: 'us', army: { razors: 80 }, defending: true },
+      attacker: { name: 'them', army: { razors: 80 }, defending: false },
+      defender: { name: 'us', army: { razors: 200 }, defending: true },
     });
-    expect(fight.winner, 'the fixture must be a fight the attacker wins').toBe('attacker');
+    expect(fight.winner, 'the fixture must be a fight the defender wins').toBe('defender');
 
     const input = {
       seed: 'ring-wiring',
       attackerName: 'them',
       defenderName: 'us',
       locationName: 'open ground',
-      attacking: { razors: 200 },
-      defending: { razors: 80 },
-      attackerPerimeter: { razors: 30 },
+      attacking: { razors: 80 },
+      defending: { razors: 200 },
+      defenderPerimeter: { razors: 30 },
     };
     const bareRun = outcomeFrom(fight, input);
     const armedRun = outcomeFrom(fight, {
       ...input,
-      // The defender lost, so this is the runners' book and nothing else in the fight can read it.
-      defenderTerritory: {
+      // The attacker lost, so this is the runners' book and nothing else in the fight can read it.
+      attackerTerritory: {
         ...noTerritoryEffects(),
         unitOffensePercent: 400,
         unitVitalityPercent: 400,
@@ -449,88 +429,59 @@ describe('the ring outside the fight (§A4)', () => {
   });
 
   /**
-   * The one rule that is not the first fight's, and the one the maintainer asked for by name.
+   * Nobody flees the ring (maintainer, 2026-09-23).
    *
-   * Measured as a rate over many withdrawals rather than on one, because a single roll of a halved
-   * chance can still come up. Both runs are the same fleeing force against the same ring, so the
-   * only thing between them is the multiplier.
+   * The ring fight has no rout roll. A ring that holds kills every runner; a ring that is ridden
+   * through dies to the last unit. Both halves are pinned, and against the old rule each is a
+   * different failure: the first paid a second, halved flee roll, the second sent the ring's
+   * survivors home.
    */
-  it('makes getting away half as likely at the ring as it is in the fight', () => {
-    expect(PERIMETER_FLEE_PENALTY).toBe(0.5);
-
-    const escapedOver = (hardship: number): number => {
-      let got = 0;
-      for (let seed = 0; seed < 60; seed += 1) {
-        const next = mulberry32(seedFrom(`penalty:${seed}`));
-        const { fled } = routSurvivorsAt(hardship, next);
-        got += standingUnits(fled);
-      }
-      return got;
-    };
-    const ordinary = escapedOver(1);
-    const atTheRing = escapedOver(PERIMETER_FLEE_PENALTY);
-    expect(ordinary, 'nobody got away under either rule, so this measures nothing').toBeGreaterThan(
-      0,
-    );
-    // Halved odds over sixty withdrawals: the gap is a rate, not a coin flip.
-    expect(atTheRing).toBeLessThan(ordinary * 0.75);
-  });
-
-  /**
-   * That the penalty is *applied*, and not merely defined and exported.
-   *
-   * The test above proves `fleeChance` honours a hardship it is handed. It says nothing about
-   * whether `breakOut` hands it one, and that gap was real: deleting `hardship:
-   * PERIMETER_FLEE_PENALTY` from the breakout left all 329 battle tests green. A rule nothing
-   * applies is a constant with a good name.
-   *
-   * Rebuilt from the outside rather than toggled with a test-only knob: `breakOut` seeds its second
-   * battle on `${seed}:ring`, so re-running that exact simulation and routing it at the ordinary
-   * chance gives the counterfactual. The two runs share a rout stream, so the multiplier is the only
-   * thing between them. It does couple this test to that seed suffix, which is deliberate: change
-   * the suffix and this fails loudly rather than going quietly green.
-   */
-  it('applies the halved chance at the ring rather than only defining it', () => {
-    const fleeing = { razors: 30 };
-    const ring = { wardens: 40 };
-    const context = { pursuit: 0, lastRound: 3, away: true };
-    let halved = 0;
-    let ordinary = 0;
+  it('kills every runner when it holds, and dies whole when it is ridden through', () => {
     let held = 0;
-
+    let ridden = 0;
     for (let i = 0; i < 40; i += 1) {
-      const seed = `wiring:${i}`;
-      const second = simulate({
-        seed: `${seed}:ring`,
-        attacker: { name: 'the withdrawal', army: fleeing, defending: false },
-        defender: { name: 'the ring', army: ring, defending: true },
-      });
-      // Only a ring that held produces a second rout roll at all.
-      if (second.winner !== 'defender') continue;
-      held += 1;
-
-      halved += standingUnits(
-        breakOut({ ...bare, seed, fleeing, ring }, mulberry32(seedFrom(`${seed}:stream`))).escaped,
-      );
-      const { fled } = routSurvivors(
-        second.attacker,
-        { ...context, pursuit: pursuitSpeed(second.defender), lastRound: second.rounds.length },
+      const seed = `no-flee:${i}`;
+      const thick = breakOut(
+        { ...bare, seed, fleeing: { razors: 30 }, ring: { wardens: 40 } },
         mulberry32(seedFrom(`${seed}:stream`)),
       );
-      ordinary += standingUnits(fled);
+      if (!thick.brokeThrough) {
+        held += 1;
+        expect(thick.escaped, `${seed}: somebody got past a ring that held`).toEqual({});
+        expect(thick.caught, `${seed}: a runner survived a ring that held`).toEqual({ razors: 30 });
+      }
+      const thin = breakOut(
+        { ...bare, seed, fleeing: { razors: 200 }, ring: { razors: 2 } },
+        mulberry32(seedFrom(`${seed}:stream`)),
+      );
+      if (thin.brokeThrough) {
+        ridden += 1;
+        expect(
+          thin.ringLosses,
+          `${seed}: a ring that was ridden through sent somebody home`,
+        ).toEqual({ razors: 2 });
+        expect(
+          standingUnits(thin.escaped) + standingUnits(thin.caught),
+          `${seed}: runners were neither home nor dead`,
+        ).toBe(200);
+      }
     }
-
-    expect(held, 'the ring never held, so no second rout was ever rolled').toBeGreaterThan(0);
-    expect(ordinary, 'nobody got away under either rule, so this measures nothing').toBeGreaterThan(
+    expect(held, 'the thick ring never held, so the first half measured nothing').toBeGreaterThan(
       0,
     );
-    expect(halved, 'the ring rolled the ordinary chance').toBeLessThan(ordinary * 0.75);
+    expect(
+      ridden,
+      'the thin ring was never ridden through, so the second half measured nothing',
+    ).toBeGreaterThan(0);
   });
 
   /** The board's rule, and the whole gamble: a beaten side's ring never fights. */
   it('only ever works for the side that won', () => {
-    expect(perimeterFights('attacker', 'attacker')).toBe(true);
+    // Only the defender ever has one, and only a defender that held uses it.
+    expect(perimeterFights('defender', 'defender')).toBe(true);
     expect(perimeterFights('defender', 'attacker')).toBe(false);
+    expect(perimeterFights('attacker', 'attacker')).toBe(false);
+    expect(perimeterFights('attacker', 'defender')).toBe(false);
   });
 });
 
@@ -755,8 +706,13 @@ describe('the report (§A5)', () => {
         infamy: { attacker: 0, defender: 0 },
       });
 
-    expect(reportReaches(loser, build({}))).toBe(false);
+    // A defender is always told (maintainer, 2026-09-23); an attacker only if somebody got home.
     const survivor = losingUnitOf(simulation, loser);
+    if (loser === 'defender') {
+      expect(reportReaches(loser, build({}))).toBe(true);
+    } else {
+      expect(reportReaches(loser, build({}))).toBe(false);
+    }
     expect(reportReaches(loser, build({ [survivor]: 1 }))).toBe(true);
   });
 });

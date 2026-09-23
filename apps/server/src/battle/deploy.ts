@@ -57,6 +57,8 @@ export const DEPLOY_REFUSALS = [
   'needs_infamy',
   /** §C3: the machines this crew has committed cannot seat what it is trying to send. */
   'no_seats',
+  /** The ring is the defender's answer to being chosen; an attacker does not get one. */
+  'ring_is_the_defenders',
 ] as const;
 export type DeployRefusal = (typeof DEPLOY_REFUSALS)[number];
 
@@ -106,6 +108,11 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
     emptyDeployment(battle.id, base.id, side, at);
   if (existing.baseId !== null && existing.baseId !== base.id) {
     return { kind: 'refused', reason: 'not_a_participant' };
+  }
+  // Only the defender may set a ring (maintainer, 2026-09-23): the attacker chose the ground and
+  // the hour, and the ring is what the defender does about having been chosen.
+  if (side === 'attacker' && Object.values(input.perimeterChanges).some((delta) => delta !== 0)) {
+    return { kind: 'refused', reason: 'ring_is_the_defenders' };
   }
 
   // §D7: the heaviest things on the roster will not take a contract from a nobody. Checked across

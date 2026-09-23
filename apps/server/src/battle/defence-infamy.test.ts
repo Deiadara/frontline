@@ -1,4 +1,5 @@
 import {
+  infamyForRingDead,
   DECLARE_INFAMY_COST,
   CITY_DISTRICTS,
   declarationWindow,
@@ -140,13 +141,13 @@ describe('what a successful defence pays', () => {
    * nothing on the kill counter. The engine here kills nobody in the fight itself, so the whole of
    * what the defender banks below is the attacker's ring.
    */
-  it('pays the loser for the winner ring it took down', async () => {
+  it('pays the attacker half for the defender ring it broke, and the defender nothing', async () => {
     const RING_DEAD = 2;
     const ringPays: SkirmishEngine = {
       resolve: () =>
         skirmishOutcome({
-          winner: 'attacker',
-          log: ['through'],
+          winner: 'defender',
+          log: ['held'],
           killed: {},
           winnerLosses: {},
           perimeterLosses: { razors: RING_DEAD },
@@ -175,11 +176,12 @@ describe('what a successful defence pays', () => {
     });
     app.repos.city.markScouted(attacker.baseId, spire.id, new Date().toISOString());
 
-    // Enough at home for a line and a ring behind it.
-    const home = app.repos.bases.findById(attacker.baseId)!;
-    app.repos.bases.updateArmy(home.id, { razors: 12 }, home.trainingQueue);
+    // Enough at home on both sides: a line for the attacker, a ring for the defender.
+    for (const crew of [attacker, defender]) {
+      const home = app.repos.bases.findById(crew.baseId)!;
+      app.repos.bases.updateArmy(home.id, { razors: 12 }, home.trainingQueue);
+    }
 
-    const before = app.repos.bases.findById(defender.baseId)?.economy.infamy ?? 0;
     const target: BattleTarget = {
       kind: 'location',
       districtId: spire.id,
@@ -192,6 +194,11 @@ describe('what a successful defence pays', () => {
       payload: { target, scheduledFor: declarationWindow(new Date()).earliest.toISOString() },
     });
     expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
+    // Read after the declaration, which is what charges the attacker `DECLARE_INFAMY_COST`.
+    const before = {
+      attacker: app.repos.bases.findById(attacker.baseId)?.economy.infamy ?? 0,
+      defender: app.repos.bases.findById(defender.baseId)?.economy.infamy ?? 0,
+    };
     const board = await app.inject({
       method: 'GET',
       url: '/api/battles',
@@ -199,17 +206,29 @@ describe('what a successful defence pays', () => {
     });
     const view = board.json<BattlesResponse>().coming[0];
     if (!view) throw new Error('fixture: the declaration is not on the board');
+    // The attacker may not set a ring at all (maintainer, 2026-09-23).
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(attacker.token),
+      payload: { battleId: view.battle.id, changes: {}, perimeterChanges: { razors: 4 } },
+    });
+    expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+    expect(refused.body).toMatch(/ring/i);
     const sent = await app.inject({
       method: 'POST',
       url: '/api/battles/deploy',
       headers: auth(attacker.token),
-      payload: {
-        battleId: view.battle.id,
-        changes: { razors: 4 },
-        perimeterChanges: { razors: 4 },
-      },
+      payload: { battleId: view.battle.id, changes: { razors: 4 }, perimeterChanges: {} },
     });
     expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
+    const ringed = await app.inject({
+      method: 'POST',
+      url: '/api/battles/deploy',
+      headers: auth(defender.token),
+      payload: { battleId: view.battle.id, changes: {}, perimeterChanges: { razors: 4 } },
+    });
+    expect(ringed.statusCode, ringed.body.slice(0, 200)).toBe(200);
 
     db.prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?').run(
       new Date(Date.now() - 60_000).toISOString(),
@@ -221,8 +240,16 @@ describe('what a successful defence pays', () => {
     settleMovements(app.repos, new Date());
     settleBattles(app.repos, ringPays, new Date());
 
-    // Razors are one unit slot each, and §I1 prices a slot that does not walk off the field at one.
-    const after = app.repos.bases.findById(defender.baseId)?.economy.infamy ?? 0;
-    expect(after - before, 'the ring died for nothing').toBe(RING_DEAD);
+    // A death at the ring pays half, floored on the bulk: two one-slot Razors are one point to
+    // the attacker who broke them. The defender killed nobody and made nobody run, so nothing.
+    const after = {
+      attacker: app.repos.bases.findById(attacker.baseId)?.economy.infamy ?? 0,
+      defender: app.repos.bases.findById(defender.baseId)?.economy.infamy ?? 0,
+    };
+    expect(after.attacker - before.attacker, 'the ring died for nothing').toBe(
+      infamyForRingDead({ razors: RING_DEAD }),
+    );
+    expect(infamyForRingDead({ razors: RING_DEAD })).toBe(1);
+    expect(after.defender - before.defender).toBe(0);
   });
 });

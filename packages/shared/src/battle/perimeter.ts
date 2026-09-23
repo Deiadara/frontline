@@ -1,7 +1,7 @@
 import type { TerritoryEffects } from '../city/locations.js';
 import { findUnit, type Army, type UnitLoadouts } from '../units/index.js';
 import { simulate, type SideSetup, type SideState, type Simulation } from './engine.js';
-import { pursuitSpeed, routSurvivors, winnerCasualties, type FleeContext } from './rout.js';
+import { winnerCasualties, type FleeContext } from './rout.js';
 
 /**
  * The ring around the fight (GDD §A4, battle rework).
@@ -43,11 +43,13 @@ import { pursuitSpeed, routSurvivors, winnerCasualties, type FleeContext } from 
  *
  * - The ring can be **broken through**, and a thin one in front of a mass breakout will be.
  * - The ring **takes casualties**. Standing in front of desperate people costs units.
- * - The runners who lose that fight get a second rout roll, on the same sheets and the same four
- *   things that decide the first one, so a Road Reaver is still hard to bottle up.
+ * - Nobody flees the ring fight (maintainer, 2026-09-23). The losing side of it dies to the
+ *   last unit, runners and ring alike: a unit that would have fled dies instead, and a death at
+ *   the ring pays half infamy. Intimidation, which breaks units rather than killing them, kills
+ *   here.
  *
- * That last roll is the one place the rules are not identical, and deliberately: see
- * {@link PERIMETER_FLEE_PENALTY}.
+ * And only the **defender** may set one. An attacker chose the ground and the hour; the ring is
+ * the defender's answer to being chosen.
  */
 
 const total = (force: Army): number =>
@@ -166,17 +168,6 @@ export function perimeterToll(
   return { caught, escaped };
 }
 
-/**
- * How much harder it is to get past a ring than to walk away from the fight it surrounds.
- *
- * A multiplier on the finished flee chance, applied by {@link FleeContext.hardship}. Half, because
- * the two withdrawals are not the same problem: the first is from a fight that has stopped paying
- * attention to you, and the second is through people who are standing there for no other reason
- * than to stop you. Everything else about the roll is unchanged, so speed, stealth, the day's luck
- * and how early the stack broke all still decide who gets clear.
- */
-export const PERIMETER_FLEE_PENALTY = 0.5;
-
 export interface BreakoutInput {
   /** Who is coming out of the lost fight, after the first rout roll. */
   fleeing: Army;
@@ -251,11 +242,12 @@ function standing(side: SideState): Army {
 /**
  * The runners against the ring.
  *
- * An empty ring, or nobody running, returns the withdrawal untouched **and draws nothing**, so a
- * battle nobody set a perimeter for produces the identical stream it always did. Every engine test
- * pinned to a number depends on that.
+ * Draws nothing off the parent stream any more: the second fight is seeded on its own suffix and
+ * nobody rolls to flee it (maintainer, 2026-09-23), so a battle with or without a ring produces
+ * the identical stream for everything after it. The stream is still accepted so the call shape the
+ * engine and the tests use does not change.
  */
-export function breakOut(input: BreakoutInput, next: () => number): Breakout {
+export function breakOut(input: BreakoutInput, _next: () => number): Breakout {
   const clear = (): Breakout => ({
     escaped: { ...input.fleeing },
     caught: {},
@@ -303,36 +295,26 @@ export function breakOut(input: BreakoutInput, next: () => number): Breakout {
   const ringLosses = winnerCasualties(second.defender);
   const rounds = second.rounds.length;
 
+  /*
+   * Nobody flees the ring (maintainer, 2026-09-23).
+   *
+   * The ring fight has no rout roll on either side. If the runners break through, whoever of
+   * them is still standing is on their way home and the rest fell doing it; the ring, having lost,
+   * is dead to the last unit, because a unit that would have fled dies instead. If the ring holds,
+   * every runner dies: they already ran once and there is nowhere to run to. So intimidation,
+   * which breaks units rather than killing them, kills here, and the whole ring fight is paid in
+   * halves (`infamyForRingDead`) on top of the half the runners already paid for running.
+   */
   if (second.winner === 'attacker') {
-    // Through it. Whoever is still standing is on their way home, and the rest fell doing it.
     return {
       escaped: standing(second.attacker),
       caught: winnerCasualties(second.attacker),
-      ringLosses,
+      ringLosses: { ...input.ring },
       brokeThrough: true,
       rounds,
     };
   }
-
-  /*
-   * The ring held, so they break a second time.
-   *
-   * The context is the parent fight's, so the day's luck and whose ground it is still apply, with
-   * three things replaced: the pursuit is the ring's own speed, the round is this fight's, and the
-   * chance is halved. `routSurvivors` counts everybody who fell in the fight as killed as well as
-   * everybody caught running, so `killed` is the whole of what the ring took.
-   */
-  const { fled, killed } = routSurvivors(
-    second.attacker,
-    {
-      ...input.context,
-      pursuit: pursuitSpeed(second.defender),
-      lastRound: rounds,
-      hardship: PERIMETER_FLEE_PENALTY,
-    },
-    next,
-  );
-  return { escaped: fled, caught: killed, ringLosses, brokeThrough: false, rounds };
+  return { escaped: {}, caught: { ...input.fleeing }, ringLosses, brokeThrough: false, rounds };
 }
 
 /**
@@ -343,5 +325,6 @@ export function breakOut(input: BreakoutInput, next: () => number): Breakout {
  * this name in a stack trace explains itself.
  */
 export function perimeterFights(side: 'attacker' | 'defender', winner: 'attacker' | 'defender') {
-  return side === winner;
+  // Only the defender may set one (maintainer, 2026-09-23), and only a winner's ring fights.
+  return side === 'defender' && winner === 'defender';
 }

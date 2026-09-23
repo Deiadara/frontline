@@ -1405,6 +1405,37 @@ const FIGHTING: FeatSpec[] = [
    * stand in the line: see the note there for why counting bodies would make this ladder farmable
    * with Razors, and why counting a district's porters made it farmable against a warehouse.
    */
+  /**
+   * The top of the fight ladder (maintainer, 2026-09-23): a board deals fights by the crew's
+   * level, and these two are the weights only a grown crew sees. Solo, because each is one thing
+   * done once, and the Siege is the one the level-up card at 90 promised.
+   */
+  solo(
+    {
+      id: 'fight_five',
+      name: 'The Heaviest Thing They Send',
+      blurb: 'Win a Fight V off the board. Mostly armour, and you held it.',
+      era: 'late',
+      size: 'medium',
+      target: 1,
+      reward: kit('late', 'medium'),
+    },
+    'fights_won_at_tier',
+    'fight_5',
+  ),
+  solo(
+    {
+      id: 'siege_held',
+      name: 'A Siege Held',
+      blurb: 'Win a Siege. It pays a page and parts on top of everything, and it earns this.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: rise(6, 'bodies'),
+    },
+    'fights_won_at_tier',
+    'siege',
+  ),
   ...chain('odds', 'battles_won_outnumbered', [
     {
       id: 'odds_1',
@@ -2231,6 +2262,40 @@ const COMBINE: FeatSpec[] = [
       size: 'large',
       target: 75,
       reward: rise(8, 'blood'),
+    },
+  ]),
+  /**
+   * Breaking them, not killing them (maintainer, 2026-09-23): a rout pays half a kill's infamy,
+   * so a crew built on intimidation earns a name too. Counted off the engine's `fled`, in fights
+   * and on battle jobs alike.
+   */
+  ...chain('broken', 'units_routed', [
+    {
+      id: 'broken_1',
+      name: 'They Ran',
+      blurb: 'Twenty enemy units broke and ran from a fight you were in. Half a name each.',
+      era: 'early',
+      size: 'small',
+      target: 20,
+      reward: street('early', 'small'),
+    },
+    {
+      id: 'broken_2',
+      name: 'Nobody Stays For It',
+      blurb: 'Two hundred made to run. The other side breaks before the line does.',
+      era: 'mid',
+      size: 'medium',
+      target: 200,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'broken_3',
+      name: 'The Sound Of Your Name',
+      blurb: 'A thousand routed. They run when they hear who is coming.',
+      era: 'late',
+      size: 'large',
+      target: 1_000,
+      reward: street('late', 'large'),
     },
   ]),
   ...chain('turncoats', 'units_turned', [
@@ -5055,6 +5120,98 @@ const NAME: FeatSpec[] = [
       reward: rise(4, 'coin'),
     },
   ]),
+  /**
+   * The Right Hand's standing orders (§C2b): parties that went out with nobody at the screen.
+   *
+   * Counted at the send rather than at the return, because what the ladder measures is trust in
+   * the chair, not luck on the road. Four rungs and no more: at a fifteen minute gap a slot sends
+   * about three parties an hour, two slots six, so four hundred is a month of leaving the board to
+   * somebody else, which is as far as a feat should ask a player to look away from the game.
+   */
+  ...chain('orders', 'automated_parties', [
+    {
+      id: 'orders_1',
+      name: 'Leave It With Me',
+      blurb: 'One party out on a standing order. You were not there, and it went anyway.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'orders_2',
+      name: 'While You Were Out',
+      blurb: 'Twenty five parties sent by the Right Hand. The board stopped waiting for you.',
+      era: 'mid',
+      size: 'medium',
+      target: 25,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'orders_3',
+      name: 'The Room Runs Itself',
+      blurb: 'A hundred. A second slot, a shorter gap, and a chair that has stopped asking.',
+      era: 'late',
+      size: 'medium',
+      target: 100,
+      reward: kit('late', 'medium'),
+    },
+    {
+      id: 'orders_4',
+      name: 'Gone a Month',
+      blurb: 'Four hundred parties out on standing orders. Come back and find it as you left it.',
+      era: 'late',
+      size: 'large',
+      target: 400,
+      reward: purse('late', 'large'),
+    },
+  ]),
+  /**
+   * The bench itself, pressed. `masterpieces_reimagined` above counts what came out at the top
+   * tier; this counts the pressing, which is the habit the screen is trying to build.
+   */
+  ...chain('lever', 'bench_trades', [
+    {
+      id: 'lever_1',
+      name: 'Three In, One Out',
+      blurb: 'Run the Reimagining bench once. Three pages you had for one you did not.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: purse('mid', 'small'),
+    },
+    {
+      id: 'lever_2',
+      name: 'Feeding the Machine',
+      blurb: 'Ten runs of the bench. The spares are not spares any more, they are fuel.',
+      era: 'mid',
+      size: 'medium',
+      target: 10,
+      reward: kit('mid', 'medium'),
+    },
+    {
+      id: 'lever_3',
+      name: 'The Lab Eats First',
+      blurb: 'Forty runs. Every page that comes home goes past the sockets before the shelf.',
+      era: 'late',
+      size: 'medium',
+      target: 40,
+      reward: purse('late', 'medium'),
+    },
+  ]),
+  solo(
+    {
+      id: 'lever_done',
+      name: 'Nothing Left to Want',
+      blurb:
+        'Run the bench with every page in the game held or bound. It pays in experience now, and this is the receipt.',
+      era: 'late',
+      size: 'large',
+      target: 1,
+      reward: purse('late', 'large'),
+    },
+    'bench_experience',
+  ),
   ...chain('blueprints', 'blueprints_unlocked', [
     {
       id: 'blueprints_1',

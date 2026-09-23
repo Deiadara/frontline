@@ -50,6 +50,7 @@ function out(
     travelMinutes: 5,
     durationMinutes,
     officerId: null,
+    battleTier: null,
     overseerLed: false,
     lost: {},
     found: {},

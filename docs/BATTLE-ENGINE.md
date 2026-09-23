@@ -178,13 +178,23 @@ and are re-statted on top of this, not the other way round.
 - **The rout** (`rout.ts`). The losing side rolls per unit, not per stack. The base is the board's
   coin flip, tilted by speed against the pursuit, stealth, how early the stack broke, and whose
   ground it is. Clamped at both ends: nobody is certain to get away and nobody is doomed.
-- **The ring** (`perimeter.ts`). If the winner set a perimeter, meeting it is a **second battle** on
-  the same ground under the same rules, with the runners attacking and the ring defending. Losing
-  that one means a second rout roll at `PERIMETER_FLEE_PENALTY`, which is half the ordinary chance.
-  A thin ring in front of a mass breakout is ridden through, and it takes casualties doing it.
+- **The ring** (`perimeter.ts`). Only the **defender** may set one (maintainer, 2026-09-23), and
+  it fights only when the defence held: meeting it is a **second battle** on the same ground under
+  the same rules, with the attacker's runners attacking and the ring defending. **Nobody flees the
+  ring.** Whichever side loses that second fight dies to the last unit, runners or ring: a unit
+  that would have fled dies instead, so intimidation, which breaks units rather than killing them,
+  kills there. A thin ring in front of a mass breakout is ridden through and dies doing it.
   Catching people quietly pulled out of a deployment _before_ the fight is a different thing and
   stays a toll (`perimeterToll`): as a battle, a player could withdraw one unit at a time and farm
-  the enemy's ring for free.
+  the ring for free.
+- **The ledger** (`economy/infamy.ts`). A kill in the fight pays a slot's worth whole. Making a
+  unit run pays **half**, floored on the bulk (`infamyForFled`): three one-slot runners are 1.5,
+  paid as 1. A death at the ring pays half too (`infamyForRingDead`), on either side, so a runner
+  the ring kills paid a half for running and a half for dying. Battle jobs pay the same halves off
+  their own rate (`missionInfamyForFled`).
+- **The report** (`reportReaches`). A defender is always told: it is their ground, gate or
+  district. An attacker is told if they won or if at least one unit got home past the ring. The
+  officer counts for nothing towards it.
 
 ## Where a bonus comes from
 

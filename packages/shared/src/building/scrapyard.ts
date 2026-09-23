@@ -3,6 +3,7 @@ import type { ModificationRarity } from '../modification-rarity.js';
 import { RESOURCE_KEYS, type PartialResources } from '../resources.js';
 import type { UnitModificationSpec } from '../units/modifications.js';
 import { isAdvancedModification } from './addons.js';
+import { OFFICER_MARK_CEILING, OFFICER_MARK_FLOOR } from '../crew/marks.js';
 import type { ModificationSpec } from './modifications.js';
 
 /**
@@ -42,15 +43,47 @@ export function scrapyardDiscountPercent(level: number): number {
  * Every line present stays present and no line drops below one: a discount that removed the metal
  * line from an advanced bracket would silently break the rule that metal is what marks one out.
  */
-export function scrapyardPrice(cost: PartialResources, level: number): PartialResources {
+export function scrapyardPrice(
+  cost: PartialResources,
+  level: number,
+  /** The Fabricator's cut, 0 when the chair is empty. See {@link yardCostCutPercent}. */
+  officerCutPercent = 0,
+): PartialResources {
   const off = scrapyardDiscountPercent(level) / 100;
+  const officerOff = Math.max(0, Math.min(MAX_YARD_COST_CUT, officerCutPercent)) / 100;
   const priced: PartialResources = {};
   for (const key of RESOURCE_KEYS) {
     const amount = cost[key];
     if (amount === undefined) continue;
-    priced[key] = Math.max(1, Math.round(amount * (1 - off)));
+    // Multiplied rather than summed, so the two discounts compose instead of racing each other to
+    // a hundred: a maxed yard and a perfect Fabricator take 30% off what is left, not 30 points
+    // off a number that was already most of the way to free.
+    priced[key] = Math.max(1, Math.round(amount * (1 - off) * (1 - officerOff)));
   }
   return priced;
+}
+
+/**
+ * §C1d, second half: what the Fabricator takes off the yard's bill (maintainer, 2026-09-22).
+ *
+ * The Fabricator's sheet used to reach nothing at all outside its own research track. It gated no
+ * Scrapyard card (it is named as `OFFICER_FOR_UNIT_FALLBACK`, and every unit card already has a
+ * louder stat, so the fallback never fired), and nothing else in the game read it. A chair whose
+ * only effect is to unlock its own reading list is a chair a player has no reason to fill well.
+ *
+ * So it buys price, exactly as each research chair buys price on its own track: the same curve,
+ * the same ceiling, and points rather than marks, so a better Fabricator is continuously cheaper
+ * rather than merely opening a door. Their duties are craft, engineering, salvage and dexterity,
+ * which is a description of the person who runs a cutting yard.
+ *
+ * Applied after the yard's own level discount and before the per-line floor, so nothing is free
+ * however good they are.
+ */
+export const MAX_YARD_COST_CUT = 30;
+
+export function yardCostCutPercent(points: number): number {
+  const above = Math.max(0, Math.min(OFFICER_MARK_CEILING, points) - OFFICER_MARK_FLOOR);
+  return (above / (OFFICER_MARK_CEILING - OFFICER_MARK_FLOOR)) * MAX_YARD_COST_CUT;
 }
 
 /** The plain bolt-ons: open the day the yard is standing. */

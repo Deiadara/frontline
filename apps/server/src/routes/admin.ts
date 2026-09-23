@@ -516,6 +516,25 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateCommanders(next.id, seated);
       }
 
+      if (body.automationsRested) {
+        for (const slot of app.repos.automations.forBase(next.id)) {
+          /*
+           * The landed party goes too. A slot still pointing at a mission that has come home is
+           * re-stamped by the next tick from that mission's `resolvedAt` (the rule that stops a
+           * toggle skipping the gap), which would put back the very rest this knob just cleared.
+           * A party still out is left alone: clearing that would send a second one.
+           */
+          const running =
+            slot.missionId === null ? null : app.repos.missions.findById(slot.missionId);
+          const stillOut = running?.mission.status === 'active';
+          app.repos.automations.put({
+            ...slot,
+            restingSince: null,
+            missionId: stillOut ? slot.missionId : null,
+          });
+        }
+      }
+
       if (body.playerLevel !== undefined) {
         // The XP bank is reset with the level rather than carried: banked progress belongs to the
         // level it was earned under, and keeping it would leave a crew sitting above its own

@@ -1,4 +1,5 @@
 import {
+  TUTORIAL_STEPS,
   MAX_MODIFICATION_SLOTS,
   MODIFICATION_SLOT_LEVELS,
   SCRAPYARD_LEVEL_FOR_RARITY,
@@ -93,6 +94,8 @@ const me: MeResponse = {
     icon: 'shield',
     timezone: 'Europe/Athens',
     soundVolume: 60,
+    // Seen, so the opening tutorial does not draw over a test about something else.
+    tutorialSeen: [...TUTORIAL_STEPS],
   },
   overseer: null,
   base,

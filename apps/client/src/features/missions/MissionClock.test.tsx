@@ -1,7 +1,6 @@
 import {
   TRAVEL_BAND_MINUTES,
   MISC_AREA_ID,
-  battleTierFor,
   leaningsFor,
   hastenedRoadMinutes,
   missionOffers,
@@ -76,12 +75,12 @@ function areaOf(id: string, name: string): MissionArea {
       xp: 240,
       failedXp: 48,
       pagePrize: null,
-      // Off the template, not typed in: what a job leans on and what a battle fields are
-      // `leaningsFor` and `battleTierFor`, and a fixture that made them up would let the picker
-      // agree with itself while disagreeing with the maintainer.
+      // Off the template, not typed in: what a job leans on is `leaningsFor`, and a fixture
+      // that made it up would let the picker agree with itself while disagreeing with the
+      // maintainer. A fight's tier is dealt by the board; here every fight is a Fight I.
       authoredChance: template.successChance,
       leanings: [...leaningsFor(template)],
-      battleTier: battleTierFor(template),
+      battleTier: template.kind === 'battle' ? ('fight_1' as const) : null,
     })),
     activeMissionId: null,
   };

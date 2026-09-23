@@ -105,6 +105,7 @@ import {
   placeBlackMarketBid,
   getSettings,
   updateProfile,
+  markTutorialSeen,
   changePassword,
   getAdmin,
   mockBattleOnMe,
@@ -119,6 +120,8 @@ import {
   getBattles,
   declareBattle,
   getActions,
+  getAutomations,
+  saveAutomation,
   recallColumn,
   deployToBattle,
   layTrap,
@@ -164,6 +167,7 @@ export const queryKeys = {
   scrapyard: ['scrapyard'] as const,
   battles: ['battles'] as const,
   actions: ['actions'] as const,
+  automations: ['automations'] as const,
   faction: ['faction'] as const,
   feats: ['feats'] as const,
   leaderboard: (board: string, localOnly: boolean) => ['leaderboard', board, localOnly] as const,
@@ -1258,6 +1262,30 @@ export function useActions() {
   });
 }
 
+/** §C2b: the Right Hand's standing orders. Polled like the road, since the world clock moves them. */
+export function useAutomations() {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: queryKeys.automations,
+    queryFn: getAutomations,
+    enabled: token !== null,
+    refetchInterval: 5000,
+  });
+}
+
+export function useSaveAutomation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: saveAutomation,
+    onSuccess: (data) => queryClient.setQueryData(queryKeys.automations, data),
+    // A slot switching on hands the board to the Right Hand, and the board reads that itself.
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.automations });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
+    },
+  });
+}
+
 /** Turn one around. Units go back onto the roster, so the roster and the HUD go stale with it. */
 export function useRecallColumn() {
   const queryClient = useQueryClient();
@@ -1285,6 +1313,14 @@ export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 
 export const useUpdateProfile = settingsMutation(updateProfile);
 export const useChangePassword = settingsMutation(changePassword);
+/**
+ * Marks opening tutorial cards as shown.
+ *
+ * `settingsMutation` already writes the answer into the settings cache and re-reads `/me`, which
+ * is where the card list lives (`user.tutorialSeen`), so the next card appears without this
+ * having to know anything about the tutorial.
+ */
+export const useMarkTutorialSeen = settingsMutation(markTutorialSeen);
 
 /**
  * The admin console, or `null` when this build does not have one.

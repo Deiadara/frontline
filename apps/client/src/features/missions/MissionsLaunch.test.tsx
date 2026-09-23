@@ -3,8 +3,10 @@ import {
   LEANING_PROFILES,
   MISSION_LEANING_LABELS,
   MISSION_LEANING_REASONS,
+  type AttributeName,
+  IMPORTANCE_LABELS,
+  ATTRIBUTE_LABELS,
   MISC_AREA_ID,
-  battleTierFor,
   leaningsFor,
   missionOffers,
   playerLevelGrants,
@@ -65,12 +67,12 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
       xp: 240,
       failedXp: 48,
       pagePrize: null,
-      // Off the template, not typed in: what a job leans on and what a battle fields are
-      // `leaningsFor` and `battleTierFor`, and a fixture that made them up would let the picker
-      // agree with itself while disagreeing with the maintainer.
+      // Off the template, not typed in: what a job leans on is `leaningsFor`, and a fixture
+      // that made it up would let the picker agree with itself while disagreeing with the
+      // maintainer. A fight's tier is dealt by the board; here every fight is a Fight I.
       authoredChance: template.successChance,
       leanings: [...leaningsFor(template)],
-      battleTier: battleTierFor(template),
+      battleTier: template.kind === 'battle' ? ('fight_1' as const) : null,
     })),
     activeMissionId: null,
   };
@@ -153,6 +155,7 @@ const accepted: LaunchMissionResponse = {
     travelMinutes: 5,
     durationMinutes: 3,
     officerId: 'off-1',
+    battleTier: null,
     overseerLed: false,
     lost: {},
     found: {},
@@ -466,8 +469,8 @@ describe('a refused launch', () => {
  * The card used to carry a `Anti-Combine` / `Combine Contract` badge, which nothing in the game
  * read back and which told a player nothing about how to run the job. It is gone. What is left is
  * the leaning chips, and they now explain themselves: hovering one says which attributes the job
- * reads and what each of them is for, so a player can go and look at the sheet of whoever they
- * were about to send.
+ * reads and how much each matters, so a player can go and look at the sheet of whoever they were
+ * about to send.
  */
 describe('the board says what a job leans on, and why', () => {
   it('explains a leaning chip in the game’s own window', async () => {
@@ -484,12 +487,15 @@ describe('the board says what a job leans on, and why', () => {
     fireEvent.focus(chip);
 
     const tip = await screen.findByRole('tooltip');
-    expect(tip).toHaveTextContent(MISSION_LEANING_REASONS[leaning]);
-    // And it names at least one attribute, because "it is a difficult job" is not guidance.
-    const named = Object.keys(LEANING_PROFILES[leaning]).filter((attribute) =>
-      MISSION_LEANING_REASONS[leaning].toLowerCase().includes(attribute.toLowerCase()),
-    );
-    expect(named.length).toBeGreaterThan(0);
+    // The title, and the attributes with how much each matters, and nothing else (maintainer,
+    // 2026-09-23): no eyebrow, and the leaning's sentence is gone from the hover.
+    expect(tip).toHaveTextContent(MISSION_LEANING_LABELS[leaning]);
+    expect(tip).not.toHaveTextContent(/What it leans on/i);
+    expect(tip).not.toHaveTextContent(MISSION_LEANING_REASONS[leaning]);
+    for (const [attribute, importance] of Object.entries(LEANING_PROFILES[leaning])) {
+      expect(tip).toHaveTextContent(ATTRIBUTE_LABELS[attribute as AttributeName]);
+      expect(tip).toHaveTextContent(IMPORTANCE_LABELS[importance]);
+    }
   });
 
   it('carries no stance badge any more', async () => {

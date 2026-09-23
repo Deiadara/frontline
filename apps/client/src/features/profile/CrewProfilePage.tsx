@@ -66,16 +66,12 @@ export function CrewProfilePage() {
         ownName: me.data?.base?.name ?? null,
       })
     : home.districtName;
-  const since = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(
-    new Date(player.since),
-  );
 
   return (
     <PageShell
       wide
       title={crew.name}
       icon="crew"
-      lede={`${player.name}, level ${standing.level}. In the city since ${since}.`}
       action={
         data.isYou ? (
           <span className="rounded-sm border border-verdigris-300/60 px-2 py-0.5 font-display text-[10px] uppercase tracking-[0.16em] text-verdigris-100">
@@ -293,6 +289,9 @@ export function CrewProfilePage() {
                             src={picture}
                             alt=""
                             className="h-full w-full object-cover"
+                            // Top-aimed like every other portrait: this is a 44px square box off
+                            // a tall painting, which is the crop that cuts the most.
+                            style={{ objectPosition: '50% 0%' }}
                             draggable={false}
                           />
                         ) : (

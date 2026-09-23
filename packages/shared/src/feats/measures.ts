@@ -88,6 +88,7 @@ export const FEAT_MEASURES = [
   'battles_attacked_won',
   'battles_defended_won',
   'battles_won_outnumbered',
+  'fights_won_at_tier',
   'battles_won_overwhelmed',
   'battles_won_flawless',
   'battles_won_lopsided',
@@ -110,6 +111,7 @@ export const FEAT_MEASURES = [
   'combine_fights_won_flawless',
   'combine_fights_won_shadowed',
   'units_turned',
+  'units_routed',
   'combine_districts_held',
   'chapel_held',
   'units_trained',
@@ -119,6 +121,9 @@ export const FEAT_MEASURES = [
   'officers_hired',
   'pages_found',
   'masterpieces_reimagined',
+  'automated_parties',
+  'bench_trades',
+  'bench_experience',
   'vehicles_built',
   'resources_earned',
   'infamy_earned',
@@ -208,6 +213,11 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * per fight that qualified, so a ladder on one of them climbs like any other.
    */
   battles_won_outnumbered: { source: 'tally', scoped: false, unit: 'wins' },
+  /**
+   * Battle jobs won, by the tier the board dealt them at (`BATTLE_TIERS`), so the top of the
+   * ladder can be a feat: a Fight V held, a Siege held. Scoped by the tier id.
+   */
+  fights_won_at_tier: { source: 'tally', scoped: true, unit: 'wins' },
   battles_won_overwhelmed: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_flawless: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_lopsided: { source: 'tally', scoped: false, unit: 'wins' },
@@ -240,6 +250,12 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   combine_fights_won_shadowed: { source: 'tally', scoped: false, unit: 'wins' },
   /** Units of yours that changed sides under Directive Xero and never came back. */
   units_turned: { source: 'tally', scoped: false, unit: 'units' },
+  /**
+   * Enemy units this crew made break and run rather than killed, in a declared fight or off a
+   * battle job. Counted at the settle off the engine's own `fled`, which is what the half-infamy
+   * for a rout (`infamyForFled`) is paid on, so the feat and the ledger read one number.
+   */
+  units_routed: { source: 'tally', scoped: false, unit: 'units' },
   /** Crew measures: districts that were the Combine's held whole, and the Chapel itself. */
   combine_districts_held: { source: 'crew', scoped: false, unit: 'districts' },
   chapel_held: { source: 'crew', scoped: false, unit: 'chapels' },
@@ -275,6 +291,20 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * number says what a crew has been putting in the sockets as much as what it got out.
    */
   masterpieces_reimagined: { source: 'tally', scoped: false, unit: 'masterpieces' },
+  /**
+   * Parties the Right Hand sent out on a standing order (`automations/runners.ts`), counted at
+   * the send. Its own counter rather than a slice of `missions_done`, because the question is
+   * not how many jobs came home but how much of the board the crew has handed to the chair.
+   */
+  automated_parties: { source: 'tally', scoped: false, unit: 'parties' },
+  /** Every press of the Reimagining lever that took three pages, whatever came out. */
+  bench_trades: { source: 'tally', scoped: false, unit: 'trades' },
+  /**
+   * Presses that paid experience rather than a page: the bench run with nothing left in the game
+   * to find (`REIMAGINING_COMPLETE_XP`). Its own counter because it is the one thing on this
+   * screen a finished collection can still do, and a feat on it is the only way the screen says so.
+   */
+  bench_experience: { source: 'tally', scoped: false, unit: 'payouts' },
   vehicles_built: { source: 'tally', scoped: false, unit: 'machines' },
   resources_earned: { source: 'tally', scoped: true, unit: 'earned' },
   infamy_earned: { source: 'tally', scoped: false, unit: 'infamy' },

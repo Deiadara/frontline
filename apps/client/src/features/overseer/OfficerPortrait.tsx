@@ -83,7 +83,7 @@ export function OfficerPortrait({
            * slides it a tenth of the overflow lower still, so the air above the head grows and
            * the bite comes off the bottom. A box that is exactly 4:5 has no overflow to spend.
            */
-          style={{ objectPosition: '50% -10%' }}
+          style={{ objectPosition: '50% 0%' }}
           className={cn(
             '!absolute inset-0 h-full w-full object-cover',
             // Desaturated under the wash rather than only tinted: a red film over a full-colour

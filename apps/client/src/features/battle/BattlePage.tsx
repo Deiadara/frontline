@@ -59,6 +59,7 @@ import { SpyReportModal } from './SpyReportModal';
 import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
 import { EffectiveCard } from './EffectiveCard';
+import { Tutorial } from '../tutorial/Tutorial';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -237,6 +238,8 @@ export function BattlePage() {
       wide
       fills
     >
+      {/* First visit to this screen raises its card, once. */}
+      <Tutorial screen="battles" />
       {battles.isError ? (
         /*
          * A failure said out loud, with a way to try again.
@@ -704,7 +707,9 @@ function BattleDetail({
               this is two sentences of prose. The trigger is already a button, so what carries the
               button's dressing is a span inside it.
             */}
-            {view.deploymentOpen && (
+            {/* Only the defender may set one (maintainer, 2026-09-23): the attacker chose the
+                ground and the hour, and the ring is what the defender does about it. */}
+            {view.deploymentOpen && view.role === 'defender' && (
               <HoverCard
                 label="Station units in the periphery"
                 onActivate={() => onDeploy('ring')}
@@ -716,12 +721,14 @@ function BattleDetail({
                       The ring
                     </p>
                     <p className="font-body text-[13px] leading-relaxed text-ink-100">
-                      A cordon thrown around the fight. It never takes part: it stands outside and
-                      takes down whoever tries to leave once the losing side has had enough.
+                      A cordon thrown around the fight, and only a defender may set one. It never
+                      takes part: if the line holds, it meets whoever breaks and runs, and nobody
+                      runs from the ring. Whichever side loses that second fight dies to the last
+                      unit, so a beaten attacker who cannot get past it takes no report home.
                     </p>
                     <p className="font-body text-[13px] leading-relaxed text-ink-100">
-                      Every unit on it is a unit not in the line, and withdrawing past a ring the
-                      other side has already set costs unit slots of your own.
+                      Every unit on it is a unit not in the line, and if the line breaks the ring
+                      walks away without fighting.
                     </p>
                   </div>
                 }

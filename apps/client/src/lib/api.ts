@@ -26,6 +26,7 @@ import {
   type SendMessageRequest,
   ApiErrorSchema,
   ActionsResponseSchema,
+  AutomationsResponseSchema,
   BattlesResponseSchema,
   BattleMutationResponseSchema,
   type DeclareBattleRequest,
@@ -93,6 +94,7 @@ import {
   type PlaceBidRequest,
   type SealBidRequest,
   type LaunchMissionInput,
+  type SaveAutomationRequest,
   type LevelUp,
   type LoginRequest,
   type RegisterRequest,
@@ -105,6 +107,7 @@ import {
   type PostOfferRequest,
   type OfferActionRequest,
   type PlaceBlackMarketBidRequest,
+  type TutorialSeenRequest,
   type UpdateProfileRequest,
   type ChangePasswordRequest,
   type AdminFogRequest,
@@ -298,6 +301,11 @@ export const upgradeNotoriety = (body: UpgradeNotorietyRequest) =>
 
 export const getActions = () => apiFetch('/actions', ActionsResponseSchema);
 
+/** §C2b: the Right Hand's standing orders, and what the ladder lets them do. */
+export const getAutomations = () => apiFetch('/automations', AutomationsResponseSchema);
+export const saveAutomation = (body: SaveAutomationRequest) =>
+  apiFetch('/automations', AutomationsResponseSchema, jsonBody(body));
+
 export const recallColumn = (body: RecallColumnRequest) =>
   apiFetch('/actions/recall', ActionsResponseSchema, jsonBody(body));
 
@@ -429,6 +437,10 @@ export const updateProfile = (body: UpdateProfileRequest) =>
 
 export const changePassword = (body: ChangePasswordRequest) =>
   apiFetch('/settings/password', SettingsResponseSchema, jsonBody(body));
+
+/** Records opening tutorial cards as shown. Skip is this call carrying every step. */
+export const markTutorialSeen = (body: TutorialSeenRequest) =>
+  apiFetch('/settings/tutorial', SettingsResponseSchema, jsonBody(body));
 
 /**
  * The admin console.

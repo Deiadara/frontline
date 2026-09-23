@@ -1108,6 +1108,41 @@ export function liftOfficer(
  */
 export const MAX_OFFICER_LIFT = 10;
 
+/**
+ * What the Right Hand lifts everybody else by (§C2b, maintainer 2026-09-22).
+ *
+ * The chair's sheet used to reach nothing outside its own research track. This is the first of
+ * three things it now buys: the officers around them work better the better the Right Hand is at
+ * bringing people together. Read off their fit points on the same curve every other officer
+ * payoff uses, so it is continuous rather than a band, and paid as a flat lift to every group of
+ * every other officer's sheet through the same {@link LiftSource} machinery the teaching perks
+ * use. The receipt on the crew screen names them, exactly as it names a teacher.
+ *
+ * Half the cap on purpose. `MAX_OFFICER_LIFT` is ten points per attribute from all sources
+ * together, and a Right Hand who could fill the whole of it alone would make every teaching perk
+ * in the book worthless on the day one was seated.
+ */
+export const MAX_RIGHT_HAND_LIFT = 5;
+
+/**
+ * And what they lift the Overseer by: raw points, on every attribute.
+ *
+ * The Overseer is not an officer and takes no lift from anybody, which is the right rule for
+ * teachers: a player's own character should not be improved by whoever they happened to hire.
+ * The Right Hand is the one exception the maintainer asked for, because a second in command who
+ * takes the load off the person at the top is the whole meaning of the chair. Smaller than the
+ * officer lift, and the only source that reaches the Overseer at all.
+ */
+export const MAX_OVERSEER_LIFT = 3;
+
+/** The lift a Right Hand at `points` fit pays, for either channel, on the standard curve. */
+export function rightHandLift(points: number, ceiling: number): number {
+  const floor = 10;
+  const top = 100;
+  const above = Math.max(0, Math.min(top, points) - floor);
+  return Math.round((above / (top - floor)) * ceiling * 100) / 100;
+}
+
 /** One place an officer's sheet can be lifted from, and what it pays. */
 export interface LiftSource {
   /** Where it came from, in the player's words: a name, "the Lab", "the ground you hold". */

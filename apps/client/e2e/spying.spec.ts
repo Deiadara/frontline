@@ -67,7 +67,16 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
   await page.getByTestId(`spy-open-${LOOTERS.id}`).click();
   const panel = page.getByTestId(`spy-${LOOTERS.id}`);
   await expect(panel).toBeVisible();
-  await expect(panel.getByTestId('spy-no-report')).toBeVisible();
+  /*
+   * Ground nobody has looked at says nothing at all (maintainer, 2026-09-22).
+   *
+   * There used to be a `spy-no-report` line here reading "Nobody of yours has had a look at it.
+   * What is standing here is theirs to know until you pay to find out", which is two sentences to
+   * announce that a line is absent. The absence says it, and the tiers under it are what the
+   * player is here for.
+   */
+  await expect(panel.getByTestId('spy-no-report')).toHaveCount(0);
+  await expect(panel.getByTestId('spy-last-report')).toHaveCount(0);
   for (const tier of Object.keys(SPY_TIER_SPECS)) {
     await expect(panel.getByTestId(`spy-${LOOTERS.id}-tier-${tier}`)).toBeVisible();
   }

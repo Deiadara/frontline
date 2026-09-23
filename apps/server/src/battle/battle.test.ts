@@ -497,18 +497,23 @@ describe('moving people up to it (§A4)', () => {
     expect(errorCode(res)).toBe('BATTLE_REFUSED');
   });
 
-  it('keeps the ring separate from the line, and counts both as committed', async () => {
+  it('refuses the attacker a ring, and lands the line on its own', async () => {
     const stack = await makeStack();
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
 
-    await deploy(stack, battleId, { razors: 1 }, { razors: 1 });
-    // One column carries both, and the two halves stay apart when it lands.
+    // Only the defender may set a ring (maintainer, 2026-09-23): the whole request is refused,
+    // line included, so nothing of it is half-applied.
+    const refused = await deploy(stack, battleId, { razors: 1 }, { razors: 1 });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toMatch(/ring/i);
+
+    await deploy(stack, battleId, { razors: 1 });
     land(stack, battleId, new Date());
     const view = (await board(stack)).coming[0]!;
     expect(view.muster?.army.razors).toBe(1);
-    expect(view.muster?.perimeter.razors).toBe(1);
-    expect(view.muster?.size).toBe(2);
+    expect(view.muster?.perimeter.razors ?? 0).toBe(0);
+    expect(view.muster?.size).toBe(1);
   });
 
   /** §D7: the heaviest things on the roster will not take a contract from a nobody. */

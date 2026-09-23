@@ -1,4 +1,5 @@
 import {
+  TUTORIAL_STEPS,
   UpdateProfileRequestSchema,
   type SettingsResponse,
   type UpdateProfileRequest,
@@ -33,6 +34,8 @@ const settings: SettingsResponse = {
     icon: 'shield',
     timezone: 'Europe/Athens',
     soundVolume: 60,
+    // Seen, so the opening tutorial does not draw over a test about something else.
+    tutorialSeen: [...TUTORIAL_STEPS],
   },
   serverNow: NOW,
   gameTimezone: 'Europe/Athens',

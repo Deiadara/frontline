@@ -100,32 +100,27 @@ test('a build waiting behind the one being worked wears the X; one past its tent
   await expect(page.getByTestId('build-rail-quarters')).toBeVisible();
 });
 
-test('the in-flight rail opens on the X for a build, and the chip goes when it is pressed', async ({
+test('the In progress page wears the X on a build still inside its tenth, and not on one past it', async ({
   page,
 }) => {
   await installApi(page, lateGame);
-  await page.goto('/game/actions');
-  const rail = page.getByTestId('queue-rail');
-  await expect(rail).toBeVisible();
+  await page.goto('/game/actions/progress');
+  await expect(page.getByTestId('in-progress')).toBeVisible();
   await settleFonts(page);
 
-  // The one being worked is past its tenth: the detail opens with no X on it.
-  await rail.getByTestId('queue-rail-build-bq-1').click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await expect(page.getByTestId('queue-cancel')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Leave it' }).click();
-
-  await rail.getByTestId('queue-rail-build-bq-2').click();
-  const x = page.getByTestId('queue-cancel');
+  // The one being worked is past its tenth: no X on it. The one behind it is not.
+  await expect(page.getByTestId('progress-build-bq-1')).toBeVisible();
+  await expect(page.getByTestId('cancel-build-bq-1')).toHaveCount(0);
+  const x = page.getByTestId('cancel-build-bq-2');
   await expect(x).toBeVisible();
-  await expect(page.getByTestId('queue-cancel-window')).toHaveText(LEFT_TO_DECIDE);
-  await page.screenshot({ path: 'e2e-out/cancel-rail.png' });
+  await expect(page.getByTestId('cancel-build-bq-2-window')).toHaveText(LEFT_TO_DECIDE);
+  await page.screenshot({ path: 'e2e-out/cancel-progress.png' });
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/base/cancel'));
   await x.click();
   expect((await sent).postDataJSON()).toEqual({ orderId: 'bq-2' });
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(rail.getByTestId('queue-rail-build-bq-2')).toHaveCount(0);
+  await expect(page.getByTestId('progress-build-bq-2')).toHaveCount(0);
+  await expect(page.getByTestId('progress-build-bq-1')).toBeVisible();
 });
 
 test('a rung just put on the bench can be taken off it, for ninety percent back', async ({
@@ -164,10 +159,17 @@ test('a crew a minute out wears the X with the time left; pressing it turns them
   await expect(page.getByTestId('crews-in-flight')).toBeVisible();
   await settleFonts(page);
 
-  // Sixty minutes out, a minute in: about five of the six left.
+  /*
+   * A minute into a Deep Expedition, whose window is a tenth of the **whole run**.
+   *
+   * The rule changed on 2026-09-22: it used to be a tenth of the road out, so this crew had five
+   * minutes of a fifty-minute walk. The run is a day on the ground plus two legs of travel, so
+   * the window is now hours. Asserted as the shape rather than the figure, because the figure is
+   * a property of the template's travel band and would redden on any retune of it.
+   */
   const x = page.getByTestId('recall-mission-m-1');
   await expect(x).toBeVisible();
-  await expect(page.getByTestId('recall-mission-m-1-window')).toHaveText(/^[45]m( \d+s)? left/);
+  await expect(page.getByTestId('recall-mission-m-1-window')).toHaveText(LEFT_TO_DECIDE);
   await page.screenshot({ path: 'e2e-out/cancel-missions.png' });
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/missions/recall'));
@@ -215,10 +217,17 @@ async function routeBoardClock(page: Page, startedMinutesAgo: number): Promise<v
   });
 }
 
-test('a crew past the first tenth of the road out has no X anywhere', async ({ page }) => {
+test('a crew past the first tenth of its run has no X anywhere', async ({ page }) => {
   await installApi(page, lateGame);
-  // Ten minutes into an hour's road out: the six-minute window shut four minutes ago.
-  await routeBoardClock(page, 10);
+  /*
+   * Far enough in that the window has shut, whatever the run's shape.
+   *
+   * Ten minutes used to do it, when the window was a tenth of the road out. It is a tenth of the
+   * whole run now, and this crew's run is a day on the ground, so the clock has to be pushed past
+   * a tenth of *that*: 200 minutes is comfortably past the ~154 the window opens with and still
+   * far short of the run itself, so the crew is genuinely mid-job rather than home.
+   */
+  await routeBoardClock(page, 200);
 
   await page.goto('/game/missions');
   await expect(page.getByTestId('crews-in-flight')).toBeVisible();
@@ -240,10 +249,10 @@ test('the road wears one X on every row that can still be turned round', async (
   await expect(page.getByTestId('recall-col-1')).toBeVisible();
   await expect(page.getByTestId('recall-col-1-window')).toHaveText(LEFT_TO_DECIDE);
   await expect(page.getByTestId('recall-col-2')).toHaveCount(0);
-  // The crew on a job, a minute into an hour's road out: about five of the six left.
+  // The crew on a job, a minute into a day-long run: hours of window, not minutes.
   await expect(page.getByTestId('recall-job-m-1')).toBeVisible();
-  await expect(page.getByTestId('recall-job-m-1-window')).toHaveText(/^[45]m( \d+s)? left/);
-  // The scout is ten minutes into a twenty-minute walk there: the window shut eight minutes ago.
+  await expect(page.getByTestId('recall-job-m-1-window')).toHaveText(LEFT_TO_DECIDE);
+  // The scout is ten minutes in, and its window is a tenth of the whole run.
   await expect(page.getByTestId('scout-run')).toBeVisible();
   await expect(page.getByTestId('recall-scout')).toHaveCount(0);
 
@@ -312,8 +321,14 @@ test('a scout on the road can be turned round, and the street stays shut', async
     officerId: 'off-3',
     officerName: 'Scout Party',
     departedAt: new Date(Date.now() - 60_000).toISOString(),
-    // Thirty minutes' walk each way and an hour on the ground: three minutes to decide, two left.
-    // The window is a tenth of the walk, so the hour of looking buys none of it.
+    /*
+     * Thirty minutes' walk each way and an hour on the ground: 120 minutes, so twelve to decide
+     * and eleven left after the minute already walked.
+     *
+     * The window is a tenth of the **whole run** since 2026-09-22. It used to be a tenth of the
+     * walk out, which gave three minutes and meant the hour of looking bought none of it: the
+     * longer a scout was committed for, the less time there was to change your mind.
+     */
     returnsAt: new Date(Date.now() + 119 * 60_000).toISOString(),
     travelMinutes: 30,
     recalledAt: null,
@@ -343,7 +358,8 @@ test('a scout on the road can be turned round, and the street stays shut', async
   const x = page.getByTestId('recall-scout');
   await expect(x).toBeVisible();
   await expect(x).toHaveAccessibleName('Turn the Scout Party round');
-  await expect(page.getByTestId('recall-scout-window')).toHaveText(/^[12]m( \d+s)? left/);
+  // Twelve minutes of window on a two-hour run, one minute of it already walked: eleven or so.
+  await expect(page.getByTestId('recall-scout-window')).toHaveText(/^1[012]m( \d+s)? left/);
 
   const sent = page.waitForRequest((request) => request.url().endsWith('/api/city/scout/recall'));
   await x.click();

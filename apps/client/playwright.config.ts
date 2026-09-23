@@ -20,6 +20,19 @@ const CLIENT_PORT = 5175;
 const apiUrl = `http://localhost:${API_PORT}`;
 const clientUrl = `http://localhost:${CLIENT_PORT}`;
 
+/**
+ * A second real server, in admin mode, for the specs that need every clock at five seconds.
+ *
+ * The first server is pinned to `ADMIN=false` and `live.spec.ts` depends on that: it asserts a
+ * build actually charges oil. The Right Hand's standing orders cannot be watched on that server,
+ * because a party would be out for real minutes and rest for real minutes between. So the live
+ * automations spec talks to this one, on its own port and its own database, by rewriting the
+ * browser's `/api` traffic to it (`live-automations.spec.ts`). Same lifecycle and orphan guard.
+ */
+export const ADMIN_API_PORT = 4011;
+const adminScratchDb = path.join(scratchDir, 'frontline-admin.sqlite');
+export const adminApiUrl = `http://localhost:${ADMIN_API_PORT}`;
+
 export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
@@ -73,6 +86,23 @@ export default defineConfig({
         // would order the Quarters, be charged nothing, and assert a stockpile that never moved:
         // a green suite proving the economy works when it had simply been switched off.
         ADMIN: 'false',
+      },
+    },
+    {
+      // The admin-mode twin. See `ADMIN_API_PORT` above for why it exists.
+      command: `rm -f "${adminScratchDb}" "${adminScratchDb}-wal" "${adminScratchDb}-shm" && mkdir -p "${scratchDir}" && exec node --import tsx src/index.ts`,
+      cwd: '../server',
+      url: `${adminApiUrl}/health`,
+      reuseExistingServer: false,
+      env: {
+        PORT: String(ADMIN_API_PORT),
+        HOST: '127.0.0.1',
+        DATABASE_PATH: adminScratchDb,
+        JWT_SECRET: 'e2e-secret',
+        CORS_ORIGIN: clientUrl,
+        EXIT_WITH_PARENT: 'true',
+        UNLOCKED: 'false',
+        ADMIN: 'true',
       },
     },
     {

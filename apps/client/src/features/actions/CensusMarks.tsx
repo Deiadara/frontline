@@ -126,6 +126,52 @@ export function OutMark({ className }: { className?: string }) {
 }
 
 /**
+ * Work: an hourglass, half run.
+ *
+ * The In progress tab (maintainer, 2026-09-23). Everything on it is a clock, so the mark is the
+ * one shape that is nothing but a clock: two cups, the sand part way through, the glass pinched in
+ * the middle and the pen overrunning one cap, the way the rest of this strip is drawn.
+ */
+export function WorkMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <g {...PEN} strokeWidth="1.6">
+        <path d="M6.3 4.4 17.6 4.2" />
+        <path d="M6.6 19.7 17.4 19.5" />
+        <path d="M7.6 4.6 C7.4 8.4 10.2 10.4 11.9 12 13.6 13.6 16.4 15.4 16.2 19.4" />
+        <path d="M16.3 4.5 C16.6 8.3 13.8 10.3 12.1 12 10.4 13.7 7.6 15.5 7.8 19.5" />
+        {/* The sand: a little left in the top cup, a heap already in the bottom one. */}
+        <path d="M10.2 8.6 13.9 8.5" strokeWidth="1.2" opacity="0.7" />
+        <path d="M9.4 18.2 C10.2 16.4 13.8 16.4 14.6 18.2" strokeWidth="1.2" opacity="0.7" />
+        <path d="M17.6 4.2 19 4" strokeWidth="1.1" opacity="0.55" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * Orders: a folded sheet with a seal on it, for the Right Hand's standing orders (§C2b).
+ *
+ * The third tab on the Monitor. A sealed letter is the one shape that reads as "instructions
+ * left behind" at fourteen pixels: it is neither a person nor a place, which the other two marks
+ * on this strip both are, and that difference is the point of the tab.
+ */
+export function OrdersMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <g {...PEN} strokeWidth="1.6">
+        <path d="M4.3 6.2 19.6 5.9 19.8 18.4 4.6 18.6 Z" />
+        <path d="M4.5 6.4 12 12.6 19.5 6.1" />
+        {/* The seal, a little off centre, the way wax lands. */}
+        <path d="M13.6 14.2 C13.2 12.9 14.6 12.1 15.5 12.9 16.4 13.7 15.7 15.2 14.6 15 13.9 14.9 13.7 14.6 13.6 14.2 Z" />
+        {/* The pen runs on past the corner, once. */}
+        <path d="M19.6 5.9 21 5.6" strokeWidth="1.1" opacity="0.55" />
+      </g>
+    </svg>
+  );
+}
+
+/**
  * A hand-ruled strip showing how one sheet's people are split across the four places.
  *
  * The one piece of this page that is a *picture of the data* rather than a label on it, and the

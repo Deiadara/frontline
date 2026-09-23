@@ -218,7 +218,8 @@ for (let run = 0; run < 500; run += 1) {
     locationName: 'the yard',
     attacking,
     defending,
-    attackerPerimeter: { road_reavers: 3 },
+    // Only the defender may set a ring (2026-09-23), so the ledger check runs it on that side.
+    defenderPerimeter: { road_reavers: 3 },
   });
   const loser = outcome.winner === 'attacker' ? total(defending) : total(attacking);
   if (total(outcome.fled) + total(outcome.killed) !== loser) mismatches += 1;

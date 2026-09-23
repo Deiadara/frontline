@@ -1,4 +1,5 @@
 import { GAME_TIMEZONE, type SkirmishEngine } from '@frontline/shared';
+import { settleAutomations } from '../automations/runners.js';
 import { settleBarAuctions } from '../bar/auction.js';
 import { settleVendorAuctions } from '../market/auction.js';
 import { settleBlackMarketLots } from '../blackmarket/shelf.js';
@@ -58,6 +59,8 @@ export function settleWorld(
   now: Date,
   /** Optional: only the world clock brings crews home, so a page load does not pay for it. */
   bringCrewsHome?: (repos: Repositories, now: Date) => void,
+  /** Admin mode: automated parties and their gap run on the five second clock. */
+  admin = false,
 ): number {
   settleFortifications(repos, now);
   const landed = settleMovements(repos, now);
@@ -75,6 +78,15 @@ export function settleWorld(
   const gates = settleCapturedGates(repos, now);
   const fights = settleBattles(repos, engine, now).length;
   bringCrewsHome?.(repos, now);
+  /*
+   * The Right Hand's standing orders, immediately after the crews walk in.
+   *
+   * Order matters: a party that arrived on this very tick starts its slot's cooldown on this tick
+   * rather than a second later, and a slot whose run has just resolved is free to be asked again
+   * on the next one. Only the world clock passes `bringCrewsHome`, so a page load does not send
+   * anybody out: an automation is a thing the world does, not a thing a reader triggers.
+   */
+  if (bringCrewsHome) settleAutomations(repos, now, admin);
   settleScouting(repos, now);
   // Spy jobs beside the scouts: a report is a receipt too, and it reads the ground as it stands
   // after the fights above, which is the ground the runners actually arrive at.

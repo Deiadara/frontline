@@ -495,13 +495,27 @@ describe('what the enemy is told afterwards', () => {
     defender: { fled, officer: null },
   });
 
-  it('tells a defender who got somebody out, and nobody who did not', () => {
-    // The shapes `reportReaches` actually reads, so this is the rule and not a paraphrase.
+  it('tells a defender always, and an attacker only when somebody got home', () => {
+    // The shapes `reportReaches` actually reads, so this is the rule and not a paraphrase. A
+    // defender is told whatever happened (maintainer, 2026-09-23): it is their ground. The
+    // silence a ring buys is the attacker's.
     const wipedOut = analysisFor(false, 0) as unknown as Parameters<typeof reportReaches>[1];
     const someGotOut = analysisFor(false, 3) as unknown as Parameters<typeof reportReaches>[1];
 
-    expect(reportReaches('defender', wipedOut), 'a wiped-out defence was told').toBe(false);
+    expect(reportReaches('defender', wipedOut), 'a wiped-out defence was not told').toBe(true);
     expect(reportReaches('defender', someGotOut), 'a defence with runners was not told').toBe(true);
+    const attackerWiped = {
+      winner: 'defender',
+      attacker: { fled: 0, officer: null },
+    } as unknown as Parameters<typeof reportReaches>[1];
+    const attackerRan = {
+      winner: 'defender',
+      attacker: { fled: 2, officer: null },
+    } as unknown as Parameters<typeof reportReaches>[1];
+    expect(reportReaches('attacker', attackerWiped), 'a wiped-out attack was told').toBe(false);
+    expect(reportReaches('attacker', attackerRan), 'an attack with runners was not told').toBe(
+      true,
+    );
   });
 
   /**

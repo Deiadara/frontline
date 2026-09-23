@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cancelWindowMs, cancelWindowOpen } from '../time/cancel.js';
+import { cancelWindowMs, cancelWindowOpen, turnaroundMs } from '../time/cancel.js';
 import { ATTRIBUTE_NAMES, type Attributes } from '../attributes.js';
 import { IsoDateTimeSchema, IdSchema } from '../primitives.js';
 
@@ -129,28 +129,38 @@ export const ScoutingRunSchema = z.object({
 });
 export type ScoutingRun = z.infer<typeof ScoutingRunSchema>;
 
-/** The way out: the leg the send froze, and the only part of the run a recall can undo. */
-function outboundMs(run: Pick<ScoutingRun, 'travelMinutes'>): number {
-  return run.travelMinutes * 60_000;
+/**
+ * The whole run: out, casing the ground, and back (maintainer, 2026-09-22).
+ *
+ * This was the outbound leg alone, on the argument that the walk out is the only part a recall
+ * undoes. That is true of what a recall *does* and wrong about what the window should be a tenth
+ * of: a player is deciding about the evening they have committed, and the evening is
+ * `departedAt` to `returnsAt`.
+ */
+function runTotalMs(run: Pick<ScoutingRun, 'departedAt' | 'returnsAt'>): number {
+  return Math.max(0, Date.parse(run.returnsAt) - Date.parse(run.departedAt));
 }
 
-/** What a recall needs to know: who is out, since when, and how long the walk out is. */
-type RecallableRun = Pick<ScoutingRun, 'departedAt' | 'travelMinutes' | 'recalledAt'>;
+/** What a recall needs to know: who is out, since when, and when they are due back. */
+type RecallableRun = Pick<ScoutingRun, 'departedAt' | 'returnsAt' | 'recalledAt'>;
 
-/** Whether the scout can still be turned round: the first tenth of the way out. */
+/** Whether the scout can still be turned round: the first tenth of the whole run. */
 export function scoutRecallable(run: RecallableRun, now: Date): boolean {
   if (run.recalledAt !== null) return false;
-  return cancelWindowOpen(Date.parse(run.departedAt), outboundMs(run), now.getTime());
+  return cancelWindowOpen(Date.parse(run.departedAt), runTotalMs(run), now.getTime());
 }
 
 export function scoutRecallWindowMs(run: RecallableRun, now: Date): number {
   if (run.recalledAt !== null) return 0;
-  return cancelWindowMs(Date.parse(run.departedAt), outboundMs(run), now.getTime());
+  return cancelWindowMs(Date.parse(run.departedAt), runTotalMs(run), now.getTime());
 }
 
 /** When a scout turned round at `now` is home: as far back as they have come. */
-export function scoutRecalledReturnsAt(run: Pick<ScoutingRun, 'departedAt'>, now: Date): Date {
-  return new Date(now.getTime() + Math.max(0, now.getTime() - Date.parse(run.departedAt)));
+export function scoutRecalledReturnsAt(
+  run: Pick<ScoutingRun, 'departedAt' | 'travelMinutes'>,
+  now: Date,
+): Date {
+  return new Date(now.getTime() + turnaroundMs(run, now));
 }
 
 /** Whether this run is done, against a clock the server owns. */

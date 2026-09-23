@@ -72,6 +72,15 @@ export function UnitPortrait({
           alt=""
           aria-hidden="true"
           className="absolute inset-0 h-full w-full object-cover"
+          /*
+           * Aimed at the top, like every other portrait in the game (maintainer, 2026-09-22).
+           *
+           * This was a centred cover crop, which takes its first bite out of the top of the head:
+           * the deliveries are 3:4 with the face in the upper half, so a squarer box cut the
+           * crown off every unit on the roster. `0%` is the highest aim there is; what it cannot
+           * do is add headroom the painting does not have.
+           */
+          style={{ objectPosition: '50% 0%' }}
           data-testid={`unit-art-${unitId}`}
         />
       )}

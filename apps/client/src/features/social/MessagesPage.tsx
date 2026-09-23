@@ -17,6 +17,8 @@ import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import {
   useDeleteMessage,
+  useLeaderboard,
+  useMe,
   useMessages,
   useReadAllMessages,
   useReadMessage,
@@ -26,13 +28,14 @@ import { LoadFailure } from '../../components/ui/LoadFailure';
 import { PageShell } from '../game/PageShell';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
+import { RecipientPicker } from './RecipientPicker';
 
 /**
  * The mailbox (maintainer request).
  *
  * The shape every game with one uses, because players arrive already knowing it: two folders, a
  * list of rows with unread in bold, a reading pane, reply and delete, and a compose form that can
- * address one player or the whole faction.
+ * address a few players picked by name (`RecipientPicker`) or the whole faction.
  *
  * ## Read on open
  *
@@ -78,6 +81,10 @@ type Opened = { folder: 'inbox'; message: Message } | { folder: 'sent'; message:
 export function MessagesPage() {
   const query = useMessages();
   const send = useSendMessage();
+  // The names the composer can offer: the whole standings board, and the writer's own name to
+  // leave out of it.
+  const standings = useLeaderboard('players', false);
+  const me = useMe();
   const read = useReadMessage();
   const readAll = useReadAllMessages();
   const remove = useDeleteMessage();
@@ -96,7 +103,7 @@ export function MessagesPage() {
    */
   const [binning, setBinning] = useState<{ id: string; factionName: string } | null>(null);
   const [composing, setComposing] = useState(false);
-  const [to, setTo] = useState('');
+  const [recipients, setRecipients] = useState<string[]>([]);
   const [toFaction, setToFaction] = useState(false);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -117,7 +124,7 @@ export function MessagesPage() {
   const addressed = params.get('to');
   useEffect(() => {
     if (addressed === null || addressed === '') return;
-    setTo(addressed);
+    setRecipients([addressed]);
     setToFaction(false);
     setComposing(true);
     const next = new URLSearchParams(params);
@@ -141,7 +148,11 @@ export function MessagesPage() {
     );
   }
 
-  const error = send.error ?? read.error ?? remove.error ?? null;
+  /*
+   * A refused send is said inside the composer, where the reader is looking; the page behind it
+   * only carries what the page did (reading, throwing away).
+   */
+  const error = read.error ?? remove.error ?? null;
 
   /** Opens a message and marks it read in the same gesture, which is what a mailbox does. */
   const openMessage = (message: Message) => {
@@ -150,7 +161,7 @@ export function MessagesPage() {
   };
 
   const startReply = (message: Message) => {
-    setTo(message.senderName);
+    setRecipients([message.senderName]);
     setToFaction(false);
     setSubject(replySubject(message.subject));
     setBody(quoted(message));
@@ -295,22 +306,25 @@ export function MessagesPage() {
                       data-testid={`sent-${message.threadId}`}
                       className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-700/40"
                     >
-                      <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="truncate font-body text-[14px] leading-tight text-ink-200">
+                      {/* A step bolder and bigger than the inbox's small print (maintainer
+                          request, 2026-09-23): the recipient and the read count are what a sent
+                          row is *for*, and at 10px in ink-400 they were a footnote to the subject. */}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="truncate font-stamp text-[15px] leading-tight text-ink-100">
                           {message.subject}
                         </span>
-                        <span className="truncate font-body text-[11px] leading-tight text-ink-400">
+                        <span className="truncate font-body text-[13px] font-semibold leading-tight text-ink-200">
                           to {message.addressedTo}
                           {message.audience === 'faction' && ' (the faction)'}
                         </span>
                       </span>
                       <span className="flex shrink-0 flex-col items-end gap-0.5">
-                        <span className="font-display text-[10px] tabular-nums text-ink-400">
+                        <span className="font-display text-[12px] font-bold tabular-nums text-ink-200">
                           {message.readBy}/{message.recipients} read
                         </span>
                         {/* The same stamp the inbox draws, in the same place. It was on the payload
                             and missing here, so one folder was dated and the other was not. */}
-                        <span className="font-display text-[10px] tabular-nums text-ink-400">
+                        <span className="font-display text-[11px] font-bold tabular-nums text-ink-300">
                           {stamp(message.sentAt, zone)}
                         </span>
                       </span>
@@ -412,17 +426,17 @@ export function MessagesPage() {
             )}
 
             {!toFaction && (
-              <label className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1">
                 <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-400">
                   To
                 </span>
-                <input
-                  value={to}
-                  onChange={(event) => setTo(event.target.value)}
-                  data-testid="compose-to"
-                  className="rounded-sm border border-surface-500 bg-surface-900 px-2.5 py-2 font-body text-[14px] text-ink-100"
+                <RecipientPicker
+                  entries={standings.data?.board === 'players' ? standings.data.entries : []}
+                  exclude={me.data?.user.username ?? null}
+                  chosen={recipients}
+                  onChange={setRecipients}
                 />
-              </label>
+              </div>
             )}
 
             <label className="flex flex-col gap-1">
@@ -452,26 +466,36 @@ export function MessagesPage() {
               />
             </label>
 
+            {send.error && (
+              <p
+                role="alert"
+                data-testid="compose-error"
+                className="font-body text-[13px] text-oxblood-300"
+              >
+                {refusalText(send.error.message)}
+              </p>
+            )}
+
             <div className="flex gap-2">
               <Button
                 disabled={
                   send.isPending ||
                   subject.trim().length === 0 ||
                   body.trim().length === 0 ||
-                  (!toFaction && to.trim().length === 0)
+                  (!toFaction && recipients.length === 0)
                 }
                 data-testid="send-message"
                 onClick={() =>
                   send.mutate(
                     {
-                      toUsername: toFaction ? null : to.trim(),
+                      toUsernames: toFaction ? null : recipients,
                       subject: subject.trim(),
                       body: body.trim(),
                     },
                     {
                       onSuccess: () => {
                         setComposing(false);
-                        setTo('');
+                        setRecipients([]);
                         setSubject('');
                         setBody('');
                         setToFaction(false);

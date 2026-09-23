@@ -21,6 +21,7 @@ const returned = (id: string, startedAt: string, resolvedAt: string): Mission =>
   travelMinutes: 5,
   durationMinutes: 3,
   officerId: null,
+  battleTier: null,
   overseerLed: false,
   lost: {},
   reported: true,

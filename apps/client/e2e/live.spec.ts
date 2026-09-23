@@ -145,6 +145,36 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
 
   // --- STEP 3: city map, with the hostile rival marker on Ashen Terraces ---
   await page.waitForURL('**/game');
+
+  /*
+   * The opening tutorial, walked rather than dodged (maintainer, 2026-09-22).
+   *
+   * This runs against the real backend, so the seeded operator is a genuinely new account and the
+   * six cards are exactly what a new account sees. The first three land on this screen, and they
+   * are a modal: its backdrop covers the whole viewport and intercepts pointer events, which is
+   * how this test found them, by timing out for six minutes trying to click the District door
+   * underneath one.
+   *
+   * Skipped rather than marked seen in the fixture, because the seeded account is the one the
+   * maintainer logs into to *look* at the game: a seed that pre-dismissed the tutorial would mean
+   * nobody could ever see it without registering a second account. Pressing Skip here is also the
+   * only end-to-end proof that the button does what it says against the real route.
+   */
+  const tutorial = page.getByTestId('tutorial-card');
+  /*
+   * Waited for, not merely checked.
+   *
+   * `waitForURL` returns the moment the address changes, and the card cannot draw until `/me`
+   * has answered, so a bare `isVisible()` here is a race this test lost: it read false, walked
+   * on, and then spent six minutes trying to click a nav door through the backdrop that had
+   * appeared in the meantime. The catch is for the run after this one, where the account has
+   * already skipped and no card is ever coming.
+   */
+  await tutorial.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined);
+  if (await tutorial.isVisible().catch(() => false)) {
+    await page.getByTestId('tutorial-skip').click();
+    await expect(tutorial).toHaveCount(0);
+  }
   const hud = page.locator('header'); // the TopHud; scopes the name away from the char-select DOM
   // By the door rather than by the text: below 1560px the HUD shows the face and drops the
   // nameplate, so the name lives in the link's accessible name at every width the game runs at.

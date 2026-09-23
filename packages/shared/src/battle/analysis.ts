@@ -466,28 +466,19 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
 }
 
 /**
- * Whether this side is told what happened.
+ * Whether this side is told what happened (maintainer, 2026-09-23).
  *
- * The winner always is. The loser is only if somebody got home to tell them, which is the entire
- * reason a perimeter is worth the units it costs.
+ * A defender always is: it is their ground, their gate or their district, and they can see what
+ * came at it whether or not anybody of theirs is left standing. An attacker is told if they won,
+ * or if at least one of their units got home past the ring; nobody home, no report, which is the
+ * entire reason a ring is worth the units it costs. The officer counts for nothing here either
+ * way: a report is written by whoever walked back, not by the one on the stretcher.
  */
 export function reportReaches(side: BattleSide, analysis: BattleAnalysis): boolean {
-  /*
-   * §D4: an officer who came home injured writes nothing.
-   *
-   * The board's words: the same as if he died. Checked before the winner's clause, because it has
-   * to beat it: a crew that took the ground and carried their officer off it still has nobody who
-   * can tell them how. Sending an officer is therefore a real gamble rather than free upside, and
-   * that is the whole point of the rule.
-   */
-  if (analysis[side].officer?.injured === true) return false;
+  if (side === 'defender') return true;
   if (side === analysis.winner) return true;
   return analysis[side].fled > 0;
 }
-
-/** The line shown in place of a report the officer was in no state to write. */
-export const INJURED_OFFICER_LINE =
-  'The one who would have written this came back on a stretcher. Nobody else was keeping notes.';
 
 /** The line shown in place of a report nobody came back from. */
 export const NO_REPORT_LINE = 'Nobody came back. Whatever happened out there, it stayed out there.';

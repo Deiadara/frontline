@@ -1,4 +1,5 @@
 import {
+  type PartialResources,
   MAX_NOTORIETY,
   ITEM_CATALOG,
   TRAP_CATALOG,
@@ -123,10 +124,15 @@ function seedBase(repos: Repositories, over: Partial<Base> = {}): Base {
      *
      * Every modification now names a chair and a mark (`building/requirements.ts`), and an empty
      * chair is a refusal. This file is about the yard's own gates, the documents and the bills, so
-     * the officer gate is satisfied for every role once here rather than fought with in nineteen
+     * the officer gate is satisfied for every role once here rather than fought with in eighteen
      * tests. The tests that are *about* the new gates seat nobody and say so.
+     *
+     * **Except the Fabricator** (maintainer, 2026-09-22). That chair now takes up to 30% off
+     * every bill on this bench (`yardCostCutPercent`), and it gates no card at all, so seating
+     * one by default would quietly move every price this file pins without buying a single gate
+     * in return. The chair is left empty here and filled by the one test that is about it.
      */
-    commanders: OFFICER_ROLES.map((role, index) =>
+    commanders: OFFICER_ROLES.filter((role) => role !== 'fabricator').map((role, index) =>
       createCommander(`off-${index}`, `Officer ${index}`, role, makeAttributes(90)),
     ),
     createdAt: NOW.toISOString(),
@@ -798,6 +804,130 @@ describe('the Scrapyard charges the parts a card is authored with', () => {
       const key = item as keyof typeof after.inventory;
       const spent = (held[item] ?? 0) - (after.inventory[key] ?? 0);
       expect(spent, `${item} was not spent`).toBe(count);
+    }
+  });
+});
+
+/**
+ * What the Fabricator takes off the yard's bill (maintainer, 2026-09-22).
+ *
+ * Their sheet used to reach nothing outside their own research track. The chair gates no card on
+ * this bench: it is named as `OFFICER_FOR_UNIT_FALLBACK`, and every one of the unit cards already
+ * has a louder stat, so the fallback never fires and the chair opens nothing. Nothing else in the
+ * game read the sheet either. A chair whose only effect is to unlock its own reading list is a
+ * chair nobody has a reason to fill well.
+ *
+ * It buys price now, on the curve and ceiling each research chair already uses on its own track,
+ * and off the **lifted** sheet, so teaching perks and the Lab count here as they do there.
+ */
+describe('the Fabricator cuts what the yard charges', () => {
+  /** A yard at level 6 holding every document, so only the chair can move a price. */
+  const yardAt = (level: number): Partial<Base> => ({
+    resources: RICH,
+    buildings: [build('nexus', 20), build('scrapyard', level), build('gauntlet', 20)],
+    inventory: Object.fromEntries(
+      [
+        ...MODIFICATIONS.map(blueprintForModification),
+        ...UNIT_MODIFICATIONS.map((spec) => blueprintForUnitUpgrade(spec.id)),
+        ...TRAP_CATALOG.map((spec) => blueprintForTrap(spec.id)),
+      ]
+        .filter((document) => document !== undefined)
+        .map((document) => [document.id, 5]),
+    ),
+  });
+
+  /** The same seed with somebody in the chair, at whatever sheet is handed in. */
+  const withFabricator = (repos: Repositories, rating: number, over: Partial<Base> = {}): Base =>
+    seedBase(repos, {
+      ...over,
+      commanders: [
+        ...OFFICER_ROLES.filter((role) => role !== 'fabricator').map((role, index) =>
+          createCommander(`off-${index}`, `Officer ${index}`, role, makeAttributes(90)),
+        ),
+        createCommander('fab', 'The Fabricator', 'fabricator', makeAttributes(rating)),
+      ],
+    });
+
+  const firstCost = (base: Base, repos: Repositories): PartialResources =>
+    projectScrapyard(repos, base).entries[0]!.cost;
+
+  it('charges less with a good one in the chair than with nobody', () => {
+    const empty = openStack();
+    const listed = firstCost(seedBase(empty, yardAt(6)), empty);
+
+    const staffed = openStack();
+    const cut = firstCost(withFabricator(staffed, 100, yardAt(6)), staffed);
+
+    // Cheaper on every line, and not by a rounding error: the ceiling is 30%.
+    for (const key of RESOURCE_KEYS) {
+      const listedLine = listed[key];
+      if (listedLine === undefined) continue;
+      expect(cut[key] ?? 0, key).toBeLessThan(listedLine);
+    }
+    const total = (bill: PartialResources): number =>
+      RESOURCE_KEYS.reduce((sum, key) => sum + (bill[key] ?? 0), 0);
+    expect(total(cut) / total(listed)).toBeLessThan(0.85);
+    expect(total(cut) / total(listed)).toBeGreaterThan(0.6);
+  });
+
+  /**
+   * Points, not the mark band: a better Fabricator is continuously cheaper.
+   *
+   * This is the half that makes the chair worth *improving* rather than merely filling, and it is
+   * the property a mark-shaped gate cannot have.
+   */
+  it('charges a poor one more than a good one, and neither more than the list', () => {
+    const poor = openStack();
+    const weak = firstCost(withFabricator(poor, 20, yardAt(6)), poor);
+    const good = openStack();
+    const strong = firstCost(withFabricator(good, 100, yardAt(6)), good);
+    const empty = openStack();
+    const listed = firstCost(seedBase(empty, yardAt(6)), empty);
+
+    const total = (bill: PartialResources): number =>
+      RESOURCE_KEYS.reduce((sum, key) => sum + (bill[key] ?? 0), 0);
+    expect(total(strong)).toBeLessThan(total(weak));
+    expect(total(weak)).toBeLessThanOrEqual(total(listed));
+  });
+
+  /**
+   * The quote and the charge agree.
+   *
+   * The read path and the write path price separately (`projectScrapyard` and `buildAddon`), and
+   * a page that quotes a discounted bill while the write charges the list price is how a player
+   * is refused for money the screen says they are holding.
+   */
+  it('charges at the till exactly what the page quoted', () => {
+    const repos = openStack();
+    const base = withFabricator(repos, 100, {
+      ...yardAt(6),
+      resources: {
+        caps: 500_000,
+        supplies: 0,
+        oil: 0,
+        scrap: 500_000,
+        highQualityMetal: 500_000,
+        planks: 500_000,
+      },
+    });
+    /*
+     * A basic structure card: the one entry on this bench that needs nothing from the Lab, so
+     * what is being measured is the till and not a research gate.
+     */
+    const basic = MODIFICATIONS.find((one) => !isAdvancedModification(one));
+    if (!basic) throw new Error('fixture: the catalogue has no basic modification');
+    const quoted = projectScrapyard(repos, base).entries.find((one) => one.id === basic.id);
+    expect(quoted?.blocker, `${basic.id} should be open on this bench`).toBeNull();
+    if (!quoted) return;
+
+    const before = base.resources;
+    const built = buildAddon(repos, base, 'modification', basic.id, undefined, basic.building);
+    expect(built.kind, built.kind === 'refused' ? built.reason : '').toBe('built');
+    if (built.kind !== 'built') return;
+    for (const key of RESOURCE_KEYS) {
+      const price = quoted.cost[key];
+      if (price === undefined) continue;
+      expect(before[key] - built.base.resources[key], key).toBe(price);
     }
   });
 });

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   SPY_TIERS,
   SPY_TIER_SPECS,
@@ -48,6 +49,7 @@ export function SpyPanel({
   latest,
   now,
   testId,
+  actions,
 }: {
   target: SpyTarget;
   placeName: string;
@@ -60,6 +62,8 @@ export function SpyPanel({
   latest?: SpyReport | null;
   now: Date;
   testId: string;
+  /** Put beside the send button, on its line. The dialog passes its Close here. */
+  actions?: ReactNode;
 }) {
   const [tier, setTier] = useState<SpyTier>('loose_ears');
   const spy = useSpy(baseId, districtId);
@@ -86,6 +90,7 @@ export function SpyPanel({
           pending={recall.isPending}
           onRecall={() => recall.mutate({})}
           testId={testId}
+          actions={actions}
         />
       ) : quote === null ? (
         <p className="font-body text-xs leading-relaxed text-ink-300">
@@ -106,7 +111,7 @@ export function SpyPanel({
               {spy.error.message}
             </p>
           )}
-          <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="sm"
               disabled={spy.isPending || caps < SPY_TIER_SPECS[tier].caps}
@@ -115,9 +120,22 @@ export function SpyPanel({
             >
               {spy.isPending ? 'Sending…' : `Spy on ${placeName}`}
             </Button>
+            {actions}
           </div>
         </>
       )}
+      {/*
+       * The way out, on the send button's own line when there is one and on a line of its own
+       * when there is not (maintainer, 2026-09-22).
+       *
+       * It used to sit in a row of its own under the whole panel, so the window ended with a
+       * button floating alone under another button. Rendered here rather than by the dialog so
+       * the two are siblings in one flex row; every branch above that draws no send button falls
+       * through to this, which is why the blocked and already-out states still have a Close.
+       */}
+      {blocker !== null || (run === null && quote === null) ? (
+        <div className="flex justify-end">{actions}</div>
+      ) : null}
     </div>
   );
 }
@@ -203,6 +221,7 @@ function RunUnderway({
   pending,
   onRecall,
   testId,
+  actions,
 }: {
   run: SpyRunView;
   now: Date;
@@ -211,6 +230,7 @@ function RunUnderway({
   pending: boolean;
   onRecall: () => void;
   testId: string;
+  actions?: ReactNode;
 }) {
   const left = Math.max(0, Date.parse(run.returnsAt) - now.getTime());
   const turned = run.recalledAt !== null;
@@ -246,15 +266,21 @@ function RunUnderway({
       >
         {left <= 0 ? 'Walking back in' : formatRemaining(left)}
       </p>
-      {spyRecallWindowMs(run, now) > 0 && (
-        <CancelMark
-          windowMs={spyRecallWindowMs(run, now)}
-          label="Turn the runners round"
-          pending={pending}
-          onCancel={onRecall}
-          data-testid={`${testId}-recall`}
-        />
-      )}
+      {/* The way out shares the line with the way back, rather than sitting under it. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {spyRecallWindowMs(run, now) > 0 ? (
+          <CancelMark
+            windowMs={spyRecallWindowMs(run, now)}
+            label="Turn the runners round"
+            pending={pending}
+            onCancel={onRecall}
+            data-testid={`${testId}-recall`}
+          />
+        ) : (
+          <span />
+        )}
+        {actions}
+      </div>
     </div>
   );
 }
@@ -293,7 +319,6 @@ export function SpyDialog({
   target,
   title,
   eyebrow,
-  blurb,
   placeName,
   districtId,
   baseId,
@@ -307,7 +332,6 @@ export function SpyDialog({
   target: SpyTarget;
   title: string;
   eyebrow: string;
-  blurb: string;
   placeName: string;
   districtId: string;
   baseId: string | undefined;
@@ -335,7 +359,6 @@ export function SpyDialog({
             </h2>
           </div>
         </div>
-        <p className="font-body text-[12px] leading-relaxed text-ink-300">{blurb}</p>
         <SpyPanel
           target={target}
           placeName={placeName}
@@ -346,24 +369,24 @@ export function SpyDialog({
           latest={latest ?? null}
           now={now}
           testId={testId}
+          actions={
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+          }
         />
-        <div className="flex justify-end">
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
       </div>
     </Modal>
   );
 }
 
-/** The sheet's one line about spying: what the last look said, or that there was none. */
+/**
+ * The sheet's one line about spying: what the last look said, or nothing at all.
+ *
+ * Nothing, literally, when there is no report (maintainer, 2026-09-22). It used to print "Nobody
+ * of yours has had a look at it. What is standing here is theirs to know until you pay to find
+ * out", which is two sentences to say that a line is absent. The absence says it.
+ */
 export function SpyLine({ latest }: { latest: SpyReport | null }) {
-  if (latest) return <LastReport report={latest} />;
-  return (
-    <p className="font-body text-[12px] leading-relaxed text-ink-300" data-testid="spy-no-report">
-      Nobody of yours has had a look at it. What is standing here is theirs to know until you pay to
-      find out.
-    </p>
-  );
+  return latest ? <LastReport report={latest} /> : null;
 }

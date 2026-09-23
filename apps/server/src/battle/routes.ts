@@ -121,6 +121,7 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   not_a_fighting_force: 'Scavengers carry. They do not fight. Send them on a mission instead',
   needs_infamy: 'They will not take a contract from a name that small',
   no_seats: 'There is no room in what you have loaded. Take another machine or send fewer',
+  ring_is_the_defenders: 'The ring is the defender’s. You chose the ground; they choose the cordon',
   // §D7's price, quoted off the shared constant so the dialog's warning and this refusal cannot
   // name two different numbers.
   cannot_afford: DECLARE_UNAFFORDABLE_MESSAGE,

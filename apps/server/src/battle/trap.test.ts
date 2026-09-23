@@ -798,10 +798,14 @@ describe('§I1: what a trap is worth on the ledger', () => {
     const killed = resolved!.analysis.trap!.killed;
     expect(killed, 'the trap bit nobody, so there is nothing to price').toBeGreaterThan(0);
 
-    // Razors are one unit slot each, and §I1 prices a slot that does not walk off the field at one.
+    // Razors are one unit slot each, and §I1 prices a slot that does not walk off the field at
+    // one. The rest of the column broke and ran, and a rout pays half, floored on the bulk
+    // (maintainer, 2026-09-23), so the defender's ledger is the trap's kills plus that half.
+    const ran = resolved!.analysis.attacker.fled;
+    const expected = killed + Math.floor(ran * 0.5);
     const defenderAfter = stack.app.repos.bases.findById(stack.defender.id)!.economy.infamy;
-    expect(defenderAfter - defenderBefore, 'the trap paid its owner nothing').toBe(killed);
-    expect(resolved!.analysis.defender.infamy).toBe(killed);
+    expect(defenderAfter - defenderBefore, 'the trap paid its owner nothing').toBe(expected);
+    expect(resolved!.analysis.defender.infamy).toBe(expected);
     // ...and the attacker is charged for them on their own side of the report.
     expect(resolved!.analysis.attacker.infamy).toBe(0);
 

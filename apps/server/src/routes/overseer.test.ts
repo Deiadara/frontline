@@ -4,6 +4,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { MVP_PLAYER } from '../seed/constants.js';
+import { seedMvpWorld } from '../seed/index.js';
 import { UNLOCKED_LEVEL } from '../seed/sandbox.js';
 import { chooseOverseer, offeredOverseers } from '../testing/overseer.js';
 
@@ -268,5 +269,108 @@ describe('how many characters the picker says are left', () => {
     // ...and it still agrees with what the screen is actually showing.
     const offered = await offeredOverseers(app, token);
     expect(offered.length).toBeLessThanOrEqual(remaining);
+  });
+});
+
+/**
+ * The opening faction invitation has to be answerable on the day it arrives (bug pass,
+ * 2026-09-22).
+ *
+ * Picking an overseer writes a `faction_invites` row for the seeded faction and tells the player
+ * about it. For one build the telling was a bell entry alone, pointing at `/game/faction`, and
+ * that screen is behind `AREA_REQUIREMENTS.faction`, which is **level 10**. The invitation
+ * arrives at level one. So the first notification a new account ever received was a door it could
+ * not open, for an offer it had no way to answer, while `FoundFaction`'s own copy told the player
+ * the invitation would be "in your messages, with a button on it".
+ *
+ * What makes an invitation answerable is the message carrying `inviteId` and `factionId`: that is
+ * what `InviteCard` draws an Accept button from, in the ungated mailbox. These pin the delivery
+ * and then spend it, because a button that posts an id the answer route rejects is the same bug
+ * one layer down.
+ */
+describe('the invitation a new crew is given', () => {
+  /**
+   * A seeded world, which is the only state where the invitation exists at all.
+   *
+   * `makeApp` builds the routes over a bare migrated database; the faction a new crew is invited
+   * to is written by `seedMvpWorld`, which the real server runs at boot in `index.ts`. Without it
+   * `seededFactionId` is undefined and the whole branch is skipped, so a test on the bare harness
+   * would pass by never reaching the code it is about.
+   */
+  async function seededApp(): Promise<FastifyInstance> {
+    const { app, db } = await makeApp();
+    await seedMvpWorld({ db, repos: app.repos });
+    return app;
+  }
+
+  it('arrives in the mailbox carrying the invitation, not just a bell', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'newcomer', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/api/messages',
+      headers: auth(token),
+    });
+    expect(inbox.statusCode, inbox.body.slice(0, 200)).toBe(200);
+    /*
+     * `invite` is a nested object on the wire, not a flat `inviteId`.
+     *
+     * Worth the comment because the first version of this test read `message.inviteId !== null`,
+     * which is `undefined !== null` on every message in the mailbox, so `find` returned the first
+     * thing it saw and the test passed without the feature existing.
+     */
+    const { inbox: mail } = inbox.json<{
+      inbox: { invite: { inviteId: string; factionId: string } | null; subject: string }[];
+    }>();
+    const invitation = mail.find((message) => message.invite != null);
+    expect(
+      invitation?.invite?.inviteId,
+      'the opening invitation should be a message carrying an invite',
+    ).toBeTruthy();
+
+    // And the bell points at the screen that can answer it, not at one that is still locked.
+    const bell = await app.inject({
+      method: 'GET',
+      url: '/api/notifications',
+      headers: auth(token),
+    });
+    const entries = bell.json<{ notifications: { kind: string; link: string | null }[] }>()
+      .notifications;
+    const rung = entries.find((entry) => entry.kind === 'faction_invite');
+    expect(rung?.link).toBe('/game/messages');
+    // The positive control for the whole test: the screen it used to point at is *still* gated,
+    // so this is not passing because somebody opened the faction door to level one.
+    expect(rung?.link).not.toBe('/game/faction');
+  });
+
+  it('can actually be accepted by a level-one crew', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'joiner', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+
+    const inbox = await app.inject({ method: 'GET', url: '/api/messages', headers: auth(token) });
+    const mail = inbox.json<{ inbox: { invite: { inviteId: string } | null }[] }>().inbox;
+    const inviteId = mail.find((message) => message.invite != null)?.invite?.inviteId;
+    if (!inviteId) throw new Error('no invitation arrived');
+
+    const answered = await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(token),
+      payload: { inviteId, accept: true },
+    });
+    expect(answered.statusCode, answered.body.slice(0, 200)).toBe(200);
   });
 });

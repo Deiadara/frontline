@@ -970,6 +970,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'The Open Door',
       blurb: 'An hour a day when anybody can say anything.',
       bonus: { kind: 'unit_morale', flat: 3 },
+      unlocks: "the Right Hand's standing orders: one automated party while you are away",
     },
     {
       name: 'Second-in-Command',
@@ -980,6 +981,7 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Loyalty Bonuses',
       blurb: 'Paid for staying, not for arriving.',
       bonus: { kind: 'wage_discount', percent: 8 },
+      unlocks: 'naming a size for a standing order and letting the Right Hand pick the party',
     },
     {
       /* ...and the second half: the same crew, out on the same job, with nothing docked for it. */
@@ -987,27 +989,32 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'They Have Done It Before',
       blurb: 'The fourth time nobody has to be told anything.',
       bonus: { kind: 'recruit_pool', percent: 10 },
-      unlocks: 'unled runs at full odds',
+      unlocks:
+        'unled runs at full odds, and a five minute gap between automated parties, down from fifteen',
     },
     {
       name: 'The Word Goes Round',
       blurb: 'Nobody has to be told twice, and nobody hears it wrong.',
       bonus: { kind: 'cohesion', percent: 10 },
+      unlocks: 'a second standing order, so two parties can be out at once',
     },
     {
       name: 'Field Promotions',
       blurb: 'The good ones move up on the day, not at the quarter.',
       bonus: { kind: 'officer_attribute', attribute: 'leadership', flat: 4 },
+      unlocks: 'chasing one resource: a standing order takes the best return per minute in it',
     },
     {
       name: 'Succession Planning',
       blurb: 'Two deep in every chair, including yours.',
       bonus: { kind: 'recruit_slots', flat: 1 },
+      unlocks: 'battle jobs off the board for a standing order, never a fight on a location',
     },
     {
       name: 'The House Holds',
       blurb: 'You could be gone a month and find it exactly as you left it.',
       bonus: { kind: 'whole_district', percent: 15 },
+      unlocks: 'a standing order that takes both: a mission, then a fight, then a mission',
     },
   ]),
 

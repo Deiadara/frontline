@@ -57,11 +57,11 @@ describe('the force waiting at a battle job', () => {
   });
 
   it('is the same force twice from the same seed, and a different one from another', () => {
-    expect(enemyForce('fight', 3, 'seed-a')).toEqual(enemyForce('fight', 3, 'seed-a'));
-    expect(enemyForce('fight', 3, 'seed-a')).not.toEqual(enemyForce('fight', 3, 'seed-b'));
+    expect(enemyForce('fight_3', 3, 'seed-a')).toEqual(enemyForce('fight_3', 3, 'seed-a'));
+    expect(enemyForce('fight_3', 3, 'seed-a')).not.toEqual(enemyForce('fight_3', 3, 'seed-b'));
     // ...and the level moves it, which is what makes the same job harder as a crew grows.
-    expect(fieldStrength(enemyForce('fight', 20, 'seed-a'))).toBeGreaterThan(
-      fieldStrength(enemyForce('fight', 1, 'seed-a')),
+    expect(fieldStrength(enemyForce('fight_3', 20, 'seed-a'))).toBeGreaterThan(
+      fieldStrength(enemyForce('fight_3', 1, 'seed-a')),
     );
   });
 
@@ -78,18 +78,19 @@ describe('the force waiting at a battle job', () => {
 
   it('mixes differently from job to job rather than dealing one order of battle', () => {
     const drawn = new Set(
-      Array.from({ length: 30 }, (_, seed) => JSON.stringify(enemyForce('siege', 1, `s${seed}`))),
+      Array.from({ length: 30 }, (_, seed) => JSON.stringify(enemyForce('fight_5', 1, `s${seed}`))),
     );
     expect(drawn.size, 'the roll is not moving the composition').toBeGreaterThan(5);
     expect(ENEMY_MIX_VARIANCE).toBeGreaterThan(0);
   });
 
-  it('gets heavier from a skirmish to a siege', () => {
+  it('gets heavier every rung, from Fight I to the Siege', () => {
     const weights = BATTLE_TIERS.map((tier: BattleTier) =>
       fieldStrength(enemyForce(tier, 1, 'ladder')),
     );
-    expect(weights[0]).toBeLessThan(weights[1] as number);
-    expect(weights[1]).toBeLessThan(weights[2] as number);
+    for (let index = 1; index < weights.length; index += 1) {
+      expect(weights[index - 1], BATTLE_TIERS[index]).toBeLessThan(weights[index] as number);
+    }
   });
 });
 
@@ -103,7 +104,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Foundry Raid',
       force: bigCrew,
       vehicles: {},
-      tier: 'skirmish',
+      tier: 'fight_1',
       level: 1,
       anyRide: false,
     });
@@ -116,7 +117,7 @@ describe('a crew in a battle job', () => {
   /**
    * §D7: the job pays a name for the enemy's dead, so the fight has to say who they were.
    *
-   * The crew fields nothing the skirmish roster does (`ENEMY_TIER_ROSTERS.skirmish` is Razors and
+   * The crew fields nothing the Fight I roster does (`ENEMY_TIER_ROSTERS.fight_1` is Razors and
    * Scrapers; this crew is all Wardens), so the two casualty lists cannot share a unit id and the
    * engine's two lists cannot be confused for one another: a `killed` that named a Warden would
    * be our own dead under the wrong heading. Bounded by who was waiting, per unit, because a list
@@ -124,13 +125,13 @@ describe('a crew in a battle job', () => {
    */
   it('names the enemy dead, and never more of them than were waiting', () => {
     const wardens: Army = { wardens: 30 };
-    for (const draw of ENEMY_TIER_ROSTERS.skirmish) expect(draw.unitId).not.toBe('wardens');
+    for (const draw of ENEMY_TIER_ROSTERS.fight_1) expect(draw.unitId).not.toBe('wardens');
     const fought = fightMissionBattle({
       seed: 7,
       jobName: 'Foundry Raid',
       force: wardens,
       vehicles: {},
-      tier: 'skirmish',
+      tier: 'fight_1',
       level: 1,
       anyRide: false,
     });
@@ -148,7 +149,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force: { razors: 4 },
       vehicles: {},
-      tier: 'siege',
+      tier: 'fight_5',
       level: 1,
       anyRide: false,
     });
@@ -171,7 +172,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Convoy Ambush',
       force,
       vehicles: {},
-      tier: 'skirmish' as const,
+      tier: 'fight_1' as const,
       level: 1,
       anyRide: false,
     };
@@ -210,7 +211,7 @@ describe('a crew in a battle job', () => {
         jobName: 'Convoy Ambush',
         force,
         vehicles: {},
-        tier: 'skirmish' as const,
+        tier: 'fight_1' as const,
         level: 1,
         anyRide: false,
       };
@@ -233,7 +234,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Convoy Ambush',
       force: bigCrew,
       vehicles: {},
-      tier: 'fight' as const,
+      tier: 'fight_3' as const,
       level: 2,
       anyRide: false,
     };
@@ -256,7 +257,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force,
       vehicles: {},
-      tier: 'siege',
+      tier: 'fight_5',
       level: 1,
       anyRide: false,
     });
@@ -270,7 +271,7 @@ describe('a crew in a battle job', () => {
       locationName: 'Refinery Assault',
       battlefield: bareBattlefield('Refinery Assault'),
       attacking: force,
-      defending: enemyForce('siege', 1, String(seed)),
+      defending: enemyForce('fight_5', 1, String(seed)),
       defenderPerimeter: { razors: 40 },
     });
     expect(total(ringed.fled)).toBeLessThan(total(fought.home));
@@ -314,7 +315,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force: doomedCrew,
       vehicles: { motorcycle: 2 },
-      tier: 'siege',
+      tier: 'fight_5',
       level: 1,
       anyRide: false,
     });

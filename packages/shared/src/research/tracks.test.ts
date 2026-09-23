@@ -403,7 +403,11 @@ describe('the two rungs that open an unled run (maintainer, 2026-09-10)', () => 
     expect(penalised.payout.unlocks).toBe(
       'sending a crew out with nobody leading it, at a cost to the odds',
     );
-    expect(free.payout.unlocks).toBe('unled runs at full odds');
+    // Extended on 2026-09-22: the same rung also shortens the Right Hand's automation gap, and a
+    // rung's unlock line is one string, so the two are said together.
+    expect(free.payout.unlocks).toBe(
+      'unled runs at full odds, and a five minute gap between automated parties, down from fifteen',
+    );
   });
 
   it('is what `unledRule` reads, in the order the track climbs', () => {

@@ -17,6 +17,7 @@ import {
   type Base,
   type MarketResponse,
   type MeResponse,
+  REIMAGINING_COMPLETE_XP,
   dismissalFee,
   findUnit,
   trainingCost,
@@ -1257,21 +1258,21 @@ export async function installApi(
     if (pathname.endsWith('/api/blueprints/reimagine')) {
       const { pages } = route.request().postDataJSON() as { pages: string[] };
       const bag: Record<string, number> = { ...(board.inventory as Record<string, number>) };
-      const gained = unseenPages(board.inventory)[0];
-      if (gained === undefined) {
-        return json(
-          { error: { code: 'REIMAGINING_REFUSED', message: 'nothing_left_to_find' } },
-          409,
-        );
-      }
+      const gained = unseenPages(board.inventory)[0] ?? null;
       for (const pageId of pages) {
         const left = (bag[pageId] ?? 0) - 1;
         if (left > 0) bag[pageId] = left;
         else delete bag[pageId];
       }
-      bag[gained] = (bag[gained] ?? 0) + 1;
+      // A finished collection pays experience rather than a page, the way the route does.
+      if (gained !== null) bag[gained] = (bag[gained] ?? 0) + 1;
       board.inventory = bag;
-      return json({ market: board, spent: pages, gained });
+      return json({
+        market: board,
+        spent: pages,
+        gained,
+        xp: gained === null ? REIMAGINING_COMPLETE_XP : 0,
+      });
     }
     /*
      * The Broker's supply run moves the stockpile: caps out, the resource in. Moved on the

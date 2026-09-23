@@ -21,9 +21,9 @@ import {
  *   read off (`missions.leading.ts`), so a force that came out 40% under it would make the band a
  *   lie. The composition behind the figure is the job's secret; the weight is not.
  *
- * What is *not* here is a difficulty knob. A siege is a siege at level 1 and at level 40; what
- * changes with the crew's level is the figure `enemyStrength` returns, which is the same curve the
- * odds already scale on.
+ * What is *not* here is a difficulty knob. A Fight V is a Fight V at level 1 and at level 40;
+ * what changes with the crew's level is the figure `enemyStrength` returns, which is the same
+ * curve the odds already scale on, and which tier the board deals (`dealBattleTier`).
  */
 
 /** One line of a tier's order of battle: who, and what share of the tier's strength they are. */
@@ -36,27 +36,49 @@ export interface EnemyDraw {
 /**
  * What each tier fields.
  *
- * A skirmish is the street: razors and scrapers, people with a pipe and a grudge. A fight puts
- * Combine muscle behind them, ash walkers who do not stop and a warden squad holding the middle.
- * A siege is what the Combine sends when it means it, and it is mostly armour: wardens, breakers,
- * a sniper on something high, and juggernauts.
+ * Six rungs from the street to the Combine's armour (maintainer, 2026-09-23). Each roster is
+ * annotated inline; the odd rungs are the three the ladder had, the even ones sit between them,
+ * and the Siege is the top rung with more of the heaviest sheet on it.
  */
 export const ENEMY_TIER_ROSTERS: Readonly<Record<BattleTier, readonly EnemyDraw[]>> = {
-  skirmish: [
+  // Fight I is the street: razors and scrapers, people with a pipe and a grudge.
+  fight_1: [
     { unitId: 'razors', share: 0.65 },
     { unitId: 'scrapers', share: 0.35 },
   ],
-  fight: [
+  // Fight II: the street with ash walkers behind it, who do not stop.
+  fight_2: [
+    { unitId: 'razors', share: 0.45 },
+    { unitId: 'scrapers', share: 0.25 },
+    { unitId: 'ash_walkers', share: 0.3 },
+  ],
+  // Fight III puts Combine muscle in the middle: a warden squad holding the line.
+  fight_3: [
     { unitId: 'razors', share: 0.35 },
     { unitId: 'scrapers', share: 0.15 },
     { unitId: 'ash_walkers', share: 0.2 },
     { unitId: 'wardens', share: 0.3 },
   ],
-  siege: [
+  // Fight IV: wardens with breakers and a sniper on something high, and no street left.
+  fight_4: [
+    { unitId: 'wardens', share: 0.35 },
+    { unitId: 'ash_walkers', share: 0.2 },
+    { unitId: 'breakers', share: 0.25 },
+    { unitId: 'snipers', share: 0.2 },
+  ],
+  // Fight V is what the Combine sends when it means it, and it is mostly armour.
+  fight_5: [
     { unitId: 'wardens', share: 0.3 },
     { unitId: 'breakers', share: 0.25 },
     { unitId: 'snipers', share: 0.15 },
     { unitId: 'juggernauts', share: 0.3 },
+  ],
+  // The Siege: the armour, and more of the heaviest of it.
+  siege: [
+    { unitId: 'wardens', share: 0.2 },
+    { unitId: 'breakers', share: 0.25 },
+    { unitId: 'snipers', share: 0.15 },
+    { unitId: 'juggernauts', share: 0.4 },
   ],
 };
 

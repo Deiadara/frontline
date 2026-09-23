@@ -85,7 +85,8 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
   const reduced = usePrefersReducedMotion();
   const [slots, setSlots] = useState<readonly (string | null)[]>([null, null, null]);
   const [phase, setPhase] = useState<Phase>('idle');
-  const [gained, setGained] = useState<string | null>(null);
+  /** What last came out of the bench: a page, or the experience a finished collection pays. */
+  const [gained, setGained] = useState<{ page: string } | { xp: number } | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -137,7 +138,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
         spun,
       ]);
       if (!alive.current) return;
-      setGained(answer.gained);
+      setGained(answer.gained === null ? { xp: answer.xp } : { page: answer.gained });
       setSlots([null, null, null]);
       setPhase('done');
     } catch {
@@ -180,7 +181,7 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
               <Slot index={0} pageId={slots[0] ?? null} running={running} onClear={clear} />
               <Slot index={1} pageId={slots[1] ?? null} running={running} onClear={clear} />
               <Slot index={2} pageId={slots[2] ?? null} running={running} onClear={clear} />
-              <ResultSocket pageId={gained} flashing={phase === 'done'} />
+              <ResultSocket gained={gained} flashing={phase === 'done'} />
               <button
                 type="button"
                 data-testid="reimagine"
@@ -217,7 +218,9 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
                   data-testid="reimagine-report"
                   role="status"
                 >
-                  {nameOf(gained)} came out of the bench.
+                  {'page' in gained
+                    ? `${nameOf(gained.page)} came out of the bench.`
+                    : `${gained.xp.toLocaleString('en-GB')} experience came out of the bench. There is no page left in the game you have not seen.`}
                 </p>
               )}
               {/* A refusal from the server, which is a different thing from the one above: this
@@ -373,26 +376,48 @@ function EmptyWell() {
   );
 }
 
-/** Where the new page lands, at the end of the main feed. */
-function ResultSocket({ pageId, flashing }: { pageId: string | null; flashing: boolean }) {
+/**
+ * Where the new page lands, at the end of the main feed.
+ *
+ * Or the experience, once there is no page left to land: a finished collection pays
+ * `REIMAGINING_COMPLETE_XP` (maintainer, 2026-09-23), and the outfeed shows the figure where the
+ * sheet would have been, in the same flash, so the press still visibly produced something.
+ */
+function ResultSocket({
+  gained,
+  flashing,
+}: {
+  gained: { page: string } | { xp: number } | null;
+  flashing: boolean;
+}) {
+  const filled = gained === null ? 'no' : 'page' in gained ? 'yes' : 'xp';
   return (
     <div
       data-testid="reimagine-result"
-      data-filled={pageId === null ? 'no' : 'yes'}
-      data-page={pageId ?? ''}
+      data-filled={filled}
+      data-page={gained !== null && 'page' in gained ? gained.page : ''}
       className="lab-socket lab-socket-out lab-slot lab-slot-out"
     >
       <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-1">
-        {pageId === null ? (
+        {gained === null ? (
           <span className="lab-socket-empty font-display uppercase tracking-[0.18em]">Out</span>
-        ) : (
+        ) : 'page' in gained ? (
           // Keyed on the page so a second trade runs the flash again rather than sitting on the
           // frame the first one ended at.
           <span
-            key={pageId}
+            key={gained.page}
             className={cn('flex flex-col items-center gap-1', flashing && 'lab-flash')}
           >
-            <PageFace pageId={pageId} where="out" />
+            <PageFace pageId={gained.page} where="out" />
+          </span>
+        ) : (
+          <span className={cn('flex flex-col items-center gap-0.5', flashing && 'lab-flash')}>
+            <span className="font-display text-[1.35em] font-bold leading-none tabular-nums text-brass-100">
+              {gained.xp.toLocaleString('en-GB')}
+            </span>
+            <span className="font-display text-[0.82em] uppercase leading-none tracking-[0.14em] text-brass-300">
+              Experience
+            </span>
           </span>
         )}
       </span>

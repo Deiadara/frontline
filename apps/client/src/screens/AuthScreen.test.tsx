@@ -1,4 +1,5 @@
 import {
+  TUTORIAL_STEPS,
   MVP_DEV_CREDENTIALS,
   RegisterRequestSchema,
   type AuthResponse,
@@ -19,6 +20,8 @@ const USER: User = {
   icon: 'shield',
   timezone: 'Europe/Athens',
   soundVolume: 60,
+  // Seen, so the opening tutorial does not draw over a test about something else.
+  tutorialSeen: [...TUTORIAL_STEPS],
 };
 
 const fetchMock = vi.fn();

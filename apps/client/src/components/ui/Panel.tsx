@@ -45,6 +45,12 @@ interface PanelProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> {
   title?: ReactNode;
   /** Optional element pinned to the right of the header. */
   action?: ReactNode;
+  /**
+   * The drawn line under the heading. On by default; off where the panel's first child has an
+   * edge of its own right under it (maintainer, 2026-09-22: the rule read as a yellow line
+   * sitting behind the Nexus card on the Scrapyard's structures rail).
+   */
+  rule?: boolean;
   /** Which room this panel is in. Defaults to the game's own brass. */
   tone?: PanelTone;
   /**
@@ -69,6 +75,7 @@ export function Panel({
   title,
   action,
   tone = 'brass',
+  rule = true,
   dense = false,
   className,
   children,
@@ -116,13 +123,15 @@ export function Panel({
           </h2>
           {action}
           {/* Hand-drawn, not a border: a heading underlined with a ruler reads as a spreadsheet. */}
-          <span
-            aria-hidden
-            className={cn(
-              'ink-rule absolute -bottom-[2px]',
-              tone === 'paper' ? 'inset-x-3' : 'inset-x-0',
-            )}
-          />
+          {rule && (
+            <span
+              aria-hidden
+              className={cn(
+                'ink-rule absolute -bottom-[2px]',
+                tone === 'paper' ? 'inset-x-3' : 'inset-x-0',
+              )}
+            />
+          )}
         </div>
       )}
       {children}

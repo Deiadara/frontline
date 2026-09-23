@@ -464,14 +464,11 @@ describe('coming home hurt (§D4)', () => {
   });
 
   /*
-   * The fight is **won**, deliberately.
-   *
-   * A loser with nobody home already gets no report (`reportReaches`, the perimeter rule), so
-   * hanging this test on a defeat would have passed with the §D4 clause deleted: the first draft
-   * did exactly that and the mutation went straight through. A winner is the one case where the
-   * injury is the only thing that can withhold it.
+   * The officer counts for nothing towards the report (maintainer, 2026-09-23): a report is
+   * written by whoever walked back, and a winner always has somebody. The injury still lands on
+   * the roster and on the report's officer line; it no longer takes the report with it.
    */
-  it('withholds this side of the report even on a fight it won', async () => {
+  it('lands on the report rather than withholding it, on a fight it won', async () => {
     const stack = await makeStack();
     const officer = hire(stack);
     const engine = officerDown(officer.id, 'attacker');
@@ -487,8 +484,8 @@ describe('coming home hurt (§D4)', () => {
       headers: auth(stack.token),
     });
     const report = res.json<BattlesResponse>().reports[0]!;
-    expect(report.redacted).toBe(true);
-    expect(report.analysis).toBeNull();
+    expect(report.redacted).toBe(false);
+    expect(report.analysis?.attacker.officer?.injured).toBe(true);
   });
 
   it('leaves the report alone when nobody led', async () => {

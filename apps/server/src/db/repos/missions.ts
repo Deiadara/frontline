@@ -6,6 +6,7 @@ import {
   type PartialResources,
 } from '@frontline/shared';
 import { readJson } from '../json.js';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 
 interface MissionRow {
@@ -22,6 +23,7 @@ interface MissionRow {
   recalled_at: string | null;
   page_prize: string | null;
   page_won: string | null;
+  battle_tier: string | null;
   travel_minutes: number;
   duration_minutes: number;
   success_chance: number;
@@ -130,6 +132,7 @@ function rowToStored(row: MissionRow): StoredMission {
       resolvedAt: row.resolved_at,
       pagePrize: row.page_prize as Mission['pagePrize'],
       pageWon: row.page_won,
+      battleTier: (row.battle_tier ?? null) as Mission['battleTier'],
     }),
     seed: row.seed,
     successChance: row.success_chance,
@@ -137,13 +140,21 @@ function rowToStored(row: MissionRow): StoredMission {
 }
 
 export function createMissionsRepo(db: AppDatabase): MissionsRepo {
-  const insertStmt = db.prepare(
-    `INSERT INTO missions
+  /*
+   * Compiled on first use, not at construction. `db.prepare` compiles immediately, and the
+   * migration tests build the repos against a database deliberately stopped part-way up the
+   * chain; this statement names `battle_tier`, which did not exist until 0115, so an eager
+   * prepare threw `no such column` before those tests could assert anything.
+   */
+  let insertHeld: Statement | null = null;
+  const insertStmt = (): Statement =>
+    (insertHeld ??= db.prepare(
+      `INSERT INTO missions
        (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
         priced_minutes, started_at, travel_minutes, duration_minutes, success_chance, seed, status,
-        officer_id, overseer_led, outcome, rewards_json, resolved_at, page_prize)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+        officer_id, overseer_led, outcome, rewards_json, resolved_at, page_prize, battle_tier)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ));
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
   const byIdStmt = db.prepare('SELECT * FROM missions WHERE id = ?');
   /*
@@ -181,7 +192,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
 
   return {
     insert({ mission, seed, successChance }) {
-      insertStmt.run(
+      insertStmt().run(
         mission.id,
         mission.baseId,
         mission.templateId,
@@ -203,6 +214,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         JSON.stringify(mission.rewards),
         mission.resolvedAt,
         mission.pagePrize,
+        mission.battleTier,
       );
     },
     listByBaseId(baseId) {

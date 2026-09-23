@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { CombinePower, TerritoryEffects } from '../city/index.js';
 import type { Army, UnitLoadouts } from '../units/index.js';
 import { analyseBattle, BattleAnalysisSchema } from './analysis.js';
-import { breakOut, type Breakout, type BreakoutSide } from './perimeter.js';
+import { breakOut, perimeterFights, type Breakout, type BreakoutSide } from './perimeter.js';
 import { bareBattlefield, BattlefieldSchema, type Battlefield } from './battlefield.js';
 import {
   officerOutcomeOf,
@@ -61,12 +61,12 @@ export interface SkirmishInput {
   attackerCohesionPercent?: number;
   defenderCohesionPercent?: number;
   /**
-   * The ring each side left outside the fight (`battle/perimeter.ts`).
+   * The ring the defender left outside the fight (`battle/perimeter.ts`).
    *
-   * Never enters the round loop. Only the **winner's** does anything at all, and what it does is cut
-   * down the other side's runners, which is how a crew denies a beaten enemy their report.
+   * Never enters the round loop, and only the defender may have one (maintainer, 2026-09-23). It
+   * does something only when the defender wins: it cuts down the attacker's runners, which is how
+   * a defence denies a beaten attacker their report.
    */
-  attackerPerimeter?: Army;
   defenderPerimeter?: Army;
   /** Names the row this fight belongs to, so the report can be filed against it. */
   battleId?: string;
@@ -313,12 +313,13 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
   };
   const { fled, killed } = routSurvivors(loserSide, routContext, next);
 
-  // The ring, and only the winner's: a beaten side's perimeter walks away without fighting, which
-  // is the maintainer's rule and the whole gamble of setting one. Meeting it is a second battle on the
-  // same ground (`perimeter.ts`), drawn from the rout's stream after the rout itself, so a battle
-  // nobody ringed produces the exact stream it always did.
-  const winnerRing =
-    (simulation.winner === 'attacker' ? input.attackerPerimeter : input.defenderPerimeter) ?? {};
+  // The ring, and only the defender's, and only when the defence held: a beaten defender's
+  // perimeter walks away without fighting, which is the whole gamble of setting one. Meeting it
+  // is a second battle on the same ground (`perimeter.ts`), drawn from the rout's stream after the
+  // rout itself, so a battle nobody ringed produces the exact stream it always did.
+  const winnerRing = perimeterFights('defender', simulation.winner)
+    ? (input.defenderPerimeter ?? {})
+    : {};
   /*
    * The same two books the first fight ran on, so the second one is not fought bare.
    *
@@ -400,7 +401,7 @@ export function outcomeFrom(simulation: Simulation, input: SkirmishInput): Skirm
       fled: gotHome,
       winnerLosses,
       perimeter: {
-        attacker: input.attackerPerimeter ?? {},
+        attacker: {},
         defender: input.defenderPerimeter ?? {},
       },
       perimeterCaught: breakout.caught,

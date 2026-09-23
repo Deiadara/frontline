@@ -70,6 +70,19 @@ export const UserSchema = z.object({
   timezone: z.string().min(1).default(GAME_TIMEZONE),
   /** How loud the interface is for this player. See {@link SoundVolumeSchema}. */
   soundVolume: SoundVolumeSchema.default(DEFAULT_SOUND_VOLUME),
+  /**
+   * Which opening tutorial cards this account has already been shown (`tutorial/steps.ts`).
+   *
+   * On the account rather than in the browser, and rather than on the base, for two reasons. A
+   * tutorial that plays again on a second machine reads as a bug, and a player who starts over
+   * with a new crew has still been told what a district is. Skipping writes every id in here, so
+   * there is no second "skipped" flag to fall out of step with this one.
+   *
+   * A loose `string` array rather than the step enum: a saved account naming a card that a later
+   * build has retired must still load, and the only thing anything does with these is ask whether
+   * a given id is present.
+   */
+  tutorialSeen: z.array(z.string()).default([]),
 });
 export type User = z.infer<typeof UserSchema>;
 

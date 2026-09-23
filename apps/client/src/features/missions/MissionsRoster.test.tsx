@@ -70,7 +70,7 @@ const HAUL: MissionOffer = {
   battleTier: null,
 };
 
-/** And a fight, at the tier a level-1 crew reads as 1,400 of `fieldStrength` (`enemyStrength`). */
+/** And a fight, at the tier a level-1 crew reads as 1,400 of `fieldStrength` (`enemyStrength`): Fight I. */
 const FIGHT: MissionOffer = {
   ...HAUL,
   templateId: 'test-fight',
@@ -78,7 +78,7 @@ const FIGHT: MissionOffer = {
   brief: 'They are on that ground and they intend to stay there.',
   kind: 'battle',
   leanings: ['fight'],
-  battleTier: 'skirmish',
+  battleTier: 'fight_1',
 };
 
 const leader = (
@@ -458,12 +458,12 @@ describe('a battle job', () => {
     take(dialog, 'Razors', 2);
     expect(dial(dialog).figure).toBe('Low chance');
 
-    // Eight Razors is exactly what a skirmish fields at this level, which is the top of the
+    // Eight Razors is exactly what a Fight I fields at this level, which is the top of the
     // middle. Read through the shared function so a stat retune moves the fixture, not the rule.
     take(dialog, 'Razors', 8);
     const expected = battleOdds({
       ours: fieldStrength({ razors: 8 }),
-      theirs: enemyStrength('skirmish', LEVEL),
+      theirs: enemyStrength('fight_1', LEVEL),
       edge: 0,
     });
     expect(dial(dialog).figure).toBe(BATTLE_ODDS_LABELS[expected]);
@@ -480,7 +480,7 @@ describe('a battle job', () => {
     await screen.findByTestId('board-area');
 
     const chips = await screen.findByTestId(`job-chips-${FIGHT.templateId}`);
-    expect(chips).toHaveTextContent('A skirmish');
+    expect(chips).toHaveTextContent('Fight I');
     // The standard job beside it says what it leans on instead.
     expect(screen.getByTestId(`job-chips-${HAUL.templateId}`)).toHaveTextContent('A haul');
   });

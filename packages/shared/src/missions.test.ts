@@ -52,6 +52,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     durationMinutes,
     status: 'active',
     officerId: null,
+    battleTier: null,
     overseerLed: false,
     lost: {},
     reported: true,
@@ -354,15 +355,22 @@ describe('mission phase (§E2)', () => {
    * which is exactly what the note on `canRecall` says it is there to stop.
    */
   /**
-   * The window is the first tenth of the way out (maintainer request, 2026-09-12; `time/cancel.ts`).
+   * The window is the first tenth of the **whole run** (maintainer, 2026-09-22; `time/cancel.ts`).
    *
-   * It was open right up to the gate, which made a job a thing you could abandon at any moment
-   * for nothing. Twenty minutes out is a two-minute window: open at the first second, open a
-   * millisecond before two minutes, shut on the two-minute mark and for the rest of the run.
+   * It was open right up to the gate until 2026-09-12, which made a job a thing you could abandon
+   * at any moment for nothing, and then a tenth of the road out until today. A tenth of the road
+   * out made the window a property of the *shape* of a job rather than its size: on the Anyride
+   * templates, where the travel is a sliver of a run lasting hours, it came to a few seconds.
+   *
+   * This fixture is twenty minutes out, forty-five on site and twenty back: 85 minutes, so the
+   * window is 8.5. Open at the first second, open a millisecond before, shut on the mark.
    */
-  it('offers the recall only in the first tenth of the road out, and says how long is left', () => {
+  it('offers the recall only in the first tenth of the whole run, and says how long is left', () => {
     const start = at(0).getTime();
-    const window = 2 * 60_000;
+    const window = 8.5 * 60_000;
+    // The figure, written out rather than derived, so a change to `missionTimings` shows up here
+    // as a failure rather than as this test quietly agreeing with it.
+    expect(recallWindowMs(mission, at(0))).toBe(window);
     expect(canRecall(mission, at(0))).toBe(true);
     expect(canRecall(mission, new Date(start + window - 1))).toBe(true);
     expect(recallWindowMs(mission, new Date(start + window - 30_000))).toBe(30_000);

@@ -21,6 +21,7 @@ export type EventKind =
   | 'account.password_changed'
   | 'blackmarket.bid'
   | 'blackmarket.taken'
+  | 'automation.saved'
   | 'admin.knobs'
   | 'admin.grant'
   | 'admin.reset'

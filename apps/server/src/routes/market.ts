@@ -37,7 +37,8 @@ import { AppError, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
-import { tallyPageReimagined, tallyPagesIn } from '../feats/tally.js';
+import { awardPlayerXp } from '../progression/award.js';
+import { tallyBenchTrade, tallyPageReimagined, tallyPagesIn } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
 
 /**
@@ -183,6 +184,27 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         if (traded === null) throw new AppError('REIMAGINING_REFUSED', 'not_available');
 
         app.repos.bases.updateHoldings(base.id, base.resources, traded.inventory);
+
+        /*
+         * The end of the collection: three pages in, experience out (maintainer, 2026-09-23).
+         *
+         * A crew holding or having bound every page in the game has nothing the bench can hand
+         * over, and the machine used to refuse. It pays `REIMAGINING_COMPLETE_XP` instead, through
+         * the one funnel that writes player XP, so the district's and the crew's own bonuses apply
+         * to it exactly as they do to a finished mission. Nothing below this runs: there is no page
+         * to count as found, no rarity to tally, and no bell to ring about a page nobody received.
+         */
+        if (traded.gained === null) {
+          const paid = awardPlayerXp(app.repos, base, 'pagesReimagined');
+          tallyBenchTrade(app.repos, base.id, true);
+          return {
+            market: board({ ...paid.base, inventory: traded.inventory }, now),
+            spent: traded.spent,
+            gained: null,
+            xp: paid.award.xpGained,
+          };
+        }
+
         /*
          * The one that came back, counted where it was found.
          *
@@ -206,6 +228,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
          * is a page to it, so the top of the ladder gets a counter of its own.
          */
         tallyPageReimagined(app.repos, base.id, traded.gained);
+        tallyBenchTrade(app.repos, base.id, false);
         // §G3: the one that came back, not the three that went in. The response says the same
         // thing to whoever pressed the button; the bell is for the list they read later.
         tellPagesFound(app.repos, {
@@ -219,6 +242,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           market: board({ ...base, inventory: traded.inventory }, now),
           spent: traded.spent,
           gained: traded.gained,
+          xp: 0,
         };
       })();
     },

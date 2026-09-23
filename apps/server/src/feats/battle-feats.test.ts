@@ -102,13 +102,14 @@ const attackerJams = (jam: number): SkirmishEngine => ({
 });
 
 /** ...and the mirror of it, so the defending half of every hook is driven by a real fight too. */
-const defenderHolds = (winnerLosses: Army = {}): SkirmishEngine => ({
+const defenderHolds = (winnerLosses: Army = {}, perimeterCaught: Army = {}): SkirmishEngine => ({
   resolve: (input) =>
     skirmishOutcome({
       winner: 'defender',
       log: ['turned back at the door'],
       killed: input.attacking,
       winnerLosses,
+      perimeterCaught,
     }),
 });
 
@@ -493,11 +494,21 @@ describe('the trap and the ring', () => {
     expect(counted(world, world.raider.baseId, 'trap_kills')).toBe(0);
   });
 
-  it('counts the runners a ring stopped, for the side that won', async () => {
-    const world = await makeWorld(attackerTakesIt({}, { razors: 3 }));
-    await raid(world, { razors: 20 }, { razors: 8 });
+  it('counts the runners a ring stopped, for the defender that held', async () => {
+    // Only a defender has a ring (maintainer, 2026-09-23), and only a defence that held uses it.
+    const world = await makeWorld(defenderHolds({}, { razors: 3 }));
+    await raid(world, { razors: 8 }, { razors: 20 });
 
-    expect(counted(world, world.raider.baseId, 'runners_caught')).toBe(3);
-    expect(counted(world, world.victim.baseId, 'runners_caught')).toBe(0);
+    expect(counted(world, world.victim.baseId, 'runners_caught')).toBe(3);
+    expect(counted(world, world.raider.baseId, 'runners_caught')).toBe(0);
+  });
+
+  it('counts what the winner made run, home or caught, as routed', async () => {
+    const world = await makeWorld(defenderHolds({}, { razors: 3 }));
+    await raid(world, { razors: 8 }, { razors: 20 });
+    // The stub kills the whole attacking line and reports three caught at the ring: the caught
+    // are routed as well, which is the half-infamy rule's own reading of a rout.
+    expect(counted(world, world.victim.baseId, 'units_routed')).toBe(3);
+    expect(counted(world, world.raider.baseId, 'units_routed')).toBe(0);
   });
 });

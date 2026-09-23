@@ -552,6 +552,21 @@
   }
 
   /**
+   * The same hand-inked box in iris, for a note rather than a control.
+   *
+   * The research screen's "How Reimagining Works" tag is a thing you read, not a thing you press,
+   * and in brass it sat on the quotation line looking like the page's primary action. Iris is
+   * already what an information window is ringed in (`InfoWindow`, `tone="iris"`), so the chip and
+   * the card it opens are now the same colour. The stroke is `iris-300`.
+   */
+  .ink-box-iris {
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 100% 100%;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='56' viewBox='0 0 200 56' preserveAspectRatio='none'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.05' numOctaves='2' seed='13'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='0.9'/%3E%3C/filter%3E%3Cg filter='url(%23b)' fill='none' stroke='%23a99ef0' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3 L197 2.5 L197.5 53 L2.5 53.5 Z' stroke-opacity='0.8' stroke-width='2'/%3E%3Cpath d='M2.5 53.5 L6 51.5 L26 52.5' stroke-opacity='0.5' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E");
+  }
+
+  /**
    * A panel with a frame ruled round it by hand.
    *
    * `border-image`, not a stretched background, and the difference is the whole point.
@@ -921,7 +936,37 @@
    * "spaceship console" and the first thing to go: the art is painted, so the texture over it should
    * be tooth, not a monitor.
    */
-  .grain {
+  /*
+   * ## The tooth goes on a layer of its own (maintainer, 2026-09-22)
+   *
+   * This used to put the noise in the element's own `background-image` and set
+   * `mix-blend-mode: overlay` **on the element**. A blend mode on an element blends the whole of
+   * it, its background, its text, its pictures and every child, with whatever is painted behind
+   * it. Overlay against a dark backdrop is a multiply, so a panel sitting on the game's darkest
+   * ground came out at a fraction of the colour it declared.
+   *
+   * Measured before the change: the overseer's file on the `surface-950` splash rendered at mean
+   * luminance 9.7 against 64.4 with the class taken off, so six and a half times darker than its
+   * own paper; the panels inside a structure's window, over a modal scrim, 19.7 against 72.4. The
+   * maintainer reported both as "still dark" twice, and each time the answer had been to lighten
+   * the *material*, which the blend then ate.
+   *
+   * On `::before` the noise is a sheet laid over the element and only the sheet blends. The
+   * element keeps its own colour, and the 4.5% tooth still falls across the content the way it
+   * did on the full-screen overlays, which is what this is for.
+   *
+   * Every element carrying `grain` is already positioned (`.card-paper` and `.card-paper-lit` set
+   * `position: relative`; the standalone overlays are `absolute inset-0`), so no `position` is
+   * declared here: setting one would fight the `absolute` on those overlays. None of them define
+   * a `::before` of their own, so nothing is being overwritten.
+   */
+  .grain::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    /* Follows the panel's corners, so the tooth does not square off a rounded card. */
+    border-radius: inherit;
     background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/></svg>");
     mix-blend-mode: overlay;
   }
@@ -1509,8 +1554,10 @@
       inset 0 -6px 12px rgb(0 0 0 / 0.35),
       0 0 14px rgb(240 173 76 / 0.28);
   }
-  /* The outfeed, once something is in it: the one fitting on the bench that glows outward. */
-  .lab-socket-out[data-filled='yes'] {
+  /* The outfeed, once something is in it: the one fitting on the bench that glows outward.
+     `xp` is the finished collection's payout, and it glows the same: something came out. */
+  .lab-socket-out[data-filled='yes'],
+  .lab-socket-out[data-filled='xp'] {
     box-shadow:
       inset 0 0 0 3px rgb(240 173 76 / 1),
       inset 0 0 0 4px rgb(0 0 0 / 0.45),

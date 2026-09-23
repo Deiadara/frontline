@@ -116,6 +116,21 @@ const VIEWS = [
 type ViewId = (typeof VIEWS)[number]['id'];
 
 /**
+ * The one rule about traps a player gets wrong, written once.
+ *
+ * `api.battle.ts` offers traps only to a crew that is defending, so without a word on this bench
+ * somebody buys one, goes to set it on a raid, finds an empty list and has nothing to read. It
+ * rides at the top right of the yard's heading row on the traps bench and nowhere else.
+ */
+const TRAPS_NOTE = (
+  <InfoNote label="How traps work">
+    A trap is set on ground you are holding and spent on the fight it catches. You cannot take one
+    with you: a raiding force carries units and boosts, and the bench is for the night somebody
+    comes to you.
+  </InfoNote>
+);
+
+/**
  * The benches that build something, which is every one except the parts bin.
  *
  * `readyOnly` filters entries, and the bin has none: a filter over a list it cannot touch is a
@@ -409,7 +424,22 @@ export function ScrapyardPage() {
   };
 
   return (
-    <PageShell quote="A version of recycling that actually works." wide fills>
+    <PageShell
+      quote="A version of recycling that actually works."
+      /*
+       * The traps rule on the quote's line, at the top right (maintainer, 2026-09-22).
+       *
+       * It sat on a line of its own above the bench, which cost the board a row and put the one
+       * rule players get wrong below the fold on a short viewport. `PageShell`'s `action` is the
+       * far end of the heading row, which is where a reader goes looking for a note.
+       *
+       * Only on this bench: the rule is about traps, and a note about traps hanging over the
+       * structures board is furniture that means nothing there.
+       */
+      {...(view === 'traps' ? { action: TRAPS_NOTE } : {})}
+      wide
+      fills
+    >
       {/*
        * The head of the page: the benches, the filter and the yard's own plate, all on one line.
        * Outside the scroller on purpose, the way the Lab learned the expensive way: a control that
@@ -763,7 +793,9 @@ function ModificationsBench({
        * A dense head, because this panel shares a frame that does not scroll: eleven doors have to
        * stand in whatever the scene leaves, and a full head is most of a door.
        */}
-      <Panel tone="paper" title="Structures" dense className="min-h-0">
+      {/* No rule under the heading: the first door sits hard against it and the drawn line read
+          as a yellow stripe behind the Nexus card (maintainer, 2026-09-22). */}
+      <Panel tone="paper" title="Structures" dense rule={false} className="min-h-0">
         {/*
          * The eleven doors share the whole column (maintainer request, 2026-09-15).
          *
@@ -1402,17 +1434,11 @@ function TrapsBench({
        * defending, so without a word on this bench a player buys one, goes to set it on a raid,
        * and finds an empty list with nothing anywhere to say why.
        */}
-      {/* The note on the right of its own line (maintainer, 2026-09-22), under the bill at the
-          top of the yard: the count of what is held reads from the left like every other line on
-          this bench, and the rule sits at the far end where a reader goes looking for it. */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-        <Withheld heldCount={heldCount} withheldCount={keptBack} bench="traps" />
-        <InfoNote label="How traps work">
-          A trap is set on ground you are holding and spent on the fight it catches. You cannot take
-          one with you: a raiding force carries units and boosts, and the bench is for the night
-          somebody comes to you.
-        </InfoNote>
-      </div>
+      {/* The rule itself now sits at the top right of the page, on the quote's own line
+          (maintainer, 2026-09-22): see `TRAPS_NOTE` and the `action` this page hands its shell.
+          What is left here is the count, which reads from the left like every other line on this
+          bench. */}
+      <Withheld heldCount={heldCount} withheldCount={keptBack} bench="traps" />
       {entries.length === 0 ? (
         <p className="py-6 text-center font-body text-[13px] leading-relaxed text-ink-300">
           Nothing on this bench the yard could cut today. The drawings come off the mission board

@@ -13,6 +13,7 @@ interface UserRow {
   icon: string | null;
   timezone: string | null;
   sound_volume: number | null;
+  tutorial_seen_json: string | null;
 }
 
 /**
@@ -49,6 +50,12 @@ export interface UsersRepo {
   /** Applies a Settings patch. Only the keys present are written. */
   updateProfile(userId: string, patch: ProfilePatch): void;
   setPasswordHash(userId: string, passwordHash: string): void;
+  /**
+   * Records tutorial cards as shown. Additive and idempotent: the set is the union of what is
+   * stored and what is handed in, so two tabs marking the same card cannot lose one of them, and
+   * Skip is just this call with every id.
+   */
+  markTutorialSeen(userId: string, steps: readonly string[]): void;
 }
 
 /**
@@ -58,6 +65,26 @@ export interface UsersRepo {
  * default only fires for a missing key. Handing Zod an explicit `null` would fail the icon and
  * timezone fields instead of falling back to a shield and Athens.
  */
+/**
+ * The tutorial column, as a list of ids, or `undefined` for a row that has never had one.
+ *
+ * `undefined` rather than `[]` on purpose, for the same reason the three fields below it pass
+ * `undefined`: `UserSchema` defaults this to an empty list and a default only fires for a missing
+ * key. Anything stored that is not an array of strings is treated as "seen nothing", which is the
+ * safe way to be wrong: the worst case is a player is offered the opening again, and the
+ * alternative is a parse throwing on the read path for every screen in the game.
+ */
+function parseSeen(json: string | null): string[] | undefined {
+  if (json === null) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed.filter((step): step is string => typeof step === 'string');
+  } catch {
+    return undefined;
+  }
+}
+
 function rowToRecord(row: UserRow): UserRecord {
   const user = UserSchema.parse({
     id: row.id,
@@ -68,6 +95,8 @@ function rowToRecord(row: UserRow): UserRecord {
     icon: row.icon ?? undefined,
     timezone: row.timezone ?? undefined,
     soundVolume: row.sound_volume ?? undefined,
+    // A column that predates the tutorial, or an account that has seen nothing, is an empty set.
+    tutorialSeen: parseSeen(row.tutorial_seen_json),
   });
   return { ...user, passwordHash: row.password_hash };
 }
@@ -82,6 +111,15 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
   const setOverseerStmt = db.prepare('UPDATE users SET overseer_id = ? WHERE id = ?');
   const clearOverseerStmt = db.prepare('UPDATE users SET overseer_id = NULL WHERE id = ?');
   const setPasswordStmt = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+  /*
+   * Compiled on first use, not with the rest.
+   *
+   * `db.prepare` compiles immediately, and the migration tests build a repo against a database
+   * deliberately stopped part-way up the chain to check what an old save does. Every other
+   * statement here names a column that has existed since 0001; this one names 0112's, so an eager
+   * prepare throws `no such column` before those tests can assert anything.
+   */
+  let tutorialStmt: Statement<[string, string]> | null = null;
   // One statement per field rather than a built-up SQL string: five prepared statements cost
   // nothing and a concatenated UPDATE is how a column name ends up coming from a request body.
   const profileStmts: Readonly<
@@ -123,6 +161,23 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
     },
     setPasswordHash(userId, passwordHash) {
       setPasswordStmt.run(passwordHash, userId);
+    },
+    markTutorialSeen(userId, steps) {
+      /*
+       * Read, union, write, in one transaction.
+       *
+       * A plain overwrite loses a card: the game shell and a second tab both hold their own copy
+       * of the account, and the one that writes last would erase whatever the other had just
+       * marked. The union makes the call idempotent as well, which matters because the card marks
+       * itself seen on the way out and a double press must not be able to do anything odd.
+       */
+      db.transaction(() => {
+        const row = byIdStmt.get(userId) as UserRow | undefined;
+        if (!row) return;
+        const stored = parseSeen(row.tutorial_seen_json) ?? [];
+        tutorialStmt ??= db.prepare('UPDATE users SET tutorial_seen_json = ? WHERE id = ?');
+        tutorialStmt.run(JSON.stringify([...new Set([...stored, ...steps])]), userId);
+      })();
     },
   };
 }

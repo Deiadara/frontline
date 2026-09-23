@@ -12,7 +12,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Consumables and other items](#consumables-and-other-items) (93 entries)
 - [Traps](#traps) (6 entries)
 - [Battle boosts](#battle-boosts) (10 entries)
-- [Feats](#feats) (501 entries)
+- [Feats](#feats) (514 entries)
 - [Missions](#missions) (38 entries)
 - [Mission areas and districts](#mission-areas-and-districts) (13 entries)
 - [Locations](#locations) (106 entries)
@@ -31,7 +31,7 @@ The mission board used to carry a tag at the right of the "Board 1 of N" row rea
 - [Resources](#resources) (6 entries)
 - [Attributes and officer roles](#attributes-and-officer-roles) (53 entries)
 - [Notoriety tiers](#notoriety-tiers) (14 entries)
-- [Player level unlocks](#player-level-unlocks) (10 entries)
+- [Player level unlocks](#player-level-unlocks) (11 entries)
 - [Notification kinds](#notification-kinds) (21 entries)
 - [Blueprint motifs](#blueprint-motifs) (111 entries)
 
@@ -1010,6 +1010,8 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `kills_8` | Six Figures | late | large | `kills` | `kills_7` | `kills` | 100,000 | infamy | 991,700 |
 | `kills_9` | The Long List | late | large | `kills` | `kills_8` | `kills` | 170,000 | infamy | 1,181,600 |
 | `kills_10` | What the War Cost | late | large | `kills` | `kills_9` | `kills` | 280,000 | infamy | 1,413,700 |
+| `fight_five` | The Heaviest Thing They Send | late | medium | - | - | `fights_won_at_tier:fight_5` | 1 | resources, items | 82,540 |
+| `siege_held` | A Siege Held | late | large | - | - | `fights_won_at_tier:siege` | 1 | units | 466,296 |
 | `odds_1` | Against the Odds | mid | medium | `odds` | - | `battles_won_outnumbered` | 1 | resources, infamy | 20,100 |
 | `odds_2` | A Habit of It | late | medium | `odds` | `odds_1` | `battles_won_outnumbered` | 10 | resources, infamy | 116,200 |
 | `odds_3` | The Smaller Side | late | large | `odds` | `odds_2` | `battles_won_outnumbered` | 50 | resources, infamy | 183,200 |
@@ -1082,6 +1084,9 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `shadow_2` | Ten in His Shadow | late | medium | `shadow` | `shadow_1` | `combine_fights_won_shadowed` | 10 | infamy | 80,000 |
 | `shadow_3` | Where the Executioner Walks | late | large | `shadow` | `shadow_2` | `combine_fights_won_shadowed` | 30 | resources, infamy | 183,200 |
 | `shadow_4` | A Hundred Morale Means Nothing | late | large | `shadow` | `shadow_3` | `combine_fights_won_shadowed` | 75 | infamy | 675,200 |
+| `broken_1` | They Ran | early | small | `broken` | - | `units_routed` | 20 | infamy | 220 |
+| `broken_2` | Nobody Stays For It | mid | medium | `broken` | `broken_1` | `units_routed` | 200 | infamy | 15,000 |
+| `broken_3` | The Sound Of Your Name | late | large | `broken` | `broken_2` | `units_routed` | 1,000 | infamy | 200,000 |
 | `turncoats_1` | One of Yours Stayed | late | small | `turncoats` | - | `units_turned` | 1 | xp | 12,600 |
 | `turncoats_2` | The Roll Call Is Shorter | late | medium | `turncoats` | `turncoats_1` | `units_turned` | 25 | xp | 77,000 |
 | `turncoats_3` | They Wear Grey Now | late | large | `turncoats` | `turncoats_2` | `units_turned` | 150 | xp | 364,000 |
@@ -1353,6 +1358,14 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 | `bench_1` | One Good Sheet | mid | small | `bench` | - | `masterpieces_reimagined` | 1 | items | 1,440 |
 | `bench_2` | Five Off the Bench | late | medium | `bench` | `bench_1` | `masterpieces_reimagined` | 5 | resources, items | 82,540 |
 | `bench_3` | Nothing Cheap Goes In | late | large | `bench` | `bench_2` | `masterpieces_reimagined` | 15 | resources | 189,900 |
+| `orders_1` | Leave It With Me | mid | small | `orders` | - | `automated_parties` | 1 | resources | 2,500 |
+| `orders_2` | While You Were Out | mid | medium | `orders` | `orders_1` | `automated_parties` | 25 | resources | 17,700 |
+| `orders_3` | The Room Runs Itself | late | medium | `orders` | `orders_2` | `automated_parties` | 100 | resources, items | 82,540 |
+| `orders_4` | Gone a Month | late | large | `orders` | `orders_3` | `automated_parties` | 400 | resources | 422,000 |
+| `lever_1` | Three In, One Out | mid | small | `lever` | - | `bench_trades` | 1 | resources | 2,500 |
+| `lever_2` | Feeding the Machine | mid | medium | `lever` | `lever_1` | `bench_trades` | 10 | resources, items | 5,700 |
+| `lever_3` | The Lab Eats First | late | medium | `lever` | `lever_2` | `bench_trades` | 40 | resources | 103,200 |
+| `lever_done` | Nothing Left to Want | late | large | - | - | `bench_experience` | 1 | resources | 422,000 |
 | `blueprints_1` | Something New | early | medium | `blueprints` | - | `blueprints_unlocked` | 1 | items | 1,160 |
 | `blueprints_2` | Five Blueprints | mid | medium | `blueprints` | `blueprints_1` | `blueprints_unlocked` | 5 | resources, items | 5,700 |
 | `blueprints_3` | Twelve | late | large | `blueprints` | `blueprints_2` | `blueprints_unlocked` | 12 | resources, items | 459,100 |
@@ -1407,8 +1420,6 @@ Every feat, its ladder, and what finishing it pays. A step with something in **A
 Source: `packages/shared/src/missions.ts`, `packages/shared/src/missions.leading.ts`
 
 Spoils are the baseline bundle before the area premium, the crew level premium and the §E5 length curve. Success chance is the base, before whoever leads the run moves it.
-
-No template overrides battle tier, so those columns are left out: a job is read off its kind and its distance instead.
 
 | Id | Name | Kind | Difficulty | Travel | On site | Success | Spoils | Leanings | Brief |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -2188,14 +2199,14 @@ The room runs whether you are in it or not.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `tech_standing_orders` | Standing Orders | -4% wages | 600 Caps, 400 Scrap | 45 | F- | - | Written down once, so nobody has to ask twice. |
 | 2 | `tech_unled_runs` | Written Orders | Opens sending a crew out with nobody leading it, at a cost to the odd… | 1550 Caps, 950 Scrap | 70 | F | - | Where to go, what to bring back, and what to do when it goes wrong. |
-| 3 | `tech_the_open_door` | The Open Door | +3 unit morale | 2650 Caps, 1600 Scrap | 95 | F+ | - | An hour a day when anybody can say anything. |
+| 3 | `tech_the_open_door` | The Open Door | Opens the Right Hand's standing orders: one automated party while you… | 2650 Caps, 1600 Scrap | 95 | F+ | - | An hour a day when anybody can say anything. |
 | 4 | `tech_second_in_command` | Second-in-Command | +2 to officer social skills | 3900 Caps, 2250 Scrap, 30 HQ metal | 120 | E- | E | Somebody who can say yes while you are away. |
-| 5 | `tech_loyalty_bonuses` | Loyalty Bonuses | -8% wages | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Paid for staying, not for arriving. |
-| 6 | `tech_unled_runs_free` | They Have Done It Before | Opens unled runs at full odds, and +10% recruits at the Bar | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The fourth time nobody has to be told anything. |
-| 7 | `tech_the_word_goes_round` | The Word Goes Round | +10% cohesion | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Nobody has to be told twice, and nobody hears it wrong. |
-| 8 | `tech_field_promotions` | Field Promotions | +4 Leadership to every other officer | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | The good ones move up on the day, not at the quarter. |
-| 9 | `tech_succession_planning` | Succession Planning | +1 chair at the Bar | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Two deep in every chair, including yours. |
-| 10 | `tech_the_house_holds` | The House Holds | +15% defense holding the whole district | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | You could be gone a month and find it exactly as you left it. |
+| 5 | `tech_loyalty_bonuses` | Loyalty Bonuses | Opens naming a size for a standing order and letting the Right Hand p… | 5250 Caps, 3000 Scrap, 70 HQ metal | 145 | E+ | E | Paid for staying, not for arriving. |
+| 6 | `tech_unled_runs_free` | They Have Done It Before | Opens unled runs at full odds, and a five minute gap between automate… | 6750 Caps, 3750 Scrap, 130 HQ metal | 170 | D | D+ | The fourth time nobody has to be told anything. |
+| 7 | `tech_the_word_goes_round` | The Word Goes Round | Opens a second standing order, so two parties can be out at once, and… | 8300 Caps, 4550 Scrap, 180 HQ metal | 195 | C | D+ | Nobody has to be told twice, and nobody hears it wrong. |
+| 8 | `tech_field_promotions` | Field Promotions | Opens chasing one resource: a standing order takes the best return pe… | 9950 Caps, 5400 Scrap, 240 HQ metal | 220 | B | B+ | The good ones move up on the day, not at the quarter. |
+| 9 | `tech_succession_planning` | Succession Planning | Opens battle jobs off the board for a standing order, never a fight o… | 11650 Caps, 6250 Scrap, 310 HQ metal | 245 | A | B+ | Two deep in every chair, including yours. |
+| 10 | `tech_the_house_holds` | The House Holds | Opens a standing order that takes both: a mission, then a fight, then… | 13450 Caps, 7100 Scrap, 380 HQ metal | 270 | S | B+ | You could be gone a month and find it exactly as you left it. |
 
 #### Cartographer (10)
 
@@ -2772,6 +2783,7 @@ Source: `packages/shared/src/progression/unlocks.ts`
 | 60 | `brokers_respect` | The Broker's Respect | He stops taking half. Every trade at his window is worth a third more. |
 | 70 | `deep_pockets` | Deep Pockets | Your day of buying is no longer measured against what you can store. |
 | 80 | `third_crew` | A Third Crew | Three jobs running at once, in three different parts of the city. |
+| 90 | `siege` | The Siege | A sixth weight of fight starts turning up on the board, above Fight V. It always pays a p… |
 
 ## Notification kinds
 

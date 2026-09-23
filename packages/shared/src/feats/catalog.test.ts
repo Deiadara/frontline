@@ -1,3 +1,4 @@
+import { BATTLE_TIERS } from '../missions.leading.js';
 import { describe, expect, it } from 'vitest';
 import {
   BUILDING_KINDS,
@@ -406,6 +407,9 @@ describe('measures and scopes', () => {
           break;
         case 'missions_of_kind':
           expect(['battle', 'standard'], feat.id).toContain(scope);
+          break;
+        case 'fights_won_at_tier':
+          expect(BATTLE_TIERS, feat.id).toContain(scope);
           break;
         case 'building_level':
           expect(BUILDING_KINDS, feat.id).toContain(scope);

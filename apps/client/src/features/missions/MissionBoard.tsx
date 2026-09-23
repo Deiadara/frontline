@@ -7,7 +7,6 @@ import {
   IMPORTANCE_WEIGHT,
   LEANING_PROFILES,
   MISSION_LEANING_LABELS,
-  MISSION_LEANING_REASONS,
   UNLED_PENALTY,
   VEHICLES,
   battleOdds,
@@ -35,7 +34,6 @@ import {
   type AttributeImportance,
   type AttributeName,
   type LineRules,
-  type MissionKind,
   type MissionLeaning,
   type MissionLeader,
   type MissionOffer,
@@ -49,9 +47,9 @@ import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
 import { HoverCard } from '../../components/ui/HoverCard';
-import { InfoWindow } from '../../components/ui/InfoWindow';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
+import { QuickAmount } from '../../components/ui/QuickAmount';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
 import { walksAlways } from '../units/rules';
@@ -91,71 +89,14 @@ const PAGE_PRIZE_LABELS: Readonly<Record<BlueprintCategory, string>> = {
  * lines longer makes that comparison work.
  */
 
-const KIND_LABEL: Record<MissionKind, string> = { standard: 'Standard', battle: 'Battle' };
-
-/** Battles read hot, standard work reads cool: the §E5 risk difference at a glance. */
-const KIND_STYLE: Record<MissionKind, string> = {
-  standard: 'border-brass-300/50 text-brass-300',
-  battle: 'border-oxblood-500/50 text-oxblood-300',
-};
-
-/** What a keyword on a card actually means, drawn rather than left to the operating system. */
-const KIND_BLURB: Record<MissionKind, string> = {
-  standard:
-    'Work nobody is going to shoot at you for. It pays less than a fight, and it can be run by porters alone.',
-  battle:
-    'Somebody is on that ground and intends to stay there. It pays a premium, and it needs people who can fight.',
-};
-
-/**
- * A keyword, and the window that says what it is.
- *
- * A bare tag with an operating-system tooltip at best is not an explanation, and the words on this
- * card are ones a new player cannot derive from anything else on it. It carried the stance labels
- * as well until 2026-09-12; those are gone and the kind of work is what is left.
- */
-function Keyword({
-  label,
-  title,
-  body,
-  className,
-  eyebrow,
-}: {
-  label: string;
-  title: string;
-  body: string;
-  className?: string;
-  eyebrow: string;
-}) {
-  return (
-    <HoverCard
-      label={label}
-      size="window"
-      card={
-        <InfoWindow eyebrow={eyebrow} title={title}>
-          <p className="font-body text-[14px] leading-relaxed text-ink-100">{body}</p>
-        </InfoWindow>
-      }
-    >
-      <span
-        className={cn(
-          'inline-flex shrink-0 items-center rounded-sm border px-1.5 py-0.5 font-display text-[9px] font-bold uppercase tracking-[0.14em]',
-          className,
-        )}
-      >
-        {label}
-      </span>
-    </HoverCard>
-  );
-}
-
 /**
  * What a job wants said about it in one line of chips.
  *
- * A standard job says what it leans on, which is the reader's half of the leader picker: a player
+ * A plain job says what it leans on, which is the reader's half of the leader picker: a player
  * who can see that a run is a long road understands why the navigator's fit is 71% and the raid
- * boss's is 22%. A battle says its tier and nothing else. What a battle actually fields is the
- * job's secret, and a tier is the most the screen is allowed to give away about it.
+ * boss's is 22%. A fight says its tier (`Fight I` to `Fight V`, or the Siege) and nothing else.
+ * What a fight actually fields is the job's secret, and a tier is the most the screen is allowed
+ * to give away about it.
  */
 /**
  * How long this run takes, for the column that is actually being sent (maintainer request, 2026-09-12).
@@ -228,15 +169,22 @@ function JobChip({ label, leaning, hot }: JobChipSpec & { hot: boolean }) {
       {label}
     </span>
   );
+  // A fight's tier chip explains nothing on purpose: what it fields is the job's secret.
   if (leaning === null) return chip;
   return (
-    <HoverCard label={label} size="window" card={<LeaningWindow label={label} leaning={leaning} />}>
+    <HoverCard label={label} size="tip" card={<LeaningWindow label={label} leaning={leaning} />}>
       {chip}
     </HoverCard>
   );
 }
 
-/** What one leaning wants: the sentence, then the attributes it reads, hardest first. */
+/**
+ * What one leaning wants: the attributes it reads, hardest first, and nothing else.
+ *
+ * It carried an eyebrow, the leaning's sentence and the list (maintainer, 2026-09-23: keep the
+ * title, a little bigger, and the attributes with how much they matter). The frame is the info
+ * window's own so it reads as the same kind of thing, drawn at the size the list needs.
+ */
 function LeaningWindow({ label, leaning }: { label: string; leaning: MissionLeaning }) {
   const wants = Object.entries(LEANING_PROFILES[leaning])
     .map(([name, importance]) => ({
@@ -246,13 +194,14 @@ function LeaningWindow({ label, leaning }: { label: string; leaning: MissionLean
     .sort((a, b) => IMPORTANCE_WEIGHT[b.importance] - IMPORTANCE_WEIGHT[a.importance]);
 
   return (
-    <InfoWindow eyebrow="What it leans on" title={label}>
-      <p className="font-body text-[14px] leading-relaxed text-ink-100">
-        {MISSION_LEANING_REASONS[leaning]}
-      </p>
-      <ul className="mt-2 space-y-0.5 border-t border-surface-700/70 pt-2">
+    <div
+      className="glass-strong painted washed rivets brushed relative min-w-[13rem] rounded-md border-2 border-brass-300/60 px-3.5 py-3 shadow-panel"
+      data-testid="leaning-window"
+    >
+      <p className="font-stamp text-[17px] leading-tight text-brass-100">{label}</p>
+      <ul className="mt-2 space-y-1 border-t border-surface-700/70 pt-2">
         {wants.map((want) => (
-          <li key={want.name} className="flex items-baseline justify-between gap-3">
+          <li key={want.name} className="flex items-baseline justify-between gap-4">
             <span className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-200">
               {want.name}
             </span>
@@ -267,7 +216,7 @@ function LeaningWindow({ label, leaning }: { label: string; leaning: MissionLean
           </li>
         ))}
       </ul>
-    </InfoWindow>
+    </div>
   );
 }
 
@@ -358,6 +307,11 @@ export interface MissionBoardProps {
   roster: UnitsResponse | undefined;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
+  /**
+   * §C2b: a standing order is on, so the whole board is the Right Hand's and nothing may be sent
+   * by hand. The server refuses the launch as well; this is the screen saying so first.
+   */
+  automated: boolean;
   pendingTemplateId: string | null;
   /**
    * The last refusal, and which job it was for.
@@ -377,31 +331,6 @@ export interface MissionBoardProps {
   ) => void;
 }
 
-/** A one-press amount beside a `NumberField`: drawn, because it is a note rather than a machine. */
-function Quick({
-  label,
-  onClick,
-  disabled,
-  testId,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled: boolean;
-  testId: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-testid={testId}
-      className="ink-box px-2 py-1 font-stamp text-[11px] leading-none text-brass-300 transition-colors hover:text-brass-100 disabled:opacity-40"
-    >
-      {label}
-    </button>
-  );
-}
-
 export function MissionBoard({
   areas,
   army,
@@ -417,6 +346,7 @@ export function MissionBoard({
   anyRide,
   roster,
   atCapacity,
+  automated,
   pendingTemplateId,
   refusal,
   onLaunch,
@@ -477,17 +407,18 @@ export function MissionBoard({
           <p className="truncate font-body text-[12px] leading-snug text-ink-300">{area.blurb}</p>
         </div>
         {/*
-         * The area's pay premium used to sit under the header ("Ground pays +18%", or "Standing
-         * rate" on the misc board). Removed at the maintainer's request (2026-09-10): the figure
-         * is still folded into every haul on the cards below, so the header was saying the same
-         * number a third time. `area.payPercent` stays on the wire for the cards and the launch
-         * freeze. What is left of that row is the board count, here beside the arrow it belongs
-         * to.
+         * Two things used to live on this line and both have gone.
+         *
+         * The area's pay premium went on 2026-09-10: the figure is folded into every haul on the
+         * cards below, so the header was saying the same number a third time. `area.payPercent`
+         * stays on the wire for the cards and the launch freeze.
+         *
+         * `Board 2 of 4` went on 2026-09-22, at the maintainer's request. The two arrows either
+         * side already say there is more than one board and which way is which, and the board's
+         * own name is in the middle of the line in capitals: the count was a third way of saying
+         * where you are, in the smallest type on the screen, and it disabled the arrow at each
+         * end anyway.
          */}
-        <span className="shrink-0 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          Board <span className="tabular-nums text-ink-200">{at + 1}</span> of{' '}
-          <span className="tabular-nums text-ink-200">{areas.length}</span>
-        </span>
         <StepArrow
           direction="on"
           label="Next area"
@@ -499,12 +430,21 @@ export function MissionBoard({
       </header>
 
       {area.offers.length === 0 ? (
-        <p
-          className="px-4 py-10 text-center font-body text-[13px] leading-relaxed text-ink-300"
-          data-testid="area-worked"
-        >
-          One of your crews is working this area. Nothing else here is on offer until they are home.
-        </p>
+        /*
+         * A worked area, said once and in the middle (maintainer, 2026-09-23). It was a line of
+         * body text at the top of an empty board, which read as a caption on nothing. It is the
+         * whole board's state, so it takes the board's whole frame: centred, in the pen the paper
+         * screens are written in, inside the same hand-inked box the sheets around it wear.
+         */
+        <div className="flex flex-1 items-center justify-center p-6 xl:min-h-0">
+          <p
+            className="ink-frame card-paper washed grain relative max-w-md rounded-sm px-8 py-7 text-center font-stamp text-[19px] leading-snug text-brass-100 shadow-panel"
+            data-testid="area-worked"
+          >
+            One of your crews is working this area. Nothing else here is on offer until they are
+            home.
+          </p>
+        </div>
       ) : (
         <div className="grid grid-cols-3 gap-3 p-2 xl:min-h-0 xl:flex-1">
           {/*
@@ -516,7 +456,8 @@ export function MissionBoard({
             <OfferCard
               key={offer.templateId}
               offer={offer}
-              disabled={atCapacity}
+              disabled={atCapacity || automated}
+              heldBy={automated ? 'The Right Hand has the board' : null}
               pending={pendingTemplateId === offer.templateId}
               refusal={refusal?.templateId === offer.templateId ? refusal.message : null}
               onSend={() => setSending(offer)}
@@ -561,23 +502,35 @@ export function MissionBoard({
  * of a two-line brief above the deploy button of a three-line one, and the player would be
  * comparing layouts instead of jobs.
  */
-function OfferCard({
+export function OfferCard({
   offer,
-  disabled,
-  pending,
-  refusal,
-  onSend,
+  disabled = false,
+  heldBy = null,
+  pending = false,
+  refusal = null,
+  onSend = () => undefined,
+  readOnly = false,
 }: {
+  /** Who has the board when it is disabled for a reason other than a full roster, or null. */
+  heldBy?: string | null;
   offer: MissionOffer;
-  disabled: boolean;
-  pending: boolean;
-  refusal: string | null;
-  onSend: () => void;
+  disabled?: boolean;
+  pending?: boolean;
+  refusal?: string | null;
+  onSend?: () => void;
+  /**
+   * The card as a thing to read rather than to act on (maintainer, 2026-09-23): the Monitor
+   * shows a crew's job as the card it was chosen from, with no crew left to send.
+   */
+  readOnly?: boolean;
 }) {
   return (
     <article
       className="card-paper washed edge-lit flex h-full min-w-0 flex-col rounded-sm border border-surface-700 p-2.5"
-      data-testid={`offer-${offer.templateId}`}
+      data-testid={readOnly ? `offer-view-${offer.templateId}` : `offer-${offer.templateId}`}
+      // A fight is red and plain work is not: the one mark of kind the card wears since the
+      // Standard and Battle keywords came off it (maintainer, 2026-09-23).
+      data-kind={offer.kind}
     >
       {/* Some of these bands gave up a few pixels on 2026-09-21, when the crews-out line arrived
           above the board: the brief's floor is a three-line brief, and the rows under it are one
@@ -674,17 +627,6 @@ function OfferCard({
         </span>
       </div>
 
-      {/* The keywords, where the loot line used to be, and each one says what it means. */}
-      <div className="flex h-8 flex-wrap content-start items-start gap-1 pt-1.5">
-        <Keyword
-          label={KIND_LABEL[offer.kind]}
-          title={KIND_LABEL[offer.kind]}
-          body={KIND_BLURB[offer.kind]}
-          className={KIND_STYLE[offer.kind]}
-          eyebrow="Kind of work"
-        />
-      </div>
-
       {/* What the job leans on, or a battle's tier: the one line on the card about *who should
           lead it*. Fixed height and clipped like every other band here, because a four-leaning
           job wraps to two rows and the deploy buttons across three cards stay on one line. */}
@@ -702,7 +644,7 @@ function OfferCard({
         ))}
       </div>
 
-      {refusal && (
+      {!readOnly && refusal && (
         <p
           role="alert"
           className="h-10 overflow-hidden break-words text-[11px] leading-snug text-oxblood-300"
@@ -711,18 +653,20 @@ function OfferCard({
         </p>
       )}
 
-      <div className="mt-auto pt-2">
-        <Button
-          size="sm"
-          className="w-full"
-          variant={offer.kind === 'battle' ? 'danger' : 'primary'}
-          disabled={disabled || pending}
-          onClick={onSend}
-          data-testid={`send-${offer.templateId}`}
-        >
-          {pending ? 'Sending…' : disabled ? 'No crew free' : 'Send a crew'}
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="mt-auto pt-2">
+          <Button
+            size="sm"
+            className="w-full"
+            variant={offer.kind === 'battle' ? 'danger' : 'primary'}
+            disabled={disabled || pending}
+            onClick={onSend}
+            data-testid={`send-${offer.templateId}`}
+          >
+            {pending ? 'Sending…' : disabled ? (heldBy ?? 'No crew free') : 'Send a crew'}
+          </Button>
+        </div>
+      )}
     </article>
   );
 }
@@ -1217,7 +1161,7 @@ function SendDialog({
                       stack of forty scavengers is not a decision, it is typing. The field itself
                       still takes a typed number and still has its steppers. */}
                         <span className="flex shrink-0 items-center gap-1">
-                          <Quick
+                          <QuickAmount
                             label="Half"
                             disabled={count < 2}
                             testId={`half-${unit.id}`}
@@ -1225,7 +1169,7 @@ function SendDialog({
                               set(unit.id, Math.floor(count / 2), ceilingFor(unit.id, count))
                             }
                           />
-                          <Quick
+                          <QuickAmount
                             label="Max"
                             disabled={count < 1}
                             testId={`max-${unit.id}`}

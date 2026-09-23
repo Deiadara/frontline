@@ -7,6 +7,7 @@ import {
 } from './attributes.js';
 import { IMPORTANCE_WEIGHT, bandFor, type AttributeImportance } from './crew/importance.js';
 import type { MissionTemplate } from './missions.js';
+import { seedFrom } from './rng.js';
 import { findUnit, type Army } from './units/index.js';
 
 /**
@@ -367,26 +368,126 @@ export function chanceTone(chance: number): ChanceTone {
 
 // --- battles ---
 
-export const BATTLE_TIERS = ['skirmish', 'fight', 'siege'] as const;
+/**
+ * The six weights a fight job comes in (maintainer, 2026-09-23).
+ *
+ * Five *Fights*, I to V, and above them the Siege. The tier is no longer a fact about the job:
+ * every fight on the board is dealt one off the crew's level (`battleTierOdds`) and it is frozen
+ * on the run when it leaves. What a tier fields and what it pays both climb the ladder, so a crew
+ * grows into harder work and better money without the board ever changing its jobs.
+ *
+ * The Siege is the sixth rung and the one the screen never explains. It opens at
+ * `SIEGE_UNLOCK_LEVEL` and from then on takes a sliver of the deal off Fight V; it always pays a
+ * page and components on top of its haul. The level-up card at 90 is the one place it is named.
+ */
+export const BATTLE_TIERS = [
+  'fight_1',
+  'fight_2',
+  'fight_3',
+  'fight_4',
+  'fight_5',
+  'siege',
+] as const;
 export const BattleTierSchema = z.enum(BATTLE_TIERS);
 export type BattleTier = z.infer<typeof BattleTierSchema>;
 
 export const BATTLE_TIER_LABELS: Readonly<Record<BattleTier, string>> = {
-  skirmish: 'A skirmish',
-  fight: 'A fight',
-  siege: 'A siege',
+  fight_1: 'Fight I',
+  fight_2: 'Fight II',
+  fight_3: 'Fight III',
+  fight_4: 'Fight IV',
+  fight_5: 'Fight V',
+  siege: 'Siege',
 };
 
-/** A battle job's tier, authored or read off its difficulty and distance. */
-export function battleTierFor(
-  template: Pick<MissionTemplate, 'kind' | 'difficulty' | 'travelBand'> & {
-    battleTier?: BattleTier | undefined;
-  },
-): BattleTier | null {
-  if (template.kind !== 'battle') return null;
-  if (template.battleTier !== undefined) return template.battleTier;
-  if (template.difficulty === 'easy') return 'skirmish';
-  return template.travelBand === 'furthest' ? 'siege' : 'fight';
+/** The level the Siege opens at, and the only place a player is told it exists. */
+export const SIEGE_UNLOCK_LEVEL = 90;
+
+/** From `SIEGE_UNLOCK_LEVEL`: the share of the deal the Siege takes, off Fight V. */
+export const SIEGE_SHARE = 0.05;
+
+/**
+ * The deal, by level: how likely each tier is on a fight card, in percent, at the anchor levels.
+ *
+ * The maintainer's shape: each tier peaks at a level (I at 1, II at 10, III at 25, IV at 40, V at
+ * 70), tiers above and below your own are dealt with a lower chance that falls away with distance,
+ * and from 70 the table is fixed at 2 / 6 / 12 / 30 / 50. Between anchors the shares are
+ * interpolated, so a crew at 38 sees Fight V about once in twenty-five deals and a crew at 60 sees
+ * it a third of the time. Every row sums to 100.
+ */
+const TIER_ODDS_ANCHORS: readonly { level: number; odds: readonly number[] }[] = [
+  { level: 1, odds: [85, 12, 3, 0, 0] },
+  { level: 10, odds: [25, 55, 17, 3, 0] },
+  { level: 25, odds: [8, 22, 50, 17, 3] },
+  { level: 40, odds: [4, 12, 30, 50, 4] },
+  { level: 55, odds: [3, 8, 18, 41, 30] },
+  { level: 70, odds: [2, 6, 12, 30, 50] },
+];
+
+const FIGHT_TIERS = BATTLE_TIERS.filter((tier) => tier !== 'siege');
+
+/**
+ * The chance of each tier on a fight card at this level, as fractions that sum to one.
+ *
+ * The Siege enters at `SIEGE_UNLOCK_LEVEL` and is taken off Fight V, so the other four are
+ * untouched by it: reaching 90 changes what the top of the board is, not how often the bottom of
+ * it turns up.
+ */
+export function battleTierOdds(level: number): Readonly<Record<BattleTier, number>> {
+  const at = Math.max(1, Math.trunc(level));
+  const anchors = TIER_ODDS_ANCHORS;
+  const last = anchors[anchors.length - 1]!;
+  let odds: number[];
+  if (at >= last.level) {
+    odds = [...last.odds];
+  } else {
+    const next = anchors.find((anchor) => anchor.level >= at) ?? last;
+    const prev = [...anchors].reverse().find((anchor) => anchor.level <= at) ?? anchors[0]!;
+    const span = next.level - prev.level;
+    const t = span === 0 ? 0 : (at - prev.level) / span;
+    odds = prev.odds.map((from, index) => from + ((next.odds[index] ?? 0) - from) * t);
+  }
+  const shares: Record<BattleTier, number> = {
+    fight_1: 0,
+    fight_2: 0,
+    fight_3: 0,
+    fight_4: 0,
+    fight_5: 0,
+    siege: 0,
+  };
+  FIGHT_TIERS.forEach((tier, index) => {
+    shares[tier] = (odds[index] ?? 0) / 100;
+  });
+  if (at >= SIEGE_UNLOCK_LEVEL) {
+    shares.siege = SIEGE_SHARE;
+    shares.fight_5 = Math.max(0, shares.fight_5 - SIEGE_SHARE);
+  }
+  return shares;
+}
+
+/**
+ * The tier one fight card is dealt, off the board's own key.
+ *
+ * Seeded on where and when the card is drawn and on the job, like the page prize, so a card
+ * re-read is the same card and a player cannot refresh their way to a Siege. The level moves the
+ * odds and the odds move which cut of the same roll the card lands in, so levelling mid-day can
+ * change a card that has not been taken yet; a run that has left keeps its tier on the row.
+ */
+export function dealBattleTier(
+  areaId: string,
+  boardKey: string,
+  templateId: string,
+  level: number,
+): BattleTier {
+  const seed = seedFrom(`tier:${areaId}:${boardKey}:${templateId}`);
+  const roll = (seed % 100_000) / 100_000;
+  const odds = battleTierOdds(level);
+  let cumulative = 0;
+  for (const tier of BATTLE_TIERS) {
+    cumulative += odds[tier];
+    if (roll < cumulative) return tier;
+  }
+  return 'fight_5';
 }
 
 /**
@@ -406,13 +507,35 @@ export function fieldStrength(army: Army): number {
 
 /**
  * What a tier fields, in the yardstick above, for a crew at level 1. A Razor is worth about 175
- * on it, so a skirmish is eight of them, a fight twenty and a siege forty-five.
+ * on it, so a Fight I is eight of them, a Fight III twenty, a Fight V forty-five and a Siege
+ * sixty-five.
  */
 export const BATTLE_TIER_STRENGTH: Readonly<Record<BattleTier, number>> = {
-  skirmish: 1_400,
-  fight: 3_500,
-  siege: 7_900,
+  fight_1: 1_400,
+  fight_2: 2_300,
+  fight_3: 3_500,
+  fight_4: 5_400,
+  fight_5: 7_900,
+  siege: 11_500,
 };
+
+/**
+ * What a tier pays, over a plain job of the same length and over `KIND_REWARD_MULTIPLIER`.
+ *
+ * Climbs faster than the strength does, on purpose: a Fight V fields 5.6x a Fight I and pays
+ * 3.2x, because a crew that can hold a Fight V is fielding units that each carry more, and the
+ * haul is capped by what walks home. The Siege sits above the ladder, and its pages and parts are
+ * the part of its pay that this number does not see.
+ */
+export const BATTLE_TIER_REWARD: Readonly<Record<BattleTier, number>> = {
+  fight_1: 1,
+  fight_2: 1.35,
+  fight_3: 1.8,
+  fight_4: 2.4,
+  fight_5: 3.2,
+  siege: 4.2,
+};
+
 /** How much harder every level makes the same job, the way the odds already scale. */
 export const BATTLE_STRENGTH_PER_LEVEL = 0.04;
 

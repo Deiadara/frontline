@@ -1,4 +1,5 @@
 import {
+  BATTLE_TIER_LABELS,
   BATTLE_ODDS_LABELS,
   composeProfile,
   leaderFit,
@@ -269,7 +270,7 @@ test('a battle shows a band and no number at all', async ({ page }) => {
   // The card says the tier and nothing else about what is on that ground.
   if (offer.battleTier === null) throw new Error('fixture error: a battle with no tier');
   await expect(page.getByTestId(`job-chips-${offer.templateId}`)).toHaveText(
-    { skirmish: 'A skirmish', fight: 'A fight', siege: 'A siege' }[offer.battleTier],
+    BATTLE_TIER_LABELS[offer.battleTier],
   );
 
   const dialog = await openSend(page, offer);

@@ -150,8 +150,8 @@ function FightCard({
    * `useState(fieldable[0]?.[0] ?? '')` runs once, and on that render `units.data` is undefined:
    * `fieldable` is empty and the id is `''`. The query resolving re-renders with a full list and
    * nothing resets the id, so `held` stayed 0 and the button stayed dead over a `<select>` with
-   * nothing selected. The units query really is cold here: the shell's `QueueRail` subscribes to
-   * `/me`, `/missions` and `/research`, not to `/units`, so a player who follows a notification
+   * nothing selected. The units query really is cold here: nothing in the shell subscribes to
+   * `/units` (the chrome reads `/me` and nothing else), so a player who follows a notification
    * straight to this page has never fetched an army.
    */
   const [picked, setPicked] = useState<string | null>(null);

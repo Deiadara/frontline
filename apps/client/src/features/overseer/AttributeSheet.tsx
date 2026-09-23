@@ -11,6 +11,7 @@ import {
   type Attributes,
   type OfficerRole,
 } from '@frontline/shared';
+import { DrawnRule } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
 import { IMPORTANCE_EDGE } from '../../lib/importance';
 import { RATING_FILL, RATING_TEXT, ratingBand } from '../../lib/rating';
@@ -43,6 +44,7 @@ function AttributeRow({
   lift,
   bar,
   roomy,
+  paper,
   importance,
 }: {
   name: AttributeName;
@@ -58,6 +60,7 @@ function AttributeRow({
   lift: readonly { from: string; amount: number }[];
   bar: boolean;
   roomy: boolean;
+  paper: boolean;
   /** How much the chair this person sits in cares. `null` where there is no chair. */
   importance: AttributeImportance | null;
 }) {
@@ -97,7 +100,12 @@ function AttributeRow({
         // Every other row on a wash of its own. Eleven rows of word-bar-number with nothing
         // between them is a block of texture, and the eye loses its place crossing it; a tint
         // that costs no height puts the line back under the finger.
-        roomy && 'rounded-[2px] px-1.5 py-1 odd:bg-ink-100/[0.045]',
+        // Two pixels less a row on paper: eleven rows of it is what lets the Overseer's whole
+        // record sit on a 900-tall screen with no bar drawn (maintainer, 2026-09-23).
+        roomy && 'rounded-[2px] px-1.5 odd:bg-ink-100/[0.045]',
+        // On paper the rows open up where the screen is tall enough to hold them (the Overseer's
+        // file at 1080): a little more air and a little more type, closer to the Bar's seat sheet.
+        roomy && (paper ? 'py-0.5 [@media(min-height:1000px)]:py-[5px]' : 'py-1'),
         // The edge is drawn even for `insignificant` (transparent), so every row in the column is
         // inset by the same two pixels and the marked ones do not appear to jut out.
         importance !== null && cn('pl-1.5', IMPORTANCE_EDGE[importance]),
@@ -110,6 +118,7 @@ function AttributeRow({
         className={cn(
           'min-w-0 flex-1 truncate font-body leading-[1.15] text-ink-200',
           roomy ? 'text-[13.5px]' : 'text-[12px]',
+          paper && '[@media(min-height:1000px)]:text-[14.5px]',
         )}
       >
         {ATTRIBUTE_LABELS[name]}
@@ -174,6 +183,7 @@ function AttributeRow({
         className={cn(
           'shrink-0 text-right font-display font-bold leading-[1.15] tabular-nums',
           roomy ? 'text-[14px]' : 'text-[12px]',
+          paper && '[@media(min-height:1000px)]:text-[15px]',
           bar && (roomy ? 'w-7' : 'w-6'),
           RATING_TEXT[band],
         )}
@@ -209,6 +219,7 @@ export function AttributeSheet({
   bars = true,
   roomy = false,
   role = null,
+  paper = false,
 }: {
   attributes: Attributes;
   /**
@@ -260,6 +271,12 @@ export function AttributeSheet({
    * they have not been offered would be answering the question the Bar is asking.
    */
   role?: OfficerRole | null;
+  /**
+   * The groups on paper cards rather than in dark frames: the ink frame the feats ledger and the
+   * Overseer's file wear, with a hand-ruled line under a stamped heading (maintainer, 2026-09-23).
+   * Only meaningful with `roomy`, which is where a group has a frame at all.
+   */
+  paper?: boolean;
 }) {
   return (
     <div
@@ -287,18 +304,30 @@ export function AttributeSheet({
             // as one grid that happens to have gaps in it. `items-stretch` on the grid does the
             // equalising; without the frame there is nothing to see it on.
             roomy &&
+              !paper &&
               'edge-lit flex flex-col rounded-sm border border-surface-600/70 bg-black/20 p-2',
+            roomy &&
+              paper &&
+              'ink-frame card-paper washed grain relative flex flex-col rounded-sm p-3 shadow-panel [@media(min-height:1000px)]:p-4',
           )}
         >
           <h3
             className={cn(
-              'truncate border-b border-surface-600/80 font-display font-bold uppercase tracking-[0.18em] text-brass-300',
-              bars ? 'mb-1.5 pb-1' : 'mb-0.5 pb-0.5 text-[8px]',
-              bars && (roomy ? 'text-[11px]' : 'text-[10px]'),
+              'truncate',
+              paper
+                ? 'font-stamp text-[15px] leading-none text-brass-300 [@media(min-height:1000px)]:text-[16px]'
+                : 'border-b border-surface-600/80 font-display font-bold uppercase tracking-[0.18em] text-brass-300',
+              !paper && (bars ? 'mb-1.5 pb-1' : 'mb-0.5 pb-0.5 text-[8px]'),
+              !paper && bars && (roomy ? 'text-[11px]' : 'text-[10px]'),
             )}
           >
             {GROUP_LABELS[group]}
           </h3>
+          {paper && (
+            <span aria-hidden className="mb-2 mt-1.5 block h-1.5 w-full text-brass-300/50">
+              <DrawnRule />
+            </span>
+          )}
           <ul className={cn('flex flex-col', bars && !roomy && 'gap-1')}>
             {ATTRIBUTES_BY_GROUP[group].map((name) => (
               <AttributeRow
@@ -309,6 +338,7 @@ export function AttributeSheet({
                 lift={lift.filter((one) => one.attribute === name)}
                 bar={bars}
                 roomy={roomy}
+                paper={paper}
                 importance={role === null ? null : importanceOf(role, name)}
               />
             ))}

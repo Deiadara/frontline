@@ -17,7 +17,9 @@ import {
   earnedInfamy,
   gainInfamy,
   homeBattlefield,
+  infamyForFled,
   infamyForKills,
+  infamyForRingDead,
   infamyForRaidWon,
   isBattleDue,
   itemCount,
@@ -96,6 +98,7 @@ import {
   tallyInfamyEarned,
   tallyResourcesEarned,
   tallyRunnersCaught,
+  tallyUnitsRouted,
   tallyTrapKills,
 } from '../feats/tally.js';
 import { controlsIn, defendingBaseOf, residentOf, targetName } from './ground.js';
@@ -125,7 +128,7 @@ import { gateFor, holdsDistrictWhole, resetGateOnDistrictLost } from '../city/ga
 interface Assembled {
   attacking: Army;
   defending: Army;
-  attackerRing: Army;
+  /** The defender's ring. The attacker has none (maintainer, 2026-09-23). */
   defenderRing: Army;
   /**
    * True when the defending force was drawn out of a crew's own roster rather than off a garrison.
@@ -159,7 +162,6 @@ export function assemble(
   const defenderDeployment = sideForce(repos, battle.id, 'defender', at);
 
   const attacking = attackerDeployment?.army ?? {};
-  const attackerRing = attackerDeployment?.perimeter ?? {};
   const defenderRing = defenderDeployment?.perimeter ?? {};
   let defending = defenderDeployment?.army ?? {};
 
@@ -172,7 +174,6 @@ export function assemble(
     return {
       attacking,
       defending,
-      attackerRing,
       defenderRing,
       fromHomeRoster: false,
       atTheGate: false,
@@ -226,7 +227,6 @@ export function assemble(
   return {
     attacking,
     defending,
-    attackerRing,
     defenderRing,
     fromHomeRoster: livesHere,
     atTheGate,
@@ -1029,7 +1029,6 @@ function resolveOne(
     attackerTerritory: attackerFinal,
     attackerUpgrades: attacker.unitLoadouts,
     attackerCohesionPercent: attackerFinal.cohesionPercent,
-    attackerPerimeter: assembled.attackerRing,
     defenderPerimeter: assembled.defenderRing,
     ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead) } : {}),
     ...(defenderLead ? { defenderOfficer: asCombatant(defenderLead) } : {}),
@@ -1276,9 +1275,14 @@ function resolveOne(
 
   // The trap goes to whoever buried it, which may be an ally rather than the crew being attacked.
   if (trap.ownerBaseId) tallyTrapKills(repos, trap.ownerBaseId, forceSize(trap.killed));
-  // ...and the ring to whoever won, because only the winner's ring ever catches anybody.
-  const ringOwner = attackerWon ? attacker : defenderBase;
-  if (ringOwner) tallyRunnersCaught(repos, ringOwner.id, forceSize(outcome.perimeterCaught));
+  // ...and the ring to the defender, because only a defender has one and only a winner's fights.
+  if (!attackerWon && defenderBase) {
+    tallyRunnersCaught(repos, defenderBase.id, forceSize(outcome.perimeterCaught));
+  }
+  // The rout: everybody the winner made run, home or caught (`units_routed`).
+  const routed = forceSize(mergeArmies(outcome.fled, outcome.perimeterCaught));
+  if (attackerWon) tallyUnitsRouted(repos, attacker.id, routed);
+  else if (defenderBase) tallyUnitsRouted(repos, defenderBase.id, routed);
 
   return { battle: { ...battle, resolvedAt: now.toISOString() }, analysis };
 }
@@ -1438,9 +1442,6 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * fights, which is the same rule that decides whether it does anything at all, so it walks away
    * whole and `perimeterLosses` is not its to pay.
    */
-  const attackerRingHome = attackerWon
-    ? removeForce(assembled.attackerRing, outcome.perimeterLosses)
-    : assembled.attackerRing;
   const defenderRingHome = attackerWon
     ? assembled.defenderRing
     : removeForce(assembled.defenderRing, outcome.perimeterLosses);
@@ -1460,15 +1461,12 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * The medics do not reach either addition: a ring meets a withdrawal away from the line, and a
    * trap goes off before the crew that set it is anywhere near the wounded.
    */
-  const attackerFallen = mergeArmies(
-    attackerDead,
-    mergeArmies(input.trapKilled, attackerWon ? outcome.perimeterLosses : {}),
-  );
+  const attackerFallen = mergeArmies(attackerDead, input.trapKilled);
   const defenderFallen = attackerWon
     ? defenderDead
     : mergeArmies(defenderDead, outcome.perimeterLosses);
 
-  const attackerHome = mergeArmies(holds ? {} : attackerSurvivors, attackerRingHome);
+  const attackerHome = holds ? {} : attackerSurvivors;
 
   /**
    * §C3: who lived, as opposed to where they went.
@@ -1484,7 +1482,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * the loser was paid their whole capacity in infamy for it. Winning the thing you asked to hold
    * emptied your yard.
    */
-  const attackerLived = mergeArmies(attackerSurvivors, attackerRingHome);
+  const attackerLived = attackerSurvivors;
 
   /*
    * Whose survivors these are.
@@ -1606,9 +1604,32 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     now,
   );
 
-  const attackerInfamy =
-    infamyForKills(defenderFallen) + captureInfamy + vehicleInfamy(defenderVehicles.destroyed);
-  const defenderInfamy = infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed);
+  /*
+   * The ledger (maintainer, 2026-09-23): a kill in the fight pays whole, a rout pays half, and
+   * every death at the ring pays half.
+   *
+   * The engine's `killed` is the loser's whole dead, the ring's catch included, so the fight's
+   * own kills are that less `perimeterCaught`. The loser's runners are everybody who broke:
+   * the ones who got home (`fled`) and the ones the ring then killed (`perimeterCaught`), and
+   * both pay the rout's half; the caught pay the ring's half on top, which makes the whole. The
+   * ring's own dead pay their half to the attacker. Only the defender has a ring, so the ring's
+   * figures are all zero when the attacker won.
+   */
+  const loserRan = mergeArmies(outcome.fled, outcome.perimeterCaught);
+  const attackerInfamy = attackerWon
+    ? infamyForKills(defenderFallen) +
+      infamyForFled(loserRan) +
+      captureInfamy +
+      vehicleInfamy(defenderVehicles.destroyed)
+    : infamyForKills(defenderDead) +
+      infamyForRingDead(outcome.perimeterLosses) +
+      vehicleInfamy(defenderVehicles.destroyed);
+  const defenderInfamy = attackerWon
+    ? infamyForKills(attackerFallen) + vehicleInfamy(attackerVehicles.destroyed)
+    : infamyForKills(removeForce(attackerFallen, outcome.perimeterCaught)) +
+      infamyForFled(loserRan) +
+      infamyForRingDead(outcome.perimeterCaught) +
+      vehicleInfamy(attackerVehicles.destroyed);
 
   /**
    * §A4: the Bone Market. A share of what you lost comes back as caps rather than as nothing.

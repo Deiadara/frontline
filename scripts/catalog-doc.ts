@@ -354,21 +354,18 @@ function boostsSection(): Section {
 /* -------------------------------------------------------------------- missions */
 
 /**
- * The two optional template fields, as columns, and only when a template actually carries one.
+ * The optional template field, as a column, and only when a template actually carries it.
  *
- * Both are overrides: a job with no `leanings` is read off its kind and its distance, and a battle
- * job with no `battleTier` takes the tier its difficulty and distance suggest. A column of nothing
- * across 38 rows is width the brief could use, so each one appears only if somebody uses it.
+ * An override: a job with no `leanings` is read off its kind and its distance. A column of nothing
+ * across 38 rows is width the brief could use, so it appears only if somebody uses it. A fight's
+ * tier is no longer authored on the template: the board deals it off the crew's level
+ * (`dealBattleTier`), so there is no column for it.
  */
 const OPTIONAL_MISSION_COLUMNS = [
   {
     header: 'Leanings',
     read: (template: MissionTemplate) =>
       (template.leanings ?? []).map((leaning) => MISSION_LEANING_LABELS[leaning]).join(', '),
-  },
-  {
-    header: 'Battle tier',
-    read: (template: MissionTemplate) => template.battleTier ?? '',
   },
 ] as const;
 

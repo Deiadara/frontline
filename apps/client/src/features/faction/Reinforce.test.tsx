@@ -10,9 +10,9 @@ import { useSession } from '../../store/session';
 /**
  * Sending help to an ally, from a page that is usually opened before `/units` has ever been read.
  *
- * The shell's `QueueRail` subscribes to `/me`, `/missions` and `/research` and **not** to `/units`,
- * so a player following a faction notification straight here has no cached army. Two things
- * followed from that:
+ * Nothing in the shell subscribes to `/units` (the chrome reads `/me` and nothing else), so a
+ * player following a faction notification straight here has no cached army. Two things followed
+ * from that:
  *
  * - the unit was `useState(fieldable[0]?.[0] ?? '')`, evaluated on the first render, when the roster
  *   was still undefined. The query resolving never corrected it, so every row rendered a `<select>`

@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { BLUEPRINTS, pageRarity } from './catalog.js';
 import { reimaginingOdds } from './reimagine-odds.js';
 import {
+  REIMAGINING_COMPLETE_XP,
   REIMAGINING_PAGES_SPENT,
   REIMAGINING_REFUSAL_MESSAGES,
   reimagine,
@@ -68,7 +69,7 @@ describe('reimagining a page (§G2, §G3)', () => {
     for (const pageId of [first, second, third]) {
       expect(held(inventory, pageId) - held(result!.inventory, pageId)).toBe(1);
     }
-    expect(held(result!.inventory, result!.gained)).toBe(1);
+    expect(held(result!.inventory, result!.gained!)).toBe(1);
   });
 
   /**
@@ -157,17 +158,21 @@ describe('reimagining a page (§G2, §G3)', () => {
   });
 
   it('refuses when there is nothing left in the game to want', () => {
-    // Every page twice. Plenty to spend and nothing to buy, which is the one case where
-    // "guaranteed something new" cannot be honoured and so must not take the pages.
+    // Every page twice. Plenty to spend and nothing to buy: the pages go in and experience comes
+    // out (maintainer, 2026-09-23), rather than the refusal it used to be.
     const bag: Record<string, number> = {};
     for (const pageId of ALL_PAGES) bag[pageId] = 2;
     const inventory = bag as Inventory;
     const pages = [first, second, third];
     expect(unseenPages(inventory)).toEqual([]);
-    expect(reimaginingRefusal({ inventory, context: READY, pages, seed: 'h' })).toBe(
-      'nothing_left_to_find',
-    );
-    expect(reimagine({ inventory, context: READY, pages, seed: 'h' })).toBeNull();
+    expect(reimaginingRefusal({ inventory, context: READY, pages, seed: 'h' })).toBeNull();
+    const paid = reimagine({ inventory, context: READY, pages, seed: 'h' });
+    expect(paid).not.toBeNull();
+    expect(paid!.gained).toBeNull();
+    expect(paid!.xp).toBe(REIMAGINING_COMPLETE_XP);
+    // The three really left the bag, and nothing arrived in it.
+    for (const pageId of pages) expect(held(paid!.inventory, pageId)).toBe(1);
+    expect(unseenPages(paid!.inventory)).toEqual([]);
   });
 
   /**
@@ -214,7 +219,7 @@ describe('reimagining a page (§G2, §G3)', () => {
     for (const seed of Array.from({ length: 200 }, (_, index) => `unlocked-${index}`)) {
       const result = reimagine({ inventory, context: READY, pages: paying, seed });
       expect(result).not.toBeNull();
-      expect(unlockedPages.has(result!.gained), `${seed} paid out ${result!.gained}`).toBe(false);
+      expect(unlockedPages.has(result!.gained!), `${seed} paid out ${result!.gained}`).toBe(false);
     }
   });
 
@@ -227,10 +232,11 @@ describe('reimagining a page (§G2, §G3)', () => {
     const inventory = bag as Inventory;
     const pages = [first, first, first];
     expect(unseenPages(inventory)).toEqual([]);
-    expect(reimaginingRefusal({ inventory, context: READY, pages, seed: 'i' })).toBe(
-      'nothing_left_to_find',
-    );
-    expect(reimagine({ inventory, context: READY, pages, seed: 'i' })).toBeNull();
+    expect(reimaginingRefusal({ inventory, context: READY, pages, seed: 'i' })).toBeNull();
+    const paid = reimagine({ inventory, context: READY, pages, seed: 'i' });
+    expect(paid?.gained).toBeNull();
+    expect(paid?.xp).toBe(REIMAGINING_COMPLETE_XP);
+    expect(held(paid!.inventory, first)).toBe(0);
   });
 
   it('gives the same crew the same page for the same seed', () => {
@@ -303,7 +309,7 @@ describe('what the three sheets buy (maintainer, 2026-09-18)', () => {
     for (let index = 0; index < SAMPLE; index += 1) {
       const result = reimagine({ inventory, context: READY, pages, seed: `${tag}-${index}` });
       expect(result, 'the trade refused mid-sample').not.toBeNull();
-      const rarity = PAGE_RARITY.get(result!.gained)!;
+      const rarity = PAGE_RARITY.get(result!.gained!)!;
       counts.set(rarity, counts.get(rarity)! + 1);
     }
     return (rarity: ItemRarity) => counts.get(rarity)! / SAMPLE;
@@ -463,7 +469,7 @@ describe('what the three sheets buy (maintainer, 2026-09-18)', () => {
           seed: `${tiers.join('+')}-clean-${index}`,
         })!;
         expect(pages).not.toContain(result.gained);
-        expect(pool.has(result.gained), `${result.gained} was not in the unseen pool`).toBe(true);
+        expect(pool.has(result.gained!), `${result.gained} was not in the unseen pool`).toBe(true);
       }
     }
   });

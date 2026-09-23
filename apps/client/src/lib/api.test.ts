@@ -1,5 +1,5 @@
 import type { MeResponse, User } from '@frontline/shared';
-import { playerLevelGrants } from '@frontline/shared';
+import { TUTORIAL_STEPS, playerLevelGrants } from '@frontline/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiRequestError, getMe, register } from './api';
 import { useSession } from '../store/session';
@@ -13,6 +13,8 @@ const USER: User = {
   icon: 'shield',
   timezone: 'Europe/Athens',
   soundVolume: 60,
+  // Seen, so the opening tutorial does not draw over a test about something else.
+  tutorialSeen: [...TUTORIAL_STEPS],
 };
 
 const ME: MeResponse = {
