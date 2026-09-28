@@ -47,6 +47,14 @@ export async function offeredOverseers(
 export async function chooseOverseer(
   app: FastifyInstance,
   token: string,
+  /**
+   * Where the crew starts, for the handful of tests that care.
+   *
+   * Omitted by every other caller, and the route then places them the way it always did. That
+   * default is load bearing: a few hundred fixtures take a character and do not care where they
+   * live, and pinning them all to one city would be a rewrite in service of nothing.
+   */
+  cityId?: string,
 ): Promise<LightMyRequestResponse> {
   const [first] = await offeredOverseers(app, token);
   if (!first) throw new Error('overseer pool is empty: nothing left to offer this account');
@@ -54,7 +62,8 @@ export async function chooseOverseer(
     method: 'POST',
     url: '/api/overseer',
     headers: auth(token),
-    payload: { presetId: first.presetId },
+    payload:
+      cityId === undefined ? { presetId: first.presetId } : { presetId: first.presetId, cityId },
   });
 }
 

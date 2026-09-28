@@ -70,6 +70,14 @@ export interface Effective {
   resistances: UnitStats['resistances'];
   /** Named reasons this unit is above or below its sheet, for the report. */
   reasons: readonly string[];
+  /**
+   * How much a gate multiplied this unit's vitality, 1 when no gate is protecting it.
+   *
+   * Kept apart because one kind of attacker does not meet the gate at all: a Breaching unit's hits
+   * land as if it were not there (`matchup.ts`), so the gate's share has to be separable from the
+   * rest of what the holder built. Optional, so a sheet written by hand in a test is ungated.
+   */
+  gateToughness?: number;
 }
 
 /**
@@ -90,6 +98,9 @@ export function contextBonusPercent(
     // Annotated, because the table is declared `as const`: without it every entry narrows to its
     // own literal shape and `affects` "does not exist" on the ones that leave it out.
     const modifier: UnitModifierSpec = UNIT_MODIFIERS[id];
+    // Tracking and Breaching take something off the target rather than adding to this unit, and
+    // are read per exchange in `matchup.ts`.
+    if (modifier.affects === 'evasion' || modifier.affects === 'gate') continue;
     if (!contexts.includes(modifier.context)) continue;
     // `affects` is optional and defaults to damage: every modifier written before a defensive
     // sheet existed is an attack bonus and stays one.
@@ -186,24 +197,27 @@ export function effectiveStats(
   // Everything the holder built buys *toughness*, not damage: a wall does not make a rifle shoot
   // harder. This is the one place percentages land on vitality rather than on offense.
   //
-  // `defensePercent` is what the Gate is for (§A1). It was computed by `districtDefense` and read
-  // by nothing at all: the structure whose entire job is raid protection did not appear anywhere
-  // in a fight. Capped, because a Gate at 20 produces 120 and a defender at +120% toughness on top
-  // of fortification is a district nobody can raid.
-  const held = side.defending ? battlefield.fortifyPercent + territory.defensePercent : 0;
+  // The gate (`gatePercent`) and everything else the holder has that makes them harder to shift
+  // (`defensePercent`), capped together, because a Gate at 20 produces 120 and a defender at +120%
+  // toughness on top of the rest is a district nobody can raid. Dug-in fortification was a third
+  // term here until the maintainer took it out of the game (2026-09-26): a location is made
+  // tougher by its gate and by bonuses, not by digging.
+  const held = side.defending ? territory.defensePercent + territory.gatePercent : 0;
+  const heldWithoutGate = side.defending ? territory.defensePercent : 0;
   // The unit's own toughness modifiers are added *outside* the held-ground cap on purpose. That
   // ceiling exists so no amount of building makes a district untakeable; a sheet that says it is
   // hard to shift is a unit you can be sent to kill, and it is bought one unit at a time.
-  const vitalityBonus =
-    territory.unitVitalityPercent +
-    (tier.vitality ?? 0) +
-    (kind.vitality ?? 0) +
-    Math.min(MAX_HELD_DEFENSE, held) +
-    toughness;
+  const ownToughness =
+    territory.unitVitalityPercent + (tier.vitality ?? 0) + (kind.vitality ?? 0) + toughness;
+  const vitalityBonus = ownToughness + Math.min(MAX_HELD_DEFENSE, held);
+  const withoutGateBonus = ownToughness + Math.min(MAX_HELD_DEFENSE, heldWithoutGate);
+  const withoutGate = 1 + withoutGateBonus / 100;
 
   return {
     offense: sheet.offense * (1 + offenseBonus / 100),
     vitality: sheet.vitality * (1 + vitalityBonus / 100),
+    // What the gate multiplied that by, for the one kind of attacker that does not meet it.
+    gateToughness: withoutGate > 0 ? (1 + vitalityBonus / 100) / withoutGate : 1,
     // Armour is points on a 0..100 rating, not a multiplier: see `unitArmorPercent`. Still capped,
     // so no stack of bonuses produces a unit nothing can hurt. Every rating below goes through
     // `capRating` rather than its own `Math.min`: the maintainer's rule (2026-09-15) is a hard 100

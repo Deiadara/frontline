@@ -11,7 +11,7 @@ import { targetName } from './ground.js';
  * is the same rule `DeclareDialog` follows on the one heading it writes itself.
  */
 describe('what a fight is called', () => {
-  const CONTESTED = 'rustyard';
+  const CONTESTED = 'steelbelt';
   const district = findDistrict(CONTESTED);
   const place = district?.name ?? '';
 

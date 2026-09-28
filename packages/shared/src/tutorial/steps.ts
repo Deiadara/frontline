@@ -108,8 +108,8 @@ export const TUTORIAL_CARDS: readonly TutorialCardSpec[] = [
     title: 'Missions',
     lede: 'The safest money in the game, and the slowest.',
     body: [
-      'A mission sends people out for a set number of minutes and brings back materials. Nobody contests it and nothing is at stake except the time.',
-      'Send an officer with them where you can. Who leads a run changes what comes back from it.',
+      'A mission sends a crew out for a set time and brings back what the job pays. Every card is graded from F- to S+, and a run that fails banks nothing.',
+      'Every run needs somebody leading it, you to start with. Who leads it decides the odds.',
     ],
   },
   {

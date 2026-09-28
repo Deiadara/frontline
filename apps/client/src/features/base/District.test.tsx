@@ -158,6 +158,7 @@ function stubApi({
 }: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
     Promise.resolve({
+      headers: new Headers(),
       ok,
       status,
       statusText: '',
@@ -835,17 +836,42 @@ describe("a neighbour's district (§A4)", () => {
  * answers, is the undiscounted 600, so a case asserting 600 would pass without the query ever
  * having been read.
  */
+/**
+ * The Generator's burn says it is running (maintainer, 2026-09-28): a pop-up over the district
+ * while the tanks are lit, and nothing once they are out. The countdown reads the district's own
+ * timestamp, so the fixture sets one an hour ahead of the frozen clock.
+ */
+describe('the burn notice over the district', () => {
+  it('shows while the tanks are burning, and not otherwise', async () => {
+    const lit = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    stubApi({ detail: { ...base, economy: { ...base.economy, buildBoostUntil: lit } } });
+    renderDistrict();
+    const notice = await screen.findByTestId('burn-notice');
+    expect(notice).toHaveTextContent(/The tanks are burning/);
+    expect(notice).toHaveTextContent(/faster for another/);
+  });
+
+  it('is absent while the tanks are out', async () => {
+    stubApi();
+    renderDistrict();
+    await waitFor(() => expect(plot('The Generator')).toBeInTheDocument());
+    expect(screen.queryByTestId('burn-notice')).toBeNull();
+  });
+});
+
 describe('the payroll book quotes the crew price, not the list price', () => {
   const withCaps = (caps: number): Base => ({
     ...base,
     resources: { ...STARTING_RESOURCES, caps },
   });
 
+  // The book is a window of its own off the Nexus's Change payroll control (2026-09-28).
   const openNexusPayroll = async () => {
     renderDistrict();
     await waitFor(() => expect(plot('The Nexus')).toBeInTheDocument());
     fireEvent.click(plot('The Nexus'));
-    return within(dialog()).getByTestId('nexus-payroll');
+    fireEvent.click(within(dialog()).getByTestId('nexus-change-payroll'));
+    return within(screen.getByTestId('payroll-dialog')).getByTestId('nexus-payroll');
   };
 
   it('takes the step discount off the quoted price and lets the purchase through', async () => {

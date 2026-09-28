@@ -96,9 +96,7 @@ export const WAIVED_REFUSALS: ReadonlySet<string> = new Set([
   'locked',
   'nexus_cap',
   'requirement',
-  /** §H3's other door: the crew level a recruit wants to see before they will sign. */
-  'level',
-  /** §H7a: the same two doors, refused at the table rather than at the signature. */
+  /** §H7a: a recruit's doors, refused at the table rather than at the signature. */
   'not_interested',
   // Capacity gates: there is room for this, just not right now.
   'queue_full',

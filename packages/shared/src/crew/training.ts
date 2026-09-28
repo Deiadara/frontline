@@ -25,9 +25,9 @@ import { GAME_TIMEZONE, dayInZone } from '../time/zone.js';
  * back tomorrow, and a bankable allowance is a reason to come back in a fortnight and spend forty.
  *
  * **An hour each.** Long enough that the queue is a real decision and short enough to finish
- * inside a session. Sessions run side by side across different people; one person can only be
- * doing one thing at a time, which is the only part of this that is a simulation rather than a
- * rule.
+ * inside a session. The floor has one bench ({@link TRAINING_BENCHES}), so the hours run one after
+ * another unless the Professor's track has bought a second, and one person can only be doing one
+ * thing at a time.
  *
  * **Never the same thing twice running.** Without it the whole system collapses into "put every
  * point into your best attribute", the sheet stops describing a person and starts describing a
@@ -233,9 +233,19 @@ export function cancelDrill(state: TrainingState, sessionId: string, now: string
   else if (cancelled.previousAttribute !== undefined) {
     last[cancelled.subjectId] = cancelled.previousAttribute;
   }
+  /*
+   * The slot comes back only when it was spent today.
+   *
+   * `rollDay` has already put today's `used` back to zero, and an hour started before the boundary
+   * was charged against an allowance that no longer exists: taking one off this one hands the crew
+   * an hour they never spent. Reachable on a second bench (`training_benches`), where a drill
+   * started at 23:57 is still inside its six-minute window at 00:01 and today's counter is already
+   * standing at one.
+   */
+  const spentToday = trainingDay(cancelled.startedAt) === rolled.day;
   return {
     ...rolled,
-    used: Math.max(0, rolled.used - 1),
+    used: spentToday ? Math.max(0, rolled.used - 1) : rolled.used,
     sessions: rolled.sessions.filter((session) => session.id !== sessionId),
     last,
   };

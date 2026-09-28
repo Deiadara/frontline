@@ -4,16 +4,14 @@ import { meetsNotoriety } from '../economy/notoriety.js';
 /**
  * Who will even talk to you (GDD §H3).
  *
- * Two thresholds, and they are both numbers a player can see on their own HUD: the **rank** the
- * city has given the crew (§D7) and the crew's own **level** (§I). Nothing here is an opinion any
- * more. The reputation gate that used to sit beside them read a one-word verdict on the crew's
- * behaviour and let half the room refuse over it, which made recruitment a quiz about a label
- * rather than a negotiation about caps: a player who wanted a particular officer had no lever to
- * pull. Now the levers are rank, level and the money, and all three are things you go and get.
+ * The ordinary door is one threshold a player can see on their own HUD: the **rank** the city has
+ * given the crew (§D7). Nothing here is an opinion. The reputation gate that used to sit beside it
+ * read a one-word verdict on the crew's behaviour and let half the room refuse over it, which made
+ * recruitment a quiz about a label rather than a negotiation about caps.
  *
- * The good ones ask for both. A recruit worth a fifth of the payroll book wants to see that the
- * crew is known *and* that it has been around, and asking for one of the two is what makes a
- * mid-table officer reachable early while the top of the room stays something to work towards.
+ * A level door stood beside the rank until 2026-09-28, when the maintainer took it out: every door
+ * in the room is about infamy now, the rank for everybody and the wallet and the badge for the two
+ * standout chairs.
  */
 
 /** §H3: what a character demands of the crew before they will consider signing. */
@@ -27,15 +25,6 @@ export const JoinRequirementSchema = z.object({
    * the wallet; what they actually care about is whether anybody has heard of you.
    */
   minNotoriety: z.number().int().min(0),
-  /**
-   * The crew's own level (§I), or `1`, which every crew clears.
-   *
-   * A different question from the rank beside it, and the reason both exist. Notoriety is how loud
-   * you are; level is how long you have been doing this. A demolitions specialist does not care
-   * that the street knows your name, they care that you have run enough jobs to be worth working
-   * for. Defaulted so a recruit rolled before levels gated anything parses as asking for nothing.
-   */
-  minLevel: z.number().int().min(1).default(1),
   /**
    * Infamy **in the wallet**, which is a different question from the rank above it (maintainer request,
    * 2026-09-11).
@@ -77,8 +66,9 @@ export const RECRUIT_MIN_NOTORIETY_GATE = 1;
 /**
  * The hardest door the *ordinary* room rolls. The two chairs at the end of it ask more.
  *
- * `Marked` is the fifth rung of fourteen and the rank a legendary unit asks for, so an ordinary
- * seat tops out where "has been doing the thing the game is about" tops out.
+ * `Marked` is the fifth rung of fourteen, about two weeks of fighting since the ladder was repriced
+ * (2026-09-28), so an ordinary seat tops out where "has been doing the thing the game is about"
+ * starts. The room's rank shift lifts it as the city climbs (`roomRankShift` in the Bar roster).
  */
 export const RECRUIT_MAX_MIN_NOTORIETY = 5;
 
@@ -96,20 +86,17 @@ export const RECRUIT_MAX_MIN_NOTORIETY = 5;
  */
 export const RECRUIT_LEGEND_NOTORIETY = 8;
 
-/** And the same shape for the level door: reachable, and worth reaching. */
-export const RECRUIT_MIN_LEVEL_GATE = 2;
-export const RECRUIT_MAX_MIN_LEVEL = 25;
-
 /**
- * The infamy door's band, read off the numbers the game already runs on.
+ * The infamy door's band, against what a crew holds in its wallet.
  *
- * The Console's own stages are the yardstick: a mid-game crew sits at about 900 infamy and an
- * end-game one at 25,000. So the softest door opens below mid game and the hardest sits well under
- * the ceiling, which keeps the top of the room something a crew reaches rather than something it
- * ages into.
+ * Retuned with the rank ladder (2026-09-28): a crew that fights every day earns about twelve
+ * thousand infamy by the late game and puts most of it into its name, so a door of twelve thousand
+ * (grown by a fifth per rank of the room) asked for more than it would ever hold at once. The
+ * softest door is a few days of fighting; the hardest, at a room averaging rank ten, about two
+ * weeks of late-game earnings saved rather than spent.
  */
-export const RECRUIT_MIN_INFAMY_GATE = 500;
-export const RECRUIT_MAX_MIN_INFAMY = 12_000;
+export const RECRUIT_MIN_INFAMY_GATE = 200;
+export const RECRUIT_MAX_MIN_INFAMY = 2_500;
 
 /**
  * And the faction door's, against `Faction.infamyEarned`, which is append-only and counts every
@@ -126,8 +113,6 @@ export const RECRUIT_MAX_MIN_FACTION_INFAMY = 5_000;
 export interface CrewStanding {
   /** §D7 rank, an index into `NOTORIETY_TIERS`. */
   notoriety: number;
-  /** §I: `Base.level`. */
-  level: number;
   /** What is in the wallet right now: `Base.economy.infamy`. */
   infamy: number;
   /**
@@ -139,14 +124,12 @@ export interface CrewStanding {
   factionInfamy: number;
 }
 
-export const JOIN_BLOCKERS = ['notoriety', 'level', 'infamy', 'faction'] as const;
+export const JOIN_BLOCKERS = ['notoriety', 'infamy', 'faction'] as const;
 export type JoinBlocker = (typeof JOIN_BLOCKERS)[number];
 
 export interface JoinAssessment {
   /** §H3: the crew's rank clears their requirement. */
   meetsNotoriety: boolean;
-  /** §H3: and so does its level. */
-  meetsLevel: boolean;
   /** ...and there is enough in the wallet. */
   meetsInfamy: boolean;
   /** ...and the badge behind the crew has earned enough. */
@@ -160,23 +143,20 @@ export interface JoinAssessment {
 /** §H3: the whole "will they talk to you" question, in one call. */
 export function assessJoin(requirement: JoinRequirement, crew: CrewStanding): JoinAssessment {
   const okNotoriety = meetsNotoriety(crew.notoriety, requirement.minNotoriety);
-  const okLevel = crew.level >= requirement.minLevel;
   // Defaulted at the read as well as in the schema: a stored requirement from before these two
   // doors existed parses with zeroes, and a hand-built one in a test may leave them out.
   const okInfamy = crew.infamy >= (requirement.minInfamy ?? 0);
   const okFaction = crew.factionInfamy >= (requirement.minFactionInfamy ?? 0);
 
-  // In the order a player should read them: the two they can see on their own HUD, then the wallet,
-  // then the one that is about somebody other than them.
+  // In the order a player should read them: the rank on their own HUD, then the wallet, then the
+  // one that is about somebody other than them.
   const blockers: JoinBlocker[] = [];
   if (!okNotoriety) blockers.push('notoriety');
-  if (!okLevel) blockers.push('level');
   if (!okInfamy) blockers.push('infamy');
   if (!okFaction) blockers.push('faction');
 
   return {
     meetsNotoriety: okNotoriety,
-    meetsLevel: okLevel,
     meetsInfamy: okInfamy,
     meetsFaction: okFaction,
     interested: blockers.length === 0,

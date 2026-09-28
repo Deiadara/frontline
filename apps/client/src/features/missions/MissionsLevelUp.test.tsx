@@ -44,8 +44,11 @@ function board(levelUp?: LevelUp): { data: MissionsResponse; dataUpdatedAt: numb
       activeLimit: 3,
       serverNow: NOW,
       leaders: [],
-      unledRule: 'free',
       level: 12,
+      // The board's city and the rooms this crew may read. Both carry a Zod default on the
+      // wire; a hand-written fixture has to say them.
+      cityId: 'ashfall',
+      cities: ['ashfall'],
       ...(levelUp ? { levelUp } : {}),
     },
     dataUpdatedAt: Date.parse(NOW),

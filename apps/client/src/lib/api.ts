@@ -74,9 +74,7 @@ import {
   SettingsResponseSchema,
   AdminSnapshotSchema,
   AdminMutationResponseSchema,
-  type FortifyRequest,
   type UpgradeLocationRequest,
-  type GarrisonRequest,
   type PlantSleepersRequest,
   type RecallSleepersRequest,
   type ScoutRequest,
@@ -96,6 +94,7 @@ import {
   type LaunchMissionInput,
   type SaveAutomationRequest,
   type LevelUp,
+  type PartialResources,
   type LoginRequest,
   type RegisterRequest,
   type StartTrainingRequest,
@@ -105,6 +104,7 @@ import {
   type UnlockBlueprintRequest,
   type BarterRequest,
   type PostOfferRequest,
+  type ClaimMarketRequest,
   type OfferActionRequest,
   type PlaceBlackMarketBidRequest,
   type TutorialSeenRequest,
@@ -123,6 +123,9 @@ import {
   type RecallSpyRequest,
   type MoveUnitsRequest,
   type RecallMoveRequest,
+  DeployQuoteResponseSchema,
+  FightLeaderQuoteResponseSchema,
+  type FightLeaderQuoteRequest,
   MoveQuoteResponseSchema,
   type SpyRequest,
   type CancelGateRaiseRequest,
@@ -130,9 +133,13 @@ import {
 } from '@frontline/shared';
 import { z } from 'zod';
 import { useSession } from '../store/session';
+import { askToWaste } from '../store/wasteConfirm';
 
 /** All endpoints live under this prefix (proxied to the API server in dev). */
 export const API_BASE_URL = '/api';
+
+/** The response header a renewed session token arrives in (`apps/server/src/auth/session.ts`). */
+export const SESSION_HEADER = 'x-session-token';
 
 /** A typed, non-2xx API failure surfaced from the shared error envelope. */
 export class ApiRequestError extends Error {
@@ -145,9 +152,42 @@ export class ApiRequestError extends Error {
      * the write paths, so a rejection can be the only response that ever carries one.
      */
     readonly levelUp?: LevelUp | undefined,
+    /** `WOULD_WASTE`: what the request would have thrown away, for the question put to the player. */
+    readonly waste?: PartialResources | undefined,
   ) {
     super(message);
     this.name = 'ApiRequestError';
+  }
+}
+
+/**
+ * The code a request carries when the player said no to the waste warning.
+ *
+ * Its message is empty on purpose: the player has just answered a dialog, and nothing went wrong
+ * that a red note under the button could add to. `ErrorNote` draws nothing for an empty refusal.
+ */
+export const WASTE_DECLINED = 'WASTE_DECLINED';
+
+/**
+ * A request that can credit more than the stores hold, asked about first (maintainer ruling,
+ * 2026-09-28).
+ *
+ * Sent without the flag; a `WOULD_WASTE` refusal puts the server's figure to the player through
+ * `askToWaste`, and a yes sends the same request again with `acceptWaste`. Here in the fetch layer
+ * rather than on each screen, so every button that can waste asks the same question the same way
+ * and a new one cannot forget to.
+ */
+async function mindingWaste<T>(send: (acceptWaste: true | undefined) => Promise<T>): Promise<T> {
+  try {
+    return await send(undefined);
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.code !== 'WOULD_WASTE' || !error.waste) {
+      throw error;
+    }
+    if (!(await askToWaste(error.waste))) {
+      throw new ApiRequestError(error.status, WASTE_DECLINED, '');
+    }
+    return send(true);
   }
 }
 
@@ -168,13 +208,25 @@ export async function apiFetch<Schema extends z.ZodType>(
 
   const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
 
+  /*
+   * A login lasts thirty days and is renewed while the player plays: any answer may carry a fresh
+   * token, and a password change or "log out everywhere" hands this tab its only surviving one.
+   *
+   * Both halves apply only while the token this request was sent with is still the tab's token. A
+   * poll that left before "log out everywhere" comes back 401 after the tab has already been handed
+   * its new token; acting on it signed out the one session that was meant to survive.
+   */
+  const current = () => useSession.getState().token === token;
+  const renewed = res.headers.get(SESSION_HEADER);
+  if (renewed && current()) useSession.getState().setToken(renewed);
+
   if (!res.ok) {
-    if (res.status === 401) useSession.getState().logout();
+    if (res.status === 401 && current()) useSession.getState().logout();
     const parsed = ApiErrorSchema.safeParse(await res.json().catch(() => null));
     const { code, message } = parsed.success
       ? parsed.data.error
       : { code: 'UNKNOWN', message: res.statusText || 'Request failed' };
-    throw new ApiRequestError(res.status, code, message, parsed.data?.levelUp);
+    throw new ApiRequestError(res.status, code, message, parsed.data?.levelUp, parsed.data?.waste);
   }
 
   return schema.parse(await readJson(res, path));
@@ -223,7 +275,18 @@ export const createOverseer = (body: CreateOverseerRequest) =>
 export const getOverseerChoices = () =>
   apiFetch('/overseer/choices', OverseerChoicesResponseSchema);
 
-export const getCity = () => apiFetch('/city', CityResponseSchema);
+/**
+ * §A4: the map of a city, its fog and its holdings.
+ *
+ * `city` is left off for the crew's own, the way `getBar` and `getMarket` take it. The map's door
+ * is looser than a room's, though: any city with ground drawn for it answers, held or not, because
+ * looking at a city is how a player decides to take something in it (`routes/city.ts`).
+ */
+export const getCity = (city?: string) =>
+  apiFetch(
+    city === undefined ? '/city' : `/city?city=${encodeURIComponent(city)}`,
+    CityResponseSchema,
+  );
 
 export const getBase = (id: string) => apiFetch(`/base/${id}`, BaseDetailResponseSchema);
 
@@ -258,9 +321,6 @@ export const getDistrict = (id: string) => apiFetch(`/city/${id}`, DistrictDetai
 export const scoutDistrict = (body: ScoutRequest) =>
   apiFetch('/city/scout', CityMutationResponseSchema, jsonBody(body));
 
-export const setGarrison = (body: GarrisonRequest) =>
-  apiFetch('/city/garrison', CityMutationResponseSchema, jsonBody(body));
-
 /** §A4: plant a cell of Sleepers on ground this crew does not hold (`sleepers.ts`). */
 export const plantSleepers = (body: PlantSleepersRequest) =>
   apiFetch('/city/sleepers', CityMutationResponseSchema, jsonBody(body));
@@ -268,9 +328,6 @@ export const plantSleepers = (body: PlantSleepersRequest) =>
 /** ...and pull one back out. They walk home the leg they walked out. */
 export const recallSleepers = (body: RecallSleepersRequest) =>
   apiFetch('/city/sleepers/recall', z.object({ ok: z.literal(true) }), jsonBody(body));
-
-export const fortifyLocation = (body: FortifyRequest) =>
-  apiFetch('/city/fortify', CityMutationResponseSchema, jsonBody(body));
 
 /** §A4: work a location you hold up one level. */
 export const upgradeLocation = (body: UpgradeLocationRequest) =>
@@ -285,6 +342,27 @@ export const declareBattle = (body: DeclareBattleRequest) =>
 
 export const deployToBattle = (body: DeployRequest) =>
   apiFetch('/battles/deploy', BattleMutationResponseSchema, jsonBody(body));
+
+/**
+ * What this column's road actually costs, answered by the server with nothing moved.
+ *
+ * The same body as the deploy and the same answer shape as `POST /actions/move/quote`, because it
+ * is the same two questions: how long the march takes, and whether Terminus's line has a ride to
+ * offer instead.
+ *
+ * It exists because the window could not work the first one out. `travelMinutesBetween` spends
+ * three channels the server reads off `standingEffectsFor` and none of them is on `BattleView`:
+ * `unitSpeedPercent` on the column's pace, `travelSpeedPercent` and `roadMinutesOff` on the clock.
+ * A screen quoting the road from the catalogue alone therefore promised a longer journey than the
+ * crew makes, and labelled it "at most" to stay honest about it. One request is cheaper than
+ * teaching the client a fold it cannot see, and it is what the Move dialog already does.
+ */
+export const quoteDeploy = (body: DeployRequest) =>
+  apiFetch('/battles/deploy/quote', DeployQuoteResponseSchema, jsonBody(body));
+
+/** Who should lead a fight job with this force: every leader on the bench, best first. */
+export const quoteFightLeaders = (body: FightLeaderQuoteRequest) =>
+  apiFetch('/missions/leaders/quote', FightLeaderQuoteResponseSchema, jsonBody(body));
 
 export const layTrap = (body: LayTrapRequest) =>
   apiFetch('/battles/trap', BattleMutationResponseSchema, jsonBody(body));
@@ -321,9 +399,15 @@ export const trainUnits = (body: TrainUnitsRequest) =>
   apiFetch('/units/train', TrainUnitsResponseSchema, jsonBody(body));
 
 export const cancelTraining = (body: CancelTrainingRequest) =>
-  apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody(body));
+  mindingWaste((acceptWaste) =>
+    apiFetch('/units/cancel', TrainUnitsResponseSchema, jsonBody({ ...body, acceptWaste })),
+  );
 
-export const getMissions = () => apiFetch('/missions', MissionsResponseSchema);
+export const getMissions = (city?: string) =>
+  apiFetch(
+    city === undefined ? '/missions' : `/missions?city=${encodeURIComponent(city)}`,
+    MissionsResponseSchema,
+  );
 
 export const launchMission = (body: LaunchMissionInput) =>
   apiFetch('/missions', LaunchMissionResponseSchema, jsonBody(body));
@@ -397,20 +481,26 @@ export const unlockBlueprint = (body: UnlockBlueprintRequest) =>
 export const reimagine = (body: ReimagineRequest) =>
   apiFetch('/blueprints/reimagine', ReimagineResponseSchema, jsonBody(body));
 
-export const buySupply = (body: BuySupplyRequest) =>
-  apiFetch('/market/supply', MarketMutationResponseSchema, jsonBody(body));
+// Every market write that can put goods into the stores asks before it wastes any.
+const marketWrite = <Body extends object>(path: string, body: Body) =>
+  mindingWaste((acceptWaste) =>
+    apiFetch(path, MarketMutationResponseSchema, jsonBody({ ...body, acceptWaste })),
+  );
 
-export const barterResources = (body: BarterRequest) =>
-  apiFetch('/market/barter', MarketMutationResponseSchema, jsonBody(body));
+export const buySupply = (body: BuySupplyRequest) => marketWrite('/market/supply', body);
 
+export const barterResources = (body: BarterRequest) => marketWrite('/market/barter', body);
+
+// Posting only takes goods out, into escrow: what the listing brings in waits for a claim.
 export const postOffer = (body: PostOfferRequest) =>
   apiFetch('/market/offer', MarketMutationResponseSchema, jsonBody(body));
 
-export const withdrawOffer = (body: OfferActionRequest) =>
-  apiFetch('/market/withdraw', MarketMutationResponseSchema, jsonBody(body));
+export const withdrawOffer = (body: OfferActionRequest) => marketWrite('/market/withdraw', body);
 
-export const acceptOffer = (body: OfferActionRequest) =>
-  apiFetch('/market/accept', MarketMutationResponseSchema, jsonBody(body));
+export const acceptOffer = (body: OfferActionRequest) => marketWrite('/market/accept', body);
+
+/** Goods the board is holding for this crew (`MarketClaim`), into the stores. */
+export const claimMarketGoods = (body: ClaimMarketRequest) => marketWrite('/market/claim', body);
 
 /**
  * The back room. Its own endpoint, because it spends infamy rather than the stockpile.
@@ -437,6 +527,10 @@ export const updateProfile = (body: UpdateProfileRequest) =>
 
 export const changePassword = (body: ChangePasswordRequest) =>
   apiFetch('/settings/password', SettingsResponseSchema, jsonBody(body));
+
+/** Ends every session this account has open except this tab's, which is handed a new token. */
+export const logoutEverywhere = () =>
+  apiFetch('/auth/logout-all', z.object({ ok: z.literal(true) }), jsonBody({}));
 
 /** Records opening tutorial cards as shown. Skip is this call carrying every step. */
 export const markTutorialSeen = (body: TutorialSeenRequest) =>
@@ -589,16 +683,23 @@ export const raiseGate = (body: RaiseGateRequest) =>
  * counterpart does, so the caches the start wrote are the caches the cancel writes.
  */
 export const cancelBuild = (body: CancelBuildRequest) =>
-  apiFetch('/base/cancel', BuildStructureResponseSchema, jsonBody(body));
+  mindingWaste((acceptWaste) =>
+    apiFetch('/base/cancel', BuildStructureResponseSchema, jsonBody({ ...body, acceptWaste })),
+  );
 
 export const cancelResearch = (body: CancelResearchRequest) =>
-  apiFetch('/research/cancel', ResearchResponseSchema, jsonBody(body));
+  mindingWaste((acceptWaste) =>
+    apiFetch('/research/cancel', ResearchResponseSchema, jsonBody({ ...body, acceptWaste })),
+  );
 
 export const cancelLocationUpgrade = (body: CancelLocationWorkRequest) =>
-  apiFetch('/city/cancel-upgrade', CityMutationResponseSchema, jsonBody(body));
-
-export const cancelLocationFortify = (body: CancelLocationWorkRequest) =>
-  apiFetch('/city/cancel-fortify', CityMutationResponseSchema, jsonBody(body));
+  mindingWaste((acceptWaste) =>
+    apiFetch(
+      '/city/cancel-upgrade',
+      CityMutationResponseSchema,
+      jsonBody({ ...body, acceptWaste }),
+    ),
+  );
 
 /** A journey pays back time rather than caps: the scout walks home the distance covered. */
 export const recallScout = (body: RecallScoutRequest) =>
@@ -623,7 +724,9 @@ export const recallMove = (body: RecallMoveRequest) =>
   apiFetch('/actions/move/recall', ActionsResponseSchema, jsonBody(body));
 
 export const cancelGateRaise = (body: CancelGateRaiseRequest) =>
-  apiFetch('/city/gate/cancel', CityResponseSchema, jsonBody(body));
+  mindingWaste((acceptWaste) =>
+    apiFetch('/city/gate/cancel', CityResponseSchema, jsonBody({ ...body, acceptWaste })),
+  );
 
 export const cancelDrill = (body: CancelDrillRequest) =>
   apiFetch('/training/cancel', TrainingResponseSchema, jsonBody(body));

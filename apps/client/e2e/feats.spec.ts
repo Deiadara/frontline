@@ -361,8 +361,9 @@ for (const [tag, width, height] of [
     await settleFonts(page);
     await expect(card).toContainText('Level 24');
     await expect(card).toContainText('+2 levels');
-    // What the level is worth, which is the half the old banner buried under a divider.
-    await expect(card).toContainText('25');
+    // What the level opened. The recruit-slot count left the card on 2026-09-28 (maintainer).
+    await expect(card).toContainText('Research is open.');
+    await expect(card).not.toContainText('on the books');
 
     const clipped = await page.evaluate<string[]>(() =>
       [...document.querySelectorAll<HTMLElement>('[data-testid="level-up-toast"] *')]

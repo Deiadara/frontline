@@ -1,9 +1,10 @@
 import {
+  breaksWalls,
+  gateIsBroken,
   type LineRules,
   combineLeaderAt,
   combinePresenceOver,
   capturedGateDefensePercent,
-  addResources,
   mergeResources,
   battlefieldFor,
   breachExpiry,
@@ -59,10 +60,11 @@ import {
   districtDisplayName,
   battleMargin,
   infirmaryRecoveryPercent,
-  leading,
+  leadingAs,
+  officerSheetBonusFor,
   mulberry32,
   officerInjured,
-  officerIsInjured,
+  officerIsWorking,
   officerRecoveryAt,
   mergeFleets,
   removeFleet,
@@ -81,30 +83,40 @@ import {
   fightingSlots,
   unitSlotsUsed,
   vehicleNoun,
+  describeWaste,
 } from '@frontline/shared';
+import { creditBase } from '../district/stores.js';
+import { settleBasesById } from '../district/settle.js';
+import { putControl } from '../city/actions.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { recallOvertaken } from './movement.js';
+import { recallOvertaken, turnRound } from './movement.js';
+import { alignmentReader, fightPlaceFor, musterAtTheMark, presenceAt } from './alignment.js';
+import { walkHome } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { sideForce, splitSurvivors } from './side.js';
 import { notifyBase } from '../social/notify.js';
 import { cityLevelFor } from '../blackmarket/shelf.js';
 
-import { forceSize, mergeArmies, removeForce } from './forces.js';
+import { forceSize, mergeArmies, offTheLine, removeForce } from './forces.js';
 import {
   tallyBattleResolved,
   tallyBattleShape,
   tallyCombineFight,
   tallyCaptured,
   tallyDistrictRaid,
+  tallyDistrictStripped,
   tallyInfamyEarned,
   tallyResourcesEarned,
   tallyRunnersCaught,
   tallyUnitsRouted,
+  tallyGateLevelsBroken,
   tallyTrapKills,
 } from '../feats/tally.js';
 import { controlsIn, defendingBaseOf, residentOf, targetName } from './ground.js';
 import { awardPlayerXp } from '../progression/award.js';
 import { gateFor, holdsDistrictWhole, resetGateOnDistrictLost } from '../city/gates.js';
+import { settleEach } from '../world/guard.js';
+import { gateLoweredLine, lowerGatesInPlay } from './wall-breaker.js';
 
 /**
  * Running the fights whose mark has passed (GDD §A4, battle rework).
@@ -140,6 +152,16 @@ interface Assembled {
   fromHomeRoster: boolean;
   /** A call on the resident's own door: met by the gate garrison, not the district army (2026-09-22). */
   atTheGate: boolean;
+  /**
+   * The control rows the defence was drawn off, and what each of them put in the line.
+   *
+   * Only ever filled on the regime's or the looters' ground, where the defence *is* the district's
+   * standing garrisons. It is what the settle writes the survivors back to, and it has to be
+   * carried out of here because afterwards nothing can say which plot a given body came off: the
+   * engine answers for the side as a whole. Empty everywhere else, which is every fight a crew
+   * defends.
+   */
+  garrisons: { locationId: string; contributed: Army }[];
   /** Faction allies' postings on the ground, by crew: theirs, fighting for the holder. */
   posted: { baseId: string; army: Army }[];
 }
@@ -169,8 +191,16 @@ export function assemble(
   if (battle.target.kind === 'location') {
     const control = repos.city.control(battle.target.locationId);
     if (control) defending = mergeArmies(defending, control.garrison);
-    // Allies posted on the ground stand in the line with the garrison (2026-09-22).
-    const posted = repos.alliedGarrisons.at(battle.target.locationId);
+    /*
+     * Postings on the ground stand in the line with the garrison (2026-09-22), when their crew is
+     * on the defender's side at the mark (2026-09-28, `battle/alignment.ts`). A neutral's posting
+     * is parked and takes no part; one whose crew attacks has already been walked into that
+     * crew's attacking row by `musterAtTheMark`.
+     */
+    const sideOf = alignmentReader(repos, battle);
+    const posted = repos.alliedGarrisons
+      .at(battle.target.locationId)
+      .filter((row) => sideOf(row.baseId) === 'defender');
     for (const row of posted) defending = mergeArmies(defending, row.army);
     return {
       attacking,
@@ -178,6 +208,24 @@ export function assemble(
       defenderRing,
       fromHomeRoster: false,
       atTheGate: false,
+      /*
+       * The regime's plot is a row in the split like any other (bug pass, 2026-09-24).
+       *
+       * A crew's ground is rebuilt from the whole surviving line below, which is right: everything
+       * in it is theirs, the garrison and the column they sent up for the fight alike. On the
+       * regime's ground the line also holds the muster `declare` turned out (`battle/npc.ts`), and
+       * that stands on no plot. Writing the lot back made a raid the Combine turned back leave
+       * *more* bodies on the plot than it started with, which is the regime growing by fighting:
+       * the exact thing {@link spendGarrisons} drops the muster's share to prevent at a gate. The
+       * two paths disagreed about one fiction, and this is the gate's reading.
+       *
+       * A posting is only ever on ground the poster's ally holds, so `posted` is empty whenever
+       * this row is filled in and the split's leftover row is the muster and nothing else.
+       */
+      garrisons:
+        control && control.holder.kind !== 'crew' && forceSize(control.garrison) > 0
+          ? [{ locationId: battle.target.locationId, contributed: control.garrison }]
+          : [],
       posted,
     };
   }
@@ -194,7 +242,8 @@ export function assemble(
    *     remember to defend the room they are standing in. Its survivors then *replace* the roster,
    *     which is what `fromHomeRoster` is for.
    *   * The Combine's ground is defended by every garrison on it, plus the muster `declare` wrote.
-   *     Nothing is settled against a party with no base, so nothing is written back either.
+   *     There is no crew to settle against, so the survivors go back to the plots they came off
+   *     instead: the rows are carried out on `garrisons` and spent by `spendGarrisons`.
    *   * A crew holding ground it does not live on defends with **what it sent**. Its home army is
    *     three districts away and did not march.
    *
@@ -205,14 +254,14 @@ export function assemble(
    * gate in a district they only held on paper destroyed everything they owned at home. An attacker
    * who wanted a rival's standing army gone did not have to go and find it.
    *
-   * The garrisons are deliberately not folded in for a crew holder. They are never written back on
-   * a gate fight (`setGarrison` is only called for a `location` target), so folding them in would
-   * make them a defence that fights for free and cannot be killed, and merging the survivors home
-   * afterwards would credit the roster with units still standing on their locations. Ground held
-   * at a distance is defended by the column you send to it.
+   * The garrisons are deliberately not folded in for a crew holder. A crew's garrisons are the
+   * crew's, standing on plots they chose to leave them on, and a gate fight three streets away is
+   * not a thing they walked to: conscripting them would empty a crew's whole map into one battle
+   * they never sent anybody to. Ground held at a distance is defended by the column you send to it.
    */
   const livesHere = defenderBase?.districtId === battle.target.districtId;
   const atTheGate = livesHere && battle.target.kind === 'gate';
+  const garrisons: Assembled['garrisons'] = [];
   if (livesHere) {
     // Each half of the army defends its own place (2026-09-22): the door is met by the gate
     // garrison, and a raid inside a breach by whoever is standing in the district.
@@ -222,7 +271,24 @@ export function assemble(
     );
   } else if (!defenderBase) {
     for (const { locationId, control } of controlsIn(repos, battle.target.districtId)) {
-      defending = mergeArmies(defending, withoutTheLeader(locationId, control.garrison));
+      /*
+       * The regime's plots and the squatters', never a crew's (bug pass, 2026-09-24).
+       *
+       * `!defenderBase` says only that no crew answers for the *district*, and a district can
+       * hold a crew's plot while still reading `government` on the battle row: break a Combine
+       * gate, call it a second time while the breach is open, and take a plot inside before the
+       * second call lands. Every row in the district was folded in, so the new holder's units
+       * were conscripted into the regime's line, killed in a fight they never sent anybody to,
+       * and written back eroded by `spendGarrisons`. They were told nothing and paid nothing.
+       *
+       * The rule is the one the block above already states for a crew that holds ground at a
+       * distance: ground held away from the fight is defended by the column you send to it.
+       */
+      if (control.holder.kind === 'crew') continue;
+      const standing = withoutTheLeader(locationId, control.garrison);
+      if (forceSize(standing) === 0) continue;
+      garrisons.push({ locationId, contributed: standing });
+      defending = mergeArmies(defending, standing);
     }
   }
   return {
@@ -231,20 +297,70 @@ export function assemble(
     defenderRing,
     fromHomeRoster: livesHere,
     atTheGate,
+    garrisons,
     posted: [],
   };
+}
+
+/**
+ * The regime's survivors, back onto the plots they were drawn off (maintainer, 2026-09-24).
+ *
+ * *"The army of combine erodes during the week."* Without this the erosion never happened: the
+ * garrisons were folded into every gate and district fight and no write took them out again, so a
+ * Combine district's army was an immortal defence that was nonetheless counted as killed. Measured
+ * on the boot world with 400 Razors against the `neon-docks` gate, the defence committed 46 and
+ * lost 29, the attacker banked 37 infamy and the win, and the seven `civic_levy` rows behind the
+ * gate were byte-identical before and after. One fight a day, for ever, against an army that could
+ * not be spent.
+ *
+ * Apportioned with the same largest-remainder split the crews' survivors go home by
+ * (`battle/side.ts`), because it is the same question with a plot where a crew would be: the
+ * engine answers for the side as a whole and somebody has to decide which of the seven rows the
+ * eleven who walked away were standing on.
+ *
+ * Two things in the line are **not** written back, and both would be a regime that grows by
+ * fighting:
+ *
+ *   * **The muster.** `declare` turns the district out on top of the garrisons (`battle/npc.ts`)
+ *     and it stands on no plot, so it is a row in the split and its share is simply dropped.
+ *   * **Nothing that was never in it.** The leader is held out of these fights by
+ *     {@link withoutTheLeader}, so what a row put in is `contributed` rather than its whole
+ *     garrison; whatever was held back is put straight back on the row untouched.
+ */
+function spendGarrisons(repos: Repositories, assembled: Assembled, survivors: Army): void {
+  const fromPlots = assembled.garrisons.reduce<Army>(
+    (all, row) => mergeArmies(all, row.contributed),
+    {},
+  );
+  const rows = [
+    ...assembled.garrisons.map((row) => ({ baseId: row.locationId, army: row.contributed })),
+    // Whatever stood in the line and came off no plot: the muster, and nothing else.
+    { baseId: null, army: removeForce(assembled.defending, fromPlots) },
+  ];
+  const shares = splitSurvivors(rows, survivors, (row) => row.army);
+
+  for (const { locationId, contributed } of assembled.garrisons) {
+    const control = repos.city.control(locationId);
+    if (!control) continue;
+    const heldBack = removeForce(control.garrison, contributed);
+    repos.city.setGarrison(locationId, mergeArmies(shares.get(locationId) ?? {}, heldBack));
+  }
 }
 
 /**
  * A plot's garrison with its Combine legendary left standing on it (`city/combine.ts`).
  *
  * "The leader himself stands on one location and fights only there." A gate fight is not on his
- * plot, and nothing above this line is written back for a gate: `setGarrison` runs for a
- * `location` target and nothing else. So folding him into a district's defence put him in a fight
- * he cannot die in, and the settle then counted him among the dead anyway. Measured on the
- * Annexes gate: the ledger wrote `combine_leaders_slain:syndic`, the uplink still held her sheet,
- * and every later fight in the district carried her power. A crew could collect the feat for
- * killing her as often as it liked and never once take the power off the ground.
+ * plot, so folding him into a district's defence put him in a fight he was not at. It used to be
+ * worse than that: nothing was written back for a gate at all, so he died in a fight he could not
+ * die in. Measured on the Annexes gate: the ledger wrote `combine_leaders_slain:syndic`, the
+ * uplink still held her sheet, and every later fight in the district carried her power. A crew
+ * could collect the feat for killing her as often as it liked and never once take the power off
+ * the ground.
+ *
+ * The write-back exists now ({@link spendGarrisons}), and this is still the rule: he is not in
+ * `contributed`, so he is not in the split and not in what the plot is handed afterwards. He is
+ * put back on the row exactly as he was found. The only way to him is his own plot.
  *
  * Only the leader is held back. The regiment standing beside him fights the gate as it always
  * has, which is a separate rule with its own reasons written above.
@@ -277,7 +393,6 @@ export function battlefieldOf(
   battle: ScheduledBattle,
   /** Only the name is used, for the home-district fallback. Narrowed so callers need no District. */
   districtName: string,
-  fortification: number,
 ): Battlefield {
   const at = new Date(battle.scheduledFor);
   if (battle.target.kind === 'location') {
@@ -286,8 +401,6 @@ export function battlefieldOf(
       return battlefieldFor({
         locationName: location.name,
         kind: location.kind,
-        fortifyDifficulty: location.fortifyDifficulty,
-        fortifyLevel: fortification,
         at,
       });
     }
@@ -369,6 +482,18 @@ function springAnyTrap(repos: Repositories, battle: ScheduledBattle, attacking: 
     owner.resources,
     removeItems(owner.inventory, { [spec.id]: 1 }),
   );
+
+  // A Wall Breaker in the column walks through it (maintainer, 2026-09-26): the trap is spent all
+  // the same, and takes nobody.
+  if (breaksWalls(attacking)) {
+    return {
+      attacking,
+      killed: {},
+      note: { name: spec.name, killed: 0 },
+      wipedOut: false,
+      ownerBaseId: owner.id,
+    };
+  }
 
   const toll = springTrap(attacking, spec);
   return {
@@ -485,7 +610,14 @@ function situational(
 
 function withGate(
   effects: CrewEffects,
-  buildings: readonly Building[],
+  /**
+   * The defender's home buildings when this fight is at their own home gate and it stands; `null`
+   * everywhere else. A gate's bonus counts only at that gate (maintainer, 2026-09-28: "home
+   * gate's at home, and another districts' gate at that districts' gate"), so the home Gate, which
+   * `standingEffectsFor` folds into `gatePercent` for every fight, is taken back out of any fight
+   * that is not at it.
+   */
+  homeBuildings: readonly Building[] | null,
   /**
    * §B7: the gate on the ground this fight is being had on, when the defender holds it whole.
    *
@@ -513,12 +645,13 @@ function withGate(
    */
   // No Gate, no bonus: the perk buys a better door, not a door. A captured gate is a door, so it
   // counts for the perk too: a Gatewright is worth the same on a wall they took as on one they built.
-  const anyGate = districtDefense(buildings) > 0 || capturedGateLevel > 0;
+  const home = homeBuildings !== null && districtDefense(homeBuildings) > 0;
+  const anyGate = home || capturedGateLevel > 0;
   const fromPerks = anyGate ? effects.gateDefensePercent : 0;
   const captured = capturedGateDefensePercent(capturedGateLevel);
   return {
     ...effects,
-    defensePercent: effects.defensePercent + captured + fromPerks,
+    gatePercent: (homeBuildings !== null ? effects.gatePercent : 0) + captured + fromPerks,
   };
 }
 
@@ -555,25 +688,99 @@ export function settleBattles(
   now: Date,
 ): ResolvedSiege[] {
   const resolved: ResolvedSiege[] = [];
-  for (const battle of repos.sieges.due(now.toISOString())) {
-    if (!isBattleDue(battle, now)) continue;
-    /*
-     * One fight, one transaction.
-     *
-     * A fight is not a single write. It springs the trap standing on the ground, runs the engine,
-     * marks itself resolved, moves both sides' armies, hands over the location and pays out the
-     * haul, and those happen in that order. Unwrapped, anything that threw between the first and
-     * the last left the world in a state the rules do not describe: the clearest is the trap, which
-     * `springAnyTrap` consumes *before* the engine runs, so an engine that threw took the
-     * defender's trap with it and left the fight to run again later without one.
-     *
-     * Per fight rather than per sweep, so one unreadable battle cannot roll back the fights that
-     * resolved cleanly beside it in the same tick.
-     */
-    const outcome = repos.tx(() => resolveOne(repos, engine, battle, now));
-    if (outcome) resolved.push(outcome);
-  }
+  const due = repos.sieges.due(now.toISOString()).filter((battle) => isBattleDue(battle, now));
+  // `settleEach` owns the transaction below and catches a fight that throws, so one unreadable
+  // battle is reported and retried rather than stopping every fight after it (`world/guard.ts`).
+  settleEach(
+    repos,
+    'battles',
+    due,
+    (battle) => battle.id,
+    (battle) => {
+      /*
+       * One fight, one transaction.
+       *
+       * A fight is not a single write. It springs the trap standing on the ground, runs the engine,
+       * marks itself resolved, moves both sides' armies, hands over the location and pays out the
+       * haul, and those happen in that order. Unwrapped, anything that threw between the first and
+       * the last left the world in a state the rules do not describe: the clearest is the trap, which
+       * `springAnyTrap` consumes *before* the engine runs, so an engine that threw took the
+       * defender's trap with it and left the fight to run again later without one.
+       *
+       * Per fight rather than per sweep, so one unreadable battle cannot roll back the fights that
+       * resolved cleanly beside it in the same tick.
+       */
+      /*
+       * A fight nothing can resolve is closed rather than retried for ever.
+       *
+       * `resolveOne` answers `null` when the target district or the attacking crew is not there any
+       * more, and the sweep used to just skip it. That left the row in `due()` on every tick, holding
+       * one of the attacker's three declaration slots permanently, with any column already folded
+       * into its deployment never sent home. Checked here rather than inside `resolveOne`, because
+       * from outside the two reasons it can answer `null` are indistinguishable and only these two
+       * are unresolvable rather than merely unlucky.
+       */
+      if (!findDistrict(battle.target.districtId) || !repos.bases.findById(battle.attackerBaseId)) {
+        callOff(repos, battle, now);
+        return;
+      }
+      /*
+       * A raid lands inside its breach or not at all (maintainer, 2026-09-27). The declaration
+       * refuses a mark at or past the breach (`throughBreach` in `declare.ts`), and it is the only
+       * thing that sets a mark, so a legal call never reaches this: it is a backstop for a row
+       * written some other way (maintainer, 2026-09-28). Raids only: whether a *location* fight went through a breach is a fact
+       * about the district when it was called, and the district may have shut since for reasons of
+       * its own. Everybody goes home, and both sides are told why.
+       */
+      const district = findDistrict(battle.target.districtId)!;
+      if (
+        battle.target.kind === 'district' &&
+        !gateIsBroken(repos.sieges.gate(district.id), new Date(battle.scheduledFor))
+      ) {
+        const told = new Set(
+          [
+            battle.attackerBaseId,
+            ...repos.sieges.deployments(battle.id).map((row) => row.baseId),
+          ].filter((id): id is string => id !== null),
+        );
+        callOff(repos, battle, now);
+        for (const baseId of told) {
+          notifyBase(repos, baseId, {
+            kind: 'battle_report',
+            title: 'The gate was back up in time',
+            body: `The fight at ${district.name} was called off. Everybody came home.`,
+            link: '/game/battles',
+            now,
+          });
+        }
+        return;
+      }
+      const outcome = resolveOne(repos, engine, battle, now);
+      if (outcome) resolved.push(outcome);
+    },
+  );
   return resolved;
+}
+
+/**
+ * Closes a fight without fighting it, and sends everybody home with what they brought.
+ *
+ * Every column still walking turns round, and everybody already standing on the fight walks home
+ * from it with the machines they came in (bug pass, 2026-09-27: a row nobody reads again was an
+ * army lost). Both walk (maintainer, 2026-09-28): they used to reappear on the roster the instant
+ * the fight was called off, wherever in the city it was.
+ */
+function callOff(repos: Repositories, battle: ScheduledBattle, now: Date): void {
+  repos.sieges.abandon(battle.id, now.toISOString());
+  for (const movement of repos.movements.forBattle(battle.id)) {
+    turnRound(repos, movement, now);
+  }
+  for (const row of repos.sieges.deployments(battle.id)) {
+    const owner = row.baseId === null ? undefined : repos.bases.findById(row.baseId);
+    if (!owner) continue;
+    const place = fightPlaceFor(battle, owner);
+    walkHome(repos, owner, place, mergeArmies(row.army, row.perimeter), row.vehicles, now);
+  }
 }
 
 /**
@@ -712,6 +919,8 @@ export const STIM_PERCENT_EACH = 3;
  * Re-read against the roster at the mark rather than trusted from the row. An id written sixteen
  * hours ago can name somebody who has since been released, or who came back hurt from an earlier
  * fight, and an injured officer is out: §D4 says their services are off, and leading is a service.
+ * So is a benched one (maintainer, 2026-09-28): a fight named before the bench went inert, or one
+ * whose officer lost a chair since, is led by nobody rather than by somebody off the books' seats.
  */
 function leaderFor(
   repos: Repositories,
@@ -723,13 +932,19 @@ function leaderFor(
   const officerId = repos.sieges.deployment(battle.id, side, base.id)?.officerId;
   if (!officerId) return null;
   const officer = base.commanders.find((candidate) => candidate.id === officerId);
-  if (!officer || officerIsInjured(officer.injuredUntil, now)) return null;
+  if (!officer || !officerIsWorking(officer, now)) return null;
   return officer;
 }
 
 /** An officer as the engine takes them. */
-function asCombatant(officer: Commander): BattleOfficer {
-  return { officerId: officer.id, name: officer.name, attributes: officer.attributes };
+/** The officer as the engine takes them, with their chair's fight rungs on their sheet. */
+function asCombatant(officer: Commander, effects: CrewEffects): BattleOfficer {
+  return {
+    officerId: officer.id,
+    name: officer.name,
+    attributes: officer.attributes,
+    sheetBonus: officerSheetBonusFor(effects, officer.role, 'battle'),
+  };
 }
 
 /**
@@ -788,10 +1003,16 @@ function settleSideVehicles(
   survivors: Army,
   /** The fight's own instant, so this fold answers about the same moment every other one does. */
   now: Date,
-): { destroyed: Fleet; lostBy: Map<string, Fleet> } {
+): { destroyed: Fleet; lostBy: Map<string, Fleet>; homeBy: Map<string, Fleet> } {
   const shares = splitSurvivors(rows, survivors, (row) => mergeArmies(row.army, row.perimeter));
   let destroyed: Fleet = {};
   const lostBy = new Map<string, Fleet>();
+  /**
+   * What each crew's machines have left to drive home. Handed back rather than parked in the yard:
+   * the yard is at home and the machines are at the fight (maintainer, 2026-09-28), so they go home
+   * with their crew's survivors, on the clock (`homeFromTheFight`).
+   */
+  const homeBy = new Map<string, Fleet>();
   for (const row of rows) {
     if (row.baseId === null || Object.keys(row.vehicles).length === 0) continue;
     // The row's own crew, read once: their `any_ride` holding decides who filled a seat, and their
@@ -817,15 +1038,44 @@ function settleSideVehicles(
 
     repos.sieges.putDeployment({ ...row, vehicles: {} });
     if (Object.keys(home).length > 0) {
-      const yard = owner?.fleet ?? {};
-      repos.bases.updateFleet(row.baseId, mergeFleets(yard, home));
+      homeBy.set(row.baseId, mergeFleets(homeBy.get(row.baseId) ?? {}, home));
     }
     if (Object.keys(lost).length > 0) {
       destroyed = mergeFleets(destroyed, lost);
       lostBy.set(row.baseId, lost);
     }
   }
-  return { destroyed, lostBy };
+  return { destroyed, lostBy, homeBy };
+}
+
+/**
+ * Survivors of a fight, going home from the place of it on the clock (maintainer, 2026-09-28:
+ * "Nothing sends units immediately, you need to move them").
+ *
+ * They used to be written straight back onto the roster, so a column that fought on the far side
+ * of the city was home, and defending, the second the fight ended. Now each crew's share, and the
+ * machines that carried it, is a move home from `fightPlaceFor` (`moves/moves.ts`, `walkHome`).
+ * Two places are not a walk: a crew that fought in its own district is already home, and a gate
+ * garrison that held its own gate stays on it.
+ */
+function homeFromTheFight(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  ownerId: string,
+  army: Army,
+  vehicles: Fleet,
+  now: Date,
+  heldTheGate = false,
+): void {
+  const owner = repos.bases.findById(ownerId);
+  if (!owner) return;
+  const place = fightPlaceFor(battle, owner);
+  if (place.kind === 'gate' && heldTheGate) {
+    repos.bases.updateGateArmy(owner.id, mergeArmies(owner.gateArmy ?? {}, army));
+    walkHome(repos, owner, place, {}, vehicles, now);
+    return;
+  }
+  walkHome(repos, owner, place, army, vehicles, now);
 }
 
 /**
@@ -878,31 +1128,55 @@ function resolveOne(
   now: Date,
 ): ResolvedSiege | null {
   const district = findDistrict(battle.target.districtId);
+  if (!district) return null;
+  /*
+   * Every crew in the fight, settled to the tick before a line is drawn (audit, 2026-09-28).
+   *
+   * A fight reads other people's crews, and those rows are only as current as their owners' last
+   * read. The home defence was the roster as it stood then, so units finished on the bench since
+   * were not at home; the break-in plundered a stockpile missing every hour of production since;
+   * a building finished in between did not stand. The survivors were then written back with the
+   * stale training queue. Settled here, inside the fight's own transaction, and every read below
+   * is a fresh one.
+   */
+  settleBasesById(
+    repos,
+    [
+      battle.attackerBaseId,
+      residentOf(repos, district.id)?.id,
+      defendingBaseOf(repos, battle)?.id,
+      ...repos.sieges.deployments(battle.id).map((row) => row.baseId),
+    ],
+    now,
+  );
   const attacker = repos.bases.findById(battle.attackerBaseId);
-  if (!district || !attacker) return null;
+  if (!attacker) return null;
 
   const resident = residentOf(repos, district.id);
+  /*
+   * Everything at the place goes to the side its owner is on, before a line is drawn (maintainer,
+   * 2026-09-28, `battle/alignment.ts`). After this the rows are the whole truth about who fights
+   * for whom, and everything below reads them the way it always has.
+   */
+  const { declarerCellWoke } = musterAtTheMark(repos, battle, presenceAt(repos, battle), now);
   const defenderBase = defendingBaseOf(repos, battle);
   /*
    * The roster that fights must be the roster that is written back.
    *
    * This took `resident`, which is `residentOf(district)`, while `applyOutcome` writes the
    * survivors to `defenderBase`, which is `defendingBaseOf(battle)`. Those are two different
-   * lookups and they agree only while a district holds exactly one crew. Every account is planted
-   * on the same opening ground and nothing stops two sharing a district, so when they diverged the
-   * settle spent one crew's army and overwrote a second crew's roster with what was left: units
-   * destroyed for a player who was not in the fight and conjured for one who was, in a single
-   * write with no report to trace it by.
+   * lookups and they agree only while a district holds exactly one crew. When this was written
+   * every account was planted on the same opening ground and nothing stopped two sharing a
+   * district; a plot now holds one crew (2026-09-28), but a database from before that can still
+   * hold two. When they diverged the settle spent one crew's army and overwrote a second crew's
+   * roster with what was left: units destroyed for a player who was not in the fight and conjured
+   * for one who was, in a single write with no report to trace it by.
    *
    * `resident` is still the right answer for everything *about the place*: the buildings that take
    * damage and the stockpile that is looted belong to whoever lives there, which is what `breakIn`
    * uses it for. It is only the defending force that has to follow the roster being written.
    */
   const assembled = assemble(repos, battle, defenderBase);
-  const fortification =
-    battle.target.kind === 'location'
-      ? (repos.city.control(battle.target.locationId)?.fortification ?? 0)
-      : 0;
 
   const trap = springAnyTrap(repos, battle, assembled.attacking);
   /*
@@ -972,10 +1246,32 @@ function resolveOne(
    * Zero while the district is still split, which is also what makes taking the last location
    * worth something beyond the location.
    */
+  // A breached gate counts for nothing in the fight behind it (maintainer, 2026-09-27).
+  const targetGateDown = gateIsBroken(repos.sieges.gate(battle.target.districtId), now);
+  /*
+   * Only a fight *at* a gate has one (maintainer, 2026-09-28): the home Gate at the crew's own
+   * gate, a captured district's gate at that district's gate, and neither in a location fight, a
+   * raid or anywhere else. The home Gate used to stand behind every fight its crew defended.
+   */
+  // A home Gate stands on residential ground; a gate on contested ground is the captured one, even
+  // for a crew whose row says it lives there.
+  const atHomeGate =
+    battle.target.kind === 'gate' &&
+    district.kind === 'residential' &&
+    defenderBase?.districtId === battle.target.districtId;
   const defenderCapturedGateLevel =
-    defenderBase && holdsDistrictWhole(repos, defenderBase.id, battle.target.districtId)
+    battle.target.kind === 'gate' &&
+    !atHomeGate &&
+    defenderBase &&
+    !targetGateDown &&
+    holdsDistrictWhole(repos, defenderBase.id, battle.target.districtId)
       ? gateFor(repos, battle.target.districtId).level
       : 0;
+  // ...and the home Gate stands only in a fight at it, and only while it is not broken.
+  const homeGateStands =
+    atHomeGate &&
+    defenderBase !== undefined &&
+    !gateIsBroken(repos.sieges.gate(defenderBase.districtId), now);
 
   const attackerAllied = alliedSideCount(repos, battle.id, 'attacker') > 1;
   const defenderAllied = alliedSideCount(repos, battle.id, 'defender') > 1;
@@ -1013,7 +1309,10 @@ function resolveOne(
     allied: attackerAllied,
     wholeDistrict: holdsWholeDistrict(repos, attacker),
   });
-  const attackerFinal = attackerLead ? leading(attackerEffects) : attackerEffects;
+  // ...the crew's `lead_*` channels and the rungs of the chair the leader sits in (`leadingAs`).
+  const attackerFinal = attackerLead
+    ? leadingAs(attackerEffects, attackerLead.role, 'battle')
+    : attackerEffects;
   const defenderEffects =
     defenderBase && defenderStanding
       ? situational(boosted(defenderStanding, defenderBoost), {
@@ -1022,7 +1321,9 @@ function resolveOne(
         })
       : undefined;
   const defenderFinal =
-    defenderEffects && defenderLead ? leading(defenderEffects) : defenderEffects;
+    defenderEffects && defenderLead
+      ? leadingAs(defenderEffects, defenderLead.role, 'battle')
+      : defenderEffects;
 
   const name = targetName(battle.target, resident);
   // Read once and shared: the engine fights on it and the report is stamped with it, so a card can
@@ -1040,7 +1341,6 @@ function resolveOne(
       ownDistrictId: district.id,
       ownName: resident?.name ?? null,
     }),
-    fortification,
   );
   const outcome: SkirmishOutcome = engine.resolve({
     seed: battle.seed,
@@ -1055,15 +1355,17 @@ function resolveOne(
     attackerUpgrades: attacker.unitLoadouts,
     attackerCohesionPercent: attackerFinal.cohesionPercent,
     defenderPerimeter: assembled.defenderRing,
-    ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead) } : {}),
-    ...(defenderLead ? { defenderOfficer: asCombatant(defenderLead) } : {}),
+    ...(attackerLead ? { attackerOfficer: asCombatant(attackerLead, attackerEffects) } : {}),
+    ...(defenderLead && defenderEffects
+      ? { defenderOfficer: asCombatant(defenderLead, defenderEffects) }
+      : {}),
     ...(presence ? { defenderPresence: presence.power } : {}),
     ...(defenderFinal && defenderBase
       ? {
           // The Gate, and everybody garrisoned inside the structures behind it (§A1, §A4).
           defenderTerritory: withGate(
             defenderFinal,
-            defenderBase.buildings,
+            homeGateStands ? defenderBase.buildings : null,
             defenderCapturedGateLevel,
           ),
           defenderCohesionPercent: defenderFinal.cohesionPercent,
@@ -1108,7 +1410,26 @@ function resolveOne(
    * so every late reinforcement to a distant fight hit this. Settling first means the units come
    * home to the roster the fight actually left behind.
    */
-  recallOvertaken(repos, battle.id);
+  recallOvertaken(repos, battle);
+
+  /*
+   * The Wall Breaker's lasting damage (`battle/wall-breaker.ts`): every gate that stood behind this
+   * defence comes down a level, win or lose. After the settlement, and off a fresh read of the
+   * defender, so it lowers the gate the fight actually left rather than a snapshot from before it.
+   */
+  const wallsDown = breaksWalls(trap.attacking);
+  const gatesLowered = wallsDown
+    ? lowerGatesInPlay(
+        repos,
+        // The gate this fight was at, and no other (maintainer, 2026-09-28).
+        homeGateStands && defenderBase ? repos.bases.findById(defenderBase.id) : undefined,
+        defenderCapturedGateLevel > 0 ? { districtId: battle.target.districtId } : null,
+      )
+    : [];
+  const wallLines = [
+    ...(wallsDown && trap.note ? [`The Colossus walked through the ${trap.note.name}.`] : []),
+    ...gatesLowered.map(gateLoweredLine),
+  ];
 
   const base = outcome.analysis ?? fallbackAnalysis(battle, name, outcome, attacker.name, ground);
   /*
@@ -1136,10 +1457,22 @@ function resolveOne(
   const mended = (side: BattleSide, into: SideAnalysis): SideAnalysis =>
     attackerWon === (side === 'attacker') ? withRecovered(into, settlement.recovered) : into;
 
+  /*
+   * What a full yard cost the raider (bug pass, 2026-09-28), in the report they read, and the
+   * record keeps what landed rather than the haul. It said the whole haul, and nothing on any
+   * screen said the stores had thrown part of it away.
+   */
+  const wasteLines = settlement.lootWasted
+    ? [`The stores were full: ${describeWaste(settlement.lootWasted)} was left on the road.`]
+    : [];
   const analysis: BattleAnalysis = {
     ...base,
+    log: [...base.log, ...wallLines, ...wasteLines],
     winner: attackerWon ? 'attacker' : 'defender',
     trap: trap.note,
+    // What landed, the same figure the record keeps, and what the fight was for (2026-09-28).
+    spoils: withoutWaste(settlement.haul, settlement.lootWasted),
+    target: battle.target.kind,
     attacker: {
       ...mended('attacker', withOfficer('attacker', base.attacker)),
       infamy: settlement.attackerInfamy,
@@ -1158,7 +1491,7 @@ function resolveOne(
     targetPlaceId: battle.target.kind === 'location' ? battle.target.locationId : null,
     winner: attackerWon ? 'attacker' : 'defender',
     log: analysis.log,
-    rewards: settlement.haul,
+    rewards: withoutWaste(settlement.haul, settlement.lootWasted),
     seed: battle.seed,
     createdAt: now.toISOString(),
   });
@@ -1195,6 +1528,9 @@ function resolveOne(
     attacked: true,
     won: attackerWon,
     kills: settlement.attackerKills,
+    // Where it was, for the away ladder. `tally.ts` decides what counts as abroad off the crew's
+    // own row, so this is the district and nothing else.
+    districtId: battle.target.districtId,
   });
   tallyInfamyEarned(repos, attacker.id, settlement.attackerInfamy);
   if (defenderBase) {
@@ -1202,6 +1538,7 @@ function resolveOne(
       attacked: false,
       won: !attackerWon,
       kills: settlement.defenderKills,
+      districtId: battle.target.districtId,
     });
     tallyInfamyEarned(repos, defenderBase.id, settlement.defenderInfamy);
   }
@@ -1231,6 +1568,18 @@ function resolveOne(
   }
 
   /*
+   * The erosion, counted (2026-09-24). `assembled.garrisons` is the control rows that put bodies in
+   * this line, which `spendGarrisons` has already written the survivors back onto; whether that left
+   * the district with nothing of theirs standing is a question for `feats/tally.ts`, which is where
+   * every other "what was that worth" decision lives. Empty on any fight a crew defended, so the
+   * call costs a settle nothing except on the regime's and the squatters' ground.
+   */
+  tallyDistrictStripped(repos, attacker.id, {
+    districtId: battle.target.districtId,
+    plots: assembled.garrisons.map((row) => row.locationId),
+  });
+
+  /*
    * The feats that are about *this* fight rather than about how many you have had.
    *
    * Every number here is read off what the settler already worked out, and two of them are read
@@ -1243,8 +1592,10 @@ function resolveOne(
    * `fightingSlots` rather than `unitSlotsUsed`, each side under its own rules: a crew defends its
    * home with its whole roster and the porters in it never take a place in the line, so the raw
    * slot count was the size of a *warehouse* and not of a defence. See `battle/line.ts` for the
-   * measurement. `simulate` has counted its own sides this way since the rule was written; this is
-   * the feats board finally asking the same question the fight did.
+   * measurement. This sentence used to end "`simulate` has counted its own sides this way since
+   * the rule was written", which was not true: the engine shared the predicate and counted heads
+   * until 2026-09-25. It calls `fightingSlots` now, so the board and the fight really are asking
+   * the one question.
    */
   /** §A5: whether a force has anything in it that makes the ground unbearable (`UnitSpec.loud`). */
   const hasLoud = (army: Army): boolean =>
@@ -1265,8 +1616,9 @@ function resolveOne(
     // §E: what this side's jammers laid on the other, read off the engine rather than recomputed
     // here, so the counter is paid on the figure the rounds were fought at.
     jam: outcome.jam.attacker,
-    // §A4: only the crew that called the fight can have woken a cell into it.
-    planted: battle.wokeSleepers,
+    // §A4: only the crew that called the fight can have woken a cell into it: at the declaration,
+    // or at the mark when the cell went to ground after the call (`musterAtTheMark`).
+    planted: battle.wokeSleepers || declarerCellWoke,
     // §A5: whether this side put the racket on the other's ground (`UnitSpec.loud`). Read off
     // the force that actually stood there rather than off what was sent, so a crew whose
     // Anodics never arrived is not paid for a din nobody heard.
@@ -1300,6 +1652,11 @@ function resolveOne(
 
   // The trap goes to whoever buried it, which may be an ally rather than the crew being attacked.
   if (trap.ownerBaseId) tallyTrapKills(repos, trap.ownerBaseId, forceSize(trap.killed));
+  tallyGateLevelsBroken(
+    repos,
+    attacker.id,
+    gatesLowered.reduce((sum, gate) => sum + gate.from - gate.to, 0),
+  );
   // ...and the ring to the defender, because only a defender has one and only a winner's fights.
   if (!attackerWon && defenderBase) {
     tallyRunnersCaught(repos, defenderBase.id, forceSize(outcome.perimeterCaught));
@@ -1338,6 +1695,8 @@ interface Settlement {
   attackerInfamy: number;
   defenderInfamy: number;
   haul: PartialResources;
+  /** What of `haul` the attacker's full stores left on the road. Undefined when all of it landed. */
+  lootWasted: PartialResources | undefined;
   /**
    * Units each side took off the other, for the feat counters (maintainer request, 2026-09-13).
    *
@@ -1443,19 +1802,41 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * that fought against them. Taken off before the dead are, so a unit cannot be both.
    */
   const stillTheirs = removeForce(input.committed, outcome.turned);
-  const attackerSurvivors = attackerWon ? removeForce(stillTheirs, attackerDead) : outcome.fled;
+  /*
+   * A beaten side is its runners **and whoever never stood in the line** (`offTheLine`). The
+   * engine builds no stack for a porter, so a porter is in neither `killed` nor `fled`, and a loser
+   * rebuilt from `fled` alone lost them to a fight they were not in. Each side under its own rules:
+   * a crew that has since lost its `carriers_fight` holding has its porters out of the line.
+   */
+  const attackerSurvivors = attackerWon
+    ? removeForce(stillTheirs, attackerDead)
+    : mergeArmies(outcome.fled, offTheLine(stillTheirs, input.leadEffects.attacker));
 
   /**
-   * §A4: the survivors stay on the ground they took, because the attacker said so before the
-   * fight.
+   * §A4: the survivors stay on the ground they took, always (maintainer, 2026-09-28: "The server
+   * should automatically give the winners what they should hold, not ask them"). The row's
+   * `holdAfterCapture` is not read: a fight called before the rule, with the box unticked, holds
+   * too.
    *
    * Only on a **won location**, and the two qualifications are both load-bearing. A lost fight has
    * nothing to hold, and a gate or a raid is not a thing anybody can stand on afterwards: the
    * breach is a window in time rather than a position on the map, so there is no garrison for it to
    * be.
    */
-  const holds = attackerWon && battle.target.kind === 'location' && battle.holdAfterCapture;
-  const holding = holds ? attackerSurvivors : {};
+  const holds = attackerWon && battle.target.kind === 'location';
+  /*
+   * Whose survivors these are, decided before anybody is placed (bug pass, 2026-09-27).
+   *
+   * A side can be several crews (`battle/side.ts`). The ground is held by the crew that called the
+   * fight, so only the declarer's share stands on it; every ally's share walks home. Handing the
+   * whole side's survivors to the garrison wrote an ally's army onto the declarer's plot for good.
+   * Split proportionally to what each crew committed, counting the ring as well as the line.
+   */
+  const attackerRows = repos.sieges.side(battle.id, 'attacker');
+  const bySurvivor = splitSurvivors(attackerRows, attackerSurvivors, (row) =>
+    mergeArmies(row.army, row.perimeter),
+  );
+  const holding = holds ? (bySurvivor.get(attacker.id) ?? {}) : {};
 
   /*
    * The rings, less what the winner's paid to hold the line.
@@ -1491,17 +1872,15 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     ? defenderDead
     : mergeArmies(defenderDead, outcome.perimeterLosses);
 
-  const attackerHome = holds ? {} : attackerSurvivors;
-
   /**
    * §C3: who lived, as opposed to where they went.
    *
-   * `attackerHome` answers "what walks back into the district", which is deliberately empty of the
-   * line when the crew stays to hold the ground. The machines are a different question: what a
+   * The declarer's share of the survivors either walks back into the district or, when the crew
+   * stays to hold the ground, stands on it as `holding`. The machines are a different question: what a
    * wreck is priced on is the share of the force that **survived the fight**, and a unit standing
    * on the location it just took survived it.
    *
-   * Handing `attackerHome` to the vehicle settle conflated the two, and with no ring behind the
+   * Handing what walks home to the vehicle settle conflated the two, and with no ring behind the
    * fight the two are not close: a crew that won a held location without a single casualty read as
    * a force that came back as nobody, so `wrecked` wrote off every machine that carried them and
    * the loser was paid their whole capacity in infamy for it. Winning the thing you asked to hold
@@ -1509,24 +1888,15 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    */
   const attackerLived = attackerSurvivors;
 
-  /*
-   * Whose survivors these are.
-   *
-   * A side can be several crews now (`battle/side.ts`), and the engine answers for the side as a
-   * whole. Handing `attackerHome` to the declarer would quietly transfer an ally's army to whoever
-   * called the fight: they sent units, the units lived, and they would never come back.
-   *
-   * Split proportionally to what each crew committed, counting the ring as well as the line,
-   * because both are in `attackerHome`. The declarer's share carries on through `attackerNext`;
-   * everybody else is paid out below.
-   */
-  const attackerRows = repos.sieges.side(battle.id, 'attacker');
-  const attackerShares = splitSurvivors(attackerRows, attackerHome, (row) =>
-    mergeArmies(row.army, row.perimeter),
-  );
+  // The split itself is made above, with `holding`: the declarer's share carries on through
+  // `attackerNext` (or stands on the ground it held), and every ally is paid out below.
+  const attackerShares = holds
+    ? new Map([...bySurvivor].map(([baseId, army]) => [baseId, baseId === attacker.id ? {} : army]))
+    : bySurvivor;
   const attackerOwnHome = attackerShares.get(attacker.id) ?? {};
+  // The porters of a home raided and beaten stay home: see `attackerSurvivors`.
   const defenderSurvivors = attackerWon
-    ? outcome.fled
+    ? mergeArmies(outcome.fled, offTheLine(assembled.defending, input.leadEffects.defender))
     : removeForce(assembled.defending, defenderDead);
 
   /*
@@ -1728,13 +2098,19 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     attackerGround.infamyGainPercent,
   );
   creditFaction(repos, attacker, attacker.economy, attackerBanked);
-  let attackerNext: Base = {
-    ...attacker,
-    army: mergeArmies(attacker.army, attackerOwnHome),
-    economy: attackerBanked,
-  };
+  // The declarer's own survivors walk home below (`homeFromTheFight`); the roster is what stayed.
+  let attackerNext: Base = { ...attacker, economy: attackerBanked };
 
   // --- the ground ---
+  /*
+   * The regime's line, back onto the plots it came off, before anything else touches the map.
+   *
+   * Empty on every fight a crew defends (`Assembled.garrisons`), so this is one predicate rather
+   * than a branch: a gate or a raid on the Combine's ground erodes its garrisons, and nothing
+   * else does.
+   */
+  if (assembled.garrisons.length > 0) spendGarrisons(repos, assembled, principalLine);
+
   if (battle.target.kind === 'location') {
     if (attackerWon) {
       /*
@@ -1755,28 +2131,31 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         loserBaseId !== null && holdsDistrictWhole(repos, loserBaseId, battle.target.districtId);
 
       // A captured position is not a captured position *plus* the enemy's diggings. The garrison is
-      // whoever the attacker left standing there on purpose, and nobody otherwise.
-      repos.city.put({
-        locationId: battle.target.locationId,
-        holder: { kind: 'crew', baseId: attacker.id },
-        // §A4: **a capture keeps the location's level.** You take the ground as it stands. Nine
-        // levels of work on a Gas Station do not evaporate because somebody else walked onto the
-        // forecourt: they change hands, which is what makes a worked location a target rather
-        // than a sandcastle. It used to reset to 1, and that made the whole ladder a tax on
-        // holding anything near a border.
-        //
-        // The *unfinished* level does not carry: `upgradingUntil` is cleared, so an upgrade the
-        // loser had paid for and not yet banked is lost with the location. Banked work transfers,
-        // work in progress does not.
-        //
-        // What still resets is the district gate, and that is a different rule in a different
-        // place: `resetGateOnDistrictLost` in `city/gates.ts`, below.
-        level: previousLevel,
-        upgradingUntil: null,
-        fortification: 0,
-        fortifyingUntil: null,
-        garrison: holding,
-      });
+      // whoever the attacker left standing there on purpose, and nobody otherwise. Through
+      // `putControl`, which settles both crews' production up to the moment the ground changes hands.
+      putControl(
+        repos,
+        {
+          locationId: battle.target.locationId,
+          holder: { kind: 'crew', baseId: attacker.id },
+          // §A4: **a capture keeps the location's level.** You take the ground as it stands. Nine
+          // levels of work on a Gas Station do not evaporate because somebody else walked onto the
+          // forecourt: they change hands, which is what makes a worked location a target rather
+          // than a sandcastle. It used to reset to 1, and that made the whole ladder a tax on
+          // holding anything near a border.
+          //
+          // The *unfinished* level does not carry: `upgradingUntil` is cleared, so an upgrade the
+          // loser had paid for and not yet banked is lost with the location. Banked work transfers,
+          // work in progress does not.
+          //
+          // What still resets is the district gate, and that is a different rule in a different
+          // place: `resetGateOnDistrictLost` in `city/gates.ts`, below.
+          level: previousLevel,
+          upgradingUntil: null,
+          garrison: holding,
+        },
+        now,
+      );
 
       /*
        * §A4: a district lost while its gate is down takes the gate with it.
@@ -1799,10 +2178,18 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
       // a garrison belongs to the ground's holder, and the allies walk home below.
       // ...plus whoever changed sides under Directive Xero and is still standing: they are his
       // now, and his means the ground's (`outcome.turnedAlive`).
-      repos.city.setGarrison(
-        battle.target.locationId,
-        mergeArmies(principalLine, outcome.turnedAlive),
-      );
+      /*
+       * On the regime's ground, `spendGarrisons` above has already written the plot's own share of
+       * the line and left the muster's on the floor (`Assembled.garrisons`), so what the row holds
+       * at this point is the answer. Reading it back rather than recomputing it keeps one
+       * apportionment in the game instead of two that can disagree; the turncoats are merged on
+       * top either way, because they come out of the attacker's army and are in neither split.
+       */
+      const held =
+        assembled.garrisons.length > 0
+          ? (repos.city.control(battle.target.locationId)?.garrison ?? {})
+          : principalLine;
+      repos.city.setGarrison(battle.target.locationId, mergeArmies(held, outcome.turnedAlive));
     }
   } else if (attackerWon) {
     const broken = breakIn(repos, input, winnerDead);
@@ -1814,7 +2201,10 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 
   // Banked once, on every path. Nothing above this line touches the stockpile.
   if (Object.keys(haul).length > 0) {
-    attackerNext = { ...attackerNext, resources: addResources(attackerNext.resources, haul) };
+    attackerNext = {
+      ...attackerNext,
+      resources: creditBase(repos, attackerNext, haul, now).resources,
+    };
   }
 
   // --- the defender's own books ---
@@ -1830,26 +2220,37 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
      * floor: it had left the roster when it marched and nothing put it back.
      */
     const stayedAsGarrison = battle.target.kind === 'location' && !attackerWon;
+    const principalMachines = defenderVehicles.homeBy.get(defenderBase.id) ?? {};
     if (assembled.atTheGate) {
       // The door (2026-09-22). Held: the survivors stay at the gate, and the ring, which came up
-      // from the district, goes back to it. Fallen: whoever is left falls back into the district.
+      // from the district, walks back to it. Fallen: whoever is left falls back into the district,
+      // on foot (2026-09-28).
       repos.bases.updateGateArmy(defenderBase.id, attackerWon ? {} : principalLine);
+      homeFromTheFight(
+        repos,
+        battle,
+        defenderBase.id,
+        attackerWon ? mergeArmies(principalLine, principalRing) : principalRing,
+        principalMachines,
+        now,
+      );
+    } else if (assembled.fromHomeRoster) {
+      // A raid on home: they fought where they live, so the roster is simply who is left.
       repos.bases.updateArmy(
         defenderBase.id,
-        mergeArmies(
-          defenderBase.army,
-          attackerWon ? mergeArmies(principalLine, principalRing) : principalRing,
-        ),
+        mergeArmies(principalLine, principalRing),
         defenderBase.trainingQueue,
       );
+      homeFromTheFight(repos, battle, defenderBase.id, {}, principalMachines, now);
     } else {
-      const roster = assembled.fromHomeRoster
-        ? mergeArmies(principalLine, principalRing)
-        : mergeArmies(
-            defenderBase.army,
-            mergeArmies(stayedAsGarrison ? {} : principalLine, principalRing),
-          );
-      repos.bases.updateArmy(defenderBase.id, roster, defenderBase.trainingQueue);
+      homeFromTheFight(
+        repos,
+        battle,
+        defenderBase.id,
+        mergeArmies(stayedAsGarrison ? {} : principalLine, principalRing),
+        principalMachines,
+        now,
+      );
     }
     // Their Bone Market too. Holding one is worth the same whichever end of the fight you are on,
     // which is the whole reason it pays on a loss as well as a win.
@@ -1869,11 +2270,13 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
        * unlucky alias.
        */
       const banked = repos.bases.findById(defenderBase.id) ?? defenderBase;
-      repos.bases.updateResources(defenderBase.id, addResources(banked.resources, theirRefund));
+      // Into the stores like every credit (maintainer ruling, 2026-09-28): `district/stores.ts`.
+      const credit = creditBase(repos, banked, theirRefund, now);
+      repos.bases.updateResources(defenderBase.id, credit.resources);
       // The attacker's own refund rides in `haul` and is tallied with it, so counting this one
       // keeps "holding a Bone Market is worth the same at either end of the fight" true of the
       // lifetime ladders as well as of the stockpile.
-      tallyResourcesEarned(repos, defenderBase.id, theirRefund);
+      tallyResourcesEarned(repos, defenderBase.id, credit.landed);
     }
     /*
      * The kills, never the raid premium. `infamyForRaidWon` prices what taking ground off the
@@ -1902,10 +2305,9 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    */
   for (const [allyId, share] of attackerShares) {
     if (allyId === null || allyId === attacker.id) continue;
-    if (Object.keys(share).length === 0) continue;
-    const ally = repos.bases.findById(allyId);
-    if (!ally) continue;
-    repos.bases.updateArmy(ally.id, mergeArmies(ally.army, share), ally.trainingQueue);
+    const machines = attackerVehicles.homeBy.get(allyId) ?? {};
+    if (Object.keys(share).length === 0 && Object.keys(machines).length === 0) continue;
+    homeFromTheFight(repos, battle, allyId, share, machines, now);
   }
   // And the defending side's, line and ring together, to the crews that sent them.
   for (const allyId of new Set([...defenderLineShares.keys(), ...defenderRingShares.keys()])) {
@@ -1918,15 +2320,31 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
         ? battle.target.locationId
         : null;
     if (postedOn !== null) repos.alliedGarrisons.set(postedOn, allyId, lineShare);
+    const machines = defenderVehicles.homeBy.get(allyId) ?? {};
+    // A neighbour whose gate garrison held its own gate stays on it (`homeFromTheFight`).
+    if (!attackerWon && battle.target.kind === 'gate') {
+      homeFromTheFight(repos, battle, allyId, lineShare, {}, now, true);
+      homeFromTheFight(repos, battle, allyId, ringShare, machines, now);
+      continue;
+    }
     const share = postedOn !== null ? ringShare : mergeArmies(lineShare, ringShare);
-    if (Object.keys(share).length === 0) continue;
-    const ally = repos.bases.findById(allyId);
-    if (!ally) continue;
-    repos.bases.updateArmy(ally.id, mergeArmies(ally.army, share), ally.trainingQueue);
+    if (Object.keys(share).length === 0 && Object.keys(machines).length === 0) continue;
+    homeFromTheFight(repos, battle, allyId, share, machines, now);
   }
-  // Ground that changed hands has no postings left on it: their survivors went home above.
+  /*
+   * Ground that changed hands has no postings left on it. The ones that stood in the line were
+   * paid out above; a neutral's, parked there through the fight, is on ground that is nobody's
+   * ally of theirs now and walks home rather than being wiped with the rest.
+   */
   if (battle.target.kind === 'location' && attackerWon) {
-    repos.alliedGarrisons.clearAt(battle.target.locationId);
+    const { locationId } = battle.target;
+    for (const posting of repos.alliedGarrisons.at(locationId)) {
+      const owner = postedIds.has(posting.baseId)
+        ? undefined
+        : repos.bases.findById(posting.baseId);
+      if (owner) walkHome(repos, owner, { kind: 'location', locationId }, posting.army, {}, now);
+    }
+    repos.alliedGarrisons.clearAt(locationId);
   }
 
   /*
@@ -1954,15 +2372,32 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
    * `battle_report` is always-on (`social/notifications.ts`), so this is one of the two kinds a
    * player cannot mute: a fight is irreversible and silence about one is how an army disappears.
    *
-   * §D4 is the one exception, and it is the point of the rule: a side whose officer came home hurt
-   * gets no report, so telling them one is waiting would be a notification pointing at a redaction.
+   * §D4 used to be an exception here: a side whose officer came home hurt was skipped, on the
+   * argument that the bell would point at a redaction. It points at a report. `reportReaches` is
+   * the single enforcement point for who is told what happened and it stopped reading the officer
+   * on 2026-09-23 ("the officer counts for nothing here either way: a report is written by whoever
+   * walked back, not by the one on the stretcher"). So the ledger was on the board, readable in
+   * full, and the bell for it never rang: an injury is a coin flip at an even fight
+   * (`OFFICER_INJURY_BASE_CHANCE`), so about half of every led fight went unannounced, for the
+   * crew that led it and for every ally who had sent a column to it.
    */
+  /*
+   * The crew whose home or ground this was, whether or not it touched the fight (bug pass,
+   * 2026-09-27). A resident who never deployed, set a trap or named a leader had no row, so the
+   * board's history (`sieges.resolvedFor`, which reads the rows) never listed the raid and this
+   * loop never rang the one bell a player cannot mute. An empty row is how the ledger says they
+   * were in it; it carries no units, so none of the splits above can see it.
+   */
+  if (defenderBase && !defenderRows.some((row) => row.baseId === defenderBase.id)) {
+    repos.sieges.putDeployment(
+      emptyDeployment(battle.id, defenderBase.id, 'defender', now.toISOString()),
+    );
+  }
   const rows: [BattleSide, ReturnType<Repositories['sieges']['side']>][] = [
     ['attacker', attackerRows],
-    ['defender', defenderRows],
+    ['defender', repos.sieges.side(battle.id, 'defender')],
   ];
   for (const [side, sideRows] of rows) {
-    if (input.injured[side]) continue;
     const lostBy = side === 'attacker' ? attackerVehicles.lostBy : defenderVehicles.lostBy;
     for (const row of sideRows) {
       if (row.baseId === null) continue;
@@ -1995,12 +2430,25 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
 
   repos.bases.updateArmy(attackerNext.id, attackerNext.army, attackerNext.trainingQueue);
   repos.bases.updateEconomy(attackerNext.id, attackerNext.economy);
+  homeFromTheFight(
+    repos,
+    battle,
+    attacker.id,
+    attackerOwnHome,
+    attackerVehicles.homeBy.get(attacker.id) ?? {},
+    now,
+  );
+  let lootWasted: PartialResources | undefined;
   if (Object.keys(haul).length > 0) {
     // Off a fresh read, the way the defender's refund is: `breakIn` above writes the resident's
     // stockpile, and if the resident is this crew a write from the snapshot taken at the top of
     // the settle would put the plundered amount back and add the haul on top.
     const banked = repos.bases.findById(attackerNext.id) ?? attacker;
-    repos.bases.updateResources(attackerNext.id, addResources(banked.resources, haul));
+    // Up to the stores' ceiling, and the rest is left on the road (maintainer ruling, 2026-09-28).
+    // Loot used to be the one credit allowed to overflow a store; it lands like every other now.
+    const credit = creditBase(repos, banked, haul, now);
+    repos.bases.updateResources(attackerNext.id, credit.resources);
+    lootWasted = credit.wasted;
     /*
      * §I: a fight is a faucet, and it was the one faucet that counted for nothing.
      *
@@ -2013,7 +2461,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
      * Here rather than beside the in-memory merge above, because this is the line that banks it,
      * and a tally beside an assignment would count a haul on paths that never write one.
      */
-    tallyResourcesEarned(repos, attackerNext.id, haul);
+    tallyResourcesEarned(repos, attackerNext.id, credit.landed);
   }
 
   /*
@@ -2050,6 +2498,7 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
     attackerInfamy,
     defenderInfamy,
     haul,
+    lootWasted,
     attackerKills: forceSize(defenderFallen),
     defenderKills: forceSize(attackerFallen),
     recovered,
@@ -2067,9 +2516,16 @@ function applyOutcome(repos: Repositories, input: SettleInput): Settlement {
  * `outcome.killed` is the losing side's dead, and this is only ever read on a won raid, so it is
  * the defender's. The routed are deliberately not in it: somebody who ran is somebody the raiders
  * did not have to go through.
+ *
+ * The line is what stood in it: a home defence folds in the whole roster, and the porters in it
+ * (`offTheLine`) neither fought nor could die, so counting them made a warehouse of Scavengers a
+ * shield against disruption. Twenty Razors cut down to the last one behind forty porters read as
+ * a third of a defeat.
  */
 function defenderLossShare(input: SettleInput): number {
-  const started = forceSize(input.assembled.defending);
+  const { defending } = input.assembled;
+  const started =
+    forceSize(defending) - forceSize(offTheLine(defending, input.leadEffects.defender));
   if (started === 0) return 1;
   return Math.min(1, forceSize(input.outcome.killed) / started);
 }
@@ -2220,6 +2676,8 @@ function fallbackAnalysis(
     settledBy: 'standing' as const,
     // A stub ran no presence, so there is no leader to put over the ground.
     underLeader: null,
+    spoils: {},
+    target: battle.target.kind,
     // The Combine's two tolls ride along even on a stub, so a fight settled by a test engine
     // still reports the same shape the report reads.
     turned: outcome.turned,
@@ -2238,4 +2696,18 @@ function fallbackAnalysis(
     weather: battlefield.weather as BattleAnalysis['weather'],
     ground: battlefield.labels,
   };
+}
+
+/** A haul less what the stores could not take. */
+function withoutWaste(
+  haul: PartialResources,
+  wasted: PartialResources | undefined,
+): PartialResources {
+  if (!wasted) return haul;
+  const landed: PartialResources = {};
+  for (const [key, amount] of Object.entries(haul) as [keyof PartialResources, number][]) {
+    const kept = amount - (wasted[key] ?? 0);
+    if (kept > 0) landed[key] = kept;
+  }
+  return landed;
 }

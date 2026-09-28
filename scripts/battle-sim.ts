@@ -74,15 +74,12 @@ function measure(matchup: Matchup): number {
   return p;
 }
 
-const press = (level: number): Battlefield =>
-  battlefieldFor({
-    locationName: 'Kessler Press',
-    kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: level,
-    at: new Date('2026-08-13T12:00:00.000Z'),
-    weather: 'normal',
-  });
+const press: Battlefield = battlefieldFor({
+  locationName: 'Kessler Press',
+  kind: 'scrap_press',
+  at: new Date('2026-08-13T12:00:00.000Z'),
+  weather: 'normal',
+});
 
 const narrow: Battlefield = { ...bareBattlefield(), frontage: 12 };
 
@@ -118,18 +115,12 @@ for (const count of [10, 14, 18, 20, 22, 26, 30, 40]) {
   previous = p;
 }
 
-console.log('\n--- ground and fortification (the press caps at level 3) ---');
+console.log('\n--- ground ---');
 measure({
-  label: 'razors 30 vs 20 razors, press open',
+  label: 'razors 30 vs 20 razors, press',
   attacker: { razors: 30 },
   defender: { razors: 20 },
-  battlefield: press(0),
-});
-measure({
-  label: 'razors 30 vs 20 razors, press dug in 3',
-  attacker: { razors: 30 },
-  defender: { razors: 20 },
-  battlefield: press(3),
+  battlefield: press,
 });
 measure({
   label: '60 razors vs 30 razors, narrow',

@@ -5,7 +5,11 @@ import {
   BOT_DISTRICT_ID,
   MVP_DEV_CREDENTIALS,
   STARTING_RESOURCES,
+  TERMINUS_CITY_ID,
+  cityOfDistrict,
+  findDistrict,
   findOverseerPreset,
+  isDistrictRaidable,
   overseerFromPreset,
   type CityResponse,
   type SkirmishEngine,
@@ -16,8 +20,16 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { ALLY_DISTRICT_ID, MVP_ALLY, MVP_BOT } from './constants.js';
-import { seedMvpWorld } from './index.js';
+import {
+  ALLY_DISTRICT_ID,
+  RIVAL_SECOND_DISTRICT_ID,
+  MVP_ALLY,
+  MVP_BOT,
+  MVP_TERMINUS_RIVAL,
+  TERMINUS_RIVAL_DISTRICT_ID,
+} from './constants.js';
+import { calibreOf } from '../city/stakes.js';
+import { devOperatorStillOpen, seedMvpWorld } from './index.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 interface Stack {
@@ -67,18 +79,30 @@ function countUsers(db: AppDatabase, username: string): number {
 /**
  * Every non-playing crew in the world.
  *
- * Three now, and the number is the point of the assertions below: the **rival** you fight, the
- * **ally** you fight beside, and the **rival's second**, who sits at the rival's table so there is
- * a faction in the world that is somebody else's (maintainer request, 2026-09-12). All three are
- * `is_bot = 1` because none of them is driven by a person, so a count of one here was the world
- * before the ally, and a count of six would mean the seeder had run twice.
+ * Four now, and the number is the point of the assertions below: the **rival** you fight, the
+ * **ally** you fight beside, the **rival's second**, who sits at the rival's table so there is a
+ * faction in the world that is somebody else's (maintainer request, 2026-09-12), and the
+ * **Terminus rival**, who lives in the second city so that it is somebody's rather than an empty
+ * map (2026-09-24). All four are `is_bot = 1` because none of them is driven by a person, so a
+ * count of one here was the world before the ally, and a count of eight would mean the seeder had
+ * run twice.
  */
 function countBotBases(db: AppDatabase): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM bases WHERE is_bot = 1').get() as { n: number };
   return row.n;
 }
 
-const SEEDED_BOTS = 3;
+const SEEDED_BOTS = 4;
+
+/**
+ * Of which this many stand in Ashfall.
+ *
+ * `GET /city` draws the districts of the city the reader lives in (`city/view.ts`), so the dev
+ * operator's map carries the three neighbours in Ashfall and never the one in Terminus. A test
+ * counting every seeded bot on that screen would fail the day a crew was seeded anywhere else,
+ * which is exactly what happened.
+ */
+const ASHFALL_BOTS = SEEDED_BOTS - 1;
 
 async function login(app: FastifyInstance, password: string) {
   return app.inject({
@@ -186,6 +210,29 @@ describe('seedMvpWorld', () => {
     expect(repos.users.findByUsername(MVP_BOT.username)?.overseerId).toBe(botUser?.overseerId);
   });
 
+  /** "There should be no bots seated on players' locations" (maintainer, 2026-09-28). */
+  // Every seeder, not only the one the guard was first written into: the ally and the rival's
+  // second each insert their own base.
+  for (const plot of [BOT_DISTRICT_ID, ALLY_DISTRICT_ID, RIVAL_SECOND_DISTRICT_ID]) {
+    it(`does not restore a bot onto ${plot} once a player has moved onto it`, async () => {
+      const { app, db, repos } = await openStack(':memory:');
+      await seedMvpWorld({ db, repos });
+      const bot = repos.bases.listSummaries().find((home) => home.districtId === plot)!;
+      // The seeded fight on the board names the ally's base; it goes with the row, as it would
+      // with any crew that is gone.
+      db.prepare('DELETE FROM scheduled_battles WHERE attacker_base_id = ?').run(bot.id);
+      db.prepare('DELETE FROM bases WHERE id = ?').run(bot.id);
+      const { baseId } = await landAsDevPlayer(app);
+      db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(plot, baseId);
+
+      await seedMvpWorld({ db, repos });
+
+      expect(repos.bases.listSummaries().filter((home) => home.districtId === plot)).toEqual([
+        expect.objectContaining({ id: baseId }),
+      ]);
+    });
+  }
+
   /**
    * A player holding the rival's character must not cost the world its rival (§F6).
    *
@@ -292,7 +339,7 @@ describe('seedMvpWorld', () => {
     // Two non-playing crews on the map: the rival on their ground and the ally on theirs. Both are
     // ordinary district rows, which is what makes the ally visible to every screen without any of
     // them knowing they are a fixture.
-    expect(bases.filter((b) => b.isBot)).toHaveLength(SEEDED_BOTS);
+    expect(bases.filter((b) => b.isBot)).toHaveLength(ASHFALL_BOTS);
     const bot = bases.find((b) => b.districtId === BOT_DISTRICT_ID);
     expect(bot?.isBot).toBe(true);
     expect(bot?.name).toBe(MVP_BOT.baseName);
@@ -300,6 +347,75 @@ describe('seedMvpWorld', () => {
     expect(ally?.isBot).toBe(true);
     expect(ally?.name).toBe(MVP_ALLY.baseName);
     expect(bases.filter((b) => !b.isBot)).toHaveLength(1); // exactly one human base
+  });
+});
+
+/**
+ * The second city, and why an empty one is a bug rather than a blank (2026-09-24).
+ *
+ * Terminus is playable and nobody lived there. Two things follow from that, and the quieter one is
+ * worse. There is nobody to raid, which a player can at least see. And `calibreOf`
+ * (`city/stakes.ts`) answers `null` when no crew has a stake in a city and falls back to the
+ * average level of every base in the world, so the Bar, the market and the black market in
+ * Terminus were stocked against a number from another city entirely.
+ */
+describe('the crew who lives in Terminus', () => {
+  it("plants a rival on the signalmen's row, in the second city, that anybody can raid", async () => {
+    const { db, repos } = await openStack(':memory:');
+
+    const summary = await seedMvpWorld({ db, repos });
+
+    expect(summary.createdTerminusRival).toBe(true);
+    expect(summary.terminusRivalDistrictId).toBe(TERMINUS_RIVAL_DISTRICT_ID);
+
+    const user = repos.users.findByUsername(MVP_TERMINUS_RIVAL.username);
+    expect(user, 'the Terminus rival has no account').toBeDefined();
+    const base = repos.bases.findByOwnerId(user!.id);
+    expect(base, 'the Terminus rival has no base').toBeDefined();
+
+    expect(base!.districtId).toBe(TERMINUS_RIVAL_DISTRICT_ID);
+    expect(cityOfDistrict(base!.districtId)).toBe(TERMINUS_CITY_ID);
+    expect(base!.isBot).toBe(true);
+    expect(base!.name).toBe(MVP_TERMINUS_RIVAL.baseName);
+
+    // Somebody to fight: a plot is raidable by anybody but the crew living on it, and there is a
+    // real roster and a real stockpile behind the gate rather than an empty district.
+    const district = findDistrict(base!.districtId);
+    expect(district, 'the seeded plot is not on the map').toBeDefined();
+    expect(isDistrictRaidable(district!, false)).toBe(true);
+    expect(isDistrictRaidable(district!, true)).toBe(false);
+    expect(Object.values(base!.army).reduce((sum, count) => sum + (count ?? 0), 0)).toBeGreaterThan(
+      0,
+    );
+    expect(base!.resources.caps).toBeGreaterThan(STARTING_RESOURCES.caps);
+    expect(base!.commanders.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The silent half. Before the resident, `calibreOf('terminus')` was the world's average level,
+   * which is a number about Ashfall: the rooms in the second city were stocked against crews who
+   * have never been there.
+   */
+  it('gives the second city a standing of its own to stock its rooms against', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos });
+
+    const calibre = calibreOf(repos, TERMINUS_CITY_ID);
+    // A resident with no notoriety yet is worth exactly their level (`crewStanding`), and they are
+    // the only stake in the city, so the weighted answer is that level and nothing else.
+    expect(calibre).toBe(MVP_TERMINUS_RIVAL.level);
+    expect(calibre).not.toBe(repos.bases.averageLevel());
+  });
+
+  it('does not mint a second Terminus rival on the next boot', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos });
+
+    const again = await seedMvpWorld({ db, repos });
+
+    expect(again.createdTerminusRival).toBe(false);
+    expect(countUsers(db, MVP_TERMINUS_RIVAL.username)).toBe(1);
+    expect(countBotBases(db)).toBe(SEEDED_BOTS);
   });
 });
 
@@ -398,5 +514,30 @@ describe('the rival, when the ground moves under it', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM bases WHERE owner_id = ?').get(bot!.id)).toEqual({
       n: 1,
     });
+  });
+});
+
+/**
+ * The dev operator's password is committed to this repository (2026-09-28). A production boot
+ * seeds no such account, and `index.ts` refuses to serve while one still signs in with it.
+ */
+describe('the dev operator on a public server', () => {
+  it('is never seeded by a production boot', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos, production: true });
+    expect(countUsers(db, MVP_DEV_CREDENTIALS.username)).toBe(0);
+    expect(await devOperatorStillOpen(repos)).toBe(false);
+  });
+
+  it('is found while it still has the committed password, and not once that is changed', async () => {
+    const { db, repos } = await openStack(':memory:');
+    await seedMvpWorld({ db, repos });
+    expect(await devOperatorStillOpen(repos)).toBe(true);
+    const user = repos.users.findByUsername(MVP_DEV_CREDENTIALS.username)!;
+    repos.users.setPasswordHash(
+      user.id,
+      '$2a$04$0000000000000000000000000000000000000000000000000000',
+    );
+    expect(await devOperatorStillOpen(repos)).toBe(false);
   });
 });

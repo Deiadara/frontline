@@ -6,6 +6,7 @@ import { useSoundLayer } from './lib/sound';
 import { installLastPress } from './lib/lastPress';
 import { useSession } from './store/session';
 import { TooltipLayer } from './components/ui/TooltipLayer';
+import { WasteConfirmLayer } from './components/WasteConfirmLayer';
 import { AuthScreen } from './screens/AuthScreen';
 import { CharacterSelectScreen } from './screens/CharacterSelectScreen';
 import { GameScreen } from './screens/GameScreen';
@@ -13,6 +14,7 @@ import { CrewPage } from './features/crew/CrewPage';
 import { BarPage } from './features/bar/BarPage';
 import { BasePanel } from './features/base/BasePanel';
 import { DistrictView } from './features/city/DistrictView';
+import { CitiesScreen } from './features/cities/CitiesScreen';
 import { FactionPage } from './features/faction/FactionPage';
 import { MessagesPage } from './features/social/MessagesPage';
 import { NotificationsPage } from './features/social/NotificationsPage';
@@ -50,7 +52,7 @@ function BootMessage({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 
   return (
     <main className="relative flex h-screen flex-col items-center justify-center bg-surface-950">
       <div className="grain pointer-events-none absolute inset-0" />
-      <span className="relative h-2 w-2 animate-pulse bg-brass-300" />
+      <span className="relative h-2 w-2 bg-brass-300 motion-safe:animate-pulse" />
       <p
         className={`relative mt-4 font-display text-xs uppercase tracking-[0.22em] ${
           tone === 'error' ? 'text-oxblood-300' : 'text-brass-300'
@@ -63,11 +65,14 @@ function BootMessage({ text, tone = 'muted' }: { text: string; tone?: 'muted' | 
 }
 
 /** Holds the boot loader open until the persisted session's `GET /api/me` resolves. */
-function BootGate({ children }: { children: ReactNode }) {
+export function BootGate({ children }: { children: ReactNode }) {
   const token = useSession((s) => s.token);
   const me = useMe();
   if (token !== null && me.isLoading) return <BootMessage text="Establishing uplink…" />;
-  if (token !== null && me.isError) {
+  // A failed *first* read only. A background poll that fails keeps the data it had, and TanStack
+  // still reports `isError` for it: gating on that alone replaced the whole game with this line on
+  // any one 502 during a restart, losing every open dialog and draft.
+  if (token !== null && me.isError && me.data === undefined) {
     return <BootMessage text="Uplink failed. Reload to try again." tone="error" />;
   }
   return <>{children}</>;
@@ -88,6 +93,8 @@ export default function App() {
           rather than per screen, so a name drawn over the HUD and a name drawn over a dialog are
           the same object and cannot drift apart. */}
       <TooltipLayer />
+      {/* The question before anything goes to waste, for every screen at once: see the layer. */}
+      <WasteConfirmLayer />
       <Routes>
         <Route
           path="/auth"
@@ -119,6 +126,17 @@ export default function App() {
         >
           <Route index element={<CityView />} />
           <Route path="base" element={<BasePanel />} />
+          {/*
+            The world screen is a route rather than a piece of state (maintainer, 2026-09-25: "we
+            can add a page that is /game/city ... so that we have correct going back when you click
+            on the back button").
+
+            It sat inside `CityView` as `pulledOut`, which meant the wall of cities and the map it
+            covers were one history entry: going out to the world and pressing Back left the game
+            entirely. It is the same screen at a different zoom, so it sits under `city` rather than
+            beside it, and `city/:districtId` below is the third step of the same zoom.
+          */}
+          <Route path="city" element={<CitiesScreen />} />
           <Route path="city/:districtId" element={<DistrictView />} />
           <Route path="actions" element={<ActionsPage />} />
           {/* §A4: the census is the Monitor's second page (maintainer, 2026-09-19). Its own route

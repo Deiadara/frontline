@@ -35,8 +35,27 @@ import {
 const XP_SOURCES = Object.keys(PLAYER_XP_AWARDS) as PlayerXpSource[];
 
 describe('the level curve (§I2)', () => {
-  it('costs 100, 300, 600, 1000, 1500 XP for the first five levels', () => {
-    expect([1, 2, 3, 4, 5].map(playerXpToNextLevel)).toEqual([100, 300, 600, 1000, 1500]);
+  it('costs 52, 158, 302, 478, 683 XP for the first five levels', () => {
+    expect([1, 2, 3, 4, 5].map(playerXpToNextLevel)).toEqual([52, 158, 302, 478, 683]);
+  });
+
+  /**
+   * The shape the retune was for (maintainer, 2026-09-28), pinned on the curve itself: the XP to
+   * reach level ninety is about a fifth of what the old square-law curve asked, and the early
+   * levels are cheaper too. The days it takes are the simulation's to measure, not a unit test's.
+   */
+  it('asks about a fifth of the old XP for level ninety, and less at every early level', () => {
+    const oldCost = (level: number) => (100 * level * (level + 1)) / 2;
+    let now = 0;
+    let before = 0;
+    for (let level = 1; level < 90; level += 1) {
+      now += playerXpToNextLevel(level);
+      before += oldCost(level);
+      if (level <= 20)
+        expect(playerXpToNextLevel(level), `level ${level}`).toBeLessThan(oldCost(level));
+    }
+    expect(now / before).toBeGreaterThan(0.15);
+    expect(now / before).toBeLessThan(0.25);
   });
 
   it('is strictly increasing and integral, so a level always costs more than the last', () => {
@@ -49,12 +68,12 @@ describe('the level curve (§I2)', () => {
 
   it('levels up exactly on the threshold, not one XP early', () => {
     const start = { level: 1, xpIntoLevel: 0 };
-    expect(applyPlayerXp(start, 99)).toEqual({ level: 1, xpIntoLevel: 99, levelsGained: 0 });
-    expect(applyPlayerXp(start, 100)).toEqual({ level: 2, xpIntoLevel: 0, levelsGained: 1 });
+    expect(applyPlayerXp(start, 51)).toEqual({ level: 1, xpIntoLevel: 51, levelsGained: 0 });
+    expect(applyPlayerXp(start, 52)).toEqual({ level: 2, xpIntoLevel: 0, levelsGained: 1 });
   });
 
   it('carries leftover XP into the new level', () => {
-    expect(applyPlayerXp({ level: 1, xpIntoLevel: 40 }, 75)).toEqual({
+    expect(applyPlayerXp({ level: 1, xpIntoLevel: 40 }, 27)).toEqual({
       level: 2,
       xpIntoLevel: 15,
       levelsGained: 1,
@@ -62,8 +81,8 @@ describe('the level curve (§I2)', () => {
   });
 
   it('crosses several levels on one oversized award', () => {
-    // 100 + 300 + 600 clears levels 1..3 exactly; the extra 50 lands inside level 4.
-    expect(applyPlayerXp({ level: 1, xpIntoLevel: 0 }, 1050)).toEqual({
+    // 52 + 158 + 302 clears levels 1..3 exactly; the extra 50 lands inside level 4.
+    expect(applyPlayerXp({ level: 1, xpIntoLevel: 0 }, 562)).toEqual({
       level: 4,
       xpIntoLevel: 50,
       levelsGained: 3,
@@ -274,14 +293,14 @@ describe('XP awards (§I1)', () => {
   });
 
   it('reports the level-up and the grants that came with it', () => {
-    const award = resolvePlayerXpAward({ level: 3, xpIntoLevel: 580 }, 'missionCompleted');
+    const award = resolvePlayerXpAward({ level: 3, xpIntoLevel: 282 }, 'missionCompleted');
     expect(award).toMatchObject({
       source: 'missionCompleted',
       xpGained: 120,
       level: 4,
       levelsGained: 1,
       progression: { xpIntoLevel: 100 },
-      xpToNextLevel: 1000,
+      xpToNextLevel: 478,
     });
     expect(award.grants).toEqual({ recruitSlots: 5 });
   });
@@ -299,7 +318,7 @@ describe('XP awards (§I1)', () => {
       { id: 'b', level: 3, name: 'B', description: 'The second door.' },
       { id: 'later', level: 9, name: 'Later', description: 'Not yet.' },
     ];
-    const award = resolvePlayerXpAward({ level: 1, xpIntoLevel: 380 }, 'questCompleted', catalogue);
+    const award = resolvePlayerXpAward({ level: 1, xpIntoLevel: 100 }, 'questCompleted', catalogue);
     expect(award.level).toBe(3);
     expect(award.unlocks.map((u) => u.id)).toEqual(['a', 'b']);
   });
@@ -359,7 +378,7 @@ describe('anything with a clock on it is priced off that clock (§I1)', () => {
    */
   it('is the same curve the mission board pays on', () => {
     for (const minutes of [1, 15, 30, 120, 1440]) {
-      expect(rewardScale(minutes, 'standard')).toBeCloseTo(effortScale(minutes), 10);
+      expect(rewardScale(minutes, 'standard', 'F-')).toBeCloseTo(effortScale(minutes), 10);
     }
   });
 });

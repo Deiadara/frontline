@@ -199,7 +199,10 @@ describe('reimagining a page (§G2, §G3)', () => {
      * Reading "unseen" off the count alone put all of them back on the table, and the guaranteed
      * new page turned out to be a sheet of something already assembled.
      */
-    const shortest = [...BLUEPRINTS].sort((a, b) => a.pages.length - b.pages.length)[0]!;
+    // Among documents with pages: a fence document has none, and would make this pass on nothing.
+    const shortest = BLUEPRINTS.filter((spec) => spec.pages.length > 0).sort(
+      (a, b) => a.pages.length - b.pages.length,
+    )[0]!;
     const bag: Record<string, number> = { [shortest.id]: 1 };
     // Three copies of pages belonging to some *other* document, so the trade is payable and the
     // only thing under test is which page comes back.

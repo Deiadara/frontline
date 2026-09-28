@@ -14,6 +14,7 @@ import { WAIVED_REFUSALS } from './mode.js';
 import { committedWage } from '../bar/hire.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /**
  * Every gate admin mode waives, driven the way an ordinary player meets it.
@@ -63,6 +64,7 @@ async function makePlayer(app: FastifyInstance, username: string) {
   });
   const token = registered.json<{ token: string }>().token;
   const chosen = await chooseOverseer(app, token);
+  openDoors(app, token, 'bar');
   return {
     token,
     userId: registered.json<{ user: { id: string } }>().user.id,
@@ -258,7 +260,6 @@ describe('the gates admin mode waives, met by an ordinary player', () => {
     expect([...WAIVED_REFUSALS].sort()).toEqual(
       [
         'cannot_afford',
-        'level',
         'locked',
         'missing_parts',
         'nexus_cap',

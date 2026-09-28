@@ -16,7 +16,8 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { AttributeSheet } from '../overseer/AttributeSheet';
 import { LevelUpBanner } from '../../components/LevelUp';
-import { Button } from '../../components/ui/Button';
+import { Button, buttonSkin } from '../../components/ui/Button';
+import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { Modal } from '../../components/ui/Modal';
@@ -24,9 +25,10 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { OfficerPortrait } from '../overseer/OfficerPortrait';
 import { StepArrow } from '../../components/ui/StepArrow';
 import { cn } from '../../lib/cn';
-import { useBar, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
+import { isCityShut, useBar, useIncreasePayroll, useReleaseOfficer } from '../../lib/queries';
 import { InfoNote } from '../game/PageShell';
 import { CityPicker } from '../city/CityPicker';
+import { useCityRoom } from '../city/useCityRoom';
 import { OnArt, OnPlate, PlateRoom } from '../game/PlateRoom';
 import { useServerClock } from '../missions/useServerClock';
 import { AuctionWindow } from './AuctionWindow';
@@ -44,11 +46,11 @@ import {
 } from './AuctionParts';
 import { PerkTags } from '../../components/PerkTags';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /** Devotion reads in the player's own accent; a walkout reads as a warning. */
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
-  level: 'Wants a crew that has been doing this longer',
   infamy: 'Wants infamy banked, not just a rank',
   faction: 'Wants a faction behind you that has earned',
 };
@@ -126,8 +128,8 @@ export function BarPage() {
    * Bar has no deep links into it, and a bookmarked room a crew has since been thrown out of would
    * be a refusal on arrival.
    */
-  const [city, setCity] = useState<string | null>(null);
-  const barQuery = useBar(city ?? undefined);
+  const { city, choose } = useCityRoom();
+  const barQuery = useBar(city);
   /** Which screen is over the room: the stool, the book, the crew, the results, or none of them. */
   const [open, setOpen] = useState<'stool' | 'payroll' | 'crew' | 'results' | null>(null);
   /** Which chair the stool screen is showing. An index, so the arrows are arithmetic. */
@@ -208,7 +210,9 @@ export function BarPage() {
    * really be in, so nothing on the screen said the request had failed. That is worse than a stuck
    * spinner: it is a confident lie in the game's own voice.
    */
-  if (data === undefined && barQuery.isError) {
+  // A shut door is not a failed read: see `isCityShut`. The room asks again for the crew's own
+  // on the next render rather than printing a refusal at them.
+  if (data === undefined && barQuery.isError && !isCityShut(barQuery.error)) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <LoadFailure
@@ -270,12 +274,7 @@ export function BarPage() {
           style={{ top: 'calc(var(--hud-h, 0px) + 16px)' }}
         >
           <span className="pointer-events-auto">
-            <CityPicker
-              size="md"
-              cityId={data.cityId}
-              cities={data.cities}
-              onChoose={(next) => setCity(next)}
-            />
+            <CityPicker size="md" cityId={data.cityId} cities={data.cities} onChoose={choose} />
           </span>
         </div>
       )}
@@ -309,9 +308,8 @@ export function BarPage() {
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3">
           <OnArt className="max-w-sm p-1">
             <InfoNote tone="warn" label="How the Bar works">
-              Every crew in the city is bidding on these same people, and the bids are open until
-              half an hour before midnight. After that everybody gets one sealed final value, and at
-              midnight the highest signs them at exactly what they bid.
+              Every crew bids on these same people until 23:30, then gets one sealed final bid. At
+              midnight the highest signs at what they bid.
             </InfoNote>
           </OnArt>
 
@@ -984,7 +982,7 @@ function RecruitCard({
        * a layout that ran out of room. Identity is a band now and the sheet is a full-width row of
        * four, so the card is two rectangles and every group is the same width as every other.
        */}
-      <div className="grid min-w-0 gap-5 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <div className="grid min-w-0 gap-x-5 gap-y-3 lg:grid-cols-[17rem_minmax(0,1fr)]">
         {/*
          * The dossier column: their name, their face, and their table, in that order.
          */}
@@ -1034,51 +1032,11 @@ function RecruitCard({
             )}
           </Field>
 
-          <AuctionStrip
-            recruit={recruit}
-            auction={auction}
-            now={now}
-            onBid={() => onBid(recruit.id)}
-          />
-
-          {(recruit.requirement.minNotoriety > 0 ||
-            recruit.requirement.minLevel > 1 ||
-            recruit.requirement.minInfamy > 0 ||
-            recruit.requirement.minFactionInfamy > 0) && (
-            <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
-              {recruit.requirement.minNotoriety > 0 && (
-                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                  Will sit down with a crew the street calls{' '}
-                  <span className="text-ink-100">
-                    {notorietyTier(recruit.requirement.minNotoriety)}
-                  </span>
-                </p>
-              )}
-              {recruit.requirement.minLevel > 1 && (
-                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                  And a crew that has reached{' '}
-                  <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
-                </p>
-              )}
-              {recruit.requirement.minInfamy > 0 && (
-                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                  With{' '}
-                  <span className="text-ink-100">
-                    {recruit.requirement.minInfamy.toLocaleString()} infamy
-                  </span>{' '}
-                  still in the account
-                </p>
-              )}
-              {recruit.requirement.minFactionInfamy > 0 && (
-                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                  And a faction that has earned{' '}
-                  <span className="text-ink-100">
-                    {recruit.requirement.minFactionInfamy.toLocaleString()}
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
+          {/* Pinned to the foot of the dossier so the box ends level with the bottom of the
+              attribute sheet beside it (maintainer, 2026-09-28). */}
+          <div className="mt-auto flex min-w-0 flex-col">
+            <AuctionStrip recruit={recruit} auction={auction} now={now} />
+          </div>
         </div>
 
         {/*
@@ -1098,6 +1056,15 @@ function RecruitCard({
           </div>
           <AttributeSheet attributes={recruit.attributes} columns={2} roomy role={highlightRole} />
         </div>
+
+        {/* A row of its own under the box, the width of the dossier (maintainer, 2026-09-28). */}
+        {auction !== undefined && (
+          <BidDoor
+            recruit={recruit}
+            phase={phaseOf(auction, now)}
+            onBid={() => onBid(recruit.id)}
+          />
+        )}
       </div>
     </article>
   );
@@ -1115,12 +1082,10 @@ function AuctionStrip({
   recruit,
   auction,
   now,
-  onBid,
 }: {
   recruit: BarRecruit;
   auction: BarAuction | undefined;
   now: Date;
-  onBid: () => void;
 }) {
   if (auction === undefined) {
     return (
@@ -1171,23 +1136,99 @@ function AuctionStrip({
 
         <AuctionClock auction={auction} now={now} testId={`clock-${recruit.id}`} />
       </div>
+    </div>
+  );
+}
 
-      {!recruit.assessment.interested ? (
-        <ul className="flex min-w-0 flex-col gap-1">
-          {recruit.assessment.blockers.map((blocker) => (
-            <li
-              key={blocker}
-              className="flex items-start gap-1.5 font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-oxblood-300/90"
-            >
-              <Icon name="lock" className="mt-px h-3 w-3 shrink-0" />
-              {BLOCKER_LABEL[blocker]}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Button onClick={onBid} data-testid={`bid-${recruit.id}`}>
-          {phase === 'closed' ? 'See the table' : phase === 'sealed' ? 'Final value' : 'Bid'}
-        </Button>
+/**
+ * The door onto this person's table, and the terms they sit down on (maintainer, 2026-09-28).
+ *
+ * The terms used to be a block of lines on the card under the auction box, which made the card as
+ * tall as its longest set of demands. They are on the button now: a crew that clears every door
+ * gets a live Bid with a note saying what the recruit asks and that the crew passes it, and one
+ * that does not gets the same button locked, with the note in red saying which door is shut.
+ */
+function BidDoor({
+  recruit,
+  phase,
+  onBid,
+}: {
+  recruit: BarRecruit;
+  phase: ReturnType<typeof phaseOf>;
+  onBid: () => void;
+}) {
+  const locked = !recruit.assessment.interested;
+  const label = phase === 'closed' ? 'See the table' : phase === 'sealed' ? 'Final value' : 'Bid';
+  // A shut door keeps a crew from bidding, not from reading how a table it could not join ended.
+  const disabled = locked && phase !== 'closed';
+  return (
+    <HoverCard
+      label={label}
+      onActivate={onBid}
+      disabled={disabled}
+      tone={locked ? 'danger' : 'ink'}
+      className="w-full"
+      data-testid={`bid-${recruit.id}`}
+      card={<BidTerms recruit={recruit} locked={locked} />}
+    >
+      <span
+        className={buttonSkin({
+          className: cn('w-full py-2', disabled && 'cursor-not-allowed opacity-45'),
+        })}
+      >
+        {disabled && <Icon name="lock" aria-hidden className="h-3.5 w-3.5 shrink-0" />}
+        {label}
+      </span>
+    </HoverCard>
+  );
+}
+
+/** What a recruit asks of a crew, as the lines on the Bid button's note. */
+function BidTerms({ recruit, locked }: { recruit: BarRecruit; locked: boolean }) {
+  const { requirement, assessment } = recruit;
+  const value = locked ? 'text-oxblood-100' : 'text-brass-100';
+  const line = cn(
+    'font-display text-[11px] uppercase leading-snug tracking-[0.12em]',
+    locked ? 'text-oxblood-300' : 'text-ink-200',
+  );
+  return (
+    <div className="flex flex-col gap-2" data-testid={`bid-terms-${recruit.id}`}>
+      {locked &&
+        assessment.blockers.map((blocker) => (
+          <p
+            key={blocker}
+            className="flex items-start gap-1.5 font-display text-[12px] font-bold uppercase leading-snug tracking-[0.12em] text-oxblood-300"
+          >
+            <Icon name="lock" aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
+            {BLOCKER_LABEL[blocker]}
+          </p>
+        ))}
+      <p className={line}>
+        {requirement.minNotoriety > 0 ? (
+          <>
+            Will sit down with a crew the street calls{' '}
+            <span className={value}>{notorietyTier(requirement.minNotoriety)}</span> or higher
+          </>
+        ) : (
+          'Will sit down with anybody'
+        )}
+      </p>
+      {requirement.minInfamy > 0 && (
+        <p className={line}>
+          With <span className={value}>{requirement.minInfamy.toLocaleString()} infamy</span> still
+          in the account
+        </p>
+      )}
+      {requirement.minFactionInfamy > 0 && (
+        <p className={line}>
+          And a faction that has earned{' '}
+          <span className={value}>{requirement.minFactionInfamy.toLocaleString()}</span>
+        </p>
+      )}
+      {!locked && (
+        <p className="font-display text-[11px] font-bold uppercase tracking-[0.12em] text-verdigris-100">
+          You pass
+        </p>
       )}
     </div>
   );
@@ -1266,11 +1307,7 @@ function OfficerRow({ officer, caps }: { officer: BarOfficer; caps: number }) {
             Let them go
           </button>
         )}
-        {release.error !== null && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {release.error.message}
-          </p>
-        )}
+        {release.error !== null && <ErrorNote>{release.error.message}</ErrorNote>}
       </div>
     </li>
   );

@@ -22,12 +22,14 @@ import {
   RECRUIT_GRADES,
   STANDOUT_CALIBRE_LIFT,
   STANDOUT_MIN_PERKS,
+  barCalibre,
   barRoster,
   barSeatsFor,
   doorCeilingFor,
   gradeOf,
   isStandoutSeat,
 } from './roster.js';
+import { recruitmentCeiling } from '../characters/generate.js';
 
 /**
  * §H3, extended: the two seats the good ones sit in (maintainer request, 2026-09-11).
@@ -44,7 +46,7 @@ const DAYS = Array.from({ length: 120 }, (_, index) =>
   new Date(Date.UTC(2026, 0, 1) + index * 86_400_000).toISOString().slice(0, 10),
 );
 
-const NEW_CREW: CrewStanding = { notoriety: 0, level: 1, infamy: 0, factionInfamy: 0 };
+const NEW_CREW: CrewStanding = { notoriety: 0, infamy: 0, factionInfamy: 0 };
 
 /** The sum of a sheet, which is the only summary of "better" that does not pick a favourite. */
 const total = (attributes: Record<string, number>): number =>
@@ -80,9 +82,10 @@ describe('the room spreads across skill levels', () => {
       expect(at(points, 0.9) - at(points, 0.1), `city level ${cityLevel}`).toBeGreaterThan(200);
     }
     /*
-     * A mature city compresses the top rather than the whole ladder, and that is the ceiling
-     * doing it: `MAX_CALIBRE` is what a sheet may be lifted by, so the good grades run into it
-     * while the green ones still have room below. Measured at 257 points.
+     * A mature city used to compress the top rather than the whole ladder, because the good grades
+     * ran into a flat ceiling of 40 while the green ones still had room below: measured at 257
+     * points. The ceiling climbs with each roll's calibre since 2026-09-28, and the same room now
+     * measures 353.
      */
     const mature = sheets(30);
     expect(at(mature, 0.9) - at(mature, 0.1)).toBeGreaterThan(150);
@@ -213,12 +216,13 @@ describe('the standout seats', () => {
   /**
    * Measured at three city levels, and the third is the one that matters.
    *
-   * The calibre lift is the whole difference in a young city and **none of it** in a mature one:
-   * at city level 30 the room is already at `MAX_CALIBRE`, the lift clamps away, and an earlier
-   * build of this feature put the standouts at 989 sheet points against the room's 986, which is
-   * no difference at all. The extra strengths and the skipped weaknesses are what still works
-   * there. Both figures are pinned so a retune that quietly re-flattens the top of the room fails
-   * here rather than on somebody's screen.
+   * The calibre lift used to be the whole difference in a young city and **none of it** in a
+   * mature one: at city level 30 the room had reached the old flat ceiling, the lift clamped away,
+   * and an earlier build of this feature put the standouts at 989 sheet points against the room's
+   * 986, which is no difference at all. The ceiling climbs with the roll now (2026-09-28), and the
+   * extra strengths and the skipped weaknesses still count on top. Both figures are pinned so a
+   * retune that quietly re-flattens the top of the room fails here rather than on somebody's
+   * screen.
    */
   it('roll better sheets and more perks than the room around them, at every city level', () => {
     for (const cityLevel of [0, 6, 30]) {
@@ -244,9 +248,11 @@ describe('the standout seats', () => {
           ordinary.reduce((sum, one) => sum + total(one.attributes), 0) / ordinary.length;
       }
       // Not "always", which would be a lie about a roll: an ordinary seat can come up lucky and
-      // eight of them get eight chances to. Measured at 100%, 100% and 88%.
+      // eight of them get eight chances to. Measured at 100%, 100% and 88%, and at 100% at all
+      // three since the ceiling started to climb.
       expect(better / DAYS.length, `city level ${cityLevel}`).toBeGreaterThan(0.8);
-      // And the gap itself, which is the part the clamp used to eat. Measured at 251, 254 and 60.
+      // And the gap itself, which is the part the clamp used to eat. Measured at 251, 254 and 60,
+      // and at 281, 284 and 298 since the ceiling started to climb.
       expect(
         (standoutPoints - ordinaryPoints) / DAYS.length,
         `city level ${cityLevel}`,
@@ -257,13 +263,19 @@ describe('the standout seats', () => {
   /**
    * §B2a: the recruitment ceiling is the bound the rest of the game reads a sheet against, and a
    * standout is better at *more* things rather than better than anybody is allowed to be.
+   *
+   * The ceiling is the ceiling of the standout's own roll since 2026-09-28, when it started to
+   * climb with the room (`recruitmentCeiling`): it was a flat 40 at every city level, which is what
+   * capped the whole Bar at about grade D-. A young city still never passes 40.
    */
-  it('never put an attribute past the recruitment ceiling', () => {
+  it('never put an attribute past the ceiling of their roll', () => {
     for (const day of DAYS) {
-      for (const cityLevel of [0, 30, 60]) {
+      for (const cityLevel of [0, 12, 30, 60, 110]) {
+        const ceiling = recruitmentCeiling(barCalibre(cityLevel) + STANDOUT_CALIBRE_LIFT);
+        if (cityLevel <= 12) expect(ceiling).toBe(MAX_RECRUITMENT_ATTRIBUTE);
         for (const recruit of barRoster(day, BAR_ROSTER_SIZE, cityLevel)) {
           const highest = Math.max(...Object.values(recruit.attributes));
-          expect(highest, `${day} ${recruit.id}`).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
+          expect(highest, `${day} ${recruit.id}`).toBeLessThanOrEqual(ceiling);
         }
       }
     }
@@ -307,7 +319,6 @@ describe('the standout seats', () => {
     // Everything the player can get on their own, and still refused: the badge is the last door.
     const alone: CrewStanding = {
       notoriety: RECRUIT_LEGEND_NOTORIETY,
-      level: 60,
       infamy: RECRUIT_MAX_MIN_INFAMY,
       factionInfamy: 0,
     };

@@ -21,7 +21,7 @@ import {
  * The two crew channels that change what a *sheet* is, rather than what a number on it is.
  *
  * A `Pick` of `TerritoryEffects` rather than the whole struct, so the helpers below can be called
- * from a test or from `sapperCutPercent` with a two-field literal instead of a fold nobody in that
+ * from a test or from `breaksWalls` with a two-field literal instead of a fold nobody in that
  * context has. Every real caller passes a `CrewEffects`, which satisfies it.
  */
 export type LineRules = Pick<TerritoryEffects, 'carriersFight' | 'unitMarks'>;
@@ -68,9 +68,9 @@ export function markedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
  *
  * ## Why only what stands
  *
- * Because the porters are not in the fight, and `simulate` has counted its own sides this way
- * since the day the rule was written: "Forty Scavengers behind twenty Razors were handing every
- * Warden and Juggernaut sent against them a last stand it had not earned." A crew defends its
+ * Because the porters are not in the fight, and `simulate` has shared this predicate since the day
+ * the rule was written: "Forty Scavengers behind twenty Razors were handing every Warden and
+ * Juggernaut sent against them a last stand it had not earned." A crew defends its
  * home with its whole roster, warehouse staff included, and nobody chooses that. Measured on the
  * case `engine.ts` already records: 25 Breakers (50 slots) against 20 Razors, 40 Scavengers and
  * 30 Haulers reads as 120 slots of defence on the raw roster and 20 on the line that forms. The
@@ -79,11 +79,17 @@ export function markedUnit(unit: UnitSpec, rules: LineRules): UnitSpec {
  * It cuts both ways, which is the half that is easy to miss: that defending crew's *own* force
  * also read 120, so the one side that was genuinely outnumbered could never earn the feat for it.
  *
+ * ## The engine counts this way too, since 2026-09-25 and not before
+ *
+ * This paragraph used to claim it always had, and so did the twin of it in `resolve.ts`. Both were
+ * half right: `simulate` shared the predicate above and counted **heads**, so eight Juggernauts
+ * (48 slots) against sixteen Razors (16 slots) took the outnumbered bonus while the feats board
+ * recorded the same side as the larger one. `simulate` now calls this function, so there is one
+ * answer to "who was outnumbered" and the engine, the board and this doc give it.
+ *
  * `rules` is the side's own, because `carriers_fight` is a crew's holding rather than a fact
  * about the fight. A crew that has bought it has its porters in the line, they are counted, and
- * they are counted whole: the engine turns them out at {@link CARRIER_STRENGTH}, but that is how
- * hard they hit, not whether they are standing there, and the engine's own outnumbered flag does
- * not halve them either. One predicate, read the same way in both places.
+ * they are counted whole, the same as the engine turns them out. One predicate, read the same way in both places.
  */
 export function fightingSlots(army: Army, rules: LineRules): number {
   return Object.entries(army).reduce((total, [unitId, count]) => {

@@ -146,7 +146,7 @@ describe('a home with its gate standing', () => {
 });
 
 describe('a home inside a breach', () => {
-  const breakItOpen = (world: World, hours = 1): void => {
+  const breakItOpen = (world: World, hours = 24): void => {
     world.app.repos.sieges.breakGate(HOME, new Date(Date.now() + hours * 3_600_000).toISOString());
   };
 
@@ -197,7 +197,7 @@ describe('your own home', () => {
     expect(atGate.status, atGate.body.slice(0, 200)).toBe(409);
     expect(atGate.body).toContain('That is yours');
 
-    world.app.repos.sieges.breakGate(HOME, new Date(Date.now() + 3_600_000).toISOString());
+    world.app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const inside = await declare(world, world.victim, ownRaid);
     expect(inside.status, inside.body.slice(0, 200)).toBe(409);
     expect(inside.body).toContain('That is yours');

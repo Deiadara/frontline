@@ -1,4 +1,10 @@
-import { FEAT_MEASURE_SPECS, FEATS, type FeatProgress, type FeatSpec } from '@frontline/shared';
+import {
+  FEAT_MEASURE_SPECS,
+  FEATS,
+  findDistrict,
+  type FeatProgress,
+  type FeatSpec,
+} from '@frontline/shared';
 
 /**
  * Turning the wire into the thing the screen draws (maintainer request, 2026-09-13).
@@ -197,6 +203,18 @@ export function ladderTitle(spec: FeatSpec): string {
  * opens all three out, so the titles do not advertise which table the author took the id from.
  */
 function openOut(scope: string): string {
+  /*
+   * A district is called what the map calls it, not what its id title-cases to.
+   *
+   * Opening the id out gets most of them right by luck, because most district names *are* their
+   * ids in title case. It got the CCS wrong in both spellings the id has had: as `combine-spire`
+   * the board offered "Combine Spire missions" for a district the map calls the CCS, and once the
+   * ids became the names on the tags (2026-09-25) it offered "Ccs missions". The atlas holds the
+   * name, so the board asks it and only falls back to opening the id out for the scopes that are
+   * not districts at all (`nexus`, `highQualityMetal`).
+   */
+  const district = findDistrict(scope);
+  if (district !== undefined) return district.name;
   return scope
     .replace(/[-_]/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')

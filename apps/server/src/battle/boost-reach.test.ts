@@ -43,8 +43,8 @@ const PLATED_EFFECT = PLATED.effect;
 
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 
 async function register(app: FastifyInstance, username: string) {
@@ -83,7 +83,7 @@ describe('what a boost card promises the defender', () => {
       holder: { kind: 'crew', baseId: defender.baseId },
       garrison,
     });
-    app.repos.city.markScouted(attacker.baseId, 'rustyard', new Date().toISOString());
+    app.repos.city.markScouted(attacker.baseId, 'steelbelt', new Date().toISOString());
 
     const declared = await app.inject({
       method: 'POST',

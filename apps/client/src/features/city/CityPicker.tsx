@@ -18,10 +18,19 @@ import { DrawnFace } from '../../components/ui/DrawnMarks';
  *
  * ## Why it is drawn even with one city in it
  *
- * Ashfall is the only city with `open: true` today, so most crews will press this and find one
- * room. It is still drawn, and it still says which city it is: a player who has never left needs to
- * know the door exists before the day they take a place in Saltmarch, and a control that appears
- * only once it has two things in it is a control nobody discovers.
+ * A crew starts in the city it picked (2026-09-24) and gets into the other by marching across and
+ * taking ground, so most crews will press this and find one room for a while. It is still drawn,
+ * and it still says which city it is: a player who has never left needs to know the door exists
+ * before the day they take a place abroad, and a control that appears only once it has two things
+ * in it is a control nobody discovers.
+ *
+ * ## The `readOnly` tag that used to be here
+ *
+ * There was a second mode that drew this as a label rather than a door, for the Black Market, on
+ * the grounds that the back room was one shelf for the whole world. That stopped being true when
+ * black-market lot ids grew a room prefix: the shelf, its reserve and its bids are per city now and
+ * that screen has been switching for a while. Nothing passed the prop, so the only thing it was
+ * still doing was documenting something false. Removed on 2026-09-24.
  */
 
 const NAMES = new Map(CITIES.map((city) => [city.id, city]));
@@ -36,7 +45,6 @@ export function CityPicker({
   cities,
   onChoose,
   size = 'sm',
-  readOnly = false,
   className,
 }: {
   /** The city whose room is open. */
@@ -52,20 +60,10 @@ export function CityPicker({
    * reads as a control on paper reads as a smudge over artwork, so it takes the larger of the two.
    */
   size?: 'sm' | 'md';
-  /**
-   * Drawn as a tag rather than a door.
-   *
-   * The Black Market's shelf, its lot ids and its turnover counter are keyed by the day and the slot
-   * alone, so it is one shelf for the world and cannot yet be switched (maintainer, 2026-09-17: the
-   * tag was asked for on that screen, and a picker that changed the label without changing the
-   * crates would be a lie). It still says which city the reader is standing in, in the same hand as
-   * the two screens that can switch.
-   */
-  readOnly?: boolean;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const alone = readOnly || cities.length <= 1;
+  const alone = cities.length <= 1;
 
   return (
     <div className={cn('relative', className)} data-testid="city-picker">
@@ -73,9 +71,10 @@ export function CityPicker({
         size={size}
         data-sound="click"
         data-testid="city-picker-open"
+        // No tip while the list is open: it hangs where the list does and covered it.
         data-tip={
-          readOnly
-            ? 'The city you are standing in. The back room is the same shelf wherever you read it.'
+          open
+            ? undefined
             : alone
               ? 'You hold ground in one city. Take a place in another and its rooms open to you.'
               : 'Which city’s room to stand in'
@@ -93,42 +92,48 @@ export function CityPicker({
          * Every screen this sits on is a full-height frame with room under the control, and a list
          * of three is not a menu worth a portal. `z-30` clears the art overlays on the Bar, which
          * are the only things it can land on.
+         *
+         * The float is its own wrapper (maintainer, 2026-09-28): `card-paper` and `washed` both set
+         * `position: relative` later in the cascade than `absolute`, so on the list itself they won
+         * and the list opened in the flow, pushing the sheet under it down by its own height.
          */
-        <ul
-          className="ink-frame card-paper washed grain absolute right-0 z-30 mt-1.5 flex min-w-[11rem] flex-col gap-1 rounded-sm p-1.5 shadow-panel"
-          data-testid="city-picker-list"
-        >
-          {cities.map((id) => {
-            const here = id === cityId;
-            return (
-              <li key={id}>
-                <button
-                  type="button"
-                  data-sound="click"
-                  data-testid={`city-choose-${id}`}
-                  aria-pressed={here}
-                  onClick={() => {
-                    onChoose(id);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    'relative flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left transition-all duration-150',
-                    'hover:-translate-y-px active:translate-y-px',
-                    here ? 'text-brass-100' : 'text-ink-200 hover:text-brass-100',
-                  )}
-                >
-                  <DrawnFace face={here ? 'fill-brass-500/30' : 'fill-surface-900/50'} />
-                  <span className="relative font-stamp text-[14px] leading-tight">
-                    {nameOf(id)}
-                  </span>
-                  <span className="relative font-body text-[11px] opacity-70">
-                    {NAMES.get(id)?.nickname ?? ''}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="absolute right-0 top-full z-30 mt-1.5 w-max">
+          <ul
+            className="ink-frame card-paper washed grain flex min-w-[11rem] flex-col gap-1 rounded-sm p-1.5 shadow-panel"
+            data-testid="city-picker-list"
+          >
+            {cities.map((id) => {
+              const here = id === cityId;
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
+                    data-sound="click"
+                    data-testid={`city-choose-${id}`}
+                    aria-pressed={here}
+                    onClick={() => {
+                      onChoose(id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      'relative flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left transition-all duration-150',
+                      'hover:-translate-y-px active:translate-y-px',
+                      here ? 'text-brass-100' : 'text-ink-200 hover:text-brass-100',
+                    )}
+                  >
+                    <DrawnFace face={here ? 'fill-brass-500/30' : 'fill-surface-900/50'} />
+                    <span className="relative font-stamp text-[14px] leading-tight">
+                      {nameOf(id)}
+                    </span>
+                    <span className="relative font-body text-[11px] opacity-70">
+                      {NAMES.get(id)?.nickname ?? ''}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );

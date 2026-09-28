@@ -1,254 +1,80 @@
-import {
-  findUnit,
-  FORTIFY_MAX_LEVEL,
-  MAX_LOCATION_LEVEL,
-  addToArmy,
-  canAfford,
-  fortifyCost,
-  fortifySeconds,
-  isHeldBy,
-  nextFortifyLevel,
-  spendResources,
-  takeFromArmy,
-  unitsBeyondNotoriety,
-  type Army,
-  type Base,
-  type Location,
-  type LineRules,
-  type LocationControl,
-  addResources,
-  cancelRefund,
-  cancelWindowOpen,
-  type PartialResources,
-} from '@frontline/shared';
-import { isFightingForce } from '../battle/forces.js';
-import { standingEffectsFor } from '../crew/standing.js';
+import { MAX_LOCATION_LEVEL, type LocationControl } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { settleBasesById } from '../district/settle.js';
+import { settleEach } from '../world/guard.js';
 
 /**
- * Doing things to the city (GDD §A4).
+ * Doing things to the city (GDD §A4): what is left of it here is the upgrade clock on held ground.
  *
- * Every action here resolves **immediately**. Travel time is computed and shown. It is what the
- * Rail Yard and the Skate Ground are for, but a force does not yet spend it in transit.
- *
- * TODO-LATER: forces in transit. A sent force should arrive after `travelMinutes` and resolve
- * then, the way a mission does (§E2), which also makes intercepting one possible. That is a
- * scheduling shape this game already has twice over; it is left out here so the map ships with the
- * territory rules rather than half of both.
+ * It used to open with a promise that forces would one day walk. They do: every unit that goes
+ * anywhere is a column on the clock (`moves/moves.ts`, `battle/movement.ts`), and the instant
+ * garrison door that was the last thing here to skip the road is gone.
  */
-
-/*
- * Four names went with `POST /city/attack` and `POST /city/raid` (battle rework): `unscouted`,
- * `no_force`, `already_held` and `not_raidable` were the instant-fight path's, nothing left in this
- * module returns one, and a refusal a route still has a sentence for is a sentence nobody can read.
- * The declaration path spells its own (`battle/declare.ts`).
- */
-export const CITY_REFUSALS = [
-  'needs_infamy',
-  'not_enough_units',
-  /** §A5: a porter is not a soldier. The support tier may never be sent to a fight. */
-  'not_a_fighting_force',
-  'not_held',
-  'not_contested',
-  'at_max_fortification',
-  'already_fortifying',
-  'cannot_afford',
-  /** Calling work off: nothing is running here, or its first tenth has passed. */
-  'nothing_running',
-  'window_closed',
-] as const;
-export type CityRefusal = (typeof CITY_REFUSALS)[number];
-
-export type CityActionResult<T> = { kind: 'refused'; reason: CityRefusal } | ({ kind: 'ok' } & T);
 
 /**
- * Finishes any fortification *or upgrade* whose clock has run out.
+ * Finishes any location upgrade whose clock has run out.
  *
  * Called at the top of every city read and write, which is the same lazy contract the rest of the
- * game runs on. Returns the controls it settled so callers do not read them twice.
- *
- * Both clocks in one pass on purpose: they live on the same row, they bank the same way, and a
- * second settler over the same table is a second chance to forget to call one of them.
+ * game runs on, and by the world clock. Returns the controls it settled so callers do not read them
+ * twice. It settled dug-in fortification on the same row as well, until fortification left the game
+ * (maintainer, 2026-09-26).
  */
-export function settleFortifications(repos: Repositories, now: Date): Map<string, LocationControl> {
+export function settleLocationUpgrades(
+  repos: Repositories,
+  now: Date,
+): Map<string, LocationControl> {
   const controls = repos.city.controls();
-  for (const control of controls.values()) {
-    const dug =
-      control.fortifyingUntil !== null && Date.parse(control.fortifyingUntil) <= now.getTime();
-    const worked =
-      control.upgradingUntil !== null && Date.parse(control.upgradingUntil) <= now.getTime();
-    if (!dug && !worked) continue;
-
-    const settled: LocationControl = {
-      ...control,
-      fortification: dug
-        ? Math.min(FORTIFY_MAX_LEVEL, control.fortification + 1)
-        : control.fortification,
-      fortifyingUntil: dug ? null : control.fortifyingUntil,
-      level: worked ? Math.min(MAX_LOCATION_LEVEL, control.level + 1) : control.level,
-      upgradingUntil: worked ? null : control.upgradingUntil,
-    };
-    repos.city.put(settled);
-    controls.set(control.locationId, settled);
-  }
+  const due = [...controls.values()].filter(
+    (control) =>
+      control.upgradingUntil !== null && Date.parse(control.upgradingUntil) <= now.getTime(),
+  );
+  settleEach(
+    repos,
+    'location upgrades',
+    due,
+    (control) => control.locationId,
+    (control) => {
+      const settled: LocationControl = {
+        ...control,
+        level: Math.min(MAX_LOCATION_LEVEL, control.level + 1),
+        upgradingUntil: null,
+      };
+      putControl(repos, settled, now);
+      controls.set(control.locationId, settled);
+    },
+  );
   return controls;
 }
 
-// --- taking a location ---
-
-export interface GarrisonInput {
-  base: Base;
-  location: Location;
-  /** Positive leaves units on the location; negative brings them home. */
-  changes: Record<string, number>;
-}
-
-export function setGarrison(
-  repos: Repositories,
-  input: Omit<GarrisonInput, 'now'>,
-): CityActionResult<{ base: Base }> {
-  const { base, location, changes } = input;
-  const control = repos.city.control(location.id);
-  if (!control) return { kind: 'refused', reason: 'not_contested' };
-  if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
-
-  /*
-   * §D7: the rank a unit will not take the field without, asked for here as well as at a battle.
-   *
-   * `assemble` merges a location's garrison into the defending force, so standing a unit on held
-   * ground is putting it where it fights. `battle/deploy.ts` was the only caller of
-   * `unitsBeyondNotoriety`, which left this as the door with no lock on it: a crew nobody had
-   * heard of could park a Specter on a rooftop and have it fight for them, which is the exact
-   * thing the rule exists to refuse. Only what is being *sent out* is checked, so bringing a unit
-   * home is never blocked by a rank the crew has since lost.
-   */
-  const sending: Army = Object.fromEntries(
-    Object.entries(changes).filter(([, delta]) => delta > 0),
-  );
-  /*
-   * §A5: and the same argument again, for the same reason.
-   *
-   * A garrison *is* a defending force: `assemble` merges it into the line when somebody comes for
-   * the ground. So the support tier may not be posted to one, exactly as it may not be deployed
-   * to a fight or sent on a raid. Without this a player could park Scavengers on a rooftop and
-   * have them killed for a share of an exchange they cannot take part in, which is precisely what
-   * `isFightingForce` exists to refuse at every other door.
-   *
-   * Only what is being *sent out* is checked, so bringing anybody home is never blocked.
-   */
-  // Read against this crew's rules, not the catalogue's: `carriers_fight` puts the porters in
-  // the line, and a garrison is a line. Without it the programme paid out at home and nowhere a
-  // crew actually holds ground.
-  const lineRules: LineRules = {
-    carriersFight: standingEffectsFor(repos, base).carriersFight,
-    unitMarks: {},
-  };
-  if (!isFightingForce(sending, lineRules)) {
-    return { kind: 'refused', reason: 'not_a_fighting_force' };
-  }
-  if (unitsBeyondNotoriety(sending, base.economy.notoriety).length > 0) {
-    return { kind: 'refused', reason: 'needs_infamy' };
-  }
-
-  let army = base.army;
-  let garrison = { ...control.garrison };
-
-  for (const [unitId, delta] of Object.entries(changes)) {
-    if (delta === 0) continue;
-    /*
-     * A key that does not name a unit is refused, whichever direction it goes.
-     *
-     * The two guards above read `sending`, which is the positive deltas only, so a *withdrawal*
-     * naming `constructor` or `toString` met neither and reached `garrison[unitId]` below. On a
-     * plain object that is a function, not `undefined`: `Math.min(-delta, fn)` is `NaN`, the
-     * `back === 0` guard does not catch `NaN`, and a `NaN` count went into the roster and the
-     * garrison. `GarrisonRequestSchema` now keys on the unit id so nothing like that arrives, and
-     * this is the second lock, matching the one on the deployment path.
-     */
-    if (!findUnit(unitId)) return { kind: 'refused', reason: 'not_a_fighting_force' };
-    if (delta > 0) {
-      if ((army[unitId] ?? 0) < delta) return { kind: 'refused', reason: 'not_enough_units' };
-      army = takeFromArmy(army, unitId, delta);
-      garrison = addToArmy(garrison, unitId, delta);
-    } else {
-      const back = Math.min(-delta, garrison[unitId] ?? 0);
-      if (back === 0) continue;
-      garrison = takeFromArmy(garrison, unitId, back);
-      army = addToArmy(army, unitId, back);
-    }
-  }
-
-  repos.city.setGarrison(location.id, garrison);
-  const next: Base = { ...base, army };
-  repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
-  return { kind: 'ok', base: next };
-}
-
-export interface FortifyInput {
-  base: Base;
-  location: Location;
-  now: Date;
-}
-
-/** Starts one level of digging in. Charged up front; it lands on a later read. */
-export function startFortifying(
-  repos: Repositories,
-  input: FortifyInput,
-): CityActionResult<{ base: Base }> {
-  const { base, location, now } = input;
-  const control = repos.city.control(location.id);
-  if (!control) return { kind: 'refused', reason: 'not_contested' };
-  if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
-  if (control.fortifyingUntil !== null) return { kind: 'refused', reason: 'already_fortifying' };
-
-  const level = nextFortifyLevel(control.fortification);
-  if (level === null) return { kind: 'refused', reason: 'at_max_fortification' };
-
-  const cost = fortifyCost(level);
-  if (!canAfford(base.resources, cost)) return { kind: 'refused', reason: 'cannot_afford' };
-
-  repos.city.put({
-    ...control,
-    fortifyingUntil: new Date(now.getTime() + fortifySeconds(level) * 1000).toISOString(),
-  });
-
-  const next: Base = { ...base, resources: spendResources(base.resources, cost) };
-  repos.bases.updateResources(next.id, next.resources);
-  return { kind: 'ok', base: next };
-}
-
-/** When the running dig began: its end, less the clock that level always takes. */
-export function fortifyingSince(control: LocationControl): string | null {
-  if (control.fortifyingUntil === null) return null;
-  const level = nextFortifyLevel(control.fortification);
-  if (level === null) return null;
-  return new Date(Date.parse(control.fortifyingUntil) - fortifySeconds(level) * 1000).toISOString();
-}
+/*
+ * `setGarrison` was here, the whole of `POST /city/garrison`, and it went with the route
+ * (maintainer, 2026-09-28: "Nothing sends units immediately, you need to move them"). It put units
+ * on a held location, or brought them home, in the same instant and across cities. Standing units on
+ * ground is a move now (`moves/moves.ts`), which walks, and the rules this door enforced (a porter
+ * is not a line, a legend will not stand for a nobody, nothing leaves in a fight's last hour) are
+ * `sendMove`'s. `CITY_REFUSALS` went with it: nothing else returned one.
+ */
 
 /**
- * Call the dig off (maintainer request, 2026-09-12; `time/cancel.ts`): inside its first tenth, with
- * ninety percent of the materials back.
+ * Writes a location's control row, settling first every crew whose output the write moves.
+ *
+ * Ground pays its holder by the hour (`perHour` and `resourceYieldPercent` in the standing fold),
+ * and production is lazy: it is priced at the crew's next read against whatever it holds *then*.
+ * A change of holder or level written without a settle was applied to the whole window since
+ * each crew last looked, so the crew that took a Gas Station was paid for the hours before it
+ * did, and the crew that lost it lost those hours too (audit, 2026-09-28). Both crews are settled
+ * against the row as it stands, then the row is written.
+ *
+ * The settle writes the crews' rows, so a caller holding a copy of either must re-read it after.
  */
-export function cancelFortifying(
-  repos: Repositories,
-  input: { base: Base; location: Location; now: Date },
-): CityActionResult<{ base: Base; refund: PartialResources }> {
-  const { base, location, now } = input;
-  const control = repos.city.control(location.id);
-  if (!control) return { kind: 'refused', reason: 'not_contested' };
-  if (!isHeldBy(control, base.id)) return { kind: 'refused', reason: 'not_held' };
-  const since = fortifyingSince(control);
-  const level = nextFortifyLevel(control.fortification);
-  if (control.fortifyingUntil === null || since === null || level === null) {
-    return { kind: 'refused', reason: 'nothing_running' };
+export function putControl(repos: Repositories, next: LocationControl, now: Date): void {
+  const before = repos.city.control(next.locationId);
+  if (before && (holderOf(before) !== holderOf(next) || before.level !== next.level)) {
+    settleBasesById(repos, [holderOf(before), holderOf(next)], now);
   }
-  const total = Date.parse(control.fortifyingUntil) - Date.parse(since);
-  if (!cancelWindowOpen(Date.parse(since), total, now.getTime())) {
-    return { kind: 'refused', reason: 'window_closed' };
-  }
-  const refund = cancelRefund(fortifyCost(level));
-  repos.city.put({ ...control, fortifyingUntil: null });
-  const next: Base = { ...base, resources: addResources(base.resources, refund) };
-  repos.bases.updateResources(next.id, next.resources);
-  return { kind: 'ok', base: next, refund };
+  repos.city.put(next);
+}
+
+function holderOf(control: LocationControl): string | null {
+  return control.holder.kind === 'crew' ? control.holder.baseId : null;
 }

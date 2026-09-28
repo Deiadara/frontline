@@ -66,6 +66,7 @@ const market: MarketResponse = {
     },
   ],
   mine: [],
+  claims: [],
   supply: supplyBoard(12, resources, 10_000, 0, (key) =>
     Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
   ),
@@ -76,6 +77,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -173,6 +175,21 @@ describe('a listing of your own', () => {
  * `MAX_OPEN_OFFERS = 8` of them. The counter case was quieter: `onDone` cleared the target and not
  * the bundle, so the same-looking form turned from "counter that listing" into "public listing".
  */
+describe('a half-written listing', () => {
+  it('cannot be posted until it both gives and asks for something', async () => {
+    renderOffers();
+    await screen.findByTestId('offer-give');
+
+    fireEvent.click(screen.getByTestId('offer-give-oil'));
+    fireEvent.change(screen.getByTestId('offer-give-amount-oil'), { target: { value: '400' } });
+    expect(screen.getByRole('button', { name: 'Post it' })).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('offer-want-scrap'));
+    fireEvent.change(screen.getByTestId('offer-want-amount-scrap'), { target: { value: '400' } });
+    expect(screen.getByRole('button', { name: 'Post it' })).toBeEnabled();
+  });
+});
+
 describe('after a listing is posted', () => {
   it('empties the composer rather than leaving a second press armed', async () => {
     fetchMock.mockImplementation((path: string) => {
@@ -222,6 +239,7 @@ describe('a refused withdraw', () => {
     fetchMock.mockImplementation((path: string) => {
       if (path.endsWith('/market/withdraw'))
         return Promise.resolve({
+          headers: new Headers(),
           ok: false,
           status: 409,
           statusText: 'Conflict',
@@ -247,5 +265,53 @@ describe('a refused withdraw', () => {
     const theirs = screen.getByRole('heading', { name: 'District Offers' }).closest('div');
     expect(mine?.parentElement?.contains(alert)).toBe(true);
     expect(theirs?.parentElement?.contains(alert)).toBe(false);
+  });
+});
+
+/**
+ * A listing somebody took waits with Claim where Withdraw was (maintainer, 2026-09-28), and the
+ * press sends that claim and nothing else.
+ */
+describe('goods waiting on the board', () => {
+  const held: MarketResponse['claims'][number] = {
+    id: 'claim-1',
+    offer: {
+      id: 'offer-sold',
+      sellerBaseId: 'base-1',
+      sellerName: 'Us',
+      give: { resources: { oil: 1_500 }, items: {} },
+      want: { resources: { caps: 2_500 }, items: {} },
+      status: 'accepted',
+      counterTo: null,
+      directedAt: null,
+      createdAt: NOW,
+    },
+    reason: 'taken',
+    goods: { resources: { caps: 2_500 }, items: {} },
+    takenBy: 'Sisters of the Undergrid',
+    createdAt: NOW,
+    claimUntil: new Date(Date.parse(NOW) + 19 * 3_600_000).toISOString(),
+  };
+
+  it('says who took it and how long is left, and claims it on the press', async () => {
+    let claimed = false;
+    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path.endsWith('/market')) return reply({ ...market, claims: claimed ? [] : [held] });
+      if (path.endsWith('/market/claim')) {
+        expect(JSON.parse(init?.body as string)).toEqual({ claimId: 'claim-1' });
+        claimed = true;
+        return reply({ market });
+      }
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderOffers();
+
+    const card = await screen.findByTestId('market-claim-claim-1');
+    expect(card).toHaveTextContent('Taken by Sisters of the Undergrid');
+    expect(card).toHaveTextContent('You handed over');
+    expect(card).toHaveTextContent(/Claim within 19h/);
+
+    fireEvent.click(screen.getByTestId('claim-claim-1'));
+    await waitFor(() => expect(screen.queryByTestId('market-claim-claim-1')).toBeNull());
   });
 });

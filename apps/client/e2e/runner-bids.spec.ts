@@ -102,14 +102,21 @@ test.describe('the barrow is an auction', () => {
     await expect(page.getByTestId('lot-refusal')).toContainText('already leading');
   });
 
-  test('an untouched lot opens at its price and takes the first bid', async ({ page }) => {
+  /*
+   * §H7a: the fixture's crew has money on two lots already (the one it leads and the one it was
+   * outbid on), which is `MAX_OPEN_LOTS`. This test used to place a first bid here, which the real
+   * Runner refuses with `too_many_lots`; the window now says so before the press.
+   */
+  test('an untouched lot opens at its price, and is shut to a crew already on two', async ({
+    page,
+  }) => {
     await openLot(page, UNTOUCHED);
     const lot = lotFor(UNTOUCHED);
     await expect(page.getByTestId('lot-standing')).toContainText('Nobody has bid');
     await expect(page.getByTestId('lot-leading')).toHaveText(lot.reserve.toLocaleString());
     await expect(page.getByTestId('lot-amount')).toHaveValue(String(lot.reserve));
-    await page.getByTestId('lot-place').click();
-    await expect(page.getByTestId('lot-standing')).toContainText('You are leading');
-    await expect(page.getByTestId('lot-history').locator('li')).toHaveCount(1);
+    await expect(page.getByTestId('lot-place')).toBeDisabled();
+    await expect(page.getByTestId('lot-refusal')).toContainText('every lot you can hold');
+    await expectNothingOverflowsTheScreen(page);
   });
 });

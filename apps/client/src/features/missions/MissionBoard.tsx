@@ -1,15 +1,18 @@
 import {
   type Fleet,
-  BATTLE_TIER_LABELS,
+  FIGHT_CATEGORY_LABELS,
   LEADER_HOLD_LABELS,
   ATTRIBUTE_LABELS,
   IMPORTANCE_LABELS,
   IMPORTANCE_WEIGHT,
   LEANING_PROFILES,
   MISSION_LEANING_LABELS,
-  UNLED_PENALTY,
   VEHICLES,
   battleOdds,
+  type BattleOdds,
+  type FightLeaderQuoteRequest,
+  type FightLeaderQuoteResponse,
+  type FightLeaderRating,
   bestLeader,
   composeProfile,
   enemyStrength,
@@ -20,15 +23,20 @@ import {
   hastenedMinutes,
   hastenedRoadMinutes,
   isCombatUnit,
-  leaderFit,
   missionCarry,
+  fightCategory,
+  leaderMark,
   missionOdds,
   missionTimings,
+  rampedTimings,
   ridingUnitSlots,
   standsInLine,
   UNIT_RULE_IDS,
+  RESOURCE_KG,
+  carriedHome,
+  creditStores,
+  describeWaste,
   type Army,
-  type BlueprintCategory,
   type MissionArea,
   type UnitRuleId,
   type AttributeImportance,
@@ -37,12 +45,15 @@ import {
   type MissionLeaning,
   type MissionLeader,
   type MissionOffer,
+  type MissionRoad,
+  type PartialResources,
+  type Resources,
+  type StoreCeilings,
   type UnitLoadouts,
   type UnitsResponse,
-  type UnledRule,
   vehicleNoun,
 } from '@frontline/shared';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RewardLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { Dropdown } from '../../components/ui/Dropdown';
@@ -55,19 +66,9 @@ import { cn } from '../../lib/cn';
 import { walksAlways } from '../units/rules';
 import { readColumn } from '../battle/column';
 import { UnitCard } from '../units/UnitCard';
+import { DifficultyStamp } from './DifficultyStamp';
 import { MissionGauge, type GaugeReading } from './MissionGauge';
-
-/**
- * §F1b: how a promised page reads on the card, by category and no further.
- *
- * Keyed on `BlueprintCategory` rather than on a hand-written copy of the same three strings, so a
- * fourth category is a compile error here rather than an `undefined` on a card.
- */
-const PAGE_PRIZE_LABELS: Readonly<Record<BlueprintCategory, string>> = {
-  unit: "A unit blueprint's page",
-  upgrade: "An upgrade blueprint's page",
-  consumable: "A consumable blueprint's page",
-};
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The mission board, one area at a time (GDD §E4, §A4).
@@ -94,8 +95,8 @@ const PAGE_PRIZE_LABELS: Readonly<Record<BlueprintCategory, string>> = {
  *
  * A plain job says what it leans on, which is the reader's half of the leader picker: a player
  * who can see that a run is a long road understands why the navigator's fit is 71% and the raid
- * boss's is 22%. A fight says its tier (`Fight I` to `Fight V`, or the Siege) and nothing else.
- * What a fight actually fields is the job's secret, and a tier is the most the screen is allowed
+ * boss's is 22%. A fight says its category (Skirmish, Battle, Siege or Mayhem) first. What a
+ * fight actually fields is the job's secret, and the category is the most the screen is allowed
  * to give away about it.
  */
 /**
@@ -135,15 +136,23 @@ function RoundTrip({ minutes, going }: { minutes: number; going: number }) {
 
 interface JobChipSpec {
   readonly label: string;
-  /** Set on a leaning chip, which explains itself on hover. Null on a battle tier, which does not. */
+  /** Set on a leaning chip, which explains itself on hover. Null on a fight's category, which does not. */
   readonly leaning: MissionLeaning | null;
 }
 
+/**
+ * The chips under a job: a fight's category first (Skirmish, Battle, Siege, Mayhem), then what the
+ * job leans on in its leader. A fight leans on the fight alone (maintainer, 2026-09-28), so its
+ * row is the category and nothing else: who should lead it is settled by fighting it, not by
+ * reading a sheet.
+ */
 function jobChips(offer: MissionOffer): readonly JobChipSpec[] {
-  if (offer.kind === 'battle' && offer.battleTier !== null) {
-    return [{ label: BATTLE_TIER_LABELS[offer.battleTier], leaning: null }];
-  }
-  return offer.leanings.map((leaning) => ({ label: MISSION_LEANING_LABELS[leaning], leaning }));
+  const leanings = offer.leanings
+    .filter((leaning) => offer.kind !== 'battle' || leaning !== 'fight')
+    .map((leaning) => ({ label: MISSION_LEANING_LABELS[leaning], leaning }));
+  return offer.kind === 'battle'
+    ? [{ label: FIGHT_CATEGORY_LABELS[fightCategory(offer.grade)], leaning: null }, ...leanings]
+    : leanings;
 }
 
 /**
@@ -169,7 +178,7 @@ function JobChip({ label, leaning, hot }: JobChipSpec & { hot: boolean }) {
       {label}
     </span>
   );
-  // A fight's tier chip explains nothing on purpose: what it fields is the job's secret.
+  // A fight's category chip explains nothing on purpose: what it fields is the job's secret.
   if (leaning === null) return chip;
   return (
     <HoverCard label={label} size="tip" card={<LeaningWindow label={label} leaning={leaning} />}>
@@ -234,8 +243,6 @@ const LEADER_KIND_LABEL: Readonly<Record<MissionLeader['kind'], string>> = {
   officer: 'Officer',
 };
 
-const percent = (fraction: number) => `${Math.round(fraction * 100)}%`;
-
 /**
  * Why a name in the picker cannot be taken, and when it can be.
  *
@@ -256,6 +263,28 @@ function holdHint(leader: MissionLeader, now: Date): string {
   return minutes > 0 ? `${label}, back in ${formatDuration(minutes)}` : label;
 }
 
+/** A crew with nothing off its roads, which is what a board read without the figures quotes. */
+const NO_ROAD: MissionRoad = { travelSpeedPercent: 0, roadMinutesOff: 0, unitSpeedPercent: 0 };
+
+/**
+ * The gauge's band off a rated leader: the share of practice fights won, in the same four words
+ * `battleOdds` uses for a force it can only size. Undefined until the engine has answered.
+ */
+function fightBand(rating: FightLeaderRating | undefined): BattleOdds | undefined {
+  if (!rating || rating.fights <= 0) return undefined;
+  const share = rating.wins / rating.fights;
+  if (share < 0.35) return 'low';
+  if (share < 0.55) return 'moderate';
+  if (share < 0.8) return 'good';
+  return 'very_high';
+}
+
+/** What the crew holds and what its stores hold at most, for the send window's room check. */
+export interface MissionStores {
+  resources: Resources;
+  ceilings: StoreCeilings;
+}
+
 export interface MissionBoardProps {
   areas: readonly MissionArea[];
   /** What is at home to send. */
@@ -266,10 +295,12 @@ export interface MissionBoardProps {
   loadouts: UnitLoadouts;
   /** Everybody who could lead a run, the Overseer first. Somebody out is drawn and not offered. */
   leaders: readonly MissionLeader[];
-  /** Whether a run may go out with nobody leading it, and on what terms. */
-  unledRule: UnledRule;
-  /** The player's level: what a battle job's tier fields is scaled by it (`enemyStrength`). */
-  level: number;
+  /**
+   * Who should lead a fight, asked of the server for the force being filled in
+   * (`quoteFightLeaders`). Optional, and its absence is what a board with no server behind it
+   * gets: the bench reads "not rated yet" and the first free leader stands.
+   */
+  onQuoteFightLeaders?: (body: FightLeaderQuoteRequest) => Promise<FightLeaderQuoteResponse>;
   /**
    * The clock, corrected to the server's (`useServerClock`).
    *
@@ -297,6 +328,11 @@ export interface MissionBoardProps {
   carriersFight: boolean;
   anyRide: boolean;
   /**
+   * The crew's own cuts off every road it walks (`MissionRoadSchema`), which the launch spends on
+   * the run's clock and the card cannot carry. Defaulted to none, the bare road.
+   */
+  road?: MissionRoad;
+  /**
    * The roster, for the card a unit's name opens in the send window.
    *
    * A prop rather than a `useUnits()` inside the dialog, and the reason is testability: the
@@ -305,6 +341,12 @@ export interface MissionBoardProps {
    * page above already reads `/units` for the two crew switches, so this costs nothing.
    */
   roster: UnitsResponse | undefined;
+  /**
+   * The stockpile and its ceilings, so the send window can say how much of the haul fits today
+   * (maintainer ruling, 2026-09-28). Undefined until the crew has been read, and the window then
+   * says nothing about room rather than guessing.
+   */
+  stores?: MissionStores | undefined;
   /** Every crew is out: no job on any board can be taken. */
   atCapacity: boolean;
   /**
@@ -326,7 +368,7 @@ export interface MissionBoardProps {
     areaId: string,
     templateId: string,
     force: Army,
-    leaderId?: string,
+    leaderId: string,
     vehicles?: Fleet,
   ) => void;
 }
@@ -337,14 +379,15 @@ export function MissionBoard({
   fleet,
   loadouts,
   leaders,
-  unledRule,
-  level,
+  onQuoteFightLeaders,
   now,
   bagPercent,
   marks,
   carriersFight,
   anyRide,
+  road = NO_ROAD,
   roster,
+  stores,
   atCapacity,
   automated,
   pendingTemplateId,
@@ -388,7 +431,7 @@ export function MissionBoard({
       {/* `py-2.5`, and the board count on this line rather than a row of its own (maintainer,
           2026-09-21): the page gained the crews-out line above the board, and a 34px row holding
           five words of small capitals was the cheapest thing on the screen to give back. */}
-      <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-1.5">
+      <header className="flex items-center gap-3 border-b border-surface-700 px-4 py-1.5 xl:py-2">
         <StepArrow
           direction="back"
           label="Previous area"
@@ -398,13 +441,21 @@ export function MissionBoard({
           onStep={() => step(-1)}
         />
         <div className="min-w-0 flex-1 text-center">
+          {/* Bigger from `xl`, where the board has height to spare and the cards below give it up
+              (maintainer, 2026-09-28). The blurb stays one line: `truncate` holds it there. */}
           <h3
-            className="truncate font-display text-base font-bold uppercase tracking-[0.16em] text-brass-300"
+            className="truncate font-display text-base font-bold uppercase tracking-[0.16em] text-brass-300 xl:text-[19px]"
             data-testid="board-area"
           >
             {area.name}
           </h3>
-          <p className="truncate font-body text-[12px] leading-snug text-ink-300">{area.blurb}</p>
+          <p
+            className="truncate font-body text-[12px] font-semibold leading-snug text-ink-200 xl:mt-0.5 xl:text-[14px]"
+            // A district's blurb runs past one line; the whole of it is on the hover.
+            data-tip={area.blurb}
+          >
+            {area.blurb}
+          </p>
         </div>
         {/*
          * Two things used to live on this line and both have gone.
@@ -474,14 +525,15 @@ export function MissionBoard({
           fleet={fleet}
           loadouts={loadouts}
           leaders={leaders}
-          unledRule={unledRule}
-          level={level}
           now={now}
+          {...(onQuoteFightLeaders ? { onQuoteFightLeaders } : {})}
           bagPercent={bagPercent}
           marks={marks}
           carriersFight={carriersFight}
           anyRide={anyRide}
+          road={road}
           roster={roster}
+          stores={stores}
           onClose={() => setSending(null)}
           onSend={(force, leaderId, vehicles) => {
             onLaunch(area.id, sending.templateId, force, leaderId, vehicles);
@@ -541,24 +593,53 @@ export function OfferCard({
           "Reservoir Expedition", both 20 characters) wraps to two lines and fills exactly 32px of
           a 32px box at every width the game is drawn at: an `h-8` here is not a band with a tight
           fit, it is a band with none, and the first name a character longer sits on the brief. */}
-      <h4 className="h-9 min-w-0 break-words font-display text-[13px] font-semibold uppercase leading-tight tracking-[0.12em] text-ink-100 xl:text-[14px]">
+      {/* Typed onto the order, the way a job handed across a table would be (maintainer,
+          2026-09-28): the title and the brief in the typewriter face the paper screens use. */}
+      {/* In the colour of the button that sends it (maintainer, 2026-09-28): red for a fight,
+          brass for everything else. */}
+      <h4
+        className={cn(
+          'h-10 min-w-0 break-words border-b border-surface-700/70 font-stamp text-[15px] uppercase leading-[1.2] tracking-[0.08em] xl:text-[17px]',
+          offer.kind === 'battle' ? 'text-oxblood-300' : 'text-brass-300',
+        )}
+      >
         {offer.name}
       </h4>
 
-      <p className="h-16 min-w-0 overflow-hidden break-words font-body text-[12px] leading-snug text-ink-300 xl:h-auto xl:min-h-[3.5rem] xl:flex-1 xl:text-[13px]">
-        {offer.brief}
-      </p>
+      {/* Five tight lines below `xl`: the longest brief in the catalogue (154 characters) is four
+          lines of the typewriter at 12px on the narrowest card, and a fifth once it runs round the
+          stamp. From `xl` the brief takes the room left over. The rule parting it from the title
+          is the title's own bottom edge, so it costs the band nothing. */}
+      {/* The difficulty stamp sits in the brief's bottom right corner, like a stamp on a page
+          (maintainer, 2026-09-28), and the text runs round it rather than under it. The
+          zero-width float above it is as tall as the band less the stamp and its margins, which is
+          what pushes the stamp to the bottom: a float cannot be sent there any other way. The
+          margins are the room its tilt swings a corner into, since the band clips. */}
+      <div
+        className="mt-1 h-[4.75rem] min-w-0 overflow-hidden break-words font-stamp text-[12px] leading-tight text-ink-200 xl:h-auto xl:min-h-[3.5rem] xl:flex-1 xl:text-[14px] xl:leading-[1.3]"
+        data-testid={`brief-${offer.templateId}`}
+      >
+        <span
+          aria-hidden
+          className="float-right h-[calc(100%-3.25rem)] w-0 xl:h-[calc(100%-4.5rem)]"
+        />
+        <DifficultyStamp
+          mark={offer.grade}
+          className="float-right clear-right my-1 ml-1.5 mr-1 h-11 w-[3.9rem] xl:h-16 xl:w-[5.7rem]"
+        />
+        <p>{offer.brief}</p>
+      </div>
 
       {/* The clock, broken out the way §E8 asks for it: two legs and the work between them. */}
-      <dl className="mt-1 grid h-14 grid-cols-2 gap-x-2 border-y border-surface-700/70 py-1.5">
+      <dl className="mt-1 grid h-[3.25rem] grid-cols-2 gap-x-2 border-y border-surface-700/70 py-1 xl:h-[3.75rem]">
         <Cell label="Travel" value={formatDuration(offer.travelMinutes)} hint="each way, ×2" />
         <Cell label="On site" value={formatDuration(offer.durationMinutes)} hint="the job" />
       </dl>
       <div className="flex h-6 items-center justify-between gap-2">
-        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 xl:text-[11px]">
           Round trip
         </span>
-        <span className="font-display text-[13px] font-bold tabular-nums text-brass-300 xl:text-[14px]">
+        <span className="font-display text-[13px] font-bold tabular-nums text-brass-300 xl:text-[16px]">
           {formatDuration(offer.totalMinutes)}
         </span>
       </div>
@@ -583,30 +664,20 @@ export function OfferCard({
           line, right of it, rather than on a line of its own under the chips. That is 20px off
           the band in every case, the six-resource worst case included, so the fixed heights come
           down by the same: 6rem and 6.75rem where they were 7 and 8. */}
-      <div className="flex h-24 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-[6.75rem]">
-        <span className="flex items-baseline justify-between gap-2 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-          <span>Expected haul</span>
+      <div className="flex h-24 shrink-0 flex-col gap-1 overflow-hidden border-t border-surface-700/70 pt-1.5 xl:h-[6.25rem]">
+        <span className="flex items-baseline justify-between gap-2 font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 xl:text-[11px]">
+          <span className="shrink-0 whitespace-nowrap">Expected haul</span>
+          {/* Four figures once the pay is graded (2026-09-28): "to carry" came off so the line
+              stays one line at the narrowest card, and the hover still says what the slots are. */}
           <span
-            className="shrink-0 tracking-[0.14em]"
-            data-tip="Loot slots. Send enough bags or you leave some of it on the floor"
+            className="shrink-0 whitespace-nowrap tracking-[0.14em]"
+            data-tip="Loot slots to carry. Send enough bags or you leave some of it on the floor"
           >
-            <span className="tabular-nums text-ink-200">{offer.payoutSlots}</span> loot slots to
-            carry
+            <span className="tabular-nums text-ink-200">{offer.payoutSlots.toLocaleString()}</span>{' '}
+            loot slots
           </span>
         </span>
-        <RewardLine rewards={offer.rewards} />
-        {/* §F1b: the category, and never the page. Which sheet it turns out to be is not decided
-            until the crew is home, so a card that named it would turn a run into a shopping trip
-            and the anticipation is most of what the reward is. */}
-        {offer.pagePrize !== null && (
-          <span
-            className="font-display text-[10px] uppercase tracking-[0.14em] text-brass-300"
-            data-testid={`page-prize-${offer.templateId}`}
-            data-tip="Which page it is, you find out when they get back"
-          >
-            {PAGE_PRIZE_LABELS[offer.pagePrize]}
-          </span>
-        )}
+        <RewardLine rewards={offer.rewards} size="md" />
       </div>
 
       {/* §I1: what the crew learns from it, which is half of what a job is worth and was on no
@@ -616,10 +687,10 @@ export function OfferCard({
         className="flex h-6 items-center justify-between gap-2 border-t border-surface-700/70 pt-1.5"
         data-tip={`${offer.failedXp.toLocaleString()} XP even if it goes wrong`}
       >
-        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
+        <span className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300 xl:text-[11px]">
           Experience
         </span>
-        <span className="font-display text-[12px] font-bold tabular-nums text-hextech-100">
+        <span className="font-display text-[12px] font-bold tabular-nums text-hextech-100 xl:text-[14px]">
           +{offer.xp.toLocaleString()}
           <span className="ml-1 font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
             / {offer.failedXp.toLocaleString()} lost
@@ -627,9 +698,10 @@ export function OfferCard({
         </span>
       </div>
 
-      {/* What the job leans on, or a battle's tier: the one line on the card about *who should
-          lead it*. Fixed height and clipped like every other band here, because a four-leaning
-          job wraps to two rows and the deploy buttons across three cards stay on one line. */}
+      {/* What the job leans on, and a battle's fight category: the one line on the card about
+          *who should lead it*. Fixed height and clipped like every other band here, because a
+          four-leaning job wraps to two rows and the deploy buttons across three cards stay on one
+          line. */}
       <div
         className="flex h-9 flex-wrap content-start items-start gap-1 overflow-hidden pt-1.5"
         data-testid={`job-chips-${offer.templateId}`}
@@ -644,14 +716,7 @@ export function OfferCard({
         ))}
       </div>
 
-      {!readOnly && refusal && (
-        <p
-          role="alert"
-          className="h-10 overflow-hidden break-words text-[11px] leading-snug text-oxblood-300"
-        >
-          {refusal}
-        </p>
-      )}
+      {!readOnly && refusal && <ErrorNote>{refusal}</ErrorNote>}
 
       {!readOnly && (
         <div className="mt-auto pt-2">
@@ -674,13 +739,13 @@ export function OfferCard({
 function Cell({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
     <div className="min-w-0">
-      <dt className="truncate font-display text-[9px] uppercase tracking-[0.16em] text-ink-300">
+      <dt className="truncate font-display text-[9px] uppercase tracking-[0.16em] text-ink-300 xl:text-[10px]">
         {label}
       </dt>
-      <dd className="truncate font-display text-[13px] font-bold tabular-nums text-ink-100">
+      <dd className="truncate font-display text-[13px] font-bold tabular-nums text-ink-100 xl:text-[16px]">
         {value}
       </dd>
-      <dd className="truncate font-display text-[9px] uppercase tracking-[0.14em] text-ink-300">
+      <dd className="truncate font-display text-[9px] uppercase tracking-[0.14em] text-ink-300 xl:text-[10px]">
         {hint}
       </dd>
     </div>
@@ -702,14 +767,15 @@ function SendDialog({
   fleet,
   loadouts,
   leaders,
-  unledRule,
-  level,
+  onQuoteFightLeaders,
   now,
   bagPercent,
   marks,
   carriersFight,
   anyRide,
+  road,
   roster,
+  stores,
   onClose,
   onSend,
 }: {
@@ -721,8 +787,12 @@ function SendDialog({
   /** §C3: the crew's brackets, folded into the pace the same way the launch folds them. */
   loadouts: UnitLoadouts;
   leaders: readonly MissionLeader[];
-  unledRule: UnledRule;
-  level: number;
+  /**
+   * Who should lead a fight, asked of the server for the force being filled in
+   * (`quoteFightLeaders`). Optional, and its absence is what a board with no server behind it
+   * gets: the bench reads "not rated yet" and the first free leader stands.
+   */
+  onQuoteFightLeaders?: (body: FightLeaderQuoteRequest) => Promise<FightLeaderQuoteResponse>;
   /** The server's clock, for the wait printed beside a leader somebody else has. */
   now: Date;
   /** §A4: what the crew's holdings and perks add to every haul, as a percentage. */
@@ -733,14 +803,37 @@ function SendDialog({
   carriersFight: boolean;
   /** §C3: this crew's machines seat anything (`any_ride`), so a Colossus does not walk. */
   anyRide: boolean;
+  /** §C3: the crew's own cuts off the road, spent the way the launch spends them. */
+  road: MissionRoad;
   /** §A5: the sheets, for the card a unit's name opens. Undefined draws the name bare. */
   roster: UnitsResponse | undefined;
+  /** The stockpile and its ceilings, for how much of the haul fits. Undefined says nothing. */
+  stores: MissionStores | undefined;
   onClose: () => void;
-  onSend: (force: Army, leaderId?: string, vehicles?: Fleet) => void;
+  onSend: (force: Army, leaderId: string, vehicles?: Fleet) => void;
 }) {
   const [force, setForce] = useState<Army>({});
   const [riding, setRiding] = useState<Fleet>({});
+  /*
+   * Who leads it, and what that is worth.
+   *
+   * The job's leanings compose into one profile (`composeProfile`), every leader is graded
+   * against it (`leaderMark`), and the odds are `missionOdds` and nothing else: the same function
+   * the launch is priced with, so the dial cannot quote a figure the server does not charge.
+   *
+   * The most suitable free leader is picked to start with (2026-09-28). Every run has a leader
+   * now, and the Overseer is always on the list, so an empty pick was only ever a button that
+   * would not press.
+   */
+  const profile = useMemo(() => composeProfile(offer.leanings), [offer.leanings]);
+  const free = leaders.filter((one) => one.held === null);
   const [pickedId, setPickedId] = useState('');
+  /*
+   * Whether the player has chosen a leader by hand. Until they do, the pick follows the best
+   * free leader, and for a fight that answer arrives from the server a moment after the window
+   * opens and moves again as the force is filled.
+   */
+  const [chosenByHand, setChosenByHand] = useState(false);
 
   const available = Object.entries(army)
     .flatMap(([unitId, count]) => {
@@ -777,6 +870,10 @@ function SendDialog({
   // modifications, `sig_scavenger_king`) and granted `picker` marks both pay the settle, so a board
   // that read the printed sheet quoted a smaller haul than the job brought home.
   const carry = missionCarry(force, loadouts, bagPercent, lineRules);
+  // What of the haul the carry brings home the stores could not take today: `wastedOnArrival`.
+  const lostAtTheGate = stores
+    ? wastedOnArrival(carriedHome(offer.rewards, carry, RESOURCE_KG), stores)
+    : undefined;
   /*
    * §C3: the machines actually being driven, with the zeros taken out.
    *
@@ -822,26 +919,78 @@ function SendDialog({
    * filled: two bikes in front of forty walkers made all forty measurably faster, and they do not.
    * They arrive first and wait.
    */
-  const column = readColumn(fleetOut, force, loadouts, anyRide);
+  const column = readColumn(fleetOut, force, loadouts, anyRide, road.unitSpeedPercent);
   const fighters = Object.entries(force).some(
     ([unitId, count]) => count > 0 && isCombatUnit(unitId),
   );
   const needsFighters = offer.kind === 'battle' && !fighters;
 
-  /*
-   * Who leads it, and what that is worth.
-   *
-   * The job's leanings compose into one profile (`composeProfile`), every leader is scored
-   * against it (`leaderFit`), and the odds are `missionOdds` and nothing else: the same function
-   * the launch is priced with, so the dial cannot quote a figure the server does not charge.
-   *
-   * Nobody is picked by default. That is the state the unled rule is about, and defaulting to the
-   * first name on the list would hide it behind a choice the player never made.
-   */
-  const profile = useMemo(() => composeProfile(offer.leanings), [offer.leanings]);
-  const free = leaders.filter((one) => one.held === null);
   const leader = free.find((one) => one.id === pickedId) ?? null;
-  const best = bestLeader(free, profile);
+  /*
+   * Who should lead a fight: the engine's answer for this force (`useFightLeaderQuote`), asked
+   * again as the party changes. A plain job grades the bench on the card's leanings, as before;
+   * a fight's bench is rated by fighting it, so the sheet the picker reads is the engine's.
+   */
+  const quoteKey =
+    offer.kind === 'battle' && going > 0 && onQuoteFightLeaders
+      ? JSON.stringify({
+          templateId: offer.templateId,
+          grade: offer.grade,
+          force,
+          vehicles: riding,
+        })
+      : null;
+  // One object per distinct body, so the effect below runs on a change of force and not on a
+  // render: a fresh literal each time would ask again every time the answer landed.
+  const quoteBody = useMemo(
+    () => (quoteKey === null ? null : (JSON.parse(quoteKey) as FightLeaderQuoteRequest)),
+    [quoteKey],
+  );
+  const [fightQuote, setFightQuote] = useState<{
+    key: string;
+    leaders: FightLeaderRating[];
+  } | null>(null);
+  useEffect(() => {
+    if (quoteKey === null || quoteBody === null || !onQuoteFightLeaders) return;
+    let live = true;
+    // A breath after the last change, so a player stepping a count up five times asks once.
+    const timer = setTimeout(() => {
+      onQuoteFightLeaders(quoteBody)
+        .then((answer) => {
+          if (live) setFightQuote({ key: quoteKey, leaders: answer.leaders });
+        })
+        .catch(() => {
+          if (live) setFightQuote({ key: quoteKey, leaders: [] });
+        });
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [quoteKey, quoteBody, onQuoteFightLeaders]);
+  /** The bench as rated for the force on screen now; undefined while the answer is on its way. */
+  const rated = fightQuote !== null && fightQuote.key === quoteKey ? fightQuote.leaders : undefined;
+  const ratingOf = (id: string): FightLeaderRating | undefined =>
+    rated?.find((one) => one.id === id);
+  const best: MissionLeader | null =
+    offer.kind === 'battle'
+      ? (rated
+          ?.map((rating) => free.find((one) => one.id === rating.id))
+          .find((one) => one !== undefined) ??
+        free[0] ??
+        null)
+      : bestLeader(free, profile);
+  // The most suitable free leader is picked to start with (2026-09-28), and followed until the
+  // player chooses by hand: for a fight the answer lands after the window opens.
+  useEffect(() => {
+    if (!chosenByHand && best !== null && best.id !== pickedId) setPickedId(best.id);
+  }, [best, chosenByHand, pickedId]);
+  const fightWords = (rating: FightLeaderRating | undefined): string =>
+    rating
+      ? `wins ${rating.wins} of ${rating.fights} practice fights`
+      : quoteKey !== null && rated === undefined
+        ? 'sizing up the fight'
+        : 'not rated yet';
 
   /*
    * The cut this run gets, exactly as `launchMission` works it out.
@@ -866,9 +1015,8 @@ function SendDialog({
    * beside "-55% off the road" and neither number described the run.
    *
    * The road only, exactly as the launch does it: a van gets a crew to the site sooner and does not
-   * make the work go faster. This is an **upper bound**, and says so: the crew's own
-   * `missionSpeedPercent` and any delegation terms come off it as well, and neither is on this
-   * payload. Both only ever shorten it, so the run is this or quicker, never longer.
+   * make the work go faster. The crew's own road cuts (`road`) come off it here too, so the figure
+   * is the run's and not an upper bound on it.
    */
   /*
    * One leg, held in one place, because two lines print it.
@@ -878,34 +1026,44 @@ function SendDialog({
    * that one from `offer.travelMinutes` with the column's pace over it and no reduction at all.
    * A run with an officer on Short Way had the two disagreeing by minutes in one open dialog.
    */
-  const oneWayMinutes = hastenedRoadMinutes(offer.rawTravelMinutes, column.speed, runSpeedPercent);
-  const clockMinutes = missionTimings({
+  // ...with the crew's own road cuts on the road alone, as the launch spends them: their
+  // `travelSpeedPercent` beside the ground's and the officer's, and the shortcut's minutes off.
+  const oneWayMinutes = hastenedRoadMinutes(
+    offer.rawTravelMinutes,
+    column.speed,
+    runSpeedPercent + road.travelSpeedPercent,
+    road.roadMinutesOff,
+  );
+  const walked = missionTimings({
     travelMinutes: oneWayMinutes,
     durationMinutes: hastenedMinutes(offer.rawDurationMinutes, runSpeedPercent),
-  }).totalMinutes;
-  const odds = missionOdds({
-    authored: offer.authoredChance,
-    leader: leader?.attributes ?? null,
-    profile,
-    unled: unledRule,
   });
+  /*
+   * The opening band, applied last, exactly where `launchMission` applies it.
+   *
+   * This line was missing and the omission was worth 55x. The three `*Minutes` on the offer carry
+   * the band, but this dialog cannot use them: it re-runs the launch's arithmetic from the raw
+   * template so the column's pace and the leader's Short Way can come off, and raw is raw. So a
+   * crew on their first three runs read "at most 1h 50m" under a card that said "round trip 2m",
+   * and the 1h 50m was the figure on the screen they commit from.
+   */
+  const clockMinutes = (offer.ramp === null ? walked : rampedTimings(walked, offer.ramp))
+    .totalMinutes;
+  const odds = missionOdds({ grade: offer.grade, leader: leader?.attributes ?? null, profile });
 
   /*
    * A battle is banded, never numbered: the crew fights a force it cannot see, with the real
-   * engine, so the honest reading is how what is being sent compares with what the tier fields at
-   * this level. The leader's edge rides in as a share of the force, and `odds.edge` is the right
-   * number for it either way: a leader's own edge when there is one, the unled penalty when there
-   * is not.
+   * engine, so the honest reading is how what is being sent compares with what the grade fields.
+   * With a leader rated, the band is what the practice fights said (`fightBand`); before the
+   * answer lands it is the force against the grade's figure, with nobody's edge on it.
    */
   const reading: GaugeReading =
-    offer.kind === 'battle' && offer.battleTier !== null
+    offer.kind === 'battle'
       ? {
           kind: 'battle',
-          odds: battleOdds({
-            ours: fieldStrength(force),
-            theirs: enemyStrength(offer.battleTier, level),
-            edge: odds.edge,
-          }),
+          odds:
+            (leader === null ? undefined : fightBand(ratingOf(leader.id))) ??
+            battleOdds({ ours: fieldStrength(force), theirs: enemyStrength(offer.grade), edge: 0 }),
         }
       : { kind: 'chance', chance: odds.chance };
   const gaugeLabel = reading.kind === 'battle' ? 'How the fight looks' : 'Chance it comes off';
@@ -967,7 +1125,23 @@ function SendDialog({
               tone={carry >= offer.payoutSlots ? 'good' : 'warn'}
             />
             <Readout label="Job pays" value={`${offer.payoutSlots} loot slots`} />
+            {stores && (
+              <Readout
+                label="Stores take"
+                value={lostAtTheGate === undefined ? 'all of it' : 'part of it'}
+                tone={lostAtTheGate === undefined ? 'good' : 'warn'}
+              />
+            )}
           </div>
+          {lostAtTheGate && (
+            <p
+              className="break-words font-body text-[12px] leading-snug text-warning"
+              data-testid="send-waste"
+            >
+              Your stores are short of room today: {describeWaste(lostAtTheGate)} of this haul would
+              go to waste if it came home now.
+            </p>
+          )}
         </div>
 
         {/*
@@ -1038,24 +1212,27 @@ function SendDialog({
                       <Dropdown
                         label={`Who leads ${offer.name}`}
                         value={leader?.id ?? ''}
-                        onChange={setPickedId}
+                        onChange={(id) => {
+                          setChosenByHand(true);
+                          setPickedId(id);
+                        }}
                         placeholder="Nobody yet"
                         options={[
-                          ...(unledRule === 'forbidden'
-                            ? []
-                            : [{ value: '', label: 'Nobody: send them alone' }]),
                           ...leaders.map((one) => ({
                             value: one.id,
                             label: one.name,
-                            // The kind, and what they are worth *on this job*: a raid boss and a
-                            // navigator are different people on a long road, and the percentage is
-                            // the only place that difference is a number before the crew leaves.
+                            // The kind, and their grade *for this job*: a raid boss and a navigator
+                            // are different people on a long road, and the grade beside the job's
+                            // own is the whole of the odds (maintainer, 2026-09-28).
                             hint:
                               one.held !== null
                                 ? `${LEADER_KIND_LABEL[one.kind]} · ${holdHint(one, now)}`
-                                : `${LEADER_KIND_LABEL[one.kind]} · fits this job ${percent(
-                                    leaderFit(one.attributes, profile).fit,
-                                  )}`,
+                                : offer.kind === 'battle'
+                                  ? `${LEADER_KIND_LABEL[one.kind]} · ${fightWords(ratingOf(one.id))}`
+                                  : `${LEADER_KIND_LABEL[one.kind]} · ${leaderMark(
+                                      one.attributes,
+                                      profile,
+                                    )} for this job`,
                             disabled: one.held !== null,
                           })),
                         ]}
@@ -1065,7 +1242,11 @@ function SendDialog({
                         variant="ghost"
                         size="sm"
                         disabled={best === null}
-                        onClick={() => best && setPickedId(best.id)}
+                        onClick={() => {
+                          if (!best) return;
+                          setChosenByHand(false);
+                          setPickedId(best.id);
+                        }}
                         data-testid="best-leader"
                       >
                         Use the most suitable leader for this job
@@ -1077,34 +1258,27 @@ function SendDialog({
                       className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300"
                       data-testid="leader-fit"
                     >
-                      {LEADER_KIND_LABEL[leader.kind]} · fits this job{' '}
-                      <span className="tabular-nums text-brass-300">
-                        {percent(leaderFit(leader.attributes, profile).fit)}
-                      </span>
+                      {offer.kind === 'battle' ? (
+                        <>
+                          {LEADER_KIND_LABEL[leader.kind]} ·{' '}
+                          <span className="tabular-nums text-brass-300">
+                            {fightWords(ratingOf(leader.id))}
+                          </span>{' '}
+                          with this crew
+                        </>
+                      ) : (
+                        <>
+                          {LEADER_KIND_LABEL[leader.kind]} · grades{' '}
+                          <span className="tabular-nums text-brass-300">
+                            {leaderMark(leader.attributes, profile)}
+                          </span>{' '}
+                          for this {offer.grade} job
+                        </>
+                      )}
                     </p>
                   )}
-                  {/*
-                   * What going unled costs, in the three states the research leaves it in. Free says
-                   * nothing at all: a rule the crew has bought out of is not news on every job.
-                   */}
-                  {leader === null && unledRule === 'forbidden' && (
-                    <p
-                      role="alert"
-                      className="font-body text-[12px] leading-snug text-oxblood-300"
-                      data-testid="unled-note"
-                    >
-                      Nobody leads this. Research unled runs, or send somebody.
-                    </p>
-                  )}
-                  {leader === null && unledRule === 'penalised' && (
-                    <p
-                      className="font-body text-[12px] leading-snug text-warning"
-                      data-testid="unled-note"
-                    >
-                      Nobody leading them, which is{' '}
-                      <span className="tabular-nums">{Math.round(UNLED_PENALTY * 100)}</span> points
-                      off the odds.
-                    </p>
+                  {leader === null && (
+                    <ErrorNote data-testid="leader-note">Somebody has to lead this.</ErrorNote>
                   )}
                   <RoundTrip minutes={clockMinutes} going={going} />
                 </div>
@@ -1252,33 +1426,36 @@ function SendDialog({
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-surface-700 px-4 pb-4 pt-3">
-          {needsFighters && (
-            <p role="alert" className="font-body text-[12px] text-oxblood-300">
-              Somebody there has to be able to fight. Porters do not go in alone.
-            </p>
+        {/* One row: why it cannot go on the left, the two buttons on the right, both centred on
+            the same line (maintainer, 2026-09-25). The buttons hold their place with `ml-auto`
+            whether or not there is anything to say. */}
+        <div className="flex items-center gap-3 border-t border-surface-700 px-4 pb-4 pt-3">
+          {(needsFighters || overloaded) && (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              {needsFighters && (
+                <ErrorNote>
+                  Somebody there has to be able to fight. Porters do not go in alone.
+                </ErrorNote>
+              )}
+              {/* §C3: picked the people first and the truck second. Said rather than fixed: the
+                  maintainer's rule is that the window does not quietly put anybody back. */}
+              {overloaded && (
+                <ErrorNote data-testid="mission-overloaded">
+                  They do not all fit. <span className="tabular-nums">{aboard}</span> unit slots
+                  picked and <span className="tabular-nums">{seats}</span> seats loaded: take
+                  somebody off, or bring another machine.
+                </ErrorNote>
+              )}
+            </div>
           )}
-          {/* §C3: picked the people first and the truck second. Said rather than fixed: the
-              maintainer's rule is that the window does not quietly put anybody back. */}
-          {overloaded && (
-            <p
-              role="alert"
-              className="font-body text-[12px] text-oxblood-300"
-              data-testid="mission-overloaded"
-            >
-              They do not all fit. <span className="tabular-nums">{aboard}</span> unit slots picked
-              and <span className="tabular-nums">{seats}</span> seats loaded: take somebody off, or
-              bring another machine.
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
+          <div className="ml-auto flex shrink-0 gap-2">
             <Button variant="ghost" onClick={onClose}>
               Not yet
             </Button>
             <Button
               variant={offer.kind === 'battle' ? 'danger' : 'primary'}
               disabled={going === 0 || !odds.allowed || needsFighters || overloaded}
-              onClick={() => onSend(force, leader?.id, fleetOut)}
+              onClick={() => leader && onSend(force, leader.id, fleetOut)}
               data-testid="confirm-send"
             >
               Send them
@@ -1330,6 +1507,22 @@ function UnitName({
       {label}
     </HoverCard>
   );
+}
+
+/**
+ * What of this haul the stores would throw away if it came home now (maintainer ruling,
+ * 2026-09-28).
+ *
+ * A run's pay lands up to the ceiling and the rest is lost at the gate, and nobody can be asked
+ * then: the crew arrives while the player is elsewhere. So the question is put here, where they
+ * commit, against the stock they hold today. It is a warning and not a refusal, because production,
+ * spending and other runs all move the stock before this one is back.
+ */
+function wastedOnArrival(
+  haul: PartialResources,
+  stores: MissionStores,
+): PartialResources | undefined {
+  return creditStores(stores.resources, haul, stores.ceilings).wasted;
 }
 
 function Readout({ label, value, tone }: { label: string; value: string; tone?: 'good' | 'warn' }) {

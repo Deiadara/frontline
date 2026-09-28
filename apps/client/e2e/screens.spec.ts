@@ -236,17 +236,25 @@ test('the bar lists tonight’s roster and the crew already signed', async ({ pa
   await expect(page.getByTestId('bid-bar-1')).toBeVisible();
 
   /*
-   * §H3 refusals say which door is shut rather than just greying the card out, and there are two:
-   * the rank the city has given the crew, and how long the crew has been at it. Both are on the
-   * dossier of the person they apply to, so the seat is stepped along until each turns up.
+   * §H3 refusals say which door is shut rather than just greying the card out. They live on the
+   * locked Bid button's note since 2026-09-28 (maintainer), so the seat is stepped along until a
+   * recruit with each door shut turns up and the note is read off a hover.
    */
-  const refusals = ['Your name is not big enough', 'Wants a crew that has been doing this longer'];
+  const refusals = ['Your name is not big enough', 'Wants a faction behind you that has earned'];
   for (const refusal of refusals) {
     let found = false;
     for (let step = 0; step < bar.recruits.length; step += 1) {
-      if ((await page.getByTestId('bar-file').getByText(refusal).count()) > 0) {
-        found = true;
-        break;
+      const locked = page
+        .getByTestId('bar-file')
+        .locator('[data-testid^="bid-"][aria-disabled="true"]');
+      if ((await locked.count()) > 0) {
+        await locked.first().hover();
+        const note = page.getByRole('tooltip');
+        await expect(note).toBeVisible();
+        if ((await note.getByText(refusal).count()) > 0) {
+          found = true;
+          break;
+        }
       }
       // The arrow goes dead at the end of the roster rather than wrapping, so the walk stops
       // there too: clicking a disabled button would spend the timeout instead of the assertion.
@@ -548,25 +556,25 @@ test('a district named in initials spells itself out on its own screen', async (
    * map and the sheet names the place. The sheet is where a player meets this district's name, so
    * it is where the abbreviation has to be spelled out.
    */
-  await page.goto('/game/city/combine-spire');
+  await page.goto('/game/city/ccs');
   await expect(page.getByTestId('scout-menu-title')).toHaveText('CCS');
   await expect(page.getByTestId('district-formal-name')).toHaveText('Civic Command Sector');
   await page.keyboard.press('Escape');
 
   // Steelbelt is not an abbreviation, so it carries no second line at all.
-  await page.goto('/game/city/rustyard');
+  await page.goto('/game/city/steelbelt');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Steelbelt');
   await expect(page.getByTestId('district-formal-name')).toHaveCount(0);
 });
 
 /** The Steelbelt's own locations, read off the map rather than typed. */
 const RUSTYARD_LOCATIONS =
-  CITY_DISTRICTS.find((district) => district.id === 'rustyard')?.locations ?? [];
+  CITY_DISTRICTS.find((district) => district.id === 'steelbelt')?.locations ?? [];
 
 test('the district view shows what is inside a scouted district (§A4)', async ({ page }) => {
   await installApi(page, me);
   await page.goto('/game');
-  await enterDistrict(page, 'rustyard');
+  await enterDistrict(page, 'steelbelt');
   /*
    * The district is a screen now, not a column of cards (maintainer request), so what is inside it is a
    * sign on the painting for each location and a window behind each sign. Both halves are asserted:
@@ -591,7 +599,9 @@ test('the district view shows what is inside a scouted district (§A4)', async (
   await page.getByTestId(`site-${mine.id}`).click();
   await expect(page.getByTestId('location-window')).toBeVisible();
   await expect(page.getByText('Yours').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Dig in' })).toBeVisible();
+  await expect(
+    page.getByTestId('location-window').getByRole('button', { name: 'Garrison', exact: true }),
+  ).toBeVisible();
   // You cannot call a fight on ground you already hold.
   await expect(page.getByRole('button', { name: 'Call a fight' })).toHaveCount(0);
 
@@ -859,23 +869,19 @@ test('a mission goes out with somebody leading it', async ({ page }) => {
   await page.goto('/game/missions');
 
   /*
-   * Nobody leads a run until the player says who does.
-   *
-   * The picker used to default to the first officer on the books, which was there to keep a hard
-   * job from offering a button the server was certain to refuse. Who may lead, and whether a run
-   * may go out unled at all, is the crew's research now (`unledRule`), so the dialog opens with
-   * the choice unmade and the dial reading the odds of going without.
+   * Every run has a leader (maintainer, 2026-09-28), so the dialog opens with the most suitable
+   * free one already picked, and the player can change it.
    */
   const dialog = page.getByRole('dialog');
+  // Plain work, whose leaders are rated for the job itself; a fight's are rated by practice fights.
   await page
-    .locator('[data-testid^="offer-"]')
+    .locator('[data-testid^="offer-"][data-kind="standard"]')
     .first()
     .getByRole('button', { name: /Send a crew/ })
     .click();
   await expect(dialog).toBeVisible();
-  // Reading "nobody", which under this crew's research is a real choice with a price on it and
-  // not an empty control: the picker offers it as an option, so it is what the trigger says.
-  await expect(dialog.getByTestId('send-leader')).toContainText('Nobody');
+  await expect(dialog.getByTestId('send-leader')).not.toContainText(/nobody/i);
+  await expect(dialog.getByTestId('leader-fit')).toContainText('for this');
 
   await dialog.getByTestId('send-leader').click();
   await page.getByRole('option', { name: /The Ghost of Sector Nine/ }).click();
@@ -1208,18 +1214,27 @@ test('scouting a district sends somebody rather than opening it', async ({ page 
   await page.goto(`/game/city/${UNSCOUTED_DISTRICT_ID}`);
 
   /*
-   * Unscouted ground does not open (maintainer, 2026-09-23): the link bounces to the map, the
-   * `?scout=` that carried the district is consumed, and the scout sheet is up with the district's
-   * name on it. Tapping the tag on the map opens the same sheet.
+   * Unscouted ground does not open (maintainer, 2026-09-23), and it does not **bounce** either
+   * (maintainer, 2026-09-25).
+   *
+   * This used to answer a redirect to the map carrying `?scout=`, which meant a second navigation
+   * on top of the one that got here and a district page flashing past on the way. The sheet is
+   * drawn at this route now, so a link from a crew profile, a notification or a pasted URL all
+   * land on the window without the page underneath ever being drawn, and the URL is the one the
+   * player asked for. Closing it is the one road out, to the map.
    */
   const menu = page.getByTestId('scout-menu');
   await expect(menu).toBeVisible();
-  await expect(page).toHaveURL(/\/game$/);
+  await expect(page).toHaveURL(new RegExp(`/game/city/${UNSCOUTED_DISTRICT_ID}$`));
   await expect(menu.getByTestId('scout-menu-title')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
+  await expect(page).toHaveURL(/\/game$/);
+
+  // And from the map, the tag opens the same sheet without going anywhere at all.
   await page.getByTestId(`district-tag-${UNSCOUTED_DISTRICT_ID}`).click();
   await expect(page.getByTestId('scout-menu')).toBeVisible();
+  await expect(page).toHaveURL(/\/game$/);
 
   // Quoted first: a run is measured in hours, so how long is a decision, not a surprise.
   const send = page.getByTestId('send-scout');
@@ -1248,9 +1263,9 @@ test('scouting a district sends somebody rather than opening it', async ({ page 
  */
 test('a captured district offers its gate, and raising it reaches the server', async ({ page }) => {
   await installApi(page, lateGame);
-  await page.goto('/game/city');
+  await page.goto('/game');
 
-  const panel = page.getByTestId('captured-gate-rustyard');
+  const panel = page.getByTestId('captured-gate-steelbelt');
   await expect(panel).toBeVisible();
   // Level 6 at the shared rates: 6 x 2.5 defending, 6 x 1.5 against a scout.
   await expect(panel).toContainText('Lv 6');
@@ -1261,8 +1276,8 @@ test('a captured district offers its gate, and raising it reaches the server', a
   const raised = page.waitForRequest(
     (request) => request.url().includes('/api/city/gate') && request.method() === 'POST',
   );
-  await page.getByTestId('raise-gate-rustyard').click();
-  expect(((await raised).postDataJSON() as { districtId: string }).districtId).toBe('rustyard');
+  await page.getByTestId('raise-gate-steelbelt').click();
+  expect(((await raised).postDataJSON() as { districtId: string }).districtId).toBe('steelbelt');
 });
 
 /**

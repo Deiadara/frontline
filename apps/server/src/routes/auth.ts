@@ -12,19 +12,27 @@ import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import type { UserRecord } from '../types.js';
+import { SESSION_HEADER, signSession } from '../auth/session.js';
 
 const BCRYPT_COST = 10;
 
+/** A real bcrypt hash of a random string, compared against when the username is unknown. */
+const UNKNOWN_USER_HASH = bcrypt.hashSync(randomUUID(), BCRYPT_COST);
+
 function authResponse(app: FastifyInstance, record: UserRecord): AuthResponse {
   const user = UserSchema.parse(record); // strips passwordHash
-  return { token: app.jwt.sign({ sub: user.id }), user };
+  return { token: signSession(app, user.id, app.repos.users.sessionVersion(user.id) ?? 0), user };
 }
 
 export function registerAuthRoutes(app: FastifyInstance): void {
   app.post('/auth/register', async (request, reply) => {
     const body = parseBody(RegisterRequestSchema, request.body);
 
-    // Hash first, then run the uniqueness check + insert with no `await` between them: on Node's
+    // Refused before the hash when the name is plainly taken, so a taken name costs no bcrypt.
+    if (app.repos.users.findByUsername(body.username)) {
+      throw new AppError('USERNAME_TAKEN', 'That username is already taken');
+    }
+    // Then checked again after it, with no `await` between the check and the insert: on Node's
     // single-threaded loop that keeps them atomic, so two concurrent registrations of the same
     // username can't both pass the check and collide on the DB constraint (which would 500).
     const passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
@@ -64,9 +72,12 @@ export function registerAuthRoutes(app: FastifyInstance): void {
     const body = parseBody(LoginRequestSchema, request.body);
 
     const record = app.repos.users.findByUsername(body.username);
-    const passwordMatches = record
-      ? await bcrypt.compare(body.password, record.passwordHash)
-      : false;
+    // An unknown name still pays for a compare, against a hash nobody holds, so the answer takes
+    // as long either way and the timing does not say which usernames exist.
+    const passwordMatches = await bcrypt.compare(
+      body.password,
+      record?.passwordHash ?? UNKNOWN_USER_HASH,
+    );
     if (!record || !passwordMatches) {
       throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password');
     }
@@ -80,5 +91,21 @@ export function registerAuthRoutes(app: FastifyInstance): void {
       payload: {},
     });
     return authResponse(app, record);
+  });
+
+  /**
+   * Log out everywhere: every token this account has handed out stops working at once, and the
+   * tab that asked is given a new one so it stays signed in (`auth/session.ts`).
+   */
+  app.post('/auth/logout-all', { preHandler: app.authenticate }, (request, reply) => {
+    const version = app.repos.users.revokeSessions(request.currentUser.id);
+    app.repos.history.record({
+      actorId: request.currentUser.id,
+      baseId: null,
+      kind: 'account.sessions_revoked',
+      payload: {},
+    });
+    reply.header(SESSION_HEADER, signSession(app, request.currentUser.id, version));
+    return { ok: true as const };
   });
 }

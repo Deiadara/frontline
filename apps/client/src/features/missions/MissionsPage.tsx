@@ -9,6 +9,7 @@ import {
   missionTimings,
   offerOfMission,
   recallWindowMs,
+  storeCeilings,
   type LevelUp,
   type Mission,
   type MissionLeader,
@@ -23,6 +24,7 @@ import { CancelMark } from '../../components/ui/CancelMark';
 import { Panel } from '../../components/ui/Panel';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { LoadFailure } from '../../components/ui/LoadFailure';
+import { quoteFightLeaders } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import {
   useCrewStanding,
@@ -36,10 +38,14 @@ import {
 import { MissionBoard } from './MissionBoard';
 import { boardIsAutomated } from '@frontline/shared';
 import { MissionReportWindow } from './MissionReportWindow';
+import { landedOf } from './WastedAtTheGate';
 import { ledBy } from './missionLines';
 import { useServerClock } from './useServerClock';
 import { PageShell } from '../game/PageShell';
+import { CityPicker } from '../city/CityPicker';
+import { useCityRoom } from '../city/useCityRoom';
 import { Tutorial } from '../tutorial/Tutorial';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 const PHASE_LABEL: Record<MissionPhase, string> = {
   outbound: 'Outbound',
@@ -99,7 +105,6 @@ function InFlightRow({
   now,
   leaders,
   overseerName,
-  level,
   pending,
   onRecall,
 }: {
@@ -107,8 +112,6 @@ function InFlightRow({
   now: Date;
   leaders: readonly MissionLeader[];
   overseerName: string;
-  /** The crew's level, which the card the run was taken off read its odds at. */
-  level: number;
   pending: boolean;
   onRecall: () => void;
 }) {
@@ -116,7 +119,7 @@ function InFlightRow({
   const name = template?.name ?? mission.templateId;
   // What it is worth if it comes off (maintainer, 2026-09-23): the card's haul and XP, rebuilt
   // from what the row froze, so a crew that is out is quoted the terms it left under.
-  const worth = template ? offerOfMission(mission, template, level) : null;
+  const worth = template ? offerOfMission(mission, template) : null;
   const phase = missionPhaseAt(mission, now);
   const progress = missionProgressAt(mission, now);
   const remaining = missionRemainingMs(mission, now);
@@ -301,7 +304,8 @@ function ReturnedRow({
             }
           />
         </div>
-        <RewardLine rewards={mission.rewards} />
+        {/* What went into the stores: a full yard threw part of the carry away at the gate. */}
+        <RewardLine rewards={landedOf(mission)} />
       </button>
       {open && (
         <MissionReportWindow
@@ -348,7 +352,16 @@ function EmptyRow({ text }: { text: string }) {
  * were sent from (§E4), and what the last few brought back.
  */
 export function MissionsPage() {
-  const missionsQuery = useMissions();
+  /*
+   * Which city's board this is (2026-09-24).
+   *
+   * The same door the Bar, the market and the back room carry: a crew may work its own city's
+   * board, or the board of any city it holds a location in. `undefined` asks for home, which is
+   * what the server answers when nothing is named, so a player who never leaves never sees a
+   * picker do anything.
+   */
+  const { city, choose } = useCityRoom();
+  const missionsQuery = useMissions(city);
   const automations = useAutomations();
   // §C3: the yard lives on the session snapshot, not on the missions payload: a machine is a fact
   // about the district rather than about the board.
@@ -366,6 +379,20 @@ export function MissionsPage() {
    */
   const roster = useUnits();
   const launch = useLaunchMission();
+  /*
+   * The stockpile and its ceilings, the crew's Logistics folded in the way the HUD bar folds it,
+   * so the send window can say how much of a haul the stores could take today.
+   */
+  const held = me.data?.base;
+  const stores = held
+    ? {
+        resources: held.resources,
+        ceilings: storeCeilings(
+          held.buildings,
+          standing.data?.effects['storageCapacityPercent'] ?? 0,
+        ),
+      }
+    : undefined;
 
   const data = missionsQuery.data;
   const now = useServerClock(data?.serverNow, missionsQuery.dataUpdatedAt);
@@ -376,7 +403,8 @@ export function MissionsPage() {
    * They used to come from `GET /crew`, which put a §G6 gate behind a request this screen made
    * only for the picker, and made "the roster is still loading" and "you have nobody" two states
    * this page had to tell apart and once got wrong. The Overseer is not on that roster at all.
-   * One payload answers who may lead, who is already out, and on what terms a crew may go unled.
+   * One payload answers who may lead and who is already out. Every run has a leader, so there are
+   * no terms for going unled any more (2026-09-28).
    */
   const leaders = data?.leaders ?? [];
   /*
@@ -434,6 +462,10 @@ export function MissionsPage() {
       quote="The first death is in the heart. Get out there and show you are still alive."
       wide
       fills
+      // The city door on the heading's own line, top right, where the market and the Bar put it.
+      {...(data
+        ? { action: <CityPicker cityId={data.cityId} cities={data.cities} onChoose={choose} /> }
+        : {})}
     >
       {/* First visit to this screen raises its card, once. */}
       <Tutorial screen="missions" />
@@ -519,18 +551,13 @@ export function MissionsPage() {
                       now={now}
                       leaders={leaders}
                       overseerName={overseerName}
-                      level={me.data?.base?.level ?? 1}
                       pending={recall.isPending}
                       onRecall={() => recall.mutate({ missionId: mission.id })}
                     />
                   ))}
                 </ul>
               )}
-              {recall.error && (
-                <p role="alert" className="px-3 pb-2 font-body text-[13px] text-oxblood-300">
-                  {recall.error.message}
-                </p>
-              )}
+              {recall.error && <ErrorNote className="mx-3 mb-2">{recall.error.message}</ErrorNote>}
             </Panel>
 
             <Panel
@@ -603,18 +630,17 @@ export function MissionsPage() {
                   fleet={me.data?.base?.fleet ?? {}}
                   loadouts={me.data?.base?.unitLoadouts ?? {}}
                   leaders={leaders}
-                  unledRule={data?.unledRule ?? 'forbidden'}
-                  // What a battle job fields scales with the player's level, and the level lives
-                  // on the base rather than on the board. One short of nothing is level 1, which
-                  // is the gentlest reading of a tier and the safe fallback.
-                  level={data.level}
                   now={now}
+                  onQuoteFightLeaders={quoteFightLeaders}
                   // §A4: the crew's own bag, so the dialog quotes the haul the settle will pay.
                   bagPercent={standing.data?.haulPercent ?? 0}
                   marks={standing.data?.marks ?? {}}
                   carriersFight={roster.data?.carriersFight ?? false}
                   anyRide={roster.data?.anyRide ?? false}
+                  // §C3: what the crew takes off the road, so the dialog quotes the run it walks.
+                  {...(data.road ? { road: data.road } : {})}
                   roster={roster.data}
+                  stores={stores}
                   atCapacity={atCapacity}
                   automated={automated}
                   pendingTemplateId={
@@ -632,7 +658,7 @@ export function MissionsPage() {
                         templateId,
                         force,
                         vehicles: vehicles ?? {},
-                        ...(leaderId ? { leaderId } : {}),
+                        leaderId,
                       },
                       // A launch settles the board first, so this response is the only place a crew
                       // that landed on it is ever reported: including when the launch is then

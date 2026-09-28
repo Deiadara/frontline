@@ -167,8 +167,10 @@ describe('what a name lets you field (§D7)', () => {
   it('sets a legendary gate a determined crew can actually clear', () => {
     const spent = notorietySpentTo(NOTORIETY_TO_FIELD.legendary);
     const slots = Math.ceil(spent / INFAMY_PER_UNIT_SLOT);
-    expect(slots).toBe(36_300);
-    // Three thousand Abominations, or a great many more Razors: a career, and a finite one.
-    expect(Math.ceil(slots / infamyForKill('the_abomination'))).toBe(3_630);
+    // The rank ladder was repriced on 2026-09-28 so a fighting crew is three rungs from the top
+    // after two to three months, and the legend's gate moved to `Feared` with it: about six weeks
+    // of fighting rather than a career.
+    expect(slots).toBe(4_571);
+    expect(Math.ceil(slots / infamyForKill('the_abomination'))).toBe(458);
   });
 });

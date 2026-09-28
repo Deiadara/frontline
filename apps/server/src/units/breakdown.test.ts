@@ -265,12 +265,10 @@ describe('where a training percentage comes from', () => {
     const base = seedBase(repos);
     // A Doghouse at level 6, held by this crew: five levels above the first, which is what pays.
     repos.city.put({
-      locationId: 'rustyard-kennels',
+      locationId: 'steelbelt-kennels',
       holder: { kind: 'crew', baseId: base.id },
       level: 6,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: {},
     });
 

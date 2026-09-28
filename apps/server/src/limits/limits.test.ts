@@ -4,6 +4,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { RateLimiter } from './bucket.js';
+import { addressBucket } from './plugin.js';
 import { AUTH_LIMIT, READ_LIMIT, STREAM_LIMIT, WRITE_LIMIT, ruleFor } from './rules.js';
 
 describe('the window', () => {
@@ -190,6 +191,52 @@ describe('over HTTP', () => {
   });
 
   /**
+   * The router decodes a path before it matches it, so `/api/%61uth/login` is the login route. The
+   * limiter classified the raw text and counted it as an ordinary write: 120 guesses a minute
+   * instead of 20 a quarter hour, from one address, by spelling one letter differently.
+   */
+  it('counts a percent-encoded sign-in against the sign-in budget', async () => {
+    const app = await makeApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/%61uth/login',
+      payload: { username: 'nobody', password: 'wrongpassword' },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['x-ratelimit-limit']).toBe(String(AUTH_LIMIT.quota));
+  });
+
+  /**
+   * A token rode along and the guesses were counted against its account instead of the address, so
+   * every account an attacker held was another twenty guesses at somebody else's password.
+   */
+  it('counts sign-ins against the address even when they carry a token', async () => {
+    const app = await makeApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'guesser', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    const attempt = (headers: Record<string, string>) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers,
+        payload: { username: 'nobody', password: 'wrongpassword' },
+      });
+
+    // The registration spent one; the rest of the quota with a token, then one without.
+    for (let i = 1; i < AUTH_LIMIT.quota; i += 1) {
+      await attempt({ authorization: `Bearer ${token}` });
+    }
+    const past = await attempt({});
+
+    expect(past.statusCode).toBe(429);
+  });
+
+  /**
    * Two accounts from one address do not share a budget.
    *
    * The reason the limiter decodes the token itself in `onRequest` rather than waiting for
@@ -218,5 +265,53 @@ describe('over HTTP', () => {
     expect(Number(second.headers['x-ratelimit-remaining'])).toBeGreaterThan(
       Number(first.headers['x-ratelimit-remaining']),
     );
+  });
+
+  /**
+   * A token that "log out everywhere" revoked still verified in the limiter, so whoever held it
+   * could spend the owner's budget and lock the owner's new session out with 429s.
+   */
+  it('does not let a revoked token spend the owner’s budget', async () => {
+    const app = await makeApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'revoker', password: 'hunter2pass' },
+    });
+    const stolen = registered.json<{ token: string }>().token;
+    const loggedOut = await app.inject({
+      method: 'POST',
+      url: '/api/auth/logout-all',
+      headers: { authorization: `Bearer ${stolen}` },
+    });
+    const fresh = loggedOut.headers['x-session-token'] as string;
+    expect(fresh).toBeTruthy();
+
+    const readAs = (token: string) =>
+      app.inject({ method: 'GET', url: '/api/me', headers: { authorization: `Bearer ${token}` } });
+    for (let i = 0; i < READ_LIMIT.quota + 5; i += 1) await readAs(stolen);
+    const owner = await readAs(fresh);
+
+    expect(owner.statusCode).toBe(200);
+  });
+});
+
+describe('the limiter under a flood of callers', () => {
+  it('keys an IPv6 caller by its /64, and IPv4 as it is', () => {
+    expect(addressBucket('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64');
+    expect(addressBucket('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64');
+    expect(addressBucket('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(addressBucket('::ffff:10.0.0.7')).toBe('10.0.0.7');
+    expect(addressBucket('10.0.0.7')).toBe('10.0.0.7');
+  });
+
+  it('never holds more windows than its ceiling', () => {
+    const limiter = new RateLimiter(() => 0, 100);
+    for (let caller = 0; caller < 10_000; caller += 1) {
+      limiter.take(`ip:${caller}`, { quota: 5, windowMs: 60_000 });
+    }
+    expect(limiter.size()).toBeLessThanOrEqual(100);
+    // The newest callers are still counted: the ones evicted are the oldest.
+    expect(limiter.take('ip:9999', { quota: 1, windowMs: 60_000 }).allowed).toBe(false);
   });
 });

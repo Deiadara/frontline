@@ -21,14 +21,14 @@ import { useSession } from '../../store/session';
 /** Another player's ground: the one target a call is charged for (§D7). */
 const target: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 /** Looter ground down the road, which the board does not list and is therefore free to call. */
 const FREE: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-ramp',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-ramp',
 };
 const EARLY = '2026-08-13T22:30:00.000Z';
 const LATE = '2026-08-14T06:30:00.000Z';
@@ -74,6 +74,7 @@ function open(
   infamy: number = RICH,
   on: BattleTarget = target,
   seeded: BattlesResponse | null = board,
+  gate?: { shut: boolean; brokenUntil: string | null },
 ) {
   const onConfirm = vi.fn();
   const queryClient = new QueryClient({
@@ -86,6 +87,7 @@ function open(
         target={on}
         placeName="Kessler Press"
         slots={offered}
+        gate={gate}
         infamy={infamy}
         pending={false}
         error={null}
@@ -104,7 +106,7 @@ describe('which mark is called', () => {
     const { onConfirm, rerender } = open([EARLY, LATE]);
     rerender([LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
+    expect(onConfirm).toHaveBeenCalledWith(LATE);
   });
 
   it('lets go of a mark the player picked once the board no longer offers it', () => {
@@ -112,7 +114,7 @@ describe('which mark is called', () => {
     fireEvent.click(screen.getByTestId(`slot-${EARLY}`));
     rerender([LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
+    expect(onConfirm).toHaveBeenCalledWith(LATE);
   });
 
   it('keeps a mark the player picked for as long as the board offers it', () => {
@@ -120,7 +122,44 @@ describe('which mark is called', () => {
     fireEvent.click(screen.getByTestId(`slot-${LATE}`));
     rerender([EARLY, LATE]);
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(LATE, true);
+    expect(onConfirm).toHaveBeenCalledWith(LATE);
+  });
+});
+
+/**
+ * A raid lands inside its breach or not at all (maintainer, 2026-09-27), and the route refuses a
+ * mark at or after the gate comes back up. The board's marks run a day out whatever the gate is
+ * doing, so the picker has to cut them itself or it offers what the route turns away.
+ */
+describe('a call through a breach', () => {
+  const RAID: BattleTarget = { kind: 'district', districtId: 'ashen-terraces' };
+  const UP_BETWEEN = '2026-08-14T02:00:00.000Z';
+
+  it('offers only the marks before the gate is back up', () => {
+    const { onConfirm } = open([EARLY, LATE], RICH, RAID, board, {
+      shut: true,
+      brokenUntil: UP_BETWEEN,
+    });
+    expect(screen.queryByTestId(`slot-${LATE}`)).toBeNull();
+    fireEvent.click(screen.getByTestId('declare-confirm'));
+    expect(onConfirm).toHaveBeenCalledWith(EARLY);
+  });
+
+  it('says so, and sends nothing, when the gate is up before the first mark', () => {
+    const { onConfirm } = open([EARLY, LATE], RICH, RAID, board, {
+      shut: true,
+      brokenUntil: '2026-08-13T20:00:00.000Z',
+    });
+    expect(screen.getByTestId('declare-breach-closes')).toBeInTheDocument();
+    const confirm = screen.getByTestId('declare-confirm');
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it('leaves a location in an open district every mark the board has', () => {
+    open([EARLY, LATE], RICH, FREE, board, { shut: false, brokenUntil: UP_BETWEEN });
+    expect(screen.getByTestId(`slot-${LATE}`)).toBeInTheDocument();
   });
 });
 
@@ -155,7 +194,7 @@ describe('what the call costs on another player', () => {
     const { onConfirm } = open([EARLY, LATE], DECLARE_INFAMY_COST);
     expect(screen.queryByTestId('declare-unaffordable')).toBeNull();
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(EARLY, true);
+    expect(onConfirm).toHaveBeenCalledWith(EARLY);
   });
 });
 
@@ -169,7 +208,7 @@ describe('what the call costs on anybody else', () => {
     expect(screen.queryByTestId('declare-price')).toBeNull();
     expect(screen.queryByTestId('declare-unaffordable')).toBeNull();
     fireEvent.click(screen.getByTestId('declare-confirm'));
-    expect(onConfirm).toHaveBeenCalledWith(EARLY, true);
+    expect(onConfirm).toHaveBeenCalledWith(EARLY);
   });
 
   it('holds the button until the board has said what the call costs', () => {

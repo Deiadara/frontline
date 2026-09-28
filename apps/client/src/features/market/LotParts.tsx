@@ -1,4 +1,4 @@
-import { formatClock, nextLotBid, type LotAuction } from '@frontline/shared';
+import { canOpenLot, formatClock, nextLotBid, type LotAuction } from '@frontline/shared';
 import { useEffect, useState } from 'react';
 import { ResourceIcon } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
@@ -6,6 +6,7 @@ import { Icon } from '../../components/ui/Icon';
 import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
 import { countdownText, LAST_CALL_MS } from '../bar/AuctionParts';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The furniture a lot's bidding screen is made of (maintainer, 2026-09-17).
@@ -18,6 +19,22 @@ import { countdownText, LAST_CALL_MS } from '../bar/AuctionParts';
  * Everything in here is written against {@link LotAuction}, which is the shape both counters'
  * schemas extend, plus a {@link LotCurrency}. Nothing knows what is being sold.
  */
+
+/**
+ * §H7a: whether a bid on `lot` would open one past `MAX_OPEN_LOTS` on this counter.
+ *
+ * Read off `yourBid` on every lot the screen holds, which is the same seat the server counts: a
+ * crew that has been outbid still has money on the lot until it closes. Both counters' screens hold
+ * exactly the lots the server counts over (one city, one visit or one night), so the control can
+ * grey the third lot instead of letting the press find out.
+ */
+export function pastLotCap<Id>(
+  lots: readonly { id: Id; auction: LotAuction | null }[],
+  lot: Id,
+): boolean {
+  const open = lots.filter((one) => one.auction?.yourBid != null).map((one) => one.id);
+  return !canOpenLot(open, lot);
+}
 
 /**
  * What a lot is bid in, and what a crew's purse is measured in.
@@ -234,17 +251,24 @@ export function LotBidPanel({
   auction,
   name,
   purse,
+  bidCeiling,
   currency,
   now,
   pending,
   error,
   shortMessage,
+  atLotCap = false,
   onPlace,
 }: {
   auction: LotAuction;
   name: string;
   /** What the crew has to spend. A bid it cannot cover is warned about here and refused there. */
   purse: number;
+  /**
+   * The most the table takes from this crew, which is past the purse when the crew's own standing
+   * comes off what the winner pays (`largestBidWithin`). The purse when the server did not say.
+   */
+  bidCeiling?: number | undefined;
   currency: LotCurrency;
   /** The server's clock, ticking: whether the lot has closed is its call, never the browser's. */
   now: Date;
@@ -252,6 +276,8 @@ export function LotBidPanel({
   error: Error | null;
   /** What to say when the figure is past what the crew holds. Each counter names its own purse. */
   shortMessage: (purse: number) => string;
+  /** {@link pastLotCap}: the crew already has money on every lot it may hold here. */
+  atLotCap?: boolean;
   onPlace: (amount: number) => void;
 }) {
   const [amount, setAmount] = useState(auction.nextBid);
@@ -266,12 +292,15 @@ export function LotBidPanel({
     ? 'It has been settled. Whoever was in front has it.'
     : leading
       ? 'You are already leading this lot.'
-      : null;
-  const short = amount > purse;
+      : atLotCap
+        ? 'You have money on every lot you can hold. Let one close first.'
+        : null;
+  const most = bidCeiling ?? purse;
+  const short = amount > most;
   const stepFrom = (value: number) => Math.max(1, nextLotBid(auction.reserve, value) - value);
   // Never past the field's own ceiling: a button that types a figure the field refuses is a
   // button that does nothing visible.
-  const ceiling = Math.max(auction.nextBid, purse, auction.reserve);
+  const ceiling = Math.max(auction.nextBid, most, auction.reserve);
   const raiseBy = (percent: number) => () =>
     setAmount((current) => Math.min(ceiling, Math.ceil(current * (1 + percent / 100))));
 
@@ -345,11 +374,7 @@ export function LotBidPanel({
             : `Somebody is at ${auction.leading.amount.toLocaleString()}. You need at least ${auction.nextBid.toLocaleString()}.`}
         </p>
       )}
-      {error !== null && (
-        <p role="alert" className="font-body text-[12px] leading-relaxed text-oxblood-300">
-          {error.message}
-        </p>
-      )}
+      {error !== null && <ErrorNote>{error.message}</ErrorNote>}
     </div>
   );
 }

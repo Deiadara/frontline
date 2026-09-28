@@ -6,6 +6,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBase } from '../district/settle.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /**
  * §C2 against the settle window.
@@ -48,6 +49,7 @@ describe('reseating an officer', () => {
     });
     const token = registered.json<{ token: string }>().token;
     const chosen = await chooseOverseer(app, token);
+    openDoors(app, token, 'crew');
     const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
     // Somebody to move, and a stale settle clock: a day of production nobody has banked.

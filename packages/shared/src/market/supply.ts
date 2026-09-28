@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { MILESTONE_DEEP_POCKETS, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey, type Resources } from '../resources.js';
-import { RESOURCE_CAP_VALUE } from './offers.js';
+import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
 
 /**
  * The supply run: caps into materials, rationed by the day (market extension).
@@ -102,15 +102,21 @@ export const SUPPLY_MARKUP = 1.5;
 export function supplyPrice(key: ResourceKey, units: number): number {
   const count = Math.max(0, Math.floor(units));
   if (count === 0) return 0;
-  return Math.max(1, Math.ceil(count * RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP));
+  return Math.max(1, Math.ceil(withoutFloatNoise(count * RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP)));
 }
 
 /**
- * The most of `key` this crew could buy right now, given caps, the day's ration and the store.
+ * The most of `key` this crew could buy right now without wasting any, given caps, the day's
+ * ration and the store.
+ *
+ * The store is not a refusal any more (maintainer ruling, 2026-09-28): an order past it is warned
+ * about and goes through if the player agrees, with the excess thrown away at the till. This is
+ * still the figure the stall offers, because an order that fills the store exactly is the one a
+ * player wants, and a stall whose top button bought caps' worth of nothing would be a trap.
  *
  * `capacity` is the ceiling **for this resource**, not the bulk shelf: the Apothecary holds three
- * times as much scrap as high-quality metal, so a single figure here would have sold a crew metal
- * their store cannot take and then refused the order at the till.
+ * times as much scrap as high-quality metal, so a single figure here would have offered a crew metal
+ * their store cannot take.
  */
 export function supplyAffordable(
   key: ResourceKey,
@@ -120,7 +126,7 @@ export function supplyAffordable(
 ): number {
   const room = Math.max(0, capacity - stock[key]);
   const perUnit = RESOURCE_CAP_VALUE[key] * SUPPLY_MARKUP;
-  const byCaps = Math.floor(stock.caps / perUnit);
+  const byCaps = Math.floor(withoutFloatNoise(stock.caps / perUnit));
   return Math.max(0, Math.min(allowanceLeft, room, byCaps));
 }
 
@@ -129,7 +135,6 @@ export const SUPPLY_REFUSALS = [
   'nothing_ordered',
   'over_allowance',
   'cannot_afford',
-  'no_room',
 ] as const;
 export type SupplyRefusal = (typeof SUPPLY_REFUSALS)[number];
 
@@ -138,7 +143,6 @@ export const SUPPLY_REFUSAL_TEXT: Readonly<Record<SupplyRefusal, string>> = {
   nothing_ordered: 'Say how much you want',
   over_allowance: 'That is more than today’s run will carry',
   cannot_afford: 'You do not have the caps for that',
-  no_room: 'Your store will not hold that much',
 };
 
 export interface SupplyOrder {
@@ -147,23 +151,20 @@ export interface SupplyOrder {
   stock: Resources;
   /** Units of the day's ration still unspent. */
   allowanceLeft: number;
-  /** How much of **this** resource the district can hold: see {@link supplyAffordable}. */
-  capacity: number;
 }
 
 /**
  * The first reason this order cannot go through, or `null`.
  *
- * Ordered so the answer is the most useful one: what you asked for before what you can pay for, and
- * the ration before the warehouse, because a player over the ration comes back tomorrow and a
- * player out of room has something to build.
+ * Ordered so the answer is the most useful one: what you asked for before what you can pay for.
+ * The warehouse is not on the list: an order past it is warned about rather than refused, at the
+ * till (`market/board.ts`), where the ceiling is read with everything folded into it.
  */
 export function supplyRefusal(order: SupplyOrder): SupplyRefusal | null {
   if (order.key === 'caps') return 'not_a_resource';
   const units = Math.floor(order.units);
   if (units <= 0) return 'nothing_ordered';
   if (units > order.allowanceLeft) return 'over_allowance';
-  if (order.stock[order.key] + units > order.capacity) return 'no_room';
   if (supplyPrice(order.key, units) > order.stock.caps) return 'cannot_afford';
   return null;
 }

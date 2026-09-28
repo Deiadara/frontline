@@ -150,6 +150,34 @@ describe('the marks band', () => {
   });
 });
 
+/**
+ * Gold, then blue, then red (maintainer, 2026-09-26), read off the painted chips of every unit in
+ * the catalogue rather than off the props, because the order is decided by tone and the tone of a
+ * rule only exists after `ruleTone` has looked it up.
+ */
+describe('the order of the marks band', () => {
+  const RANK = ['brass', 'verdigris', 'oxblood'] as const;
+  const rankOf = (chip: Element | null): number =>
+    RANK.findIndex((ink) => chip?.className.includes(`border-${ink}`));
+
+  it('draws brass first, verdigris next and oxblood last, on every unit', () => {
+    let mixed = 0;
+    for (const spec of UNIT_CATALOG) {
+      const option = optionFor(spec);
+      const { unmount } = draw(<UnitCard unit={option} garrisoned={0} abroad={0} />);
+      const chips = within(screen.getByTestId(`marks-${option.id}`))
+        .queryAllByRole('listitem')
+        .map((item) => rankOf(item.querySelector('[class*="border-"]')));
+      expect(chips, `${spec.id}: a chip with no colour this test knows`).not.toContain(-1);
+      expect(chips, spec.id).toEqual([...chips].sort((a, b) => a - b));
+      if (new Set(chips).size > 1) mixed += 1;
+      unmount();
+    }
+    // Not vacuous: plenty of units carry more than one colour, so the sort is actually tested.
+    expect(mixed).toBeGreaterThan(10);
+  });
+});
+
 describe('walksAlways', () => {
   it('is true for the one sheet no vehicle takes, and false for a unit that fits', () => {
     expect(walksAlways('the_colossus')).toBe(true);
@@ -238,6 +266,7 @@ describe('a Combine sheet', () => {
     const card = screen.getByTestId(`unit-${unit.id}`);
     expect(card).toHaveTextContent('The Combine');
     expect(card).not.toHaveTextContent(/\bslots?\b/i);
+    expect(screen.queryByTestId(`unit-slots-${unit.id}`)).toBeNull();
     expect(card.querySelector('[data-tip^="Loot slots"]')).toBeNull();
     // The dossier behind the name keeps the tier and drops the slots with it.
     fireEvent.focus(within(card).getByRole('button', { name: unit.name }));
@@ -250,8 +279,14 @@ describe('a Combine sheet', () => {
     const unit = optionFor(ironsides!);
     draw(<UnitCard unit={unit} garrisoned={0} abroad={0} />);
     const card = screen.getByTestId(`unit-${unit.id}`);
-    expect(card).toHaveTextContent(`${unit.unitSlots} slot`);
-    expect(card.querySelector('[data-tip^="Loot slots"]')).not.toBeNull();
+    // The slots in their own box between the bonuses and the loot (maintainer, 2026-09-27).
+    const slots = screen.getByTestId(`unit-slots-${unit.id}`);
+    expect(slots).toHaveTextContent(String(unit.unitSlots));
+    const loot = card.querySelector('[data-tip^="Loot slots"]');
+    expect(loot).not.toBeNull();
+    expect(slots.compareDocumentPosition(loot!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeGreaterThan(
+      0,
+    );
   });
 });
 
@@ -314,17 +349,19 @@ describe('the count over the picture', () => {
     return screen.getByTestId(`unit-count-${shield.id}`);
   };
 
-  it('writes the fight count after a slash, in orange, under the same hover', () => {
+  it('writes the count away after a slash, in brass, under one hover', () => {
     const badge = badgeFor(6);
     // Twelve in the crew, six of them at a fight: the six is a slice of the twelve, not a second
     // number added to it.
     expect(badge.textContent).toBe('12 / 6');
 
     const away = within(badge).getByText('6');
-    expect(away.className).toContain('tangerine');
-    // The slash is punctuation between two figures, so the orange is the count and nothing else.
-    expect(within(badge).getByText('/').className).not.toContain('tangerine');
-    expect(away.closest('[data-tip]')?.getAttribute('data-tip')).toBe('6 at a fight');
+    expect(away.className).toContain('brass');
+    // The slash is punctuation between two figures, so the brass is the count and nothing else.
+    expect(within(badge).getByText('/').className).not.toContain('brass');
+    expect(away.closest('[data-tip]')?.getAttribute('data-tip')).toBe(
+      '6 outside your home district: on held ground, at a fight, on a job or on the road',
+    );
   });
 
   it('prints the one number, with no slash, when nobody is away', () => {
@@ -333,10 +370,26 @@ describe('the count over the picture', () => {
     expect(badge.textContent).not.toContain('/');
   });
 
-  it('leaves the held-ground count on its own +, in brass', () => {
+  it('folds held ground into the same slice as the fight', () => {
     const badge = badgeFor(6, 2);
-    expect(badge.textContent).toBe('12 +2 / 6');
-    expect(within(badge).getByText('+2').className).toContain('brass');
+    // `12 +2 / 6` was three figures and two colours (2026-09-28); eight of the twelve are not in
+    // the home district, and that is the one thing the badge says.
+    expect(badge.textContent).toBe('12 / 8');
+    expect(badge.textContent).not.toContain('+');
+    expect(within(badge).getByText('8').className).toContain('brass');
+  });
+
+  it('counts the gate in the total and in neither slice', () => {
+    draw(
+      <UnitCard
+        unit={{ ...optionFor(shield), owned: ROSTER - 5 }}
+        garrisoned={0}
+        abroad={0}
+        atGate={5}
+      />,
+    );
+    const badge = screen.getByTestId(`unit-count-${shield.id}`);
+    expect(badge.textContent).toBe('12');
   });
 });
 

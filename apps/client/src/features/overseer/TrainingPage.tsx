@@ -35,6 +35,7 @@ import { DrillSigil } from './DrillSigil';
 import { OfficerPortrait } from './OfficerPortrait';
 import { OverseerPortrait } from './OverseerPortrait';
 import { IMPORTANCE_EDGE } from '../../lib/importance';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Training tab (§F2).
@@ -404,12 +405,7 @@ export function TrainingPage() {
             </div>
 
             {start.error !== null && (
-              <p
-                role="alert"
-                className="shrink-0 font-body text-xs leading-relaxed text-oxblood-300"
-              >
-                That session did not start.
-              </p>
+              <ErrorNote className="shrink-0">That session did not start.</ErrorNote>
             )}
 
             {/*
@@ -965,11 +961,7 @@ function DrillCancel({
         onCancel={() => onCancel(session.id)}
         data-testid="cancel-drill"
       />
-      {error !== null && (
-        <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
     </>
   );
 }
@@ -1070,14 +1062,10 @@ function DrillDialog({
             <span className="ml-1 font-normal text-ink-300">from this rating</span>
           </dd>
         </dl>
-        {blocker !== null && (
-          <p role="alert" className="font-body text-[13px] leading-relaxed text-oxblood-300">
-            {blocker}.
-          </p>
-        )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+        {blocker !== null && <ErrorNote className="mr-auto">{blocker}.</ErrorNote>}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Not today
         </Button>

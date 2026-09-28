@@ -90,6 +90,20 @@ export const SCOUT_REFUSALS = [
   /** The chair is filled but its first rung, Scouting, is not researched yet. */
   'not_researched',
   'own_district',
+  /**
+   * There is no road between the crew and that ground (2026-09-24).
+   *
+   * Its own refusal because it used to be reported as `no_whispers`: `planScout` answers `null`
+   * when either end is not on the map, and the door turned that into "you have nobody in that
+   * chair". A player with a Master of Whispers sitting right there would have gone and hired a
+   * second one. A refusal has to name the thing that is actually wrong.
+   */
+  'no_road',
+  /**
+   * A home plot nobody has moved into. It is closed to other crews until somebody claims it
+   * (maintainer, 2026-09-28), so there is nothing to walk into and nothing to learn.
+   */
+  'unclaimed',
 ] as const;
 export type ScoutRefusal = (typeof SCOUT_REFUSALS)[number];
 

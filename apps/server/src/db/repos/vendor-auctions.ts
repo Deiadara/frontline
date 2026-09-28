@@ -1,5 +1,6 @@
 import { visitClosesAt } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
+import { lookbackFloor } from './lookback.js';
 
 /**
  * The barrow's shared state (market extension, maintainer 2026-09-08): every bid on every lot, and how
@@ -156,7 +157,8 @@ export function createVendorAuctionsRepo(db: AppDatabase): VendorAuctionsRepo {
   const openLotsStmt = db.prepare(
     `SELECT b.day AS day, b.session AS session, b.line_id AS line_id
        FROM vendor_bids b
-      WHERE NOT EXISTS (
+      WHERE b.day >= ?
+        AND NOT EXISTS (
               SELECT 1 FROM vendor_lot_results r
                WHERE r.day = b.day AND r.session = b.session AND r.line_id = b.line_id
             )
@@ -201,7 +203,11 @@ export function createVendorAuctionsRepo(db: AppDatabase): VendorAuctionsRepo {
        * is here rather than in SQL: the query asks the cheap question (which lots have no result),
        * and `visitClosesAt` answers the one only the shared rules can.
        */
-      const rows = openLotsStmt.all() as { day: string; session: number; line_id: string }[];
+      const rows = openLotsStmt.all(lookbackFloor(now)) as {
+        day: string;
+        session: number;
+        line_id: string;
+      }[];
       return rows
         .filter((row) => hasClosed(row.day, row.session, now))
         .map((row) => ({ day: row.day, session: row.session, lineId: row.line_id }));

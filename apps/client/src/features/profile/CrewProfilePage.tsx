@@ -218,7 +218,15 @@ export function CrewProfilePage() {
                   Their district
                 </Door>
                 {!crew.isBot && (
-                  <Door to="/game/messages" icon="messages" testId="profile-message">
+                  <Door
+                    to={
+                      player.handle === undefined
+                        ? '/game/messages'
+                        : `/game/messages?to=${encodeURIComponent(player.handle)}`
+                    }
+                    icon="messages"
+                    testId="profile-message"
+                  >
                     Write to them
                   </Door>
                 )}
@@ -228,7 +236,7 @@ export function CrewProfilePage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-3" data-testid="file-body">
-          <FileSection icon="standings" title="Standing" note="Where they sit in the city">
+          <FileSection icon="standings" title="Standing" note="Where they sit in the world">
             <dl
               className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6"
               data-testid="profile-standing"
@@ -317,7 +325,7 @@ export function CrewProfilePage() {
           <FileSection
             icon="city"
             title="Holdings"
-            note="Ground they hold across the city, on streets you have walked"
+            note="Ground they hold in every city, on streets you have walked"
           >
             <Holdings holdings={holdings} hidden={data.hiddenHoldings} />
             {data.districtsHeldWhole.length > 0 && (

@@ -30,7 +30,6 @@ vi.mock('../../lib/queries', () => ({
   useCancelResearch: idle,
   useCancelDrill: idle,
   useCancelLocationUpgrade: idle,
-  useCancelLocationFortify: idle,
 }));
 
 const { InProgressPage } = await import('./InProgressPage');

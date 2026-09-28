@@ -14,8 +14,11 @@ import { Wordmark } from '../brand/Wordmark';
 import { cn } from '../lib/cn';
 import { Button } from '../components/ui/Button';
 import { DrawnButton } from '../components/ui/DrawnButton';
-import { Icon, type IconName } from '../components/ui/Icon';
+import { type IconName } from '../components/ui/Icon';
+import { DrawnGlyph } from '../components/ui/DrawnMarks';
+import { InkSkyline } from './InkSkyline';
 import { useSession } from '../store/session';
+import { ErrorNote } from '../components/ui/ErrorNote';
 
 /**
  * The door.
@@ -62,23 +65,12 @@ const prefillFor = (mode: Mode) =>
     ? { username: MVP_DEV_CREDENTIALS.username, password: MVP_DEV_CREDENTIALS.password }
     : { username: '', password: '' };
 
-/** The three lines of pitch. Concrete nouns only: a feature list is not a reason to sign up. */
-const PROMISES: readonly { icon: IconName; title: string; line: string }[] = [
-  {
-    icon: 'district',
-    title: 'Hold a district',
-    line: 'Thirteen structures, a build queue that never stops, and a grid that browns out if you overreach.',
-  },
-  {
-    icon: 'sword',
-    title: 'Take the city',
-    line: 'Thirty-one places, ten districts, and an army that dies in the order you sent it.',
-  },
-  {
-    icon: 'infamy',
-    title: 'Earn a name',
-    line: 'Infamy buys what caps cannot. There is a door at the back of the market for it.',
-  },
+/** What the game is, in four marks. Titles only: the pitch above says the rest. */
+const PROMISES: readonly { icon: IconName; title: string }[] = [
+  { icon: 'district', title: 'Hold a district' },
+  { icon: 'sword', title: 'Take the city' },
+  { icon: 'infamy', title: 'Earn a name' },
+  { icon: 'combine', title: 'Defeat the Combine' },
 ];
 
 export function AuthScreen() {
@@ -143,56 +135,51 @@ export function AuthScreen() {
   return (
     // The city is behind the door before you are through it. A login on a flat field is a form;
     // a login over the district is the first frame of the game.
-    <main className="vignette relative flex h-screen flex-col items-center justify-center overflow-hidden bg-surface-950 px-4 py-6">
+    <main className="vignette relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-surface-950 px-4 py-6">
       <SceneBackdrop />
       <div className="grain pointer-events-none absolute inset-0 z-10" />
+      {/* The skyline, inked across the foot of the screen, with the Combine's spire and its lights
+          over the rooftops (`InkSkyline`). Under the glass, over the painting. */}
+      <InkSkyline className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-[27vh] w-full overflow-visible opacity-75" />
       {/* The same pane of dirty glass that runs over the game's chrome, so the door and the rooms
           behind it are lit by one light. */}
       <div className="patina pointer-events-none absolute inset-0 z-30" />
 
-      <div className="relative z-20 grid w-full max-w-5xl items-center gap-8 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="relative z-20 grid w-full max-w-5xl items-center gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
         {/* The pitch. Hidden below `lg`, where the board needs the whole column. */}
-        <section className="hidden min-w-0 flex-col gap-6 lg:flex">
-          <div>
-            <p className="font-display text-[11px] uppercase tracking-[0.3em] text-brass-300">
-              Neon Docks · Sector 7
-            </p>
-            <h1 className="mt-3">
-              <Wordmark className="w-72 max-w-full" />
-            </h1>
-            <p className="mt-4 max-w-md font-body text-[15px] leading-relaxed text-ink-200">
-              The Combine runs the lights, the water and the checkpoints. You run six streets and a
-              generator that is one bad week from cutting out. Everybody in this city is somebody
-              else&apos;s problem.
-            </p>
-          </div>
+        <section className="hidden min-w-0 flex-col gap-7 lg:flex">
+          <h1 className="-rotate-[1.5deg] self-start drop-shadow-[0_10px_18px_rgba(0,0,0,0.55)]">
+            <Wordmark className="w-[26rem] max-w-full" />
+          </h1>
 
-          <ul className="flex flex-col gap-3">
+          <p className="max-w-lg font-stamp text-[17px] leading-[1.6] text-ink-100">
+            The Combine runs the lights, the water and the checkpoints. You run six streets and a
+            generator {/* Held together so the line breaks before them (maintainer, 2026-09-28). */}
+            <span className="whitespace-nowrap">that is one bad</span> week from cutting out.{' '}
+            <span className="relative inline-block whitespace-nowrap text-brass-100">
+              It&apos;s up to you to change that.
+              <InkUnderline />
+            </span>
+          </p>
+
+          <ul className="flex flex-col gap-4">
             {PROMISES.map((promise) => (
-              <li key={promise.title} className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm border border-brass-500/40 bg-brass-300/10 text-brass-300">
-                  <Icon name={promise.icon} className="h-5 w-5" />
+              <li key={promise.title} className="flex items-center gap-4">
+                <span className="ink-disc flex h-14 w-14 shrink-0 items-center justify-center text-brass-300">
+                  <DrawnGlyph name={promise.icon} className="h-7 w-7" />
                 </span>
-                <span className="min-w-0">
-                  <span className="block font-display text-[13px] font-bold uppercase tracking-[0.14em] text-ink-100">
-                    {promise.title}
-                  </span>
-                  <span className="mt-0.5 block font-body text-[13px] leading-snug text-ink-300">
-                    {promise.line}
-                  </span>
+                <span className="min-w-0 font-stamp text-[15px] uppercase tracking-[0.12em] text-ink-100">
+                  {promise.title}
                 </span>
               </li>
             ))}
           </ul>
 
           {/* The house clock, stated before anybody signs up. Every schedule in the game runs on
-              it, and finding that out from a countdown that is two hours off is the wrong way.
-              The *zone* is deliberately not named here: it is named once, in Settings, where it is
-              a control rather than trivia. What a player needs before signing up is what the clock
-              currently reads and that they can move it. */}
-          <p className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-200">
-            City time is {formatClock(now, GAME_TIMEZONE)}. You can read it in your own clock from
-            Settings.
+              it, and finding that out from a countdown that is two hours off is the wrong way. */}
+          <p className="flex items-center gap-2 font-stamp text-[13px] uppercase tracking-[0.16em] text-ink-200">
+            <DrawnGlyph name="clock" className="h-5 w-5 text-brass-300" />
+            City time is {formatClock(now, GAME_TIMEZONE)}
           </p>
         </section>
 
@@ -202,25 +189,25 @@ export function AuthScreen() {
               it. `aria-hidden` and not a heading: the real `h1` is in the pitch above, which stays
               in the document at every width: two of them would be one document outline with the
               game's name in it twice. */}
-          <div aria-hidden className="mb-5 text-center lg:hidden">
-            <p className="font-display text-[11px] uppercase tracking-[0.3em] text-brass-300">
-              Neon Docks · Sector 7
-            </p>
-            <div className="mt-3">
-              <Wordmark className="mx-auto w-64 max-w-full" />
-            </div>
+          <div aria-hidden className="mb-6 text-center lg:hidden">
+            <Wordmark className="mx-auto w-64 max-w-full -rotate-[1.5deg]" />
           </div>
 
-          <div className="glass-strong rusted rivets taped edge-lit relative w-full max-w-sm rounded-sm border border-surface-600/80 shadow-panel">
+          {/* A pass, inked on the glass: the double drawn frame the paper screens wear, and the
+              entry stamp pressed on its corner. */}
+          <div className="ink-frame ink-frame-brass relative w-full max-w-sm bg-surface-950/80 shadow-panel backdrop-blur-sm">
+            <EntryStamp />
             {!chosen ? (
-              <div className="flex flex-col gap-4 p-6" data-testid="auth-choice">
-                <p className="text-center font-body text-[13px] leading-snug text-ink-300">
+              <div className="flex flex-col gap-4 px-7 pb-7 pt-9" data-testid="auth-choice">
+                <p className="text-center font-stamp text-[15px] leading-snug text-ink-100">
                   New to the district, or back for more?
                 </p>
+                <span aria-hidden className="ink-rule" />
                 <DrawnButton
                   onClick={() => switchMode('register')}
                   className="w-full justify-center"
                   data-testid="auth-choose-register"
+                  data-sound="click"
                 >
                   Sign up
                 </DrawnButton>
@@ -228,14 +215,15 @@ export function AuthScreen() {
                   onClick={() => switchMode('login')}
                   className="w-full justify-center"
                   data-testid="auth-choose-login"
+                  data-sound="click"
                 >
                   Log in
                 </DrawnButton>
               </div>
             ) : (
-              <form onSubmit={onSubmit} className="flex flex-col gap-4 p-6" noValidate>
+              <form onSubmit={onSubmit} className="flex flex-col gap-4 px-7 pb-7 pt-9" noValidate>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="font-display text-xs font-semibold uppercase tracking-[0.25em] text-brass-300">
+                  <span className="font-stamp text-[15px] uppercase tracking-[0.2em] text-brass-300">
                     {mode === 'login' ? 'Log in' : 'Sign up'}
                   </span>
                   <button
@@ -254,7 +242,7 @@ export function AuthScreen() {
                 </p>
 
                 <Field
-                  label="Operator ID"
+                  label="Overseer ID"
                   value={username}
                   onChange={setUsername}
                   autoComplete="username"
@@ -276,14 +264,7 @@ export function AuthScreen() {
                   </p>
                 )}
 
-                {serverError && (
-                  <p
-                    role="alert"
-                    className="border border-oxblood-500/40 bg-oxblood-300/15 px-3 py-2 font-body text-xs text-oxblood-300"
-                  >
-                    {serverError}
-                  </p>
-                )}
+                {serverError && <ErrorNote>{serverError}</ErrorNote>}
 
                 <Button
                   type="submit"
@@ -329,6 +310,72 @@ export function AuthScreen() {
   );
 }
 
+/** A marker stroke under the line that matters, drawn rather than ruled. */
+function InkUnderline() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 200 10"
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute -bottom-2 left-0 h-2.5 w-full overflow-visible"
+    >
+      <path
+        d="M2 6 C 40 3.5, 90 7.5, 140 4.8 S 190 5.5, 198 3.6"
+        fill="none"
+        stroke="#f0ad4c"
+        strokeOpacity="0.85"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M14 8.4 C 60 6.8, 120 8.8, 176 7"
+        fill="none"
+        stroke="#f0ad4c"
+        strokeOpacity="0.4"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * The entry stamp on the pass: a ring pressed off the square, lifted early on one side, the way
+ * the officer marks are (`MarkStamp`). Red, because it is ink somebody put on the paper.
+ */
+function EntryStamp() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 120 120"
+      className="pointer-events-none absolute -right-3 -top-14 h-20 w-20 rotate-[14deg] text-oxblood-300 opacity-80"
+    >
+      <g fill="none" stroke="currentColor" strokeLinecap="round">
+        <path d="M60 8 A52 52 0 1 1 22 24" strokeWidth="3" />
+        <circle cx="60" cy="60" r="42" strokeWidth="1.4" strokeDasharray="3 4" />
+      </g>
+      <text
+        x="60"
+        y="56"
+        textAnchor="middle"
+        fill="currentColor"
+        style={{ font: '700 15px "Special Elite", monospace', letterSpacing: '0.12em' }}
+      >
+        ENTRY
+      </text>
+      <text
+        x="60"
+        y="76"
+        textAnchor="middle"
+        fill="currentColor"
+        style={{ font: '600 9px "Special Elite", monospace', letterSpacing: '0.2em' }}
+      >
+        GRANTED
+      </text>
+    </svg>
+  );
+}
+
 interface FieldProps {
   label: string;
   value: string;
@@ -355,7 +402,7 @@ function Field({ label, value, onChange, type = 'text', autoComplete, error }: F
           error ? 'border-oxblood-500' : 'border-surface-600',
         )}
       />
-      {error && <span className="font-body text-[12px] text-oxblood-300">{error}</span>}
+      {error && <ErrorNote>{error}</ErrorNote>}
     </label>
   );
 }

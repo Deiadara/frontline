@@ -19,6 +19,7 @@ export type EventKind =
   | 'account.login'
   | 'account.profile_changed'
   | 'account.password_changed'
+  | 'account.sessions_revoked'
   | 'blackmarket.bid'
   | 'blackmarket.taken'
   | 'automation.saved'

@@ -18,6 +18,7 @@ import { ScoutMenu } from './ScoutMenu';
 const fetchMock = vi.fn();
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -58,6 +59,19 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+/**
+ * Two children of the same flex row, side by side rather than stacked.
+ *
+ * jsdom has no layout, so this reads the row's own declaration rather than measuring boxes: a
+ * `flex` container that is not `flex-col` lays its children out across. Playwright measures the
+ * real thing (`screenshots`), and this keeps the shape from being undone by an edit nobody
+ * screenshots again.
+ */
+function onOneRow(row: HTMLElement): boolean {
+  const classes = row.className.split(/\s+/);
+  return row.children.length === 2 && classes.includes('flex') && !classes.includes('flex-col');
+}
+
 describe('the scout sheet', () => {
   it('is the fixture it thinks it is: dark, with a plan and no blocker', () => {
     const detail = dark();
@@ -80,6 +94,27 @@ describe('the scout sheet', () => {
     expect(posted[0]!.body).toEqual({ districtId: detail.district.id });
   });
 
+  /*
+   * The foot of the sheet is one row (maintainer, 2026-09-24): whatever the sheet's action is on
+   * the left, Back to the map on the right. It used to be a row of its own under everything, so
+   * the sheet ended on a line with one word on it and the action sat somewhere above.
+   */
+  it('puts Send Scouts and Back to the map on the same row', async () => {
+    open(dark());
+    const row = await screen.findByTestId('scout-actions');
+    expect(row).toContainElement(screen.getByTestId('send-scout'));
+    expect(row).toContainElement(screen.getByTestId('scout-menu-close'));
+    expect(onOneRow(row)).toBe(true);
+  });
+
+  // An unclaimed home plot is closed until a crew moves in (maintainer, 2026-09-28).
+  it('says an unclaimed plot is closed, and offers nothing to send', async () => {
+    open({ ...dark(), closed: true, scoutPlan: null });
+    expect(await screen.findByTestId('scout-closed')).toHaveTextContent(/stays closed/);
+    expect(screen.queryByTestId('send-scout')).toBeNull();
+    expect(screen.queryByTestId('scout-nobody')).toBeNull();
+  });
+
   it('draws the chair as missing and the research as missing with nobody in the chair', async () => {
     open({ ...dark(), scoutBlocker: 'no_whispers' });
     await screen.findByTestId('scout-nobody');
@@ -87,6 +122,10 @@ describe('the scout sheet', () => {
     expect(screen.getByTestId('scout-need-research')).toHaveAttribute('data-met', 'no');
     expect(screen.getByText(/Sign one at the Bar/)).toBeInTheDocument();
     expect(screen.queryByTestId('send-scout')).toBeNull();
+    // Nothing to press on the left, so the row holds the way out alone and keeps it on the right.
+    const row = screen.getByTestId('scout-actions');
+    expect(row).toContainElement(screen.getByTestId('scout-menu-close'));
+    expect(row.children).toHaveLength(1);
   });
 
   it('ticks the chair and crosses the research when Scouting is not worked out', async () => {
@@ -115,6 +154,11 @@ describe('the scout sheet', () => {
     expect(screen.getByTestId('scout-countdown')).toBeInTheDocument();
     expect(screen.getByTestId('recall-scout')).toBeInTheDocument();
     expect(screen.queryByTestId('send-scout')).toBeNull();
+    // The X to turn them round is this state's action, so it is what shares the row.
+    const row = screen.getByTestId('scout-actions');
+    expect(row).toContainElement(screen.getByTestId('recall-scout'));
+    expect(row).toContainElement(screen.getByTestId('scout-menu-close'));
+    expect(onOneRow(row)).toBe(true);
   });
 
   it('says where the party is when it is out somewhere else', async () => {
@@ -137,5 +181,8 @@ describe('the scout sheet', () => {
     expect(elsewhere).toHaveTextContent('Neon Docks');
     expect(screen.queryByTestId('send-scout')).toBeNull();
     expect(screen.queryByTestId('recall-scout')).toBeNull();
+    const row = screen.getByTestId('scout-actions');
+    expect(row).toContainElement(screen.getByTestId('scout-menu-close'));
+    expect(row.children).toHaveLength(1);
   });
 });

@@ -292,7 +292,8 @@ export function vehiclesOfClass(kind: VehicleClass): VehicleSpec[] {
 /** How many of each machine a crew has finished. Sparse: a zero is not stored. */
 export const FleetSchema: z.ZodType<Partial<Record<VehicleId, number>>> = z.partialRecord(
   VehicleIdSchema,
-  z.number().int().positive(),
+  // Far past any real yard: the cap is only there so a crafted count is refused at the door.
+  z.number().int().positive().max(100_000),
 );
 export type Fleet = z.infer<typeof FleetSchema>;
 

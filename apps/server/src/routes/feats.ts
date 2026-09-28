@@ -1,19 +1,13 @@
 import {
-  RESOURCE_KEYS,
-  storageCapacity,
-  storageCapacityFor,
-  type PartialResources,
   ClaimFeatRequestSchema,
   addItems,
   addToStash,
-  addResources,
   canClaimFeat,
   mergeFeatRewards,
   findFeat,
   earnedInfamy,
   gainInfamy,
-  unitSlotsUsed,
-  type Army,
+  splitFeatReward,
   type Base,
   type ClaimAllResponse,
   type ClaimFeatResponse,
@@ -24,24 +18,26 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
 import { projectFeats, progressFor } from '../feats/project.js';
-import { districtUnitSlots } from '../district/unit-slots.js';
+import { featClaimRoom, spendRoom } from '../feats/room.js';
 import { settleBase } from '../district/settle.js';
+import { creditBase } from '../district/stores.js';
 import { mergeArmies } from '../battle/forces.js';
-import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { awardPlayerXp } from '../progression/award.js';
-import { tallyInfamyEarned, tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
+import { tallyPagesIn, tallyResourcesEarned } from '../feats/tally.js';
 import { tellPagesFound } from '../social/pages.js';
 import type { Repositories } from '../db/repos/index.js';
 
 /**
  * Feats: reading the board, and collecting one (maintainer request, 2026-09-13).
  *
- * ## One refusal code, four reasons
+ * ## One refusal code, five reasons
  *
- * A claim can be turned down four ways and all of them are 409s carrying a `FeatClaimRefusal`,
+ * A claim can be turned down five ways and all of them are 409s carrying a `FeatClaimRefusal`,
  * because in none of them is the request wrong: the feat exists and the caller is who they say
- * they are, the game is simply not in a state where it can be paid. Which door is shut is the half
- * a screen can do something with, so it is in the unit.
+ * they are, the game is simply not in a state where it can be paid, or the player has not yet
+ * agreed to what collecting it would cost them. Which door is shut is the half a screen can do
+ * something with, so it is in the unit.
  *
  * ## Why the whole thing is one transaction
  *
@@ -56,24 +52,6 @@ import type { Repositories } from '../db/repos/index.js';
 
 function refuse(reason: FeatClaimRefusal): never {
   throw new AppError('FEAT_REFUSED', reason);
-}
-
-/**
- * Whether the district has room for the units a reward pays (§A1).
- *
- * A feat is a reward and not an exemption. `queueTraining` refuses an order that would put a crew
- * over its ceiling and the Garage refuses a machine for the same reason; a feat paying a hundred
- * Juggernauts straight onto the roster was the one door left open, and the largest of them is 960
- * unit slots against a finished district's two thousand.
- *
- * `districtUnitSlots` is the same fold both other gates read, so all three agree about what is
- * already housed: the roster, the bench, the garrisons, the officers, the yard, and everything out
- * on a road. A reward that pays no units always fits, which is most of the catalogue.
- */
-function fits(repos: Repositories, base: Base, units: Army | undefined): boolean {
-  if (units === undefined) return true;
-  const asking = unitSlotsUsed(units);
-  return asking === 0 || asking <= districtUnitSlots(repos, base).spare;
 }
 
 export function registerFeatRoutes(app: FastifyInstance): void {
@@ -98,7 +76,8 @@ export function registerFeatRoutes(app: FastifyInstance): void {
   });
 
   app.post('/feats/claim', { preHandler: app.authenticate }, (request): ClaimFeatResponse => {
-    const { featId } = parseBody(ClaimFeatRequestSchema, request.body);
+    const body = parseBody(ClaimFeatRequestSchema, request.body);
+    const { featId } = body;
     const now = new Date();
     // Settled before anything is decided, and the returned crew is deliberately not used: the
     // transaction below re-reads it, because the state that decides whether this is payable has to
@@ -127,10 +106,27 @@ export function registerFeatRoutes(app: FastifyInstance): void {
         );
       }
 
-      // Room before the claim row, not after it. §A1 is a ceiling on what a district holds and a
-      // feat is not exempt from it, so a reward that would not fit is refused *without* marking
-      // the feat collected: it stays ready, and the player comes back when they have made room.
-      if (!fits(app.repos, fresh, spec.reward.units)) refuse('no_unit_slots');
+      /*
+       * Room before the claim row, not after it (maintainer ruling, 2026-09-23).
+       *
+       * §A1 is a ceiling on what a district holds and the Apothecary is a ceiling on the stores,
+       * and a feat is exempt from neither. What a reward pays past either of them is
+       * **discarded**: paid up to the ceiling, and the difference gone, which is how every credit
+       * in the game lands since 2026-09-28 (`district/stores.ts`). The player is asked first, as
+       * they are before any credit they fire themselves; this one has its own dialog because a
+       * rung can also lose units, which the stores' `WOULD_WASTE` does not carry.
+       *
+       * Asked *here*, not on the client. A claim that would waste something and does not carry
+       * `acceptWaste` is refused and nothing at all is written: the rung stays ready and the
+       * screen shows the figure the read quoted. Pressing yes repeats the claim with the flag,
+       * and only then does anything burn.
+       *
+       * The split is recomputed against the state the payout is written against rather than
+       * trusting the quote the screen was drawn from, because production settles between a read
+       * and a press and the figure that counts is the one at the till.
+       */
+      const { paid, wasted } = splitFeatReward(spec.reward, featClaimRoom(app.repos, fresh, now));
+      if (wasted !== undefined && body.acceptWaste !== true) refuse('would_waste');
 
       // The claim before the payout. If this returns false another request banked it first, and
       // the only correct thing to do is pay nothing and say so.
@@ -138,11 +134,12 @@ export function registerFeatRoutes(app: FastifyInstance): void {
         refuse('already_claimed');
       }
 
-      payFeat(app.repos, fresh, spec.reward, now);
+      payFeat(app.repos, fresh, paid, now);
       const settled = app.repos.bases.findByOwnerId(request.currentUser.id) ?? fresh;
       return {
         featId,
-        paid: spec.reward,
+        paid,
+        ...(wasted !== undefined ? { wasted } : {}),
         feats: projectFeats(app.repos, settled, now),
       };
     })();
@@ -178,57 +175,37 @@ export function registerFeatRoutes(app: FastifyInstance): void {
 
       const waiting = progressFor(app.repos, fresh).filter((one) => one.state === 'ready');
       /*
-       * §A1 against the *backlog*, not against each feat on its own.
+       * The ceilings against the *backlog*, not against each feat on its own.
        *
-       * This pays the whole batch in one write, so the ceiling has to be spent down across it:
-       * two feats that each fit the spare room on their own do not both fit if the first one takes
-       * it. Walked in board order, and a feat that does not fit is simply left ready rather than
-       * stopping the run: the caps and the pages behind it are still collectable, and the units
-       * are still there when the crew has made room.
+       * This pays the whole batch in one write, so the room has to be spent down across it: two
+       * feats that each fit the spare beds on their own do not both fit if the first one takes
+       * them, and the same is true of every shelf in the stores.
+       *
+       * A rung that cannot be paid in full is left **ready** rather than stopping the run: the
+       * caps and the pages behind it are still collectable. Left rather than clamped, because a
+       * bulk button must not throw anything away on a player's behalf. A single claim can waste a
+       * reward, but only behind a dialog naming the figure and only once the player has agreed to
+       * it; one press that collects forty rungs has no way to ask that question forty times, so
+       * the rungs that would lose something are handed back to be taken deliberately, one at a
+       * time.
+       *
+       * Caps are never the reason one is skipped: `storageCapacityFor` answers Infinity for them,
+       * because the currency has no ceiling, so a caps reward always fits.
        */
-      let room = districtUnitSlots(app.repos, fresh).spare;
-      /*
-       * ...and the same walk over the stockpile's ceilings (maintainer, 2026-09-23).
-       *
-       * A feat that pays more scrap than the Apothecary can hold used to be collected anyway, and
-       * the overflow went nowhere: `addResources` has no ceiling, the settle clamps on the next
-       * tick, and the difference was simply gone. Collect-all now leaves such a rung ready, the
-       * way it already leaves one whose bodies have nowhere to sleep, so the reward is still
-       * there when the player has built the room for it.
-       *
-       * Caps are exempt and have to be: `storageCapacityFor` answers Infinity for them, because
-       * the currency has no ceiling, so `spare` below is Infinity and every caps reward fits.
-       */
-      const bulk = storageCapacity(
-        fresh.buildings,
-        crewEffectsFor(app.repos, fresh, now).storageCapacityPercent,
-      );
-      const spare: PartialResources = {};
-      for (const key of RESOURCE_KEYS) {
-        spare[key] = storageCapacityFor(fresh.buildings, key, bulk) - fresh.resources[key];
-      }
+      let room = featClaimRoom(app.repos, fresh, now);
 
       const skipped: string[] = [];
       const payable = waiting.filter((one) => {
         const reward = findFeat(one.id)?.reward;
-        const asking = unitSlotsUsed(reward?.units ?? {});
-        if (asking > room) {
+        // An id the catalogue no longer has pays nothing and so cannot overflow anything. It is
+        // dropped a few lines down, where the specs are looked up.
+        if (reward === undefined) return true;
+        const { paid, wasted } = splitFeatReward(reward, room);
+        if (wasted !== undefined) {
           skipped.push(one.id);
           return false;
         }
-        // Every line of the reward has to fit, not the bundle on average: a feat paying scrap and
-        // planks is left ready if either store is full.
-        const overflows = RESOURCE_KEYS.some(
-          (key) => (reward?.resources?.[key] ?? 0) > (spare[key] ?? 0),
-        );
-        if (overflows) {
-          skipped.push(one.id);
-          return false;
-        }
-        room -= asking;
-        for (const key of RESOURCE_KEYS) {
-          spare[key] = (spare[key] ?? 0) - (reward?.resources?.[key] ?? 0);
-        }
+        room = spendRoom(room, paid);
         return true;
       });
       // Each still writes its own claim row, so the ledger records what was collected rather than
@@ -266,9 +243,10 @@ export function registerFeatRoutes(app: FastifyInstance): void {
  * that is correct: it is infamy they now have and did not before.
  */
 function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date): void {
-  const resources = reward.resources
-    ? addResources(base.resources, reward.resources)
-    : base.resources;
+  // Through the stores' one door like every other credit. `reward` is already the part that fits,
+  // so nothing is lost here; the landed figure is still the one the ladders are told about.
+  const credit = creditBase(repos, base, reward.resources ?? {}, now);
+  const resources = credit.resources;
   const inventory = reward.items ? addItems(base.inventory, reward.items) : base.inventory;
   if (reward.resources || reward.items) {
     // One statement, because a reward can pay into both and a crash between two writes would bank
@@ -336,9 +314,13 @@ function payFeat(repos: Repositories, base: Base, reward: FeatReward, now: Date)
     awardPlayerXp(repos, current, 'questCompleted', 0, reward.xp);
   }
 
-  if (reward.resources) tallyResourcesEarned(repos, base.id, reward.resources);
-  // What the crew was paid, not what the catalogue printed: the ladders measure infamy earned.
-  if (infamy > 0) tallyInfamyEarned(repos, base.id, infamy);
+  if (reward.resources) tallyResourcesEarned(repos, base.id, credit.landed);
+  /*
+   * Feat-paid infamy is not counted as earned (bug pass, 2026-09-28). The `infamy` ladder is paid
+   * in infamy, so counting its own reward let one claim finish the rungs above it, and each of
+   * those the next: claiming the twelve-thousand rung once cleared the rest of the ladder. The
+   * ladder measures a name made in fights, which is what it says.
+   */
   if (reward.items) {
     /*
      * A feat is the seventh door a blueprint page comes through, and it was the one that counted

@@ -25,6 +25,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown, status = 200) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: status < 400,
     status,
     statusText: '',
@@ -362,6 +363,7 @@ describe('the CLAIM button', () => {
     const firstPress = new Promise<Response>((resolve) => {
       answerFirstPress = () =>
         resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           statusText: '',
@@ -522,6 +524,88 @@ describe('the CLAIM button', () => {
       FEAT_CLAIM_REFUSAL_TEXT.already_claimed,
     );
     expect(screen.queryByTestId('feats-receipt')).toBeNull();
+  });
+});
+
+/**
+ * The warning before a reward is thrown away (maintainer ruling, 2026-09-23).
+ *
+ * A claim is paid **up to the district's ceilings** and the difference is discarded, so a rung the
+ * server has quoted a loss against asks before it fires. The quote rides on the feats read
+ * (`FeatsResponse.waste`) and is never computed here: the ceilings are the structures plus the
+ * crew's Logistics, and a screen that guessed would be naming a figure the till does not agree
+ * with.
+ *
+ * The fixture quotes 25 scrap against `area_neon_docks`, which stands alone and so is its own row
+ * in the index. Everything else on the board is quoted nothing and goes straight through, which is
+ * the control every case below leans on.
+ */
+describe('a reward that will not fit', () => {
+  const WASTES = 'area_neon_docks';
+  const posts = () =>
+    fetchMock.mock.calls.filter(([path]) => String(path).endsWith('/feats/claim'));
+
+  /** Opens the standalone rung's own row in the index, which is keyed by its id. */
+  async function openWasting() {
+    await openBoard();
+    openLadder(WASTES);
+    return screen.findByTestId(`feat-claim-${WASTES}`);
+  }
+
+  it('asks before it pays, instead of collecting', async () => {
+    const claim = await openWasting();
+    fireEvent.click(claim);
+
+    await waitFor(() => expect(screen.getByTestId('feat-waste')).toBeInTheDocument());
+    // Nothing on the wire: the press opened a window and wrote nothing.
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('names the feat and draws what would be lost', async () => {
+    fireEvent.click(await openWasting());
+    const dialog = await screen.findByTestId('feat-waste');
+
+    expect(dialog).toHaveTextContent(findFeat(WASTES)!.name);
+    // The figure the server quoted, drawn as a loss rather than as a payment.
+    const lost = within(dialog).getByTestId('feat-waste-lost');
+    expect(lost).toHaveTextContent('-25');
+    expect(lost).toHaveTextContent('Scrap');
+  });
+
+  it('collects nothing when the player backs out, and leaves the rung waiting', async () => {
+    fireEvent.click(await openWasting());
+    fireEvent.click(await screen.findByTestId('feat-waste-no'));
+
+    await waitFor(() => expect(screen.queryByTestId('feat-waste')).toBeNull());
+    expect(posts()).toHaveLength(0);
+    expect(screen.getByTestId(`feat-${WASTES}`)).toHaveAttribute('data-state', 'ready');
+  });
+
+  /**
+   * Saying yes carries the agreement to the server, which is the half that matters.
+   *
+   * The route refuses a claim that would waste something unless the body says `acceptWaste`, so a
+   * dialog that dismissed itself and posted the bare claim would refuse every time. The body is
+   * asserted rather than the outcome for exactly that reason.
+   */
+  it('sends the agreement with the claim when the player says yes', async () => {
+    fireEvent.click(await openWasting());
+    fireEvent.click(await screen.findByTestId('feat-waste-yes'));
+
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    const body = (posts()[0]?.[1] as RequestInit | undefined)?.body;
+    expect(typeof body).toBe('string');
+    expect(JSON.parse(body as string)).toEqual({ featId: WASTES, acceptWaste: true });
+    expect(screen.queryByTestId('feat-waste')).toBeNull();
+  });
+
+  /** The control: a rung with no quote against it is collected on the press, with no window. */
+  it('asks nothing about a rung that fits', async () => {
+    await openBoard();
+    fireEvent.click(screen.getByTestId(`feat-claim-${READY}`));
+
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(screen.queryByTestId('feat-waste')).toBeNull();
   });
 });
 

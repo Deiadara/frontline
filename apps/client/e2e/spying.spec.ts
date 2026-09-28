@@ -21,7 +21,7 @@ import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harn
  * player's door, the Monitor's row and the report filed on the battle board.
  */
 
-const RUSTYARD = findDistrict('rustyard');
+const RUSTYARD = findDistrict('steelbelt');
 if (!RUSTYARD) throw new Error('fixture error: the Rustyard is missing from the city map');
 /** The one the rival holds in the fixture: the sheet with a last report on it. */
 const THEIRS = RUSTYARD.locations[2];
@@ -32,7 +32,7 @@ if (!THEIRS || !LOOTERS) throw new Error('fixture error: the Rustyard is short o
 async function openSheet(page: Page, locationId: string): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await installApi(page, me);
-  await page.goto('/game/city/rustyard');
+  await page.goto('/game/city/steelbelt');
   await page.getByTestId(`site-${locationId}`).click();
   await expect(page.getByTestId('location-window')).toBeVisible();
   await settleFonts(page);
@@ -100,7 +100,7 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
   const sent: SpyRequest[] = [];
   let run: DistrictDetailResponse['spyRun'] = null;
   const detail = () => ({ ...districtDetail, spyRun: run });
-  await page.route('**/api/city/rustyard', (route) => route.fulfill({ json: detail() }));
+  await page.route('**/api/city/steelbelt', (route) => route.fulfill({ json: detail() }));
   await page.route('**/api/city/spy', (route) => {
     sent.push(route.request().postDataJSON() as SpyRequest);
     run = {
@@ -127,10 +127,10 @@ test('looters ground is unknown until somebody pays: five tiers, a clock, and th
 test("the panel says why nothing can be sent, in the route's own words", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await installApi(page, me);
-  await page.route('**/api/city/rustyard', (route) =>
+  await page.route('**/api/city/steelbelt', (route) =>
     route.fulfill({ json: { ...districtDetail, spyBlocker: 'no_whispers', spyQuote: null } }),
   );
-  await page.goto('/game/city/rustyard');
+  await page.goto('/game/city/steelbelt');
   await page.getByTestId(`site-${LOOTERS.id}`).click();
   await page.getByTestId(`spy-open-${LOOTERS.id}`).click();
   await expect(page.getByTestId(`spy-${LOOTERS.id}-blocked`)).toContainText(

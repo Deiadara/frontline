@@ -81,8 +81,10 @@ from a click handler.
   the nearest one wins. `DeclareDialog`'s "Call it" carries `data-sound="call"`.
 - `data-sound="none"` silences a subtree.
 
-Events arrive through the live channel (`lib/live.ts`). `base` and `notification` play `done`,
-`battle` plays `call`, `message` and `faction` play nothing.
+Events arrive through the live channel (`lib/live.ts`). `base` plays `done`, `battle` plays
+`call`, and everything else plays nothing. `notification` is silent because it goes out for every
+receipt, mail and faction churn included, beside the typed nudge that says what the receipt is
+about; the typed nudge carries the sound.
 
 Refusals are heard by watching for a `role="alert"` node appearing, rather than from a mutation
 hook. This client's `QueryClient` has no `MutationCache.onError` to hang one on, every refusal in

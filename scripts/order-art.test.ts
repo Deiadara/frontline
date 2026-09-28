@@ -71,14 +71,19 @@ describe('sections', () => {
       'plate-district',
       'plate-bar',
       'plate-district-neon-docks',
-      'plate-district-rustyard',
+      'plate-district-steelbelt',
       'plate-district-chrome-row',
       'plate-faction-room',
       'plate-district-undergrid',
-      'plate-district-datavault-sigma',
+      'plate-district-annexes',
       'plate-district-glasshouse-fields',
-      'plate-district-blacksite-7',
-      'plate-district-combine-spire',
+      'plate-district-blacksite',
+      'plate-district-ccs',
+      'plate-district-coldwater-halt',
+      'plate-city-terminus',
+      'plate-district-ironmouth',
+      'plate-district-marshalling-yards',
+      'plate-district-bonded-row',
     ]);
     // The officer pool is opaque and croppable and lands here too, all of it. Read off the pool
     // rather than typed: the board added ten faces once and has three times since.

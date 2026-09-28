@@ -71,6 +71,7 @@ const reply = (body: unknown, delay = 0) =>
     setTimeout(
       () =>
         resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           statusText: '',

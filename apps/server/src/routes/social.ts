@@ -1,4 +1,6 @@
 import {
+  IdSchema,
+  MESSAGES_PER_DAY,
   NotificationSettingsRequestSchema,
   isAlwaysOn,
   SendMessageRequestSchema,
@@ -36,7 +38,7 @@ function refuseMessage(reason: MessageRefusal): never {
   throw new AppError('MESSAGE_REFUSED', reason);
 }
 
-const IdBody = z.object({ id: z.string().min(1) });
+const IdBody = z.object({ id: IdSchema });
 
 export function registerSocialRoutes(app: FastifyInstance): void {
   const messagesScreen = (userId: string): MessagesResponse => ({
@@ -64,6 +66,10 @@ export function registerSocialRoutes(app: FastifyInstance): void {
     const sender = request.currentUser;
 
     return app.db.transaction(() => {
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      if (app.repos.social.sentSince(sender.id, dayAgo) >= MESSAGES_PER_DAY) {
+        refuseMessage('too_many_today');
+      }
       const membership = app.repos.factions.membershipOf(sender.id);
       const faction = membership ? app.repos.factions.find(membership.factionId) : undefined;
       const senderFaction = faction?.name ?? null;

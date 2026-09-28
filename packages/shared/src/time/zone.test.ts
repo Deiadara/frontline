@@ -9,6 +9,7 @@ import {
   hourInZone,
   instantAtHourInZone,
   isValidTimezone,
+  lastWeekBoundary,
   nextDayBoundary,
   utcHourInZone,
   zoneCity,
@@ -60,6 +61,11 @@ describe('the day boundary', () => {
     expect(formatClock(at, GAME_TIMEZONE)).toBe('00:00');
   });
 
+  it('lands on the minute the date turns, whatever second it was asked at', () => {
+    const at = nextDayBoundary(new Date('2026-07-15T12:00:37.250Z'), GAME_TIMEZONE);
+    expect(at.toISOString()).toBe('2026-07-15T21:00:00.000Z');
+  });
+
   it('survives the spring-forward night, where a day is 23 hours long', () => {
     // Greece moves its clocks at 03:00 local on the last Sunday in March 2026 (the 29th).
     const inside = new Date('2026-03-29T00:30:00.000Z'); // 02:30 local, before the jump
@@ -77,6 +83,58 @@ describe('the day boundary', () => {
     const boundary = nextDayBoundary(inside, GAME_TIMEZONE);
     expect(formatClock(boundary, GAME_TIMEZONE)).toBe('00:00');
     expect(dayInZone(boundary, GAME_TIMEZONE)).toBe('2026-10-26');
+  });
+});
+
+describe('the week boundary', () => {
+  /**
+   * Sunday midnight, the instant before Monday begins, which is Monday 00:00 in Athens.
+   *
+   * The Combine's garrisons grow back on this mark (`city/regrowth.ts`), so what it answers is
+   * the difference between a regime that is rebuilt once a week and one that is rebuilt on every
+   * tick after the mark has passed.
+   */
+  it('answers the most recent Monday midnight in Athens', () => {
+    // Thursday 24 September 2026, midday UTC. Athens is GMT+3, so the Monday before it began at
+    // 21:00 UTC on the Sunday.
+    const at = lastWeekBoundary(new Date('2026-09-24T12:00:00.000Z'));
+    expect(at.toISOString()).toBe('2026-09-20T21:00:00.000Z');
+    expect(formatClock(at, GAME_TIMEZONE)).toBe('00:00');
+    expect(dayInZone(at, GAME_TIMEZONE)).toBe('2026-09-21');
+  });
+
+  it('is still last week a minute before the mark', () => {
+    // 23:59 on the Sunday in Athens: the week has not turned over yet.
+    const at = lastWeekBoundary(new Date('2026-09-20T20:59:00.000Z'));
+    expect(at.toISOString()).toBe('2026-09-13T21:00:00.000Z');
+  });
+
+  it('answers the mark itself when it is exactly the mark', () => {
+    const mark = new Date('2026-09-20T21:00:00.000Z');
+    expect(lastWeekBoundary(mark).toISOString()).toBe(mark.toISOString());
+    // ...and a minute later is the same answer, which is what makes a tick idempotent.
+    expect(lastWeekBoundary(new Date('2026-09-20T21:01:00.000Z')).toISOString()).toBe(
+      mark.toISOString(),
+    );
+  });
+
+  it('moves with summer time rather than with a fixed offset', () => {
+    // Greece puts its clocks back on Sunday 25 October 2026, so the Monday that follows starts an
+    // hour later in UTC than the Monday before it did.
+    expect(lastWeekBoundary(new Date('2026-10-28T12:00:00.000Z')).toISOString()).toBe(
+      '2026-10-25T22:00:00.000Z',
+    );
+    expect(lastWeekBoundary(new Date('2026-10-21T12:00:00.000Z')).toISOString()).toBe(
+      '2026-10-18T21:00:00.000Z',
+    );
+  });
+
+  it('reads the week in the zone it is asked about', () => {
+    // 01:00 UTC on a Monday is still Sunday evening in New York, so that week has not turned.
+    const at = new Date('2026-09-21T01:00:00.000Z');
+    expect(dayInZone(at, GAME_TIMEZONE)).toBe('2026-09-21');
+    expect(lastWeekBoundary(at, GAME_TIMEZONE).toISOString()).toBe('2026-09-20T21:00:00.000Z');
+    expect(lastWeekBoundary(at, 'America/New_York').toISOString()).toBe('2026-09-14T04:00:00.000Z');
   });
 });
 

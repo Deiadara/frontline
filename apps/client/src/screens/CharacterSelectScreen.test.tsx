@@ -11,9 +11,13 @@
 import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_NAMES,
+  DEFAULT_CITY_ID,
   OVERSEER_PRESETS,
   OVERSEER_POOL_SIZE,
+  TERMINUS_CITY_ID,
+  cityHomeOffers,
   findPerk,
+  homePlots,
   type OverseerPreset,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -31,6 +35,14 @@ const OFFERED: readonly OverseerPreset[] = [
 ];
 const REMAINING = 21;
 
+/**
+ * Where the server says this player may live (maintainer, 2026-09-24).
+ *
+ * Terminus is full and Ashfall has room, so the screen has one city to choose, one that is full
+ * and three with no map: every state a card can be in is on the wall these tests press.
+ */
+const CITIES_OFFERED = cityHomeOffers(homePlots(TERMINUS_CITY_ID));
+
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -38,6 +50,7 @@ beforeEach(() => {
   fetchMock.mockImplementation((path: string) => {
     if (String(path).endsWith('/overseer/choices')) {
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         json: () =>
@@ -45,6 +58,7 @@ beforeEach(() => {
             choices: OFFERED,
             remaining: REMAINING,
             total: OVERSEER_POOL_SIZE,
+            cities: CITIES_OFFERED,
           }),
       } as Response);
     }
@@ -94,10 +108,16 @@ describe('when the offer does not arrive', () => {
       attempt += 1;
       if (attempt === 1) return Promise.reject(new TypeError('Failed to fetch'));
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         json: () =>
-          Promise.resolve({ choices: OFFERED, remaining: REMAINING, total: OVERSEER_POOL_SIZE }),
+          Promise.resolve({
+            choices: OFFERED,
+            remaining: REMAINING,
+            total: OVERSEER_POOL_SIZE,
+            cities: CITIES_OFFERED,
+          }),
       } as Response);
     });
 
@@ -162,13 +182,20 @@ describe('CharacterSelectScreen', () => {
       if (url.endsWith('/overseer/choices')) {
         choiceReads += 1;
         return Promise.resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           json: () =>
-            Promise.resolve({ choices: OFFERED, remaining: REMAINING, total: OVERSEER_POOL_SIZE }),
+            Promise.resolve({
+              choices: OFFERED,
+              remaining: REMAINING,
+              total: OVERSEER_POOL_SIZE,
+              cities: CITIES_OFFERED,
+            }),
         } as Response);
       }
       return Promise.resolve({
+        headers: new Headers(),
         ok: false,
         status: 409,
         json: () =>
@@ -180,6 +207,8 @@ describe('CharacterSelectScreen', () => {
 
     fireEvent.click(screen.getByText(OFFERED[0]!.name));
     fireEvent.click(screen.getByRole('button', { name: /confirm overseer/i }));
+    fireEvent.click(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`));
+    fireEvent.click(screen.getByTestId('city-confirm'));
 
     await waitFor(() => expect(choiceReads).toBeGreaterThan(0));
   });
@@ -246,6 +275,153 @@ describe('CharacterSelectScreen', () => {
 });
 
 /**
+ * The step after the character: where the crew will live (maintainer, 2026-09-24).
+ *
+ * "When you first enter the game after you choose an overseer, you can choose the city to be in
+ * (if a city is full it will show it but as locked)." The same wall of paintings the world screen
+ * draws, with a press meaning *select* rather than *enter*, and one control that commits.
+ */
+describe('choosing a city', () => {
+  /** Through the file and onto the wall of cities, which is where every case here starts. */
+  async function atTheCities() {
+    await offered();
+    fireEvent.click(screen.getByText(OFFERED[0]!.name));
+    fireEvent.click(screen.getByTestId('overseer-confirm'));
+    await screen.findByTestId('city-wall');
+  }
+
+  it('asks for a city instead of starting the game', async () => {
+    await atTheCities();
+    expect(screen.getByTestId('overseer-title')).toHaveTextContent('CHOOSE YOUR CITY');
+    // Nothing has been claimed yet: confirming the overseer did not write anything.
+    expect(
+      fetchMock.mock.calls.every((call) => String(call[0]).endsWith('/overseer/choices')),
+    ).toBe(true);
+  });
+
+  it('locks a city that is full and one that has no map, and says which is which', async () => {
+    await atTheCities();
+
+    const full = screen.getByTestId(`city-card-${TERMINUS_CITY_ID}`);
+    expect(full).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId(`city-status-${TERMINUS_CITY_ID}`)).toHaveTextContent(
+      'Full: four crews already live here',
+    );
+
+    const unbuilt = CITIES_OFFERED.find((offer) => offer.refusal === 'unbuilt')!;
+    expect(screen.getByTestId(`city-card-${unbuilt.cityId}`)).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    expect(screen.getByTestId(`city-status-${unbuilt.cityId}`)).toHaveTextContent(
+      'No map here yet',
+    );
+
+    // A locked card cannot be selected, however hard it is pressed.
+    fireEvent.click(full);
+    expect(full).not.toHaveAttribute('data-chosen');
+    expect(screen.getByTestId('city-confirm')).toBeDisabled();
+  });
+
+  it('highlights the city that was pressed rather than entering it', async () => {
+    await atTheCities();
+    expect(screen.getByTestId('city-confirm')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`));
+
+    expect(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`)).toHaveAttribute(
+      'data-chosen',
+      'true',
+    );
+    // Still on the wall: a press is a selection, not a door.
+    expect(screen.getByTestId('city-wall')).toBeInTheDocument();
+    expect(screen.getByTestId('city-confirm')).toBeEnabled();
+  });
+
+  it('sends the character and the city together', async () => {
+    await atTheCities();
+    const posted: Record<string, unknown>[] = [];
+    fetchMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (String(path).endsWith('/overseer/choices')) {
+        return Promise.resolve({
+          headers: new Headers(),
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              choices: OFFERED,
+              remaining: REMAINING,
+              total: OVERSEER_POOL_SIZE,
+              cities: CITIES_OFFERED,
+            }),
+        } as Response);
+      }
+      posted.push(
+        JSON.parse((init?.body as string | undefined) ?? '{}') as Record<string, unknown>,
+      );
+      return Promise.resolve({
+        headers: new Headers(),
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ error: { code: 'CITY_FULL', message: 'Ashfall is full.' } }),
+      } as Response);
+    });
+
+    fireEvent.click(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`));
+    fireEvent.click(screen.getByTestId('city-confirm'));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({ presetId: OFFERED[0]!.presetId, cityId: DEFAULT_CITY_ID });
+    // ...and the server's refusal is on the screen rather than swallowed.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ashfall is full.');
+  });
+
+  /**
+   * The re-read that a refused pick sets off can itself fail (MOU bugpass, 2026-09-24).
+   *
+   * `PRESET_REFUSED` drops `overseerChoices`, and React Query keeps the batch it already had when
+   * the refetch behind that fails. So `offer.data` is still there, the player is still on the wall
+   * of cities, and `offer.isError` is true at the same time. The failure panel was drawn off
+   * `isError` alone while the wall was drawn off the step, which put a dead end and a live screen
+   * on top of each other: two headings, two sets of controls, and a Confirm that will only ever
+   * refuse again. The screen says one thing at a time.
+   */
+  it('shows the failure instead of the wall when the re-read fails', async () => {
+    await atTheCities();
+    fetchMock.mockImplementation((path: string) => {
+      if (String(path).endsWith('/overseer/choices')) {
+        return Promise.reject(new TypeError('Failed to fetch'));
+      }
+      return Promise.resolve({
+        headers: new Headers(),
+        ok: false,
+        status: 409,
+        json: () =>
+          Promise.resolve({
+            error: { code: 'PRESET_REFUSED', message: 'Somebody else is already that person' },
+          }),
+      } as Response);
+    });
+
+    fireEvent.click(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`));
+    fireEvent.click(screen.getByTestId('city-confirm'));
+
+    await waitFor(() => expect(screen.getByTestId('load-failure')).toBeInTheDocument());
+    expect(screen.queryByTestId('city-wall')).toBeNull();
+  });
+
+  it('goes back to the file with no city chosen', async () => {
+    await atTheCities();
+    fireEvent.click(screen.getByTestId(`city-card-${DEFAULT_CITY_ID}`));
+    fireEvent.click(screen.getByTestId('city-back'));
+
+    expect(screen.getByTestId(`overseer-sheet-${OFFERED[0]!.presetId}`)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('overseer-confirm'));
+    expect(screen.getByTestId('city-confirm')).toBeDisabled();
+  });
+});
+
+/**
  * §F6: the four on screen are held, and the hold runs out (maintainer, 2026-09-17).
  *
  * The server reserves a drawn batch for ten minutes and refuses a pick made after that with a 410
@@ -265,6 +441,7 @@ describe('while the offer is held', () => {
       choices,
       remaining: REMAINING,
       total: OVERSEER_POOL_SIZE,
+      cities: CITIES_OFFERED,
       serverNow: serverNow.toISOString(),
       expiresAt: new Date(serverNow.getTime() + ms).toISOString(),
     };
@@ -276,7 +453,12 @@ describe('while the offer is held', () => {
       if (String(path).endsWith('/overseer/choices')) {
         const body = batches[Math.min(call, batches.length - 1)]!;
         call += 1;
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+        return Promise.resolve({
+          headers: new Headers(),
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(body),
+        });
       }
       throw new Error(`unstubbed request: ${String(path)}`);
     });
@@ -323,6 +505,7 @@ describe('when everybody free is already spoken for', () => {
     fetchMock.mockImplementation((path: string) => {
       if (String(path).endsWith('/overseer/choices')) {
         return Promise.resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           json: () =>

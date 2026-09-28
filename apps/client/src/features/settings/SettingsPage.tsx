@@ -22,11 +22,17 @@ import { Dropdown } from '../../components/ui/Dropdown';
 import { Panel } from '../../components/ui/Panel';
 import { NotificationFilters } from '../social/NotificationFilters';
 import { cn } from '../../lib/cn';
-import { useChangePassword, useSettings, useUpdateProfile } from '../../lib/queries';
+import {
+  useChangePassword,
+  useLogoutEverywhere,
+  useSettings,
+  useUpdateProfile,
+} from '../../lib/queries';
 import { playSound, setSoundVolume } from '../../lib/sound';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { useSession } from '../../store/session';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The player's own file.
@@ -83,11 +89,7 @@ const INPUT_BAD = 'shadow-[0_0_0_1px_rgb(154_58_58_/_0.75)]';
 /** A short line under a form that says what just happened. Green for done, red for refused. */
 function Result({ error, done }: { error: Error | null; done: string | null }) {
   if (error) {
-    return (
-      <p role="alert" className="font-body text-[13px] text-oxblood-300">
-        {error.message}
-      </p>
-    );
+    return <ErrorNote>{error.message}</ErrorNote>;
   }
   if (done !== null) {
     return (
@@ -144,7 +146,7 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
     <Panel title="Who you are" tone="paper">
       <form className="flex flex-col gap-4 p-4" onSubmit={onSubmit} noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Operator ID" hint="What you log in with. It has to be unique.">
+          <Field label="Overseer ID" hint="What you log in with. It has to be unique.">
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -153,7 +155,7 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
               className={cn(INPUT, nameError !== null && INPUT_BAD)}
             />
           </Field>
-          <Field label="Name" hint="What everybody else sees. Blank means your Operator ID.">
+          <Field label="Name" hint="What everybody else sees. Blank means your Overseer ID.">
             <input
               value={shown}
               onChange={(event) => setShown(event.target.value)}
@@ -165,7 +167,9 @@ function ProfilePanel({ username, displayName }: { username: string; displayName
         </div>
 
         {nameError !== null && (
-          <p className="font-body text-[12px] text-oxblood-300">{nameError}</p>
+          // `status`, not `alert`: it is live validation, and an alert plays the refusal sound on
+          // the keystroke that made the name invalid.
+          <ErrorNote role="status">{nameError}</ErrorNote>
         )}
 
         <div className="flex flex-wrap items-center gap-3">
@@ -512,7 +516,7 @@ function PasswordPanel() {
             { newPassword: next },
             {
               onSuccess: () => {
-                setDone('Changed. Your session stays open.');
+                setDone('Changed. Every other device is signed out; this one stays in.');
                 setNext('');
                 setAgain('');
               },
@@ -543,9 +547,7 @@ function PasswordPanel() {
           </Field>
         </div>
 
-        {mismatch && (
-          <p className="font-body text-[12px] text-oxblood-300">Those two do not match.</p>
-        )}
+        {mismatch && <ErrorNote role="status">Those two do not match.</ErrorNote>}
 
         <div className="flex flex-wrap items-center gap-3">
           <DrawnButton type="submit" size="sm" disabled={blocked || change.isPending}>
@@ -554,7 +556,40 @@ function PasswordPanel() {
           <Result error={change.error} done={done} />
         </div>
       </form>
+      <SessionsRow />
     </Panel>
+  );
+}
+
+/**
+ * Log out everywhere (maintainer, 2026-09-27). For a device left signed in somewhere: every session
+ * the account has ends at once, and this tab carries on with a new one.
+ */
+function SessionsRow() {
+  const revoke = useLogoutEverywhere();
+  return (
+    <div
+      className="flex flex-wrap items-center gap-3 border-t border-surface-700 px-4 py-3"
+      data-testid="settings-sessions"
+    >
+      <p className="min-w-0 flex-1 font-body text-[13px] text-ink-200">
+        Signed in somewhere you should not be? This signs out every other device.
+      </p>
+      <DrawnButton
+        type="button"
+        size="sm"
+        tone="danger"
+        disabled={revoke.isPending}
+        onClick={() => revoke.mutate()}
+        data-testid="settings-logout-everywhere"
+      >
+        {revoke.isPending ? 'Signing out…' : 'Log out everywhere'}
+      </DrawnButton>
+      <Result
+        error={revoke.error}
+        done={revoke.isSuccess ? 'Every other device is signed out.' : null}
+      />
+    </div>
   );
 }
 

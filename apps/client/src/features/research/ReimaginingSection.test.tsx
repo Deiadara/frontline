@@ -60,6 +60,7 @@ function marketWith(
     },
     offers: [],
     mine: [],
+    claims: [],
     supply: supplyBoard(12, resources, 10_000, 0, (key) =>
       Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
     ),
@@ -69,6 +70,7 @@ function marketWith(
 
 const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
   Promise.resolve({
+    headers: new Headers(),
     ok,
     status,
     statusText: '',

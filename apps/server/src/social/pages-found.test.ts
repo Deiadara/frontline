@@ -44,7 +44,7 @@ import {
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
-import { acceptOffer, postOffer } from '../market/board.js';
+import { acceptOffer, claimMarketGoods, postOffer } from '../market/board.js';
 import { resolveDueMissions, rollMissionOutcome } from '../missions/resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
@@ -143,7 +143,7 @@ describe('a page off a mission', () => {
       durationMinutes: 1,
       status: 'active',
       officerId: null,
-      battleTier: null,
+      grade: null,
       overseerLed: false,
       lost: {},
       reported: true,
@@ -204,7 +204,7 @@ describe('a page off a mission', () => {
       durationMinutes: 1,
       status: 'active',
       officerId: null,
-      battleTier: null,
+      grade: null,
       overseerLed: false,
       lost: {},
       reported: true,
@@ -418,10 +418,19 @@ describe('a page out of somebody else’s offer', () => {
     expect(buyerBells[0]!.title).toBe(sentenceFor(sold, `from ${sellerName}'s offer`));
     expect(buyerBells[0]!.subjectId).toBe(sold);
 
+    // The seller's page waits on the board (maintainer, 2026-09-28). They are told it is there,
+    // and the page rings when it actually lands in their inventory: at the claim.
+    const told = app.repos.social
+      .notifications(seller.userId, 50)
+      .filter((n) => n.kind === 'market_claim');
+    expect(told, 'the seller was told nothing, and nobody was on their screen').toHaveLength(1);
+    expect(told[0]!.title).toContain(buyerName);
+    expect(pageBells(app, seller), 'a page still on the board rang').toHaveLength(0);
+
+    const [held] = app.repos.market.claimsFor(baseOf(app, seller).id);
+    expect(claimMarketGoods(app.repos, baseOf(app, seller), held!.id, now).kind).toBe('done');
     const sellerBells = pageBells(app, seller);
-    expect(sellerBells, 'the seller was told nothing, and nobody was on their screen').toHaveLength(
-      1,
-    );
+    expect(sellerBells, 'the claimed page rang nothing').toHaveLength(1);
     expect(sellerBells[0]!.title).toBe(sentenceFor(paid, `from ${buyerName}'s offer`));
     expect(sellerBells[0]!.subjectId).toBe(paid);
   });

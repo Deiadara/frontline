@@ -295,10 +295,12 @@ export interface Accrual {
 /**
  * `stock` after `hours` of production, in whole units, with the part-unit carried.
  *
- * Storage clamps **production only**. Mission pay and raid loot are never clawed back to fit the
- * Apothecary: losing what a crew just bled for to a warehouse ceiling is the kind of rule players
- * discover by being robbed by it. What a full district loses is its own passive output, which is
- * visible on the screen the whole time it is happening.
+ * Storage is a ceiling on production as on every other credit (`building/stores.ts`, maintainer
+ * ruling 2026-09-28). What differs is the warning: mission pay, a trade and a refund are quoted or
+ * asked about before they land, and a full district's lost output is visible on the stockpile
+ * panel the whole time it is happening. A stockpile already standing above the ceiling (a save
+ * from before the ruling, a store that lost a storage card) is never clamped down: the ceiling
+ * here is `max(what is held, the ceiling)`.
  *
  * Nothing is rounded away and nothing moves early. The carry and this window's output are added
  * together and split by `Math.trunc`: whole units of *change* go to the stockpile and the part-unit

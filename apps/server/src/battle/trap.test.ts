@@ -1,4 +1,5 @@
 import {
+  DEFAULT_BADGE,
   DECLARE_INFAMY_COST,
   TRAP_CATALOG,
   blueprintForTrap,
@@ -72,13 +73,13 @@ const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 const messageOf = (res: InjectResponse): string =>
   res.json<{ error: { message: string } }>().error.message;
 
-const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('rustyard')?.locations ?? []).map(
+const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('steelbelt')?.locations ?? []).map(
   (location) => location.id,
 );
 
 /** The one the looters actually stand on: an empty lot has nobody to hand over from. */
 const SQUATTED: string = (() => {
-  const district = findDistrict('rustyard');
+  const district = findDistrict('steelbelt');
   const held = district?.locations.find(
     (location) => startingHolder(location, district).kind !== 'unoccupied',
   );
@@ -86,7 +87,7 @@ const SQUATTED: string = (() => {
   return held.id;
 })();
 
-const PRESS: BattleTarget = { kind: 'location', districtId: 'rustyard', locationId: SQUATTED };
+const PRESS: BattleTarget = { kind: 'location', districtId: 'steelbelt', locationId: SQUATTED };
 
 /** The cheapest trap and its document, read off the catalogues rather than typed out. */
 const TRAP = TRAP_CATALOG[0]!;
@@ -106,7 +107,7 @@ async function signUp(app: FastifyInstance, username: string): Promise<Crew> {
   // The premise of the whole fixture. A crew planted in the Rustyard would be its *resident* and
   // the fight would be about their home rather than about a location they merely hold.
   expect(base.districtId, `${username} was planted in the district they are holding`).not.toBe(
-    'rustyard',
+    'steelbelt',
   );
   // §D7: calling a fight costs infamy and nobody starts with any. Fixture money, enough for every
   // call this file makes.
@@ -122,6 +123,33 @@ async function signUp(app: FastifyInstance, username: string): Promise<Crew> {
  * `battle.defender` a named crew rather than the looters and therefore what makes `sideOf` answer
  * `'defender'` for their token.
  */
+/**
+ * Puts `ally` at the defender's table. A crew is on a side by its faction (maintainer, 2026-09-28),
+ * so a row alone no longer makes somebody an ally; the reinforce route only writes one for a
+ * faction-mate, and this is the state it leaves.
+ */
+function atTheDefendersTable(stack: Stack, ally: Crew): void {
+  const ownerOf = (crew: Crew) => stack.app.repos.bases.findById(crew.id)!.ownerId;
+  stack.app.repos.factions.insert({
+    id: 'the-table',
+    name: 'The Table',
+    badge: DEFAULT_BADGE,
+    blurb: '',
+    foundedAt: new Date().toISOString(),
+  });
+  for (const [crew, rank] of [
+    [stack.defender, 'leader'],
+    [ally, 'member'],
+  ] as const) {
+    stack.app.repos.factions.addMember({
+      userId: ownerOf(crew),
+      factionId: 'the-table',
+      rank,
+      joinedAt: new Date().toISOString(),
+    });
+  }
+}
+
 async function makeStack(engine?: SkirmishEngine): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
   const db = openDatabase(config.databasePath);
@@ -134,7 +162,7 @@ async function makeStack(engine?: SkirmishEngine): Promise<Stack> {
   const attacker = await signUp(app, 'raider');
   const defender = await signUp(app, 'holder');
 
-  app.repos.city.markScouted(attacker.id, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(attacker.id, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
   const control = app.repos.city.control(SQUATTED)!;
   app.repos.city.put({
@@ -337,9 +365,10 @@ describe('§I4: setting a trap on a fight you are defending', () => {
     const stack = await makeStack();
     const battleId = await declareOn(stack);
     const ally = await signUp(stack.app, 'ally');
+    atTheDefendersTable(stack, ally);
     give(stack, stack.defender.id, TRAP_ITEM, 1);
     give(stack, ally.id, TRAP_ITEM, 1);
-    // The ally is on the side because they have a row on it, exactly as a reinforcement would be.
+    // The ally has a row on the side, exactly as a reinforcement would leave it.
     stack.app.repos.sieges.putDeployment({
       battleId,
       baseId: ally.id,
@@ -363,6 +392,7 @@ describe('§I4: setting a trap on a fight you are defending', () => {
     const stack = await makeStack();
     const battleId = await declareOn(stack);
     const ally = await signUp(stack.app, 'ally2');
+    atTheDefendersTable(stack, ally);
     give(stack, ally.id, TRAP_ITEM, 1);
     stack.app.repos.sieges.putDeployment({
       battleId,
@@ -458,7 +488,7 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
     const seen = { attacking: 0 };
     const stack = await makeStack(counting(seen));
     const first = await declareOn(stack);
-    const other = RUSTYARD_LOCATIONS.find((id) => id !== SQUATTED && id !== 'rustyard-ramp')!;
+    const other = RUSTYARD_LOCATIONS.find((id) => id !== SQUATTED && id !== 'steelbelt-ramp')!;
     const control = stack.app.repos.city.control(other)!;
     stack.app.repos.city.put({
       ...control,
@@ -467,7 +497,7 @@ describe('§I4d: the trap goes off at the mark and leaves the bag', () => {
     });
     const second = await declareOn(stack, {
       kind: 'location',
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       locationId: other,
     });
 
@@ -785,7 +815,7 @@ describe('§I1: what a trap is worth on the ledger', () => {
     // §A4: a refund needs somewhere to pay it from, so the attacker is given the Bone Market. It
     // stands in this same district, which is why this fixture can hand it over rather than invent
     // a percentage nothing in the game grants.
-    const bones = stack.app.repos.city.control('rustyard-bones')!;
+    const bones = stack.app.repos.city.control('steelbelt-bones')!;
     stack.app.repos.city.put({
       ...bones,
       holder: { kind: 'crew', baseId: stack.attacker.id },

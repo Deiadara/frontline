@@ -309,6 +309,7 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
       width: inner.width,
       masked: getComputedStyle(img).maskImage !== 'none',
       surrounded: surround !== null && surround.complete && surround.naturalWidth > 0,
+      vignetted: document.querySelector('[data-testid="district-vignette"]') !== null,
     };
   });
   expect(painting, 'the district plate must be in the frame').not.toBeNull();
@@ -322,10 +323,17 @@ async function expectDistrictLaidOutCleanly(page: Page): Promise<void> {
     'the plate hangs off the right of the frame',
   ).toBeGreaterThanOrEqual(-1);
 
+  /*
+   * Where there is margin, it is drawn the way the Bar draws its own (maintainer, 2026-09-25): the
+   * blurred surround behind, the picture's cut edge feathered into it, and the vignette over both.
+   * The vignette is the piece the district was missing before, and it is the one that removes the
+   * line: it darkens the edge and the surround by the same amount.
+   */
   const margin = Math.max(painting?.left ?? 0, painting?.right ?? 0);
   if (margin > 1) {
     expect(painting?.surrounded, 'bare ground down the side of the district').toBe(true);
     expect(painting?.masked, 'the plate’s cut edge is not feathered into the surround').toBe(true);
+    expect(painting?.vignetted, 'no vignette over the district’s margin').toBe(true);
   }
 }
 
@@ -654,8 +662,8 @@ for (const size of VIEWPORTS) {
         // measuring anything.
         await expectNothingClippedVertically(page, '[role="dialog"]');
 
-        // The Nexus is the fat one: the only plot that draws the payroll book as well as the
-        // price, the rack and the clock. Its shot is the one worth opening.
+        // The Nexus's shot is the one worth opening: every plot is on the one template now
+        // (2026-09-28), and the Nexus is the one whose footer carries the payroll door.
         if (kind === CENTRAL_BUILDING) {
           await page.screenshot({ path: `screenshots/hideout/dialog-played-${tag}.png` });
         }
@@ -1037,12 +1045,13 @@ test('the structure says whether its bracket is a set, and what that pays', asyn
 
   const readout = page.getByTestId('set-readout');
 
-  // Nothing fitted: the rule, stated.
+  // Nothing fitted: nothing said. The rule used to be stated here and the maintainer took the
+  // sentence out (2026-09-28); the readout comes back once there is a family to name.
   await installApi(page, { ...lateGame, base: nexusAt([]) });
   await page.goto('/game/base');
   await page.getByTestId('plot-nexus').click();
-  await expect(readout).toHaveAttribute('data-set', 'partial');
-  await expect(readout).toContainText('No set');
+  await expect(page.getByTestId('slots-nexus')).toBeVisible();
+  await expect(readout).toHaveCount(0);
   await settleFonts(page);
   await page.screenshot({ path: 'screenshots/hideout/set-none.png' });
 

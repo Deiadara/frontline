@@ -83,29 +83,27 @@ function viewFor(side: BattleSide, trapId: string | null): BattleView {
   return {
     battle: {
       id: 'press',
-      target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+      target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
       attackerBaseId: side === 'attacker' ? base.id : 'them',
       defender: { kind: 'crew', baseId: side === 'defender' ? base.id : 'them' },
       scheduledFor: MARK,
-      holdAfterCapture: false,
+      holdAfterCapture: true,
       wokeSleepers: false,
       declaredAt: NOW,
       resolvedAt: null,
-      seed: 'press-seed',
     },
     targetName: 'Kessler Press',
     districtName: 'Steelbelt',
     battlefield: battlefieldFor({
       locationName: 'Kessler Press',
       kind: 'scrap_press',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 0,
       at: new Date(MARK),
       weather: 'normal',
     }),
     role: side,
     side,
     deploymentOpen: true,
+    withdrawalOpen: true,
     muster: { army: { razors: 8 }, perimeter: {}, size: 8 },
     enemySize: 10,
     enemyIntel: 'A rough count.',
@@ -148,6 +146,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',

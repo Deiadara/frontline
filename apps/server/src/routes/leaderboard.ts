@@ -24,11 +24,11 @@ import type { Repositories } from '../db/repos/index.js';
  *
  * ## The scope
  *
- * `localOnly` limits the board to the caller's own **city**. There is one city today, so the two
- * scopes return the same rows, and that is the point rather than a shortcut: the board is adding
- * more cities, and a filter written against a city id now becomes real the day a second one is
- * authored, with no screen to rewrite. The district a crew holds is not the scope; several crews
- * share a district and a per-district board would be a board of one.
+ * `localOnly` limits the board to the caller's own **city**. When this was written there was one
+ * city and the two scopes returned the same rows, which was the point rather than a shortcut: a
+ * filter written against a city id became real the day a second one was authored, with no screen
+ * to rewrite. The district a crew lives on is not the scope; a plot holds one crew, so a
+ * per-district board would be a board of one.
  *
  * A faction is in a city if **any** of its members is, which is the only reading that survives a
  * faction spread across two of them.
@@ -45,20 +45,26 @@ const QuerySchema = z.object({
 
 /** Every player's row, before ranking: the shape both boards are derived from. */
 export function standings(repos: Repositories): PlayerStanding[] {
+  /*
+   * Three reads for the whole board rather than two per crew (hardening pass, 2026-09-27). Each
+   * per-crew read parsed a whole user row, and the board is callable ten times a second per account.
+   */
   const factions = new Map(repos.factions.all().map((faction) => [faction.id, faction]));
+  const usernames = repos.users.usernames();
+  const memberships = repos.factions.factionOfEveryone();
   return repos.bases.listStandings().flatMap((base) => {
-    const user = repos.users.findById(base.ownerId);
+    const username = usernames.get(base.ownerId);
     // A half-registered account with no user row is not a player; it is a row nobody can be shown.
-    if (!user) return [];
-    const held = repos.factions.membershipOf(base.ownerId);
-    const faction = held ? factions.get(held.factionId) : undefined;
+    if (username === undefined) return [];
+    const factionId = memberships.get(base.ownerId);
+    const faction = factionId ? factions.get(factionId) : undefined;
     return [
       {
         // Filled in by `ranked` once the list is sorted and the scope is applied: a rank computed
         // before filtering would number the local board 3, 7, 12.
         rank: 1,
         userId: base.ownerId,
-        username: user.username,
+        username,
         districtId: base.districtId,
         cityId: cityOf(base.districtId) ?? DEFAULT_CITY_ID,
         districtName: base.name,
@@ -120,11 +126,13 @@ export function registerLeaderboardRoutes(app: FastifyInstance): void {
     }
 
     const inScope = new Set(players.map((entry) => entry.userId));
+    // Each member's level off the standings already read, rather than a whole base per member.
+    const levelOf = new Map(all.map((entry) => [entry.userId, entry.level]));
     const rows: FactionStanding[] = app.repos.factions.all().flatMap((faction) => {
       const members = app.repos.factions.members(faction.id);
       // Any member in the city puts the faction on the local board. See the note at the top.
       if (local && !members.some((row) => inScope.has(row.userId))) return [];
-      const levels = members.map((row) => app.repos.bases.findByOwnerId(row.userId)?.level ?? 0);
+      const levels = members.map((row) => levelOf.get(row.userId) ?? 0);
       return [
         {
           rank: 1,

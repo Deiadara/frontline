@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LiveHub } from './hub.js';
+import { LiveHub, MAX_STREAMS_PER_ACCOUNT } from './hub.js';
 import type { LiveEvent } from '@frontline/shared';
 
 const NOON = new Date('2026-08-31T12:00:00.000Z');
@@ -119,5 +119,75 @@ describe('the live switchboard', () => {
     expect(() => hub.publish('me', 'notification', NOON)).not.toThrow();
     expect(second).toHaveBeenCalledOnce();
     expect(hub.connectionCount()).toBe(1);
+  });
+});
+
+/**
+ * A client that opens streams and never lets them go cannot hold unlimited sockets (robustness
+ * pass, 2026-09-25). One past the cap closes the oldest, not the newest.
+ */
+describe('streams per account', () => {
+  it('closes the oldest stream once an account opens one more than the cap', () => {
+    const hub = new LiveHub();
+    const evicted: number[] = [];
+    const heard: number[] = [];
+    for (let i = 0; i <= MAX_STREAMS_PER_ACCOUNT; i += 1) {
+      hub.subscribe(
+        'u1',
+        () => heard.push(i),
+        () => evicted.push(i),
+      );
+    }
+    expect(evicted).toEqual([0]);
+    expect(hub.connectionCount()).toBe(MAX_STREAMS_PER_ACCOUNT);
+    hub.publish('u1', 'base', new Date());
+    expect(heard).not.toContain(0);
+    expect(heard).toHaveLength(MAX_STREAMS_PER_ACCOUNT);
+  });
+
+  it('counts each account on its own, and survives an eviction that throws', () => {
+    const hub = new LiveHub();
+    hub.subscribe(
+      'u1',
+      () => undefined,
+      () => {
+        throw new Error('socket already gone');
+      },
+    );
+    for (let i = 0; i < MAX_STREAMS_PER_ACCOUNT; i += 1) hub.subscribe('u1', () => undefined);
+    hub.subscribe('u2', () => undefined);
+    expect(hub.connectionCount()).toBe(MAX_STREAMS_PER_ACCOUNT + 1);
+  });
+});
+
+describe('a burst of broadcasts', () => {
+  it('sends the first at once and folds the rest of the window into one', () => {
+    vi.useFakeTimers();
+    try {
+      const hub = new LiveHub(2_000);
+      const heard: LiveEvent[] = [];
+      hub.subscribe('me', (event) => heard.push(event));
+      const start = Date.now();
+      for (let n = 0; n < 50; n += 1) hub.broadcast('world', new Date(start + n * 10));
+      expect(heard).toHaveLength(1);
+      vi.advanceTimersByTime(2_000);
+      expect(heard).toHaveLength(2);
+      // And the window after that is a fresh one: the next broadcast is not held back further.
+      vi.advanceTimersByTime(5_000);
+      hub.broadcast('world', new Date());
+      expect(heard).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('coalesces each kind on its own', () => {
+    const hub = new LiveHub(2_000);
+    const heard: string[] = [];
+    hub.subscribe('me', (event) => heard.push(event.kind));
+    hub.broadcast('world', NOON);
+    hub.broadcast('market', NOON);
+    hub.broadcast('bar', NOON);
+    expect(heard).toEqual(['world', 'market', 'bar']);
   });
 });

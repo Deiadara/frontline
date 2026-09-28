@@ -14,6 +14,8 @@ import { mergeArmies, removeForce } from '../battle/forces.js';
 import { travelMsTo } from '../battle/movement.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { visibleDistricts } from './view.js';
+import { settleEach } from '../world/guard.js';
+import { placeLocked } from '../battle/lock.js';
 
 /**
  * Planting and pulling out Sleeper cells (§A4, maintainer 2026-09-18).
@@ -65,6 +67,11 @@ export function plantSleepers(repos: Repositories, input: PlantInput): SleeperRe
       return { kind: 'refused', reason: 'not_enough_units' };
     }
   }
+  // They leave from home, and nothing leaves home in the last hour before a raid on it
+  // (`battle/lock.ts`, maintainer 2026-09-28).
+  if (placeLocked(repos, input.base, { kind: 'district' }, input.now)) {
+    return { kind: 'refused', reason: 'garrison_locked' };
+  }
 
   /*
    * The fog, read off the map rather than off the raw intel table.
@@ -101,6 +108,10 @@ export function plantSleepers(repos: Repositories, input: PlantInput): SleeperRe
     vehicles: {},
     force: sending,
   });
+  // No road, no cell. The road is world-wide now, so this is only reachable for a location whose
+  // district the map does not have at all, and planting a sleeper that arrived instantly would be
+  // the same teleport bug the column had.
+  if (travel === null) return { kind: 'refused', reason: 'no_road' };
 
   const cell: SleeperCell = {
     id: randomUUID(),
@@ -131,9 +142,21 @@ export function recallSleepers(
   base: Base,
   cellId: string,
   now: Date,
-): SleeperCell | undefined {
+): { kind: 'ok'; cell: SleeperCell } | { kind: 'refused'; reason: 'unknown' | 'locked' } {
   const cell = repos.sleepers.findById(cellId);
-  if (!cell || cell.baseId !== base.id || cell.phase === 'returning') return undefined;
+  if (!cell || cell.baseId !== base.id || cell.phase === 'returning') {
+    return { kind: 'refused', reason: 'unknown' };
+  }
+  /*
+   * A cell on the ground is at the place, and the last hour holds it there like everybody else
+   * (bug pass, 2026-09-28): whoever is there fights. One still on the road is not there yet.
+   */
+  if (
+    cell.phase === 'waiting' &&
+    placeLocked(repos, base, { kind: 'location', locationId: cell.locationId }, now)
+  ) {
+    return { kind: 'refused', reason: 'locked' };
+  }
 
   /*
    * Home is the walk they have already done, not a fresh quote.
@@ -154,7 +177,8 @@ export function recallSleepers(
     now.toISOString(),
     new Date(now.getTime() + Math.max(0, walked)).toISOString(),
   );
-  return repos.sleepers.findById(cell.id);
+  const returning = repos.sleepers.findById(cell.id);
+  return returning ? { kind: 'ok', cell: returning } : { kind: 'refused', reason: 'unknown' };
 }
 
 /**
@@ -164,33 +188,38 @@ export function recallSleepers(
  * can tell an open tab that something happened.
  */
 export function settleSleepers(repos: Repositories, now: Date): number {
-  let moved = 0;
-  for (const cell of repos.sleepers.due(now.toISOString())) {
-    moved += 1;
-    if (cell.phase === 'returning') {
-      const base = repos.bases.findById(cell.baseId);
-      if (base) {
-        repos.bases.updateArmy(base.id, mergeArmies(base.army, cell.army), base.trainingQueue);
+  // One transaction per cell: the army going home and the cell going are one fact, and a throw
+  // between them used to send the same army home again on the next tick (`world/guard.ts`).
+  return settleEach(
+    repos,
+    'sleeper cells',
+    repos.sleepers.due(now.toISOString()),
+    (cell) => cell.id,
+    (cell) => {
+      if (cell.phase === 'returning') {
+        const base = repos.bases.findById(cell.baseId);
+        if (base) {
+          repos.bases.updateArmy(base.id, mergeArmies(base.army, cell.army), base.trainingQueue);
+        }
+        repos.sleepers.remove(cell.id);
+        return;
       }
-      repos.sleepers.remove(cell.id);
-      continue;
-    }
 
-    /*
-     * Gone to ground, merged with whatever this crew already has waiting there.
-     *
-     * One row per crew per location is what every reader downstream assumes: `assemble` asks
-     * `waitingAt` for a single cell, and the Monitor lists one line per place. Merging here
-     * rather than at the send is deliberate, because until they arrive they are two columns on
-     * two different marks and only one of them is standing anywhere.
-     */
-    const standing = repos.sleepers.waitingAt(cell.baseId, cell.locationId);
-    if (standing) {
-      repos.sleepers.setArmy(standing.id, mergeArmies(standing.army, cell.army));
-      repos.sleepers.remove(cell.id);
-    } else {
-      repos.sleepers.markWaiting(cell.id, now.toISOString());
-    }
-  }
-  return moved;
+      /*
+       * Gone to ground, merged with whatever this crew already has waiting there.
+       *
+       * One row per crew per location is what every reader downstream assumes: `assemble` asks
+       * `waitingAt` for a single cell, and the Monitor lists one line per place. Merging here
+       * rather than at the send is deliberate, because until they arrive they are two columns on
+       * two different marks and only one of them is standing anywhere.
+       */
+      const standing = repos.sleepers.waitingAt(cell.baseId, cell.locationId);
+      if (standing) {
+        repos.sleepers.setArmy(standing.id, mergeArmies(standing.army, cell.army));
+        repos.sleepers.remove(cell.id);
+      } else {
+        repos.sleepers.markWaiting(cell.id, now.toISOString());
+      }
+    },
+  );
 }

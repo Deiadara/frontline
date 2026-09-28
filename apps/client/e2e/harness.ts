@@ -6,6 +6,7 @@ import {
   scoutRecalledReturnsAt,
   auctionPhaseAt,
   nextLotBid,
+  DEFAULT_CITY_ID,
   nextMinimumBid,
   missionCompletesAt,
   notorietyUpgradeCost,
@@ -57,6 +58,7 @@ import {
   districtDetailFor,
   unitsResponse,
   city,
+  cityFor,
   createOverseerResponse,
   crewStanding,
   crewProfileFor,
@@ -88,6 +90,41 @@ const DISPLAY_FONT = 'Roboto Condensed';
  * alone is not enough either: if the font request fails, that resolves immediately and every
  * guard goes vacuously green, so the load is asserted rather than assumed.
  */
+/**
+ * The step between taking an overseer and the game opening: picking a city (2026-09-24).
+ *
+ * Every walk-through of the opening goes through it, so it lives here rather than five times over.
+ * The first card the server left pressable is chosen rather than a named city: against a live
+ * server the plots fill up as runs accumulate, and a spec that asked for Ashfall by name would go
+ * red once Ashfall filled rather than on anything this repo did.
+ */
+export async function chooseAnyCity(page: Page, preferred?: string): Promise<void> {
+  /*
+   * `preferred` exists because the live specs share one world, and a city holds four crews, seeded
+   * bots included (2026-09-28).
+   *
+   * Every live spec registers an account against the same server, so they compete for the same
+   * plots: eight across the two open cities, of which the seeded bots hold four (three in Ashfall,
+   * one in Terminus). Taking whatever came first put four crews in Ashfall and left the last spec,
+   * which is the one that reads Ashfall's own districts by name, standing in Terminus waiting for
+   * a tag that was never going to be drawn. A spec that cares which city it is in now says so, and
+   * the ones that do not care are pointed at the other city so they stop spending Ashfall's plots.
+   */
+  const wanted =
+    preferred === undefined
+      ? null
+      : page.locator(`[data-testid="city-card-${preferred}"][data-open="true"]`);
+  const open =
+    wanted !== null && (await wanted.count()) > 0
+      ? wanted
+      : page.locator('[data-testid^="city-card-"][data-open="true"]').first();
+  await expect(open, 'the world has nowhere left for a new crew to live').toBeVisible();
+  await open.click();
+  const confirm = page.getByTestId('city-confirm');
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+}
+
 export async function settleFonts(page: Page): Promise<void> {
   await page.evaluate(() => document.fonts.ready);
   const loaded = await page.evaluate(
@@ -495,7 +532,7 @@ export interface UnderWay {
   location?: {
     districtId: string;
     locationId: string;
-    work: 'upgrade' | 'fortify';
+    work: 'upgrade';
     since: string;
     until: string;
     paid: PartialResources;
@@ -720,9 +757,7 @@ export async function installApi(
       ...detail,
       locations: detail.locations.map((view) => {
         if (view.location.id !== work.locationId) return view;
-        return work.work === 'upgrade'
-          ? { ...view, upgradingSince: work.since, upgradingUntil: work.until }
-          : { ...view, fortifyingSince: work.since, fortifyingUntil: work.until };
+        return { ...view, upgradingSince: work.since, upgradingUntil: work.until };
       }),
     };
   };
@@ -759,7 +794,20 @@ export async function installApi(
     if (pathname.endsWith('/api/events')) return new Promise<void>(() => {});
 
     if (pathname.endsWith('/api/me')) return json(session);
-    if (pathname.endsWith('/api/city')) return json(cityState);
+    /*
+     * The map, of whichever city was asked for.
+     *
+     * `?city=` is honoured here rather than ignored, because the map is the one read whose *answer*
+     * decides what the screen does next: a tag opens the district page or the scout sheet
+     * depending on the fog it finds, so a harness that served the home city's map for an away city
+     * would have every away tag taking the wrong branch, which is the bug this fixture exists to
+     * catch. `cityState` is this install's own copy and carries the gate work a spec put under way,
+     * so the crew's own city still answers from it.
+     */
+    if (pathname.endsWith('/api/city')) {
+      const asked = searchParams.get('city');
+      return json(asked === null || asked === DEFAULT_CITY_ID ? cityState : cityFor(asked));
+    }
     // §B7: raising a captured gate answers with the whole city, like every other city write.
     if (pathname.endsWith('/api/city/gate')) return json(cityState);
     // Calling the raise off: the gate's two marks go back to null and ninety percent comes back.
@@ -869,9 +917,6 @@ export async function installApi(
     // answered with a battle report; they are gone with the instant fight they resolved.
     if (
       pathname.endsWith('/api/city/scout') ||
-      pathname.endsWith('/api/city/garrison') ||
-      pathname.endsWith('/api/battles/fortify') ||
-      pathname.endsWith('/api/city/fortify') ||
       // §A4: working a location up. Without a line here it fell through to the district read
       // below and answered a POST with a district, which is a 200 that changes nothing.
       pathname.endsWith('/api/city/upgrade')
@@ -926,16 +971,12 @@ export async function installApi(
         base: session.base ?? baseDetail.base,
       });
     }
-    // Calling a location's work or dig off: the work the spec put under way comes off the sheet
-    // and ninety percent of what it says was paid comes back.
-    if (
-      pathname.endsWith('/api/city/cancel-upgrade') ||
-      pathname.endsWith('/api/city/cancel-fortify')
-    ) {
+    // Calling a location's work off: the work the spec put under way comes off the sheet and
+    // ninety percent of what it says was paid comes back.
+    if (pathname.endsWith('/api/city/cancel-upgrade')) {
       const { locationId } = route.request().postDataJSON() as { locationId: string };
       const work = locationWork;
-      const kind = pathname.endsWith('cancel-upgrade') ? 'upgrade' : 'fortify';
-      if (!work || work.locationId !== locationId || work.work !== kind) {
+      if (!work || work.locationId !== locationId) {
         return json({ error: { code: 'CONFLICT', message: 'Nothing under way there' } }, 409);
       }
       locationWork = null;
@@ -1032,21 +1073,34 @@ export async function installApi(
        * Who leads it, checked rather than trusted, because the client's own gate is the thing
        * under test and a handler that accepts anything cannot fail it.
        *
-       * Two refusals, both of them the server's: a leader who is already out cannot be sent
-       * again until they are home, and a run with nobody in charge is refused until the crew has
-       * researched how to do without.
+       * Three refusals, all of them the server's: a body with no leader at all fails
+       * `LaunchMissionRequestSchema` (every run is led, maintainer 2026-09-28), a leader who is not
+       * on the bench is not found, and a leader who is already out cannot be sent again until they
+       * are home.
        */
       const { leaderId } = route.request().postDataJSON() as { leaderId?: string };
+      // `parseBody`'s envelope, with the message Zod prints for the missing field.
+      if (leaderId === undefined) {
+        return json(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: '✖ Invalid input: expected string, received undefined\n  → at leaderId',
+            },
+          },
+          400,
+        );
+      }
       const leader = board.leaders.find((one) => one.id === leaderId);
       // In the route's own words (`routes/missions.ts`), so a spec matching the sentence is
       // matching what a player reads.
-      if (leaderId !== undefined && leader === undefined) {
+      if (leader === undefined) {
         return json(
           { error: { code: 'NOT_FOUND', message: 'Nobody on your bench by that id' } },
           404,
         );
       }
-      if (leader !== undefined && leader.held !== null) {
+      if (leader.held !== null) {
         return json(
           {
             error: {
@@ -1057,24 +1111,10 @@ export async function installApi(
           409,
         );
       }
-      if (leaderId === undefined && board.unledRule === 'forbidden') {
-        return json(
-          {
-            error: {
-              code: 'MISSION_NEEDS_OFFICER',
-              message:
-                'Somebody has to lead this. Written Orders, on the Right Hand track, is what lets a crew go out without one',
-            },
-          },
-          409,
-        );
-      }
-      const launched = launchResponse();
+      const launched = launchResponse(leaderId);
       // The write the refusal above reads on the next launch: whoever took this run out is held by
       // it until it is home, and the board says so from here on.
-      if (leaderId !== undefined) {
-        sentOut.set(leaderId, missionCompletesAt(launched.mission).toISOString());
-      }
+      sentOut.set(leaderId, missionCompletesAt(launched.mission).toISOString());
       return json(launched);
     }
     /*
@@ -1447,7 +1487,23 @@ export async function installApi(
      * `fixtures.overseer` (built from `OVERSEER_PRESETS[0]`) a card a test can press.
      */
     if (pathname.endsWith('/api/overseer/choices')) return json(overseerChoices);
-    if (pathname.endsWith('/api/overseer')) return json(createOverseerResponse, 201);
+    if (pathname.endsWith('/api/overseer')) {
+      /*
+       * Taking a character changes what `/me` says, and the session here has to move with it.
+       *
+       * The client primes its `me` cache off this response and then invalidates it, so a fixture
+       * that kept answering "no overseer" bounced the player straight back to the picker by way
+       * of `RequireOverseer`. Nothing caught it while no spec walked past the press; the
+       * choose-a-city flow does.
+       */
+      session = {
+        ...session,
+        user: createOverseerResponse.user,
+        overseer: createOverseerResponse.overseer,
+        base: createOverseerResponse.base,
+      };
+      return json(createOverseerResponse, 201);
+    }
     if (pathname.endsWith('/api/auth/login')) return json(authResponse);
     if (pathname.endsWith('/api/auth/register')) return json(authResponse, 201);
     return json({ error: { code: 'NOT_FOUND', message: 'unmapped route' } }, 404);

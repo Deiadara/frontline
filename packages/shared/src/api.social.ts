@@ -106,7 +106,9 @@ export type EditFactionIdentityRequest = z.infer<typeof EditFactionIdentityReque
 export const EditFactionDescriptionRequestSchema = z.object({ blurb: FactionBlurbSchema });
 export type EditFactionDescriptionRequest = z.infer<typeof EditFactionDescriptionRequestSchema>;
 
-export const InviteToFactionRequestSchema = z.object({ username: z.string().trim().min(1) });
+export const InviteToFactionRequestSchema = z.object({
+  username: z.string().trim().min(1).max(64),
+});
 export type InviteToFactionRequest = z.infer<typeof InviteToFactionRequestSchema>;
 
 export const AnswerInviteRequestSchema = z.object({
@@ -219,7 +221,11 @@ export const SendMessageRequestSchema = z.object({
    * standings the way the search there does, and a letter to three people is one letter, with
    * one sent copy that counts three readers, rather than three letters.
    */
-  toUsernames: z.array(z.string().trim().min(1)).min(1).max(MESSAGE_RECIPIENTS_MAX).nullable(),
+  toUsernames: z
+    .array(z.string().trim().min(1).max(64))
+    .min(1)
+    .max(MESSAGE_RECIPIENTS_MAX)
+    .nullable(),
   subject: MessageSubjectSchema,
   body: MessageBodySchema,
 });

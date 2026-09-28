@@ -9,36 +9,38 @@ import {
   findUnit,
   isPlainDay,
 } from '@frontline/shared';
-import { Button } from '../../components/ui/Button';
+import type { ReactNode } from 'react';
+import { RewardLine } from '../../components/Resources';
+import { DrawnButton } from '../../components/ui/DrawnButton';
+import { DrawnGlyph } from '../../components/ui/DrawnMarks';
+import type { IconName } from '../../components/ui/Icon';
 import { LabelRow } from '../../components/ui/LabelChip';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { UnitTrigger } from '../units/UnitWindow';
 
 /**
- * The after-action report (GDD §A5, battle rework).
+ * The after-action report (GDD §A5; redrawn 2026-09-28).
  *
- * Two documents in one window, and they are not the same document. The **log** is what happened,
- * in sentences: it is what makes a defeat readable and it is the half a player will read first. The
- * **ledger** is what it cost, per unit, ranked by what each of them actually put out, which is the
- * half a player reads when they are deciding what to build next.
+ * A sheet of final figures, not a story. The round-by-round log the report used to open with is
+ * gone (maintainer: "I want the final stats"); what is left is the same document for every fight,
+ * in the same order, so a player who has read one can read any of them without hunting:
  *
- * Nothing here is optional decoration. Every column answers a question the maintainer asked for by name:
- * what fled, what the casualties were, which units did the most damage, and how the legends did.
+ * 1. **The head**: won or lost, where, how many rounds, and the ground and sky it was fought on.
+ * 2. **The outcome**: one row of drawn tiles, each with an icon that says what it means on the
+ *    hover. The ground (captured, held, broken, raided), the infamy this side earned, the spoils
+ *    the winner carried home, the rounds, the trap if one went off, and the officer who led.
+ * 3. **Notes**: the handful of facts that belong to one side only, when there are any: whose
+ *    ground it was, who changed sides under Directive Xero, what the Executioner finished.
+ * 4. **The two sides**, yours first, each with the same rows in the same order (sent, died, fled,
+ *    came back, and the rows either side has something to say on) and the unit table under it.
  *
- * ## The template
+ * "The same rows" is the part that needs enforcing rather than intending. {@link ledgerRows}
+ * decides the row set once, for the report, from both sides at once: a row is on both columns or
+ * on neither, so the two ledgers line up at exactly the moment a reader wants to compare them.
  *
- * Every report is the same document in the same order, so a player who has read one can read any of
- * them without hunting: **outcome and ground**, then **what happened** in sentences, then **the
- * legends**, then **the two ledgers side by side**, each with the same rows in the same order and
- * the same five-column unit table under it.
- *
- * "The same rows" is the part that needs enforcing rather than intending. The ledger rows used to be
- * written `{side.infamy > 0 && <Row .../>}`, one condition per side, so the two columns grew
- * different rows: a fight where only the winner banked infamy put "Infamy earned" on one side and
- * not the other, and the two ledgers stopped lining up at exactly the moment a reader wanted to
- * compare them. {@link ledgerRows} decides the row set once, for the report, from both sides at
- * once: a row is on both columns or on neither.
+ * Every icon is a {@link DrawnGlyph} with a `data-tip`, so the sheet reads as pictures first and
+ * the words are one hover away. The panels are the same paper the plot window is printed on.
  */
 
 /**
@@ -59,22 +61,38 @@ interface BattleReportModalProps {
   onClose: () => void;
 }
 
+/** What each drawn icon means, said on the hover. One table, so a tile and a row agree. */
+const MEANING: Readonly<Record<string, string>> = {
+  ground: 'The ground: what this fight was for, and who holds it now that it is over.',
+  infamy:
+    'Infamy: the name this side earned from the fight. A name is burned to boost a fight and opens contracts.',
+  spoils: 'Spoils: what the winner carried home, after anything the stores could not take.',
+  rounds: 'Rounds: how many exchanges it took to settle.',
+  trap: 'The trap: what went off on the approach, and how many it took before the lines met.',
+  officer:
+    'The officer who led this side, what they put out, and whether they walked off the field.',
+  sent: 'Sent: everybody this side committed to the line.',
+  died: 'Died: units that did not walk off the field, whatever took them.',
+  fled: 'Fled: units that broke, ran, and got home.',
+  back: 'Came back: units that walked off the field standing, the ones the medics got back included.',
+  intimidated:
+    'Too intimidated to fire: units the other side kept out of the exchange before a shot was fired.',
+  ring: 'The ring: the perimeter set to catch a withdrawal, and what it caught and cost.',
+};
+
 export function BattleReportModal({ analysis, side, onClose }: BattleReportModalProps) {
   if (!analysis) {
     return (
       <Modal onClose={onClose} labelledBy="report-title" className="border-oxblood-500/30">
         <div className="flex flex-col gap-3 p-6" data-testid="battle-report-silent">
-          <h2
-            id="report-title"
-            className="font-display text-lg font-bold tracking-[0.1em] text-ink-100"
-          >
+          <h2 id="report-title" className="font-stamp text-[23px] leading-none text-ink-100">
             No word
           </h2>
           <p className="font-body text-sm leading-relaxed text-ink-300">{NO_REPORT_LINE}</p>
           <div className="flex justify-end">
-            <Button size="sm" variant="ghost" onClick={onClose}>
+            <DrawnButton size="sm" tone="danger" data-sound="click" onClick={onClose}>
               Close
-            </Button>
+            </DrawnButton>
           </div>
         </div>
       </Modal>
@@ -85,11 +103,7 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
   const theirs = side === 'attacker' ? analysis.defender : analysis.attacker;
   const won = analysis.winner === side;
   const rows = ledgerRows(mine, theirs);
-  // A ring that anybody actually met, rather than one that was merely set: a perimeter nobody ran
-  // into neither caught anyone nor paid anything, and has nothing to report.
-  const ringFought = [mine, theirs].some(
-    (each) => each.perimeterCaught > 0 || each.perimeterLost > 0,
-  );
+  const notes = noteLines(analysis);
 
   return (
     <Modal
@@ -99,7 +113,7 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
       className={won ? 'border-brass-500/30' : 'border-oxblood-500/30'}
     >
       <div
-        className="flex shrink-0 flex-col gap-1 border-b border-surface-700 px-5 py-4"
+        className="relative flex shrink-0 flex-col gap-1.5 px-5 pb-3.5 pt-4"
         data-testid="battle-report"
       >
         <p
@@ -108,23 +122,17 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
             won ? 'text-brass-300' : 'text-oxblood-300',
           )}
         >
-          {won ? 'Held' : 'Lost'} · {analysis.locationName} ·{' '}
+          {won ? 'Won' : 'Lost'} · {analysis.locationName} ·{' '}
           {analysis.rounds === 1 ? '1 round' : `${analysis.rounds} rounds`}
         </p>
-        <h2
-          id="report-title"
-          className="font-display text-lg font-bold tracking-[0.08em] text-ink-100"
-        >
-          {analysis.headline}
+        <h2 id="report-title" className="font-stamp text-[23px] leading-none text-ink-100">
+          {groundLine(analysis, side)}
         </h2>
-        {/* §A4: the ground the fight was actually on, and the sky it was under.
-            
-            The labels decide a real share of every outcome, and for a while the report said nothing
-            about any of them: a player read a loss with no way to learn they had sent riflemen into
-            a corridor on a foggy night. Stamped onto the analysis at resolution rather than read
-            live, because by the time anybody opens this the weather has moved on. */}
+        {/* §A4: the ground the fight was actually on, and the sky it was under. Stamped onto the
+            analysis at resolution rather than read live, because by the time anybody opens this
+            the weather has moved on. */}
         {(analysis.ground.length > 0 || !isPlainDay(analysis.weather)) && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
             {!isPlainDay(analysis.weather) && (
               <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
                 {WEATHER_CATALOG[analysis.weather].name}
@@ -133,91 +141,86 @@ export function BattleReportModal({ analysis, side, onClose }: BattleReportModal
             <LabelRow labels={analysis.ground} size="sm" />
           </div>
         )}
+        <span aria-hidden className="ink-rule absolute inset-x-5 bottom-0" />
       </div>
 
-      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
-        <section className="flex flex-col gap-1.5">
-          {analysis.trap && (
-            <p className="font-body text-xs leading-relaxed text-oxblood-300">
-              {analysis.trap.name} went off on the approach. It took {analysis.trap.killed}.
-            </p>
-          )}
-          <CombineTollLines toll={analysis} />
-          {analysis.log.map((line, index) => (
-            <p
-              key={`${index}-${line}`}
-              className="font-body text-[13px] leading-relaxed text-ink-200"
-            >
-              {line}
-            </p>
-          ))}
-          {analysis.settledBy !== 'standing' && (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              {analysis.settledBy === 'cap'
-                ? 'Called on who was left standing.'
-                : // Both lines fell in the same round, so there was nobody left to call it on.
-                  'Both lines went down. Called on who had more left on the ground.'}
-            </p>
-          )}
-          {/* The ring, when one was there to be met. Meeting it is a second fight now, so it has a
-              result of its own: the same handful of runners getting home means one thing when the
-              ring held and quite another when it was ridden through. */}
-          {ringFought && (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              {analysis.brokeThrough
-                ? 'The withdrawal came through the ring.'
-                : 'The ring held, and the withdrawal broke on it.'}
-            </p>
-          )}
-        </section>
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-5 py-3.5">
+        <Panel title="The outcome">
+          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="report-outcome">
+            <Tile
+              icon="district"
+              meaning="ground"
+              label="The ground"
+              value={groundWord(analysis, side)}
+            />
+            <Tile
+              icon="infamy"
+              meaning="infamy"
+              label="Infamy earned"
+              value={mine.infamy > 0 ? `+${mine.infamy.toLocaleString()}` : '0'}
+              tone={mine.infamy > 0 ? 'good' : undefined}
+            />
+            <Tile
+              icon="loot"
+              meaning="spoils"
+              label="Spoils"
+              value={
+                won ? (
+                  <RewardLine rewards={analysis.spoils} />
+                ) : (
+                  <span>Nothing: the field was theirs</span>
+                )
+              }
+            />
+            <Tile icon="clock" meaning="rounds" label="Rounds" value={String(analysis.rounds)} />
+            {analysis.trap && (
+              <Tile
+                icon="alert"
+                meaning="trap"
+                label={analysis.trap.name}
+                value={`took ${analysis.trap.killed}`}
+                tone="bad"
+              />
+            )}
+            {mine.officer && (
+              <Tile
+                icon="crew"
+                meaning="officer"
+                label={mine.officer.name}
+                value={mine.officer.fell ? 'taken off the field' : 'walked off the field'}
+                tone={mine.officer.fell ? 'bad' : 'good'}
+              />
+            )}
+          </ul>
+        </Panel>
 
-        {analysis.underLeader !== null && (
-          /*
-           * Whose ground this was, said before the ledgers.
-           *
-           * The two tolls below say what the Executioner and Directive Xero *did*; neither says
-           * who did it, and the Syndic does nothing that leaves a toll at all. So a crew walked
-           * into a much harder fight in the Annexes, lost it, and read an aftermath with nothing
-           * in it about her. Oxblood, which is the colour the Combine wears everywhere else.
-           */
-          <section
-            className="border border-oxblood-500/40 bg-oxblood-500/5 p-3"
-            data-testid="report-under-leader"
-          >
-            <p className="font-display text-[10px] uppercase tracking-[0.22em] text-oxblood-300">
-              Whose ground this was
-            </p>
-            <p className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-              Fought under <span className="text-oxblood-300">{analysis.underLeader.name}</span>.
-              Every unit the Combine put in the line carried{' '}
-              <span className="text-oxblood-300">{analysis.underLeader.powerName}</span>.
-            </p>
-          </section>
+        {notes.length > 0 && (
+          <Panel title="Notes">
+            <ul className="flex flex-col gap-1.5">
+              {notes.map((note) => (
+                <li
+                  key={note.testId}
+                  className="font-body text-[13px] leading-relaxed text-ink-200"
+                  data-testid={note.testId}
+                >
+                  {note.text}
+                </li>
+              ))}
+            </ul>
+          </Panel>
         )}
 
-        {analysis.legends.length > 0 && (
-          <section className="border border-brass-500/30 bg-brass-300/5 p-3">
-            <p className="font-display text-[10px] uppercase tracking-[0.22em] text-brass-300">
-              The ones there is only one of
-            </p>
-            {analysis.legends.map((line) => (
-              <p key={line} className="mt-1 font-body text-[13px] leading-relaxed text-ink-200">
-                {line}
-              </p>
-            ))}
-          </section>
-        )}
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <SideTable side={mine} heading="Yours" tone="mine" rows={rows} />
-          <SideTable side={theirs} heading="Theirs" tone="theirs" rows={rows} />
+        <div className="grid gap-3 sm:grid-cols-2 sm:items-stretch">
+          <SideSheet side={mine} heading="Yours" tone="mine" rows={rows} />
+          <SideSheet side={theirs} heading="Theirs" tone="theirs" rows={rows} />
         </div>
       </div>
 
-      <footer className="flex shrink-0 justify-end border-t border-surface-700 px-5 py-4">
-        <Button size="sm" variant="ghost" onClick={onClose}>
+      <footer className="relative flex shrink-0 items-center px-5 py-3">
+        <span aria-hidden className="ink-rule absolute inset-x-5 top-0" />
+        <DrawnButton size="sm" tone="danger" data-sound="click" onClick={onClose}>
           Close
-        </Button>
+        </DrawnButton>
       </footer>
     </Modal>
   );
@@ -231,74 +234,217 @@ export function turnedLine(turned: Readonly<Record<string, number>>): string {
     .join(', ');
 }
 
+/** What winning or losing this fight did to the ground, from the reader's side. */
+function groundWord(analysis: BattleAnalysis, side: BattleSide): string {
+  const attackerWon = analysis.winner === 'attacker';
+  const reader = side === 'attacker';
+  switch (analysis.target) {
+    case 'gate':
+      return attackerWon
+        ? reader
+          ? 'Gate broken'
+          : 'Gate lost'
+        : reader
+          ? 'Gate held'
+          : 'Gate held';
+    case 'district':
+      return attackerWon ? (reader ? 'Raided' : 'Raided') : reader ? 'Thrown back' : 'Repelled';
+    default:
+      return attackerWon ? (reader ? 'Captured' : 'Lost') : reader ? 'Not taken' : 'Held';
+  }
+}
+
+/** The headline: the ground and what became of it, in one line. */
+function groundLine(analysis: BattleAnalysis, side: BattleSide): string {
+  const attackerWon = analysis.winner === 'attacker';
+  const reader = side === 'attacker';
+  const place = analysis.locationName;
+  switch (analysis.target) {
+    case 'gate':
+      return attackerWon
+        ? reader
+          ? `The gate at ${place} is broken`
+          : `The gate at ${place} fell`
+        : `The gate at ${place} held`;
+    case 'district':
+      return attackerWon
+        ? `${place} was raided`
+        : reader
+          ? `The raid on ${place} was thrown back`
+          : `${place} threw the raid back`;
+    default:
+      return attackerWon
+        ? reader
+          ? `${place} is yours`
+          : `${place} was taken`
+        : reader
+          ? `${place} did not fall`
+          : `${place} held`;
+  }
+}
+
+interface Note {
+  testId: string;
+  text: string;
+}
+
 /**
- * The two Combine lines, each drawn only when there is a number behind it.
- *
- * With the log rather than in the ledger: the ledger's rows are the same on both sides by
- * construction (`ledgerRows`), and these are things that happened to one side only. A turned unit
- * is not in "Lost" either, which is the reason the line exists: a player counting what came home
- * would otherwise find units missing that the report never accounted for.
+ * The lines that belong to one side only, drawn only when there is a number or a name behind
+ * them. A turned unit is not in "Died" either, which is the reason the line exists: a player
+ * counting what came home would otherwise find units missing that the report never accounted for.
  */
-function CombineTollLines({ toll }: { toll: Partial<CombineToll> }) {
-  const turned = Object.values(toll.turned ?? {}).reduce((sum, count) => sum + count, 0);
-  const executed = toll.executed ?? 0;
-  return (
-    <>
-      {turned > 0 && (
-        <p
-          className="font-body text-xs leading-relaxed text-oxblood-300"
-          data-testid="report-turned"
-        >
-          {turned === 1
-            ? '1 unit changed sides and is his now'
-            : `${turned} units changed sides and are his now`}
-          : {turnedLine(toll.turned ?? {})}.
-        </p>
-      )}
-      {executed > 0 && (
-        <p
-          className="font-body text-xs leading-relaxed text-oxblood-300"
-          data-testid="report-executed"
-        >
-          The Executioner finished {executed}.
-        </p>
-      )}
-    </>
-  );
+function noteLines(analysis: BattleAnalysis & Partial<CombineToll>): Note[] {
+  const notes: Note[] = [];
+  if (analysis.underLeader !== null) {
+    notes.push({
+      testId: 'report-under-leader',
+      text: `Fought under ${analysis.underLeader.name}. Every unit the Combine put in the line carried ${analysis.underLeader.powerName}.`,
+    });
+  }
+  const turned = Object.values(analysis.turned ?? {}).reduce((sum, count) => sum + count, 0);
+  if (turned > 0) {
+    notes.push({
+      testId: 'report-turned',
+      text: `${turned === 1 ? '1 unit changed sides and is his now' : `${turned} units changed sides and are his now`}: ${turnedLine(analysis.turned ?? {})}.`,
+    });
+  }
+  const executed = analysis.executed ?? 0;
+  if (executed > 0) {
+    notes.push({ testId: 'report-executed', text: `The Executioner finished ${executed}.` });
+  }
+  return notes;
 }
 
 interface LedgerRow {
   label: string;
+  icon: IconName;
+  meaning: string;
   of: (side: SideAnalysis) => number;
+  tone?: 'bad';
 }
 
 /**
  * The ledger rows for this report, decided once from both sides.
  *
- * The first four are always drawn, because every fight has them and a reader looking for "what did
- * this cost" should find it in the same place every time. The rest are drawn when *either* side has
- * something to say, which is what keeps the two columns aligned: a row is on both or on neither.
- * Drawing a row only where its own number is non-zero, which is what this replaced, produced two
- * ledgers of different heights whose rows did not correspond.
+ * The first four are always drawn, because every fight has them and a reader looking for "what
+ * did this cost" should find it in the same place every time. The rest are drawn when *either*
+ * side has something to say, which is what keeps the two columns aligned: a row is on both or on
+ * neither.
  */
 function ledgerRows(mine: SideAnalysis, theirs: SideAnalysis): LedgerRow[] {
   const always: LedgerRow[] = [
-    { label: 'Lost', of: (side) => side.lost },
-    { label: 'Came back', of: (side) => side.survived },
-    { label: 'Broke and ran', of: (side) => side.fled },
+    { label: 'Sent', icon: 'units', meaning: 'sent', of: (side) => side.committed },
+    { label: 'Died', icon: 'sword', meaning: 'died', of: (side) => side.lost, tone: 'bad' },
+    { label: 'Fled', icon: 'morale', meaning: 'fled', of: (side) => side.fled },
+    { label: 'Came back', icon: 'check', meaning: 'back', of: (side) => side.survived },
   ];
   const whenAnybodyHas: LedgerRow[] = [
-    // §D3: the intimidation the engine has always settled before the first shot and never showed.
-    { label: 'Too intimidated to fire', of: (side) => side.intimidated },
-    { label: 'On the ring', of: (side) => side.perimeter },
-    { label: 'Caught by the ring', of: (side) => side.perimeterCaught },
-    { label: 'Lost holding the ring', of: (side) => side.perimeterLost },
-    { label: 'Infamy earned', of: (side) => side.infamy },
+    // §D3: the intimidation the engine settles before the first shot.
+    {
+      label: 'Too intimidated to fire',
+      icon: 'eye',
+      meaning: 'intimidated',
+      of: (side) => side.intimidated,
+    },
+    { label: 'On the ring', icon: 'shield', meaning: 'ring', of: (side) => side.perimeter },
+    {
+      label: 'Caught by the ring',
+      icon: 'shield',
+      meaning: 'ring',
+      of: (side) => side.perimeterCaught,
+    },
+    {
+      label: 'Lost holding the ring',
+      icon: 'shield',
+      meaning: 'ring',
+      of: (side) => side.perimeterLost,
+      tone: 'bad',
+    },
+    { label: 'Infamy earned', icon: 'infamy', meaning: 'infamy', of: (side) => side.infamy },
   ];
   return [...always, ...whenAnybodyHas.filter((row) => row.of(mine) > 0 || row.of(theirs) > 0)];
 }
 
-function SideTable({
+/** One paper panel of the sheet, with its drawn heading: the plot window's own material. */
+function Panel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="ink-frame card-paper-lit washed grain flex min-w-0 flex-col rounded-sm shadow-panel">
+      <h3 className="relative px-3 pb-2 pt-2.5 font-stamp text-[15px] leading-none text-brass-300">
+        <span>{title}</span>
+        <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
+      </h3>
+      <div className="relative min-w-0 px-3 pb-3 pt-2.5">{children}</div>
+    </section>
+  );
+}
+
+/** A drawn icon that says what it means on the hover. */
+function Glyph({
+  icon,
+  meaning,
+  className,
+}: {
+  icon: IconName;
+  meaning: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn('inline-flex shrink-0 items-center', className)}
+      data-tip={MEANING[meaning]}
+      data-testid={`report-glyph-${meaning}`}
+    >
+      <DrawnGlyph name={icon} className="h-4 w-4" />
+    </span>
+  );
+}
+
+/** One figure on the outcome row: the icon, what it is, and what it came to. */
+function Tile({
+  icon,
+  meaning,
+  label,
+  value,
+  tone,
+}: {
+  icon: IconName;
+  meaning: string;
+  label: string;
+  value: ReactNode;
+  tone?: 'good' | 'bad' | undefined;
+}) {
+  return (
+    <li className="flex min-w-0 items-start gap-2 border border-surface-700/60 px-2.5 py-2">
+      <Glyph
+        icon={icon}
+        meaning={meaning}
+        className={cn(
+          'mt-0.5',
+          tone === 'good' ? 'text-brass-300' : tone === 'bad' ? 'text-oxblood-300' : 'text-ink-200',
+        )}
+      />
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="font-display text-[10px] uppercase tracking-[0.18em] text-ink-300">
+          {label}
+        </span>
+        <span
+          className={cn(
+            'font-display text-[13px] font-semibold tabular-nums',
+            tone === 'good'
+              ? 'text-brass-300'
+              : tone === 'bad'
+                ? 'text-oxblood-300'
+                : 'text-ink-100',
+          )}
+        >
+          {value}
+        </span>
+      </span>
+    </li>
+  );
+}
+
+function SideSheet({
   side,
   heading,
   tone,
@@ -312,65 +458,83 @@ function SideTable({
   return (
     <section
       className={cn(
-        'flex flex-col gap-2 border p-3',
-        tone === 'mine' ? 'border-brass-500/40 bg-brass-300/5' : 'border-surface-700',
+        'ink-frame card-paper-lit washed grain flex min-w-0 flex-col rounded-sm shadow-panel',
+        tone === 'mine' && 'ring-1 ring-brass-500/30',
       )}
       data-testid={`report-side-${tone}`}
     >
-      <header className="flex items-baseline justify-between gap-2">
-        {/* Wrapped, not truncated. A crew name is the thing this line is for, and at 0.2em of
-            tracking in a 300px column `truncate` cut it mid-word on every report a full-length
-            name appeared in: "Yours · The Ninth Street Reclamation Comp…". Two lines cost 14px
-            and the panels stretch to each other anyway. */}
-        <h3 className="min-w-0 break-words font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
+      <header className="relative flex items-baseline justify-between gap-2 px-3 pb-2 pt-2.5">
+        {/* Wrapped, not truncated. A crew name is the thing this line is for. */}
+        <h3 className="min-w-0 break-words font-stamp text-[15px] leading-none text-brass-300">
           {heading} · {side.name}
         </h3>
-        <span className="shrink-0 font-display text-[11px] tabular-nums text-ink-300">
-          {side.committed} sent
-        </span>
+        <span aria-hidden className="ink-rule absolute inset-x-3 -bottom-[1px]" />
       </header>
 
-      <dl className="flex flex-col divide-y divide-surface-700 border-y border-surface-700">
-        {rows.map((row) => (
-          <Row key={row.label} label={row.label} value={String(row.of(side))} />
-        ))}
-      </dl>
+      <div className="flex min-w-0 flex-col gap-2.5 px-3 pb-3 pt-2.5">
+        <dl className="flex flex-col gap-1">
+          {rows.map((row) => (
+            <div key={row.label} className="flex items-center justify-between gap-3">
+              <dt className="flex items-center gap-2 font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
+                <Glyph
+                  icon={row.icon}
+                  meaning={row.meaning}
+                  className={row.tone === 'bad' ? 'text-oxblood-300' : 'text-ink-200'}
+                />
+                {row.label}
+              </dt>
+              <dd
+                className={cn(
+                  'font-display text-[13px] font-semibold tabular-nums',
+                  row.tone === 'bad' && row.of(side) > 0 ? 'text-oxblood-300' : 'text-ink-100',
+                )}
+              >
+                {row.of(side).toLocaleString()}
+              </dd>
+            </div>
+          ))}
+        </dl>
 
-      {/* §D1: who led, and what it came to. On the analysis since officers could lead a fight and
-          drawn nowhere: a player could field a legend, have them fall, and read a report that did
-          not mention it. Beside the unit rows rather than in them, because an officer is one person
-          who was there rather than a unit count the settler writes back to a roster. */}
-      {side.officer && (
-        <p
-          className="font-body text-[11px] leading-relaxed text-ink-300"
-          data-testid={`report-officer-${tone}`}
-        >
-          <span className="font-display tracking-[0.06em] text-brass-300">{side.officer.name}</span>{' '}
-          led, and put out {Math.round(side.officer.damage)}.{' '}
-          {side.officer.fell ? 'Taken off the field.' : 'Walked off it.'}
-        </p>
-      )}
+        {/* §D1: who led, and what it came to. */}
+        {side.officer && (
+          <p
+            className="flex items-center gap-2 font-body text-[11px] leading-relaxed text-ink-300"
+            data-testid={`report-officer-${tone}`}
+          >
+            <Glyph icon="crew" meaning="officer" className="text-brass-300" />
+            <span>
+              <span className="font-display tracking-[0.06em] text-brass-300">
+                {side.officer.name}
+              </span>{' '}
+              led, and put out {Math.round(side.officer.damage)}.{' '}
+              {side.officer.fell ? 'Taken off the field.' : 'Walked off it.'}
+            </span>
+          </p>
+        )}
 
-      {side.units.length === 0 ? (
-        <p className="font-body text-xs leading-relaxed text-ink-300">Nobody was on the ground.</p>
-      ) : (
-        <table className="w-full table-fixed">
-          <thead>
-            <tr className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
-              <th className="w-2/5 py-1 text-left font-normal">Unit</th>
-              <th className="py-1 text-right font-normal">Sent</th>
-              <th className="py-1 text-right font-normal">Lost</th>
-              <th className="py-1 text-right font-normal">Ran</th>
-              <th className="py-1 text-right font-normal">Damage</th>
-            </tr>
-          </thead>
-          <tbody>
-            {side.units.map((unit) => (
-              <UnitRow key={unit.unitId} unit={unit} />
-            ))}
-          </tbody>
-        </table>
-      )}
+        {side.units.length === 0 ? (
+          <p className="font-body text-xs leading-relaxed text-ink-300">
+            Nobody was on the ground.
+          </p>
+        ) : (
+          <table className="w-full table-fixed">
+            <thead>
+              <tr className="font-display text-[10px] uppercase tracking-[0.14em] text-ink-300">
+                <th className="w-2/5 py-1 text-left font-normal">Unit</th>
+                <th className="py-1 text-right font-normal">Sent</th>
+                <th className="py-1 text-right font-normal">Died</th>
+                <th className="py-1 text-right font-normal">Fled</th>
+                <th className="py-1 text-right font-normal">Damage</th>
+              </tr>
+            </thead>
+            <tbody>
+              {side.units.map((unit) => (
+                <UnitRow key={unit.unitId} unit={unit} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </section>
   );
 }
@@ -379,11 +543,8 @@ function UnitRow({ unit }: { unit: UnitPerformance }) {
   return (
     <tr className="border-t border-surface-700/60">
       <td className="min-w-0 py-1.5">
-        {/* The name opens the sheet (maintainer, 2026-09-22: "make sure these units are all
-            visible when seeing the battle report against combine"). A Combine unit is met here
-            and nowhere on the player's own screens, so this row is the one door to its card,
-            portrait and marks included: `UnitTrigger` draws the same card the roster does, with
-            the ownership claims off for a sheet nobody can hold (`UnitWindow`). */}
+        {/* The name opens the sheet (maintainer, 2026-09-22): a Combine unit is met here and
+            nowhere on the player's own screens, so this row is the one door to its card. */}
         <UnitTrigger
           unitId={unit.unitId}
           label={`${unit.name}: the sheet`}
@@ -399,7 +560,6 @@ function UnitRow({ unit }: { unit: UnitPerformance }) {
             {unit.name}
           </span>
         </UnitTrigger>
-        <span className="block truncate font-body text-[11px] text-ink-300">{unit.state}</span>
       </td>
       <td className="py-1.5 text-right font-display text-[12px] tabular-nums text-ink-300">
         {unit.started}
@@ -414,14 +574,5 @@ function UnitRow({ unit }: { unit: UnitPerformance }) {
         {Math.round(unit.damageShare * 100)}%
       </td>
     </tr>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1">
-      <dt className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">{label}</dt>
-      <dd className="font-display text-xs tabular-nums text-ink-200">{value}</dd>
-    </div>
   );
 }

@@ -14,8 +14,9 @@ import type { StoredMission } from '../db/repos/missions.js';
  * Everybody who could lead a run (maintainer, 2026-09-10).
  *
  * The Overseer first and always: they are the leader every crew has from the first day, which is
- * what makes the unled rule a gate rather than a wall. Then every officer on the books, in the
- * order the roster holds them, so the list a player scrolls is the list they already know.
+ * what makes "every run has a leader" (2026-09-28) a rule no crew can be locked out by. Then every
+ * officer on the books, in the order the roster holds them, so the list a player scrolls is the
+ * list they already know.
  *
  * Names and sheets only. {@link leadersFor} is the same list with one reason each for whoever
  * cannot go today; the launch takes this one, because all it needs from the bench is to turn an

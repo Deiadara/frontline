@@ -1,10 +1,10 @@
 import {
   createCommander,
+  OFFICER_ROLES,
   concurrentMissionSlots,
   unitsBeyondNotoriety,
   AUTOMATION_RUNGS,
   MISC_AREA_ID,
-  RESEARCH_UNLED_PENALISED,
   type MissionsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -69,7 +69,8 @@ function withOfficers(app: FastifyInstance, baseId: string, count = 2): void {
   app.repos.bases.updateCommanders(
     baseId,
     Array.from({ length: count }, (_, index) =>
-      createCommander(`auto-off-${index + 1}`, `Officer ${index + 1}`, null),
+      // One chair each: the bench leads nothing (maintainer, 2026-09-28).
+      createCommander(`auto-off-${index + 1}`, `Officer ${index + 1}`, OFFICER_ROLES[index]!),
     ),
   );
 }
@@ -92,6 +93,79 @@ describe('reading and writing a standing order', () => {
     grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
     expect((await save(app, token, { ...ORDER, unitSlots: 4 })).statusCode).toBe(400);
     expect((await save(app, token, { ...ORDER, force: {}, unitSlots: null })).statusCode).toBe(400);
+  });
+
+  /**
+   * A party is units, and `POST /missions` has always said so: its `force` is keyed on the unit
+   * catalogue, so a key that names no sheet is a 400 from the schema. This door took
+   * `z.record(z.string(), ...)` and therefore took anything, including the names on
+   * `Object.prototype`.
+   *
+   * That is not a cosmetic difference. `forceFor` asks `base.army[unitId] < count`, and
+   * `army.constructor` on a parsed object is a *function*, so the comparison is `NaN < 1`, which
+   * is false: the party was judged to be at home. A crew with an empty roster launched a real
+   * job, succeeded at 85%, and banked the XP and every mission tally behind it, once every
+   * cooldown, for ever. The same shape was closed on the deployment door in 2026-09-23
+   * (`battle/deploy.ts`, "a handler that reads a key off an object should be the one deciding
+   * which keys it will read"); this one was still open.
+   */
+  it('refuses a party naming something that is not a unit', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    for (const key of ['constructor', 'toString', 'valueOf', 'not_a_unit']) {
+      const refused = await save(app, token, { ...ORDER, force: { [key]: 1 } });
+      expect(refused.statusCode, `${key}: ${refused.body}`).toBe(400);
+    }
+    expect(app.repos.automations.get(baseId, 0)).toBeUndefined();
+  });
+
+  /** Found by the playthrough: the slot stored another crew's officer and stalled on it. */
+  it('refuses a slot naming an officer who is not on this crew’s books', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId);
+    const refused = await save(app, token, { ...ORDER, officerId: 'somebody-elses-officer' });
+    expect(refused.statusCode, refused.body).toBe(404);
+    expect(app.repos.automations.get(baseId, 0)).toBeUndefined();
+    const taken = await save(app, token, { ...ORDER, officerId: 'auto-off-1' });
+    expect(taken.statusCode, taken.body).toBe(200);
+  });
+
+  /** Audit, 2026-09-28: the slot was saved, then stalled on every tick with "not free". */
+  it('refuses switching on a slot that names an officer on the bench, and lets it be switched off', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId);
+    const base = app.repos.bases.findById(baseId)!;
+    app.repos.bases.updateCommanders(baseId, [
+      { ...base.commanders[0]!, role: null },
+      base.commanders[1]!,
+    ]);
+    const refused = await save(app, token, { ...ORDER, officerId: 'auto-off-1' });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe(
+      'Officer 1 is on the bench. Give them a chair first',
+    );
+    expect(app.repos.automations.get(baseId, 0)).toBeUndefined();
+    const off = await save(app, token, { ...ORDER, enabled: false, officerId: 'auto-off-1' });
+    expect(off.statusCode, off.body).toBe(200);
+  });
+
+  it('sends nobody for a party of nobody, whatever the slot was written with', async () => {
+    const { app, token, baseId } = await crew();
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
+    withOfficers(app, baseId, 1);
+    // Not one body on the books, and a slot written past the door: the row a save made before
+    // this was closed looks exactly like this one.
+    app.repos.bases.updateArmy(baseId, {}, []);
+    expect((await save(app, token, ORDER)).statusCode).toBe(200);
+    const held = app.repos.automations.get(baseId, 0);
+    if (!held) throw new Error('fixture: no slot');
+    app.repos.automations.put({ ...held, force: { constructor: 1 } });
+
+    expect(settleAutomations(app.repos, new Date())).toBe(0);
+    expect(app.repos.missions.listActiveByBaseId(baseId)).toHaveLength(0);
+    expect(app.repos.feats.tallies(baseId).missions_done ?? 0).toBe(0);
   });
 
   it('refuses every rung the crew has not earned, by name', async () => {
@@ -179,13 +253,16 @@ describe('the rest knob', () => {
 describe("the board is the Right Hand's while an order is on", () => {
   it('refuses a manual launch while any slot is on, and allows it once all are off', async () => {
     const { app, token, baseId } = await crew();
-    // Written Orders too: a fresh crew has no officer to lead, and this is about the lock.
-    grant(app, baseId, [RESEARCH_UNLED_PENALISED, AUTOMATION_RUNGS.open]);
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
-    const misc = board.json<MissionsResponse>().areas.find((area) => area.id === MISC_AREA_ID);
+    const read = board.json<MissionsResponse>();
+    const misc = read.areas.find((area) => area.id === MISC_AREA_ID);
     const offer = misc?.offers.find((one) => one.kind !== 'battle');
     if (!misc || !offer) throw new Error('fixture: the misc board offers no plain job');
+    // The Overseer leads: a fresh crew has no officer, and every run has a leader.
+    const leaderId = read.leaders.find((one) => one.kind === 'overseer')?.id;
+    if (!leaderId) throw new Error('fixture: the bench has no Overseer on it');
     const launch = () =>
       app.inject({
         method: 'POST',
@@ -194,7 +271,12 @@ describe("the board is the Right Hand's while an order is on", () => {
         // What a fresh crew actually has on the books: eight Scavengers and no fighters
         // (`crew/starting.ts`, 2026-09-23). A Razor here refused with NO_FORCE long before the
         // lock this test is named for could answer.
-        payload: { templateId: offer.templateId, areaId: misc.id, force: { scavengers: 1 } },
+        payload: {
+          templateId: offer.templateId,
+          areaId: misc.id,
+          force: { scavengers: 1 },
+          leaderId,
+        },
       });
 
     expect((await save(app, token, ORDER)).statusCode).toBe(200);
@@ -218,9 +300,7 @@ describe("the board is the Right Hand's while an order is on", () => {
 describe('a standing order obeys the same doors a player does', () => {
   it('will not field units the crew’s name cannot carry', async () => {
     const { app, token, baseId } = await crew();
-    // The unled rung too: a fresh crew has no officer, and an unled run is refused without it,
-    // which would stall every slot below for a reason none of these tests is about.
-    grant(app, baseId, [RESEARCH_UNLED_PENALISED, AUTOMATION_RUNGS.open]);
+    grant(app, baseId, [AUTOMATION_RUNGS.open]);
     const base = app.repos.bases.findById(baseId)!;
     // A sheet the opening rank cannot field, beside one it can: `notorietyToField('juggernauts')`
     // is above Nobody, which is where every crew starts.
@@ -230,14 +310,20 @@ describe('a standing order obeys the same doors a player does', () => {
 
     // The manual door refuses it, which is the standard this test holds the slot to.
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
-    const misc = board.json<MissionsResponse>().areas.find((area) => area.id === MISC_AREA_ID);
+    const read = board.json<MissionsResponse>();
+    const misc = read.areas.find((area) => area.id === MISC_AREA_ID);
     const offer = misc?.offers.find((one) => one.kind !== 'battle');
     if (!misc || !offer) throw new Error('fixture: the misc board offers no plain job');
     const byHand = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
-      payload: { templateId: offer.templateId, areaId: misc.id, force: { juggernauts: 1 } },
+      payload: {
+        templateId: offer.templateId,
+        areaId: misc.id,
+        force: { juggernauts: 1 },
+        leaderId: read.leaders[0]?.id,
+      },
     });
     expect(byHand.statusCode).toBe(409);
 
@@ -249,7 +335,7 @@ describe('a standing order obeys the same doors a player does', () => {
 
   it('fits a party out of what the crew may field, not out of everything on the books', async () => {
     const { app, token, baseId } = await crew();
-    grant(app, baseId, [RESEARCH_UNLED_PENALISED, AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
+    grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.bestFit]);
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateArmy(baseId, { juggernauts: 4, razors: 8 }, base.trainingQueue);
     withOfficers(app, baseId);
@@ -266,11 +352,7 @@ describe('a standing order obeys the same doors a player does', () => {
 
   it('stops at the ceiling on crews out at once, and says so', async () => {
     const { app, token, baseId } = await crew();
-    grant(app, baseId, [
-      RESEARCH_UNLED_PENALISED,
-      AUTOMATION_RUNGS.open,
-      AUTOMATION_RUNGS.secondSlot,
-    ]);
+    grant(app, baseId, [AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.secondSlot]);
     const base = app.repos.bases.findById(baseId)!;
     app.repos.bases.updateArmy(baseId, { razors: 40 }, base.trainingQueue);
     withOfficers(app, baseId);
@@ -284,7 +366,7 @@ describe('a standing order obeys the same doors a player does', () => {
      * put another two on the road by writing an order.
      */
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers: auth(token) });
-    const areas = board.json<MissionsResponse>().areas;
+    const { areas, leaders } = board.json<MissionsResponse>();
     let sent = 0;
     for (const area of areas) {
       const offer = area.offers.find((one) => one.kind !== 'battle');
@@ -293,7 +375,13 @@ describe('a standing order obeys the same doors a player does', () => {
         method: 'POST',
         url: '/api/missions',
         headers: auth(token),
-        payload: { templateId: offer.templateId, areaId: area.id, force: { razors: 2 } },
+        // A different leader for each: one person leads one run at a time.
+        payload: {
+          templateId: offer.templateId,
+          areaId: area.id,
+          force: { razors: 2 },
+          leaderId: leaders[sent]?.id,
+        },
       });
       if (launched.statusCode === 200) sent += 1;
     }

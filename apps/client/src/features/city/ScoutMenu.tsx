@@ -3,6 +3,7 @@ import {
   scoutRecallWindowMs,
   type DistrictDetailResponse,
 } from '@frontline/shared';
+import { useEffect } from 'react';
 import { CancelMark } from '../../components/ui/CancelMark';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { DrawnGlyph, DrawnRule } from '../../components/ui/DrawnMarks';
@@ -12,6 +13,7 @@ import { cn } from '../../lib/cn';
 import { useDistrict, useRecallScout, useScout } from '../../lib/queries';
 import { useServerClock } from '../missions/useServerClock';
 import { CombineLeaderTag } from './CombineLeader';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The door to a district nobody from this crew has been to (maintainer, 2026-09-23).
@@ -33,9 +35,44 @@ import { CombineLeaderTag } from './CombineLeader';
  * The district read carries all of it (`scoutBlocker`, `scoutPlan`, `scoutingRun`), so this is
  * the same data the old panel read, on a sheet over the map rather than on a page.
  */
-export function ScoutMenu({ districtId, onClose }: { districtId: string; onClose: () => void }) {
+export function ScoutMenu({
+  districtId,
+  onClose,
+  onScouted,
+}: {
+  districtId: string;
+  onClose: () => void;
+  /**
+   * What to do if this ground turns out to have been walked after all.
+   *
+   * Optional, and the two callers want different things. The map opens this sheet for anything it
+   * does not positively know is scouted, so it hands the player into the district when the read
+   * says they have been. `DistrictView` draws it at the district's own route and has nothing to
+   * hand anybody to: its own read is the one that put the sheet there, and when that read says
+   * scouted it simply stops drawing the sheet and draws the page.
+   */
+  onScouted?: () => void;
+}) {
   const query = useDistrict(districtId);
   const data = query.data;
+
+  /*
+   * Ground this crew turns out to have been to opens as a page after all.
+   *
+   * The map opens this sheet for anything it does not positively know is scouted, which includes
+   * the moment before a city's read has landed (maintainer, 2026-09-25: a click must never change
+   * the page unless the ground is scouted). That rule is right and it leaves one case over: the
+   * unknown resolving to *scouted*, where a sheet headed "Unscouted ground" would be telling the
+   * player something that is not true about a district they have walked.
+   *
+   * This sheet does its own read, so it is the first thing to know, and it hands the player on.
+   * `replace` so the sheet is not a step in the history: they pressed a district and they get the
+   * district, and the back button takes them to the map rather than back through a window that
+   * closed itself.
+   */
+  useEffect(() => {
+    if (data?.scouted === true) onScouted?.();
+  }, [data?.scouted, onScouted]);
 
   return (
     <Modal onClose={onClose} labelledBy="scout-menu-title" data-testid="scout-menu-window">
@@ -72,6 +109,11 @@ function ScoutSheet({
   const run = data.scoutingRun;
   const scout = useScout();
   const recall = useRecallScout(data.district.id);
+  /** A party on the road to *this* ground: the only state with something to call off. */
+  const here = run !== null && run.districtId === data.district.id;
+  /** Nobody out, nothing in the way, and a road to walk: the only state with something to send. */
+  const canSend =
+    !data.closed && run === null && data.scoutBlocker === null && data.scoutPlan !== null;
 
   return (
     <>
@@ -104,7 +146,16 @@ function ScoutSheet({
         <DrawnRule />
       </span>
 
-      {run && run.districtId === data.district.id ? (
+      {data.closed ? (
+        // Nobody has claimed this plot, and until somebody does it is shut to everybody else
+        // (maintainer, 2026-09-28): there is no street to walk and no crew to learn about.
+        <p
+          className="font-body text-[13px] leading-relaxed text-ink-300"
+          data-testid="scout-closed"
+        >
+          Nobody has claimed this plot. It stays closed until a crew moves in.
+        </p>
+      ) : here ? (
         <Underway data={data} now={now} />
       ) : run ? (
         <div className="flex flex-col gap-2" data-testid="scout-elsewhere">
@@ -135,27 +186,29 @@ function ScoutSheet({
               {formatSpan(data.scoutPlan.minutes)}
             </span>
           </p>
-          {scout.error && (
-            <p role="alert" className="font-body text-[12px] text-oxblood-300">
-              {scout.error.message}
-            </p>
-          )}
-          <DrawnButton
-            disabled={scout.isPending}
-            onClick={() => scout.mutate({ districtId: data.district.id })}
-            data-testid="send-scout"
-          >
-            {scout.isPending ? 'Sending…' : 'Send Scouts'}
-          </DrawnButton>
+          {scout.error && <ErrorNote>{scout.error.message}</ErrorNote>}
         </div>
       )}
 
+      {recall.error && <ErrorNote>{recall.error.message}</ErrorNote>}
+
       {/*
-       * The X to turn a party round, only on a run to *this* ground and only while the window is
-       * open: they walk home the distance covered and the ground stays shut.
+       * The foot of the sheet: what there is to do here, and the way out, on one row (maintainer,
+       * 2026-09-24).
+       *
+       * Back to the map used to be a row of its own under everything, so the sheet ended on a
+       * line carrying one word while Send Scouts sat above it in the paragraph block, and the two
+       * things a player presses were two decisions apart. A state with nothing to press (the
+       * checklist, and a party out somewhere else) draws the left side as nothing at all rather
+       * than as a dead control, and `ml-auto` on the way out keeps it against the right edge
+       * whether it has company or not.
+       *
+       * The X to turn a party round is this state's action, so it is what takes the left: only on
+       * a run to *this* ground, and only while the window is open, after which `CancelMark` draws
+       * nothing and the row is the way out alone.
        */}
-      {run && run.districtId === data.district.id && (
-        <>
+      <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="scout-actions">
+        {here && (
           <CancelMark
             windowMs={scoutRecallWindowMs(run, now)}
             label={`Turn the ${run.officerName} round`}
@@ -163,22 +216,25 @@ function ScoutSheet({
             onCancel={() => recall.mutate({})}
             data-testid="recall-scout"
           />
-          {recall.error && (
-            <p role="alert" className="font-body text-xs text-oxblood-300">
-              {recall.error.message}
-            </p>
-          )}
-        </>
-      )}
-
-      <button
-        type="button"
-        onClick={onClose}
-        data-testid="scout-menu-close"
-        className="self-end font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400 hover:text-brass-300"
-      >
-        Back to the map
-      </button>
+        )}
+        {canSend && (
+          <DrawnButton
+            disabled={scout.isPending}
+            onClick={() => scout.mutate({ districtId: data.district.id })}
+            data-testid="send-scout"
+          >
+            {scout.isPending ? 'Sending…' : 'Send Scouts'}
+          </DrawnButton>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          data-testid="scout-menu-close"
+          className="ml-auto font-display text-[11px] font-bold uppercase tracking-[0.16em] text-ink-400 hover:text-brass-300"
+        >
+          Back to the map
+        </button>
+      </div>
     </>
   );
 }

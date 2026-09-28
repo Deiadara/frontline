@@ -1,5 +1,5 @@
 import {
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   combineEffects,
   crewEffects,
   noCrewEffects,
@@ -11,6 +11,7 @@ import {
   researchEffects,
   mergeCrewEffects,
   gateDefensePercent,
+  gateIsBroken,
   gateIntelResistancePercent,
   raidLootBonus,
   liftedSheet,
@@ -18,7 +19,7 @@ import {
   MAX_RIGHT_HAND_LIFT,
   MAX_OVERSEER_LIFT,
   peerLift,
-  officerIsInjured,
+  officerIsWorking,
   FACTION_CARD_SPECS,
   cardBonusPercent,
   disrupted,
@@ -31,11 +32,12 @@ import {
   type NumericEffectChannel,
   type OfficerMark,
   type OfficerRole,
+  type SeatedOfficer,
   type TerritoryEffects,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { cardsAtTable } from '../factions/cards.js';
-import { benchedMember, overseerMember, seatedMember } from '../roles/duties.js';
+import { overseerMember, seatedMember } from '../roles/duties.js';
 import { roleFit } from '../roles/requirements.js';
 
 /**
@@ -66,7 +68,10 @@ export function standingEffectsFor(
   /** §D4: injured officers are out at this moment. Defaults to now, which is every caller but a test. */
   now: Date = new Date(),
 ): CrewEffects {
-  const territory = territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls());
+  // Every location in the world, not Ashfall's sixty (2026-09-24). A crew that marched across and
+  // took ground in Terminus was paid nothing for it: no unit slots, no travel off the clock, no
+  // production, no intel resistance. The ground a crew holds is the ground it holds, wherever it is.
+  const territory = territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls());
   const total = combineEffects(territory, crewEffects(crewSheetsFor(repos, base, now)));
   /*
    * The Garage is deliberately **not** folded in here (§C3).
@@ -97,11 +102,17 @@ export function standingEffectsFor(
    * `battle/effects.ts`, which is the same shape as the eight `officer_group` perks that folded
    * into a channel with no consumer. A number that cannot be measured in a fight is decoration.
    *
-   * Added to the same two channels the map and the crew already pay into, so a Gate and a
-   * fortified location are one figure on the report rather than two to reconcile.
+   * The defence goes to its own channel and the intel resistance to the one the map and the crew
+   * already pay into.
    */
-  total.defensePercent += gateDefensePercent(base.buildings);
-  total.intelResistancePercent += gateIntelResistancePercent(base.buildings);
+  // Into its own channel, not `defensePercent`: Breaching and a Wall Breaker are both answers to
+  // the gate and to nothing else the crew holds (`city/locations.ts`, `gatePercent`).
+  // A broken gate gives nothing (maintainer, 2026-09-27): a door off its hinges holds no one out
+  // and hides nothing, until the breach closes.
+  if (!gateIsBroken(repos.sieges.gate(base.districtId), now)) {
+    total.gatePercent += gateDefensePercent(base.buildings);
+    total.intelResistancePercent += gateIntelResistancePercent(base.buildings);
+  }
   /*
    * §A1: what the district's own modifications add to a haul.
    *
@@ -164,9 +175,8 @@ export function crewEffectsFor(
 export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new Date()): LiftRoom {
   const owner = repos.users.findById(base.ownerId);
   const overseer = owner?.overseerId ? repos.overseers.findById(owner.overseerId) : undefined;
-  const fit = base.commanders.filter(
-    (officer: Commander) => !officerIsInjured(officer.injuredUntil, now),
-  );
+  // Out of bed and in a chair (`officerIsWorking`). The bench lifts nobody and is in no fold.
+  const fit = base.commanders.filter((officer) => officerIsWorking(officer, now));
   /*
    * The Right Hand, read once for the room (§C2b).
    *
@@ -177,7 +187,7 @@ export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new
   const rightHand = fit.find((officer) => officer.role === 'right_hand') ?? null;
   return {
     fit,
-    byGroup: territoryEffectsFor(base.id, CITY_LOCATIONS, repos.city.controls()).officerGroupFlat,
+    byGroup: territoryEffectsFor(base.id, EVERY_LOCATION, repos.city.controls()).officerGroupFlat,
     fromTheLab: researchEffects(base.research.technologies),
     fromTheOverseer: overseer?.perks ?? [],
     overseerName: overseer?.name ?? 'your Overseer',
@@ -193,8 +203,13 @@ export function officerLiftRoom(repos: Repositories, base: Base, now: Date = new
 
 /** Everything that lifts an officer, other than the officer. See {@link officerLiftRoom}. */
 export interface LiftRoom {
-  /** Everybody on the books and out of bed. Each officer is filtered out of their own lift. */
-  fit: readonly Commander[];
+  /**
+   * Everybody seated and out of bed. Each officer is filtered out of their own lift.
+   *
+   * Somebody on the bench is not here and is still lifted by it: the crew screen draws their sheet
+   * as the room would hand it to them the moment they are seated.
+   */
+  fit: readonly SeatedOfficer<Commander>[];
   byGroup: TerritoryEffects['officerGroupFlat'];
   fromTheLab: CrewEffects;
   fromTheOverseer: readonly string[];
@@ -294,6 +309,17 @@ export interface OfficerFitReader {
   markFor: (role: OfficerRole) => OfficerMark | null;
   /** The fit points `officer` would be marked on in `role`, off their lifted sheet. */
   pointsFor: (officer: Commander, role: OfficerRole) => number;
+  /**
+   * Whoever is sitting in `role` **and fit to work**, or nothing.
+   *
+   * On the reader because the reader is the only thing on this path that holds the request's
+   * clock. `workingOfficer(base.commanders, role)` defaults to `new Date()`, so every caller that
+   * reached for it inside a request was asking the wall clock whether somebody was hurt while the
+   * request beside it was reasoning about `now`. The two agree in production and disagree the
+   * moment anything settles against a stated instant, which is how the research chair ended up
+   * answering `head: null` on the page and opening the rung underneath it.
+   */
+  workingIn: (role: OfficerRole) => Commander | undefined;
 }
 
 export function officerFitReader(
@@ -316,8 +342,21 @@ export function officerFitReader(
   return {
     pointsFor: (officer, role) => roleFit(sheetFor(officer), role),
     markFor: (role) => {
-      const officer = base.commanders.find((one) => one.role === role);
+      /*
+       * §D4: working, not merely seated (maintainer, 2026-09-23).
+       *
+       * This is the chair that **vouches**: a research rung is gated on it and so is the trade a
+       * Scrapyard card asks for. It read `base.commanders`, so an officer in a hospital bed kept
+       * both open while everything else their chair sells had already stopped, and one response
+       * contradicted itself: `researchHead` answered null for the same chair this answered a mark
+       * for. `room.fit` is the injury-filtered roster the lift is already built from, so the mark
+       * and the fold now drop the same person off the same clock.
+       */
+      const officer = room.fit.find((one) => one.role === role);
       return officer ? markFromPoints(roleFit(sheetFor(officer), role)) : null;
+    },
+    workingIn(role) {
+      return room.fit.find((one) => one.role === role);
     },
   };
 }
@@ -392,7 +431,7 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
   // the attributes their seat actually uses, so dropping the role here would silently discount
   // every officer in the game to the off-duty share.
   /*
-   * §D4: an officer in a bed is not in the room.
+   * §D4: an officer in a bed is not in the room, and since 2026-09-28 neither is one on the bench.
    *
    * "Services and bonuses inactive" has to mean *every* way an officer is worth something, and an
    * officer is worth three separate things: their own ratings through best-of, their perks through
@@ -419,14 +458,11 @@ export function crewRoomFor(repos: Repositories, base: Base, now: Date = new Dat
    * Never-lift-yourself is untouched by this. The Overseer is not an officer, so they are not in
    * `fit` and nothing here lifts their own sheet: they teach the room and take nothing back.
    */
-  const officers: CrewMember[] = fit.map((officer) => {
-    const { attributes } = liftedOfficerSheet(officer, room);
-    // §C2: somebody on the bench is on the books and in no chair, which is a different thing from
-    // the Overseer being in no chair. `benchedMember` pays the off-duty share of everything.
-    return officer.role === null
-      ? benchedMember(attributes, officer.perks)
-      : seatedMember(attributes, officer.role, officer.perks);
-  });
+  // Seated officers only: the bench is not in `fit`, so it puts no rating and no perk in the fold
+  // (maintainer, 2026-09-28).
+  const officers: CrewMember[] = fit.map((officer) =>
+    seatedMember(liftedOfficerSheet(officer, room).attributes, officer.role, officer.perks),
+  );
   const names = fit.map((officer) => officer.name);
   // The Overseer is the player, not an employee: no seat, and no discount anywhere.
   return overseer

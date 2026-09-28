@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUNDLE_VALUE,
+  GRADES,
   canRecall,
   recallWindowMs,
   FAILURE_REWARD_SHARE,
@@ -52,7 +54,7 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
     durationMinutes,
     status: 'active',
     officerId: null,
-    battleTier: null,
+    grade: null,
     overseerLed: false,
     lost: {},
     reported: true,
@@ -68,6 +70,10 @@ function missionAt(travelMinutes: number, durationMinutes: number): Mission {
 }
 
 const at = (minutesAfterStart: number) => new Date(Date.parse(START) + minutesAfterStart * 60_000);
+
+/** A bundle's worth in caps, at the market's valuation. */
+const capsValue = (bundle: PartialResources): number =>
+  RESOURCE_KEYS.reduce((total, key) => total + (bundle[key] ?? 0) * RESOURCE_CAP_VALUE[key], 0);
 
 describe('travel bands (§E6)', () => {
   it('is close 5m, further 20m, furthest 1h', () => {
@@ -101,10 +107,9 @@ describe('the mission board', () => {
     const shape = (template: MissionTemplate) =>
       [
         template.kind,
-        template.difficulty,
+        template.grades.join('..'),
         template.travelBand,
         template.durationMinutes,
-        template.successChance,
         Object.entries(template.spoils)
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([key, amount]) => `${key}:${amount}`)
@@ -205,31 +210,33 @@ describe('total elapsed time (§E8)', () => {
 
 describe('reward scaling (§E5)', () => {
   it('pays the authored mix exactly at the baseline length', () => {
-    expect(rewardScale(REWARD_BASELINE_MINUTES, 'standard')).toBe(1);
+    expect(rewardScale(REWARD_BASELINE_MINUTES, 'standard', 'F-')).toBe(1);
   });
 
   it('pays a battle more than standard work for identical time', () => {
-    expect(rewardScale(120, 'battle')).toBeGreaterThan(rewardScale(120, 'standard'));
-    expect(rewardScale(120, 'battle') / rewardScale(120, 'standard')).toBeCloseTo(
+    expect(rewardScale(120, 'battle', 'F-')).toBeGreaterThan(rewardScale(120, 'standard', 'F-'));
+    expect(rewardScale(120, 'battle', 'F-') / rewardScale(120, 'standard', 'F-')).toBeCloseTo(
       KIND_REWARD_MULTIPLIER.battle,
     );
   });
 
   it('pays a longer mission more in total but less per minute', () => {
-    const short = rewardScale(30, 'standard');
-    const long = rewardScale(1440, 'standard');
+    const short = rewardScale(30, 'standard', 'C');
+    const long = rewardScale(1440, 'standard', 'C');
     expect(long).toBeGreaterThan(short);
     expect(long / 1440).toBeLessThan(short / 30);
   });
 
   it('scales an authored mix by the curve rather than paying it flat', () => {
     const expedition = findMissionTemplate('deep-expedition') as MissionTemplate;
-    const scale = rewardScale(templateTimings(expedition).totalMinutes, expedition.kind);
+    const [lowest] = expedition.grades;
+    const scale = rewardScale(templateTimings(expedition).totalMinutes, expedition.kind, lowest);
     expect(scale).toBeGreaterThan(10);
 
+    const priced = BUNDLE_VALUE / capsValue(expedition.spoils);
     const rewards = missionRewards(expedition);
     for (const [key, authored] of Object.entries(expedition.spoils) as [ResourceKey, number][]) {
-      expect(rewards[key]).toBe(Math.round(authored * scale));
+      expect(rewards[key]).toBe(Math.round(authored * scale * priced));
     }
   });
 
@@ -261,11 +268,11 @@ describe('reward scaling (§E5)', () => {
       name: 'Test',
       brief: 'Test',
       kind: 'standard',
-      difficulty: 'easy',
+      grades: ['F-', 'F'],
       travelBand: 'close',
       durationMinutes: 2,
       spoils: { scrap: 100, highQualityMetal: 1 },
-      successChance: 1,
+      leanings: ['haul'],
     };
     // A two-minute run is well under `REWARD_BASELINE_MINUTES`, so the §E5 curve scales the whole
     // bundle down: the scrap line survives and the single ingot rounds away. It used to be a
@@ -425,84 +432,43 @@ describe('duration formatting', () => {
 });
 
 /**
- * The board's prices, checked as the rule rather than as a list of numbers.
+ * §E5: which resources a job pays in is authored; what they are worth is not (2026-09-28).
  *
- * `MissionTemplateSchema.spoils` states it: which resources is authored per job, what the bundle is
- * *worth* is not. Every bundle is priced on expected value at the baseline, so §E5's curve is the
- * only thing left moving the hourly rate. The failure this catches is the one that was there: raw
- * bundles varying 9.4x, correlated with length, multiplying with the curve and inverting it.
+ * Every mix is priced to `BUNDLE_VALUE` in code, so the clock curve, the kind and the grade are
+ * the only things that move pay. The failure this used to guard against by hand, raw bundles
+ * varying 9.4x and multiplying with the curve until it inverted, cannot be authored any more; what
+ * is left to check is that the pricing holds after rounding and that the curve still reads.
  */
 describe('the board is priced on one rule (§E5)', () => {
-  const capsValue = (bundle: PartialResources): number =>
-    RESOURCE_KEYS.reduce((total, key) => total + (bundle[key] ?? 0) * RESOURCE_CAP_VALUE[key], 0);
-
-  const BASELINE_VALUE = 143;
-  /**
-   * The band the authored board actually occupies, measured: 0.85 to 1.18 of baseline.
-   *
-   * This used to be a flat 20% around a per-stance target of 0.85, 1.0 or 1.15. Stance is gone and
-   * the bundles were not re-priced, so the same jobs now read as one spread around one baseline,
-   * which is what they always were. The window is 25% rather than 20% so the edges are not sitting
-   * on the gate, and it is still a floor under the 9.4x drift this describes, not a tuning target.
-   */
-  const TOLERANCE = 0.25;
-
-  const expectedValue = (template: MissionTemplate): number =>
-    capsValue(template.spoils) * template.successChance;
-
-  it('prices every bundle on expected value against one baseline', () => {
+  it('pays every job its bundle value at the baseline, give or take the rounding', () => {
     for (const template of MISSION_TEMPLATES) {
-      const ratio = expectedValue(template) / BASELINE_VALUE;
-      expect(ratio, `${template.id}`).toBeGreaterThan(1 - TOLERANCE);
-      expect(ratio, `${template.id}`).toBeLessThan(1 + TOLERANCE);
+      const paid = capsValue(missionRewards(template, 'success', REWARD_BASELINE_MINUTES, 'F-'));
+      const expected = BUNDLE_VALUE * KIND_REWARD_MULTIPLIER[template.kind];
+      expect(paid / expected, template.id).toBeGreaterThan(0.9);
+      expect(paid / expected, template.id).toBeLessThan(1.1);
     }
   });
 
-  /**
-   * The tight version of the same claim, and the one that would actually catch a drift.
-   *
-   * The per-job window above allows a 1.67x spread between the two extremes it permits; the board
-   * is at 1.39x. A new job priced at either edge of the window passes the test above and widens
-   * this one, which is the shape the original failure had: no single bundle looked wrong.
-   */
-  it('keeps the whole board inside one and a half times itself', () => {
-    const values = MISSION_TEMPLATES.map(expectedValue);
-    expect(Math.max(...values) / Math.min(...values)).toBeLessThan(1.5);
-  });
-
-  /**
-   * The consequence, and the thing a player actually reads off the board: a short run is the better
-   * hourly rate and a long one pays more in total. Checked within a kind, because the battle premium
-   * is a deliberate step between the two curves rather than a point on one.
-   */
-  it('makes a short run the better rate and a long run the bigger payout', () => {
+  it('pays a harder grade more for the same job and the same clock', () => {
     for (const kind of ['standard', 'battle'] as const) {
-      const byLength = MISSION_TEMPLATES.filter((template) => template.kind === kind)
-        .map((template) => {
-          const minutes = templateTimings(template).totalMinutes;
-          const paid = capsValue(missionRewards(template)) * template.successChance;
-          return { id: template.id, minutes, paid, rate: paid / (minutes / 60) };
-        })
-        .sort((a, b) => a.minutes - b.minutes);
-
-      expect(byLength.length, kind).toBeGreaterThan(4);
-      const shortest = byLength[0]!;
-      const longest = byLength.at(-1)!;
-      expect(shortest.rate, `${kind}: ${shortest.id} vs ${longest.id}`).toBeGreaterThan(
-        longest.rate,
-      );
-      expect(longest.paid, `${kind}: ${longest.id} vs ${shortest.id}`).toBeGreaterThan(
-        shortest.paid,
-      );
+      for (let index = 1; index < GRADES.length; index += 1) {
+        expect(rewardScale(120, kind, GRADES[index]!), GRADES[index]).toBeGreaterThan(
+          rewardScale(120, kind, GRADES[index - 1]!),
+        );
+      }
     }
   });
 
-  /** And the spread it produces, which is what "readable board" means as a number. */
-  it('keeps the whole board inside one order of magnitude on hourly rate', () => {
+  /** What "readable board" means as a number: at one grade, the hourly rate spread stays small. */
+  it('keeps the whole board inside one order of magnitude on hourly rate, grade for grade', () => {
     const rates = MISSION_TEMPLATES.map((template) => {
       const minutes = templateTimings(template).totalMinutes;
-      return (capsValue(missionRewards(template)) * template.successChance) / (minutes / 60);
+      return (
+        (BUNDLE_VALUE * rewardScale(minutes, template.kind, 'C')) /
+        KIND_REWARD_MULTIPLIER[template.kind] /
+        (minutes / 60)
+      );
     });
-    expect(Math.max(...rates) / Math.min(...rates)).toBeLessThan(6);
+    expect(Math.max(...rates) / Math.min(...rates)).toBeLessThan(10);
   });
 });

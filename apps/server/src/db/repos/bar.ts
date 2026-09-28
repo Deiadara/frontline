@@ -1,4 +1,7 @@
+import type { RoomProfile } from '@frontline/shared';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
+import { lookbackFloorFromDay } from './lookback.js';
 
 /**
  * The Bar's shared state (GDD §H2, §H7): every bid in the city, and how each table ended.
@@ -6,7 +9,8 @@ import type { AppDatabase } from '../index.js';
  * The roster itself is still never stored. It is a pure function of the game day again, now that
  * winning somebody no longer turns their seat over, so two players asking on the same day are
  * served the same room whatever anybody has bid. What is stored is what the players did to it:
- * their positions, and the result the close wrote.
+ * their positions, and the result the close wrote. And, since 2026-09-28, the one input the day
+ * cannot supply: which crews the room was poured for (`bar_rooms`), frozen at the day's first read.
  */
 
 export interface BarHire {
@@ -86,6 +90,19 @@ export interface BarRepo {
   unsettled(beforeDay: string): UnsettledAuction[];
   results(day: string): BarResult[];
   recordResult(result: BarResult): void;
+  /** The profile a city's room was frozen at for a day, or `null` before anybody read it. */
+  room(day: string, cityId: string): RoomProfile | null;
+  /** Freezes a city's room for a day. The first write wins; a second is ignored. */
+  freezeRoom(day: string, cityId: string, room: RoomProfile): void;
+}
+
+interface RoomRow {
+  lowest_level: number;
+  lowest_notoriety: number;
+  highest_level: number;
+  highest_notoriety: number;
+  average_level: number;
+  average_notoriety: number;
 }
 
 interface BidRow {
@@ -170,7 +187,7 @@ export function createBarRepo(db: AppDatabase): BarRepo {
   const unsettledStmt = db.prepare(
     `SELECT b.day AS day, b.recruit_id AS recruit_id
        FROM bar_bids b
-      WHERE b.day < ?
+      WHERE b.day >= ? AND b.day < ?
         AND NOT EXISTS (
           SELECT 1 FROM bar_auction_results r
            WHERE r.day = b.day AND r.recruit_id = b.recruit_id
@@ -187,6 +204,25 @@ export function createBarRepo(db: AppDatabase): BarRepo {
        (day, recruit_id, recruit_name, winner_user_id, price, settled_at)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (day, recruit_id) DO NOTHING`,
+  );
+
+  // Prepared on first use: `bar_rooms` arrived with 0126, and the repositories are also built
+  // over older schemas by the migration tests.
+  const lazy = (sql: string): (() => Statement) => {
+    let held: Statement | null = null;
+    return () => (held ??= db.prepare(sql));
+  };
+  const roomStmt = lazy(
+    `SELECT lowest_level, lowest_notoriety, highest_level, highest_notoriety,
+            average_level, average_notoriety
+       FROM bar_rooms WHERE day = ? AND city_id = ?`,
+  );
+  const freezeRoomStmt = lazy(
+    `INSERT INTO bar_rooms
+       (day, city_id, lowest_level, lowest_notoriety, highest_level, highest_notoriety,
+        average_level, average_notoriety)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (day, city_id) DO NOTHING`,
   );
 
   return {
@@ -209,7 +245,12 @@ export function createBarRepo(db: AppDatabase): BarRepo {
       sealStmt.run(bid.day, bid.recruitId, bid.userId, bid.baseId, bid.amount, bid.at, bid.at);
     },
     unsettled(beforeDay) {
-      return (unsettledStmt.all(beforeDay) as { day: string; recruit_id: string }[]).map((row) => ({
+      return (
+        unsettledStmt.all(lookbackFloorFromDay(beforeDay), beforeDay) as {
+          day: string;
+          recruit_id: string;
+        }[]
+      ).map((row) => ({
         day: row.day,
         recruitId: row.recruit_id,
       }));
@@ -225,6 +266,27 @@ export function createBarRepo(db: AppDatabase): BarRepo {
         result.winnerUserId,
         result.price,
         result.settledAt,
+      );
+    },
+    room(day, cityId) {
+      const row = roomStmt().get(day, cityId) as RoomRow | undefined;
+      if (row === undefined) return null;
+      return {
+        lowest: { level: row.lowest_level, notoriety: row.lowest_notoriety },
+        highest: { level: row.highest_level, notoriety: row.highest_notoriety },
+        average: { level: row.average_level, notoriety: row.average_notoriety },
+      };
+    },
+    freezeRoom(day, cityId, room) {
+      freezeRoomStmt().run(
+        day,
+        cityId,
+        room.lowest.level,
+        room.lowest.notoriety,
+        room.highest.level,
+        room.highest.notoriety,
+        room.average.level,
+        room.average.notoriety,
       );
     },
   };

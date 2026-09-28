@@ -15,9 +15,13 @@ import { IdSchema, IsoDateTimeSchema } from './primitives.js';
  * ## What it is worth, and the rule it bends
  *
  * Everything else in this game reaches a fight by being **sent to one**. A column leaves when the
- * fight is declared and walks; a garrison only stands on ground the crew already holds
- * (`setGarrison` refuses `not_held`), which is exactly the ground worth infiltrating. So the walk
- * is always paid *after* the declaration, in the window everybody can see.
+ * fight is declared and walks; a garrison only stands on ground the crew or its faction already
+ * holds (a move onto anybody else's is refused, `held_by_others`), which is exactly the ground worth
+ * infiltrating. So the walk is always paid *after* the declaration, in the window everybody can see.
+ *
+ * Since 2026-09-28 who a waiting cell fights for is decided at the mark, like everything else on
+ * the ground (`battle/alignment.ts` in the server): the declarer's own cell and a faction-mate's
+ * attack, a cell of the defender's faction defends, and a neutral's keeps sleeping.
  *
  * A cell pays the walk **in advance**. That is the whole mechanic: plant them a day early, declare
  * when you like, and they are already standing there at the mark. It is the only way in the game
@@ -77,6 +81,10 @@ export const SLEEPER_REFUSALS = [
   'not_enough_units',
   /** Nothing was named, or every count was zero. */
   'nobody_sent',
+  /** The map has no road between the crew and that ground. */
+  'no_road',
+  /** A raid on the crew's own district lands within the hour: nobody leaves home now. */
+  'garrison_locked',
 ] as const;
 export const SleeperRefusalSchema = z.enum(SLEEPER_REFUSALS);
 export type SleeperRefusal = z.infer<typeof SleeperRefusalSchema>;
@@ -87,6 +95,8 @@ export const SLEEPER_REFUSAL_TEXT: Record<SleeperRefusal, string> = {
   not_sleepers: 'Only Sleepers go to ground like this. Everybody else has to be sent to a fight.',
   not_enough_units: 'You do not have that many to send.',
   nobody_sent: 'Name somebody to send.',
+  no_road: 'There is no road to that.',
+  garrison_locked: 'A raid lands on your district within the hour. Nobody leaves home now.',
 };
 
 /**

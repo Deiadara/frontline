@@ -18,6 +18,18 @@ describe('places', () => {
       samePlace({ kind: 'location', locationId: 'a' }, { kind: 'location', locationId: 'b' }),
     ).toBe(false);
   });
+
+  it('tells the streets of two districts apart, and from a location in either', () => {
+    expect(
+      samePlace({ kind: 'street', districtId: 'a' }, { kind: 'street', districtId: 'a' }),
+    ).toBe(true);
+    expect(
+      samePlace({ kind: 'street', districtId: 'a' }, { kind: 'street', districtId: 'b' }),
+    ).toBe(false);
+    expect(
+      samePlace({ kind: 'street', districtId: 'a' }, { kind: 'location', locationId: 'a' }),
+    ).toBe(false);
+  });
 });
 
 describe('turning a column round', () => {

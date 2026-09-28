@@ -19,6 +19,7 @@ import { DrawnGlyph } from '../../components/ui/DrawnMarks';
 import { cn } from '../../lib/cn';
 import { useRecallSpy, useSpy } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Spying, from the player's side (maintainer ruling, 2026-09-22).
@@ -106,11 +107,7 @@ export function SpyPanel({
             </span>
             . The caps go now and do not come back.
           </p>
-          {spy.error && (
-            <p className="font-body text-xs text-oxblood-300" data-testid={`${testId}-error`}>
-              {spy.error.message}
-            </p>
-          )}
+          {spy.error && <ErrorNote data-testid={`${testId}-error`}>{spy.error.message}</ErrorNote>}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="sm"

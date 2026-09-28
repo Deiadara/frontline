@@ -2,7 +2,6 @@ import {
   MISC_AREA_ID,
   MAX_ATTRIBUTE,
   OVERSEER_PRESETS,
-  UNLED_PENALTY,
   composeProfile,
   createCommander,
   findMissionTemplate,
@@ -10,7 +9,6 @@ import {
   leaningsFor,
   makeAttributes,
   missionOdds,
-  scaledSuccessChance,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -22,7 +20,7 @@ import {
   type ResearchResponse,
   type MissionTemplate,
   type ResearchState,
-  type UnledRule,
+  type Grade,
   startingTraining,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
@@ -135,6 +133,8 @@ function fakeRepos(): {
     users: { findById: () => undefined },
     // ...and at no table: the cards a faction deals are folded into the same standing.
     factions: { membershipOf: () => undefined },
+    // ...and whether the crew's gate is breached, which zeroes what it gives.
+    sieges: { gate: () => undefined },
   } as unknown as Parameters<typeof settleResearch>[0];
   return { repos, written };
 }
@@ -232,13 +232,8 @@ describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', 
   if (!battle || !standard) throw new Error('expected both mission kinds on the board');
 
   /** The odds the shared model says a run goes out with, restated from its own inputs. */
-  function odds(template: MissionTemplate, leader: Attributes | null, unled: UnledRule) {
-    return missionOdds({
-      authored: scaledSuccessChance(template.successChance, 1),
-      leader,
-      profile: composeProfile(leaningsFor(template)),
-      unled,
-    });
+  function odds(template: MissionTemplate, grade: Grade, leader: Attributes) {
+    return missionOdds({ grade, leader, profile: composeProfile(leaningsFor(template)) });
   }
 
   it('freezes what the leader was worth onto the row, not a second arithmetic', () => {
@@ -250,7 +245,8 @@ describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', 
         toughness: MAX_ATTRIBUTE,
       }),
     });
-    const args = { areaId: MISC_AREA_ID, force: { razors: 1 }, unled: 'free' as const };
+    const grade = battle.grades[1];
+    const args = { areaId: MISC_AREA_ID, force: { razors: 1 }, grade };
     const led = launchMission({
       id: 'm',
       base,
@@ -259,33 +255,42 @@ describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', 
       leader: { kind: 'overseer', id: sharp.id, attributes: sharp.attributes },
       ...args,
     });
-    expect(led.successChance).toBe(odds(battle, sharp.attributes, 'free').chance);
-    // A raid wants somebody who can hold a line, and this one can: it is worth more than the
-    // authored figure, which is the whole reason the player is asked who goes.
-    expect(led.successChance).toBeGreaterThan(battle.successChance);
+    expect(led.successChance).toBe(odds(battle, grade, sharp.attributes).chance);
+    expect(led.mission.grade).toBe(grade);
+    // A raid wants somebody who can hold a line, and this one can: they grade higher for it than
+    // an Overseer with the same floor and none of the three, which is the whole reason the player
+    // is asked who goes.
+    const flat = makeAttributes(10);
+    expect(led.successChance).toBeGreaterThan(odds(battle, grade, flat).chance);
   });
 
-  it('takes the unled penalty off a crew that went out on its own', () => {
+  it('prices the odds off the grade the card was dealt, for the same leader on the same job', () => {
     const base = makeBase();
-    const args = { areaId: MISC_AREA_ID, force: { razors: 1 } };
-    const free = launchMission({
+    // A leader who grades about F- for anything, so neither end of the job's range is certain.
+    const sheet = makeAttributes(12);
+    const leader = { kind: 'overseer' as const, id: 'ov-1', attributes: sheet };
+    const args = { areaId: MISC_AREA_ID, force: { razors: 1 }, leader };
+    const [easiest, hardest] = standard.grades;
+    const easy = launchMission({
       id: 'm',
       base,
       template: standard,
       now: NOW,
+      grade: easiest,
       ...args,
-      unled: 'free',
     });
-    const docked = launchMission({
+    const hard = launchMission({
       id: 'm',
       base,
       template: standard,
       now: NOW,
+      grade: hardest,
       ...args,
-      unled: 'penalised',
     });
-    expect(free.successChance).toBe(scaledSuccessChance(standard.successChance, 1));
-    expect(docked.successChance).toBeCloseTo(free.successChance - UNLED_PENALTY, 10);
+    expect(easy.successChance).toBe(odds(standard, easiest, sheet).chance);
+    expect(hard.successChance).toBe(odds(standard, hardest, sheet).chance);
+    expect(hard.successChance).toBeLessThan(easy.successChance);
+    expect(easy.successChance).toBeLessThan(1);
   });
 
   it('reads the same for an officer as for the Overseer, on the same sheet', () => {
@@ -298,7 +303,7 @@ describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', 
       now: NOW,
       areaId: MISC_AREA_ID,
       force: { razors: 1 },
-      unled: 'free',
+      grade: battle.grades[0],
       leader: { kind: 'overseer', id: 'ov-1', attributes: sheet },
     });
     const asOfficer = launchMission({
@@ -308,7 +313,7 @@ describe('the Overseer leads a run like anybody else (maintainer, 2026-09-10)', 
       now: NOW,
       areaId: MISC_AREA_ID,
       force: { razors: 1 },
-      unled: 'free',
+      grade: battle.grades[0],
       leader: { kind: 'officer', id: 'off-1', attributes: sheet },
     });
     expect(asOfficer.successChance).toBe(asOverseer.successChance);

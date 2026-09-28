@@ -17,18 +17,49 @@ describe('refusing to deploy an unsafe configuration', () => {
 
   it('accepts a production boot with a real secret', () => {
     expect(() =>
-      assertDeployable(config({ JWT_SECRET: 'a-real-one' }), 'production'),
+      assertDeployable(
+        config({ JWT_SECRET: '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4' }),
+        'production',
+      ),
     ).not.toThrow();
   });
 
   it('refuses a production boot with the Console on, which it is unless somebody says otherwise', () => {
     // A real secret, so the only thing wrong with this configuration is the bench.
     expect(() =>
-      assertDeployable(config({ JWT_SECRET: 'a-real-one', ADMIN: 'true' }), 'production'),
+      assertDeployable(
+        config({
+          JWT_SECRET: '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4',
+          ADMIN: 'true',
+        }),
+        'production',
+      ),
     ).toThrow(/ADMIN/);
     expect(() =>
-      assertDeployable(config({ JWT_SECRET: 'a-real-one', ADMIN: 'false' }), 'production'),
+      assertDeployable(
+        config({
+          JWT_SECRET: '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4',
+          ADMIN: 'false',
+        }),
+        'production',
+      ),
     ).not.toThrow();
+  });
+
+  it('refuses a production secret short enough to guess offline from any token', () => {
+    expect(() => assertDeployable(config({ JWT_SECRET: 'a-real-one' }), 'production')).toThrow(
+      /shorter than/,
+    );
+  });
+
+  it('refuses the end-game sandbox in production, where anybody can register the dev name', () => {
+    const secret = '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4';
+    expect(() =>
+      assertDeployable(
+        config({ JWT_SECRET: secret, ADMIN: 'false', UNLOCKED: 'true' }),
+        'production',
+      ),
+    ).toThrow(/UNLOCKED/);
   });
 
   it('leaves development and test alone, which is why the default exists', () => {

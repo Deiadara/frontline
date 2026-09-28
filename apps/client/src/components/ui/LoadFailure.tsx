@@ -1,4 +1,5 @@
 import { Button } from './Button';
+import { ErrorNote } from './ErrorNote';
 
 /**
  * A screen saying it could not load, with a way to try again.
@@ -29,9 +30,7 @@ export function LoadFailure({
 }) {
   return (
     <div className="flex flex-col items-start gap-3 p-6" data-testid="load-failure">
-      <p className="font-body text-[14px] leading-relaxed text-oxblood-300">
-        {what} would not load.
-      </p>
+      <ErrorNote>{what} would not load.</ErrorNote>
       <p className="max-w-prose font-body text-[13px] leading-relaxed text-ink-300">
         {detail ?? 'Whatever went wrong is on our side, not yours. Nothing has been lost.'}
       </p>

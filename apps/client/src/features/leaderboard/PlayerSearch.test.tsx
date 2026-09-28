@@ -18,7 +18,7 @@ const row = (username: string, rank: number): PlayerStanding => ({
   rank,
   userId: `user-${username}`,
   username,
-  districtId: 'rustyard',
+  districtId: 'steelbelt',
   cityId: 'ashfall',
   districtName: 'The Scrap Line',
   level: 4,

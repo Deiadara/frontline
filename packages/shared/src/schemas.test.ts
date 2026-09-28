@@ -110,13 +110,13 @@ describe('who holds the map (§A3)', () => {
   });
 
   it('reads a raid target off the district and nothing else', () => {
-    expect(raidTargetOf(district('combine-spire'))).toEqual({
+    expect(raidTargetOf(district('ccs'))).toEqual({
       allegiance: 'government',
       isSeatOfPower: true,
     });
     // A Combine holding that is not a seat: the Steelbelt, since the Undergrid went to the
     // looters (maintainer, 2026-09-19).
-    expect(raidTargetOf(district('rustyard'))).toEqual({
+    expect(raidTargetOf(district('steelbelt'))).toEqual({
       allegiance: 'government',
       isSeatOfPower: false,
     });
@@ -127,9 +127,7 @@ describe('who holds the map (§A3)', () => {
   });
 
   it('names a Combine garrison that gets heavier as the site does (§A3)', () => {
-    expect(garrisonOf(district('glasshouse-fields'))).not.toBe(
-      garrisonOf(district('combine-spire')),
-    );
+    expect(garrisonOf(district('glasshouse-fields'))).not.toBe(garrisonOf(district('ccs')));
     for (const combineHeld of CITY_DISTRICTS.filter((d) => d.allegiance === 'government')) {
       expect(garrisonOf(combineHeld), combineHeld.id).toMatch(
         /Combine|Levy|Greycoat|Enforcer|Suppressor/,
@@ -172,11 +170,6 @@ describe('the locations inside a district (§A4)', () => {
     const kinds = new Set(CITY_LOCATIONS.map((place) => place.kind));
     expect(kinds.size).toBeGreaterThanOrEqual(15);
     expect(CITY_LOCATIONS.length).toBeGreaterThanOrEqual(25);
-  });
-
-  it('offers all three grades of ground to dig into', () => {
-    const grades = new Set(CITY_LOCATIONS.map((place) => place.fortifyDifficulty));
-    expect(grades).toEqual(new Set(['easy', 'medium', 'hard']));
   });
 });
 

@@ -6,9 +6,12 @@ import {
   citiesOpenTo,
   cityCalibre,
   cityOfDistrict,
+  cityRoomProfile,
+  flatRoom,
   type Base,
   type CityParticipant,
   type CityStake,
+  type RoomProfile,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -86,8 +89,24 @@ export function mayEnter(repos: Repositories, base: Base, cityId: string): boole
  * are rivals is exactly the city whose rooms should reflect them.
  */
 export function calibreOf(repos: Repositories, cityId: string): number {
+  return cityCalibre(participantsIn(repos, cityId)) ?? repos.bases.averageLevel();
+}
+
+/**
+ * The same crews, as the Bar's seats read them: both ends of the city and its middle.
+ *
+ * Live, so it moves as crews level. The Bar never reads this directly: it freezes it once a day
+ * (`bar/room.ts`) so the people in the room do not change under a bid. The empty-city fallback is
+ * `calibreOf`'s, a flat room at the world's average level.
+ */
+export function roomProfileOf(repos: Repositories, cityId: string): RoomProfile {
+  return cityRoomProfile(participantsIn(repos, cityId)) ?? flatRoom(repos.bases.averageLevel());
+}
+
+/** Every crew in the game, with the stake it holds in this city. */
+function participantsIn(repos: Repositories, cityId: string): CityParticipant[] {
   const held = holdings(repos);
-  const participants: CityParticipant[] = repos.bases.listStandings().map((standing) => ({
+  return repos.bases.listStandings().map((standing) => ({
     stake: {
       cityId,
       resident: cityOfDistrict(standing.districtId) === cityId,
@@ -96,7 +115,6 @@ export function calibreOf(repos: Repositories, cityId: string): number {
     level: standing.level,
     notoriety: standing.notoriety,
   }));
-  return cityCalibre(participants) ?? repos.bases.averageLevel();
 }
 
 /** The city a crew lives in, which is where every door opens by default. */

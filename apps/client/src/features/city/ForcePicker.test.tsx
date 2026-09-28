@@ -1,34 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { findUnitModification, type UnitLoadouts } from '@frontline/shared';
 import { ForcePicker } from './ForcePicker';
-
-/**
- * Units left on a location have to be able to come home.
- *
- * `POST /city/garrison` takes signed deltas and the server's withdrawal branch has always been
- * live, but the only control that called it counted from zero over the *home* roster: no row could
- * go below nothing, and a unit posted to a location came back only if the location fell. Given
- * who is already standing there, a row goes down to minus that many, and a negative number is the
- * order to bring them back.
- */
-const picker = (army: Record<string, number>, standing: Record<string, number>) => {
-  const onConfirm = vi.fn();
-  render(
-    <ForcePicker
-      title="Garrison the Press"
-      blurb="Who stands here."
-      army={army}
-      standing={standing}
-      pending={false}
-      error={null}
-      confirmLabel="Leave them"
-      onClose={() => undefined}
-      onConfirm={onConfirm}
-    />,
-  );
-  return onConfirm;
-};
 
 /**
  * The bag the picker quotes is the bag the raid pays: with the crew's brackets folded in.
@@ -45,7 +18,6 @@ describe('what the picker says the force can carry', () => {
         title="Raid the Press"
         blurb="Who goes."
         army={{ razors: 5 }}
-        standing={{}}
         {...(loadouts === undefined ? {} : { loadouts })}
         pending={false}
         error={null}
@@ -69,33 +41,59 @@ describe('what the picker says the force can carry', () => {
   });
 });
 
-describe('bringing a garrison home', () => {
-  it('offers a row for a unit the crew has none of at home but three of on the ground', () => {
-    const onConfirm = picker({}, { razors: 3 });
-    const field = screen.getByLabelText('How many Razors');
-    expect(field).toHaveAttribute('min', '-3');
-    expect(field).toHaveAttribute('max', '0');
+/**
+ * The odds the picker quotes are the odds of the line the crew actually fields.
+ *
+ * Same defect as the carry quote above, one panel along, and it reverses the answer rather than
+ * shading it: `resolve.ts` hands the engine `attackerUpgrades: attacker.unitLoadouts` and the
+ * forecast here passed none, so a crew who had spent the yard's output on their line was shown
+ * the odds of the line they did not build. Measured on the shared engine on 2026-09-25: forty
+ * Razors against the eighteen Wardens this screen estimates forecast at 0% bare and 77% with three
+ * common cards fitted, which is the difference between "this is not a fight, it is a delivery" and
+ * "the odds are with you" on the very same plan.
+ *
+ * Asserted as a difference between two readings rather than against a recomputed number: working
+ * the expected band out here with the same function the component calls would pass whether or not
+ * the component passed the cards at all.
+ */
+describe('what the picker says the odds are', () => {
+  const band = (loadouts: UnitLoadouts | undefined): string => {
+    const { unmount } = render(
+      <ForcePicker
+        title="Raid the Press"
+        blurb="Who goes."
+        army={{ razors: 40 }}
+        facingSize={18}
+        {...(loadouts === undefined ? {} : { loadouts })}
+        pending={false}
+        error={null}
+        confirmLabel="Go"
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('How many Razors'), { target: { value: '40' } });
+    const said = screen.getByTestId('odds').textContent ?? '';
+    unmount();
+    return said;
+  };
 
-    fireEvent.change(field, { target: { value: '-2' } });
-    expect(screen.getByText('Bringing back')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Leave them' }));
-    expect(onConfirm).toHaveBeenCalledWith({ razors: -2 });
-  });
+  it('reads better for a crew whose units are wearing their cards', () => {
+    // Three cards the Scrapyard cuts early, on the one unit going. Read off the catalogue so a
+    // retune moves the fixture with it rather than leaving it pointing at a card that is gone.
+    const fitted: UnitLoadouts = {
+      razors: ['taped_grips', 'scrap_vest', 'knuckle_guards'].filter(
+        (id) => findUnitModification(id) !== undefined,
+      ),
+    };
+    expect(fitted.razors?.length, 'the fixture cards are not in the catalogue any more').toBe(3);
 
-  it('will not bring back more than are there, and still sends from home in the same order', () => {
-    const onConfirm = picker({ razors: 4 }, { razors: 1 });
-    const field = screen.getByLabelText('How many Razors');
-    fireEvent.change(field, { target: { value: '-5' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Leave them' }));
-    expect(onConfirm).toHaveBeenLastCalledWith({ razors: -1 });
-
-    fireEvent.change(field, { target: { value: '3' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Leave them' }));
-    expect(onConfirm).toHaveBeenLastCalledWith({ razors: 3 });
-  });
-
-  it('has nothing to confirm with nobody chosen either way', () => {
-    picker({ razors: 4 }, { razors: 1 });
-    expect(screen.getByRole('button', { name: 'Leave them' })).toBeDisabled();
+    const bare = band(undefined);
+    const wearing = band(fitted);
+    expect(bare, 'the picker drew no odds at all').not.toBe('');
+    expect(
+      wearing,
+      'fitting three cards to the whole line moved nothing: the forecast is ignoring them',
+    ).not.toBe(bare);
   });
 });

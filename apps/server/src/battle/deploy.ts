@@ -9,36 +9,45 @@ import {
   unitSlotsUsed,
   deploymentIsOpen,
   emptyDeployment,
+  movementForce,
   mulberry32,
   perimeterToll,
   seedFrom,
   unitsBeyondNotoriety,
   type Army,
+  bareLineRules,
   type BattleDeployment,
   type BattleSide,
   type Base,
   type Movement,
   type LineRules,
   type ScheduledBattle,
+  type DeployQuoteResponse,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { forceSize, isFightingForce, mergeArmies, removeForce } from './forces.js';
 import { tallyDeployed } from '../feats/tally.js';
 import { defendingBaseOf } from './ground.js';
 import { sideForce } from './side.js';
-import { sendColumn } from './movement.js';
+import { columnMinutesTo, railColumnOffer, sendColumn } from './movement.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { insideLock, placeLocked } from './lock.js';
+import { alignmentReader, fightPlaceFor } from './alignment.js';
+import { walkHome } from '../moves/moves.js';
 
 /**
  * Moving people to a fight that has not happened yet (GDD §A4, battle rework).
  *
  * The board's rules, in order:
  *
- * - Anybody in the fight may send units **right up to one second before the mark**, and take them
- *   back again just as freely. Nothing is locked until the clock says so.
+ * - Anybody in the fight may send units **right up to one second before the mark**. Taking them back
+ *   is allowed until the fight's **last hour** (`battle/lock.ts`, maintainer 2026-09-28): after
+ *   that nothing leaves the place of the fight, and whoever is standing there at the mark fights.
  * - Units on the ground have **left the roster**. That is what makes the freedom safe: a crew that
  *   promised the same twenty Razors to three fights would be discovering which one they turned up
  *   at, and the answer would be a bug rather than a decision.
+ * - Nothing arrives or leaves in an instant. A column walks to the fight (`battle/movement.ts`), and
+ *   units taken back **walk home** from the place of the fight (`moves/moves.ts`, `walkHome`).
  * - Pulling people back is **not free** if the other side has a ring out. The maintainer asked for this
  *   explicitly: a perimeter takes anybody "pulled back after it was already deployed but taken out
  *   before combat itself". So a late withdrawal past a well-set ring costs units, and a crew that
@@ -59,6 +68,11 @@ export const DEPLOY_REFUSALS = [
   'no_seats',
   /** The ring is the defender's answer to being chosen; an attacker does not get one. */
   'ring_is_the_defenders',
+  /**
+   * The last hour before a fight (`battle/lock.ts`): nothing is taken back out of this one, and
+   * nothing leaves home while a raid on it is about to land.
+   */
+  'garrison_locked',
 ] as const;
 export type DeployRefusal = (typeof DEPLOY_REFUSALS)[number];
 
@@ -69,7 +83,72 @@ export interface DeployInput {
   /** Positive sends units to the ground; negative brings them home. */
   changes: Record<string, number>;
   perimeterChanges: Record<string, number>;
+  /**
+   * Put the departing column on Terminus's line, when this crew holds a pair of platforms that
+   * serves the journey. Optional, and marching is the default: see `DeployRequestSchema.byRail`.
+   */
+  byRail?: boolean;
   now: Date;
+}
+
+/**
+ * The two clocks for a column that has not been sent yet.
+ *
+ * Reads the same fold, the same pace and the same railway the send does, so the quote and the
+ * journey cannot come apart. `changes` is the batch about to be sent; only the positive side of it
+ * is going anywhere, which is what `departingFrom` picks out.
+ */
+export function deployQuote(repos: Repositories, input: DeployInput): DeployQuoteResponse {
+  const army = departingFrom(input.changes);
+  const perimeter = departingFrom(input.perimeterChanges);
+  const committed = repos.sieges.deployment(input.battle.id, input.side, input.base.id);
+  const riding = {
+    army: mergeArmies(army, perimeter),
+    vehicles: committed?.vehicles ?? {},
+  };
+  // The same flag `sendColumn` spends: naming an officer for this fight buys a shorter road, and a
+  // quote that does not fold it is a quote the arrival will beat.
+  const led = committed?.officerId != null;
+  const road = columnMinutesTo(repos, input.base, input.battle.target.districtId, riding, led);
+  /*
+   * When a column sent now lands, and whether that is in time: the same sum `sendColumn` makes
+   * (`now` plus the whole minutes of the road) against the same test `settleMovements` applies
+   * (landing after the mark is not being in the fight).
+   */
+  const mark = Date.parse(input.battle.scheduledFor);
+  const landing = (minutes: number) => {
+    const at = input.now.getTime() + minutes * 60_000;
+    return { arrivesAt: new Date(at).toISOString(), inTime: at <= mark };
+  };
+  if (road === null) return { minutes: 0, ...landing(0), rail: null };
+
+  const offer = railColumnOffer(
+    repos,
+    input.base,
+    input.battle.target.districtId,
+    riding,
+    road,
+    led,
+  );
+  return {
+    minutes: road,
+    ...landing(road),
+    rail:
+      offer === null
+        ? null
+        : {
+            minutes: offer.minutes,
+            boardAt: offer.boardAt.name,
+            alightAt: offer.alightAt.name,
+            walkMinutes: offer.toPlatform + offer.fromPlatform,
+            ...landing(offer.minutes),
+          },
+  };
+}
+
+/** Only what is being *sent*: a negative change is a withdrawal and walks nowhere. */
+function departingFrom(changes: Record<string, number>): Army {
+  return Object.fromEntries(Object.entries(changes).filter(([, delta]) => delta > 0));
 }
 
 export interface DeployOutcome {
@@ -93,6 +172,17 @@ export type DeployResult =
 function enemyRing(repos: Repositories, battle: ScheduledBattle, side: BattleSide): Army {
   const other = side === 'attacker' ? 'defender' : 'attacker';
   return sideForce(repos, battle.id, other, battle.scheduledFor).perimeter;
+}
+
+/**
+ * Whether the crew that posted the ring fields its porters (`carriers_fight`).
+ *
+ * The ring is the defender's by rule, so this is the defending crew's fold. `bareLineRules` when
+ * the ground has no crew behind it: the Combine and an unoccupied lot have bought nothing.
+ */
+function ringOwnerRules(repos: Repositories, battle: ScheduledBattle, now: Date): LineRules {
+  const holder = defendingBaseOf(repos, battle);
+  return holder === undefined ? bareLineRules() : standingEffectsFor(repos, holder, now);
 }
 
 export function adjustDeployment(repos: Repositories, input: DeployInput): DeployResult {
@@ -210,6 +300,23 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   ring = movedRing;
 
   /*
+   * The last hour (`battle/lock.ts`, maintainer 2026-09-28), in both of its directions here.
+   *
+   * Nobody is taken back off this fight once its last hour has begun: whoever is standing on it
+   * then is standing on it at the mark. And nobody leaves home for anywhere while a raid through
+   * this crew's own breach is inside its last hour, because the district army is the thing that
+   * raid meets. Sending people *to* that raid, onto its ring, is not leaving it, which is what
+   * `battle.id` is passed for. Arriving is never locked.
+   */
+  if (forceSize(pulled) > 0 && insideLock(battle, now)) {
+    return { kind: 'refused', reason: 'garrison_locked' };
+  }
+  const sendingNow = forceSize(departing.army) + forceSize(departing.perimeter) > 0;
+  if (sendingNow && placeLocked(repos, base, { kind: 'district' }, now, battle.id)) {
+    return { kind: 'refused', reason: 'garrison_locked' };
+  }
+
+  /*
    * §C3: the seats are the ceiling, and they are the ceiling here rather than only in the browser.
    *
    * The deploy window has capped a batch by unit slots since 2026-09-15 ("once you choose vehicles
@@ -220,11 +327,33 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
    *
    * Priced through `ridingUnitSlots` and `fleetCapacity`, the same two functions the window and
    * the settler use, so there is one arithmetic and not three that agree by inspection.
+   *
+   * ## The columns on the road count, because they are coming
+   *
+   * They were in neither force this read: a column has left the roster and has not joined the row
+   * (`battle/movement.ts`), so the same batch posted twice was measured against the same empty
+   * ground twice. One motorcycle seats two Razors and two requests put four under it; ten put
+   * twenty. Read off the movement table for this crew's own rows on this side, which is exactly
+   * what `settleMovements` will fold into the row when they land.
+   *
+   * Only asked of a request that is actually sending somebody. A pull-out adds nothing to the
+   * ground, and refusing one because a column that left yesterday is over the ceiling would strand
+   * those units with no door out, which is the shape of the attacker-ring defect next door.
    */
   const seats = fleetCapacity(existing.vehicles);
-  if (seats > 0) {
+  if (seats > 0 && sendingNow) {
+    const walking = repos.movements
+      .forBattle(battle.id)
+      .filter((movement) => movement.baseId === base.id && movement.side === side)
+      .reduce<Army>((total, movement) => mergeArmies(total, movementForce(movement)), {});
     const aboard = ridingUnitSlots(
-      mergeArmies(mergeArmies(onTheGround, ring), mergeArmies(departing.army, departing.perimeter)),
+      mergeArmies(
+        mergeArmies(
+          mergeArmies(onTheGround, ring),
+          mergeArmies(departing.army, departing.perimeter),
+        ),
+        walking,
+      ),
       effects.anyRide,
     );
     if (aboard > seats) return { kind: 'refused', reason: 'no_seats' };
@@ -233,6 +362,8 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   // The ring's bite on the way out. Seeded on the battle and the moment of the pull-out so the same
   // withdrawal always costs the same, and a retried request cannot shop for a better roll.
   let lostOnTheWayOut: Army = {};
+  /** Whoever got past the ring, who now walk home from the place of the fight. */
+  let pulledHome: Army = {};
   if (forceSize(pulled) > 0) {
     const next = mulberry32(seedFrom(`${battle.id}:withdraw:${at}`));
     /*
@@ -259,9 +390,22 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
           stealth: capRating(Math.round(fitted.stealth * (1 + effects.unitStealthPercent / 100))),
         };
       },
+      /*
+       * The **ring owner's** rules, not this crew's.
+       *
+       * Only the defender posts a ring, so the question is whether *they* field their porters:
+       * `carriers_fight` is a holding, and a crew that has bought it has a real ring made of them
+       * (`perimeter.ts`). This passed nothing, so the toll always read the bare rules and a
+       * porter ring caught nobody, while the same ring fought a breakout out of a lost battle.
+       *
+       * `bareLineRules` for ground with no crew behind it, which is the same reading
+       * `resolve.ts` takes for a Combine-held lot: nobody has bought a holding for a lot that has
+       * no owner.
+       */
+      ringOwnerRules(repos, battle, now),
     );
     lostOnTheWayOut = caught;
-    army = mergeArmies(army, escaped);
+    pulledHome = escaped;
   }
 
   // On the road. Nothing joins the deployment on this request: `settleMovements` does that when
@@ -276,6 +420,9 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
           army: departing.army,
           perimeter: departing.perimeter,
           now,
+          // The railway, if this crew asked for it and holds a pair of platforms that serves the
+          // journey. Ignored when there is no ride: a stale screen gets the march, not a refusal.
+          byRail: input.byRail === true,
         })
       : null;
 
@@ -288,8 +435,17 @@ export function adjustDeployment(repos: Repositories, input: DeployInput): Deplo
   };
   repos.sieges.putDeployment(deployment);
 
+  /*
+   * Home on foot (maintainer, 2026-09-28: "Nothing sends units immediately"). They used to be back
+   * on the roster the moment the request landed, which made a withdrawal from a fight across the
+   * city the fastest road in the game. A raid on the crew's own district is the one place that is
+   * already home, and `walkHome` puts them straight back there.
+   */
+  const place = fightPlaceFor(battle, base);
+  if (place.kind === 'district') army = mergeArmies(army, pulledHome);
   const next: Base = { ...base, army };
   repos.bases.updateArmy(next.id, next.army, next.trainingQueue);
+  if (place.kind !== 'district') walkHome(repos, next, place, pulledHome, {}, now);
   /*
    * Feats: what this crew has ever put on the ground (maintainer request, 2026-09-13).
    *
@@ -322,11 +478,15 @@ export function sideOf(
    * back out through the ordinary screen (which is the route the reinforce endpoint's own comment
    * says is the way to do it), and the fight did not appear on their battle board at all.
    */
-  if (repos.sieges.side(battle.id, 'attacker').some((row) => row.baseId === baseId)) {
-    return 'attacker';
-  }
-  if (repos.sieges.side(battle.id, 'defender').some((row) => row.baseId === baseId)) {
-    return 'defender';
+  /*
+   * ...and only while it is still on that side (bug pass, 2026-09-28). A crew that has left the
+   * faction it came to help, or joined the other one, keeps its row until the mark moves or parks
+   * it (`musterAtTheMark`), but it is not in the fight any more and cannot keep feeding the row.
+   */
+  const aligned = alignmentReader(repos, battle)(baseId);
+  for (const side of ['attacker', 'defender'] as const) {
+    if (aligned !== side) continue;
+    if (repos.sieges.side(battle.id, side).some((row) => row.baseId === baseId)) return side;
   }
   /*
    * And the crew the call was *on*, which is not always the party on the plate.

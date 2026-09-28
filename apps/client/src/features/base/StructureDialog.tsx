@@ -17,7 +17,6 @@ import {
   describeBuildingRequirement,
   modificationCapacity,
   MODIFICATION_SET_SIZE,
-  MODIFICATION_SLOT_LEVELS,
   SET_BONUSES,
   describeSetBonus,
   nextModificationSlotLevel,
@@ -64,6 +63,7 @@ import { structureBonus } from './bonus';
 import { formatDuration, formatRemaining } from './format';
 import { PayrollMeter, RaisePayroll } from '../../components/Payroll';
 import { useServerClock } from '../missions/useServerClock';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * One plot's dialog: what stands there, what the next level costs and takes, what it does, and the
@@ -134,6 +134,7 @@ export function StructureDialog({
   const crewStandingEffects = useCrewStanding().data?.effects;
   const cancel = useCancelBuild(base.id);
   const underWay = buildQueue.filter((entry) => entry.kind === kind);
+  const [payrollOpen, setPayrollOpen] = useState(false);
 
   const unlocked = isUnlockedForQueue(kind, buildings, buildQueue, base.level);
   const nextLevel = unlocked ? nextQueuedLevel(kind, buildings, buildQueue) : null;
@@ -234,196 +235,183 @@ export function StructureDialog({
         <span aria-hidden className="ink-rule absolute inset-x-5 bottom-0" />
       </div>
 
-      <div className="flex min-h-0 flex-col overflow-y-auto px-5 pb-0.5 pt-3.5">
+      {/* The same 14px above the first panel and below the last, so the rule under the head and
+          the rule over the footer sit the same distance from the deck (maintainer, 2026-09-28). */}
+      <div className="flex min-h-0 flex-col overflow-y-auto px-5 py-3.5">
         {/*
-         * Two columns that are not rows: a deck of panels, packed.
+         * One template for every plot (maintainer, 2026-09-28).
          *
-         * This was `grid sm:grid-cols-2`, and a grid aligns rows. The Nexus is the case that shows
-         * what that costs: the payroll book is 250px tall and the price beside it is 84, so the
-         * first row was 250 tall with 166px of nothing in it, and the bracket rack that needed
-         * exactly that space was pushed under the fold. 707px of body in a 562px box at 1024x768,
-         * with a sixth of the window empty.
+         * Two columns and one row. The left holds the order (and, under it, whatever is already on
+         * the clock) with what the level gives beneath; the right holds the three brackets, drawn
+         * to the full height of the row so its top sits level with the order's and its bottom with
+         * the gift's. The deck used to be a multi-column box that packed panels wherever they
+         * fitted, which put a Generator's burn under its price and a Nexus's payroll book beside
+         * it: no two windows had the same shape. Everything a building does beyond the template is
+         * a control in the footer now.
          *
-         * Multi-column has no rows to align, so the browser balances the deck instead and the
-         * empty half goes back to whatever is underneath it. Same reading order (down the first
-         * column, then the second), so the price is still the first thing under the name.
-         *
-         * `columns` on an inner box rather than on the scroller, and that is load-bearing: a
-         * multi-column box with a *definite* height does not scroll, it makes more columns and
-         * pushes them out sideways. This one is auto-height inside the scroller, so it balances
-         * into two and the scroller does the scrolling. `mb-3` on each panel rather than `gap-y`,
-         * because a column gap is the only gap multi-column has.
-         *
-         * Single column below `sm`, where there is no width to split.
+         * `items-stretch` is what makes the two columns the same height; the second panel on the
+         * left grows to take whatever the bracket rack is taller by, and the rack grows when it is
+         * the shorter one, so the gap to the rule below is the same on both sides.
          */}
-        <div className="gap-x-5 sm:columns-2" data-testid="structure-deck">
-          {/* §A1: what the order costs, which is what the window is opened to find out. First, and
-            on its own, rather than the fourth label/value pair down a column. */}
-          <Section
-            title={
-              ceiling?.maxed === true
-                ? 'Max level reached'
-                : nextLevel === null
-                  ? 'No order to give'
-                  : standing
-                    ? `Upgrade to level ${nextLevel}`
-                    : 'Build this'
-            }
-          >
-            {cost === null ? (
-              <p
-                className="font-display text-[12px] tracking-[0.15em] text-ink-300"
-                data-testid="structure-ceiling"
-              >
-                {ceiling?.line}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2.5">
-                <CostLine cost={cost} stock={resources} />
-                {seconds !== null && (
-                  <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
-                    Takes{' '}
-                    <span className="tabular-nums text-ink-100">{formatDuration(seconds)}</span>
-                  </p>
-                )}
-                {/* §A1: the handful of levels that ask for a part as well as a price. Kept apart
+        <div className="grid gap-3 sm:grid-cols-2 sm:items-stretch" data-testid="structure-deck">
+          <div className="flex min-w-0 flex-col gap-3" data-testid="structure-left">
+            {/* §A1: what the order costs, which is what the window is opened to find out. First, and
+              on its own, rather than the fourth label/value pair down a column. */}
+            <Section
+              title={
+                ceiling?.maxed === true
+                  ? 'Max level reached'
+                  : nextLevel === null
+                    ? 'No order to give'
+                    : standing
+                      ? `Upgrade to level ${nextLevel}`
+                      : 'Build this'
+              }
+            >
+              {cost === null ? (
+                <p
+                  className="font-display text-[12px] tracking-[0.15em] text-ink-300"
+                  data-testid="structure-ceiling"
+                >
+                  {ceiling?.line}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  <CostLine cost={cost} stock={resources} />
+                  {seconds !== null && (
+                    <p className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-300">
+                      Takes{' '}
+                      <span className="tabular-nums text-ink-100">{formatDuration(seconds)}</span>
+                    </p>
+                  )}
+                  {/* §A1: the handful of levels that ask for a part as well as a price. Kept apart
                   from the cost line, because a part is a *gate*: no amount of waiting produces
                   one, and a player has to know to go and look for it. */}
-                {nextLevel !== null && buildingNeedsParts(kind, nextLevel) && (
-                  <div className="flex flex-col gap-1.5 pt-1">
-                    {/* The hand's own rule, not a hairline: the same mark the unit hovers put
+                  {nextLevel !== null && buildingNeedsParts(kind, nextLevel) && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                      {/* The hand's own rule, not a hairline: the same mark the unit hovers put
                       between a name and the numbers under it. */}
-                    <span aria-hidden className="block h-1.5 text-ink-300/60">
-                      <DrawnRule />
-                    </span>
-                    <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
-                      Also needs
-                    </span>
-                    <ul className="flex flex-wrap gap-1.5">
-                      {Object.entries(buildingParts(kind, nextLevel)).map(([id, count]) => {
-                        const held = base.inventory[id as ItemId] ?? 0;
-                        return (
-                          <li key={id}>
-                            <HoverCard
-                              label={ITEM_CATALOG[id as ItemId].name}
-                              size="window"
-                              card={<ItemWindow id={id as ItemId} />}
-                            >
-                              <span
-                                className={cn(
-                                  'flex items-center gap-1.5 rounded-sm border px-2 py-1',
-                                  held >= (count ?? 0)
-                                    ? 'border-verdigris-500/60 bg-verdigris-700/20 text-verdigris-100'
-                                    : 'border-oxblood-500/60 bg-oxblood-500/10 text-oxblood-300',
-                                )}
+                      <span aria-hidden className="block h-1.5 text-ink-300/60">
+                        <DrawnRule />
+                      </span>
+                      <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
+                        Also needs
+                      </span>
+                      <ul className="flex flex-wrap gap-1.5">
+                        {Object.entries(buildingParts(kind, nextLevel)).map(([id, count]) => {
+                          const held = base.inventory[id as ItemId] ?? 0;
+                          return (
+                            <li key={id}>
+                              <HoverCard
+                                label={ITEM_CATALOG[id as ItemId].name}
+                                size="window"
+                                card={<ItemWindow id={id as ItemId} />}
                               >
-                                <ItemGlyph id={id as ItemId} className="h-5 w-5" />
-                                <span className="font-display text-[12px] font-semibold tabular-nums">
-                                  {count}× {ITEM_CATALOG[id as ItemId].name}
+                                <span
+                                  className={cn(
+                                    'flex items-center gap-1.5 rounded-sm border px-2 py-1',
+                                    held >= (count ?? 0)
+                                      ? 'border-verdigris-500/60 bg-verdigris-700/20 text-verdigris-100'
+                                      : 'border-oxblood-500/60 bg-oxblood-500/10 text-oxblood-300',
+                                  )}
+                                >
+                                  <ItemGlyph id={id as ItemId} className="h-5 w-5" />
+                                  <span className="font-display text-[12px] font-semibold tabular-nums">
+                                    {count}× {ITEM_CATALOG[id as ItemId].name}
+                                  </span>
+                                  <span className="font-display text-[11px] tabular-nums opacity-80">
+                                    ({held} held)
+                                  </span>
                                 </span>
-                                <span className="font-display text-[11px] tabular-nums opacity-80">
-                                  ({held} held)
-                                </span>
-                              </span>
-                            </HoverCard>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </Section>
-
-          {underWay.length > 0 && (
-            <Section title="Under way">
-              <ul className="flex flex-col gap-2.5" data-testid={`structure-under-way-${kind}`}>
-                {underWay.map((entry) => (
-                  <li key={entry.id} className="flex flex-col gap-1.5">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
-                        To level {entry.level}
-                      </span>
-                      <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
-                        {formatRemaining(queueRemainingMs(entry, now))}
-                      </span>
+                              </HoverCard>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
-                    <CancelMark
-                      windowMs={queueCancelWindowMs(entry, now)}
-                      label={`Call off ${spec.name} level ${entry.level}`}
-                      pending={cancel.isPending}
-                      onCancel={() => cancel.mutate({ orderId: entry.id })}
-                      data-testid={`structure-cancel-${entry.id}`}
-                    />
-                  </li>
-                ))}
-              </ul>
-              {cancel.error && (
-                <p role="alert" className="mt-2 font-body text-xs leading-relaxed text-oxblood-300">
-                  {cancel.error.message}
-                </p>
+                  )}
+                </div>
+              )}
+              {/* What is already on the clock for this plot, inside the order's own panel: the
+              window that took the order is the window that can call it off (maintainer request,
+              2026-09-12). The clock is the district read's, like the rail's. */}
+              {underWay.length > 0 && (
+                <div
+                  className="flex flex-col gap-2 pt-3"
+                  data-testid={`structure-under-way-${kind}`}
+                >
+                  <span className="font-display text-[11px] uppercase tracking-[0.2em] text-ink-300">
+                    Under way
+                  </span>
+                  <ul className="flex flex-col gap-2.5">
+                    {underWay.map((entry) => (
+                      <li key={entry.id} className="flex flex-col gap-1.5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="font-display text-[12px] uppercase tracking-[0.14em] text-ink-200">
+                            To level {entry.level}
+                          </span>
+                          <span className="shrink-0 font-display text-[12px] font-bold tabular-nums text-brass-300">
+                            {formatRemaining(queueRemainingMs(entry, now))}
+                          </span>
+                        </div>
+                        <CancelMark
+                          windowMs={queueCancelWindowMs(entry, now)}
+                          label={`Call off ${spec.name} level ${entry.level}`}
+                          pending={cancel.isPending}
+                          onCancel={() => cancel.mutate({ orderId: entry.id })}
+                          data-testid={`structure-cancel-${entry.id}`}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                  {cancel.error && <ErrorNote className="mt-2">{cancel.error.message}</ErrorNote>}
+                </div>
               )}
             </Section>
-          )}
 
-          {/* What the level actually buys and what it costs to run, from the same shared functions
+            {/* What the level actually buys and what it costs to run, from the same shared functions
             the server settles with: the two numbers somebody choosing between two upgrades is
             comparing, side by side rather than a column apart. */}
-          {/*
-           * §H7: the payroll book, in the building that keeps it.
-           *
-           * The Nexus is where a crew's standing figures live, so it is where the book is read and
-           * where it is raised. It is the same panel the Bar carries, deliberately: the Bar is
-           * where a player finds out they cannot afford somebody, and this is where they go about
-           * it, and two different-looking readouts of one number is how a player comes to distrust
-           * both.
-           */}
-          {kind === CENTRAL_BUILDING && (
-            <Section title="The payroll book">
-              <PayrollBook base={base} />
-            </Section>
-          )}
-
-          <Section title="What it gives">
-            <dl className="flex flex-col gap-2.5">
-              <Stat label={bonus.label}>
-                <span
-                  className="flex flex-wrap items-baseline gap-2 font-display text-sm font-semibold text-ink-100"
-                  data-testid="structure-bonus"
-                >
-                  <span className="tabular-nums">{bonus.value}</span>
-                  {nextBonus !== null && nextBonus.value !== bonus.value && (
-                    <>
-                      <span aria-hidden="true" className="text-ink-300">
-                        →
-                      </span>
-                      <span className="tabular-nums text-verdigris-100">{nextBonus.value}</span>
-                      <span className="font-body text-[11px] font-normal text-ink-300">
-                        at level {nextLevel}
-                      </span>
-                    </>
-                  )}
-                </span>
-              </Stat>
-              {/* §B1: what the Nexus has to be for the *next* level, said before anything is spent
-                rather than after a refused order. The table is per building and per level, so this
-                is the one number a player cannot work out from anywhere else on the screen. */}
-              {kind !== CENTRAL_BUILDING && nextLevel !== null && (
-                <Stat label="The Nexus has to be at">
+            <Section title="What it gives" grow>
+              <dl className="flex flex-col gap-2.5">
+                <Stat label={bonus.label}>
                   <span
-                    className="font-display text-[12px] tabular-nums text-ink-200"
-                    data-testid="nexus-requirement"
+                    className="flex flex-wrap items-baseline gap-2 font-display text-sm font-semibold text-ink-100"
+                    data-testid="structure-bonus"
                   >
-                    Level {nexusLevelForUpgrade(kind, nextLevel)}
+                    <span className="tabular-nums">{bonus.value}</span>
+                    {nextBonus !== null && nextBonus.value !== bonus.value && (
+                      <>
+                        <span aria-hidden="true" className="text-ink-300">
+                          →
+                        </span>
+                        <span className="tabular-nums text-verdigris-100">{nextBonus.value}</span>
+                        <span className="font-body text-[11px] font-normal text-ink-300">
+                          at level {nextLevel}
+                        </span>
+                      </>
+                    )}
                   </span>
                 </Stat>
-              )}
-            </dl>
-          </Section>
+                {/* §B1: what the Nexus has to be for the *next* level, said before anything is spent
+                rather than after a refused order. The table is per building and per level, so this
+                is the one number a player cannot work out from anywhere else on the screen. */}
+                {kind !== CENTRAL_BUILDING && nextLevel !== null && (
+                  <Stat label="The Nexus has to be at">
+                    <span
+                      className="font-display text-[12px] tabular-nums text-ink-200"
+                      data-testid="nexus-requirement"
+                    >
+                      Level {nexusLevelForUpgrade(kind, nextLevel)}
+                    </span>
+                  </Stat>
+                )}
+              </dl>
+            </Section>
+          </div>
 
           {/* §E: three brackets, each one a door to the bench that cuts what goes in it. */}
-          <Section title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`}>
+          <Section title={`Modifications: ${slots.used} of ${MAX_MODIFICATION_SLOTS} slots`} grow>
             <SlotRack kind={kind} base={base} onGo={onGo} onClear={onClearSlot} />
             {/* Only the line that is still news. "All three are open" was a sentence about nothing
               to do, printed exactly when a player has nothing left to wait for (maintainer
@@ -454,131 +442,57 @@ export function StructureDialog({
               Build more in the Scrapyard
             </DrawnButton>
           </Section>
-
-          {/* §B4: the Generator's two-hour burn, bought where it is sold. */}
-          {kind === 'generator' && (
-            <Section title="Burn the tanks">
-              <BuildBoost
-                base={base}
-                serverNow={serverNow}
-                receivedAt={receivedAt}
-                onBoost={onBoost}
-                pending={boostPending}
-              />
-            </Section>
-          )}
-
-          {/* §B8: the Lab is the door to research, and research is no longer a tab. */}
-          {kind === 'lab' && (
-            <Section title="Research">
-              <p className="font-body text-xs leading-relaxed text-ink-300">
-                Projects are run out of the Lab. Every level here takes time off all of them.
-              </p>
-              <DrawnButton
-                size="sm"
-                className="mt-2.5"
-                data-sound="click"
-                data-testid="lab-open-research"
-                onClick={() => onGo('/game/research')}
-              >
-                Open research
-              </DrawnButton>
-            </Section>
-          )}
-
-          {/*
-           * §B11: the Garage is a door and nothing else.
-           *
-           * It grants nothing passively, so without this section its dialog is a level, a cost and
-           * no reason to have built it. The page existed and was routed before this was added, and
-           * was reachable only by typing the URL: the two halves of the Garage were built either
-           * side of a seam and neither owned the door.
-           */}
-          {kind === 'garage' && (
-            <Section title="The yard">
-              <p className="font-body text-xs leading-relaxed text-ink-300">
-                Machines are built and kept here. They carry a column to the ground faster than it
-                walks, and they are lost with the people riding them.
-              </p>
-              {/*
-               * Straight to the machines, not to a page about them.
-               *
-               * This used to open `/game/garage`, which held a level, a seat count and one button
-               * that went here. Three clicks and two screens to reach a list, with the middle screen
-               * telling a player nothing they could not read on the dialog they had just left. The
-               * page is retired; the Vehicles tab is where the machines live, beside the people who
-               * ride them, which is the comparison that matters when choosing one.
-               */}
-              <DrawnButton
-                size="sm"
-                className="mt-2.5"
-                data-sound="click"
-                data-testid="garage-open"
-                onClick={() => onGo('/game/units?tab=vehicles')}
-              >
-                Open the Garage
-              </DrawnButton>
-            </Section>
-          )}
-
-          {/* §B9: and the Scrapyard has a page of its own. */}
-          {kind === 'scrapyard' && (
-            <Section title="The yard">
-              <p className="font-body text-xs leading-relaxed text-ink-300">
-                Add-ons are built here: building modifications for these three slots, and unit
-                modifications for the roster. Scrap, and good metal for the heavy work.
-              </p>
-              <DrawnButton
-                size="sm"
-                className="mt-2.5"
-                data-sound="click"
-                data-testid="scrapyard-open"
-                onClick={() => onGo('/game/scrapyard')}
-              >
-                Open the Scrapyard
-              </DrawnButton>
-            </Section>
-          )}
         </div>
-
-        {/* Out of the deck and under it, full width. A refusal belongs beside the control that was
-            refused, not packed into whichever column the balancer had room in. */}
-        {error !== null && error !== undefined && (
-          <p role="alert" className="pb-3 font-body text-[13px] leading-relaxed text-oxblood-300">
-            {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </p>
-        )}
       </div>
 
-      <footer className="relative flex shrink-0 items-center justify-end gap-3 px-5 py-3">
+      {/*
+       * The footer is where a building does whatever it does beyond the template (maintainer,
+       * 2026-09-28): Close on the left, in red, and on the right the building's own control beside
+       * the order. The Generator sells its burn here, the Lab, the Garage, the Gauntlet and the
+       * Scrapyard are doors, and the Nexus opens the payroll book.
+       */}
+      <footer className="relative flex shrink-0 flex-wrap items-center gap-3 px-5 py-3">
         <span aria-hidden className="ink-rule absolute inset-x-5 top-0" />
-        {/*
-         * Drawn, not struck. A pressed brass plate is the right affordance on a machine and the
-         * wrong one on a sheet of paper, which is the rule the market and the yard already keep.
-         *
-         * The two are told apart by *size* rather than by ink. Colour was tried first and it
-         * cannot work here: a drawn button says "you cannot press me" by going flat and grey, so a
-         * secondary drawn in grey is the same picture as a refused primary, and the one control on
-         * this window that is refused half the time is the one beside it.
-         */}
-        <DrawnButton size="sm" data-sound="click" onClick={onClose}>
+        <DrawnButton size="sm" tone="danger" data-sound="click" onClick={onClose}>
           Close
         </DrawnButton>
-        <DrawnButton
-          disabled={cost === null || !affordable || !partsInHand || queueFull || pending}
-          onClick={onBuild}
-        >
-          {pending
-            ? 'Working…'
-            : !partsInHand
-              ? 'Short of parts'
-              : queueFull
-                ? 'Queue full'
-                : standing || buildQueue.some((entry) => entry.kind === kind)
-                  ? 'Queue upgrade'
-                  : 'Queue build'}
-        </DrawnButton>
+        {/* The refusal sits beside the control that was refused, on the same row (maintainer,
+            2026-09-25). */}
+        {error !== null && error !== undefined && (
+          <ErrorNote className="min-w-0 flex-1">
+            {error instanceof ApiRequestError ? error.message : 'That did not go through'}
+          </ErrorNote>
+        )}
+        <div className="ml-auto flex items-center gap-3">
+          <StructureAction
+            kind={kind}
+            base={base}
+            serverNow={serverNow}
+            receivedAt={receivedAt}
+            onBoost={onBoost}
+            boostPending={boostPending}
+            onGo={onGo}
+            onPayroll={() => setPayrollOpen(true)}
+          />
+          <DrawnButton
+            disabled={cost === null || !affordable || !partsInHand || queueFull || pending}
+            onClick={onBuild}
+          >
+            {pending
+              ? 'Working…'
+              : !partsInHand
+                ? 'Short of parts'
+                : queueFull
+                  ? 'Queue full'
+                  : standing || buildQueue.some((entry) => entry.kind === kind)
+                    ? 'Queue upgrade'
+                    : 'Queue build'}
+          </DrawnButton>
+        </div>
       </footer>
+
+      {/* §H7: the payroll book, in its own window off the Nexus (maintainer, 2026-09-28). */}
+      {payrollOpen && <PayrollDialog base={base} onClose={() => setPayrollOpen(false)} />}
     </Modal>
   );
 }
@@ -709,21 +623,9 @@ function completedFamily(
  * already worked it out.
  */
 function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number }) {
-  // A set is every open slot filled with one family, so it cannot be assembled at all until the
-  // structure has all three. Saying so is more use than a progress line that can never finish.
-  if (open < MODIFICATION_SET_SIZE) {
-    return (
-      <p
-        className="mt-2 font-body text-[12px] leading-snug text-ink-400"
-        data-testid="set-readout"
-        data-set="locked"
-      >
-        Fill all {MODIFICATION_SET_SIZE} slots with one family and the structure pays a set bonus on
-        top of the cards. That needs the last slot, at level{' '}
-        {MODIFICATION_SLOT_LEVELS[MODIFICATION_SET_SIZE - 1]}.
-      </p>
-    );
-  }
+  // Nothing until the third bracket is open: the rule used to be stated here, and the maintainer
+  // took the sentence out (2026-09-28). The line comes back when there is a set to read.
+  if (open < MODIFICATION_SET_SIZE) return null;
 
   const family = completedFamily(fitted, open);
 
@@ -752,13 +654,14 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
     );
   }
 
-  // Not a set yet. Name the family that is closest, because "two of three Comfort" is a decision
-  // and "no set" is not.
+  // Not a set yet. Name the family that is closest, because "two of three Comfort" is a decision;
+  // with nothing of any family fitted there is nothing to say (maintainer, 2026-09-28).
   const counts = new Map<ModificationFamily, number>();
   for (const spec of fitted) {
     if (spec.family) counts.set(spec.family, (counts.get(spec.family) ?? 0) + 1);
   }
   const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (best === undefined) return null;
 
   return (
     <p
@@ -766,9 +669,7 @@ function SetReadout({ fitted, open }: { fitted: ModificationSpec[]; open: number
       data-testid="set-readout"
       data-set="partial"
     >
-      {best === undefined
-        ? `No set. Three cards of one family in these ${MODIFICATION_SET_SIZE} slots pays a bonus on top of them.`
-        : `${best[1]} of ${MODIFICATION_SET_SIZE} ${MODIFICATION_FAMILY_LABELS[best[0]]}. A full bracket of one family adds ${describeSetBonus(best[0])}.`}
+      {`${best[1]} of ${MODIFICATION_SET_SIZE} ${MODIFICATION_FAMILY_LABELS[best[0]]}. A full bracket of one family adds ${describeSetBonus(best[0])}.`}
     </p>
   );
 }
@@ -867,13 +768,115 @@ function SlotRow({
 }
 
 /**
- * §B4: the Generator's paid burn, with its countdown.
+ * The building's own control at the foot of the window (maintainer, 2026-09-28).
  *
- * The countdown is derived from the district's own stored timestamp on every render rather than
- * ticked, so it is correct after a reload and after the tab has been asleep: the same reason every
- * other clock in this game is a timestamp.
+ * One per kind, or nothing: the Generator sells its burn, the Lab, the Garage, the Gauntlet and
+ * the Scrapyard are doors to the screen where their work is, and the Nexus opens the payroll book.
+ * These were panels in the body once, which is what gave every window a different shape.
  */
-function BuildBoost({
+function StructureAction({
+  kind,
+  base,
+  serverNow,
+  receivedAt,
+  onBoost,
+  boostPending,
+  onGo,
+  onPayroll,
+}: {
+  kind: BuildingKind;
+  base: Base;
+  serverNow: string | undefined;
+  receivedAt: number | undefined;
+  onBoost: () => void;
+  boostPending: boolean;
+  onGo: (path: string) => void;
+  onPayroll: () => void;
+}) {
+  switch (kind) {
+    case 'generator':
+      return (
+        <BurnButton
+          base={base}
+          serverNow={serverNow}
+          receivedAt={receivedAt}
+          onBoost={onBoost}
+          pending={boostPending}
+        />
+      );
+    case 'lab':
+      // §B8: the Lab is the door to research, and research is no longer a tab.
+      return (
+        <DrawnButton
+          size="sm"
+          data-sound="click"
+          data-testid="lab-open-research"
+          onClick={() => onGo('/game/research')}
+        >
+          Open research
+        </DrawnButton>
+      );
+    case 'garage':
+      // §B11: straight to the machines, on the roster beside the people who ride them.
+      return (
+        <DrawnButton
+          size="sm"
+          data-sound="click"
+          data-testid="garage-open"
+          onClick={() => onGo('/game/units?tab=vehicles')}
+        >
+          Open the Garage
+        </DrawnButton>
+      );
+    case 'gauntlet':
+      return (
+        <DrawnButton
+          size="sm"
+          data-sound="click"
+          data-testid="gauntlet-open-units"
+          onClick={() => onGo('/game/units')}
+        >
+          Open units
+        </DrawnButton>
+      );
+    case 'scrapyard':
+      // §B9: and the Scrapyard has a page of its own.
+      return (
+        <DrawnButton
+          size="sm"
+          data-sound="click"
+          data-testid="scrapyard-open"
+          onClick={() => onGo('/game/scrapyard')}
+        >
+          Open the Scrapyard
+        </DrawnButton>
+      );
+    case CENTRAL_BUILDING:
+      return (
+        <DrawnButton
+          size="sm"
+          data-sound="click"
+          data-testid="nexus-change-payroll"
+          onClick={onPayroll}
+        >
+          Change payroll
+        </DrawnButton>
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * §B4: the Generator's paid burn, sold as one button.
+ *
+ * What it does is on the hover (`data-tip`), and while it is lit the button becomes the
+ * countdown. The countdown is derived from the district's own stored timestamp on every render
+ * rather than ticked, so it is correct after a reload and after the tab has been asleep: the same
+ * reason every other clock in this game is a timestamp. Nothing to sell until the Generator
+ * stands, so a vacant plot draws no button.
+ */
+function BurnButton({
   base,
   serverNow,
   receivedAt,
@@ -890,32 +893,17 @@ function BuildBoost({
   const now = useServerClock(serverNow, receivedAt);
   const remainingMs = buildBoostRemainingMs(base.economy.buildBoostUntil, now);
   const oil = buildBoostOilCost(base.buildings);
-  const level = buildingLevel(base.buildings, 'generator');
-
-  if (level <= 0) {
-    return (
-      <p className="font-body text-xs leading-relaxed text-ink-300">
-        Build the Generator first. It is what sells the burn.
-      </p>
-    );
-  }
+  if (buildingLevel(base.buildings, 'generator') <= 0) return null;
 
   return (
-    <div className="flex flex-col gap-2.5" data-testid="build-boost">
-      <p className="font-body text-xs leading-relaxed text-ink-300">{BUILD_BOOST_OIL_LINE(oil)}</p>
+    <span className="inline-flex" data-testid="build-boost" data-tip={BUILD_BOOST_OIL_LINE(oil)}>
       {remainingMs > 0 ? (
-        <p
-          className="font-display text-[12px] uppercase tracking-[0.14em] text-brass-300"
-          data-testid="build-boost-remaining"
-        >
-          Burning:{' '}
-          <span className="tabular-nums text-ink-100">{formatDuration(remainingMs / 1000)}</span>{' '}
-          left
-        </p>
+        <DrawnButton size="sm" disabled data-testid="build-boost-remaining">
+          Burning · <span className="tabular-nums">{formatDuration(remainingMs / 1000)}</span> left
+        </DrawnButton>
       ) : (
         <DrawnButton
           size="sm"
-          className="self-start"
           disabled={pending || base.resources.oil < oil}
           data-testid="build-boost-buy"
           onClick={onBoost}
@@ -923,7 +911,7 @@ function BuildBoost({
           {pending ? 'Lighting…' : base.resources.oil < oil ? 'Short of oil' : `Burn ${oil} oil`}
         </DrawnButton>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -984,7 +972,16 @@ function ceilingReason(kind: BuildingKind, base: Base): Ceiling {
  * the slots are in the box called "Modifications", and a glance lands in the right box before any
  * word has been read.
  */
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  grow = false,
+  children,
+}: {
+  title: string;
+  /** Fill the column: the two panels whose bottoms have to meet the rule together. */
+  grow?: boolean;
+  children: ReactNode;
+}) {
   return (
     /*
      * Paper, and the same sheet the rest of the game is printed on now.
@@ -995,13 +992,14 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
      * paper Modal, where the same black reads as a hole rather than as a panel. No `rivets`, for
      * the reason none of them has it: rivets are punched tin and this is a sheet somebody drew on.
      *
-     * `break-inside-avoid` is what keeps a panel whole when the deck above balances it into two
-     * columns, and `mb-3` is its gap, because multi-column has no row gap to give.
+     * The gaps are the deck's (`gap-3` on the grid and on the left column), not the panel's, so
+     * the first panel's top and the last panel's bottom sit exactly where the columns do.
      */
     <section
       className={cn(
-        'ink-frame card-paper-lit washed grain mb-3 flex min-w-0 break-inside-avoid flex-col rounded-sm',
+        'ink-frame card-paper-lit washed grain flex min-w-0 flex-col rounded-sm',
         'shadow-panel',
+        grow && 'flex-1',
       )}
     >
       <h3
@@ -1087,11 +1085,36 @@ function PayrollBook({ base }: { base: Base }) {
         testId="nexus-increase-payroll"
         className="pt-2.5"
       />
-      <p className="font-body text-[12px] leading-snug text-ink-300">
-        A step is permanent and the next one costs more. Nothing is deducted week to week: an
-        officer holds a slice of the book for as long as they are on the books.
-      </p>
     </div>
+  );
+}
+
+/**
+ * The payroll book in a window of its own, opened off the Nexus's Change payroll control
+ * (maintainer, 2026-09-28). It used to be a panel in the Nexus window, and the fattest one.
+ */
+function PayrollDialog({ base, onClose }: { base: Base; onClose: () => void }) {
+  return (
+    <Modal
+      onClose={onClose}
+      labelledBy="payroll-dialog-title"
+      size="default"
+      dismissible
+      data-testid="payroll-dialog"
+    >
+      <div className="relative flex shrink-0 flex-col gap-1.5 px-5 pb-3.5 pt-4">
+        <p className="font-display text-[11px] uppercase tracking-[0.2em] text-brass-300">
+          The Nexus
+        </p>
+        <h2 id="payroll-dialog-title" className="font-stamp text-[23px] leading-none text-ink-100">
+          The payroll book
+        </h2>
+        <span aria-hidden className="ink-rule absolute inset-x-5 bottom-0" />
+      </div>
+      <div className="px-5 pb-5 pt-3.5">
+        <PayrollBook base={base} />
+      </div>
+    </Modal>
   );
 }
 

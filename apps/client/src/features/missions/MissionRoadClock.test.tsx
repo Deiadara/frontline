@@ -1,17 +1,20 @@
 import {
   MISC_AREA_ID,
+  columnSpeed,
+  fittedFor,
   formatDuration,
   hastenedMinutes,
   hastenedRoadMinutes,
   makeAttributes,
   missionTimings,
+  unitColumnSpeed,
   type MissionArea,
   type MissionLeader,
   type MissionOffer,
 } from '@frontline/shared';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MissionBoard } from './MissionBoard';
+import { MissionBoard, type MissionBoardProps } from './MissionBoard';
 
 /**
  * The two clocks in the send dialog, which have to be the same clock.
@@ -50,7 +53,7 @@ const offer: MissionOffer = {
   name: 'Long Haul',
   brief: 'A long way out and a long way back.',
   kind: 'standard',
-  difficulty: 'easy',
+  grade: 'E',
   travelMinutes: CARD_TRAVEL,
   durationMinutes: CARD_DURATION,
   totalMinutes: missionTimings({
@@ -64,10 +67,9 @@ const offer: MissionOffer = {
   payoutSlots: 8,
   xp: 100,
   failedXp: 20,
-  pagePrize: null,
-  authoredChance: 0.8,
   leanings: ['road'],
-  battleTier: null,
+  // Out of the opening band: this fixture is not about the ramp.
+  ramp: null,
 };
 
 const area: MissionArea = {
@@ -90,7 +92,7 @@ const officer: MissionLeader = {
   heldUntil: null,
 };
 
-function renderBoard() {
+function renderBoard(extra: Partial<MissionBoardProps> = {}) {
   return render(
     <MissionBoard
       areas={[area]}
@@ -105,14 +107,13 @@ function renderBoard() {
       // The card a unit's name opens comes off the roster; these fixtures draw names bare.
       roster={undefined}
       leaders={[officer]}
-      unledRule="free"
-      level={10}
       now={NOW}
       atCapacity={false}
       automated={false}
       pendingTemplateId={null}
       refusal={null}
       onLaunch={vi.fn()}
+      {...extra}
     />,
   );
 }
@@ -166,6 +167,47 @@ describe('the road the send dialog quotes', () => {
     const legs = [...formatDurationsUpTo(60)].find((entry) => entry.label === road)?.minutes;
     expect(legs).toBeDefined();
     expect(roundTrip).toBe(formatDuration(2 * (legs as number) + onSite));
+  });
+});
+
+/**
+ * The crew's own cuts off every road it walks (maintainer, 2026-09-23: "speed should affect every
+ * walk, missions too").
+ *
+ * The launch spends three of them on the run's clock and none on the card's: `travelSpeedPercent`
+ * (Stamina, Navigation) beside the ground's cut, the `road_shortcut` minutes off the end, and
+ * `unitSpeedPercent` on the pace of every walker. The dialog read none of the three, so a crew with
+ * any of them read a longer round trip than the one it walked. Nobody rides here, so the walkers'
+ * own pace is the column's and all three show.
+ */
+describe('the crew’s own road', () => {
+  it('comes off the quoted round trip the way the launch takes it off', () => {
+    const road = { travelSpeedPercent: 20, roadMinutesOff: 4, unitSpeedPercent: 30 };
+    renderBoard({ fleet: {}, road });
+    fireEvent.click(screen.getByTestId(`send-${offer.templateId}`));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('How many Razors'), { target: { value: '2' } });
+    fireEvent.click(within(dialog).getByTestId('send-leader'));
+    fireEvent.click(screen.getByRole('option', { name: /Reza Malik/ }));
+
+    const pace = columnSpeed({}, { razors: 2 }, (unitId) =>
+      unitColumnSpeed(unitId, {
+        percent: road.unitSpeedPercent,
+        fitted: fittedFor({}, unitId),
+        anyRide: false,
+      }),
+    );
+    const cut = GROUND_PERCENT + ARRIVAL_PERCENT;
+    const leg = hastenedRoadMinutes(
+      RAW_TRAVEL,
+      pace,
+      cut + road.travelSpeedPercent,
+      road.roadMinutesOff,
+    );
+    const onSite = hastenedMinutes(RAW_DURATION, cut);
+    expect(within(dialog).getByTestId('round-trip-clock').textContent).toBe(
+      formatDuration(2 * leg + onSite),
+    );
   });
 });
 

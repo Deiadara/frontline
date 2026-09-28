@@ -130,8 +130,9 @@ export function resolvePlayerXpAward(
   /**
    * The figure to pay instead of this source's table entry.
    *
-   * For sources whose worth is not a constant: a mission is priced off its own clock, its risk
-   * and the crew's level (`missionXp`), so the table entry is its *anchor* rather than its value.
+   * For sources whose worth is not a constant: a mission is priced off its own clock, its kind
+   * and the grade it was dealt (`missionXp`), so the table entry is its *anchor* rather than its
+   * value.
    * `bonusPercent` still applies on top, because the district's contribution is a fact about the
    * crew rather than about the job.
    */

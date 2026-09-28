@@ -238,19 +238,29 @@ export const NOTORIETY_TO_FIELD: Readonly<Record<UnitTier, number>> = {
   rabble: 0,
   specialist: 0,
   /**
-   * `Ill-Reputed`, the same as Heavy, and paired with it in {@link SLOT_GATED_TIERS}.
+   * `Whispered`, the same as Heavy, and paired with it in {@link SLOT_GATED_TIERS}.
    *
    * Zero until §D12i moved the Hollow Men out of Heavy and into the wonders of engineering. The
    * rank a unit asks for is about how big a deal it is, not about which shelf of the catalogue it
    * was filed on, and a taxonomy change is not supposed to hand every crew in the city a shock
    * trooper it had to earn the day before. The slot exemption below keeps the small engineered
    * units (Road Reavers, Kite Crews, Cyberhounds, the Twins) open to anybody, exactly as they were.
+   *
+   * The fourth rung since the ladder was repriced (maintainer, 2026-09-28): at the old prices the
+   * second rung was already weeks of fighting, and at the new ones it is a few days, so the gate
+   * moved up the ladder to keep a big engineered unit where it was meant to arrive, about a week
+   * and a half in for a crew that fights every day.
    */
-  wonder: 2,
-  /** `Ill-Reputed`. A heavy unit wants to hear the name before it turns up. */
-  heavy: 2,
-  /** `Marked`. A legend does not work for anybody the Combine has not opened a file on. */
-  legendary: 5,
+  wonder: 4,
+  /** `Whispered`, for the same reason. A heavy unit wants to hear the name before it turns up. */
+  heavy: 4,
+  /**
+   * `Feared`. A legend does not work for anybody the whole street is not already afraid of.
+   *
+   * It was `Marked`, the fifth rung, which the repriced ladder puts about two weeks in; the eighth
+   * keeps a legend where it was meant to be, about six weeks in (maintainer, 2026-09-28).
+   */
+  legendary: 8,
 };
 
 /**

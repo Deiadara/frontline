@@ -8,8 +8,10 @@ import { FeatLadder } from './FeatLadder';
 import { FeatsLedger } from './FeatsLedger';
 import { FeatsSidebar } from './FeatsSidebar';
 import { RewardTally } from './RewardTally';
+import { WasteDialog } from './WasteDialog';
 import { ALL_FEATS, countMatching, featBlocks, filterBlocks, type FeatFilter } from './featsList';
 import { featRefusalText } from './refusal';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The feats screen (maintainer request, 2026-09-13; rebuilt 2026-09-17).
@@ -46,6 +48,14 @@ export function FeatsPage() {
   const claiming = useClaimingFeats();
   const [filter, setFilter] = useState<FeatFilter>(ALL_FEATS);
   const [openKey, setOpenKey] = useState<string | null>(null);
+  /*
+   * The rung waiting on an answer to "this much would be lost", or null.
+   *
+   * Held by id rather than by object so that the quote is re-read from the live board each render:
+   * the screen refetches on every nudge the game sends, and a dialog drawn from a copy taken at
+   * press time would go on naming a figure the stores have moved past.
+   */
+  const [confirming, setConfirming] = useState<string | null>(null);
 
   const progress = query.data?.progress;
   // Both memos key off the response object: the live channel refetches this screen on almost every
@@ -78,8 +88,26 @@ export function FeatsPage() {
     );
   }
 
-  const { ready, claimed } = query.data;
+  const { ready, claimed, waste } = query.data;
   const open = shown.find((block) => block.key === openKey) ?? shown[0];
+
+  /*
+   * CLAIM, and the one case where it asks first.
+   *
+   * A reward is paid up to the district's ceilings and anything past them is discarded, so a rung
+   * the server has quoted a loss against opens the warning instead of firing the write. Everything
+   * else goes straight through, which is almost every press: the quote is only sent for the rungs
+   * that would actually lose something.
+   *
+   * The server refuses the unconfirmed claim anyway (`would_waste`), so this is the polite half
+   * rather than the safe half. Nothing is burned on the strength of a client's opinion.
+   */
+  const pressClaim = (featId: string) => {
+    if (waste[featId] !== undefined) setConfirming(featId);
+    else claim.mutate({ featId });
+  };
+  const confirmed = confirming === null ? undefined : waste[confirming];
+  const confirmedSpec = confirming === null ? undefined : findFeat(confirming);
 
   /*
    * The receipt, from whichever button was pressed.
@@ -219,13 +247,9 @@ export function FeatsPage() {
         </p>
       )}
       {claim.error && (
-        <p
-          role="alert"
-          className="shrink-0 rounded-sm border border-oxblood-300/50 bg-oxblood-500/10 px-3 py-2 font-body text-[13px] text-oxblood-100"
-          data-testid="feats-refusal"
-        >
+        <ErrorNote className="shrink-0" data-testid="feats-refusal">
           {featRefusalText(claim.error.message)}
-        </p>
+        </ErrorNote>
       )}
 
       {open === undefined ? (
@@ -248,13 +272,21 @@ export function FeatsPage() {
           data-blocks={shown.length}
         >
           <FeatsSidebar blocks={shown} selected={open.key} onSelect={setOpenKey} />
-          <FeatLadder
-            key={open.key}
-            block={open}
-            claiming={claiming}
-            onClaim={(featId) => claim.mutate({ featId })}
-          />
+          <FeatLadder key={open.key} block={open} claiming={claiming} onClaim={pressClaim} />
         </div>
+      )}
+
+      {confirming !== null && confirmed !== undefined && confirmedSpec !== undefined && (
+        <WasteDialog
+          spec={confirmedSpec}
+          waste={confirmed}
+          pending={claiming.has(confirming)}
+          onConfirm={() => {
+            claim.mutate({ featId: confirming, acceptWaste: true });
+            setConfirming(null);
+          }}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </PageShell>
   );

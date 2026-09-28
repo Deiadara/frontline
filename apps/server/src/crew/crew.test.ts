@@ -1,6 +1,5 @@
 import {
   crewSheet,
-  BENCH_SHARE,
   ATTRIBUTE_NAMES,
   ATTRIBUTES_BY_GROUP,
   PERK_CATALOG,
@@ -49,6 +48,7 @@ import {
 } from './standing.js';
 import { seatedRoles } from './roster.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /**
  * The crew layer end to end: the Training tab's rules over HTTP, and a positive control for each
@@ -91,7 +91,7 @@ function openStack(): Repositories {
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
 /** A plot whose kind pays `loot_capacity`, which no officer and no perk does. */
-const PAWN_SHOP = 'rustyard-pawn';
+const PAWN_SHOP = 'steelbelt-pawn';
 
 async function signIn(app: FastifyInstance): Promise<string> {
   const registered = await app.inject({
@@ -101,6 +101,7 @@ async function signIn(app: FastifyInstance): Promise<string> {
   });
   const token = registered.json<{ token: string }>().token;
   await chooseOverseer(app, token);
+  openDoors(app, token, 'crew');
   // This file reads the Overseer's own name and sheet off the page, and trains against their
   // attributes, so it wants a character it can name rather than whoever §F6 dealt.
   pinOverseer(app, token);
@@ -357,8 +358,10 @@ describe('the Training tab over HTTP', () => {
     const token = await signIn(app);
     const base = app.repos.bases.findByOwnerId(app.repos.users.findByUsername('driller')?.id ?? '');
     if (!base) throw new Error('no base');
+    // Seated: a perk on the bench pays nothing (maintainer, 2026-09-28), so a benched carrier
+    // would read zero here whether or not the channel reached the response.
     app.repos.bases.updateCommanders(base.id, [
-      createCommander('officer-1', 'Ada Vance', null, {}, ['ledger_hand'], 0),
+      createCommander('officer-1', 'Ada Vance', 'finance_officer', {}, ['ledger_hand'], 0),
     ]);
 
     const res = await app.inject({ method: 'GET', url: '/api/overseer/me', headers: auth(token) });
@@ -979,8 +982,8 @@ describe("the Overseer's teaching perk", () => {
  *
  * The Bar turns over at midnight and a good sheet walks away, so the pressure to sign is real and
  * the pressure to have already decided which chair was artificial. The bench removes the second
- * without removing the first: sign them now, seat them later, and pay for the delay in what they
- * contribute meanwhile.
+ * without removing the first: sign them now, seat them later, and pay for the delay with
+ * everything they would have contributed meanwhile, which is all of it (maintainer, 2026-09-28).
  */
 describe('the bench', () => {
   const HOUR = '2026-08-16T12:00:00.000Z';
@@ -1015,78 +1018,85 @@ describe('the bench', () => {
   }
 
   /**
-   * The price of the bench, and the reason it is not a free parking space.
+   * The bench is worth nothing (maintainer, 2026-09-28).
    *
-   * A seated officer is paid in full in the skills their chair uses. A benched one is paid the
-   * off-duty share in everything, which is the same share a seated officer gets in the skills
-   * their own chair does not care about. So signing somebody is always worth something and seating
-   * them is worth a great deal more.
-   *
-   * Asserted through `crewSheet`, which is where the share is actually applied. `crewSheetsFor`
-   * hands back each person's *raw* sheet with the peer lifts on it; reading that would have shown
-   * a benched officer at their full 40 and proved nothing about the discount.
+   * It used to pay a quarter of every rating (`BENCH_SHARE`), on the grounds that an officer in
+   * the room still knows what they know. The ruling is that an officer is unusable until seated,
+   * so the fold leaves them out entirely. Asserted through `crewSheet`, which is where a share
+   * would be applied, with the same person seated as the positive control: without it an empty
+   * sheet would pass for a fold that had stopped reading anybody.
    */
-  it('pays somebody with no chair the off-duty share of everything', () => {
-    const repos = openStack();
-    const base = roster(repos, [createCommander('benched', 'Bench', null, makeAttributes(40), [])]);
-
-    const sheet = crewSheet(crewSheetsFor(repos, base));
-    for (const name of ATTRIBUTE_NAMES) {
-      expect(sheet[name]).toBe(Math.round(40 * BENCH_SHARE));
-    }
-  });
-
-  /** And the same person in a chair is worth more, in what that chair is actually for. */
-  it('is worth less than the same person seated', () => {
+  it('pays somebody with no chair nothing, and the same person seated something', () => {
+    const benchRepos = openStack();
     const benched = crewSheet(
       crewSheetsFor(
-        openStack(),
-        roster(openStack(), [createCommander('x', 'X', null, makeAttributes(40), [])]),
+        benchRepos,
+        roster(benchRepos, [createCommander('x', 'X', null, makeAttributes(40), [])]),
       ),
     );
+    const seatRepos = openStack();
     const seated = crewSheet(
       crewSheetsFor(
-        openStack(),
-        roster(openStack(), [
+        seatRepos,
+        roster(seatRepos, [
           createCommander('x', 'X', 'master_of_whispers', makeAttributes(40), []),
         ]),
       ),
     );
 
-    // Ahead somewhere (the chair's own duties) and behind nowhere: the off-duty share is the floor
-    // a seat can never pay less than.
-    expect(ATTRIBUTE_NAMES.some((name) => seated[name] > benched[name])).toBe(true);
-    expect(ATTRIBUTE_NAMES.every((name) => benched[name] <= seated[name])).toBe(true);
+    expect(ATTRIBUTE_NAMES.every((name) => benched[name] === 0)).toBe(true);
+    expect(ATTRIBUTE_NAMES.some((name) => seated[name] > 0)).toBe(true);
   });
 
   /**
-   * A benched officer still lifts the people around them.
-   *
-   * Perks are things a person brought with them rather than something their chair does, so the
-   * bench does not switch them off. It is what makes signing a teacher you have nowhere to put a
-   * defensible move rather than a mistake.
+   * Their own perks are off too. They used to apply in full from the bench, on the grounds that a
+   * perk is something a person brought rather than something their chair does; the ruling makes no
+   * such exception. Read on `crewEffectsFor`, the fold production and costs are paid through.
    */
-  it('still carries a perk that lifts the other officers', () => {
+  it('applies no perk of theirs until they are seated', () => {
+    const perk = PERK_CATALOG.find((entry) => entry.bonus.kind === 'production');
+    if (!perk || perk.bonus.kind !== 'production') throw new Error('no such perk');
+
+    const effectsWith = (role: Commander['role'], perks: string[]) => {
+      const repos = openStack();
+      const base = roster(repos, [createCommander('x', 'X', role, makeAttributes(0), perks)]);
+      return crewEffectsFor(repos, base).productionPercent;
+    };
+
+    const none = effectsWith('master_of_whispers', []);
+    expect(effectsWith(null, [perk.id])).toBe(none);
+    expect(effectsWith('master_of_whispers', [perk.id])).toBe(none + perk.bonus.percent);
+  });
+
+  /**
+   * Nor do they lift the people around them. A teacher on the bench teaches nobody; the same
+   * teacher in a chair is the positive control.
+   */
+  it('does not lift the other officers from the bench', () => {
     const teacher = PERK_CATALOG.find((entry) => entry.bonus.kind === 'officer_attribute');
     if (!teacher || teacher.bonus.kind !== 'officer_attribute') throw new Error('no such perk');
     const { attribute, flat } = teacher.bonus;
 
-    const withTeacher = openStack();
-    const pairBase = roster(withTeacher, [
-      createCommander('benched', 'Bench', null, makeAttributes(20), [teacher.id]),
-      createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
-    ]);
-    const lifted = crewSheetsFor(withTeacher, pairBase).find(
-      (member) => member.role === 'master_of_whispers',
-    )!;
+    const whisperSheet = (teacherRole: Commander['role']) => {
+      const repos = openStack();
+      const base = roster(repos, [
+        createCommander('teacher', 'Teach', teacherRole, makeAttributes(20), [teacher.id]),
+        createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
+      ]);
+      return crewSheetsFor(repos, base).find((member) => member.role === 'master_of_whispers')!
+        .attributes;
+    };
 
     const alone = openStack();
-    const loneBase = roster(alone, [
-      createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
-    ]);
-    const unlifted = crewSheetsFor(alone, loneBase)[0]!;
+    const unlifted = crewSheetsFor(
+      alone,
+      roster(alone, [
+        createCommander('seated', 'Seat', 'master_of_whispers', makeAttributes(20), []),
+      ]),
+    )[0]!.attributes;
 
-    expect(lifted.attributes[attribute]).toBe(unlifted.attributes[attribute] + flat);
+    expect(whisperSheet(null)[attribute]).toBe(unlifted[attribute]);
+    expect(whisperSheet('fabricator')[attribute]).toBe(unlifted[attribute] + flat);
   });
 
   /** A chair holds one person. The bench holds everybody you have not placed. */
@@ -1098,7 +1108,9 @@ describe('the bench', () => {
       createCommander('three', 'Three', null, makeAttributes(20), []),
     ]);
 
-    expect(crewSheetsFor(repos, base)).toHaveLength(3);
+    // On the books, all three, and in the fold, none of them.
+    expect(base.commanders).toHaveLength(3);
+    expect(crewSheetsFor(repos, base)).toHaveLength(0);
     expect(seatedRoles(base.commanders)).toEqual([]);
   });
 });
@@ -1153,8 +1165,8 @@ describe('the Gate, from the district into a fight', () => {
     const none = withGateAt(0);
     const raised = withGateAt(6);
 
-    const without = standingEffectsFor(none.repos, none.base).defensePercent;
-    const with6 = standingEffectsFor(raised.repos, raised.base).defensePercent;
+    const without = standingEffectsFor(none.repos, none.base).gatePercent;
+    const with6 = standingEffectsFor(raised.repos, raised.base).gatePercent;
 
     expect(with6).toBeGreaterThan(without);
   });
@@ -1163,8 +1175,8 @@ describe('the Gate, from the district into a fight', () => {
     const low = withGateAt(2);
     const high = withGateAt(10);
 
-    expect(standingEffectsFor(high.repos, high.base).defensePercent).toBeGreaterThan(
-      standingEffectsFor(low.repos, low.base).defensePercent,
+    expect(standingEffectsFor(high.repos, high.base).gatePercent).toBeGreaterThan(
+      standingEffectsFor(low.repos, low.base).gatePercent,
     );
   });
 

@@ -38,7 +38,7 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // The Docks' gate tower: the plate stands at its foot, on the quay.
   'neon-docks': { x: 0.78, y: 0.4 },
   // The timber gate in the Steelbelt's palisade: on the road outside it, where a sign would be.
-  rustyard: { x: 0.27, y: 0.79 },
+  steelbelt: { x: 0.27, y: 0.79 },
   // Chrome Row's timber gate closes the bottom of the plaza; the sign stands on the stone just
   // above its beam, clear of the two guards under it.
   'chrome-row': { x: 0.53, y: 0.705 },
@@ -49,18 +49,28 @@ export const GATE_MARK: Readonly<Record<string, Mark>> = {
   // The Annexes' stone gate and its two towers close the bottom of the square. Down and to the
   // left of the arch, on the lit road, so it covers the gate as little as it can and still reads
   // as its sign. Not lower: the plate room crops the bottom tenth at 1024x768.
-  'datavault-sigma': { x: 0.425, y: 0.83 },
+  annexes: { x: 0.425, y: 0.83 },
   // Glasshouse Fields' timber gate and watch post close the bottom edge, labelled "Wooden District
   // Gate" on the board's copy. The sign stands on the road above the beam, left of the watch post,
   // so it names the gate without sitting on the gateway.
   'glasshouse-fields': { x: 0.41, y: 0.685 },
   // The Blacksite has no gate on its bottom edge: the way in is the great gate of the fortified
   // compound at upper left, under the red banners. The sign stands on the road at its foot.
-  'blacksite-7': { x: 0.245, y: 0.415 },
+  blacksite: { x: 0.245, y: 0.415 },
   // The CCS's gatehouse closes the bottom of the painting, left of centre. The sign stands on
   // the road under its arch rather than on the arch, and no lower: the plate is 2.098:1, so at
   // the worst band the bottom tenth is under the nav and a shut gate's plate stands 26px.
-  'combine-spire': { x: 0.43, y: 0.838 },
+  ccs: { x: 0.43, y: 0.838 },
+  // Coldwater Halt's gatehouse is the stone block in the middle of the frame, the one with the
+  // barred iron gate and the red signal lamps burning either side of it. The sign stands on the
+  // stone wall to the left of the gate rather than across the bars, so it names the gate without
+  // covering the thing that tells a player whether it is shut.
+  'coldwater-halt': { x: 0.55, y: 0.3 },
+  // Ironmouth's way in is the tunnel mouth itself: the arched portal at top centre, closed by a
+  // red barred gate with signal lamps burning either side of it. The sign stands on the timber
+  // deck below the bars rather than across them, so it names the gate without covering the thing
+  // that tells a player whether it is shut.
+  ironmouth: { x: 0.525, y: 0.22 },
 };
 
 export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
@@ -91,20 +101,20 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    * Steelbelt, the same way. The Breaker's Yard sign stands on the dirt between the gantry and
    * the Slag Bowl rather than under the gantry, because everything under the gantry is a machine.
    */
-  'rustyard-press': { x: 0.16, y: 0.395 },
-  'rustyard-bonefield': { x: 0.545, y: 0.36 },
+  'steelbelt-press': { x: 0.16, y: 0.395 },
+  'steelbelt-bonefield': { x: 0.545, y: 0.36 },
   // Up and to the left of the shop, on the open ground inside the palisade, so it stands clear of
   // the District Gate sign below it rather than sitting on the gate arch.
-  'rustyard-pawn': { x: 0.245, y: 0.6 },
+  'steelbelt-pawn': { x: 0.245, y: 0.6 },
   // Inside the bowl, on its floor, between the people standing in it rather than on one of them.
   // Read off a gridded crop of the plate: the people in the bowl stand at about (0.45, 0.65),
   // (0.56, 0.70) and (0.50, 0.75); this band of floor between them is the one nobody is on.
-  'rustyard-ramp': { x: 0.52, y: 0.605 },
+  'steelbelt-ramp': { x: 0.52, y: 0.605 },
   // On the road at the row's left end rather than under it: the plate room crops the bottom tenth
   // of the painting at 1024x768, and a sign at 0.94 was not on screen there at all.
-  'rustyard-pumps': { x: 0.7, y: 0.86 },
-  'rustyard-kennels': { x: 0.885, y: 0.66, side: 'left' },
-  'rustyard-bones': { x: 0.87, y: 0.31, side: 'left' },
+  'steelbelt-pumps': { x: 0.7, y: 0.86 },
+  'steelbelt-kennels': { x: 0.885, y: 0.66, side: 'left' },
+  'steelbelt-bones': { x: 0.87, y: 0.31, side: 'left' },
 
   /*
    * Chrome Row, read off the 3780x1800 delivery against a twentieth grid. No labelled copy was
@@ -152,13 +162,13 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    * The square in the middle is left clear, because it is the one part of this painting a player
    * reads the whole shape of.
    */
-  'datavault-sigma-uplink': { x: 0.215, y: 0.195 },
-  'datavault-sigma-ward': { x: 0.39, y: 0.335 },
-  'datavault-sigma-orrery': { x: 0.55, y: 0.29 },
-  'datavault-sigma-coldrow': { x: 0.725, y: 0.35 },
-  'datavault-sigma-faculty': { x: 0.275, y: 0.635 },
-  'datavault-sigma-loft': { x: 0.585, y: 0.615 },
-  'datavault-sigma-scaffold': { x: 0.77, y: 0.73 },
+  'annexes-uplink': { x: 0.215, y: 0.195 },
+  'annexes-ward': { x: 0.39, y: 0.335 },
+  'annexes-orrery': { x: 0.55, y: 0.29 },
+  'annexes-coldrow': { x: 0.725, y: 0.35 },
+  'annexes-faculty': { x: 0.275, y: 0.635 },
+  'annexes-loft': { x: 0.585, y: 0.615 },
+  'annexes-scaffold': { x: 0.77, y: 0.73 },
 
   /*
    * Glasshouse Fields, read off the board's labelled copy (`images/labels-glasshouse.jpg`,
@@ -191,9 +201,9 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    * on the concrete at its foot. The watchtower's sign is on the tower's shaft under its banner,
    * because the tower stands straight out of the armoury's roof and has no ground of its own.
    */
-  'blacksite-7-outer': { x: 0.14, y: 0.6 },
-  'blacksite-7-watchtower': { x: 0.415, y: 0.335 },
-  'blacksite-7-drill': { x: 0.685, y: 0.35 },
+  'blacksite-outer': { x: 0.14, y: 0.6 },
+  'blacksite-watchtower': { x: 0.415, y: 0.335 },
+  'blacksite-drill': { x: 0.685, y: 0.35 },
   /*
    * Above the glass, not below it (maintainer, 2026-09-15).
    *
@@ -205,14 +215,14 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    * within a sign's height of it on the widest. `x` is the sign's right edge (it grows left),
    * placed so the plate is centred over the room.
    */
-  'blacksite-7-blackward': { x: 0.955, y: 0.415, side: 'left' },
-  'blacksite-7-armory': { x: 0.43, y: 0.705 },
-  'blacksite-7-motorpool': { x: 0.655, y: 0.745 },
-  'blacksite-7-pile': { x: 0.9, y: 0.715 },
-  'blacksite-7-pit17': { x: 0.2, y: 0.745 },
+  'blacksite-blackward': { x: 0.955, y: 0.415, side: 'left' },
+  'blacksite-armory': { x: 0.43, y: 0.705 },
+  'blacksite-motorpool': { x: 0.655, y: 0.745 },
+  'blacksite-pile': { x: 0.9, y: 0.715 },
+  'blacksite-pit17': { x: 0.2, y: 0.745 },
 
   /*
-   * The CCS (`plate-district-combine-spire`, 1817x866, 2026-09-20). Read off the maintainer's
+   * The CCS (`plate-district-ccs`, 1817x866, 2026-09-20). Read off the maintainer's
    * mark-up of a 1380x602 cover-fitted band, then converted to plate fractions: that band shows
    * the plate with 4.25% cropped off the top and the bottom, so a band `y` is `0.0425 + 0.915 y`
    * on the plate. Each sign sits just under the thing it names, on open ground: the road under
@@ -229,12 +239,132 @@ export const LOCATION_MARKS: Readonly<Record<string, Mark>> = {
    * within a pixel, so the three new figures are read off the same ruler rather than guessed.
    * The callout's top edge is the sign's top edge, which is what `Mark.y` means.
    */
-  'combine-spire-uplink': { x: 0.16, y: 0.29 },
-  'combine-spire-chapel': { x: 0.439, y: 0.285 },
-  'combine-spire-ascension': { x: 0.6, y: 0.395 },
-  'combine-spire-broadcast': { x: 0.822, y: 0.455 },
-  'combine-spire-martyrs': { x: 0.467, y: 0.532 },
-  'combine-spire-armory': { x: 0.649, y: 0.491 },
-  'combine-spire-scaffold': { x: 0.94, y: 0.701, side: 'left' },
-  'combine-spire-household': { x: 0.222, y: 0.481 },
+  'ccs-uplink': { x: 0.16, y: 0.29 },
+  'ccs-chapel': { x: 0.439, y: 0.285 },
+  'ccs-ascension': { x: 0.6, y: 0.395 },
+  'ccs-broadcast': { x: 0.822, y: 0.455 },
+  'ccs-martyrs': { x: 0.467, y: 0.532 },
+  'ccs-armory': { x: 0.649, y: 0.491 },
+  'ccs-scaffold': { x: 0.94, y: 0.701, side: 'left' },
+  'ccs-household': { x: 0.222, y: 0.481 },
+
+  /*
+   * Coldwater Halt (`plate-district-coldwater-halt`, 3780x1800, 2026-09-24), the first painted
+   * district of the second city.
+   *
+   * These are the maintainer's own anchors, read off a mock-up of the painting, with one moved:
+   * the Distant Signal was marked at y 0.113, which put it under the ground box's toggle at
+   * 1280x720. The toggle floats over the plate's top-right corner at `z-20` and takes the pointer,
+   * so a sign there is drawn and unclickable, which is the failure `plateFit.test.ts` was written
+   * for after Chrome Row's Overlook sat in the same corner. It has come down the tower to the
+   * walkway under the lit signal cabin, which is the first band of the painting clear of the
+   * toggle, and it grows left because it stands at the right edge.
+   *
+   * The rest stand where they were marked: the canopy's left end for the platform, the arcade's
+   * awnings for the market, the tents for Tent Row, the cookhouse counter for the kitchens, and
+   * the open yard under the tank for the standpipe and the fuelling point below it.
+   */
+  // Down onto the platform deck from the maintainer's y 0.138, which was on the canopy's roof and
+  // underneath the screen's own header strip. That strip carries the back link, the district's
+  // plaque and, on gated ground, the gate's state and the spy control, and it is
+  // `pointer-events-auto`: measured at 1280x720 it runs to x 565 and covers the plate down to
+  // y 0.184, so the sign was drawn, unreadable and unclickable. `plateFit.test.ts` measures that
+  // corner now, the way it already measured the ground box's.
+  'coldwater-halt-platform': { x: 0.3, y: 0.215 },
+  'coldwater-halt-market': { x: 0.117, y: 0.355 },
+  'coldwater-halt-kitchens': { x: 0.432, y: 0.622 },
+  'coldwater-halt-standpipe': { x: 0.153, y: 0.663 },
+  'coldwater-halt-fuelling': { x: 0.116, y: 0.744 },
+  'coldwater-halt-tentrow': { x: 0.739, y: 0.154 },
+  'coldwater-halt-signal': { x: 0.931, y: 0.195, side: 'left' },
+
+  /*
+   * Ironmouth (`plate-district-ironmouth`, 3780x1800, 2026-09-24), the second painted district
+   * of Terminus and the densest painting in the game: a tunnel mouth in a ridge with a town on the
+   * terraces either side of it.
+   *
+   * No labelled copy came with it, so these are placed by eye against a twentieth grid, the way
+   * Chrome Row's and the Blacksite's were, and then checked at 1280x720 and 1920x1080. There is
+   * almost no open ground in this picture, so each sign hangs on the quietest surface under the
+   * feature it names: wet rock below a terrace, the platform's own paving, the deck under the
+   * portal.
+   *
+   * Two were moved off the feature itself for the floating controls `plateFit.test.ts` measures.
+   * The Spoil Heap sits under the tip's own terrace rather than on it, because the screen's header
+   * strip runs to x 565 and covers the plate down to y 0.184 at 1280x720. The Tunnel Chapel hangs
+   * on the walkway below the chapel rather than beside its window, which keeps it clear of the
+   * ground box's toggle in the top-right corner and off the stained glass that identifies it.
+   */
+  // The lit platform paving beside the standing train, at the near end of the canopy.
+  'ironmouth-halt': { x: 0.495, y: 0.605 },
+  // The stacks run from y 0.24 to the foot of the frame at the far left, and the only ground under
+  // them that is not pipework is the dark rock at the bottom. It grows right because it stands at
+  // the left edge.
+  'ironmouth-shafts': { x: 0.015, y: 0.835, side: 'right' },
+  // The rock below the arch row's front walkway, under the middle of the three bricked arches.
+  'ironmouth-arches': { x: 0.73, y: 0.545 },
+  // Under the green-lit vats, on the steam at the works' lower right corner.
+  'ironmouth-shaftnine': { x: 0.185, y: 0.735 },
+  'ironmouth-spoil': { x: 0.185, y: 0.225 },
+  'ironmouth-chapel': { x: 0.765, y: 0.235 },
+  // The wet street at the foot of the shopfront row, rather than over the lit windows themselves.
+  'ironmouth-lampman': { x: 0.675, y: 0.845 },
+
+  /*
+   * The Marshalling Yards (`plate-district-marshalling-yards`, 3780x1800, 2026-09-25), the third
+   * painted district of Terminus: sixty miles of siding seen across the whole frame.
+   *
+   * Placed by eye against a twentieth grid and then against quarter-tenth crops of each quarter,
+   * the way Ironmouth's were. The painting is wide and shallow, so the quiet ground is the track
+   * apron rather than a street: most of these hang on ballast or wet concrete under the thing they
+   * name, and none is above y 0.184, which is how far the screen's header strip covers the plate
+   * at 1280x720 (`plateFit.test.ts`).
+   *
+   * Box Nine is the exception to "on open ground": it is a signal box on stilts and the only thing
+   * under it is its own tower, so the sign hangs on the tower under the lit cabin, the way the
+   * Distant Signal does at Coldwater.
+   */
+  // The pale track apron between the hump's gantry and the first rank of parked wagons.
+  'marshalling-yards-hump': { x: 0.265, y: 0.215 },
+  // On the tower, under the three teal screens that identify the cabin.
+  'marshalling-yards-signalbox': { x: 0.185, y: 0.335 },
+  // The open ground to the right of the coal bunkers, under the fuel tanks above them.
+  'marshalling-yards-coalstage': { x: 0.185, y: 0.505 },
+  // The yard floor between the stripped wheelsets and the cut frames behind them.
+  'marshalling-yards-breakers': { x: 0.22, y: 0.735 },
+  // The wet street in front of the mess room, left of its awnings and the tables under them.
+  'marshalling-yards-messroom': { x: 0.45, y: 0.8 },
+  // The road along the front of the sheds, below the open doors and the furnaces burning in them.
+  'marshalling-yards-sheds': { x: 0.765, y: 0.375 },
+  // The wet apron below the arched shed, clear of the platform deck and its lamps.
+  'marshalling-yards-platformfour': { x: 0.785, y: 0.815 },
+
+  /*
+   * Bonded Row (`plate-district-bonded-row`, 3780x1800, 2026-09-25), the fourth painted district of
+   * Terminus and the one the maintainer sent a labelled copy of.
+   *
+   * The labelled copy is a crop rather than the delivered frame, so its anchors do not transfer as
+   * fractions: what it settled is *which* feature each name belongs to, and each sign is then
+   * placed against the delivered painting itself. Crates are stacked to the roofline across most
+   * of this picture, so as at Ironmouth the quiet surface is wet concrete under the feature rather
+   * than beside it.
+   */
+  // The open floor to the right of the crate hanging off the gantry, clear of the stacks behind it.
+  'bonded-row-crated': { x: 0.2, y: 0.295 },
+  // The floor in front of the market shed, below the lit trestles rather than across them.
+  'bonded-row-longbond': { x: 0.28, y: 0.42 },
+  // The wet road below the office's corner, between it and the two figures standing on the track.
+  'bonded-row-seized': { x: 0.435, y: 0.625 },
+  // The ring's own floor, between the rope above it and the two fighters below.
+  'bonded-row-ring': { x: 0.508, y: 0.742 },
+  // The ground in front of the goods shed, below the standing train and clear of the signal post.
+  'bonded-row-halt': { x: 0.68, y: 0.415 },
+  // The apron in front of the cutting floor, left of the trays and under the hanging carcasses.
+  'bonded-row-rendering': { x: 0.7, y: 0.625 },
+  // The kennel floor above the handlers and their dogs, inside the run rather than outside it.
+  'bonded-row-kennels': { x: 0.15, y: 0.705 },
+  // The wet ground below the clinic's curtained front, clear of the trolleys standing on it. Up
+  // from y 0.88, which put the plate's bottom edge at 0.910 against a visible band that ends at
+  // 0.897 in the worst viewport the plate room measures (`plateFit.test.ts`, 1280x484).
+  'bonded-row-coldstore': { x: 0.725, y: 0.855 },
 };

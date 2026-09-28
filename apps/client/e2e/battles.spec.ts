@@ -36,9 +36,8 @@ test('the list scans, and opening a fight says what is on the ground', async ({ 
   await page.goto('/game/battles');
 
   await expect(page.getByRole('heading', { name: 'Battles' })).toBeVisible();
-  await expect(page.getByTestId('board-infamy')).toHaveText(
-    `${battles.infamy.toLocaleString()} infamy`,
-  );
+  // The infamy counter that stood in the title bar is gone (maintainer, 2026-09-28).
+  await expect(page.getByTestId('board-infamy')).toHaveCount(0);
 
   const coming = page.getByTestId('coming-battles');
   await expect(coming.getByText('Kessler Press')).toBeVisible();
@@ -352,10 +351,19 @@ test('a report reads as a document, and a silent one says so instead of showing 
   await page.getByTestId('read-fight-3').click();
   const report = page.getByTestId('battle-report');
   await expect(report).toBeVisible();
-  // The header states the outcome, the ground and how long it took. The round count was on the
-  // analysis from the start and drawn nowhere, so a one-round rout and a five-round grind read the
-  // same.
-  await expect(report.getByText('Held · Ninth Street Pawn · 5 rounds')).toBeVisible();
+  // The header states the outcome, the ground and how long it took (a one-round rout and a
+  // five-round grind must not read the same), and the headline says what became of the ground.
+  await expect(report.getByText('Won · Ninth Street Pawn · 5 rounds')).toBeVisible();
+  await expect(report.getByRole('heading', { name: 'Ninth Street Pawn is yours' })).toBeVisible();
+  // Final figures, not a story (maintainer, 2026-09-28): no round-by-round log on the sheet.
+  await expect(page.getByRole('dialog').getByText(/^Round 4:/)).toHaveCount(0);
+  // The outcome row: the ground, the infamy, the spoils and the rounds, each behind a drawn icon
+  // that says what it means on the hover.
+  const outcome = page.getByTestId('report-outcome');
+  await expect(outcome).toContainText('Captured');
+  await expect(outcome).toContainText('Spoils');
+  await expect(outcome.getByTestId('report-glyph-infamy')).toHaveAttribute('data-tip', /Infamy/);
+  await expect(outcome.getByTestId('report-glyph-spoils')).toHaveAttribute('data-tip', /Spoils/);
   // The things the maintainer asked a report to answer, on screen at once.
   await expect(page.getByText('Snipers').first()).toBeVisible();
   await expect(page.getByText('61%')).toBeVisible();
@@ -371,14 +379,19 @@ test('a report reads as a document, and a silent one says so instead of showing 
   const dialog = page.getByRole('dialog');
   const labelsOf = (tone: 'mine' | 'theirs') =>
     dialog.getByTestId(`report-side-${tone}`).locator('dl dt').allTextContents();
-  const mine = await labelsOf('mine');
+  const mine = (await labelsOf('mine')).map((label) => label.trim());
   expect(mine, 'the ledger lost its rows').toContain('Caught by the ring');
   expect(mine).toContain('Infamy earned');
+  expect(mine).toContain('Died');
+  expect(mine).toContain('Fled');
   // §D3: intimidation is settled before the first shot and was never drawn anywhere at all.
   expect(mine, 'the intimidated are still invisible').toContain('Too intimidated to fire');
   // A ring is a fight now, so what it paid is a number the report has to carry.
   expect(mine).toContain('Lost holding the ring');
-  expect(await labelsOf('theirs'), 'the two ledgers do not line up').toEqual(mine);
+  expect(
+    (await labelsOf('theirs')).map((label) => label.trim()),
+    'the two ledgers do not line up',
+  ).toEqual(mine);
 
   /*
    * Each side is headed by the crew it is about, in full.
@@ -397,8 +410,6 @@ test('a report reads as a document, and a silent one says so instead of showing 
 
   // §D1: who led and what came of them. On the analysis since officers could lead, drawn nowhere.
   await expect(dialog.getByTestId('report-officer-mine')).toContainText('led, and put out 940');
-  // The ring held on this fixture, and that is different information from who it caught.
-  await expect(dialog.getByText('The ring held, and the withdrawal broke on it.')).toBeVisible();
 
   await settleFonts(page);
   /*
@@ -592,7 +603,7 @@ test('a quiet day draws no mark', async ({ page }) => {
  * wide) with the page's own `forecast`: **73% without her and 20% under her**.
  */
 test('the forecast counts the Combine legendary standing over the ground', async ({ page }) => {
-  const leaderDistrict = 'datavault-sigma';
+  const leaderDistrict = 'annexes';
   const fight = battles.coming[0]!;
   // A fight against the regime, on his ground, with a force big enough for his power to decide it.
   const against = {

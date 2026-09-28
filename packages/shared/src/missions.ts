@@ -2,13 +2,15 @@ import { z } from 'zod';
 import { InventorySchema } from './items/inventory.js';
 import { cancelWindowMs, cancelWindowOpen } from './time/cancel.js';
 import { FleetSchema } from './building/vehicles.js';
-import { MissionDifficultySchema } from './delegation/delegation.js';
-import {
-  BATTLE_TIER_REWARD,
-  BattleTierSchema,
-  MissionLeaningSchema,
-  type BattleTier,
-} from './missions.leading.js';
+import { OfficerMarkSchema } from './crew/marks.js';
+import { fightLift, gradePay, gradedDurationMinutes, type Grade } from './missions.grade.js';
+import { MissionLeaningSchema } from './missions.leading.js';
+import { RESOURCE_CAP_VALUE } from './market/offers.js';
+import { CORE_JOBS } from './mission-catalog/core.js';
+import { STREET_JOBS } from './mission-catalog/street.js';
+import { DISTRICT_JOBS } from './mission-catalog/district.js';
+import { STRONGHOLD_JOBS } from './mission-catalog/stronghold.js';
+import { MAYHEM_JOBS } from './mission-catalog/mayhem.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { PartialResourcesSchema, type PartialResources, type ResourceKey } from './resources.js';
 import { ArmySchema } from './units/index.js';
@@ -70,15 +72,15 @@ export const MissionTemplateSchema = z.object({
   brief: z.string().min(1),
   kind: MissionKindSchema,
   /**
-   * How hard the job is, authored per mission rather than derived from `kind` or length: a
-   * day-long standard expedition beyond the wire is not "easy" just because nobody shoots at you.
+   * The lowest and highest grade this job is dealt at (maintainer, 2026-09-28).
    *
-   * It used to be the §G6 gate, where a hard run refused to go out without an officer at the head
-   * of it. Who leads a run is a general rule now (`missions.leading.ts`) and it asks the same
-   * question of every job. What still reads this is the card, which says what a job is asking of a
-   * crew, and `pagePrizeOdds`, which puts a blueprint page on a hard job more often.
+   * A job is not one difficulty: the same scrap run can be an easy F- in a quiet week and a tense
+   * E when the yard has a guard on it. The board deals a grade from the crew's level
+   * (`missions.grade.ts`) and puts a job on the card whose range covers it, and the grade then
+   * sets the odds, the force a fight fields, the pay and how much longer than `durationMinutes`
+   * the work takes. A fight's range stays inside one of Skirmish, Battle, Siege or Mayhem.
    */
-  difficulty: MissionDifficultySchema,
+  grades: z.tuple([OfficerMarkSchema, OfficerMarkSchema]),
   travelBand: TravelBandSchema,
   durationMinutes: z
     .number()
@@ -86,40 +88,26 @@ export const MissionTemplateSchema = z.object({
     .min(MISSION_MIN_DURATION_MINUTES)
     .max(MISSION_MAX_DURATION_MINUTES),
   /**
-   * The thematic mix (§E1), authored as the bundle this mission would pay at
-   * `REWARD_BASELINE_MINUTES`. The *amounts* a run actually pays come from `missionRewards`,
-   * so two missions sharing a mix but not a length pay differently, purely by the §E5 curve.
+   * The thematic mix (§E1): which resources a job pays in, and in what proportion. A Timber Pull
+   * comes home with timber.
    *
-   * ## What has to be equal, and what is allowed to differ
+   * ## Only the proportions are authored
    *
-   * Which resources, and in what proportion, is the whole point of this field and is authored per
-   * job: a Timber Pull comes home with timber. **What it is worth is not.** Every bundle on the
-   * board is priced so that
+   * **What a bundle is worth is not.** `missionRewards` prices every mix to {@link BUNDLE_VALUE}
+   * caps at `REWARD_BASELINE_MINUTES` before the §E5 clock curve, the kind and the grade move it,
+   * so two jobs of the same length, kind and grade pay the same whatever they pay it in.
    *
-   *     capsOf(spoils) x successChance  =  143, give or take 15%
-   *
-   * where the caps valuation is `market/offers.ts`. Expected value rather than face value, so a risky job
-   * *quotes* more and averages the same, which is what makes `successChance` a real number rather
-   * than decoration.
-   *
-   * Hold that steady and §E5's curve is the only thing left moving, which is what §E5 claims: pay
-   * grows with length and the *rate* falls, so a short run is the better hourly and a long one is
-   * what you launch before you log off. It did not hold. The raw bundles varied 9.4x, the variation
-   * was correlated with length, and the two multiplied: the board's best rate was a 140-minute raid
-   * at 795 caps an hour and its worst was an 18-minute errand at 78, which is the exact inverse of
-   * the rule and made most of the board unreadable. It is 4.2x now, and it falls with length.
-   *
-   * A new mission is priced by that formula first and adjusted for flavour second. A bundle worth
-   * noticeably more or less than its neighbours is a balance change, not a detail of the brief.
+   * It used to be priced by hand: each bundle authored so that its value times its success chance
+   * came to 143, give or take 15%. That held a catalogue of thirty-eight together and would not
+   * have held three hundred, and the success chance it was priced against stopped being a fact
+   * about the job when the odds moved to the leader's grade.
    */
   spoils: PartialResourcesSchema,
-  /** Chance the run succeeds outright, before whoever leads it moves it (`missions.leading.ts`). */
-  successChance: z.number().min(0).max(1),
   /**
-   * What the job leans on in whoever leads it, when the default reading of the card is wrong
-   * (`leaningsFor`). Most jobs leave it out and are read off their kind and their distance.
+   * What the job leans on in whoever leads it (`missions.leading.ts`), one to three. A fight
+   * always leans on `fight`; plain work never does.
    */
-  leanings: z.array(MissionLeaningSchema).min(1).optional(),
+  leanings: z.array(MissionLeaningSchema).min(1).max(3),
 });
 export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
 
@@ -133,527 +121,11 @@ export type MissionTemplate = z.infer<typeof MissionTemplateSchema>;
  * What a job asks of a crew is its kind, its distance and what it leans on, and those are here.
  */
 export const MISSION_TEMPLATES: readonly MissionTemplate[] = [
-  {
-    id: 'scrap-run',
-    name: 'Scrap Run',
-    brief:
-      'The overpass came down in the spring and nobody has cleared it. Two blocks out. Take the crew, take the cutters, come back heavy.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 3,
-    spoils: { scrap: 34, planks: 26, caps: 4 },
-    successChance: 0.97,
-  },
-  {
-    id: 'ration-run',
-    name: 'Ration Run',
-    brief:
-      'There is a growing bay under the market that still has power. Whoever runs it keeps strange hours. Go while the lights are off.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 12,
-    spoils: { supplies: 87, caps: 20 },
-    successChance: 0.95,
-  },
-  {
-    id: 'convoy-ambush',
-    name: 'Convoy Ambush',
-    brief:
-      'Combine ration trucks take the ring road at dusk. Four minutes of work if it goes well. The escort is paid to make sure it does not.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'close',
-    durationMinutes: 25,
-    spoils: { caps: 90, oil: 60 },
-    successChance: 0.78,
-  },
-  {
-    id: 'fuel-siphon',
-    name: 'Fuel Siphon',
-    brief:
-      'Shift change at the Combine tank farm leaves twenty minutes with nobody watching the valves. Bring hose. Bring somebody who can stay quiet that long.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'further',
-    durationMinutes: 45,
-    spoils: { oil: 69, scrap: 15 },
-    successChance: 0.93,
-    leanings: ['haul', 'salvage', 'stealth'],
-  },
-  {
-    id: 'foundry-raid',
-    name: 'Foundry Raid',
-    brief:
-      'The Combine smelter pours at two in the morning. Walk in while the metal is still moving and walk out with it finished. The floor crew will not thank you.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 60,
-    spoils: { highQualityMetal: 10, scrap: 41 },
-    successChance: 0.74,
-  },
-  {
-    id: 'courier-contract',
-    name: 'Courier Contract',
-    brief:
-      'A Combine broker wants a sealed crate carried three districts over. He is not saying what is in it and you are not asking. Late is worse than light.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'further',
-    durationMinutes: 90,
-    spoils: { caps: 134 },
-    successChance: 0.91,
-    leanings: ['haul', 'salvage', 'talk'],
-  },
-  {
-    id: 'curfew-sweep',
-    name: 'Curfew Sweep',
-    brief:
-      'The Combine is short of people on the lower tiers, so it is paying crews to hold its curfew for it. Good money. Your neighbours will remember who took it.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'close',
-    durationMinutes: 40,
-    // Combine pay: caps and the metal a state armoury can spare, never supplies it would rather ration.
-    spoils: { caps: 88, highQualityMetal: 5 },
-    successChance: 0.82,
-    leanings: ['fight', 'talk'],
-  },
-  {
-    id: 'refinery-assault',
-    name: 'Refinery Assault',
-    brief:
-      'Take the outer Combine refinery and sit on it long enough to empty the alloy store. Getting in is loud. Holding it is the hard part.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 480,
-    spoils: { highQualityMetal: 11, oil: 27, scrap: 21 },
-    successChance: 0.7,
-  },
-  {
-    id: 'deep-expedition',
-    name: 'Deep Expedition',
-    brief:
-      'A full day out, past the last checkpoint, into ground nobody has mapped since the flood. No word from them until they are back at the gate.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: MISSION_MAX_DURATION_MINUTES,
-    spoils: { caps: 15, supplies: 15, oil: 11, scrap: 18, planks: 15, highQualityMetal: 2 },
-    successChance: 0.88,
-  },
-
-  // --- the wider board ---------------------------------------------------------------------
-  //
-  // Nine jobs meant every area drew from almost the whole catalogue and two boards a district
-  // apart looked much the same. What follows fills it out to something a player can read as a
-  // city: work at every distance band and both kinds, so a three-card board is a
-  // choice rather than a sample of the whole list.
-  {
-    id: 'water-run',
-    name: 'Water Run',
-    brief:
-      'A standpipe two streets over runs clean for about an hour after the pumps cycle. Bring every drum you own and somebody to watch the corner.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 8,
-    spoils: { supplies: 83, caps: 25 },
-    successChance: 0.96,
-  },
-  {
-    id: 'cable-strip',
-    name: 'Cable Strip',
-    brief:
-      'Half a block of Combine conduit nobody has pulled yet, because the ceiling above it is not holding much. Copper all the way down.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 18,
-    spoils: { scrap: 61, highQualityMetal: 2 },
-    successChance: 0.92,
-    leanings: ['haul', 'salvage', 'stealth'],
-  },
-  {
-    id: 'timber-pull',
-    name: 'Timber Pull',
-    brief:
-      'The old market hall is coming down whether anybody helps it or not. Take the joists before it decides for itself.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 22,
-    spoils: { planks: 56, scrap: 12 },
-    successChance: 0.94,
-  },
-  {
-    id: 'checkpoint-shakedown',
-    name: 'Checkpoint Shakedown',
-    brief:
-      'A two-man Combine post on a road nobody official uses. They will not radio it in, because they are not supposed to be there either.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'close',
-    durationMinutes: 15,
-    spoils: { caps: 78, scrap: 47 },
-    successChance: 0.84,
-  },
-  {
-    id: 'debt-collection',
-    name: 'Debt Collection',
-    brief:
-      'Somebody owes a broker and the broker is paying to have it explained to them. Nothing about this is complicated.',
-    kind: 'battle',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 20,
-    spoils: { caps: 163 },
-    successChance: 0.88,
-  },
-  {
-    id: 'pump-house',
-    name: 'The Pump House',
-    brief:
-      'The Combine meters the water pressure for four blocks out of one pump house, and it has a garrison in it for exactly that reason.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 55,
-    spoils: { caps: 61, supplies: 53, scrap: 30 },
-    successChance: 0.76,
-  },
-  {
-    id: 'relay-sabotage',
-    /*
-     * A relay mast taken off the air. The fight is the easy half; knowing which cabinet to open is the
-     * other, which is the whole of what `wire` asks for.
-     *
-     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
-     * spelled here in full: authoring the extra one alone would silently drop the rest.
-     */
-    leanings: ['fight', 'wire'],
-    name: 'Relay Sabotage',
-    brief:
-      'One Combine relay mast, one night, and a district that stops being watched for a week afterwards. They will rebuild it. Let them.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 70,
-    spoils: { highQualityMetal: 10, scrap: 36, caps: 24 },
-    successChance: 0.72,
-  },
-  {
-    id: 'archive-lift',
-    name: 'Archive Lift',
-    brief:
-      'A Combine records office that still has power and a clerk who has stopped caring. Walk out with the drives, not the argument.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 80,
-    spoils: { caps: 107, highQualityMetal: 7 },
-    successChance: 0.85,
-    leanings: ['haul', 'salvage', 'stealth'],
-  },
-  {
-    id: 'ration-escort',
-    name: 'Ration Escort',
-    brief:
-      'The Combine wants its own convoy walked through ground it has stopped policing. Good pay. Everybody on that road will see whose side you took.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 65,
-    spoils: { caps: 99, supplies: 35 },
-    successChance: 0.8,
-    leanings: ['fight', 'talk'],
-  },
-  {
-    id: 'census-sweep',
-    name: 'Census Sweep',
-    brief:
-      'Knock on every door on a list and write down who answers. The Combine will not say what the list is for and you already know.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 35,
-    spoils: { caps: 131 },
-    successChance: 0.93,
-    leanings: ['haul', 'salvage', 'talk'],
-  },
-  {
-    id: 'tunnel-survey',
-    name: 'Tunnel Survey',
-    brief:
-      'Nobody has mapped the service tunnels since the flood and half of them go somewhere useful. Take rope. Take somebody who can swim.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 120,
-    spoils: { scrap: 36, planks: 27, caps: 15 },
-    successChance: 0.87,
-  },
-  {
-    id: 'scrapworks-raid',
-    name: 'Scrapworks Raid',
-    brief:
-      'A yard with a working press and forty people who would rather keep it. Loud, close, and worth every minute of it.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 100,
-    spoils: { scrap: 51, highQualityMetal: 4, caps: 17 },
-    successChance: 0.74,
-  },
-  {
-    id: 'spire-courier',
-    name: 'Spire Courier',
-    brief:
-      'A sealed Combine case, up the lift, into a lobby with real air in it. You will be searched twice. Do not be carrying anything.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 200,
-    spoils: { caps: 97, highQualityMetal: 4 },
-    successChance: 0.86,
-    leanings: ['haul', 'salvage', 'talk', 'road'],
-  },
-  {
-    id: 'hydro-farm-strike',
-    name: 'Hydro Farm Strike',
-    brief:
-      'Combine growing decks, four floors of them, lit around the clock. Take what will travel and put the lights out on the way past.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 300,
-    spoils: { supplies: 105, oil: 22, caps: 30 },
-    successChance: 0.71,
-  },
-  {
-    id: 'blacksite-probe',
-    name: 'Blacksite Probe',
-    brief:
-      'Get close enough to the Combine fence to see what is behind it and get back out again. Nobody has managed the second half yet.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 420,
-    spoils: { highQualityMetal: 10, caps: 48, scrap: 17 },
-    successChance: 0.79,
-    leanings: ['haul', 'salvage', 'stealth', 'road'],
-  },
-
-  // --- the 2026-09 intake -------------------------------------------------------------------
-  //
-  // Twenty-four jobs still meant a board of three was drawing from a pool small enough that a
-  // player working two districts saw the same card twice in a morning. These fourteen widen the
-  // shapes rather than the count: a rescue, an escort, a sabotage nobody is guarding, a crawl
-  // through flooded plant rooms, a siege that runs eleven hours, and errands short enough to fit
-  // between two builds. They also fill the holes the old list had: one easy fight for a crew with
-  // nobody on the books, and long work that does not need an officer.
-  {
-    id: 'glass-pull',
-    name: 'Glass Pull',
-    brief:
-      'The arcade roof let go in the night and left a hundred metres of frame lying in the street. Get there before the glaziers do.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 6,
-    spoils: { planks: 50, scrap: 15 },
-    successChance: 0.96,
-  },
-  {
-    id: 'ledger-errand',
-    name: 'Ledger Errand',
-    brief:
-      'A Combine clerk needs a ledger walked four streets to an office with a working stamp. Nine minutes, and nobody has to know you did it.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 9,
-    spoils: { caps: 108, supplies: 13 },
-    successChance: 0.95,
-    leanings: ['haul', 'salvage', 'talk'],
-  },
-  {
-    id: 'gate-duty',
-    name: 'Gate Duty',
-    brief:
-      'The Combine is a shift short on a service gate and will pay anybody who can stand in it. You will be turning your own neighbours back.',
-    kind: 'battle',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 24,
-    // The one fight on the board a crew with nobody on the books can take, and it is the Combine's.
-    spoils: { caps: 104, supplies: 21 },
-    successChance: 0.9,
-    leanings: ['fight', 'talk'],
-  },
-  {
-    id: 'water-cart-escort',
-    name: 'Water Cart Escort',
-    brief:
-      'Combine meter crews have started stopping the water carts on the ramp. Walk this one up and they will find somewhere else to be.',
-    kind: 'battle',
-    difficulty: 'easy',
-    travelBand: 'close',
-    durationMinutes: 28,
-    spoils: { supplies: 92, caps: 53 },
-    successChance: 0.86,
-  },
-  {
-    id: 'meter-round',
-    name: 'Meter Round',
-    brief:
-      'The Combine wants its air meters read on four blocks it no longer walks. Read them honestly and everybody on that stair pays for it.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'further',
-    durationMinutes: 30,
-    spoils: { caps: 85, supplies: 32 },
-    successChance: 0.92,
-    leanings: ['haul', 'salvage', 'talk'],
-  },
-  {
-    id: 'tower-strip',
-    /*
-     * Aerial gear off a signal mast: `salvage` and `haul` are what it is, and the wire is what makes it
-     * worth sending a Signals officer rather than whoever is free.
-     *
-     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
-     * spelled here in full: authoring the extra one alone would silently drop the rest.
-     */
-    leanings: ['haul', 'salvage', 'wire'],
-    name: 'Tower Strip',
-    brief:
-      'The signal tower on the co-op roof has been leaning since the storm, and the aerial gear on it is worth more than the tower. Climb light.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'close',
-    durationMinutes: 45,
-    spoils: { highQualityMetal: 9, scrap: 27 },
-    successChance: 0.83,
-  },
-  {
-    id: 'holding-pen-break',
-    /*
-     * Nineteen people out of a Combine yard, and nobody comes out of one of those walking. The fight
-     * gets in; medicine is what decides how many of them are still alive at the gate.
-     *
-     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
-     * spelled here in full: authoring the extra one alone would silently drop the rest.
-     */
-    leanings: ['fight', 'medic'],
-    name: 'Holding Pen Break',
-    brief:
-      'The Combine is holding nineteen people in a yard behind the depot until somebody signs for them. Go and sign for them.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 50,
-    // Nobody pays for a rescue. What comes home is what nineteen families put together for it.
-    spoils: { caps: 120, supplies: 66 },
-    successChance: 0.75,
-  },
-  {
-    id: 'rail-cut',
-    name: 'Rail Cut',
-    brief:
-      'Six charges under a Combine freight line and the ore stops moving for a fortnight. Nobody is guarding it, which is the only easy part.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 65,
-    spoils: { scrap: 51, oil: 26, caps: 21 },
-    successChance: 0.82,
-    leanings: ['haul', 'salvage', 'stealth'],
-  },
-  {
-    id: 'armoury-raid',
-    name: 'Armoury Raid',
-    brief:
-      'A Combine district armoury with one road in and a duty roster that thins after midnight. Take the racks and be out before the relief comes.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 75,
-    spoils: { highQualityMetal: 12, caps: 40, scrap: 20 },
-    successChance: 0.71,
-  },
-  {
-    id: 'tanker-ditch',
-    name: 'Tanker Ditch',
-    brief:
-      'A fuel tanker went into the culvert some time last week and is still mostly full. It is also still leaking, so go today.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 95,
-    spoils: { oil: 67, scrap: 13 },
-    successChance: 0.85,
-  },
-  {
-    id: 'sublevel-crawl',
-    name: 'Sublevel Crawl',
-    brief:
-      'Two and a half hours on your belly through flooded plant rooms, cutting out whatever the water has not finished. Take lamps and rope.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'further',
-    durationMinutes: 150,
-    spoils: { scrap: 31, planks: 26, highQualityMetal: 3 },
-    successChance: 0.84,
-  },
-  {
-    id: 'outer-sheds',
-    name: 'The Outer Sheds',
-    brief:
-      'Machine sheds past the last checkpoint that nobody has bothered to strip, because of the walk. It is a long walk. That is the difficulty.',
-    kind: 'standard',
-    difficulty: 'easy',
-    travelBand: 'furthest',
-    durationMinutes: 240,
-    // Four hours out and still easy: difficulty is about who is shooting, not how far it is.
-    spoils: { planks: 28, scrap: 28, supplies: 19 },
-    successChance: 0.9,
-  },
-  {
-    id: 'outpost-siege',
-    /*
-     * Eleven hours on a road outpost with a relief column coming. The longest fight on the board, so it
-     * is the one that most wants somebody who can keep the wounded.
-     *
-     * Written out rather than derived, so the derived set this replaces (`leaningsFor`) is
-     * spelled here in full: authoring the extra one alone would silently drop the rest.
-     */
-    leanings: ['fight', 'road', 'medic'],
-    name: 'Outpost Siege',
-    brief:
-      'Sit on a Combine road outpost until the garrison runs out of water. Eleven hours, and the relief column is the part nobody plans for.',
-    kind: 'battle',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 660,
-    spoils: { highQualityMetal: 9, oil: 30, caps: 35, scrap: 15 },
-    successChance: 0.69,
-  },
-  {
-    id: 'reservoir-expedition',
-    name: 'Reservoir Expedition',
-    brief:
-      'Twelve hours out to the high reservoir and back, on the word of one man who says the pumping station still has stores in it.',
-    kind: 'standard',
-    difficulty: 'hard',
-    travelBand: 'furthest',
-    durationMinutes: 720,
-    spoils: { supplies: 40, oil: 25, caps: 20, scrap: 15 },
-    successChance: 0.86,
-  },
+  ...CORE_JOBS,
+  ...STREET_JOBS,
+  ...DISTRICT_JOBS,
+  ...STRONGHOLD_JOBS,
+  ...MAYHEM_JOBS,
 ];
 
 /**
@@ -718,10 +190,17 @@ export function missionTimings(leg: {
   return { ...leg, totalMinutes: 2 * leg.travelMinutes + leg.durationMinutes };
 }
 
-export function templateTimings(template: MissionTemplate): MissionTimings {
+/**
+ * A job's clock at a grade: the road for its band and its time on site, which grows with each mark
+ * above the job's lowest (`gradedDurationMinutes`). The job's lowest grade when a caller has none.
+ */
+export function templateTimings(
+  template: MissionTemplate,
+  grade: Grade = template.grades[0],
+): MissionTimings {
   return missionTimings({
     travelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-    durationMinutes: template.durationMinutes,
+    durationMinutes: gradedDurationMinutes(template, grade, MISSION_MAX_DURATION_MINUTES),
   });
 }
 
@@ -761,18 +240,31 @@ export const FAILURE_REWARD_SHARE: Record<MissionKind, number> = {
 };
 
 /**
- * A fight's tier on top of the kind's premium (`BATTLE_TIER_REWARD`, maintainer 2026-09-23).
+ * What every mix is priced to, in caps, at `REWARD_BASELINE_MINUTES` on a plain F- job.
  *
- * Null on a plain job, and on a fight row written before tiers were frozen on the row, which
- * prices as a Fight I: the ladder starts at one, so the oldest rows keep exactly the pay they had.
+ * 190 is the old hand-priced target (143 expected) over the 75% a leader graded level with the
+ * job lands at, so a crew matched to its work earns about what it earned before the regrade.
  */
-export function rewardScale(
-  totalMinutes: number,
-  kind: MissionKind,
-  tier: BattleTier | null = null,
-): number {
-  const ladder = kind === 'battle' && tier !== null ? BATTLE_TIER_REWARD[tier] : 1;
-  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind] * ladder;
+export const BUNDLE_VALUE = 190;
+
+/** A mix's worth in caps, at the market's own valuation. */
+export function spoilsValue(spoils: PartialResources): number {
+  return (Object.entries(spoils) as [ResourceKey, number][]).reduce(
+    (total, [key, amount]) => total + amount * RESOURCE_CAP_VALUE[key],
+    0,
+  );
+}
+
+/**
+ * The clock curve, the kind's premium and the grade's pay (maintainer, 2026-09-28).
+ *
+ * The grade replaced two things: the crew-level pay premium and the fight tier ladder. A grade
+ * pays what the level premium paid at the level the grade is most often dealt (`gradePay`), and a
+ * fight takes the old ladder's lift at that level on top (`fightLift`).
+ */
+export function rewardScale(totalMinutes: number, kind: MissionKind, grade: Grade): number {
+  const lift = kind === 'battle' ? fightLift(grade) : 1;
+  return effortScale(totalMinutes) * KIND_REWARD_MULTIPLIER[kind] * gradePay(grade) * lift;
 }
 
 /**
@@ -794,11 +286,13 @@ export function missionRewards(
   template: MissionTemplate,
   outcome: MissionOutcome = 'success',
   totalMinutes: number = templateTimings(template).totalMinutes,
-  /** The fight's tier, which the card was dealt and the row froze. Null on plain work. */
-  tier: BattleTier | null = null,
+  /** The grade the card was dealt and the row froze. The job's lowest when a caller has none. */
+  grade: Grade = template.grades[0],
 ): PartialResources {
   const share = outcome === 'success' ? 1 : FAILURE_REWARD_SHARE[template.kind];
-  const factor = rewardScale(totalMinutes, template.kind, tier) * share;
+  const worth = spoilsValue(template.spoils);
+  const priced = worth > 0 ? BUNDLE_VALUE / worth : 0;
+  const factor = rewardScale(totalMinutes, template.kind, grade) * share * priced;
 
   const rewards: PartialResources = {};
   for (const [key, amount] of Object.entries(template.spoils) as [ResourceKey, number][]) {
@@ -908,7 +402,8 @@ export const MissionSchema = z.object({
   durationMinutes: z.number().int().positive(),
   status: MissionStatusSchema,
   /**
-   * The officer leading the run, `null` when the Overseer led it or when nobody did.
+   * The officer leading the run, `null` when the Overseer led it (or, on a row from before every
+   * run needed a leader, when nobody did).
    *
    * Frozen at launch like the clock and the odds: this records *who went*, so dismissing an
    * officer or reshuffling placements mid-flight cannot rewrite who was out. It is what says an
@@ -917,18 +412,18 @@ export const MissionSchema = z.object({
    */
   officerId: IdSchema.nullable(),
   /**
-   * A fight's tier, frozen when the crew left (maintainer, 2026-09-23).
+   * The grade the card was dealt, frozen when the crew left (maintainer, 2026-09-28).
    *
-   * Dealt on the card off the crew's level (`dealBattleTier`) and kept here for the same reason
-   * the clock, the odds and the pay are: a level gained while the crew is out must not change
-   * what is waiting for them or what it pays. Null on plain work, and on a fight row written
-   * before this existed, which the settle reads as a Fight I.
+   * Kept for the reason the clock, the odds and the pay are: nothing that happens while the crew
+   * is out may change what is waiting for them or what it pays. It sets what a fight fields and
+   * what either kind pays. Null on a row from before grades, which reads as the job's lowest.
    */
-  battleTier: BattleTierSchema.nullable().default(null),
+  grade: OfficerMarkSchema.nullable().default(null),
   /**
    * Whether the Overseer led this run (maintainer, 2026-09-10). The Overseer is not on the books, so
-   * they cannot be named by `officerId`; the two together say who was in charge, and an unled
-   * run has neither. Defaulted so a row written before leaders parses as the run it was.
+   * they cannot be named by `officerId`; the two together say who was in charge. Only a row from
+   * before every run needed a leader has neither. Defaulted so a row written before leaders parses
+   * as the run it was.
    */
   overseerLed: z.boolean().default(false),
   /**
@@ -944,8 +439,18 @@ export const MissionSchema = z.object({
   reported: z.boolean().default(true),
   /** Null until the mission resolves. */
   outcome: MissionOutcomeSchema.nullable(),
-  /** What was actually banked. Empty until the mission resolves. */
+  /**
+   * What the crew carried home. Empty until the mission resolves.
+   *
+   * Not all of it is necessarily in the stores: `wasted` is the part that had no room.
+   */
   rewards: PartialResourcesSchema,
+  /**
+   * What came home and was thrown away because the stores were full (maintainer ruling,
+   * 2026-09-28). `rewards` less this is what landed. Absent or empty on a run that fitted, and on
+   * a run settled before the stores became a hard ceiling.
+   */
+  wasted: PartialResourcesSchema.optional(),
   /**
    * What the job paid before the crew's carrying capacity was applied (§E).
    *

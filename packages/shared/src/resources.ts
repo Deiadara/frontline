@@ -21,7 +21,7 @@ import { z } from 'zod';
  * and carries the remainder (`EconomyState.productionCarry`), so a player polling every second
  * still earns exactly what a player who came back in the morning earns. See `accrueProduction`.
  */
-const AmountSchema = z.number().int().nonnegative();
+const AmountSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 export const ResourcesSchema = z.object({
   caps: AmountSchema,

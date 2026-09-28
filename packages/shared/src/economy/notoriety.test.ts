@@ -30,12 +30,23 @@ describe('the ladder (§D7)', () => {
     expect(new Set(NOTORIETY_TIERS).size).toBe(NOTORIETY_TIERS.length);
   });
 
-  it("prices the board's curve: 300, then 900, then 2700", () => {
-    expect(notorietyUpgradeCost(0)).toBe(300);
-    expect(notorietyUpgradeCost(1)).toBe(900);
-    expect(notorietyUpgradeCost(2)).toBe(2700);
-    expect(NOTORIETY_FIRST_COST).toBe(300);
-    expect(NOTORIETY_COST_GROWTH).toBe(3);
+  it('prices the ladder at 60, 98, 158, growing by 1.625 and rounded to whole infamy', () => {
+    expect(notorietyUpgradeCost(0)).toBe(60);
+    expect(notorietyUpgradeCost(1)).toBe(98);
+    expect(notorietyUpgradeCost(2)).toBe(158);
+    expect(NOTORIETY_FIRST_COST).toBe(60);
+    expect(NOTORIETY_COST_GROWTH).toBe(1.625);
+  });
+
+  /**
+   * The shape the maintainer asked for (2026-09-28): three rungs from the top after two to three
+   * months. The tenth rung costs about what a fighting crew earns in its first seventy five days in
+   * the progression simulation (around twelve thousand), and the top one about four times that.
+   */
+  it('puts the tenth rung near twelve thousand infamy and the top one about four times further', () => {
+    expect(notorietySpentTo(10)).toBeGreaterThan(10_000);
+    expect(notorietySpentTo(10)).toBeLessThan(15_000);
+    expect(notorietySpentTo(MAX_NOTORIETY) / notorietySpentTo(10)).toBeGreaterThan(3.5);
   });
 
   it('gets dearer at every single rung, and stops selling at the top', () => {
@@ -50,8 +61,8 @@ describe('the ladder (§D7)', () => {
 
   it('adds up what a rank cost to reach', () => {
     expect(notorietySpentTo(0)).toBe(0);
-    expect(notorietySpentTo(1)).toBe(300);
-    expect(notorietySpentTo(3)).toBe(300 + 900 + 2700);
+    expect(notorietySpentTo(1)).toBe(60);
+    expect(notorietySpentTo(3)).toBe(60 + 98 + 158);
   });
 
   it('names the rung above, until there is not one', () => {

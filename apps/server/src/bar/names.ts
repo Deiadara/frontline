@@ -4,7 +4,7 @@ import { randomInt, type Rng } from '../characters/rng.js';
  * Names for the Bar's roster (GDD §H1).
  *
  * Flavour only: a name is never read by a mechanic. It lives server-side with the rest of roster
- * generation so the whole roster stays one pure function of the UTC date (§H2a).
+ * generation so the whole roster stays one pure function of the game date, Athens (§H2a).
  */
 
 const GIVEN_NAMES = [

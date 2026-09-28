@@ -9,7 +9,7 @@ import {
 } from './battle/scheduled.js';
 import { BaseSchema } from './base.js';
 import { FleetSchema } from './building/vehicles.js';
-import { LevelUpSchema, ScoutingRunViewSchema } from './api.js';
+import { LevelUpSchema, RailQuoteSchema, ScoutingRunViewSchema } from './api.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
 import { OfficerRoleSchema } from './roles.js';
 import { ArmySchema, UnitIdSchema, UnitStatsSchema } from './units/index.js';
@@ -65,6 +65,15 @@ export const BattleMusterSchema = z.object({
   perimeter: ArmySchema,
   /** Units, both forces counted. */
   size: z.number().int().nonnegative(),
+  /**
+   * Everybody else already at the place who will fight on the caller's side, with no deployment:
+   * the holder's garrison, faction postings, faction Sleepers waiting there, and the home army or
+   * the gate garrison when the fight is on the caller's own district (maintainer, 2026-09-28:
+   * "The battle page shows what is there"). Who counts is decided the way the settle decides it
+   * at the mark (`battle/alignment.ts` in the server), so a neutral crew's units never appear.
+   * Optional on the wire so a payload from before it read as nobody standing there.
+   */
+  standing: ArmySchema.optional(),
 });
 
 /**
@@ -123,7 +132,12 @@ export const TrapOptionSchema = z.object({
 export type TrapOption = z.infer<typeof TrapOptionSchema>;
 
 export const BattleViewSchema = z.object({
-  battle: ScheduledBattleSchema,
+  /*
+   * Without its seed (bug pass, 2026-09-27). The seed fixes the looters' muster, the engine run,
+   * the plunder draw and the injury rolls, and the engine ships to the browser, so a board that
+   * carried it let an attacker compute the hidden defence and replay the fight offline.
+   */
+  battle: ScheduledBattleSchema.omit({ seed: true }),
   /** The location, the district gate or the structure, in the words on the map. */
   targetName: z.string(),
   districtName: z.string(),
@@ -132,6 +146,11 @@ export const BattleViewSchema = z.object({
   side: BattleSideSchema.nullable(),
   /** Whether people may still be moved. False from one second before the mark. */
   deploymentOpen: z.boolean(),
+  /**
+   * Whether units may still be taken back off it. False from the last hour (`GARRISON_LOCK_MS`):
+   * arrivals go on until the mark, but whoever is there then fights (maintainer, 2026-09-28).
+   */
+  withdrawalOpen: z.boolean().default(true),
   /** The caller's own force, exact. Null when they are neither side. */
   muster: BattleMusterSchema.nullable(),
   /**
@@ -402,13 +421,12 @@ export type BattlesResponse = z.infer<typeof BattlesResponseSchema>;
 export const DeclareBattleRequestSchema = z.object({
   target: BattleTargetSchema,
   scheduledFor: IsoDateTimeSchema,
-  /**
-   * Tick to leave the survivors holding the ground they take (§A4).
-   *
-   * Optional, and false when it is not sent: an old client asking for a fight gets the fight it has
-   * always got. See `ScheduledBattle.holdAfterCapture` for why it is asked at declaration.
+  /*
+   * `holdAfterCapture` was here, a tick to leave the survivors holding what they take. It is not a
+   * choice any more (maintainer, 2026-09-28: "The server should automatically give the winners
+   * what they should hold, not ask them"): winners of a location always hold it, and a request
+   * that still sends the field has it stripped by the parse.
    */
-  holdAfterCapture: z.boolean().optional(),
 });
 export type DeclareBattleRequest = z.infer<typeof DeclareBattleRequestSchema>;
 
@@ -446,8 +464,52 @@ export const DeployRequestSchema = z.object({
   changes: z.record(UnitIdSchema, z.number().int()).default({}),
   /** The same, for the ring outside the fight. */
   perimeterChanges: z.record(UnitIdSchema, z.number().int()).default({}),
+  /**
+   * Put this column on Terminus's railway (maintainer, 2026-09-24).
+   *
+   * The ruling was that the line carries "moving units around **or to send them somewhere for
+   * battle**", and only the first half was built: a unit move could ride and a declared fight
+   * always marched. The same rules as `MoveUnitsRequest.byRail`, because it is the same railway:
+   * a choice rather than an optimisation, silently ignored when there is no ride to take, and
+   * refused outright to a column carrying any vehicle or any sheet that cannot board.
+   *
+   * Defaults to `false`, so a client written before this keeps marching.
+   */
+  byRail: z.boolean().default(false),
 });
 export type DeployRequest = z.infer<typeof DeployRequestSchema>;
+
+/**
+ * `POST /battles/deploy/quote`: what this column's road would cost, and whether it could ride.
+ *
+ * The same body as the deploy, answered with the clocks and nothing sent. It exists because the
+ * screen cannot work either number out. The road is `standingEffectsFor`, which folds the crew's
+ * **ground** as well as its people, and the client only ever receives the people-only fold
+ * (`CrewStandingResponse.effects`). So the deploy dialog was quoting a road with two of its three
+ * speed channels missing, and a crew with a Tram Depot and travel bonuses was told a march would
+ * take materially longer than it did. The ride is worse still: whether a pair of held platforms
+ * serves this journey is a question about the live control map.
+ *
+ * Shaped like `MoveQuoteResponse` and for the same reason: one screen offering a choice between
+ * two clocks has to be handed both of them by whoever will actually spend them.
+ */
+export const DeployQuoteResponseSchema = z.object({
+  minutes: z.number().int().nonnegative(),
+  /**
+   * When a column sent now would land, and whether that is at or before the mark.
+   *
+   * The server's answer rather than the screen's sum, so the dialog says exactly what
+   * `battle/movement.ts` will do with the column: one that lands after the mark is not in the fight,
+   * and walks on to whatever the fight left (maintainer, 2026-09-28).
+   */
+  arrivesAt: IsoDateTimeSchema,
+  inTime: z.boolean(),
+  /** The ride, if this crew can offer one for this journey. `null` when it is marching. */
+  rail: RailQuoteSchema.extend({ arrivesAt: IsoDateTimeSchema, inTime: z.boolean() })
+    .nullable()
+    .default(null),
+});
+export type DeployQuoteResponse = z.infer<typeof DeployQuoteResponseSchema>;
 
 /**
  * §I4: set the one trap this side is allowed under a fight, or take it back up.

@@ -21,8 +21,9 @@ import { PaperBlock, StandingSheet } from './StandingSheet';
  * The infamy chip's card sells exactly one rung, the next one, which is the right thing for a card
  * that is two inches wide and has a Buy button on it. It is the wrong thing for the question a
  * player actually has, which is what the far end of this looks like and whether it is worth saving
- * for. `Nameless` costs 300 x 3^12 infamy; a player should be able to see that from where they are
- * standing, the way a Grepolis player can read the whole title list on day one.
+ * for. The last rung alone costs about twenty thousand infamy and the whole climb about fifty three
+ * thousand; a player should be able to see that from where they are standing, the way a Grepolis
+ * player can read the whole title list on day one.
  *
  * Every figure is read off `@frontline/shared`: {@link NOTORIETY_TIERS} for the names,
  * {@link notorietyUpgradeCost} for the price of a rung, {@link notorietySpentTo} for the total, and
@@ -82,8 +83,8 @@ function Rung({
                 infamy
               </span>
               {/* The running total, because the price of one rung is not what a player is saving
-                  up: the ladder triples, so by `Scourge` the rung and the journey are different
-                  orders of magnitude and only one of them answers "how far is this". */}
+                  up: each rung costs about 1.6 times the last, so by `Scourge` the journey is
+                  several times the rung and only the journey answers "how far is this". */}
               <span
                 className="shrink-0 font-display text-[11px] tabular-nums text-ink-400"
                 data-testid={`notoriety-total-${at}`}

@@ -3,7 +3,6 @@ import {
   findResearchItem,
   researchItemRefusal,
   spendResources,
-  addResources,
   cancelRefund,
   researchCancellable,
   type PartialResources,
@@ -13,6 +12,7 @@ import {
 } from '@frontline/shared';
 import { adminCost, adminMinutes, adminWaives } from '../admin/mode.js';
 import type { Repositories } from '../db/repos/index.js';
+import { creditBase, refuseWaste } from '../district/stores.js';
 import { officerFitReader, type OfficerFitReader } from '../crew/standing.js';
 import { chairMarksFor, minutesFor, priceOf } from './tracks.js';
 
@@ -148,16 +148,24 @@ export type CancelResult =
 
 /**
  * Take the project off the bench (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first
- * tenth of its clock, with ninety percent of what it cost back on the stockpile.
+ * tenth of its clock, with ninety percent of what it cost back on the stockpile, as far as the
+ * stores have room; what they do not is warned about first (maintainer ruling, 2026-09-28).
  */
-export function cancelResearch(repos: Repositories, base: Base, now: Date): CancelResult {
+export function cancelResearch(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  acceptWaste?: boolean,
+): CancelResult {
   const active = base.research.active;
   if (!active) return { kind: 'refused', reason: 'nothing_running' };
   if (!researchCancellable(active, now)) return { kind: 'refused', reason: 'window_closed' };
   const refund = cancelRefund(active.paid);
+  const credit = creditBase(repos, base, refund, now);
+  refuseWaste(credit, acceptWaste);
   const cancelled: Base = {
     ...base,
-    resources: addResources(base.resources, refund),
+    resources: credit.resources,
     research: { ...base.research, active: null },
   };
   repos.bases.updateResources(cancelled.id, cancelled.resources);

@@ -7,7 +7,8 @@ import {
   type TrainingQueue,
 } from '../units/index.js';
 import { findVehicle, fleetSize, type Fleet } from './vehicles.js';
-import { unitSlotCapacity, type Building } from './index.js';
+import { unitSlotCapacity } from './production.js';
+import type { Building } from './state.js';
 
 /**
  * Unit slots (GDD §A1, §A4): the one pool everybody in the district draws on.

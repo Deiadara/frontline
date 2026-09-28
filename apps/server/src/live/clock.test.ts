@@ -18,6 +18,8 @@ import { launchMission } from '../missions/launch.js';
 import { liveHub } from './hub.js';
 import { WORLD_TICK_MS, startWorldClock, tickWorld } from './clock.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import type { TickFailure } from '../world/guard.js';
+import { sureLeader } from '../testing/leader.js';
 
 /**
  * The world clock: the promise that a fight happens on its mark.
@@ -257,11 +259,13 @@ describe('the receipt reaches an open tab', () => {
     try {
       await readyFight(stack);
       tickWorld(stack.app.repos, stack.app.skirmishEngine, new Date());
+      // Broadcasts are coalesced (`BROADCAST_COALESCE_MS`), and the fight above this one sent a
+      // nudge moments ago, so this one may be the burst's trailing broadcast rather than immediate.
+      await vi.waitFor(() => expect(heard.length).toBeGreaterThan(0), { timeout: 5_000 });
     } finally {
       leave();
     }
 
-    expect(heard.length).toBeGreaterThan(0);
     expect(new Set(heard.map((event) => event.kind))).toEqual(new Set(['world']));
   });
 });
@@ -292,9 +296,16 @@ describe('the timer around it', () => {
    * The standing evidence for why this matters is the 500 `/api/battles` served for months off one
    * unreadable row: a single bad record is enough to take a whole system down if nothing catches it.
    */
-  it('keeps running when a tick throws, and reports it', async () => {
+  /*
+   * A fight that throws is caught where it happens now (`world/guard.ts`): the rest of the tick
+   * runs, the failure goes to `onFailure` with the stage and the row it was on, and it is reported
+   * once a minute rather than once a tick. `onError` is left for a tick that fails as a whole.
+   */
+  it('keeps running when a fight throws, and reports it with where it happened', async () => {
     const stack = await makeStack('broken');
+    const failures: TickFailure[] = [];
     const errors: unknown[] = [];
+    let ticks = 0;
     const engine = {
       resolve: () => {
         throw new Error('engine exploded');
@@ -304,14 +315,26 @@ describe('the timer around it', () => {
       repos: stack.app.repos,
       engine,
       intervalMs: 5,
+      now: () => {
+        ticks += 1;
+        return new Date();
+      },
       onError: (error) => errors.push(error),
+      onFailure: (failure) => failures.push(failure),
     });
 
-    await readyFight(stack);
-    await vi.waitFor(() => expect(errors.length).toBeGreaterThan(1), { timeout: 2_000 });
+    const { battleId } = await readyFight(stack);
+    await vi.waitFor(() => expect(failures.length).toBeGreaterThan(0), { timeout: 2_000 });
+    const seen = ticks;
+    await vi.waitFor(() => expect(ticks).toBeGreaterThan(seen + 3), { timeout: 2_000 });
     stop();
 
-    expect((errors[0] as Error).message).toBe('engine exploded');
+    expect(failures[0]?.stage).toBe('battles');
+    expect(failures[0]?.item).toBe(battleId);
+    expect((failures[0]?.error as Error).message).toBe('engine exploded');
+    // Once, however many ticks it failed on since.
+    expect(failures).toHaveLength(1);
+    expect(errors).toEqual([]);
   });
 
   it('advances once a second, which is the resolution a countdown is read at', () => {
@@ -338,7 +361,8 @@ describe('a crew comes home on time', () => {
       areaId: MISC_AREA_ID,
       force: { razors: 1 },
       now: new Date(Date.now() - minutesAgo * 60_000),
-      unled: 'free',
+      grade: template.grades[0],
+      leader: sureLeader(),
     });
     stack.app.repos.missions.insert(stored);
     return stored.mission.id;

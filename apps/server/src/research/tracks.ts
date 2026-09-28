@@ -25,10 +25,9 @@ import {
 } from '@frontline/shared';
 import { standingEffectsFor, type OfficerFitReader } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
-import { workingOfficer } from '../crew/roster.js';
 
 /**
- * §C: what the nineteen research tracks cost this particular crew, and which of them are open.
+ * §C: what the eighteen research tracks cost this particular crew, and which of them are open.
  *
  * This is the only module in the feature that reads the hidden requirement table, and it is
  * server-side for that reason (§B8, §B8a). What leaves it is a **mark**, which is the coarse hint
@@ -44,10 +43,19 @@ import { workingOfficer } from '../crew/roster.js';
  */
 
 /** The officer sitting in a chair, or `undefined`. */
-function seated(base: Base, role: OfficerRole): Commander | undefined {
-  // Working, not merely seated (maintainer, 2026-09-23): an injured officer's track stops with
-  // the rest of what they were worth, for the twelve hours they are out.
-  return workingOfficer(base.commanders, role);
+/**
+ * Whoever is working `role` right now, on the **request's** clock.
+ *
+ * Working, not merely seated (maintainer, 2026-09-23): an injured officer's track stops with the
+ * rest of what they were worth, for the twelve hours they are out.
+ *
+ * It asked `workingOfficer(base.commanders, role)`, which defaults its clock to `new Date()`. The
+ * fit reader beside it already holds the instant the request is reasoning about, so the two could
+ * disagree: the page said `head: null` while the rung under it had no blocker, and which way it
+ * went depended on the wall clock rather than on the crew. One clock now, the reader's.
+ */
+function seated(fit: OfficerFitReader, role: OfficerRole): Commander | undefined {
+  return fit.workingIn(role);
 }
 
 /**
@@ -110,7 +118,7 @@ const RESEARCH_TRACKS: readonly OfficerRole[] = [
  * the officer it had just promoted.
  */
 export function researchHead(base: Base, fit: OfficerFitReader): ResearchHead | null {
-  const officer = seated(base, 'head_of_research');
+  const officer = seated(fit, 'head_of_research');
   if (!officer) return null;
   const points = fit.pointsFor(officer, 'head_of_research');
   return {
@@ -122,7 +130,7 @@ export function researchHead(base: Base, fit: OfficerFitReader): ResearchHead | 
 
 /** §C1d: what the track's own officer takes off every price on their own track, as published. */
 function trackCostCutFor(base: Base, track: OfficerRole, fit: OfficerFitReader): number {
-  const officer = seated(base, track);
+  const officer = seated(fit, track);
   return officer ? published(trackCostCutPercent(fit.pointsFor(officer, track))) : 0;
 }
 
@@ -134,10 +142,10 @@ export function chairMarksFor(track: OfficerRole, fit: OfficerFitReader): ChairM
   };
 }
 
-/** The nineteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
+/** The eighteen tracks in `OFFICER_ROLES` order, with who is standing on each. */
 export function trackStatuses(base: Base, fit: OfficerFitReader): ResearchTrackStatus[] {
   return RESEARCH_TRACKS.map((role) => {
-    const officer = seated(base, role);
+    const officer = seated(fit, role);
     return {
       role,
       officerName: officer?.name ?? null,
@@ -161,7 +169,7 @@ export function priceOf(
  * The three cuts a research clock gets, none of which depends on which rung is being run.
  *
  * Read once per request rather than once per rung: `standingEffectsFor` folds the whole city and
- * the whole roster, and doing that 190 times to answer one page is the difference between a read
+ * the whole roster, and doing that 180 times to answer one page is the difference between a read
  * that costs nothing and one that does not.
  */
 interface ResearchClock {
@@ -171,7 +179,7 @@ interface ResearchClock {
 }
 
 function researchClockFor(repos: Repositories, base: Base, fit: OfficerFitReader): ResearchClock {
-  const head = seated(base, 'head_of_research');
+  const head = seated(fit, 'head_of_research');
   return {
     buildingPercent: researchTimeReduction(base.buildings),
     crewSpeedPercent: standingEffectsFor(repos, base).researchSpeedPercent,
@@ -220,8 +228,8 @@ export function itemBlocker(base: Base, id: string, fit: OfficerFitReader): stri
  * The whole catalogue, with each rung's state worked out for this crew.
  *
  * Everything that does not depend on the rung is computed once, up front. `GET /research` is
- * polled every fifteen seconds and this answers 190 rungs; folding the crew's standing effects and
- * re-reading nineteen chairs inside the loop meant 190 territory-and-roster folds per read, which
+ * polled every fifteen seconds and this answers 180 rungs; folding the crew's standing effects and
+ * re-reading eighteen chairs inside the loop meant 180 territory-and-roster folds per read, which
  * is the whole cost of the route for a number that is the same on every row.
  */
 export function labResearchItems(
@@ -234,7 +242,7 @@ export function labResearchItems(
   const headMark = fit.markFor('head_of_research');
   const perTrack = new Map(
     RESEARCH_TRACKS.map((role) => {
-      const officer = seated(base, role);
+      const officer = seated(fit, role);
       return [
         role,
         {

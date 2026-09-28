@@ -37,7 +37,10 @@ test('the blueprints page holds its rows without cutting any of them', async ({ 
   await installApi(page, lateGame);
   // Registered after `installApi`, so it wins: Playwright matches the most recent handler first.
   await page.route('**/api/market', async (route) => {
-    await route.fulfill({ json: { ...market, inventory: INVENTORY } });
+    // Plus one of the fence's documents, which arrives whole and has no pages to draw.
+    await route.fulfill({
+      json: { ...market, inventory: { ...INVENTORY, bp_fence_rotor_drop_rig: 1 } },
+    });
   });
 
   await page.goto('/game/research/blueprints');
@@ -72,6 +75,17 @@ test('the blueprints page holds its rows without cutting any of them', async ({ 
   await expectNothingOverflowsTheScreen(page);
   await expectNothingClippedVertically(page);
   await page.screenshot({ path: 'e2e-out/blueprints-unlocked.png', fullPage: true });
+
+  // The fence's document sits in the upgrade drawer, whole, with a line where the sheets would be.
+  await page.getByTestId('blueprint-category-upgrade').click();
+  const fence = page.getByTestId('blueprint-bp_fence_rotor_drop_rig');
+  await expect(fence).toHaveAttribute('data-status', 'unlocked');
+  await expect(fence).toContainText('From the fence');
+  await expect(fence).toContainText('Bought whole from the fence');
+  await settleFonts(page);
+  await expectNothingOverflowsTheScreen(page);
+  await expectNothingClippedVertically(page);
+  await fence.screenshot({ path: 'e2e-out/blueprints-fence-row.png' });
 });
 
 /**

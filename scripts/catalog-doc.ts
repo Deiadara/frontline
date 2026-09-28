@@ -354,18 +354,15 @@ function boostsSection(): Section {
 /* -------------------------------------------------------------------- missions */
 
 /**
- * The optional template field, as a column, and only when a template actually carries it.
- *
- * An override: a job with no `leanings` is read off its kind and its distance. A column of nothing
- * across 38 rows is width the brief could use, so it appears only if somebody uses it. A fight's
- * tier is no longer authored on the template: the board deals it off the crew's level
- * (`dealBattleTier`), so there is no column for it.
+ * What a job leans on, as a column. Every template carries it since the regrade (2026-09-28), so
+ * the filter below always keeps it; it stays a filtered list so a column added later that most
+ * jobs leave empty takes no width until somebody fills it.
  */
 const OPTIONAL_MISSION_COLUMNS = [
   {
     header: 'Leanings',
     read: (template: MissionTemplate) =>
-      (template.leanings ?? []).map((leaning) => MISSION_LEANING_LABELS[leaning]).join(', '),
+      template.leanings.map((leaning) => MISSION_LEANING_LABELS[leaning]).join(', '),
   },
 ] as const;
 
@@ -383,10 +380,9 @@ function missionRow(
     code(template.id),
     template.name,
     template.kind,
-    template.difficulty,
+    `${template.grades[0]} to ${template.grades[1]}`,
     template.travelBand,
     `${template.durationMinutes}m`,
-    percent(template.successChance),
     money(template.spoils),
     ...columns.map((column) => column.read(template)),
     clip(template.brief),
@@ -464,7 +460,7 @@ function missionsSection(): Section {
     sources: ['packages/shared/src/missions.ts', 'packages/shared/src/missions.leading.ts'],
     rows: MISSION_TEMPLATES.length,
     body: [
-      'Spoils are the baseline bundle before the area premium, the crew level premium and the §E5 length curve. Success chance is the base, before whoever leads the run moves it.',
+      'Grades are the range a job is dealt at; the grade sets the odds against its leader, what a fight fields, the pay and how much longer than the on-site time it runs. Spoils are the mix a job pays in: every mix is priced to the same value, then moved by the grade, the area premium and the §E5 length curve.',
       omitted.length === 0
         ? ''
         : `No template overrides ${omitted.map((column) => column.header.toLowerCase()).join(' or ')}, so those columns are left out: a job is read off its kind and its distance instead.`,
@@ -473,10 +469,9 @@ function missionsSection(): Section {
           'Id',
           'Name',
           'Kind',
-          'Difficulty',
+          'Grades',
           'Travel',
           'On site',
-          'Success',
           'Spoils',
           ...columns.map((column) => column.header),
           'Brief',
@@ -575,7 +570,6 @@ function locationsSection(): Section {
     location.name,
     code(location.districtId),
     code(location.kind),
-    location.fortifyDifficulty,
   ]);
   return {
     title: 'Locations',
@@ -598,7 +592,7 @@ function locationsSection(): Section {
         kindRows,
       ),
       `#### Placed on the map (${CITY_LOCATIONS.length})`,
-      table(['Id', 'Name', 'District', 'Kind', 'Fortify'], placed),
+      table(['Id', 'Name', 'District', 'Kind'], placed),
     ].join('\n\n'),
   };
 }

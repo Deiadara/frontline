@@ -146,6 +146,8 @@ function fakeRepos(): {
     users: { findById: () => undefined },
     // ...and at no table: the cards a faction deals are folded into the same standing.
     factions: { membershipOf: () => undefined },
+    // ...and whether the crew's gate is breached, which zeroes what it gives.
+    sieges: { gate: () => undefined },
   } as unknown as Parameters<typeof settleResearch>[0];
   return { repos, written };
 }

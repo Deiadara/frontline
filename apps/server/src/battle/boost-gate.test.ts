@@ -96,8 +96,8 @@ async function stage(): Promise<Stack> {
 
   // The Rustyard, scouted and one location off the looters, so a fight can be called there. Same
   // fixture the other battle-route tests use: the trip and the gate are not what this covers.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
-  const control = app.repos.city.control('rustyard-bonefield');
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
+  const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
@@ -107,7 +107,7 @@ async function stage(): Promise<Stack> {
     url: '/api/battles/declare',
     headers: auth(token),
     payload: {
-      target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+      target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
       scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
     },
   });

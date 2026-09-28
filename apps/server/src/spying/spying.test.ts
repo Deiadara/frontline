@@ -99,12 +99,12 @@ function teach(stack: Stack, ...ids: string[]): void {
 
 /** The rival holds the Press with `garrison`, and we have seen the Rustyard. */
 function theirPress(me: Stack, rival: Stack, garrison: Record<string, number>): void {
-  const press = me.app.repos.city.control('rustyard-press')!;
+  const press = me.app.repos.city.control('steelbelt-press')!;
   me.app.repos.city.put({ ...press, holder: { kind: 'crew', baseId: rival.baseId }, garrison });
-  me.app.repos.city.markScouted(me.baseId, 'rustyard', new Date().toISOString());
+  me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
 }
 
-const PRESS: SpyTarget = { kind: 'location', locationId: 'rustyard-press' };
+const PRESS: SpyTarget = { kind: 'location', locationId: 'steelbelt-press' };
 
 const spy = (stack: Stack, target: SpyTarget, tier: SpyTier = 'loose_ears') =>
   stack.app.inject({
@@ -140,7 +140,7 @@ describe('sending the runners', () => {
     expect(before - caps(me)).toBe(SPY_TIER_SPECS.paid_whisper.caps);
 
     const district = res.json<CityMutationResponse>().district;
-    expect(district.spyRun?.placeName).toBe(findLocation('rustyard-press')!.name);
+    expect(district.spyRun?.placeName).toBe(findLocation('steelbelt-press')!.name);
     expect(district.spyRun?.tier).toBe('paid_whisper');
     // One job at a time.
     const again = await spy(me, PRESS);
@@ -184,8 +184,8 @@ describe('sending the runners', () => {
       kind: 'refused',
       reason: 'unscouted',
     });
-    me.app.repos.city.markScouted(me.baseId, 'rustyard', new Date().toISOString());
-    const press = me.app.repos.city.control('rustyard-press')!;
+    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
+    const press = me.app.repos.city.control('steelbelt-press')!;
     me.app.repos.city.put({ ...press, holder: { kind: 'unoccupied' }, garrison: {} });
     expect(groundBehind(me.app.repos, reader(), PRESS)).toEqual({
       kind: 'refused',
@@ -197,7 +197,7 @@ describe('sending the runners', () => {
       reason: 'own_ground',
     });
     // The rival takes the whole district: its gate is armed and the Press is behind it.
-    for (const location of findDistrict('rustyard')!.locations) {
+    for (const location of findDistrict('steelbelt')!.locations) {
       const control = me.app.repos.city.control(location.id)!;
       me.app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: rival.baseId } });
     }
@@ -205,7 +205,7 @@ describe('sending the runners', () => {
       kind: 'refused',
       reason: 'not_the_gate',
     });
-    const gate = groundBehind(me.app.repos, reader(), { kind: 'gate', districtId: 'rustyard' });
+    const gate = groundBehind(me.app.repos, reader(), { kind: 'gate', districtId: 'steelbelt' });
     expect(gate.kind).toBe('ground');
     // Our own front door is not something we spy, and a rival's is read at the gate.
     expect(
@@ -229,8 +229,8 @@ describe('the report', () => {
     ).json<BattlesResponse>();
     expect(board.spyReports).toHaveLength(1);
     const report = board.spyReports[0]!;
-    expect(report.placeName).toBe(findLocation('rustyard-press')!.name);
-    expect(report.districtName).toBe(findDistrict('rustyard')!.name);
+    expect(report.placeName).toBe(findLocation('steelbelt-press')!.name);
+    expect(report.districtName).toBe(findDistrict('steelbelt')!.name);
     expect(report.holder.kind).toBe('crew');
     expect(report.capsPaid).toBe(SPY_TIER_SPECS.total_intelligence.caps);
     expect(report.failed).toBe(false);
@@ -246,9 +246,9 @@ describe('the report', () => {
 
     // The sheet quotes it, and the count stays theirs to give.
     const district = (
-      await me.app.inject({ method: 'GET', url: '/api/city/rustyard', headers: auth(me.token) })
+      await me.app.inject({ method: 'GET', url: '/api/city/steelbelt', headers: auth(me.token) })
     ).json<DistrictDetailResponse>();
-    const view = district.locations.find((l) => l.location.id === 'rustyard-press')!;
+    const view = district.locations.find((l) => l.location.id === 'steelbelt-press')!;
     expect(view.garrisonSize).toBeNull();
     expect(view.latestSpyReport?.id).toBe(report.id);
     expect(district.spyRun).toBeNull();
@@ -306,7 +306,7 @@ describe('the report', () => {
     me.app.repos.sleepers.insert({
       id: 'cell',
       baseId: rival.baseId,
-      locationId: 'rustyard-press',
+      locationId: 'steelbelt-press',
       army: { sleepers: 3 },
       phase: 'waiting',
       departedAt: new Date().toISOString(),

@@ -13,7 +13,6 @@ import {
   type SkirmishEngine,
   startingTraining,
   BOT_DISTRICT_ID,
-  BUILDING_KINDS,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -603,15 +602,13 @@ describe('routing', () => {
 });
 
 /**
- * An empty plot is still a district.
+ * An empty plot is closed until somebody claims it (maintainer, 2026-09-28).
  *
- * Every residential district is the same ground; three of the four have nobody on them, and the
- * screen for one used to be a single sentence saying so, which is a hole where every other plot
- * has a place. It draws that ground at level 1 instead, which is also exactly what a crew settling
- * there would start from.
+ * It used to draw a full district at level 1 for anybody who looked, so a crew could walk the
+ * streets of a plot that is nobody's. Now it draws nothing, says it is closed, and prices no scout.
  */
-describe('a plot nobody lives on draws itself at level 1', () => {
-  it('serves a full district at level 1, and no crew', async () => {
+describe('a plot nobody lives on is closed', () => {
+  it('serves no scene and no crew, and says it is closed', async () => {
     const { app } = await makeApp();
     const mine = await register(app, 'nikos');
     await takeOverseer(app, mine.token);
@@ -636,16 +633,9 @@ describe('a plot nobody lives on draws itself at level 1', () => {
     ).json<DistrictDetailResponse>();
 
     expect(seen.base, 'nobody lives there').toBeNull();
-    expect(seen.residentBuildings.length).toBe(BUILDING_KINDS.length);
-    for (const building of seen.residentBuildings) expect(building.level).toBe(1);
-    // Stable between reads: the scene positions outlines by id, so a fresh id every poll would
-    // make the drawing jump.
-    const again = (
-      await app.inject({ method: 'GET', url: `/api/city/${empty!.id}`, headers: auth(mine.token) })
-    ).json<DistrictDetailResponse>();
-    expect(again.residentBuildings.map((b) => b.id)).toEqual(
-      seen.residentBuildings.map((b) => b.id),
-    );
+    expect(seen.closed).toBe(true);
+    expect(seen.residentBuildings).toEqual([]);
+    expect(seen.scoutPlan).toBeNull();
   });
 });
 

@@ -11,6 +11,7 @@ import {
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MissionReportWindow } from './MissionReportWindow';
+import { landedOf } from './WastedAtTheGate';
 
 /**
  * The report a returned row opens (maintainer, 2026-09-12).
@@ -50,7 +51,7 @@ function mission(fields: Partial<Mission> = {}): Mission {
     durationMinutes: 50,
     status: 'resolved',
     officerId: null,
-    battleTier: null,
+    grade: null,
     overseerLed: true,
     lost: {},
     reported: true,
@@ -180,14 +181,80 @@ describe('what a run turned up', () => {
 
 describe('the rest of the report', () => {
   it('names the outcome, the ground, who led it, the XP and the round trip', () => {
-    show(mission({ areaId: 'rustyard', outcome: 'failure', xp: 240 }));
+    show(mission({ areaId: 'steelbelt', outcome: 'failure', xp: 240 }));
 
     expect(screen.getByTestId('mission-outcome-r-1')).toHaveTextContent('Lost');
     expect(screen.getByTestId('mission-outcome-r-1')).toHaveTextContent('Steelbelt');
     expect(screen.getByTestId('mission-leader-r-1')).toHaveTextContent('Rook');
     const report = screen.getByTestId('mission-report-r-1');
-    expect(report).toHaveTextContent('240 XP');
+    // What the run paid, not what it would have: a failed run banks a fifth of its 240.
+    expect(report).toHaveTextContent('48 XP');
+    expect(report).not.toHaveTextContent('240 XP');
     // 5 out, 50 on site, 5 back.
     expect(report).toHaveTextContent('1h 00m');
+  });
+
+  it('prints the XP the settle paid: all of it on a clean run, none for a crew turned round', () => {
+    show(mission({ xp: 240 }));
+    expect(screen.getByTestId('mission-report-r-1')).toHaveTextContent('240 XP');
+    show(
+      mission({
+        id: 'r-2',
+        xp: 240,
+        outcome: 'failure',
+        recalledAt: '2026-08-13T10:01:00.000Z',
+        rewards: {},
+      }),
+    );
+    expect(screen.getByTestId('mission-report-r-2')).toHaveTextContent('0 XP');
+    expect(screen.getByTestId('mission-report-r-2')).not.toHaveTextContent('240 XP');
+  });
+});
+
+/**
+ * The stores are a hard ceiling on mission pay (maintainer ruling, 2026-09-28): what came home and
+ * had nowhere to go is named under the haul, so a full yard is the stated reason the stockpile
+ * moved less than the haul says.
+ */
+describe('what the full stores threw away', () => {
+  const open = (one: Mission) =>
+    render(
+      <MissionReportWindow
+        mission={one}
+        leaders={[ROOK]}
+        overseerName="Rook"
+        loadouts={{}}
+        onClose={() => undefined}
+      />,
+    );
+
+  it('names it under the haul, in loot and by resource', () => {
+    // Oil weighs three to the unit, so the total is the weighed figure and not a count.
+    const one = mission({ wasted: { scrap: 25, oil: 10 } });
+    open(one);
+    expect(screen.getByTestId(`mission-wasted-${one.id}`).textContent).toBe(
+      'The stores were full: 55 loot of what they carried went to waste at the gate (10 Oil and 25 Scrap).',
+    );
+  });
+
+  it('marks the wasted part on each resource it came out of', () => {
+    const one = mission({ wasted: { scrap: 25 } });
+    open(one);
+    expect(screen.getByTestId('haul-wasted-scrap').textContent).toBe('25 wasted');
+    expect(screen.queryByTestId('haul-wasted-oil')).toBeNull();
+  });
+
+  it('counts only what landed as the pay the stores took', () => {
+    expect(landedOf(mission({ rewards: { scrap: 40, oil: 5 }, wasted: { scrap: 25 } }))).toEqual({
+      scrap: 15,
+      oil: 5,
+    });
+    expect(landedOf(mission({ rewards: { scrap: 40 }, wasted: { scrap: 40 } }))).toEqual({});
+  });
+
+  it('says nothing when everything fitted', () => {
+    const one = mission({ wasted: {} });
+    open(one);
+    expect(screen.queryByTestId(`mission-wasted-${one.id}`)).toBeNull();
   });
 });

@@ -91,8 +91,9 @@ export const MODIFICATION_REQUIREMENT_BANDS: Readonly<
    * Both sit *above* `Marked`, which is where every other notoriety gate in the game stopped, and
    * that is the point: the ladder's top half gated nothing, so a crew that bought it had changed a
    * word on a chip. Six and eight rather than the top two rungs, because a gate has to be a thing
-   * a crew reaches while it still has the game left to play: `notorietyUpgradeCost` triples every
-   * step, so the twelfth rung is a different order of magnitude from the eighth.
+   * a crew reaches while it still has the game left to play: since the ladder was repriced
+   * (2026-09-28) a fighting crew buys the eighth rung about six weeks in and the twelfth past three
+   * months (`notorietyUpgradeCost`).
    */
   advanced: { buildingLevel: 12, crewLevel: 15, mark: 'C+', notoriety: 6 },
   masterpiece: { buildingLevel: 17, crewLevel: 22, mark: 'B+', notoriety: 8 },

@@ -1,7 +1,9 @@
-import type { SkirmishEngine } from '@frontline/shared';
-import { resolveDueMissions } from '../missions/resolve.js';
+import { isMissionDue, type SkirmishEngine } from '@frontline/shared';
+import { settleAndResolveMissions } from '../missions/resolve.js';
 import { settleWorld } from '../world/settle.js';
+import { recordTick } from '../world/vitals.js';
 import type { Repositories } from '../db/repos/index.js';
+import { reportTickFailuresTo, settleEach, type TickFailureSink } from '../world/guard.js';
 
 /**
  * The world clock: the one thing in this server that happens without being asked.
@@ -61,6 +63,12 @@ export interface WorldClockOptions {
   engine: SkirmishEngine;
   /** Wired to the log by the caller. A tick that throws must not take the timer down with it. */
   onError?: (error: unknown) => void;
+  /**
+   * Where a single stage or row that failed inside a tick is told (`world/guard.ts`). Those are
+   * caught where they happen so the rest of the tick still runs, which means `onError` never sees
+   * them: this is the only place they surface.
+   */
+  onFailure?: TickFailureSink;
   /** Called with what a tick resolved, when it resolved anything. For logging and for tests. */
   onSettled?: (resolved: number, now: Date) => void;
   intervalMs?: number;
@@ -93,26 +101,16 @@ export function tickWorld(
   // a receipt, and a receipt only matters when it arrives. A player who sent somebody out and closed
   // the tab should come back to open ground and a rung bell, not cause both by opening a screen.
   /*
-   * The crews' own failures are collected rather than thrown (bug pass, 2026-09-23).
+   * The crews' own failures are reported rather than thrown (bug pass, 2026-09-23; robustness
+   * pass, 2026-09-25).
    *
    * `settleWorld` calls this callback *before* the automations, the scouts, the spies and every
    * auction, so a throw from inside it skipped all of them, for every player, once a second, for
-   * as long as one unparseable row existed. The failure is still surfaced, just after the rest of
-   * the world has had its tick: `startWorldClock` catches what is thrown here and hands it to
-   * `onError`.
+   * as long as one unparseable row existed. The first fix collected the failing ids and threw one
+   * error naming them after the tick, with each cause thrown away; each failure now goes to the
+   * tick's failure sink with its own error (`world/guard.ts`), and nothing is thrown.
    */
-  const unsettled: string[] = [];
-  const resolved = settleWorld(
-    repos,
-    engine,
-    now,
-    (r, at) => settleCrewsComingHome(r, at, unsettled),
-    admin,
-  );
-  if (unsettled.length > 0) {
-    throw new Error(`could not settle crews for ${unsettled.join(', ')}`);
-  }
-  return resolved;
+  return settleWorld(repos, engine, now, settleCrewsComingHome, admin);
 }
 
 /**
@@ -121,36 +119,30 @@ export function tickWorld(
  * The candidate set is districts with a crew still out, which is small: a player runs a handful of
  * jobs at a time and a finished one leaves the set. Each is settled in its own transaction, so one
  * unreadable run cannot roll back the crews that came home cleanly beside it, and a base that
- * throws is collected into `failed` rather than ending the sweep: `tickWorld` re-throws once the
- * rest of the world has had its tick. See the note there.
+ * throws is reported with its own error and left for the next tick (`settleEach`).
  *
  * The cost of the sweep grows with the number of *runs in flight*, not with the number of accounts,
  * and every second it does a primary-key lookup per district with one. That is the right shape for
  * a game of this size and the wrong one for a very large one: past a few thousand concurrent runs
  * this wants an index on a stored return time and a query that asks only for what is actually due.
  */
-function settleCrewsComingHome(repos: Repositories, now: Date, failed: string[]): void {
-  for (const baseId of repos.missions.basesWithActiveRuns()) {
-    const base = repos.bases.findById(baseId);
-    if (!base) continue;
-    try {
-      repos.tx(() => resolveDueMissions(repos, base, now));
-    } catch {
-      /*
-       * One unreadable crew is one unreadable crew (bug pass, 2026-09-23).
-       *
-       * The comment above already claimed this and only half of it was true: each base settles in
-       * its own transaction, so a throw rolled back nothing but its own work, and then escaped
-       * into `settleWorld`, which runs this *before* the automations, the scouts, the spies and
-       * every auction. So one row nothing could parse stopped all of those for **every player**,
-       * once a second, silently, for as long as the row existed. The clock's own guard swallowed
-       * it, so nothing in the logs said which base it was either.
-       *
-       * Caught per base and named, so the sweep carries on and the row can be found.
-       */
-      failed.push(baseId);
-    }
-  }
+function settleCrewsComingHome(repos: Repositories, now: Date): void {
+  settleEach(
+    repos,
+    'crews coming home',
+    repos.missions.basesWithActiveRuns(),
+    (id) => id,
+    (id) => {
+      // The runs first, the crew only if one of them is home: a crew is the heaviest row there is,
+      // and most seconds nothing out there has finished (hardening pass, 2026-09-27).
+      const home = repos.missions
+        .listActiveByBaseId(id)
+        .some((stored) => isMissionDue(stored.mission, now));
+      if (!home) return;
+      const base = repos.bases.findById(id);
+      if (base) settleAndResolveMissions(repos, base, now);
+    },
+  );
 }
 
 /**
@@ -164,11 +156,13 @@ export function startWorldClock({
   repos,
   engine,
   onError,
+  onFailure,
   onSettled,
   intervalMs = WORLD_TICK_MS,
   now = () => new Date(),
   admin = false,
 }: WorldClockOptions): () => void {
+  const restoreSink = onFailure ? reportTickFailuresTo(onFailure) : () => undefined;
   const timer = setInterval(() => {
     try {
       const at = now();
@@ -179,9 +173,14 @@ export function startWorldClock({
       // and the 500 that `/api/battles` once served for months is the standing evidence that a
       // single bad row can otherwise take a whole system down.
       onError?.(error);
+    } finally {
+      recordTick();
     }
   }, intervalMs);
   // Without this a `pnpm test` that started a clock would hang on an open handle rather than exit.
   timer.unref?.();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    restoreSink();
+  };
 }

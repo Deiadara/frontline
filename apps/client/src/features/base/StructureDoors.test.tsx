@@ -94,6 +94,7 @@ const fetchMock = vi.fn();
 function stubApi(): void {
   const reply = (body: unknown) =>
     Promise.resolve({
+      headers: new Headers(),
       ok: true,
       status: 200,
       statusText: '',
@@ -196,6 +197,7 @@ describe('§E: a bracket is a door to the yard', () => {
   function stubFitted(): void {
     const reply = (body: unknown) =>
       Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',

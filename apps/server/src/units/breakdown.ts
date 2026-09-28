@@ -3,7 +3,7 @@ import {
   ATTRIBUTE_LABELS,
   ATTRIBUTE_NAMES,
   BUILDING_CATALOG,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   FACTION_CARD_SPECS,
   MAX_EFFECT_REDUCTION,
   MAX_GAUNTLET_TRAINING_BONUS,
@@ -178,7 +178,7 @@ function groundLines(repos: Repositories, base: Base, channel: 'cost' | 'speed')
   const controls = repos.city.controls();
   const lines: BonusLine[] = [];
   const held = new Set<string>();
-  for (const location of CITY_LOCATIONS) {
+  for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, base.id)) continue;
     held.add(location.districtId);

@@ -6,9 +6,14 @@ import {
   barterRateFor,
   brokerDealsIn,
   isReimaginingResearched,
+  largestBidWithin,
   canAfford,
   canSettle,
-  creditResources,
+  CLAIM_WINDOW_HOURS,
+  describeWaste,
+  OFFER_LIFETIME_HOURS,
+  claimUntil,
+  describeBundle,
   marketDay,
   nextVendorOpening,
   offerHasExpired,
@@ -28,6 +33,8 @@ import {
   vendorVisitAt,
   visibleTo,
   type Base,
+  type MarketClaimReason,
+  type PartialResources,
   type MarketOffer,
   type MarketResponse,
   type ResourceKey,
@@ -37,10 +44,15 @@ import {
 import type { Repositories } from '../db/repos/index.js';
 import { citiesFor } from '../city/stakes.js';
 import { workingRoles } from '../crew/roster.js';
-import { crewEffectsFor } from '../crew/standing.js';
+import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
+import { creditBase, refuseWaste } from '../district/stores.js';
+import { settleBase } from '../district/settle.js';
+import { notify } from '../social/notify.js';
+import { settleEach } from '../world/guard.js';
 import { tellPagesFound } from '../social/pages.js';
 import {
   bidderNames,
+  discountedCaps,
   latestLotResultsFor,
   projectVendorAuction,
   type VendorBidRefusal,
@@ -56,7 +68,7 @@ import {
  * opened by the route.
  *
  * The Runner's hours and stock are *derived*, never stored: `vendorSessionsFor` and
- * `vendorStockFor` are pure functions of the UTC date, so the server does not have to schedule
+ * `vendorStockFor` are pure functions of the game date (Athens), so the server does not have to schedule
  * anything and cannot disagree with the client about what is on the barrow. What *is* stored, in
  * `vendor_sales`, is what the city has already bought: a shared counter per line, so a sold-out
  * blueprint is sold out for everybody and stays sold out across a restart.
@@ -66,7 +78,7 @@ import {
  * How many of a vendor line the whole city has taken today.
  *
  * In the database, not in this module. It was a `Map` here, which meant a sold-out line went back
- * on the barrow at every restart, crash and deploy inside the same UTC day: a blueprint the
+ * on the barrow at every restart, crash and deploy inside the same game day: a blueprint the
  * catalogue rations to one could be bought again by the next person through the door, and the
  * exploit was "wait for a deploy". Yesterday's rows are never read, so nothing sweeps them.
  */
@@ -74,14 +86,49 @@ export function vendorSoldCount(repos: Repositories, day: string, lineId: string
   return repos.market.vendorSold(day, lineId);
 }
 
-/** Expire anything that has stood too long, and give the seller their goods back. */
+/**
+ * The board's own clock, run by the world tick: listings past their lifetime close and hold their
+ * goods for the poster, and claims past their window are paid out whether they fit or not.
+ * Returns how many rows moved, so the tick can tell open market screens.
+ */
+export function settleMarketBoard(repos: Repositories, now: Date): number {
+  /*
+   * Row by row, each parsed and settled inside its own guard (`world/guard.ts`), off ids read
+   * without parsing anything. One listing or claim that no longer parses (a retired item id in its
+   * bundle, a crew row that fails its schema) is reported and left, rather than stopping every
+   * expiry and payout after it and turning `GET /market` into a 500 for everybody.
+   */
+  const expired = settleEach(
+    repos,
+    'market listings',
+    repos.market.openIdsPostedBy(offerLifetimeCutoff(now)),
+    (id) => id,
+    (id) => expireOffer(repos, id, now),
+  );
+  const paid = settleEach(
+    repos,
+    'market claims',
+    repos.market.lapsedClaimIds(now),
+    (id) => id,
+    (id) => payClaimOut(repos, id, now),
+  );
+  return expired + paid;
+}
+
+/** Closes one listing past its lifetime, if nothing has closed it since the ids were read. */
+function expireOffer(repos: Repositories, offerId: string, now: Date): void {
+  const offer = repos.market.findById(offerId);
+  // Re-read inside the row's transaction: a counter handled a moment ago as its parent closed is
+  // no longer open, and holding its escrow a second time would pay it twice.
+  if (!offer || offer.status !== 'open' || !offerHasExpired(offer, now)) return;
+  repos.market.setStatus(offer.id, 'expired');
+  holdEscrow(repos, offer, 'expired', now);
+  releaseCounters(repos, offer.id, now);
+}
+
+/** The same, for a read that should not show a listing the tick has not reached yet. */
 export function sweepExpiredOffers(repos: Repositories, now: Date): void {
-  for (const offer of repos.market.listByStatus('open')) {
-    if (!offerHasExpired(offer, now)) continue;
-    repos.market.setStatus(offer.id, 'expired');
-    releaseEscrow(repos, offer);
-    releaseCounters(repos, offer.id);
-  }
+  settleMarketBoard(repos, now);
 }
 
 /**
@@ -93,11 +140,13 @@ export function sweepExpiredOffers(repos: Repositories, now: Date): void {
  * stockpile two days later: a level-one crew with a level-twenty crew's oil arriving by post.
  * The counters other crews had standing against these listings are theirs and do come home.
  */
-export function forfeitOffers(repos: Repositories, baseId: string): void {
+export function forfeitOffers(repos: Repositories, baseId: string, now = new Date()): void {
   for (const offer of repos.market.openBySeller(baseId)) {
     repos.market.setStatus(offer.id, 'withdrawn');
-    releaseCounters(repos, offer.id);
+    releaseCounters(repos, offer.id, now);
   }
+  // What the board was holding for the old life goes with its listings.
+  repos.market.dropClaimsFor(baseId);
 }
 
 /**
@@ -107,23 +156,144 @@ export function forfeitOffers(repos: Repositories, baseId: string): void {
  * did not, so a counter's escrow stayed locked for its own two days against a listing nobody could
  * take any more. One function for the three ways a listing closes.
  */
-function releaseCounters(repos: Repositories, offerId: string): void {
+function releaseCounters(repos: Repositories, offerId: string, now: Date): void {
   for (const counter of repos.market.countersTo(offerId)) {
     if (counter.status !== 'open') continue;
     repos.market.setStatus(counter.id, 'withdrawn');
-    releaseEscrow(repos, counter);
+    holdEscrow(repos, counter, 'closed', now);
   }
 }
 
-/** Hand a listing's escrowed goods back to whoever posted it. */
-function releaseEscrow(repos: Repositories, offer: MarketOffer): void {
-  const seller = repos.bases.findById(offer.sellerBaseId);
-  if (!seller) return;
-  repos.bases.updateHoldings(
-    seller.id,
-    creditResources(seller.resources, offer.give.resources),
-    addItems(seller.inventory, offer.give.items),
-  );
+/** A listing's escrowed goods, held for whoever posted it: nobody pressed anything for these. */
+function holdEscrow(
+  repos: Repositories,
+  offer: MarketOffer,
+  reason: MarketClaimReason,
+  now: Date,
+): void {
+  holdForClaim(repos, { offer, reason, goods: offer.give, takenBy: null, now });
+}
+
+/**
+ * Puts goods on the board for the listing's poster to claim (maintainer, 2026-09-28), and tells
+ * them. They were not on the screen when this happened, which is the whole reason it waits.
+ */
+function holdForClaim(
+  repos: Repositories,
+  hold: {
+    offer: MarketOffer;
+    reason: MarketClaimReason;
+    goods: TradeBundle;
+    takenBy: string | null;
+    now: Date;
+  },
+): void {
+  const { offer, reason, goods, takenBy, now } = hold;
+  const poster = repos.bases.findById(offer.sellerBaseId);
+  if (!poster) return;
+  repos.market.insertClaim({
+    id: randomUUID(),
+    baseId: poster.id,
+    offer,
+    reason,
+    goods,
+    takenBy,
+    createdAt: now.toISOString(),
+    claimUntil: claimUntil(now).toISOString(),
+  });
+  const what = describeBundle(goods);
+  const yours = offer.counterTo === null ? 'listing' : 'counter';
+  notify(repos, {
+    userId: poster.ownerId,
+    kind: 'market_claim',
+    title:
+      reason === 'taken'
+        ? `${takenBy ?? 'Somebody'} took your ${yours}: ${what} to claim on the board`
+        : reason === 'expired'
+          ? `Nobody took your ${yours}: ${what} to claim back on the board`
+          : `The listing you countered closed: ${what} to claim back on the board`,
+    body: `Claim it within ${CLAIM_WINDOW_HOURS} hours. After that it is put in your stores anyway, and whatever does not fit is lost.`,
+    link: '/game/market/offers',
+    subjectId: offer.id,
+    now,
+  });
+}
+
+/**
+ * Pays a claim into the crew's stores and inventory and closes it.
+ *
+ * `acceptWaste` undefined means nobody is asking, which is the lapsed claim: the stores take what
+ * fits and the rest is lost. A press passes the player's answer, and is refused with the warning
+ * until they say yes.
+ */
+function payClaim(
+  repos: Repositories,
+  base: Base,
+  claim: { id: string; goods: TradeBundle; offer: MarketOffer; takenBy: string | null },
+  now: Date,
+  pressed: { acceptWaste: boolean | undefined } | null,
+): { base: Base; wasted: PartialResources | undefined } {
+  const credit = creditBase(repos, base, claim.goods.resources, now);
+  if (pressed) refuseWaste(credit, pressed.acceptWaste);
+  const inventory = addItems(base.inventory, claim.goods.items);
+  repos.bases.updateHoldings(base.id, credit.resources, inventory);
+  repos.market.deleteClaim(claim.id);
+  // Only a page the trade brought in rings, never the poster's own escrow coming home.
+  if (claim.takenBy !== null) {
+    tellPagesFound(repos, {
+      userId: base.ownerId,
+      before: base.inventory,
+      after: inventory,
+      source: { kind: 'offer', from: claim.takenBy },
+      now,
+    });
+  }
+  return { base: { ...base, resources: credit.resources, inventory }, wasted: credit.wasted };
+}
+
+/** A claim whose 24 hours are up, paid whether it fits or not. */
+function payClaimOut(repos: Repositories, claimId: string, now: Date): void {
+  const claim = repos.market.findClaim(claimId);
+  if (!claim) return;
+  const held = repos.bases.findById(claim.baseId);
+  if (!held) {
+    repos.market.deleteClaim(claim.id);
+    return;
+  }
+  // Settled first, so a store that finished growing since the crew's last read is the one the
+  // goods are measured against.
+  const base = settleBase(repos, held, now).base;
+  const { wasted: lost } = payClaim(repos, base, claim, now, null);
+  if (lost !== undefined) {
+    notify(repos, {
+      userId: base.ownerId,
+      kind: 'market_claim',
+      title: `Unclaimed goods went into your stores, and ${describeWaste(lost)} did not fit`,
+      body: `Nobody claimed them in ${CLAIM_WINDOW_HOURS} hours, so they were put away as they stood.`,
+      link: '/game/market/offers',
+      subjectId: claim.offer.id,
+      now,
+    });
+  }
+}
+
+/** Where a listing posted at or before this has stood its lifetime out. */
+function offerLifetimeCutoff(now: Date): Date {
+  return new Date(now.getTime() - OFFER_LIFETIME_HOURS * 3_600_000);
+}
+
+/** The crew pressing Claim: warned about what would not fit, then paid. */
+export function claimMarketGoods(
+  repos: Repositories,
+  base: Base,
+  claimId: string,
+  now: Date,
+  acceptWaste?: boolean,
+): MarketResult {
+  const claim = repos.market.findClaim(claimId);
+  if (!claim) return { kind: 'refused', reason: 'unknown_claim' };
+  if (claim.baseId !== base.id) return { kind: 'refused', reason: 'not_yours' };
+  return { kind: 'done', base: payClaim(repos, base, claim, now, { acceptWaste }).base };
 }
 
 export function projectMarket(
@@ -188,11 +358,16 @@ export function projectMarket(
     : [];
 
   const listings = repos.market.listByStatus('open');
+  // §A4: the Downtown Market's cut, read once. It comes off what a winner pays, never the reserve.
+  const ground = standingEffectsFor(repos, base, now).marketDiscountPercent;
   return {
     serverNow: now.toISOString(),
     cityId,
     cities: citiesFor(repos, base),
     caps: base.resources.caps,
+    // What the close would charge is the bid less the crew's ground, and that is what the table
+    // measures against the caps: see `placeVendorBid`. The field has to stop at the same edge.
+    bidCeiling: largestBidWithin(base.resources.caps, (bid) => discountedCaps(bid, ground)),
     resources: base.resources,
     inventory: base.inventory,
     vendor: {
@@ -204,12 +379,13 @@ export function projectMarket(
       stock,
       // Only the lots this crew bid on, from the last visit it bid at. A panel carrying every close
       // in the city would be a leaderboard nobody asked for.
-      results: latestLotResultsFor(repos, base.ownerId, now),
+      results: latestLotResultsFor(repos, base.ownerId, now, cityId),
     },
     // Somebody else's public listings, plus counters aimed at this crew. Never its own. Those are
     // `mine`, and a board that showed a crew its own listing twice would read as two offers.
     offers: listings.filter((offer) => offer.sellerBaseId !== base.id && visibleTo(offer, base.id)),
     mine: listings.filter((offer) => offer.sellerBaseId === base.id),
+    claims: repos.market.claimsFor(base.id).map(({ baseId: _owner, ...claim }) => claim),
     supply: supplyBoard(
       base.level,
       base.resources,
@@ -243,6 +419,7 @@ export function buySupply(
   key: ResourceKey,
   units: number,
   now: Date,
+  acceptWaste?: boolean,
 ): MarketResult {
   const day = marketDay(now);
   // The ration is measured against the bulk shelf; the room is measured against this resource's own.
@@ -260,18 +437,23 @@ export function buySupply(
     units,
     stock: base.resources,
     allowanceLeft: Math.max(0, allowance - used),
-    capacity: storageCapacityFor(base.buildings, key, bulk),
   });
   if (refusal !== null) return { kind: 'refused', reason: refusal };
 
-  const resources = creditResources(
-    spendResources(base.resources, { caps: supplyPrice(key, units) }),
-    { [key]: units },
-  );
+  // The store is a warning, not a refusal (maintainer ruling, 2026-09-28): an order past it is
+  // asked about first and, once agreed, lands up to the ceiling. The whole order is still charged
+  // and still spends the ration, because that is what was bought.
+  const paid: Base = {
+    ...base,
+    resources: spendResources(base.resources, { caps: supplyPrice(key, units) }),
+  };
+  const credit = creditBase(repos, paid, { [key]: units }, now);
+  refuseWaste(credit, acceptWaste);
+  const { resources } = credit;
   repos.bases.updateHoldings(base.id, resources, base.inventory);
   repos.market.recordSupply(base.id, day, units, now.toISOString());
   tallyMarketBuy(repos, base.id);
-  tallyResourcesEarned(repos, base.id, { [key]: units });
+  tallyResourcesEarned(repos, base.id, credit.landed);
   return { kind: 'done', base: { ...base, resources } };
 }
 
@@ -282,6 +464,7 @@ export type MarketRefusal =
   | 'same_resource'
   | 'no_caps'
   | 'unknown_offer'
+  | 'unknown_claim'
   | 'not_yours'
   | 'own_offer'
   | 'cannot_settle'
@@ -304,29 +487,43 @@ export type MarketResult =
 export function barter(
   repos: Repositories,
   base: Base,
-  give: ResourceKey,
-  want: ResourceKey,
-  amount: number,
+  trade: {
+    give: ResourceKey;
+    want: ResourceKey;
+    amount: number;
+    acceptWaste?: boolean | undefined;
+  },
   minimum: number,
+  now: Date,
 ): MarketResult {
+  const { give, want, amount, acceptWaste } = trade;
   if (give === want) return { kind: 'refused', reason: 'same_resource' };
   // Materials only, either way round: see `BARTER_RESOURCES`.
   if (!brokerDealsIn(give) || !brokerDealsIn(want)) return { kind: 'refused', reason: 'no_caps' };
   if (amount < minimum) return { kind: 'refused', reason: 'too_small' };
+  // §I3: the Broker stops taking half at level 60. Read off the level here rather than passed in
+  // so the quote the screen drew and the trade the server settles cannot come from two rates.
+  const gained = barterQuote(give, want, amount, barterRateFor(base.level));
+  // The quote floors, and valuing by worth means ten of a cheap thing can buy less than one of a
+  // dear one. Past the minimum count and still nothing back is the same trade as under it.
+  if (gained <= 0) return { kind: 'refused', reason: 'too_small' };
   if (!canAfford(base.resources, { [give]: amount })) {
     return { kind: 'refused', reason: 'cannot_afford' };
   }
-
-  // §I3: the Broker stops taking half at level 60. Read off the level here rather than passed in
-  // so the quote the screen drew and the trade the server settles cannot come from two rates.
-  const gained = barterQuote(amount, barterRateFor(base.level));
-  const resources = creditResources(spendResources(base.resources, { [give]: amount }), {
-    [want]: gained,
-  });
+  // The stores' ceiling, which the Broker used to credit straight past and then, from 2026-09-27,
+  // refused outright at. Now a warning (maintainer ruling, 2026-09-28): he tells the player what
+  // will not fit, and if they go ahead the excess is thrown away.
+  const handedOver: Base = {
+    ...base,
+    resources: spendResources(base.resources, { [give]: amount }),
+  };
+  const credit = creditBase(repos, handedOver, { [want]: gained }, now);
+  refuseWaste(credit, acceptWaste);
+  const { resources } = credit;
   repos.bases.updateHoldings(base.id, resources, base.inventory);
   // A barter is a deal and the far side of it is a vendor, so only this crew is counted.
   tallyMarketBuy(repos, base.id);
-  tallyResourcesEarned(repos, base.id, { [want]: gained });
+  tallyResourcesEarned(repos, base.id, credit.landed);
   return { kind: 'done', base: { ...base, resources } };
 }
 
@@ -352,6 +549,9 @@ export function postOffer(
   if (counterTo !== undefined) {
     const parent = repos.market.findById(counterTo);
     if (!parent || parent.status !== 'open') return { kind: 'refused', reason: 'unknown_offer' };
+    // Past its lifetime is gone, swept or not, for the reason `acceptOffer` gives. A counter
+    // escrowed against one was handed straight back by the next sweep, having answered nothing.
+    if (offerHasExpired(parent, now)) return { kind: 'refused', reason: 'unknown_offer' };
     if (parent.sellerBaseId === base.id) return { kind: 'refused', reason: 'own_offer' };
     directedAt = parent.sellerBaseId;
   }
@@ -375,17 +575,28 @@ export function postOffer(
   return { kind: 'done', base: { ...base, resources, inventory }, offer };
 }
 
-/** Take a listing back. The escrow comes home. */
-export function withdrawOffer(repos: Repositories, base: Base, offerId: string): MarketResult {
+/**
+ * Take a listing back. The escrow comes home, into the stores: what no longer fits is warned
+ * about first and thrown away if the poster goes ahead (maintainer ruling, 2026-09-28).
+ */
+export function withdrawOffer(
+  repos: Repositories,
+  base: Base,
+  offerId: string,
+  now: Date,
+  acceptWaste?: boolean,
+): MarketResult {
   const offer = repos.market.findById(offerId);
   if (!offer || offer.status !== 'open') return { kind: 'refused', reason: 'unknown_offer' };
   if (offer.sellerBaseId !== base.id) return { kind: 'refused', reason: 'not_yours' };
 
+  const credit = creditBase(repos, base, offer.give.resources, now);
+  refuseWaste(credit, acceptWaste);
   repos.market.setStatus(offer.id, 'withdrawn');
-  const resources = creditResources(base.resources, offer.give.resources);
+  const { resources } = credit;
   const inventory = addItems(base.inventory, offer.give.items);
   repos.bases.updateHoldings(base.id, resources, inventory);
-  releaseCounters(repos, offer.id);
+  releaseCounters(repos, offer.id, now);
   return { kind: 'done', base: { ...base, resources, inventory } };
 }
 
@@ -404,6 +615,7 @@ export function acceptOffer(
   base: Base,
   offerId: string,
   now: Date,
+  acceptWaste?: boolean,
 ): MarketResult {
   const offer = repos.market.findById(offerId);
   if (!offer || offer.status !== 'open') return { kind: 'refused', reason: 'unknown_offer' };
@@ -427,21 +639,23 @@ export function acceptOffer(
   const seller = repos.bases.findById(offer.sellerBaseId);
   if (!seller) return { kind: 'refused', reason: 'unknown_offer' };
 
-  // Buyer: pays `want`, receives `give`.
-  const buyerResources = creditResources(
-    spendResources(base.resources, offer.want.resources),
-    offer.give.resources,
-  );
+  /*
+   * Buyer: pays `want`, receives `give`, into the stores. The buyer is the one pressing, so what
+   * will not fit is warned about before anything moves (maintainer ruling, 2026-09-28).
+   */
+  const paying: Base = {
+    ...base,
+    resources: spendResources(base.resources, offer.want.resources),
+  };
+  const bought = creditBase(repos, paying, offer.give.resources, now);
+  refuseWaste(bought, acceptWaste);
+  const buyerResources = bought.resources;
   const buyerInventory = addItems(removeItems(base.inventory, offer.want.items), offer.give.items);
   repos.bases.updateHoldings(base.id, buyerResources, buyerInventory);
 
-  // Seller: receives `want`. Their `give` left when they posted.
-  const sellerInventory = addItems(seller.inventory, offer.want.items);
-  repos.bases.updateHoldings(
-    seller.id,
-    creditResources(seller.resources, offer.want.resources),
-    sellerInventory,
-  );
+  // Seller: receives `want`, held on the board until they claim it. Their `give` left when they
+  // posted, and nobody is on their screen now to warn (maintainer, 2026-09-28).
+  holdForClaim(repos, { offer, reason: 'taken', goods: offer.want, takenBy: base.name, now });
 
   /*
    * Feats, both sides of the deal (maintainer request, 2026-09-13).
@@ -467,14 +681,7 @@ export function acceptOffer(
   tallyMarketBuy(repos, base.id);
   tallyMarketSale(repos, seller.id);
 
-  /*
-   * Both sides, and each names the other crew.
-   *
-   * A settlement can move pages in either direction: a listing that gives one, a listing that asks
-   * for one, or both at once. The seller is the half that needs telling most, because nobody was
-   * on their screen when it happened. The escrow that came out of their inventory at posting is not
-   * a page arriving, so it rings nothing; only what the trade actually brought in does.
-   */
+  // The buyer's pages ring now. The seller's ring when they claim (`payClaim`).
   tellPagesFound(repos, {
     userId: base.ownerId,
     before: base.inventory,
@@ -482,16 +689,9 @@ export function acceptOffer(
     source: { kind: 'offer', from: offer.sellerName },
     now,
   });
-  tellPagesFound(repos, {
-    userId: seller.ownerId,
-    before: seller.inventory,
-    after: sellerInventory,
-    source: { kind: 'offer', from: base.name },
-    now,
-  });
 
   repos.market.setStatus(offer.id, 'accepted');
-  releaseCounters(repos, offer.id);
+  releaseCounters(repos, offer.id, now);
 
   return { kind: 'done', base: { ...base, resources: buyerResources, inventory: buyerInventory } };
 }
@@ -537,6 +737,7 @@ export const MARKET_REFUSAL_TEXT: Record<
   same_resource: 'The Broker trades one thing for another, not for itself',
   no_caps: 'The Broker does not touch caps. Materials for materials, or the supply run',
   unknown_offer: 'That listing is gone',
+  unknown_claim: 'Those goods are not on the board any more',
   not_yours: 'That listing is not yours to touch',
   own_offer: 'You cannot trade with yourself',
   cannot_settle: 'You cannot pay what that asks for',

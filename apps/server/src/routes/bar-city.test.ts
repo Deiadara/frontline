@@ -6,11 +6,12 @@ import {
   type LocationControl,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { barRoster } from '../bar/roster.js';
 
 /**
  * The door on a city's bar (maintainer request, 2026-09-17).
@@ -84,8 +85,6 @@ function control(locationId: string, holder: LocationControl['holder']): Locatio
     holder,
     level: 1,
     upgradingUntil: null,
-    fortification: 0,
-    fortifyingUntil: null,
     garrison: {},
   };
 }
@@ -192,26 +191,56 @@ describe('which bar a crew may drink in', () => {
  * roster, which is what a calibre moves and the one number on the response that cannot be moved by
  * anything else in these fixtures.
  */
+/**
+ * Measured a game day apart: the room is frozen at the day's first read since 2026-09-28
+ * (`bar/room.ts`), so what the crews do today shows in tomorrow's room. Each case holds tomorrow's
+ * room against the same people poured at yesterday's profile, so the difference is the city's and
+ * not a different night's luck.
+ */
 describe('what a city’s room is stocked against', () => {
-  const sheetTotal = (bar: BarResponse): number =>
-    bar.recruits.reduce(
+  /** Midday in Athens, and the same time the next day. */
+  const TODAY = new Date('2026-08-13T09:00:00.000Z');
+  const TOMORROW = new Date('2026-08-14T09:00:00.000Z');
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(TODAY);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const sheetTotal = (recruits: readonly { attributes: Record<string, number> }[]): number =>
+    recruits.reduce(
       (total, recruit) =>
         total + Object.values(recruit.attributes).reduce((sum, value) => sum + value, 0),
       0,
     );
 
+  /** Tomorrow's room as served, and the same seats at the profile today's read froze. */
+  async function nextDay(app: FastifyInstance, token: string, city?: string) {
+    const today = (await readBar(app, token, city)).json<BarResponse>();
+    const frozen = app.repos.bar.room(today.day, today.cityId);
+    if (!frozen) throw new Error('the first read froze no room');
+    return async () => {
+      vi.setSystemTime(TOMORROW);
+      const served = (await readBar(app, token, city)).json<BarResponse>();
+      const unmoved = barRoster(served.day, served.recruits.length, frozen, served.cityId);
+      return { served: sheetTotal(served.recruits), unmoved: sheetTotal(unmoved) };
+    };
+  }
+
   it('climbs with the rank of the crews standing in it, not only their levels', async () => {
     const app = await makeApp();
     const one = await player(app, 'bar_calibre');
-
-    const before = sheetTotal((await readBar(app, one.token)).json<BarResponse>());
+    const tomorrow = await nextDay(app, one.token);
 
     // The same crew, further up the ladder. Nothing else about the world moves.
     const base = app.repos.bases.findById(one.baseId)!;
     app.repos.bases.updateEconomy(one.baseId, { ...base.economy, notoriety: 8 });
 
-    const after = sheetTotal((await readBar(app, one.token)).json<BarResponse>());
-    expect(after, 'the ladder counts for nothing in the room').toBeGreaterThan(before);
+    const { served, unmoved } = await tomorrow();
+    expect(served, 'the ladder counts for nothing in the room').toBeGreaterThan(unmoved);
   });
 
   /**
@@ -234,16 +263,12 @@ describe('what a city’s room is stocked against', () => {
     // A location each: both through the door, both pulling a tenth of a share.
     give(app, SALTMARCH_LOCATIONS[0]!.id, quiet.baseId);
     give(app, SALTMARCH_LOCATIONS[1]!.id, loud.baseId);
-    const even = sheetTotal(
-      (await readBar(app, quiet.token, SALTMARCH_CITY_ID)).json<BarResponse>(),
-    );
+    const tomorrow = await nextDay(app, quiet.token, SALTMARCH_CITY_ID);
 
     // The loud one takes nine more, which is the ceiling: a whole share against the other's tenth.
     for (const location of SALTMARCH_LOCATIONS.slice(2, 11)) give(app, location.id, loud.baseId);
-    const tilted = sheetTotal(
-      (await readBar(app, quiet.token, SALTMARCH_CITY_ID)).json<BarResponse>(),
-    );
+    const { served, unmoved } = await tomorrow();
 
-    expect(tilted, 'ground held in a city buys no say in it').toBeGreaterThan(even);
+    expect(served, 'ground held in a city buys no say in it').toBeGreaterThan(unmoved);
   });
 });

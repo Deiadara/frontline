@@ -9,6 +9,7 @@ import {
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import { AppError, parseBody } from '../errors.js';
+import { SESSION_HEADER, signSession } from '../auth/session.js';
 import type { UserRecord } from '../types.js';
 
 /**
@@ -102,11 +103,10 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
    * Changing a password.
    *
    * The session is the proof (maintainer, 2026-09-23): the current password is not asked for, see
-   * `ChangePasswordRequestSchema`. The answer deliberately carries no new token: the JWT holds only
-   * `{sub}`, so it survives a password change, and minting a fresh one would imply a revocation
-   * this system does not do.
+   * `ChangePasswordRequestSchema`. Every other session ends with the old password (2026-09-27), and
+   * this tab is handed a token at the new session version so it is the one that stays signed in.
    */
-  app.post('/settings/password', { preHandler: app.authenticate }, async (request) => {
+  app.post('/settings/password', { preHandler: app.authenticate }, async (request, reply) => {
     const body = parseBody(ChangePasswordRequestSchema, request.body);
     const record = app.repos.users.findById(request.currentUser.id);
     if (!record) throw new AppError('UNAUTHORIZED', 'Authenticated user no longer exists');
@@ -121,7 +121,17 @@ export function registerSettingsRoutes(app: FastifyInstance): void {
     if (!fresh || fresh.passwordHash !== record.passwordHash) {
       throw new AppError('INVALID_CREDENTIALS', 'Your password changed while this was in flight');
     }
+    /*
+     * ...and the session with it (bug pass, 2026-09-28). `authenticate` checked the version before
+     * the hash, so a "log out everywhere" landing inside it left this request to set a password
+     * and sign itself a fresh token on a session its owner had just ended.
+     */
+    if (app.repos.users.sessionVersion(record.id) !== request.user.ver) {
+      throw new AppError('UNAUTHORIZED', 'This session has ended. Sign in again');
+    }
     app.repos.users.setPasswordHash(record.id, passwordHash);
+    const version = app.repos.users.revokeSessions(record.id);
+    reply.header(SESSION_HEADER, signSession(app, record.id, version));
     app.repos.history.record({
       actorId: record.id,
       baseId: null,

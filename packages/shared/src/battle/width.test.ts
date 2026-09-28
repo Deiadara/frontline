@@ -36,8 +36,6 @@ const field = (kind: 'sewer_junction' | 'rail_yard' | 'armory') =>
   battlefieldFor({
     locationName: kind,
     kind,
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: DAY,
   });
 

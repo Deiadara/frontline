@@ -86,8 +86,15 @@ for (const { name, width, height } of VIEWPORTS) {
      */
     const theirsBox = (await page.getByTestId('market-board').boundingBox())!;
     if (mineBox!.x > theirsBox.x + theirsBox.width - 1) {
-      await expect(mine, 'our own standing listing starts below the fold').toBeInViewport();
+      // Goods waiting to be claimed come first (2026-09-28): they are the answer to "has anybody
+      // taken it" now, and the one card on this half with a clock that costs.
+      await expect(
+        page.getByTestId('market-claim-claim-taken'),
+        'the goods waiting start below the fold',
+      ).toBeInViewport();
     }
+    const claimBox = (await page.getByTestId('my-claims').boundingBox())!;
+    expect(claimBox.y, 'the claims are under our standing listings').toBeLessThan(mineBox!.y);
 
     await expectNothingOverflowsTheScreen(page);
   });
@@ -101,6 +108,32 @@ test('takes a listing as it stands', async ({ page }) => {
   );
   await page.getByTestId('offer-offer-1').getByRole('button', { name: 'Accept' }).click();
   expect((await accepted).postDataJSON()).toEqual({ offerId: 'offer-1' });
+});
+
+/**
+ * A taken listing waits with Claim where Withdraw was, and one nobody took says so with one pile
+ * (maintainer, 2026-09-28).
+ */
+test('claims what the board is holding for us', async ({ page }) => {
+  await openBoard(page, 1280, 900);
+
+  const taken = page.getByTestId('market-claim-claim-taken');
+  await expect(taken).toContainText('Taken by Sisters of the Undergrid');
+  await expect(taken).toContainText('You handed over');
+  await expect(taken).toContainText('You get');
+  await expect(taken).toContainText(/Claim within 19h/);
+  const expired = page.getByTestId('market-claim-claim-expired');
+  await expect(expired).toContainText('Nobody took it');
+  await expect(expired).toContainText('Back to you');
+  await expect(expired).not.toContainText('You handed over');
+  await expectNothingOverflowsTheScreen(page);
+  await page.screenshot({ path: 'screenshots/market-claims.png', fullPage: false });
+
+  const claimed = page.waitForRequest(
+    (request) => request.url().includes('/api/market/claim') && request.method() === 'POST',
+  );
+  await taken.getByRole('button', { name: 'Claim' }).click();
+  expect((await claimed).postDataJSON()).toEqual({ claimId: 'claim-taken' });
 });
 
 test('takes our own listing back off the board', async ({ page }) => {

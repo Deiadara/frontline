@@ -16,12 +16,25 @@ import { ArmySchema } from '../units/index.js';
  *
  * Walking onto ground nobody holds claims it on arrival, with no fight. Walking onto a faction
  * ally's ground posts the units there: they stay the sender's, and they fight for the holder.
+ *
+ * **Nothing teleports** (maintainer, 2026-09-28: "Nothing sends units immediately, you need to
+ * move them"). Every placement is a column on this clock, and so is every trip home the game makes
+ * for a crew: units pulled out of a fight, a posting whose alliance ended, a column that reached
+ * ground that would not have it, all walk home from where they were.
  */
 
 export const MovePlaceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('district') }),
   z.object({ kind: z.literal('gate') }),
   z.object({ kind: z.literal('location'), locationId: IdSchema }),
+  /*
+   * The open streets of somebody else's district: where a gate fight or a raid is fought from.
+   *
+   * Never a place a player picks. It exists so a column coming home from a fight at another crew's
+   * gate or inside their breach has somewhere to have set out from, and so a column still walking
+   * to such a fight when it ends has somewhere to arrive before it turns for home.
+   */
+  z.object({ kind: z.literal('street'), districtId: IdSchema }),
 ]);
 export type MovePlace = z.infer<typeof MovePlaceSchema>;
 
@@ -42,6 +55,10 @@ export const MOVE_REFUSALS = [
   /** Somebody else holds the ground: call a fight instead. */
   'held_by_others',
   'no_road',
+  /** A fight is called on this empty ground: nobody claims it until it is over. */
+  'under_fire',
+  /** A fight lands on the ground the column leaves within the hour: nothing leaves it now. */
+  'garrison_locked',
 ] as const;
 export type MoveRefusal = (typeof MOVE_REFUSALS)[number];
 
@@ -91,8 +108,9 @@ export const MoveDestinationSchema = z.object({
 export type MoveDestination = z.infer<typeof MoveDestinationSchema>;
 
 export function samePlace(a: MovePlace, b: MovePlace): boolean {
-  if (a.kind !== b.kind) return false;
-  return a.kind !== 'location' || b.kind !== 'location' || a.locationId === b.locationId;
+  if (a.kind === 'location' && b.kind === 'location') return a.locationId === b.locationId;
+  if (a.kind === 'street' && b.kind === 'street') return a.districtId === b.districtId;
+  return a.kind === b.kind;
 }
 
 type RecallableMove = Pick<UnitMove, 'departedAt' | 'travelMinutes' | 'recalledAt'>;

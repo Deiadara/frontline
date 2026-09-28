@@ -26,6 +26,7 @@ import { cn } from '../../lib/cn';
 import { RARITY_TEXT } from '../../lib/rarity';
 import { useMarket, useReimagine } from '../../lib/queries';
 import { PageGlyph } from './BlueprintGlyph';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Reimagining tab (§G2, §G3): three pages into the machine, one you have never seen out.
@@ -227,10 +228,10 @@ function Bench({ inventory, context }: { inventory: Inventory; context: Reimagin
                   crew passed the check the page could make and something changed underneath it.
                   Unseating the Head of Research in another tab is the ordinary way to get here. */}
               {trade.error !== null && (
-                <p role="alert" className="font-body text-[13px] text-oxblood-300">
+                <ErrorNote>
                   {REIMAGINING_REFUSAL_MESSAGES[trade.error.message as ReimaginingRefusal] ??
                     trade.error.message}
-                </p>
+                </ErrorNote>
               )}
             </div>
           )}
@@ -274,7 +275,7 @@ function nextDoor(hasHeadOfResearch: boolean): { to: string; label: string } | n
  *
  * The sentence on its own was a dead end. A player who reads that nobody is in the Head of Research
  * chair still has to know that chairs are filled at the Bar, and a player who reads that the Lab has
- * not worked Reimagining out has to know which of nineteen trades the rung is on. Both are one press
+ * not worked Reimagining out has to know which of eighteen trades the rung is on. Both are one press
  * now, and the second one opens the rail on the right trade rather than on the first one.
  */
 function LockedBench({ context }: { context: ReimaginingContext }) {

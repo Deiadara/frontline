@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest';
+import {
+  TRAININGS_PER_DAY,
+  TRAINING_SECONDS,
+  beginTraining,
+  cancelDrill,
+  drillCancellable,
+  startingTraining,
+  trainingDay,
+  trainingsLeft,
+  type TrainingSession,
+  type TrainingState,
+} from './training.js';
+
+/**
+ * The day an hour is charged against, and the day it is refunded to.
+ *
+ * `rollDay` puts today's allowance back at zero and leaves yesterday's sessions on the board,
+ * which is right: an hour that straddles midnight is still running. What was wrong is the refund.
+ * `cancelDrill` took one off `used` whatever day the cancelled hour started on, so a drill charged
+ * to yesterday handed its slot back to *today*.
+ *
+ * Reachable with the Professor's second bench (`training_benches`): a drill started at 23:57 is
+ * still inside its cancel window (`CANCEL_WINDOW`, six minutes of the hour) at 00:01, by which
+ * time the crew has already spent one of today's five on the other bench. Cancel the old one and
+ * the counter goes back to zero with an hour of today's work already running.
+ */
+
+/** 23:57 Athens on the 23rd, and 00:01 Athens on the 24th: four minutes apart across midnight. */
+const YESTERDAY_LATE = '2026-09-23T20:57:00.000Z';
+const TODAY_EARLY = '2026-09-23T21:01:00.000Z';
+
+const session = (id: string, subjectId: string, startedAt: string): TrainingSession => ({
+  id,
+  subjectId,
+  attribute: 'stamina',
+  startedAt,
+  durationSeconds: TRAINING_SECONDS,
+});
+
+describe('cancelling an hour that was charged to another day', () => {
+  it('is set up on a real boundary, with the old drill still inside its window', () => {
+    // The control: if either of these stopped holding, every assertion below would be vacuous.
+    expect(trainingDay(YESTERDAY_LATE)).toBe('2026-09-23');
+    expect(trainingDay(TODAY_EARLY)).toBe('2026-09-24');
+    expect(drillCancellable(session('a', 'overseer', YESTERDAY_LATE), TODAY_EARLY)).toBe(true);
+  });
+
+  it('leaves today’s allowance alone when yesterday’s hour is called off', () => {
+    const yesterday: TrainingState = {
+      ...startingTraining(YESTERDAY_LATE),
+      used: 1,
+      sessions: [session('a', 'overseer', YESTERDAY_LATE)],
+      last: { overseer: 'stamina' },
+    };
+    // The second bench takes one of today's five while yesterday's hour is still running.
+    const started = beginTraining(yesterday, session('b', 'off-1', TODAY_EARLY), TODAY_EARLY);
+    expect(started.day).toBe('2026-09-24');
+    expect(started.used).toBe(1);
+
+    const cancelled = cancelDrill(started, 'a', TODAY_EARLY);
+    // Today paid for one hour and is still running it, so one of today's five is gone.
+    expect(cancelled.used).toBe(1);
+    expect(trainingsLeft(cancelled, TODAY_EARLY)).toBe(TRAININGS_PER_DAY - 1);
+    expect(cancelled.sessions.map((one) => one.id)).toEqual(['b']);
+  });
+
+  it('still hands back a slot spent on the same day', () => {
+    // The positive control for the fix: the ordinary cancel has to keep paying its hour back.
+    const today = beginTraining(
+      startingTraining(TODAY_EARLY),
+      session('c', 'overseer', TODAY_EARLY),
+      TODAY_EARLY,
+    );
+    expect(today.used).toBe(1);
+    expect(cancelDrill(today, 'c', TODAY_EARLY).used).toBe(0);
+    expect(trainingsLeft(cancelDrill(today, 'c', TODAY_EARLY), TODAY_EARLY)).toBe(
+      TRAININGS_PER_DAY,
+    );
+  });
+});

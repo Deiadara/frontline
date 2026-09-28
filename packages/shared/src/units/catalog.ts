@@ -1,13 +1,8 @@
 import { z } from 'zod';
 import { UNIT_RULES, UNIT_RULE_IDS, type UnitRuleId, type UnitRuleSpec } from './rules.js';
-import {
-  BUILDING_KINDS,
-  findModification,
-  findVehicle,
-  type BuildingKind,
-  type ColumnUnit,
-  type RiderGroup,
-} from '../building/index.js';
+import { BUILDING_KINDS, type BuildingKind } from '../building/kinds.js';
+import { findModification } from '../building/modifications.js';
+import { findVehicle, type ColumnUnit, type RiderGroup } from '../building/vehicles.js';
 import { ENV_LABEL_IDS, type EnvLabelId } from '../city/labels.js';
 import { LOCATION_KINDS, type LocationKind } from '../city/locations.js';
 import type { PartialResources } from '../resources.js';
@@ -157,15 +152,16 @@ export interface UnitSpec {
    */
   stalwart?: boolean;
   /**
-   * Whether this stack takes the defender's works apart rather than shooting over them.
+   * Whether the enemy's gates and traps count for nothing in a fight this unit attacks (maintainer,
+   * 2026-09-26).
    *
-   * Fortification is the one defensive number nothing on an attacking sheet could touch. Armour has
-   * `penetration`, evasion has `tracking`, and a level-10 barricade behind a Gate had no counter
-   * except bringing more people. A sapper cuts the ground's own contribution for the whole
-   * attacking side, so bringing two of them is a plan rather than a rounding error, and
-   * {@link MAX_SAPPER_CUT} keeps the works worth building.
+   * The Colossus's, and only the Colossus's. A trap laid for the column is sprung and consumed and
+   * takes nobody; every gate protecting the defenders (their home Gate, a gate on a district held
+   * whole) adds no toughness for the whole fight and comes down a level afterwards, win or lose,
+   * never below one. See `battle/resolve.ts`. Breaching is the per-unit version of the same idea
+   * (`UNIT_MODIFIERS.breaching`), which is why the Colossus does not carry both.
    */
-  sapper?: boolean;
+  wall_breaker?: boolean;
   /**
    * Whether this unit fights better for every other one of itself in the line.
    *
@@ -201,11 +197,10 @@ export interface UnitSpec {
    * the blurb said "hijack enemy augmentations mid-fight" and the numbers said "shoots people".
    * It does 20 now, and what it is worth is this.
    *
-   * Read **per round**, off the stacks still standing, and applied before anybody fires: the
-   * enemy line's armour and its damage both come off by {@link jamPercent}. That is two effects
-   * from one rule on purpose, and it is what makes a jammer worth a slot beside a line rather
-   * than instead of one: it is worth nothing on its own (nobody to make more dangerous, nobody to
-   * protect) and it makes everything standing next to it hit harder and take less.
+   * Read **per round**, off the stacks still standing, and applied before anybody fires. Two
+   * effects that stack (maintainer, 2026-09-27): every enemy modification is weakened by
+   * {@link jamPercent}, and each Wonder of Engineering the jammers' unit slots cover loses damage
+   * and armour (`wonderJam`). It is worth nothing on its own and makes the line beside it count.
    *
    * Killing them turns it off, which is the counterplay. There is no saving throw and no armour
    * against it, which is why the ceiling is low.
@@ -842,8 +837,6 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       'Explosive ordnance experts. Uninterested in your people; very interested in your walls.',
     trainedAt: 'gauntlet',
     unique: false,
-    // Charges cut for the wall rather than the man behind it.
-    sapper: true,
     requires: [structure('scrapyard', 6), structure('generator', 8)],
     cost: { caps: 280, supplies: 40, scrap: 120, oil: 80, highQualityMetal: 15 },
     trainSeconds: 330,
@@ -925,8 +918,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       intimidation: 20,
     }),
     // `armor_piercing` is gone with the damage that made it mean anything: 30% more of twenty is
-    // six.
-    modifiers: ['night_operations', 'tracking'],
+    // six. `tracking` went for the same reason (maintainer, 2026-09-26): a cut to the enemy's dodge
+    // is worth nothing to a sheet whose shots do nothing.
+    modifiers: ['night_operations'],
     jammer: true,
     // They work off other people's augmentations, and a wet street does nothing to that.
     affinities: { crammed: 5, eerie: -4 },
@@ -1183,8 +1177,8 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
     blurb: 'A single massive machine that functions like a walking fortress. It arrives slowly.',
     trainedAt: 'garage',
     unique: true,
-    // It does not go round the barricade. It goes through, and takes the barricade with it.
-    sapper: true,
+    // It does not go round the gate. It goes through, and takes some of the gate with it.
+    wall_breaker: true,
     /**
      * A crane, and there are two in the city.
      *
@@ -1218,11 +1212,13 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       lootCapacity: 120,
       intimidation: 95,
     }),
-    modifiers: ['breaching', 'armor_piercing'],
+    // Breaching went when the Wall Breaker became the whole side's version of it.
+    modifiers: ['armor_piercing'],
     // A walking fortress is a machine: it is not frightened and it does not breathe. What it is,
     // is enormous: it cannot get into half the ground on the map and it cooks in its own plate.
     immuneTo: ['eerie', 'toxic'],
-    affinities: { crammed: -8, hot: -5, wet: -4 },
+    // Crammed ground no longer costs it anything (maintainer, 2026-09-26).
+    affinities: { hot: -5, wet: -4 },
   },
   {
     id: 'the_saint',
@@ -1276,10 +1272,9 @@ export const UNIT_CATALOG: readonly UnitSpec[] = [
       range: 35,
       offense: 300,
       /*
-       * Under `EVASIVE_THRESHOLD`, and that is a rule rather than a tuning choice: this sheet
-       * carries `tracking`, and a unit that both dodges and answers dodging is the hole `tracking`
-       * was added to close. What the Cartographer is hard to do is *find*, which is `stealth: 70`
-       * and already the best in the game bar the Sleepers.
+       * Kept modest beside `tracking`: a sheet that both dodges and cuts the enemy's dodge would
+       * have no counter at all. What the Cartographer is hard to do is *find*, which is
+       * `stealth: 70` and already the best in the game bar the Sleepers.
        */
       evasion: 25,
       stealth: 70,

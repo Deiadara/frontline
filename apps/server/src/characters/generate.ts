@@ -16,7 +16,8 @@ import { createRng, gaussian, randomInt, sample, weightedSample, type Rng } from
  * Recruitment rolls (GDD §B2, §B2a).
  *
  * The board's three numbers: a character averages 15-20, a good attribute sits around 30, a bad
- * one around 10. Nothing reaches 40: the 40..100 band is what progression is for.
+ * one around 10. Nothing in a young city reaches 40, and the band above it is what progression
+ * is for; a mature city's Bar raises that ceiling with its calibre (`recruitmentCeiling`).
  *
  * Shape of a roll: every attribute is drawn around the mean, then one role's affinity template
  * lifts 3-5 of them toward 30 and 1-3 unrelated ones are pushed down toward 10. The template is
@@ -117,9 +118,9 @@ export interface ShapedRoll extends GeneratedCharacter {
   affinity: OfficerRole;
 }
 
-/** Round onto the scale and hold the recruitment ceiling (B2a). */
-function atRecruitment(value: number, floor: number): number {
-  return Math.min(MAX_RECRUITMENT_ATTRIBUTE, Math.max(floor, Math.round(value)));
+/** Round onto the scale and hold this roll's recruitment ceiling (B2a). */
+function atRecruitment(value: number, floor: number, ceiling: number): number {
+  return Math.min(ceiling, Math.max(floor, Math.round(value)));
 }
 
 /**
@@ -128,15 +129,42 @@ function atRecruitment(value: number, floor: number): number {
  * The Bar scales with the city (§H2). A crew fighting over a city where every district is level
  * twenty should not still be interviewing the same people it met on its first night, and a fixed
  * roll is exactly what made the Bar stop being worth opening around the mid game. `barCalibre`
- * turns the city's own standing into this number and it is the only thing that moves the roll: the
- * shape, the affinity template and the ceiling are all untouched, so a better room is a room of
- * better versions of the same people rather than a different generator.
+ * turns a crew's standing into this number and it is the only thing that moves the roll: the shape
+ * and the affinity template are untouched, so a better room is a room of better versions of the
+ * same people rather than a different generator.
  *
- * The recruitment ceiling still holds. `atRecruitment` clamps at `MAX_RECRUITMENT_ATTRIBUTE`, so
- * calibre compresses towards it rather than running past it, which is what keeps the 40..100 band
- * something only progression reaches.
+ * Up to here the ceiling does not move: a roll's strengths reach `MAX_RECRUITMENT_ATTRIBUTE` at
+ * this calibre, which is where the whole Bar used to stop, around city level twenty.
  */
-export const MAX_CALIBRE = MAX_RECRUITMENT_ATTRIBUTE - STRENGTH_MEAN;
+export const EARLY_ROOM_CALIBRE = MAX_RECRUITMENT_ATTRIBUTE - STRENGTH_MEAN;
+
+/**
+ * The most a roll can be lifted, which is a room at the very end of the game (maintainer,
+ * 2026-09-28: "officers up to even higher ones").
+ *
+ * The lift used to stop at `EARLY_ROOM_CALIBRE`, so a city at level thirty and one at level ninety
+ * poured the same people and the best leader the Bar ever produced graded about D-. Past it the
+ * ceiling climbs with the lift (`recruitmentCeiling`), so the strengths keep sitting on the ceiling
+ * the way they did at the old top, and the top of a finished city's room grades around B to A.
+ * Fifty-five puts that ceiling at 85, which leaves the last fifteen points to training.
+ */
+export const MAX_CALIBRE = 55;
+
+/**
+ * The highest attribute a roll at this calibre may carry (§B2a, extended 2026-09-28).
+ *
+ * `MAX_RECRUITMENT_ATTRIBUTE` for every room up to `EARLY_ROOM_CALIBRE`, which is every roll the
+ * early game sees and every roll outside the Bar, and one point higher for every point of lift past
+ * it. A ceiling that stayed at 40 while the means climbed would pile the whole sheet onto 40, which
+ * is the flat mature room this replaces.
+ */
+export function recruitmentCeiling(calibre: number): number {
+  return MAX_RECRUITMENT_ATTRIBUTE + Math.max(0, liftOf(calibre) - EARLY_ROOM_CALIBRE);
+}
+
+function liftOf(calibre: number): number {
+  return Math.min(MAX_CALIBRE, Math.max(MIN_CALIBRE, calibre));
+}
 
 /**
  * And the floor, which exists so a roll can be *below* the room as well as above it.
@@ -188,10 +216,9 @@ export interface RollShape {
    * Attributes lifted past the ordinary band.
    *
    * This is the lever that still means something at the ceiling. A calibre lift raises the means,
-   * and in a mature city the room is already at `MAX_CALIBRE`, so there is nothing left for it to
-   * raise: two rolls come out the same. Lifting *more* attributes makes a better sheet without
-   * putting any single one past `MAX_RECRUITMENT_ATTRIBUTE`, which is the one bound that may never
-   * move.
+   * and at `MAX_CALIBRE` there is nothing left for it to raise: two rolls come out the same.
+   * Lifting *more* attributes makes a better sheet without putting any single one past the ceiling
+   * of the roll (`recruitmentCeiling`).
    */
   extraStrengths: number;
   /** Whether this roll skips the ordinary one to three weaknesses. */
@@ -219,25 +246,34 @@ function rollAttributes(
   calibre = 0,
   shape: RollShape = ORDINARY_ROLL,
 ): Attributes {
-  const lift = Math.min(MAX_CALIBRE, Math.max(MIN_CALIBRE, calibre));
+  const lift = liftOf(calibre);
+  const ceiling = recruitmentCeiling(calibre);
   const sheet = Object.fromEntries(
     ATTRIBUTE_NAMES.map((name) => [
       name,
-      atRecruitment(gaussian(rng, BASE_MEAN + lift, BASE_STD_DEV), BASE_FLOOR),
+      atRecruitment(gaussian(rng, BASE_MEAN + lift, BASE_STD_DEV), BASE_FLOOR, ceiling),
     ]),
   ) as Attributes;
 
   const strengths = pickStrengths(rng, affinity, shape.extraStrengths);
   for (const name of strengths) {
     // The better of the two: a lift marks an attribute as strong, so it must never pull one down.
-    const lifted = atRecruitment(gaussian(rng, STRENGTH_MEAN + lift, STRENGTH_STD_DEV), BASE_FLOOR);
+    const lifted = atRecruitment(
+      gaussian(rng, STRENGTH_MEAN + lift, STRENGTH_STD_DEV),
+      BASE_FLOOR,
+      ceiling,
+    );
     sheet[name] = Math.max(sheet[name], lifted);
   }
 
   if (!shape.noWeaknesses) {
     const eligible = ATTRIBUTE_NAMES.filter((name) => !strengths.includes(name));
     for (const name of sample(rng, eligible, randomInt(rng, MIN_WEAKNESSES, MAX_WEAKNESSES))) {
-      sheet[name] = atRecruitment(gaussian(rng, WEAKNESS_MEAN, WEAKNESS_STD_DEV), WEAKNESS_FLOOR);
+      sheet[name] = atRecruitment(
+        gaussian(rng, WEAKNESS_MEAN, WEAKNESS_STD_DEV),
+        WEAKNESS_FLOOR,
+        ceiling,
+      );
     }
   }
 
@@ -293,11 +329,9 @@ export function rollRecruit(
   // Still clamped to the recruitment ceiling. A perk cannot breach it the way a trait could,
   // because a perk does not touch this person's own sheet at all, but the clamp is the guarantee
   // the rest of the game reads §B2a off and it stays where the roll happens.
+  const ceiling = recruitmentCeiling(calibre);
   const attributes = Object.fromEntries(
-    ATTRIBUTE_NAMES.map((name: AttributeName) => [
-      name,
-      Math.min(MAX_RECRUITMENT_ATTRIBUTE, rolled[name]),
-    ]),
+    ATTRIBUTE_NAMES.map((name: AttributeName) => [name, Math.min(ceiling, rolled[name])]),
   ) as Attributes;
 
   return { attributes, perks, affinity };

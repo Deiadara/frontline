@@ -1,7 +1,7 @@
 import {
   findUnit,
   fittedOn,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   COMBAT_CONTEXT_LABELS,
   PLAYER_UNITS,
   UNIT_MODIFIERS,
@@ -51,7 +51,7 @@ import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
 function standingAtFor(repos: Repositories, base: Base): Record<string, Army> {
   const controls = repos.city.controls();
   const out: Record<string, Army> = {};
-  for (const location of CITY_LOCATIONS) {
+  for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (control && isHeldBy(control, base.id) && Object.keys(control.garrison).length > 0) {
       out[location.id] = control.garrison;
@@ -61,11 +61,18 @@ function standingAtFor(repos: Repositories, base: Base): Record<string, Army> {
   return out;
 }
 
-/** Units this crew has standing on captured locations, summed across the city. */
+/**
+ * Units this crew has standing on captured locations, summed across the world.
+ *
+ * Across the world rather than across Ashfall (2026-09-24). `postedUnits` walks a table and so
+ * always counted a posting wherever it was, while this walked one city's catalogue: a crew with
+ * units garrisoned on its own Terminus ground drew no unit slots for them and paid no payroll on
+ * them, and the census screen said they were nowhere.
+ */
 export function garrisonedUnits(repos: Repositories, base: Base): Army {
   const controls = repos.city.controls();
   let total: Army = {};
-  for (const location of CITY_LOCATIONS) {
+  for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, base.id)) continue;
     for (const [unitId, count] of Object.entries(control.garrison)) {
@@ -288,16 +295,16 @@ export function projectUnits(repos: Repositories, base: Base, now: Date): UnitsR
       .map((id) => findUnitModification(id))
       .filter((spec): spec is UnitModificationSpec => spec !== undefined)
       .map((spec) => {
-        // §D5c: one of a thing is one of a thing, so this is a unit id or nothing.
-        const [wearing] = fittedOn(base.unitLoadouts, spec.id);
+        // §D5c: every sheet wearing it. The yard sells one card to several units and bills each.
+        const wearing = fittedOn(base.unitLoadouts, spec.id);
         return {
           id: spec.id,
           name: spec.name,
           rarity: spec.rarity,
           description: spec.description,
           effect: spec.effect as Record<string, number>,
-          fittedTo: wearing ?? null,
-          fittedToName: wearing ? (findUnit(wearing)?.name ?? wearing) : '',
+          fittedTo: wearing,
+          fittedToName: wearing.map((id) => findUnit(id)?.name ?? id).join(', '),
         };
       }),
     trainingSpeedBonus: rates.speedPercent,

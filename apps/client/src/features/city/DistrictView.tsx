@@ -12,7 +12,8 @@ import {
   plateAspect,
 } from '@frontline/shared';
 import { useState, type CSSProperties } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ScoutMenu } from './ScoutMenu';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { PLAQUE_PLATE, PlaqueFace } from '../../components/DistrictPlaque';
 import { Button } from '../../components/ui/Button';
@@ -32,6 +33,7 @@ import { useBattles, useDeclareBattle, useDistrict, useMe } from '../../lib/quer
 import { formatRemaining } from '../base/format';
 import { DeclareDialog } from '../battle/DeclareDialog';
 import { useServerClock } from '../missions/useServerClock';
+import { useRememberDistrictCity } from './useCityRoom';
 
 /**
  * Inside one district (GDD §A4): the locations, who is holding them, and what it would take.
@@ -57,6 +59,14 @@ export function DistrictView() {
   const baseId = me.data?.base?.id;
   // The player's own clock, the way every other deadline on a screen is printed.
   const zone = usePlayerZone();
+  /*
+   * Walking in here is walking into this district's city, and every way back out lands on its map.
+   *
+   * The X, the back link and the browser's own back button all go to `/game`, which draws whatever
+   * city is remembered. Without this, a district opened from a notification or a pasted link, or
+   * from the map of a city the crew does not live in, came back out onto the home city's painting.
+   */
+  useRememberDistrictCity(districtId);
   const query = useDistrict(districtId);
 
   const battles = useBattles();
@@ -118,13 +128,24 @@ export function DistrictView() {
   }
 
   /*
-   * Unscouted ground does not open (maintainer, 2026-09-23). A tag on the map opens the scout
-   * sheet instead (`ScoutMenu`), and a link straight here, from a notification, a pasted URL or
-   * the back button, is bounced to the map with that sheet already open, so the page below is
-   * never drawn for a district this crew has not been to.
+   * Unscouted ground does not open (maintainer, 2026-09-23), and it no longer **bounces** either
+   * (maintainer, 2026-09-25: "the game still momentarily goes to the other page").
+   *
+   * This used to answer `<Navigate to={/game?scout=...} replace />`, which is a second navigation
+   * on top of the one that got here, and the player saw the district page flash past before the
+   * sheet appeared. Every fix for that so far has been upstream, teaching one caller after another
+   * to decide before it moves: the map now opens the sheet for anything it does not positively
+   * know is scouted. That is right and it cannot be complete, because a link from a crew profile,
+   * a notification, a pasted URL or the back button all still arrive here, and each one would have
+   * been its own small flicker to find later.
+   *
+   * So the redirect is gone. The sheet is drawn here instead, over this route, and the page below
+   * it is still never drawn for ground the crew has not walked. Nothing flashes because nothing
+   * moves: whoever arrived here gets the window, and closing it takes them to the map by the one
+   * road out rather than by rewriting the history entry they came in on.
    */
   if (!data.scouted) {
-    return <Navigate to={`/game?scout=${encodeURIComponent(data.district.id)}`} replace />;
+    return <ScoutMenu districtId={data.district.id} onClose={() => void navigate('/game')} />;
   }
 
   /*
@@ -262,17 +283,18 @@ export function DistrictView() {
             {/* The painting itself is not here: a district another crew lives on opens as a full
                 screen of its own (`VisitedDistrict`, above), the same way yours does. What is left
                 in this column is the paperwork that has no place on a painting. */}
-            <Panel title={data.base ? 'A crew lives here' : 'Nobody lives here yet'}>
+            <Panel title={data.base ? 'A crew lives here' : 'Unclaimed'}>
               <div className="flex flex-col gap-3 p-4">
-                {/* Two states, and the empty one is not an error. Every plot is the same ground;
-                    one nobody has moved into is drawn as that ground at level 1, which is exactly
-                    what a crew settling here would start from. */}
+                {/* Two states: somebody's home, or a plot nobody has claimed, which is closed to
+                    everybody until a crew moves in (maintainer, 2026-09-28). */}
                 <p className="font-body text-xs leading-relaxed text-ink-300">
                   {data.base
                     ? `${data.base.name} holds this ground. Home districts can never be captured. They get robbed, and they limp for a while afterwards.`
-                    : 'An empty plot, drawn as it stands before anybody builds on it. A crew settling here starts from exactly this.'}
+                    : 'Nobody has claimed this plot. It stays closed to every crew until one moves in.'}
                 </p>
-                {data.raidable && (
+                {/* Not while the gate is already down: the server refuses a second gate fight in
+                    a breach (`gate_down`), and the way in is open anyway. */}
+                {data.raidable && !gateDownAt(gate, Date.parse(data.serverNow)) && (
                   <div>
                     <Button
                       size="sm"
@@ -412,13 +434,14 @@ export function DistrictView() {
                 : districtDisplayName(data.district, viewer)
             }
             slots={slots}
+            gate={gate}
             infamy={infamy}
             pending={declare.isPending}
             error={declare.error}
             onClose={() => setCalling(null)}
-            onConfirm={(scheduledFor, holdAfterCapture) =>
+            onConfirm={(scheduledFor) =>
               declare.mutate(
-                { target: calling, scheduledFor, holdAfterCapture },
+                { target: calling, scheduledFor },
                 { onSuccess: () => setCalling(null) },
               )
             }
@@ -651,15 +674,13 @@ function VisitedDistrict({
           target={calling}
           placeName={name}
           slots={slots}
+          gate={gate}
           infamy={infamy}
           pending={declare.isPending}
           error={declare.error}
           onClose={onDone}
-          onConfirm={(scheduledFor, holdAfterCapture) =>
-            declare.mutate(
-              { target: calling, scheduledFor, holdAfterCapture },
-              { onSuccess: onDone },
-            )
+          onConfirm={(scheduledFor) =>
+            declare.mutate({ target: calling, scheduledFor }, { onSuccess: onDone })
           }
         />
       )}
@@ -729,7 +750,7 @@ function VisitedBuildingDialog({
  * the board's instruction: a district is a place you are standing in, not a document about a place.
  *
  * Clicking a sign opens that location's card in a window, and the card is the *same component* the
- * column used. That is deliberate: fortifying, garrisoning, upgrading and calling a fight are a
+ * column used. That is deliberate: garrisoning, upgrading, spying and calling a fight are a
  * screen's worth of controls that already work and are already tested, and re-authoring them for a
  * dialog would be a second implementation of the one thing on this screen that can lose a player
  * their army.
@@ -1040,18 +1061,21 @@ function ContestedDistrict({
               : districtDisplayName(data.district, viewer)
           }
           slots={slots}
+          gate={gate}
           infamy={infamy}
           pending={declare.isPending}
           error={declare.error}
           onClose={onDone}
-          onConfirm={(scheduledFor, holdAfterCapture) =>
-            declare.mutate(
-              { target: calling, scheduledFor, holdAfterCapture },
-              { onSuccess: onDone },
-            )
+          onConfirm={(scheduledFor) =>
+            declare.mutate({ target: calling, scheduledFor }, { onSuccess: onDone })
           }
         />
       )}
     </div>
   );
+}
+
+/** Whether a breach is open at `at`. A clock in the past is a gate that is back up. */
+function gateDownAt(gate: { brokenUntil: string | null } | undefined, at: number): boolean {
+  return gate?.brokenUntil != null && Date.parse(gate.brokenUntil) > at;
 }

@@ -2,7 +2,12 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
-import { CITY_DISTRICTS, STARTING_RESOURCES } from '@frontline/shared';
+import {
+  CITY_DISTRICTS,
+  STARTING_RESOURCES,
+  TERMINUS_CITY_ID,
+  cityOfDistrict,
+} from '@frontline/shared';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { postOffer } from '../market/board.js';
 import { chooseOverseer } from '../testing/overseer.js';
@@ -26,11 +31,12 @@ afterEach(async () => {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-async function console_(): Promise<{
+async function console_(cityId?: string): Promise<{
   app: FastifyInstance;
   db: AppDatabase;
   token: string;
   baseId: string;
+  districtId: string;
 }> {
   const config = loadConfig({
     DATABASE_PATH: ':memory:',
@@ -49,8 +55,9 @@ async function console_(): Promise<{
     payload: { username: 'reviewer', password: 'hunter2pass' },
   });
   const token = registered.json<{ token: string }>().token;
-  const chosen = await chooseOverseer(app, token);
-  return { app, db, token, baseId: chosen.json<{ base: { id: string } }>().base.id };
+  const chosen = await chooseOverseer(app, token, cityId);
+  const base = chosen.json<{ base: { id: string; districtId: string } }>().base;
+  return { app, db, token, baseId: base.id, districtId: base.districtId };
 }
 
 describe('the console wipes a crew', () => {
@@ -147,6 +154,18 @@ describe('the console wipes a crew', () => {
     );
     expect(listed.kind, 'the fixture listing has to post').toBe('done');
     expect(app.repos.market.openBySeller(baseId)).toHaveLength(1);
+    // And goods the board is holding for the old life (2026-09-28): claimed after the wipe, they
+    // would land in the fresh stockpile exactly as the listing's escrow would have.
+    app.repos.market.insertClaim({
+      id: 'held-for-the-old-life',
+      baseId,
+      offer: listed.offer!,
+      reason: 'expired',
+      goods: { resources: { scrap: 25 }, items: {} },
+      takenBy: null,
+      createdAt: new Date().toISOString(),
+      claimUntil: new Date(Date.now() + 3_600_000).toISOString(),
+    });
     expect(
       app.repos.city.scouted(baseId).size,
       'the crew has seen inside somewhere',
@@ -183,6 +202,9 @@ describe('the console wipes a crew', () => {
     expect(wiped!.buildings.map((one) => one.kind).sort()).toEqual(['generator', 'nexus']);
     expect(wiped!.army).toEqual({ scavengers: 8 });
     expect(app.repos.blackMarket.stashFor(baseId), 'the shelf is cleared too').toEqual({});
+    expect(app.repos.market.claimsFor(baseId), 'the board holds nothing for the old life').toEqual(
+      [],
+    );
 
     // The ground went back to the city rather than staying held by a crew that no longer exists.
     expect(heldRows(), 'nothing is still held by the wiped crew').toBe(0);
@@ -237,5 +259,34 @@ describe('the console wipes a crew', () => {
     expect(body.overseer?.id, 'the new character took').toBe(took.id);
     expect(body.base.id, 'the same district, not a second one').toBe(baseId);
     expect(body.base.level).toBe(1);
+  });
+
+  /**
+   * ...and the same district means the same *address*.
+   *
+   * `POST /overseer` says in as many words that "a reset crew keeps its old address", and it is
+   * right to: the plot it is standing on is still its own, and moving would mean vacating one city
+   * and racing for a plot in another to arrive back at the same starting state. The reset did not
+   * keep it. `startingBase` defaults `districtId` to {@link STARTER_DISTRICT_ID} and this route
+   * passed none, so Clean slate teleported every crew in the world to Kettle Row: a Terminus
+   * player lost the city they picked at the character screen, and if somebody already lived on
+   * Kettle Row the two ended up on one plot, where `residentOf` answers for one of them and the
+   * other's home cannot be called or defended.
+   */
+  it('leaves the crew standing in the city it picked', async () => {
+    const { app, token, districtId } = await console_(TERMINUS_CITY_ID);
+    expect(cityOfDistrict(districtId), 'fixture error: not in Terminus').toBe(TERMINUS_CITY_ID);
+
+    const reset = await app.inject({
+      method: 'POST',
+      url: '/api/admin/reset',
+      headers: auth(token),
+      payload: {},
+    });
+    expect(reset.statusCode, reset.body).toBe(200);
+
+    await chooseOverseer(app, token);
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    expect(me.json<{ base: { districtId: string } }>().base.districtId).toBe(districtId);
   });
 });

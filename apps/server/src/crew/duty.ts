@@ -23,9 +23,10 @@ import type { Repositories } from '../db/repos/index.js';
  * head of every declared battle, applied across systems instead of within one.
  *
  * §D4 is here too, because "injured" is the same question wearing a different hat: an officer whose
- * services and bonuses are inactive is not somebody a crew can send anywhere.
+ * services and bonuses are inactive is not somebody a crew can send anywhere. So is the bench
+ * (maintainer, 2026-09-28): an officer with no chair leads nothing until they are given one.
  *
- * The answer is a {@link LeaderHold}, the same four the wire hands the screen and the same four
+ * The answer is a {@link LeaderHold}, the same reasons the wire hands the screen and the same ones
  * `LEADER_HOLD_MESSAGES` puts into a refusal, so a name the picker draws dimmed and a name a route
  * turns away are held for the same stated reason.
  */
@@ -34,10 +35,10 @@ export interface OfficerHold {
   /**
    * When they are free again, or null.
    *
-   * Known for three of the four: the run comes home at `missionCompletesAt`, the scouting party at
-   * `returnsAt`, the injury ends at `injuredUntil`. A declared fight has no such mark, because what
-   * frees the officer is the fight resolving and that is the world clock's business, not a clock
-   * the crew can read off the row.
+   * Known for two: the run comes home at `missionCompletesAt` and the injury ends at
+   * `injuredUntil`. A declared fight has no such mark, because what frees the officer is the fight
+   * resolving and that is the world clock's business, not a clock the crew can read off the row.
+   * The bench has none either: it ends when the player seats them.
    */
   readonly until: string | null;
 }
@@ -47,7 +48,10 @@ export interface OfficerHold {
  *
  * Asked in one order and answered with one reason: a person is in one place, so the first thing
  * that holds them is the thing that holds them. Injury first because it holds them wherever they
- * are, then the three doors in the order they came.
+ * are, then the doors in the order they came, and the bench last. Last on purpose: the crew
+ * screen will not unseat a leader who is out (`routes/crew.ts`), but a row from before that rule
+ * can hold a benched leader mid-run, and `releaseOfficer` refuses on the run or the fight, so a
+ * bench answered first would let a crew release somebody mid-run.
  *
  * `exceptBattleId` is for the lead route itself: naming the officer who is already leading *this*
  * fight is a no-op, not a double booking.
@@ -59,9 +63,9 @@ export function officerDuty(
   now: Date,
   exceptBattleId?: string,
 ): OfficerHold | null {
-  if (officerIsInjured(officer.injuredUntil, now)) {
-    return { held: 'injury', until: officer.injuredUntil };
-  }
+  // The jobs first, the injury after (bug pass, 2026-09-28): the release and reseat routes let an
+  // injured officer go, so an injury read first could free somebody still named for a fight or
+  // still out on a run.
   if (repos.sieges.leadingElsewhere(officer.id, exceptBattleId ?? '').length > 0) {
     return { held: 'fight', until: null };
   }
@@ -69,6 +73,10 @@ export function officerDuty(
     .listActiveByBaseId(base.id)
     .find((entry) => entry.mission.officerId === officer.id);
   if (run) return { held: 'run', until: missionCompletesAt(run.mission).toISOString() };
+  if (officerIsInjured(officer.injuredUntil, now)) {
+    return { held: 'injury', until: officer.injuredUntil };
+  }
   // No scouting hold since 2026-09-22: a scout party takes nobody with it.
+  if (officer.role === null) return { held: 'bench', until: null };
   return null;
 }

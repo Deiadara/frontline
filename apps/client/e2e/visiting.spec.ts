@@ -12,7 +12,8 @@
  * against a cap of three.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { me } from './fixtures';
+import { declarableSlots } from '@frontline/shared';
+import { BREACH_ENDS, battles, me } from './fixtures';
 import { expectNothingClippedVertically, installApi, settleFonts } from './harness';
 
 /** A residential district somebody else lives on, with its gate still standing. */
@@ -122,7 +123,20 @@ test('offers the gate while it stands, and the raid only once it is down', async
 });
 
 test('calls the raid inside a breach, with the time the breach has left', async ({ page }) => {
-  await visit(page, VIEWPORTS[2], BREACHED);
+  /*
+   * The board's marks dealt off the same clock as the breach (2026-09-28). The shared fixture deals
+   * them off `BOARD_NOW`, days after this district's clock, so every mark fell after the breach
+   * closed; the dialog now leaves out marks the server would refuse (`breach_closes`), and had
+   * none left to offer.
+   */
+  const districtNow = new Date(Date.parse(BREACH_ENDS) - 9 * 3_600_000);
+  const slots = declarableSlots(districtNow).map((slot) => slot.toISOString());
+  await page.setViewportSize(VIEWPORTS[2]);
+  await installApi(page, me);
+  await page.route('**/api/battles', (route) => route.fulfill({ json: { ...battles, slots } }));
+  await page.goto(`/game/city/${BREACHED}`);
+  await expect(page.getByTestId('back-to-city')).toBeVisible();
+  await settleFonts(page);
 
   await expect(page.getByTestId('call-gate')).toHaveCount(0);
   const raid = page.getByTestId('call-district');

@@ -55,8 +55,16 @@ test('the Move dialog lists where they stand and where they can go, quotes the r
 
   await dialog.getByTestId('move-confirm').click();
   await expect(dialog).toBeHidden();
+  // `byRail` rides on every send since Terminus opened. False here and it has to be: this crew
+  // holds no platforms, so the dialog offers no ride and must not ask for one.
   expect(sent).toEqual([
-    { from: { kind: 'district' }, to: { kind: 'gate' }, army: { razors: 1 }, vehicles: {} },
+    {
+      from: { kind: 'district' },
+      to: { kind: 'gate' },
+      army: { razors: 1 },
+      vehicles: {},
+      byRail: false,
+    },
   ]);
 });
 

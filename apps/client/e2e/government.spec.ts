@@ -142,11 +142,21 @@ test.describe('the mission board badges the Combine (§A3, §D8)', () => {
       // The kind keyword is gone (maintainer, 2026-09-23): a fight is red and plain work is not.
       // The measured tag is now the first chip in a plain job's leaning row.
       const badged = page.locator('[data-testid^="offer-"][data-kind="standard"]').first();
-      await badged.scrollIntoViewIfNeeded();
       await expect(badged).toBeVisible();
-      // The chip has to be *in the viewport*, not merely in the DOM: one pushed out of its row
-      // renders off-panel and reads as missing.
-      await expect(badged.locator('[data-testid^="job-chips-"] span').first()).toBeInViewport();
+      /*
+       * Scrolled to the chip itself, then held to the card's own box (2026-09-28). The card is
+       * taller than the board's frame at 1024x768 and 1280x720, and the frame scrolls there by
+       * design, so where the card's bottom row lands after scrolling to the card's *top* was never
+       * the claim. The claim is the title's: the tag is inside the card and on screen once a player
+       * scrolls to it, not pushed out of its row.
+       */
+      const chip = badged.locator('[data-testid^="job-chips-"] span').first();
+      await chip.scrollIntoViewIfNeeded();
+      await expect(chip).toBeInViewport();
+      const [chipBox, cardBox] = await Promise.all([chip.boundingBox(), badged.boundingBox()]);
+      expect(chipBox && cardBox, 'the chip or its card has no box').toBeTruthy();
+      expect(chipBox!.y + chipBox!.height).toBeLessThanOrEqual(cardBox!.y + cardBox!.height);
+      expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
 
       await settleFonts(page);
 

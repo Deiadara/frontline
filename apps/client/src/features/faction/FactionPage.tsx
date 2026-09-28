@@ -27,6 +27,7 @@ import { Readings } from './Readings';
 import { Room } from './Room';
 import { WindowHead } from './parts';
 import { refusalText } from './refusal';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The faction (§L): the back room, with the five of you at the table.
@@ -173,12 +174,9 @@ export function FactionPage() {
         </div>
 
         {error && (
-          <p
-            role="alert"
-            className="glass-strong pointer-events-auto mt-2 max-w-[34rem] self-center rounded-sm border border-oxblood-300/50 px-3 py-1.5 font-body text-[12.5px] text-oxblood-300"
-          >
+          <ErrorNote backdrop className="pointer-events-auto mt-2 max-w-[34rem] self-center">
             {refusalText(error.message)}
-          </p>
+          </ErrorNote>
         )}
       </div>
 
@@ -301,11 +299,7 @@ function InviteWindow({
             className="rounded-sm border border-surface-500 bg-surface-900 px-2.5 py-2 font-body text-[14px] text-ink-100"
           />
         </label>
-        {refusal !== null && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {refusal}
-          </p>
-        )}
+        {refusal !== null && <ErrorNote>{refusal}</ErrorNote>}
         <div className="flex gap-2">
           <Button
             disabled={busy || username.trim().length === 0}

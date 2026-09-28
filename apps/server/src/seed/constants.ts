@@ -20,8 +20,8 @@ import {
 /** The hardcoded dev operator. Credentials are shared so the client can prefill them. */
 export const MVP_PLAYER = MVP_DEV_CREDENTIALS;
 
-/** Everything needed to mint the single AI rival base. */
-interface BotBlueprint {
+/** Everything needed to mint one non-playing crew's base. */
+export interface BotBlueprint {
   /** Login is impossible for this account (see seedMvpWorld): the name is display-only. */
   username: string;
   baseName: string;
@@ -235,6 +235,75 @@ export const MVP_RIVAL_SECOND: BotBlueprint = {
       negotiation: 31,
       analysis: 28,
       logistics: 24,
+    }),
+  ],
+};
+
+/**
+ * The plot the Terminus rival sits on: the signalmen's cottages, under the Blockhouse.
+ *
+ * `docs/DISTRICTS.md` names it the proposed home of the seeded AI rival and says why: it is the
+ * tidiest street on the frontier and the most watched, which is the right address for a rival and
+ * the wrong one for a beginner. `carriage` at the west end is the starter plot for the same
+ * reason Kettle Row is Ashfall's, and the two are at opposite ends of the line.
+ */
+export const TERMINUS_RIVAL_DISTRICT_ID = 'signalrow';
+
+/**
+ * The crew that makes Terminus a city rather than an empty map (2026-09-24).
+ *
+ * Without somebody living there the second city has two problems, and the quieter one is worse.
+ * There is nobody to fight, which a player can at least see. And `calibreOf` (`city/stakes.ts`)
+ * answers `null` for a city nobody has a stake in and falls back to the average level of every
+ * base in the world, so the Bar, the market and the black market in Terminus were stocked against
+ * a number that has nothing to do with Terminus. One resident crew fixes both: they are a stake,
+ * so the rooms are stocked against a level somebody in the city actually holds, and they are a bot
+ * in a residential district, so they can be raided like any other crew at home. They hold that plot
+ * like a player would, so while they are seeded Terminus has three plots free rather than four.
+ *
+ * Built like the other three: a real district, a real army, a real stockpile, read by the same
+ * code that reads a live member's. Nothing drives them.
+ *
+ * A harder sheet than Ashfall's rival, because Terminus is authored harder: its difficulties run
+ * to the Blockhouse's 10 against the Combine Spire's, and the fiction is that this is where the
+ * Combine still keeps real soldiers. A crew that crosses over should find the neighbours have.
+ */
+export const MVP_TERMINUS_RIVAL: BotBlueprint = {
+  username: 'Halvard_Line',
+  baseName: 'The Signalmen',
+  overseerPresetId: 'warlord',
+  level: 8,
+  resources: {
+    caps: 6400,
+    supplies: 3900,
+    oil: 2800,
+    scrap: 5200,
+    planks: 2900,
+    highQualityMetal: 1400,
+  },
+  buildings: [
+    { id: 'signal-nexus', kind: 'nexus', level: 6, modifications: [] },
+    { id: 'signal-gate', kind: 'gate', level: 5, modifications: [] },
+    { id: 'signal-gauntlet', kind: 'gauntlet', level: 4, modifications: [] },
+    { id: 'signal-generator', kind: 'generator', level: 4, modifications: [] },
+    { id: 'signal-quarters', kind: 'quarters', level: 4, modifications: [] },
+  ],
+  // A railway crew: heavy on the line and on the people who hold it, because what this city is
+  // fought over is platforms rather than blocks.
+  army: { ironsides: 10, razors: 18, wardens: 8, snipers: 5, stitchers: 4 },
+  commanders: [
+    createCommander(
+      'signal-commander-boss',
+      'Halvard Crane',
+      'raid_boss',
+      { leadership: 38, intimidation: 33, resolve: 30 },
+      ['line_officer'],
+      130,
+    ),
+    createCommander('signal-commander-yard', 'Noor Adisa', 'field_commander', {
+      organization: 35,
+      logistics: 31,
+      strategy: 26,
     }),
   ],
 };

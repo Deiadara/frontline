@@ -1,0 +1,54 @@
+# Frontline game server under systemd. See docs/DEPLOY.md.
+#
+# Install: copy to /etc/systemd/system/frontline.service, then
+#   systemctl daemon-reload && systemctl enable --now frontline
+
+[Unit]
+Description=Frontline game server
+After=network-online.target
+Wants=network-online.target
+# Ten restarts inside five minutes and systemd stops trying: a crash loop is then visible in
+# `systemctl status` instead of spinning for ever.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=frontline
+Group=frontline
+WorkingDirectory=/srv/frontline/apps/server
+# Secrets and settings live outside the repository, readable by root and this service only.
+EnvironmentFile=/etc/frontline/frontline.env
+ExecStart=/usr/bin/node dist/index.js
+
+# Any exit that was not a clean stop is restarted two seconds later. The server exits on purpose
+# when it is out of descriptors or memory, or throws more than ten times a minute
+# (apps/server/src/crash-budget.ts), and this is the other half of that decision.
+Restart=always
+RestartSec=2
+# SIGTERM runs the server's own shutdown: stop the clock, take a last snapshot, close the database.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Resource ceilings. A leak ends in a restart rather than in the machine swapping.
+MemoryMax=1G
+LimitNOFILE=65536
+TasksMax=512
+
+# The process can write its database and backups and nothing else on the machine.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/frontline
+# The backup mirror, on a second disk. Remove this line if BACKUP_MIRROR_DIR is unset.
+ReadWritePaths=/mnt/backup/frontline
+
+[Install]
+WantedBy=multi-user.target

@@ -184,8 +184,7 @@ export function EffectiveCard({
       )}
 
       <p className="font-body text-[11px] leading-snug text-ink-400">
-        The ground, this unit and what is bolted to it. What your holdings are worth is not on this
-        payload.
+        The ground, the unit and its fittings. Your holdings are not counted here.
       </p>
     </InfoWindow>
   );

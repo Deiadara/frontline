@@ -154,7 +154,7 @@ describe('which districts post work', () => {
 
   it('opens a shut district again the moment one plot comes loose', () => {
     const { repos, base } = makeStack();
-    const spire = CITY_DISTRICTS.find((one) => one.id === 'combine-spire')!;
+    const spire = CITY_DISTRICTS.find((one) => one.id === 'ccs')!;
     expect(boardIds(repos, base), 'the Combine starts holding the Spire whole').not.toContain(
       spire.id,
     );
@@ -184,8 +184,6 @@ describe('which districts post work', () => {
             holder: startingHolder(location, district),
             level: 1,
             upgradingUntil: null,
-            fortification: 0,
-            fortifyingUntil: null,
             garrison: {},
           },
         ]),

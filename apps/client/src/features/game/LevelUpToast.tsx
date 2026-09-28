@@ -31,7 +31,7 @@ import { Icon } from '../../components/ui/Icon';
 export const LEVEL_UP_DWELL_MS = 5_000;
 
 export function LevelUpToast({ levelUp, onDismiss }: { levelUp: LevelUp; onDismiss: () => void }) {
-  const { level, levelsGained, grants, unlocks } = levelUp;
+  const { level, levelsGained, unlocks } = levelUp;
   const id = useId();
   const [held, setHeld] = useState(false);
 
@@ -143,13 +143,9 @@ export function LevelUpToast({ levelUp, onDismiss }: { levelUp: LevelUp; onDismi
           </button>
         </div>
 
-        {/* What the level is actually worth, which is the thing the old banner buried under a
-            divider rule at the bottom. */}
-        <p className="font-body text-[13px] leading-snug text-ink-200">
-          Room for <span className="font-stamp text-ink-100">{grants.recruitSlots}</span> on the
-          books now.
-        </p>
-
+        {/* No recruit-slot line (maintainer, 2026-09-28): the slots run level plus one, far past any
+            crew anybody hires, so the number told a player nothing. What a level opens is the
+            list below. */}
         {unlocks.length > 0 && (
           <ul className="flex flex-col gap-1" data-testid="level-up-toast-unlocks">
             {unlocks.map((unlock) => (

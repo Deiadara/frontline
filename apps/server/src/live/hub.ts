@@ -23,17 +23,66 @@ import type { LiveEvent, LiveEventKind } from '@frontline/shared';
  */
 export type LiveListener = (event: LiveEvent) => void;
 
-export class LiveHub {
-  readonly #listeners = new Map<string, Set<LiveListener>>();
+/**
+ * The most streams one account may hold open at once (robustness pass, 2026-09-25).
+ *
+ * Nothing capped it. The rate limit counts streams *opened* per minute, so a client that opened
+ * one and never let go, again and again, held a socket, a timer and a listener per stream for as
+ * long as it liked, and a buggy tab that reconnects without closing does exactly that. Eight is
+ * several tabs on several devices. The ninth closes the oldest rather than being refused, because
+ * the newest tab is the one the player is looking at.
+ */
+export const MAX_STREAMS_PER_ACCOUNT = 8;
 
-  /** Registers a listener and hands back the way to remove it. Never returns a stale remover. */
-  subscribe(userId: string, listener: LiveListener): () => void {
+/**
+ * The shortest gap between two broadcasts of one kind (hardening pass, 2026-09-27).
+ *
+ * Every tab that hears `world` refetches the map, the board and the standings, so a broadcast is
+ * paid for once per open tab. Uncoalesced, one account at the write limit made every player's
+ * client refetch twice a second, and an auction evening did the same with nobody misbehaving. The
+ * first broadcast goes out at once; any that follow inside the window are folded into one that
+ * goes out when it closes, so a burst of fifty is two nudges and nothing is ever dropped.
+ */
+export const BROADCAST_COALESCE_MS = 2_000;
+
+export class LiveHub {
+  /** Per account, each listener with the way to close its stream, oldest first. */
+  readonly #listeners = new Map<string, Map<LiveListener, () => void>>();
+  readonly #coalesceMs: number;
+  readonly #lastBroadcast = new Map<LiveEventKind, number>();
+  readonly #pending = new Map<LiveEventKind, ReturnType<typeof setTimeout>>();
+
+  constructor(coalesceMs = BROADCAST_COALESCE_MS) {
+    this.#coalesceMs = coalesceMs;
+  }
+
+  /**
+   * Registers a listener and hands back the way to remove it. Never returns a stale remover.
+   *
+   * `evict` closes this listener's stream, and is called if the account opens more than
+   * {@link MAX_STREAMS_PER_ACCOUNT} and this is the oldest.
+   */
+  subscribe(
+    userId: string,
+    listener: LiveListener,
+    evict: () => void = () => undefined,
+  ): () => void {
     let set = this.#listeners.get(userId);
     if (!set) {
-      set = new Set();
+      set = new Map();
       this.#listeners.set(userId, set);
     }
-    set.add(listener);
+    while (set.size >= MAX_STREAMS_PER_ACCOUNT) {
+      const oldest = set.entries().next().value;
+      if (oldest === undefined) break;
+      set.delete(oldest[0]);
+      try {
+        oldest[1]();
+      } catch {
+        // A socket that will not close is still off the list, which is what bounds the memory.
+      }
+    }
+    set.set(listener, evict);
     return () => {
       const current = this.#listeners.get(userId);
       if (!current) return;
@@ -50,7 +99,7 @@ export class LiveHub {
     const event: LiveEvent = { kind, at: now.toISOString() };
     // Copied before iterating: a listener that unsubscribes itself on delivery would otherwise
     // mutate the set mid-loop.
-    for (const listener of [...set]) {
+    for (const listener of [...set.keys()]) {
       try {
         listener(event);
       } catch {
@@ -74,6 +123,27 @@ export class LiveHub {
    * over: each tab refetches through its own reads and its own fog.
    */
   broadcast(kind: LiveEventKind, now: Date): void {
+    const at = now.getTime();
+    const last = this.#lastBroadcast.get(kind);
+    // A clock that went backwards (a test, or a corrected system clock) is a window that has shut.
+    if (last === undefined || at - last >= this.#coalesceMs || at < last) {
+      this.#broadcastNow(kind, now);
+      return;
+    }
+    if (this.#pending.has(kind)) return;
+    const timer = setTimeout(
+      () => {
+        this.#pending.delete(kind);
+        this.#broadcastNow(kind, new Date());
+      },
+      last + this.#coalesceMs - at,
+    );
+    timer.unref?.();
+    this.#pending.set(kind, timer);
+  }
+
+  #broadcastNow(kind: LiveEventKind, now: Date): void {
+    this.#lastBroadcast.set(kind, now.getTime());
     for (const userId of [...this.#listeners.keys()]) this.publish(userId, kind, now);
   }
 

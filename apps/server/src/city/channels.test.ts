@@ -5,11 +5,13 @@ import {
   applyPerkBonus,
   noCrewEffects,
   type CrewEffects,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   LOCATION_CATALOG,
   LOCATION_KINDS,
   MAX_LOCATION_LEVEL,
   bonusesAt,
+  BUILDING_MAX_LEVEL,
+  gateDefensePercent,
   noTerritoryEffects,
   territoryEffectsFor,
   type HoldBonus,
@@ -55,22 +57,29 @@ function magnitude(bonus: HoldBonus): number {
 }
 
 /** A crew holding every location in the city, worked all the way up. */
+/**
+ * A crew holding every plot of ground in the **world**, not in Ashfall.
+ *
+ * This folded `CITY_LOCATIONS`, which is the first city's sixty. That was the whole world once and
+ * stopped being it when Terminus opened, and the first channel only the second city pays proved
+ * it: `railLink` comes off a `rail_station`, every platform in the game is in Terminus, and this
+ * fixture could not see one. The guard read the new channel as dead, which is the right answer to
+ * the wrong question. A channel is alive if *anywhere* pays into it.
+ */
 function holdingEverything(): TerritoryEffects {
   const controls = new Map<string, LocationControl>(
-    CITY_LOCATIONS.map((location) => [
+    EVERY_LOCATION.map((location) => [
       location.id,
       {
         locationId: location.id,
         holder: { kind: 'crew', baseId: 'mine' },
         level: MAX_LOCATION_LEVEL,
         upgradingUntil: null,
-        fortification: 0,
-        fortifyingUntil: null,
         garrison: {},
       },
     ]),
   );
-  return territoryEffectsFor('mine', CITY_LOCATIONS, controls);
+  return territoryEffectsFor('mine', EVERY_LOCATION, controls);
 }
 
 describe('every channel a location pays into', () => {
@@ -100,6 +109,12 @@ describe('every channel a location pays into', () => {
   it('actually lands on the effects a crew holding the city, with every perk, would have', () => {
     const effects: CrewEffects = { ...noCrewEffects(), ...holdingEverything() };
     for (const perk of PERK_CATALOG) applyPerkBonus(effects, perk.bonus);
+    // The gate channel has no plot of ground behind it on purpose: it is paid by the crew's own
+    // Gate (`crew/standing.ts`) and by a gate raised on a held district (`battle/resolve.ts`), the
+    // two things a Wall Breaker lowers. Folded here the way standing folds it.
+    effects.gatePercent += gateDefensePercent([
+      { id: 'gate', kind: 'gate', level: BUILDING_MAX_LEVEL, modifications: [] },
+    ]);
 
     const dead: string[] = [];
     for (const channel of CHANNELS) {

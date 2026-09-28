@@ -34,7 +34,7 @@ const DOCUMENTS: readonly {
 }));
 
 describe('every sheet names a drawing', () => {
-  it('gives all sixty-nine documents and all two hundred and fifty-eight pages one', () => {
+  it('gives all seventy-three documents and all two hundred and fifty-eight pages one', () => {
     let pages = 0;
     for (const document of DOCUMENTS) {
       expect(isBlueprintMotif(document.motif), `${document.id} draws nothing`).toBe(true);
@@ -43,7 +43,7 @@ describe('every sheet names a drawing', () => {
         pages += 1;
       }
     }
-    expect(DOCUMENTS).toHaveLength(69);
+    expect(DOCUMENTS).toHaveLength(73);
     expect(pages).toBe(258);
   });
 
@@ -117,7 +117,7 @@ describe('no two sheets draw the same picture where it would matter (§D8)', () 
       document.motif,
       ...document.pages.map((page) => page.motif),
     ]);
-    expect(used).toHaveLength(327);
+    expect(used).toHaveLength(331);
     expect(BLUEPRINT_MOTIF_IDS.length).toBeLessThan(used.length);
   });
 });

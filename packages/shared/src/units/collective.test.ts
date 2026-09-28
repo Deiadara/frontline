@@ -99,14 +99,18 @@ describe('what massing a carrier is worth', () => {
 });
 
 /**
- * ...and the half a carrier must **not** collect.
+ * ...and the half a carrier collects **too**, since 2026-09-25.
  *
- * "Instead of their combat stats, their loot increases." A crew holding `carriers_fight` puts
- * its porters in the line, and without the `isCombatUnit` clause in `buildStacks` those porters
- * would draw the offense bonus as well as the carry one: one tag, two payouts, and a card that
- * reads as neither.
+ * It used to be the half a carrier must not collect: `buildStacks` gated the offense bonus on
+ * `isCombatUnit`, so a porter spent the tag on carry alone. The maintainer's ruling is that the
+ * tag pays on whichever of the two a sheet has, and both where it has both, which is what the
+ * card says: "they carry more loot and they fight harder when there is more of them".
+ *
+ * The case it turns on is the same one either way: a crew holding `carriers_fight` is the only
+ * crew whose porters are in the line at all, so it is the only crew for whom the offense half of
+ * a carrier's tag is worth anything.
  */
-describe('what massing a carrier is not worth', () => {
+describe('what massing a carrier is worth', () => {
   const lineOf = (count: number) => {
     const sim = simulate({
       seed: 'collective-carrier',
@@ -129,12 +133,28 @@ describe('what massing a carrier is not worth', () => {
     expect(lineOf(30).started).toBe(30);
   });
 
-  it('gives them no more damage for being forty than for being one', () => {
+  it('gives them more damage for being forty than for being one', () => {
     // Per body, because the stack's own `effective.offense` is per unit already.
-    expect(lineOf(40).effective.offense).toBeCloseTo(lineOf(1).effective.offense, 6);
+    const massed = lineOf(40).effective.offense;
+    const alone = lineOf(1).effective.offense;
+    expect(massed).toBeGreaterThan(alone);
+    // And by the curve's own figure rather than by any amount, so a porter and a fighter are being
+    // paid the same tag rather than two that happen to point the same way.
+    expect(massed / alone).toBeCloseTo(1 + packBonusPercent(40) / 100, 6);
   });
 
-  it('...while a fighter with the same tag does get it', () => {
+  it('...and keeps the carry half as well, which is the point of the ruling', () => {
+    // One tag, both effects. The carry half never had the gate, so this is the half that is
+    // asserted to be unchanged rather than the half that moved.
+    expect(lootCapacityOf({ haulers: 40 })).toBeGreaterThan(
+      lootCapacityOf({ haulers: 1 }) * 40 - 1,
+    );
+    expect(lootCapacityOf({ haulers: 40 })).toBeGreaterThan(
+      (findUnit('haulers')?.stats.lootCapacity ?? 0) * 40,
+    );
+  });
+
+  it('...as does a fighter with the same tag', () => {
     const fighter = (count: number) => {
       const sim = simulate({
         seed: 'collective-fighter',

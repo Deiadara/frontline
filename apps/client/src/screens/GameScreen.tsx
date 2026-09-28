@@ -1,5 +1,6 @@
+import { useLayoutEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Ambience, Patina } from '../components/ui/Ambience';
+import { Patina } from '../components/ui/Ambience';
 import { useLiveEvents } from '../lib/live';
 import { useMe, usePrefetchScreens } from '../lib/queries';
 import { useMeasuredHeight } from '../lib/useMeasuredHeight';
@@ -7,6 +8,7 @@ import { BottomNav } from '../features/game/BottomNav';
 import { SceneBackdrop } from '../features/game/PageShell';
 import { ShellLevelUp } from '../features/game/ShellLevelUp';
 import { TopHud } from '../features/game/TopHud';
+import { useViewedCity } from '../store/viewedCity';
 
 /**
  * The game shell: one screen, the world behind it, and the chrome floating on top.
@@ -34,6 +36,13 @@ export function GameScreen() {
   const [navRef, navHeight] = useMeasuredHeight();
   const overseer = me.data?.overseer ?? null;
   const base = me.data?.base ?? null;
+  // The city this crew was last looking at, restored before the first paint so the map does not
+  // flash the home city on the way to it (`store/viewedCity.ts`).
+  const settle = useViewedCity((state) => state.settle);
+  const baseId = base?.id ?? null;
+  useLayoutEffect(() => {
+    if (baseId !== null) settle(baseId);
+  }, [baseId, settle]);
 
   if (!overseer || !base) {
     return (
@@ -71,7 +80,6 @@ export function GameScreen() {
 
       {/* The junk in the corners lives here, under the chrome: at this opacity a fallen robot arm
           over the queue rail's countdowns is a smear on the one thing that is counting down. */}
-      <Ambience />
 
       <div className="grain pointer-events-none absolute inset-0 z-30" />
 

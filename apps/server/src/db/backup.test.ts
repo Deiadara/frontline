@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  BACKUP_KEEP,
+  BACKUP_TIERS,
   backupFileName,
+  backupsToKeep,
+  checkSnapshot,
   backupTakenAt,
   listBackups,
   pruneBackups,
@@ -117,29 +119,75 @@ describe('the listing and the sweep', () => {
     expect(listBackups(path.join(workspace(), 'never-made'))).toEqual([]);
   });
 
-  it('keeps the newest N and deletes the rest', () => {
+  it('prunes by tier, keeping recent, hourly and daily snapshots', () => {
     const dir = workspace();
     const db = liveDatabase(dir);
     const backups = path.join(dir, 'backups');
-    for (let minute = 0; minute < 6; minute++) {
-      takeBackup(db, backups, new Date(Date.UTC(2026, 7, 16, 10, minute * 10)));
+    const now = new Date('2026-09-27T12:00:00.000Z');
+    const minutesAgo = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+    // Two recent, two in the same hour a day ago, two on the same day a week ago, one too old.
+    for (const minutes of [2, 60, 24 * 60 + 5, 24 * 60 + 20, 7 * 24 * 60 + 5, 7 * 24 * 60 + 90]) {
+      takeBackup(db, backups, minutesAgo(minutes));
     }
-    expect(listBackups(backups)).toHaveLength(6);
+    takeBackup(db, backups, minutesAgo(40 * 24 * 60));
 
-    const removed = pruneBackups(backups, 3);
-    expect(removed).toHaveLength(3);
-    const left = listBackups(backups);
-    expect(left).toHaveLength(3);
-    // The three that survived are the three newest, not any three.
-    expect(left.map((backup) => backup.takenAt)).toEqual([
-      '2026-08-16T10:50:00.000Z',
-      '2026-08-16T10:40:00.000Z',
-      '2026-08-16T10:30:00.000Z',
+    pruneBackups(backups, now);
+    expect(listBackups(backups).map((backup) => backup.takenAt)).toEqual([
+      minutesAgo(2).toISOString(),
+      minutesAgo(60).toISOString(),
+      // The newer of the two in that hour.
+      minutesAgo(24 * 60 + 5).toISOString(),
+      // The newer of the two on that day.
+      minutesAgo(7 * 24 * 60 + 5).toISOString(),
     ]);
   });
 
-  it('has a retention window worth several hours at the ten-minute cadence', () => {
-    expect(BACKUP_KEEP).toBeGreaterThanOrEqual(6);
+  /*
+   * A server crash-looping for an hour writes an hour of snapshots of one broken state. With a
+   * flat "newest N" those pushed every good snapshot out; the daily tier cannot be displaced.
+   */
+  it('keeps yesterday whatever the last hour wrote', () => {
+    const now = new Date('2026-09-27T12:00:00.000Z');
+    const flood = Array.from({ length: 500 }, (_, n) => ({
+      file: `burst-${n}`,
+      takenAt: new Date(now.getTime() - n * 1_000).toISOString(),
+      bytes: 1,
+    }));
+    const yesterday = {
+      file: 'yesterday',
+      takenAt: new Date(now.getTime() - 26 * 60 * 60_000).toISOString(),
+      bytes: 1,
+    };
+    expect(backupsToKeep([...flood, yesterday], now).has('yesterday')).toBe(true);
+    expect(BACKUP_TIERS.dailyMs).toBeGreaterThanOrEqual(7 * 24 * 60 * 60_000);
+  });
+});
+
+describe('a snapshot is checked and copied', () => {
+  it('passes its own integrity check and leaves no partial file behind', () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const backups = path.join(dir, 'backups');
+    const file = takeBackup(db, backups);
+    expect(checkSnapshot(path.join(backups, file))).toBe('ok');
+    expect(readdirSync(backups).some((name) => name.endsWith('.partial'))).toBe(false);
+  });
+
+  it('refuses a file that is not a database', () => {
+    const dir = workspace();
+    const bogus = path.join(dir, 'bogus.sqlite');
+    writeFileSync(bogus, 'not a database at all, and long enough to have a header');
+    expect(() => checkSnapshot(bogus)).toThrow();
+  });
+
+  it('lands a copy in the mirror, pruned by the same tiers', () => {
+    const dir = workspace();
+    const db = liveDatabase(dir);
+    const backups = path.join(dir, 'backups');
+    const mirror = path.join(dir, 'elsewhere');
+    const file = takeBackup(db, backups, new Date(), mirror);
+    expect(listBackups(mirror).map((backup) => backup.file)).toEqual([file]);
+    expect(checkSnapshot(path.join(mirror, file))).toBe('ok');
   });
 });
 

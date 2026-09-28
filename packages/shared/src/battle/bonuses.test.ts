@@ -31,7 +31,6 @@ import { bareBattlefield } from './battlefield.js';
 import { MAX_COHESION_WIDTH, effectiveFrontage, simulate, type SideSetup } from './engine.js';
 import { boostBundle } from './boosts.js';
 import { fleeChance, pursuitSpeed } from './rout.js';
-import { moraleDelta } from './morale.js';
 import { OFFICER_BASE_MORALE, officerBattleStats } from './officer.js';
 
 /** Few enough to stay fast, enough to settle the statistic. See the note above. */
@@ -163,20 +162,6 @@ describe('the ground and the crew', () => {
     // Capped, so 50 and 100 buy the same ground: a corridor is a corridor.
     expect(at(50)).toBeCloseTo(10 * MAX_COHESION_WIDTH, 6);
     expect(at(100)).toBeCloseTo(10 * MAX_COHESION_WIDTH, 6);
-  });
-
-  it('steadies a dug-in defender against the same shock', () => {
-    const shock = {
-      casualtyFraction: 0.3,
-      enemyCasualtyFraction: 0,
-      enemyIntimidation: 40,
-      outnumberedRatio: 1.5,
-      alliesBroken: 1,
-      resolvePercent: 0,
-    };
-    const bare = moraleDelta(shock, 70);
-    const dug = moraleDelta({ ...shock, resolvePercent: 50 }, 70);
-    expect(dug).toBeGreaterThan(bare);
   });
 
   /**

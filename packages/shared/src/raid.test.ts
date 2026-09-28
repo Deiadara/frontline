@@ -267,4 +267,20 @@ describe('what a raid leaves behind', () => {
     expect(after.since).toBe(first.since);
     expect(after.until).toBe(second.until);
   });
+
+  /** Audit, 2026-09-28: the old record's rate and start used to survive its own expiry. */
+  it('lets a disruption that has run out go, rather than merging it into the next raid', () => {
+    const first = disruptionFrom(new Date('2026-09-18T10:00:00.000Z'), 1);
+    const second = disruptionFrom(new Date('2026-09-18T20:00:00.000Z'), 0);
+    expect(first.percent).toBeGreaterThan(second.percent);
+
+    const after = refreshDisruption(first, second);
+    expect(after).toEqual(second);
+    // The evening between the two ran at full strength, and the new raid runs at its own rate.
+    expect(disruptionPercentAt(after, new Date('2026-09-18T18:00:00.000Z'))).toBe(0);
+    expect(disruptionPercentAt(after, new Date('2026-09-18T21:00:00.000Z'))).toBe(second.percent);
+    // Expiring on the very instant the next raid lands is expired too.
+    const onTheMark = disruptionFrom(new Date(Date.parse(first.until!)), 0);
+    expect(refreshDisruption(first, onTheMark)).toEqual(onTheMark);
+  });
 });

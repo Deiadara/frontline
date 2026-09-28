@@ -1,4 +1,4 @@
-import { UNIT_MODIFIERS, type UnitModifierId } from '../units/index.js';
+import { UNIT_MODIFIERS, type UnitModifierId, type UnitModifierSpec } from '../units/index.js';
 import type { Effective } from './effects.js';
 
 /**
@@ -72,13 +72,29 @@ export const SHAKEN_MORALE = 40;
 export const ARMORED_THRESHOLD = 25;
 
 /**
- * At or above this evasion a target counts as evasive, and `vs_evasive` sheets switch on.
+ * How much of a target's dodge this attacker's own sheet takes away, 0..1 (`tracking`).
  *
- * Set where a miss chance stops being noise and starts being a plan: {@link EVASION_PER_MISS} puts
- * 30 evasion at fifteen shots in a hundred going past, which is roughly the point a player notices
- * that something is not dying at the rate the sheets said it would.
+ * It was a +45% damage bonus against anything at 30 evasion or more (maintainer, 2026-09-26), and
+ * the threshold made evasion a cliff: 30 evasion dodged a sixth of the fire and the bonus added
+ * nearly half back, so a unit at 30 took more from a tracker than one at 29. Now it cuts the dodge
+ * itself, in proportion, on every target, so a point of evasion is always worth something.
  */
-export const EVASIVE_THRESHOLD = 30;
+export function evasionCut(modifiers: readonly UnitModifierId[]): number {
+  let percent = 0;
+  for (const id of modifiers) {
+    const modifier: UnitModifierSpec = UNIT_MODIFIERS[id];
+    if (modifier.affects === 'evasion') percent += modifier.percent;
+  }
+  return clamp(percent, 0, 100) / 100;
+}
+
+/** Whether this attacker's hits land as if the target's gate were not there (`breaching`). */
+export function ignoresGate(modifiers: readonly UnitModifierId[]): boolean {
+  return modifiers.some((id) => {
+    const modifier: UnitModifierSpec = UNIT_MODIFIERS[id];
+    return modifier.affects === 'gate';
+  });
+}
 
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
@@ -167,8 +183,8 @@ export function engagementMultiplier(attacker: Effective, defender: Effective): 
  * steady enemy and a third again as much against one already coming apart. Morale is therefore
  * read live, per round, rather than frozen with the rest of the sheet.
  *
- * `vs_evasive` is the counter to the one stat that had none. See `EVASIVE_THRESHOLD` and the
- * `tracking` entry in `UNIT_MODIFIERS`.
+ * `tracking` is not here: it takes from the target's dodge rather than adding to this unit's
+ * damage, and is read in {@link exchange} (see {@link evasionCut}).
  */
 export function targetBonusPercent(
   modifiers: readonly UnitModifierId[],
@@ -179,9 +195,6 @@ export function targetBonusPercent(
   for (const id of modifiers) {
     const modifier = UNIT_MODIFIERS[id];
     if (modifier.context === 'vs_armor' && defender.armor >= ARMORED_THRESHOLD) {
-      percent += modifier.percent;
-    }
-    if (modifier.context === 'vs_evasive' && defender.evasion >= EVASIVE_THRESHOLD) {
       percent += modifier.percent;
     }
     if (modifier.context === 'vs_low_morale' && defenderMorale < SHAKEN_MORALE) {
@@ -200,6 +213,8 @@ export interface Exchange {
     armor: number;
     engagement: number;
     dodge: number;
+    /** Breaching's answer to the gate: 1 unless this attacker ignores it and there is one. */
+    gate: number;
     target: number;
   };
 }
@@ -290,15 +305,25 @@ export function exchange(
     MAX_MISS,
     Math.max(
       0,
-      missChance(defender.evasion) * (1 + EVASION_VS_REACH * reach - EVASION_VS_CLOSING * closing),
+      missChance(defender.evasion) *
+        (1 + EVASION_VS_REACH * reach - EVASION_VS_CLOSING * closing) *
+        // Tracking: that share of the dodge is gone against this attacker's shots.
+        (1 - evasionCut(attackerModifiers)),
     ),
   );
   const dodge = 1 - miss;
   const target = 1 + targetBonusPercent(attackerModifiers, defender, defenderMorale) / 100;
+  /*
+   * Breaching: the hit lands as if the gate were not there. The target's vitality carries the
+   * gate's share as a multiplier (`gateToughness`), so scaling this hit by the same figure is
+   * exactly the damage it would do to the same unit ungated, and every other attacker still
+   * meets the wall.
+   */
+  const gate = ignoresGate(attackerModifiers) ? (defender.gateToughness ?? 1) : 1;
 
   return {
-    perBody: attacker.offense * type * armor * engagement * dodge * target,
-    parts: { type, armor, engagement, dodge, target },
+    perBody: attacker.offense * type * armor * engagement * dodge * target * gate,
+    parts: { type, armor, engagement, dodge, target, gate },
   };
 }
 

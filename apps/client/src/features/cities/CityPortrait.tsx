@@ -22,7 +22,7 @@ import { generateSkyline, type DepthBand } from '../../render/skyline';
  *
  * The drop seam is live: `city-<id>.webp` in `assets/` replaces the skyline for that city and
  * nothing else changes. `cityPortraitUrl` is the lookup, and the five names it wants are
- * `city-ashfall`, `city-saltmarch`, `city-verge-station`, `city-redline` and `city-deepcut`.
+ * `city-ashfall`, `city-saltmarch`, `city-terminus`, `city-redline` and `city-deepcut`.
  * A painting is drawn `object-cover`, because the card it sits in is a column of the world screen
  * and its height comes off the window rather than off the picture.
  */

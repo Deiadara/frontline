@@ -13,12 +13,14 @@ import {
   OFFICER_STAT_FORMULAS,
   OFFICER_STAT_KEYS,
   OFFICER_TARGET_SHARE,
+  officerTargetShare,
   battleMargin,
   isOfficerUnitId,
   officerBattleStats,
   officerInjured,
   officerInjuryChance,
   officerIsInjured,
+  officerIsWorking,
   OFFICER_INJURY_HOURS,
   officerRecoveryAt,
   officerRecoverySeconds,
@@ -28,6 +30,7 @@ import {
   type BattleOfficer,
 } from './officer.js';
 import { routSurvivors, winnerCasualties } from './rout.js';
+import { NO_SHEET_BONUS } from '../crew/leading.js';
 
 /**
  * The officer on the field (§D).
@@ -143,6 +146,60 @@ describe('the attribute to battle stat mapping (§D2)', () => {
     expect(officerStat('offense', makeAttributes(0, { strength: 3 }))).toBe(5);
     // speed 1: 0.75 -> 1 by rounding.
     expect(officerStat('speed', makeAttributes(0, { speed: 1 }))).toBe(1);
+  });
+
+  it("wears its chair's rungs: damage and hit points scaled, armour past the cap, rounded", () => {
+    const plain = officerBattleStats(makeAttributes(40));
+    const worn = officerBattleStats(makeAttributes(40), {
+      offensePercent: 55,
+      vitalityPercent: 130,
+      armorFlat: 15,
+      targetSharePercent: 100,
+      offenseTimes: 1,
+      vitalityTimes: 1,
+    });
+    expect(worn.offense).toBe(Math.ceil(plain.offense * 1.55));
+    expect(worn.vitality).toBe(Math.round(plain.vitality * 2.3));
+    // The seat's multiplier lands on the finished figure, after the percentages.
+    const seated = officerBattleStats(makeAttributes(40), {
+      ...NO_SHEET_BONUS,
+      offensePercent: 55,
+      offenseTimes: 2,
+      vitalityTimes: 2,
+    });
+    expect(seated.offense).toBe(Math.ceil(plain.offense * 1.55 * 2));
+    expect(seated.vitality).toBe(Math.round(plain.vitality * 2));
+    // Toughness 40 reads 30 at the cap; the plate carrier goes on top of the cap, not under it.
+    expect(plain.armor).toBe(OFFICER_ARMOR_CAP);
+    expect(worn.armor).toBe(OFFICER_ARMOR_CAP + 15);
+    // Nothing else moves, and the sheet is still one the schema takes.
+    expect({ ...worn, offense: 0, vitality: 0, armor: 0 }).toEqual({
+      ...plain,
+      offense: 0,
+      vitality: 0,
+      armor: 0,
+    });
+    expect(UnitStatsSchema.safeParse(worn).success).toBe(true);
+    const unit = officerUnit({
+      ...officer({}, 40),
+      sheetBonus: { ...NO_SHEET_BONUS, armorFlat: 15 },
+    });
+    expect(unit.stats.armor).toBe(OFFICER_ARMOR_CAP + 15);
+  });
+
+  it('draws a full share of the fire with a taunt of a hundred percent, and half without', () => {
+    const quiet = officer({ strength: 60, toughness: 50, resolve: 60 });
+    expect(officerTargetShare(quiet)).toBe(OFFICER_TARGET_SHARE);
+    const loud = { ...quiet, sheetBonus: { ...NO_SHEET_BONUS, targetSharePercent: 100 } };
+    expect(officerTargetShare(loud)).toBe(1);
+    // ...and the engine spends it: the loud one is shot at like a unit of his threat.
+    const shareAt = (leader: BattleOfficer) => {
+      const sim = led({ razors: 10 }, { razors: 10 }, leader);
+      const shooter = stackOf(sim.defender, 'Razors');
+      const shares = allocate(shooter, sim.attacker.stacks);
+      return shares.find(({ target }) => target.officer !== undefined)!.share;
+    };
+    expect(shareAt(loud)).toBeGreaterThan(shareAt(quiet) * 1.6);
   });
 
   it('gives the synthesised unit an id the catalogue can never resolve', () => {
@@ -358,5 +415,21 @@ describe('officer injury (§D4)', () => {
     expect(officerIsInjured(until, later)).toBe(false);
     expect(officerRecoverySeconds(until, later)).toBe(0);
     expect(officerIsInjured(null, now)).toBe(false);
+  });
+});
+
+/**
+ * The bench is out the way a bed is (maintainer, 2026-09-28). Both halves are asked of one
+ * predicate, so the four cases are pinned here rather than inferred from a fold that uses it.
+ */
+describe('who is working', () => {
+  const now = new Date('2026-09-28T12:00:00.000Z');
+  const hurt = officerRecoveryAt(now);
+
+  it('counts a seated officer out of bed, and nobody else', () => {
+    expect(officerIsWorking({ role: 'fabricator', injuredUntil: null }, now)).toBe(true);
+    expect(officerIsWorking({ role: null, injuredUntil: null }, now)).toBe(false);
+    expect(officerIsWorking({ role: 'fabricator', injuredUntil: hurt }, now)).toBe(false);
+    expect(officerIsWorking({ role: null, injuredUntil: hurt }, now)).toBe(false);
   });
 });

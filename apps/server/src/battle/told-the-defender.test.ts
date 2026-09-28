@@ -83,8 +83,6 @@ describe('calling a fight on somebody', () => {
       holder: { kind: 'crew', baseId: holder.baseId },
       level: 1,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: {},
     });
     app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());
@@ -142,8 +140,6 @@ describe('calling a fight on somebody', () => {
       holder: { kind: 'crew', baseId: holder.baseId },
       level: 1,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: {},
     });
     app.repos.city.markScouted(raider.baseId, district.id, new Date().toISOString());

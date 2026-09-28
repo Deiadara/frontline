@@ -1,3 +1,4 @@
+import type { ChairLead } from './leading.js';
 import {
   ATTRIBUTE_NAMES,
   ATTRIBUTES_BY_GROUP,
@@ -256,6 +257,14 @@ export interface ConditionalCrewEffects {
   leadLootPercent: number;
   /** Time off the road, both to a battle and on a mission. */
   leadArrivalPercent: number;
+  /**
+   * The rungs that pay only while the officer in one particular chair leads (`crew/leading.ts`).
+   *
+   * A list rather than a channel, because which of them pay depends on who is named and on what
+   * is being fought, and the fold is built before either is known. `chairLeadsFor` reads it;
+   * `leadingAs` and `officerSheetBonusFor` spend it.
+   */
+  chairLeads: ChairLead[];
 }
 
 export interface CrewEffects extends TerritoryEffects, CrewOnlyEffects, ConditionalCrewEffects {}
@@ -345,6 +354,7 @@ export function noCrewEffects(): CrewEffects {
     leadMoraleFlat: 0,
     leadLootPercent: 0,
     leadArrivalPercent: 0,
+    chairLeads: [],
   };
 }
 
@@ -683,22 +693,6 @@ export const OFF_DUTY_SHARE = 0.35;
  * more towards the bonuses" rule: it is applied per skill, before best-of, so an officer in the
  * right chair beats a better officer in the wrong one.
  */
-/**
- * What somebody on the bench contributes, per attribute (§C2).
- *
- * The *lowest* share a chair pays, deliberately, and not {@link OFF_DUTY_SHARE}.
- *
- * Off-duty was the obvious pick and it is wrong by a margin the arithmetic makes obvious: it is
- * 0.35 and `insignificant` is 0.25, so a benched officer would be worth **more** than a seated one
- * in every skill their chair does not care about. Since a crew's rating is the best-of across
- * everybody, that makes taking somebody out of their chair a way to raise the crew's numbers, and
- * a bench that is sometimes an upgrade is not a bench.
- *
- * At the insignificant share the promise holds in one direction with no exceptions: seating
- * somebody is never worse than leaving them on it, and is usually a great deal better.
- */
-export const BENCH_SHARE = 0.25;
-
 export const IMPORTANCE_SHARE: Readonly<Record<AttributeImportance, number>> = {
   insignificant: IMPORTANCE_WEIGHT.insignificant / IMPORTANCE_WEIGHT.irreplaceable,
   useful: IMPORTANCE_WEIGHT.useful / IMPORTANCE_WEIGHT.irreplaceable,
@@ -744,26 +738,13 @@ export interface CrewMember {
    */
   perks: readonly string[];
   /**
-   * The chair they are in, or `null` for somebody who is in no chair at all.
+   * The chair they are in, or `null` for the Overseer.
    *
-   * Two different people have no chair and they are not worth the same, which is what {@link
-   * benched} is for. The Overseer is the player: not one of the nineteen seats, so every skill
-   * they have counts in full. An officer on the bench is signed and unassigned: nothing counts in
-   * full, because the chair is most of what an officer is worth.
+   * The Overseer is the player: not one of the nineteen seats, so every skill they have counts in
+   * full. An officer on the bench is never a `CrewMember` at all (maintainer, 2026-09-28): the
+   * server leaves them out of the room (`officerIsWorking`), so no chair here means the player.
    */
   role: OfficerRole | null;
-  /**
-   * On the books, in no chair (§C2, maintainer request).
-   *
-   * Paid {@link OFF_DUTY_SHARE} of everything, the same share a seated officer gets in the skills
-   * their own chair does not use. So a benched specialist is still worth something, and putting
-   * them in the right chair is still worth a great deal more, which is the decision the bench
-   * exists to let a player postpone rather than avoid.
-   *
-   * Only ever true when `role` is `null`, and the two together are what separate a benched officer
-   * from the Overseer, who also has no chair and is paid in full.
-   */
-  benched?: boolean;
 }
 
 /**
@@ -819,18 +800,9 @@ export function crewSheetSources(crew: readonly CrewMember[]): Record<AttributeN
   for (const [index, member] of crew.entries()) {
     const uplift = peakUplift(member);
     for (const name of ATTRIBUTE_NAMES) {
-      /*
-       * Three cases, and the middle one is the bench.
-       *
-       * A seated officer is paid by how much their chair cares about the skill; the Overseer is
-       * paid in full because they have no chair to be a poor fit for; a benched officer is paid
-       * the off-duty share in everything, because they have no chair *yet*.
-       */
-      const share = member.benched
-        ? BENCH_SHARE
-        : member.role === null
-          ? 1
-          : IMPORTANCE_SHARE[importanceOf(member.role, name)];
+      // A seated officer is paid by how much their chair cares about the skill; the Overseer is
+      // paid in full because they have no chair to be a poor fit for.
+      const share = member.role === null ? 1 : IMPORTANCE_SHARE[importanceOf(member.role, name)];
       /*
        * Rounded and clamped, because this is an `Attributes` and that type is integers 0..100.
        *
@@ -860,7 +832,7 @@ export function crewSheetSources(crew: readonly CrewMember[]): Record<AttributeN
  * nothing, because they have no chair to be a good fit for.
  */
 export function peakUplift(member: CrewMember): number {
-  // No chair, no fit to be good at: true for the Overseer and for anybody on the bench.
+  // No chair, no fit to be good at: the Overseer.
   if (member.role === null) return 1;
   const { base, bonus } = officerScore(member.attributes, member.role);
   if (base <= 0) return 1;
@@ -1228,6 +1200,10 @@ export function combineEffects(territory: TerritoryEffects, crew: CrewEffects): 
     carriersFight: crew.carriersFight || territory.carriersFight,
     anyRide: crew.anyRide || territory.anyRide,
     steadyNerve: crew.steadyNerve || territory.steadyNerve,
+    // Holding a Station is ground only: nothing a crew can research or hire puts a platform on the
+    // line. Ored beside the others anyway, because this list is what the loop below skips, and a
+    // boolean left out of it is a boolean the loop adds.
+    railLink: crew.railLink || territory.railLink,
   };
   for (const key of Object.keys(territory) as (keyof TerritoryEffects)[]) {
     // The record-valued channels are merged above; everything else is a plain number, and
@@ -1264,11 +1240,12 @@ type RecordChannel =
   | 'officerGroupFlat'
   | 'unitTierPercent'
   | 'unitMarks'
-  // The three switches are folded above too. They are not records, but they are not summable
+  // The four switches are folded above too. They are not records, but they are not summable
   // either, and this is the one list `combineEffects` narrows against.
   | 'carriersFight'
   | 'anyRide'
-  | 'steadyNerve';
+  | 'steadyNerve'
+  | 'railLink';
 
 const RECORD_CHANNELS = new Set<string>([
   'perHour',
@@ -1279,6 +1256,7 @@ const RECORD_CHANNELS = new Set<string>([
   'carriersFight',
   'anyRide',
   'steadyNerve',
+  'railLink',
 ] satisfies RecordChannel[]);
 
 /**
@@ -1415,6 +1393,14 @@ export function mergeCrewEffects(into: CrewEffects, extra: CrewEffects): CrewEff
       );
     } else if (key === 'officerAttributeAtLeast') {
       total[key] = { ...(a as object), ...(b as object) };
+    } else if (Array.isArray(a) || Array.isArray(b)) {
+      // The list channels (`chairLeads`): two sources are two lists, end to end. `mergeCounts`
+      // read a list as a record and handed back one with no `filter`, which took every fight
+      // down at the settle.
+      total[key] = [
+        ...((a as unknown[] | undefined) ?? []),
+        ...((b as unknown[] | undefined) ?? []),
+      ];
     } else {
       total[key] = mergeCounts(
         (a ?? {}) as Record<string, number | undefined>,

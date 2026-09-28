@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
 import { settleBattles } from './resolve.js';
+import { everybodyHome } from '../testing/walk.js';
 
 /**
  * Which **side** of a Combine fight each stacking source lands on.
@@ -64,7 +65,7 @@ const leaderOf = (unitId: string): CombineLeader => {
 
 const SYNDIC = leaderOf('syndic');
 /** A plot of the Syndic's district that is not the one she stands on. */
-const ANNEXES_ELSEWHERE = 'datavault-sigma-ward';
+const ANNEXES_ELSEWHERE = 'annexes-ward';
 
 /**
  * A crew carrying one of everything this file is about: a Gate, an Infirmary, the two Lab rungs,
@@ -232,7 +233,7 @@ describe('the regime brings nothing but its leader', () => {
     // The control: take the rung away and the same channel falls by exactly what it was worth.
     const crewNow = repos.bases.findById(ATTACKER)!;
     repos.bases.updateResearch(ATTACKER, { ...crewNow.research, technologies: [GATE_TECH] });
-    const without = inputFor(at('datavault-sigma-coldrow'));
+    const without = inputFor(at('annexes-coldrow'));
     expect(
       (input.attackerTerritory?.unitOffensePercent ?? 0) -
         (without.attackerTerritory?.unitOffensePercent ?? 0),
@@ -253,7 +254,7 @@ describe('the regime brings nothing but its leader', () => {
     const input = inputFor(at(ANNEXES_ELSEWHERE));
     const wall = gateDefensePercent(repos.bases.findById(ATTACKER)!.buildings);
     expect(wall).toBeGreaterThan(0);
-    expect(input.attackerTerritory?.defensePercent).toBeGreaterThanOrEqual(wall);
+    expect(input.attackerTerritory?.gatePercent).toBeGreaterThanOrEqual(wall);
     expect(input.defenderTerritory).toBeUndefined();
   });
 });
@@ -275,8 +276,21 @@ function marchAndSettle(engine: ReturnType<typeof recorder>) {
   return settleBattles(repos, engine, SETTLE);
 }
 
-/** The whole roster once the survivors are back on the books. */
-const homeAgain = (): number => repos.bases.findById(ATTACKER)?.army['razors'] ?? 0;
+/**
+ * Every Razor the crew still has once the fight is over: at home, and standing on ground it holds.
+ * Survivors walk home on foot, and winners hold what they took (maintainer, 2026-09-28), so a won
+ * attack's survivors are the new garrison rather than back on the books.
+ */
+const homeAgain = (): number => {
+  everybodyHome(repos);
+  let held = 0;
+  for (const control of repos.city.controls().values()) {
+    if (control.holder.kind === 'crew' && control.holder.baseId === ATTACKER) {
+      held += control.garrison['razors'] ?? 0;
+    }
+  }
+  return (repos.bases.findById(ATTACKER)?.army['razors'] ?? 0) + held;
+};
 
 describe("the Infirmary, on the far side of the Executioner's line", () => {
   /**
@@ -398,6 +412,6 @@ describe('the trap and the leader never meet', () => {
   it('still hands the engine the force the settler assembled, trap or no trap', () => {
     const input = inputFor(at(ANNEXES_ELSEWHERE), { winner: 'defender' });
     expect(input.attacking).toEqual({ razors: 20 });
-    expect(SYNDIC.districtId).toBe('datavault-sigma');
+    expect(SYNDIC.districtId).toBe('annexes');
   });
 });

@@ -20,6 +20,7 @@ import {
 } from '@frontline/shared';
 import { adminCaps, adminWaives } from '../admin/mode.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import { officerDuty } from '../crew/duty.js';
 import type { Repositories } from '../db/repos/index.js';
 import { barDay, type BarCharacter } from './roster.js';
 
@@ -58,7 +59,6 @@ export const HIRE_REFUSALS = [
   'already_hired',
   'no_slots',
   'requirement',
-  'level',
   // The two doors the standout seats ask about (§H3, 2026-09-11). Named rather than folded into
   // `requirement`, because the close's reason is what the log and the bell carry.
   'infamy',
@@ -105,7 +105,6 @@ export function assessAgainst(
 ): ReturnType<typeof assessJoin> {
   return assessJoin(recruit.requirement, {
     notoriety: base.economy.notoriety,
-    level: base.level,
     infamy: base.economy.infamy,
     factionInfamy,
   });
@@ -143,8 +142,10 @@ export function wageAskedOf(recruit: BarCharacter, discountPercent = 0): number 
 export function bidCeilingFor(available: number, discountPercent: number): number {
   const room = Math.max(0, Math.floor(available));
   if (room <= 0) return 0;
-  const share = Math.max(0, 1 - Math.max(0, discountPercent) / 100);
-  if (share <= 0) return room;
+  // Capped exactly as `committedWage` caps it. The raw channel reaches 119 on a late crew, and read
+  // uncapped it left no share to divide by, so the ceiling fell back to the bare book: half of
+  // what the gate takes, since the contract is only ever talked down by half.
+  const share = 1 - Math.min(MAX_WAGE_DISCOUNT, Math.max(0, discountPercent)) / 100;
   // Rounding means several raw prices land on the same charged figure, so the arithmetic answer
   // can sit a cap or two under the true edge as easily as over it. Walk to the edge from wherever
   // it lands, in both directions, so the ceiling is exactly the last bid the gate takes.
@@ -218,7 +219,6 @@ export function ledgerFor(base: Base, stepDiscountPercent = 0): PayrollLedger {
  */
 const REFUSAL_FOR_BLOCKER: Readonly<Record<JoinBlocker, HireRefusal>> = {
   notoriety: 'requirement',
-  level: 'level',
   infamy: 'infamy',
   faction: 'faction',
 };
@@ -328,6 +328,7 @@ export function signRecruit(repos: Repositories, input: SignInput): SignResult {
  */
 export type ReleaseResult =
   | { kind: 'refused'; reason: 'not_on_the_books' | 'cannot_afford' }
+  | { kind: 'refused'; reason: 'on_duty'; held: 'run' | 'fight' }
   | { kind: 'released'; base: Base; officer: Commander; fee: number; payroll: PayrollLedger };
 
 export function releaseOfficer(
@@ -338,6 +339,15 @@ export function releaseOfficer(
 ): ReleaseResult {
   const officer = base.commanders.find((held) => held.id === officerId);
   if (!officer) return { kind: 'refused', reason: 'not_on_the_books' };
+  /*
+   * Not while they are out leading something (2026-09-28). Every run has a leader, and letting
+   * one go mid-run left the run with nobody at its head and a fight settling without the officer
+   * the crew sent. Laid up is fine: the bed is not a job.
+   */
+  const duty = officerDuty(repos, base, officer, new Date());
+  if (duty !== null && (duty.held === 'run' || duty.held === 'fight')) {
+    return { kind: 'refused', reason: 'on_duty', held: duty.held };
+  }
 
   const committed = base.economy.payroll.commitments[officerId] ?? 0;
   const fee = dismissalFee(committed);

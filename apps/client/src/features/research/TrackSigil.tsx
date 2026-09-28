@@ -4,14 +4,14 @@ import { cn } from '../../lib/cn';
 /**
  * The mark a research track is known by (§C4b).
  *
- * Nineteen tracks is too many to tell apart by a heading, and the game already has one visual
+ * Eighteen tracks is too many to tell apart by a heading, and the game already has one visual
  * language for "somebody pressed this into the paper": the officer mark stamp. So a track gets a
  * sigil in the same hand. A roundel that does not quite close, a glyph inside it drawn in one
  * weight, and the whole thing pushed through the same turbulence the stamp uses, so it reads as
  * ink on a card rather than as an interface icon.
  *
  * Drawn here rather than fetched: procedural art is the default source for every asset key (art
- * policy, 2026-08-13), and nineteen small line drawings are exactly the thing code does well. The
+ * policy, 2026-08-13), and eighteen small line drawings are exactly the thing code does well. The
  * board's masters, if they ever land, replace this file and nothing else.
  *
  * One glyph per role, each picked for the trade rather than for the word: the Cartographer gets a

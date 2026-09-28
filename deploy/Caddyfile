@@ -1,0 +1,55 @@
+# Frontline behind Caddy: HTTPS, the built client, and the API on the same origin.
+# See docs/DEPLOY.md. Replace play.example.com with the real host name.
+
+{
+	servers {
+		timeouts {
+			# A client that trickles its headers or body in holds a socket for nothing.
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
+}
+
+play.example.com {
+	encode zstd gzip
+
+	# The largest request the game sends is a few kilobytes. The server refuses past 64 KB too
+	# (`bodyLimit` in apps/server/src/app.ts); refusing here keeps it off the game's event loop.
+	request_body {
+		max_size 64KB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# The live channel is a response held open. Flushed at once, never buffered.
+	handle /api/events {
+		reverse_proxy 127.0.0.1:4000 {
+			flush_interval -1
+		}
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4000 {
+			# While the server is restarting, answer a clean 502 quickly instead of hanging.
+			health_uri /health
+			health_interval 10s
+			health_timeout 3s
+			lb_try_duration 5s
+		}
+	}
+
+	# The client, built by `pnpm --filter @frontline/client build`. Every unknown path is the app.
+	handle {
+		root * /srv/frontline/apps/client/dist
+		try_files {path} /index.html
+		file_server
+	}
+}

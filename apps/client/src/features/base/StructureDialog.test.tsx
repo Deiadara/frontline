@@ -100,6 +100,7 @@ const fetchMock = vi.fn();
 function stubApi(): void {
   const reply = (body: unknown) =>
     Promise.resolve({
+      headers: new Headers(),
       ok: true,
       status: 200,
       statusText: '',
@@ -183,23 +184,63 @@ describe('the plot window is in the same house as the feats board', () => {
     }
   });
 
-  it('packs the panels down two columns rather than across two rows', async () => {
+  /**
+   * One template for every plot (maintainer, 2026-09-28): the order and what the level gives down
+   * the left, the brackets on the right, and the two columns the same height so the rack's top
+   * and bottom sit level with the panels beside it. The multi-column deck this replaced packed
+   * panels wherever they fitted, which is why no two windows had the same shape.
+   */
+  it('lays the panels on the one template, two columns of one height', async () => {
     const dialog = await openNexus();
     const deck = within(dialog).getByTestId('structure-deck');
     const marks = deck.className.split(/\s+/);
+    expect(marks).toContain('sm:grid-cols-2');
+    expect(marks).toContain('sm:items-stretch');
+    expect(marks.some((mark) => mark.includes('columns'))).toBe(false);
 
-    expect(marks, 'the deck is not a multi-column box').toContain('sm:columns-2');
-    /*
-     * The shape this replaced, named so it cannot come back by accident. A grid gives every panel
-     * in a row the height of the tallest one in it, and on the Nexus that put 166px of nothing
-     * beside the payroll book and pushed the bracket rack under the fold.
-     */
-    expect(marks.some((mark) => mark.includes('grid'))).toBe(false);
+    // The left column: the order, then the gift. The right: the brackets, and nothing else.
+    const left = within(dialog).getByTestId('structure-left');
+    const leftTitles = [...left.querySelectorAll('h3')].map((h) => h.textContent);
+    expect(leftTitles).toEqual(['Upgrade to level 14', 'What it gives']);
+    const titles = [...deck.querySelectorAll('h3')].map((h) => h.textContent);
+    expect(titles).toEqual(['Upgrade to level 14', 'What it gives', 'Modifications: 0 of 3 slots']);
+    // The gift and the rack grow to the row, so their bottoms meet the rule together.
+    const grown = [...deck.querySelectorAll('section')].filter((panel) =>
+      panel.className.split(/\s+/).includes('flex-1'),
+    );
+    expect(grown.map((panel) => panel.querySelector('h3')?.textContent)).toEqual([
+      'What it gives',
+      'Modifications: 0 of 3 slots',
+    ]);
+  });
 
-    // Every panel whole. A frame cut in half at a column boundary is a torn sheet, not a panel.
-    for (const panel of dialog.querySelectorAll('section')) {
-      expect(panel.className.split(/\s+/)).toContain('break-inside-avoid');
-    }
+  /**
+   * What a building does beyond the template is a control in the footer, beside the order, with
+   * Close on the left in red (maintainer, 2026-09-28). The Nexus's is the payroll book, in a
+   * window of its own.
+   */
+  it('keeps the building’s own control in the footer, Close on the left in red', async () => {
+    const dialog = await openNexus();
+    const footer = dialog.querySelector('footer');
+    if (!footer) throw new Error('no footer');
+    const buttons = [...footer.querySelectorAll('button')].map((b) => b.textContent);
+    expect(buttons).toEqual(['Close', 'Change payroll', 'Queue upgrade']);
+    expect(within(footer).getByRole('button', { name: 'Close' }).className).toContain('oxblood');
+    expect(within(dialog).queryByRole('heading', { name: 'The payroll book' })).toBeNull();
+
+    fireEvent.click(within(footer).getByTestId('nexus-change-payroll'));
+    const book = await screen.findByTestId('payroll-dialog');
+    expect(within(book).getByRole('heading', { name: 'The payroll book' })).toBeInTheDocument();
+    expect(within(book).getByTestId('nexus-payroll')).toBeInTheDocument();
+    expect(book.textContent).not.toMatch(/A step is permanent/);
+  });
+
+  /** Two sentences the maintainer took out (2026-09-28): the set rule is no longer stated. */
+  it('says nothing about sets until there is one to read', async () => {
+    const dialog = await openNexus();
+    expect(dialog.textContent).not.toMatch(/No set\./);
+    expect(dialog.textContent).not.toMatch(/Fill all/);
+    expect(within(dialog).queryByTestId('set-readout')).toBeNull();
   });
 
   it('opens at the broad width, which is what the two columns are for', async () => {
@@ -256,6 +297,7 @@ describe('a structure at the top of its ladder', () => {
   function stubMaxed(): void {
     const reply = (body: unknown) =>
       Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',
@@ -356,6 +398,7 @@ describe('a structure held down by the Nexus', () => {
   it('has no order to give, and is not spent', async () => {
     const reply = (body: unknown) =>
       Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',

@@ -13,6 +13,8 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from './movement.js';
+import { settleMoves } from '../moves/moves.js';
+import { everybodyHome } from '../testing/walk.js';
 import { settleBattles } from './resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
@@ -44,8 +46,8 @@ const auth = (token: string): { authorization: string } => ({ authorization: `Be
 
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 
 /** How many units are in a force, whichever side of the line it is standing on. */
@@ -110,9 +112,9 @@ async function makeStack(winner: 'attacker' | 'defender' = 'attacker'): Promise<
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
-  const control = app.repos.city.control('rustyard-bonefield');
+  const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
@@ -181,6 +183,8 @@ async function fight(
 
   settleMovements(stack.app.repos, new Date());
   settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
+  // Whoever is not staying walks home from the fight (maintainer, 2026-09-28); let them arrive.
+  everybodyHome(stack.app.repos);
 }
 
 /** {@link fight}, with machines committed to the fight before the column leaves. */
@@ -193,7 +197,7 @@ async function fightWithVehicles(
 
 const rosterOf = (stack: Stack): Army => stack.app.repos.bases.findById(stack.baseId)?.army ?? {};
 const garrisonOf = (stack: Stack): Army =>
-  stack.app.repos.city.control('rustyard-press')?.garrison ?? {};
+  stack.app.repos.city.control('steelbelt-press')?.garrison ?? {};
 
 describe('what happens to the machines that carried them', () => {
   /**
@@ -223,13 +227,13 @@ describe('what happens to the machines that carried them', () => {
       'the convoy was written off after a won fight',
     ).toEqual({ scrap_car: 2 });
     // ...and the loser was paid nothing for machines that were never destroyed.
-    const press = stack.app.repos.city.control('rustyard-press');
+    const press = stack.app.repos.city.control('steelbelt-press');
     expect(press?.holder.kind).toBe('crew');
     expect(stack.app.repos.bases.findById(stack.baseId)!.economy.infamy).toBeGreaterThan(before);
   });
 
-  /** The control: marching home is the case that always worked, and still does. */
-  it('brings the convoy home after a won fight the crew marches back from', async () => {
+  /** The control: a call that asked not to hold (it holds anyway, 2026-09-28) gets its convoy back. */
+  it('brings the convoy home after a won fight called with the old unticked box', async () => {
     const stack = await makeStack('attacker');
     stack.app.repos.bases.updateFleet(stack.baseId, { scrap_car: 2 });
 
@@ -244,22 +248,27 @@ describe('what happens to the machines that carried them', () => {
 });
 
 describe('what happens to the crew that took the location', () => {
-  it('marches them home and leaves the location empty when the box is not ticked', async () => {
+  /*
+   * There is no box any more (maintainer, 2026-09-28: "The server should automatically give the
+   * winners what they should hold, not ask them"). A call that asks not to hold still holds.
+   */
+  it('leaves them holding it even when the call asked not to', async () => {
     const stack = await makeStack();
     const before = standingUnits(rosterOf(stack));
 
     await fight(stack, { hold: false, sent: { razors: 4 } });
 
-    expect(garrisonOf(stack), 'a raid leaves nobody behind').toEqual({});
-    expect(standingUnits(rosterOf(stack)), 'a raid brings everybody back').toBe(before);
-    // ...and the ground still changed hands. The flag decides where the crew sleeps, not who won.
-    expect(stack.app.repos.city.control('rustyard-press')?.holder).toEqual({
+    expect(garrisonOf(stack), 'the survivors were sent home instead of holding').toEqual({
+      razors: 4,
+    });
+    expect(standingUnits(rosterOf(stack))).toBe(before - 4);
+    expect(stack.app.repos.city.control('steelbelt-press')?.holder).toEqual({
       kind: 'crew',
       baseId: stack.baseId,
     });
   });
 
-  it('leaves them holding it when the box is ticked, and off the roster', async () => {
+  it('leaves them holding it, and off the roster', async () => {
     const stack = await makeStack();
     const before = standingUnits(rosterOf(stack));
 
@@ -270,7 +279,7 @@ describe('what happens to the crew that took the location', () => {
     // press, so the roster is four short. A version that garrisoned them *and* sent them home
     // satisfies the line above and fails this one.
     expect(standingUnits(rosterOf(stack))).toBe(before - 4);
-    expect(stack.app.repos.city.control('rustyard-press')?.holder).toEqual({
+    expect(stack.app.repos.city.control('steelbelt-press')?.holder).toEqual({
       kind: 'crew',
       baseId: stack.baseId,
     });
@@ -284,18 +293,28 @@ describe('what happens to the crew that took the location', () => {
     // than passing because the roster was already whole.
     expect(garrisonOf(stack), 'nobody was left to pull out').toEqual({ razors: 4 });
 
-    // The withdraw the maintainer asked for is the garrison call with a negative delta. There is no
-    // second endpoint, and this is the half of "unless they are pulled out" that makes the other
-    // half safe to offer.
+    // The withdraw the maintainer asked for is a move home, and it walks (maintainer, 2026-09-28:
+    // "Nothing sends units immediately"). This is the half of "unless they are pulled out" that
+    // makes the other half safe to offer.
     const pulled = await stack.app.inject({
       method: 'POST',
-      url: '/api/city/garrison',
+      url: '/api/actions/move',
       headers: auth(stack.token),
-      payload: { locationId: 'rustyard-press', changes: { razors: -4 } },
+      payload: {
+        from: { kind: 'location', locationId: 'steelbelt-press' },
+        to: { kind: 'district' },
+        army: { razors: 4 },
+        vehicles: {},
+      },
     });
     expect(pulled.statusCode, pulled.body).toBe(200);
 
     expect(garrisonOf(stack)).toEqual({});
+    expect(standingUnits(rosterOf(stack)), 'home before they walked there').toBe(before - 4);
+    stack.db
+      .prepare('UPDATE unit_moves SET returns_at = ?')
+      .run(new Date(Date.now() - 1_000).toISOString());
+    settleMoves(stack.app.repos, new Date());
     expect(standingUnits(rosterOf(stack))).toBe(before);
   });
 
@@ -308,7 +327,7 @@ describe('what happens to the crew that took the location', () => {
     // on it, and whoever ran comes home, which is what losing has always done. The garrison is not
     // asserted to be empty, and deliberately: on a successful defence it holds the *defender's*
     // survivors, which is the existing rule and not this flag's business.
-    expect(stack.app.repos.city.control('rustyard-press')?.holder).not.toEqual({
+    expect(stack.app.repos.city.control('steelbelt-press')?.holder).not.toEqual({
       kind: 'crew',
       baseId: stack.baseId,
     });

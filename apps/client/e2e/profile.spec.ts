@@ -18,7 +18,7 @@ import {
  * ground toggle sitting over the box it opens, is a layout fact and is measured as one.
  */
 
-const RUSTYARD = findDistrict('rustyard');
+const RUSTYARD = findDistrict('steelbelt');
 if (!RUSTYARD) throw new Error('fixture error: the Rustyard is missing from the city map');
 const [MINE, LOOTED, RIVALS] = RUSTYARD.locations;
 if (!MINE || !LOOTED || !RIVALS)
@@ -27,8 +27,8 @@ if (!MINE || !LOOTED || !RIVALS)
 async function openRustyard(page: Page, width = 1280, height = 900): Promise<void> {
   await page.setViewportSize({ width, height });
   await installApi(page, me);
-  await page.goto('/game/city/rustyard');
-  await expect(page.getByTestId('district-painting-rustyard')).toBeVisible();
+  await page.goto('/game/city/steelbelt');
+  await expect(page.getByTestId('district-painting-steelbelt')).toBeVisible();
   await settleFonts(page);
 }
 

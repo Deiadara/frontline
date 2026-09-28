@@ -1,6 +1,7 @@
 import type { User } from '@frontline/shared';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { useViewedCity } from './viewedCity';
 
 /**
  * What to tear down besides the token when a session ends.
@@ -24,6 +25,8 @@ interface SessionState {
   user: User | null;
   /** Establish a session after a successful login/register. */
   login: (token: string, user: User) => void;
+  /** Swaps in a renewed token, keeping the signed-in user (`x-session-token`, see `api.ts`). */
+  setToken: (token: string) => void;
   /** Refresh the authenticated user (e.g. after `GET /api/me` on boot). */
   setUser: (user: User) => void;
   /** Tear down the session (manual logout or a `401` from the API). */
@@ -41,6 +44,7 @@ export const useSession = create<SessionState>()(
       token: null,
       user: null,
       login: (token, user) => set({ token, user }),
+      setToken: (token) => set((state) => (state.token === null ? {} : { token })),
       setUser: (user) => set({ user }),
       logout: () => {
         set({ token: null, user: null });
@@ -53,6 +57,13 @@ export const useSession = create<SessionState>()(
         // Called through a setter the store does not own so that this module keeps no import of
         // the query client: `main.tsx` registers it once at boot.
         onLogout?.();
+        // Where the previous crew was standing goes with their data. The city they were looking at
+        // is one of two cities *they* had ground in, and the next player in this tab may have
+        // neither: leaving it behind would open the new session on somebody else's map and send
+        // every room read to a city whose door is shut to them. Imported directly rather than
+        // through the hook above, because that store holds nothing this module could close a cycle
+        // on.
+        useViewedCity.getState().forget();
       },
     }),
     {

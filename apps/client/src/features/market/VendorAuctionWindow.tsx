@@ -41,12 +41,18 @@ export function VendorAuctionWindow({
   offer,
   now,
   caps,
+  bidCeiling,
+  atLotCap,
   onClose,
 }: {
   offer: VendorOffer & { auction: VendorAuction };
   now: Date;
   /** What the crew has in the tin. A bid it cannot cover is warned about here and refused there. */
   caps: number;
+  /** `MarketResponse.bidCeiling`: the caps stretched by the crew's market ground. */
+  bidCeiling?: number | undefined;
+  /** `pastLotCap` over this visit's barrow. */
+  atLotCap: boolean;
   onClose: () => void;
 }) {
   const me = useMe();
@@ -94,7 +100,14 @@ export function VendorAuctionWindow({
             currency="caps"
             opens={`Opens at ${auction.reserve.toLocaleString()}. He will not take less.`}
           />
-          <BarrowBidPanel auction={auction} name={name} caps={caps} now={now} />
+          <BarrowBidPanel
+            auction={auction}
+            name={name}
+            caps={caps}
+            bidCeiling={bidCeiling}
+            now={now}
+            atLotCap={atLotCap}
+          />
           <LotHistory auction={auction} zone={zone} />
         </div>
       </div>
@@ -146,12 +159,16 @@ function BarrowBidPanel({
   auction,
   name,
   caps,
+  bidCeiling,
   now,
+  atLotCap,
 }: {
   auction: VendorAuction;
   name: string;
   caps: number;
+  bidCeiling: number | undefined;
   now: Date;
+  atLotCap: boolean;
 }) {
   const bid = usePlaceVendorBid();
   return (
@@ -159,6 +176,7 @@ function BarrowBidPanel({
       auction={auction}
       name={name}
       purse={caps}
+      bidCeiling={bidCeiling}
       currency="caps"
       now={now}
       pending={bid.isPending}
@@ -166,6 +184,7 @@ function BarrowBidPanel({
       shortMessage={(purse) =>
         `You have ${purse.toLocaleString()} caps. He will want the whole figure when he packs up.`
       }
+      atLotCap={atLotCap}
       onPlace={(amount) => bid.mutate({ lineId: auction.lineId, amount })}
     />
   );

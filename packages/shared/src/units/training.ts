@@ -19,7 +19,12 @@ import { UnitIdSchema, findUnit, locationsTraining, type UnitSpec } from './cata
  */
 
 /** An army: how many of each unit a crew has *at home*. Garrisons are counted separately. */
-export const ArmySchema = z.record(UnitIdSchema, z.number().int().nonnegative());
+/** Counts capped far past any real roster, so a crafted count is refused before arithmetic sees it. */
+export const ARMY_COUNT_MAX = 10_000_000;
+export const ArmySchema = z.record(
+  UnitIdSchema,
+  z.number().int().nonnegative().max(ARMY_COUNT_MAX),
+);
 
 /**
  * An army with the units that no longer exist taken out of it.

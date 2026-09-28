@@ -60,6 +60,7 @@ import { BENCH_BOARD, BENCH_TRAY, SLOT_WELL } from './template';
 import { ItemWindow } from '../market/MarketPage';
 import { RARITY_TEXT, RarityTag } from './rarity';
 import { YardGlyph, YardPlate, type YardMark } from './YardGlyph';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Scrapyard (§B9, §E1 to §E4, §I3b; reworked at the maintainer's request, 2026-09-10).
@@ -124,9 +125,7 @@ type ViewId = (typeof VIEWS)[number]['id'];
  */
 const TRAPS_NOTE = (
   <InfoNote label="How traps work">
-    A trap is set on ground you are holding and spent on the fight it catches. You cannot take one
-    with you: a raiding force carries units and boosts, and the bench is for the night somebody
-    comes to you.
+    Set on ground you hold, spent on the fight it catches. Traps never travel with a raid.
   </InfoNote>
 );
 
@@ -278,6 +277,7 @@ export function ScrapyardPage() {
    */
   const clear = useClearModification(me.data?.base?.id);
   const burn = useBurnUpgrade();
+  const [lostSlot, setLostSlot] = useState(false);
   const [asking, setAsking] = useState<{
     entry: ScrapyardEntry;
     target: string;
@@ -360,8 +360,7 @@ export function ScrapyardPage() {
     return (
       <PageShell quote="A version of recycling that actually works.">
         <InfoNote label="No yard yet">
-          The Scrapyard has not been built. Lay it on the district and come back: add-ons are cut,
-          pressed and welded here and nowhere else.
+          Build the Scrapyard first. Add-ons are made here and nowhere else.
         </InfoNote>
       </PageShell>
     );
@@ -413,11 +412,13 @@ export function ScrapyardPage() {
   const slotOf = (entry: ScrapyardEntry): number =>
     (base ? findBuilding(base.buildings, structure)?.modifications : [])?.indexOf(entry.id) ?? -1;
 
-  const dismantle = (entry: ScrapyardEntry): void => {
+  const dismantle = ({ entry, target }: { entry: ScrapyardEntry; target: string }): void => {
     if (entry.kind === 'upgrade') {
-      burn.mutate({ upgradeId: entry.id });
+      // The unit the bench is open on: the same card may be on other sheets, each paid for.
+      burn.mutate({ unitId: target, upgradeId: entry.id });
     } else {
       const slot = slotOf(entry);
+      setLostSlot(slot < 0);
       if (slot >= 0) clear.mutate({ building: structure, slot });
     }
     setAsking(null);
@@ -578,10 +579,16 @@ export function ScrapyardPage() {
         </div>
       </div>
 
-      {build.error !== null && (
-        <p role="alert" className="shrink-0 font-body text-xs leading-relaxed text-oxblood-300">
-          {build.error.message}
-        </p>
+      {build.error !== null && <ErrorNote className="shrink-0">{build.error.message}</ErrorNote>}
+      {/* A dismantle the server refused, or one whose bracket this screen could not find: the
+          confirm closes at once, so without these the press looked taken and nothing happened. */}
+      {(burn.error ?? clear.error) && (
+        <ErrorNote className="shrink-0">{(burn.error ?? clear.error)?.message}</ErrorNote>
+      )}
+      {lostSlot && (
+        <ErrorNote className="shrink-0">
+          That card is not in a bracket any more. The yard has moved on; look again.
+        </ErrorNote>
       )}
 
       <div className="min-h-0 flex-1" data-testid="scrapyard-workspace">
@@ -643,7 +650,7 @@ export function ScrapyardPage() {
             body="It comes off in pieces. Nothing is refunded, and putting one back means the yard cuts a new one at full price."
             confirm="Dismantle it"
             testId="scrapyard-dismantle"
-            onConfirm={() => dismantle(asking.entry)}
+            onConfirm={() => dismantle(asking)}
             onCancel={() => setAsking(null)}
           />
         ) : (

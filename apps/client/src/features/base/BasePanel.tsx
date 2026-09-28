@@ -18,6 +18,7 @@ import {
   committedPayroll,
   type Base,
   type BuildingKind,
+  buildBoostRemainingMs,
 } from '@frontline/shared';
 import { useEffect, useLayoutEffect, useState, type ReactNode, type RefObject } from 'react';
 import { LevelUpBanner } from '../../components/LevelUp';
@@ -44,10 +45,12 @@ import { useNavigate } from 'react-router-dom';
 import { useMeasuredSize, type MeasuredSize } from '../../lib/useMeasuredHeight';
 import { useServerClock } from '../missions/useServerClock';
 import { StructureDialog } from './StructureDialog';
+import { BurnNotice } from './BurnNotice';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
 import { DistrictScene } from './DistrictScene';
 import { formatRate, formatRemaining } from './format';
 import { Tutorial } from '../tutorial/Tutorial';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The district (GDD §A1): a place you look at and click, not a list of structure rows.
@@ -92,6 +95,8 @@ export function BasePanel() {
   // How far down the picture the rail reaches when it is laid across the top. Zero down the side,
   // where it is bounded instead of given room. See `BuildQueueRail`.
   const [railStripHeight, setRailStripHeight] = useState(0);
+  // The district read's clock, for the burn notice over the scene (`BurnNotice`).
+  const now = useServerClock(baseQuery.data?.serverNow, baseQuery.dataUpdatedAt);
 
   if (!base) {
     /* Either read can be the one that failed: the district falls back to the session's own copy,
@@ -108,6 +113,8 @@ export function BasePanel() {
       />
     );
   }
+
+  const burning = buildBoostRemainingMs(base.economy.buildBoostUntil, now) > 0;
 
   // A fresh plot starts with a clean slate: the refusal from the last one is not about this one.
   const selectPlot = (kind: BuildingKind) => {
@@ -186,7 +193,9 @@ export function BasePanel() {
       {/* §I1 pays for building things, and the response is the only thing that knows this build is
           what crossed the threshold (MOU-227), so the banner lives with the district, over it, and
           not folded into a drawer the player would have to open to find out they levelled. */}
-      {levelUp && (
+      {/* ...and the Generator's burn while it is lit (maintainer, 2026-09-28), in the same place:
+          the one effect on the district a player paid for and could not see running. */}
+      {(levelUp !== undefined || burning) && (
         <div
           className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-4 pt-3"
           // Under the title row, whatever the title row turned out to be. It used to clear the
@@ -195,8 +204,9 @@ export function BasePanel() {
           // next layout change.
           style={{ top: 'var(--scene-top, var(--hud-h, 0px))' }}
         >
-          <div className="pointer-events-auto w-full max-w-2xl">
-            <LevelUpBanner levelUp={levelUp} />
+          <div className="pointer-events-auto flex w-full max-w-2xl flex-col gap-2">
+            {burning && <BurnNotice economy={base.economy} now={now} />}
+            {levelUp && <LevelUpBanner levelUp={levelUp} />}
           </div>
         </div>
       )}
@@ -335,11 +345,7 @@ function BuildQueue({ base, serverNow, receivedAt }: BuildQueueProps) {
 
   return (
     <>
-      {cancel.error && (
-        <p role="alert" className="px-4 pt-3 font-body text-xs text-oxblood-300">
-          {cancel.error.message}
-        </p>
-      )}
+      {cancel.error && <ErrorNote className="mx-4 mt-3">{cancel.error.message}</ErrorNote>}
       <ol className="flex flex-col divide-y divide-surface-700" data-testid="build-queue">
         {base.buildQueue.map((entry, index) => {
           const progress = queueProgressAt(entry, now);
@@ -684,12 +690,9 @@ function BuildQueueRail({ base, serverNow, receivedAt, room, onStripHeight }: Bu
             </div>
           ))}
           {cancel.error && (
-            <p
-              role="alert"
-              className="glass shrink-0 rounded-sm border border-oxblood-500/60 px-3 py-2 font-body text-xs text-oxblood-300"
-            >
+            <ErrorNote backdrop className="shrink-0">
               {cancel.error.message}
-            </p>
+            </ErrorNote>
           )}
         </div>
       )}

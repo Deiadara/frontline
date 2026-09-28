@@ -19,8 +19,8 @@ import { BlueprintGlyph, PageGlyph, type GlyphSize } from '../research/Blueprint
  * **Pages and assembled documents are the exception, and they are the reason this file has a
  * branch in it.** There are a hundred and sixty pages and a page is a thing a player collects one
  * at a time, so "all pages look alike" is not a shortcut there, it is the feature failing. Those
- * go to `BlueprintGlyph`, which draws each one its own sheet in its own rarity ink. The six
- * pre-war `blueprint_*` goods are not in that catalogue and keep the kind glyph below.
+ * go to `BlueprintGlyph`, which draws each one its own sheet in its own rarity ink, so the
+ * blueprint kind glyph below is a fallback for an id the blueprint catalogue does not know.
  *
  * Item art is deliberately **not** in `ART_MANIFEST` yet. Adding eighteen keys would put eighteen
  * lines on the maintainer's order sheet for a feature whose art has not been designed, and the order
@@ -112,8 +112,8 @@ const GLYPHS: Record<ItemKind, JSX.Element> = {
  * barrow is six plates a player scans, and six cogs in a row is a barrow that says nothing until
  * it is read. So every good has a drawing of its own now, in the same 16 by 16 box and the same
  * pen: a servo is a motor with a shaft, a gyro is three rings, a Rotor Hub is the hub and its
- * blades. Anything not named here (the six pre-war `blueprint_*` goods, a good added tomorrow) keeps
- * its kind glyph, so the record need not be total.
+ * blades. Anything not named here (a good added tomorrow) keeps its kind glyph, so the record need
+ * not be total.
  */
 const S = {
   stroke: 'currentColor',

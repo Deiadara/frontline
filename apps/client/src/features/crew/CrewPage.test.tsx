@@ -48,6 +48,7 @@ const staffed: CrewResponse = {
 /** A refusal in the shared error envelope, which is what the routes actually answer with. */
 const refusal = (code: string, message: string) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: false,
     status: 409,
     statusText: '',
@@ -58,6 +59,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',

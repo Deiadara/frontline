@@ -3,15 +3,12 @@ import { noTerritoryEffects } from '../city/index.js';
 import { bareBattlefield, type Battlefield } from './battlefield.js';
 import { findUnit, UNIT_RULES, type Army, type UnitSpec } from '../units/index.js';
 import {
+  breaksWalls,
   holdsTheLine,
-  jamPercent,
   MAX_PACK_BONUS,
-  MAX_SAPPER_CUT,
   opensFire,
   packBonusPercent,
   PACK_HALF,
-  sappedGround,
-  sapperCutPercent,
   simulate,
   type Simulation,
   type Stack,
@@ -39,7 +36,7 @@ import {
  * `finally`, so a failing expectation inside the block cannot leak the mutation into the next test.
  */
 
-type Mark = 'strikes_first' | 'stalwart' | 'sapper' | 'pack';
+type Mark = 'strikes_first' | 'stalwart' | 'wall_breaker' | 'pack';
 
 const spec = (unitId: string): UnitSpec => {
   const found = findUnit(unitId);
@@ -83,9 +80,6 @@ const stackOf = (side: Simulation['attacker'], unitId: string): Stack => {
 /** Units a side lost, which is the figure every mark below is measured on. */
 const lost = (side: Simulation['attacker']): number =>
   side.stacks.reduce((total, stack) => total + (stack.started - stack.alive), 0);
-
-/** Fortified ground, so the sapper has something to take apart. */
-const dugIn = (percent: number): Battlefield => ({ ...bareBattlefield(), fortifyPercent: percent });
 
 describe('Collective: massing one sheet is worth something', () => {
   it('pays nothing for the first unit and approaches the asymptote without reaching it', () => {
@@ -152,69 +146,52 @@ describe('Collective: massing one sheet is worth something', () => {
   });
 });
 
-describe('Wall Breaker: the works come down', () => {
-  it('scales with the share of the line that is sapping, and caps', () => {
-    expect(sapperCutPercent({ razors: 40 })).toBe(0);
-    expect(sapperCutPercent({})).toBe(0);
-    // A quarter of the line is full cover, and past it nothing more is bought.
-    expect(sapperCutPercent({ demolishers: 10, razors: 30 })).toBeCloseTo(MAX_SAPPER_CUT, 6);
-    expect(sapperCutPercent({ demolishers: 30, razors: 10 })).toBeCloseTo(MAX_SAPPER_CUT, 6);
-    // An eighth is half of it.
-    expect(sapperCutPercent({ demolishers: 5, razors: 35 })).toBeCloseTo(MAX_SAPPER_CUT / 2, 6);
+/**
+ * Wall Breaker: the Colossus's, and the enemy's gates count for nothing in its fight (maintainer,
+ * 2026-09-26). The traps and the gate's lost level are the settler's (`battle/resolve.ts`) and are
+ * pinned there; what the engine owns is the gate's toughness, which is gone for the whole fight.
+ */
+describe('Wall Breaker: the gate does nothing against the Colossus', () => {
+  const gated = (percent: number) => ({ ...noTerritoryEffects(), gatePercent: percent });
+  const defenderVitality = (attacking: Army, gatePercent: number): number =>
+    simulate({
+      seed: 'walls',
+      battlefield: bareBattlefield(),
+      attacker: { name: 'A', army: attacking, defending: false },
+      defender: {
+        name: 'D',
+        army: { wardens: 20 },
+        defending: true,
+        territory: gated(gatePercent),
+      },
+    }).defender.stacks[0]!.effective.vitality;
+
+  it('is the Colossus alone', () => {
+    expect(spec('the_colossus').wall_breaker).toBe(true);
+    for (const unit of ['demolishers', 'breakers', 'juggernauts', 'razors']) {
+      expect(spec(unit).wall_breaker, unit).not.toBe(true);
+    }
   });
 
-  it('does not count the porters, who are not on the line', () => {
-    expect(sapperCutPercent({ demolishers: 10, razors: 30, scavengers: 200 })).toBeCloseTo(
-      MAX_SAPPER_CUT,
-      6,
+  it('takes the gate off every defender while one is in the line, and only then', () => {
+    expect(breaksWalls({ the_colossus: 1, razors: 20 })).toBe(true);
+    expect(breaksWalls({ razors: 20, demolishers: 6 })).toBe(false);
+    expect(breaksWalls({ the_colossus: 0, razors: 20 })).toBe(false);
+    // The gate is worth its toughness against everybody else...
+    expect(defenderVitality({ razors: 20 }, 60)).toBeGreaterThan(
+      defenderVitality({ razors: 20 }, 0),
+    );
+    // ...and nothing at all with the Colossus in the attacking line.
+    expect(defenderVitality({ the_colossus: 1, razors: 20 }, 60)).toBe(
+      defenderVitality({ the_colossus: 1, razors: 20 }, 0),
     );
   });
 
-  it('takes a share off the fortification and never all of it', () => {
-    const ground = sappedGround(dugIn(60), { demolishers: 40 });
-    expect(ground.fortifyPercent).toBeCloseTo(60 * (1 - MAX_SAPPER_CUT / 100), 6);
-    expect(ground.fortifyPercent).toBeGreaterThan(0);
-    // Nothing sapping is the identical object, so the common case costs no allocation.
-    expect(sappedGround(dugIn(60), { razors: 40 })).toEqual(dugIn(60));
-  });
-
-  /**
-   * The half the card used to get wrong (bug pass, 2026-09-19).
-   *
-   * `UNIT_RULES.sapper` said the works were worth less "for as long as these are on the ground",
-   * which is the *jammer's* rule and not this one. `sapperCutPercent` reads the roster and
-   * `sappedGround` spends it on the battlefield once, before round one; nothing in the loop
-   * rebuilds the ground, so a wall stays down once it is down and killing every Demolisher does
-   * not put it back up. `jamPercent` is the contrast and is read off the stacks still standing.
-   *
-   * Pinned as a pair, because the two cards now promise opposite things and a change that made
-   * either function read the other's source would leave one of them lying.
-   */
-  it('is read off the roster, where the jam is read off whoever is still standing', () => {
-    const army: Army = { demolishers: 10, razors: 30 };
-    const cut = sapperCutPercent(army);
-    expect(cut).toBeCloseTo(MAX_SAPPER_CUT, 6);
-    expect(sappedGround(dugIn(60), army).fortifyPercent).toBeCloseTo(60 * (1 - cut / 100), 6);
-
-    const jamming = fight({ netrunners: 10, razors: 30 }, { razors: 40 }, 'jam-vs-sap').attacker;
-    expect(jamPercent(jamming)).toBeGreaterThan(0);
-    const wiped = {
-      ...jamming,
-      stacks: jamming.stacks.map((stack) =>
-        stack.unit.jammer === true ? { ...stack, alive: 0 } : stack,
-      ),
-    };
-    expect(jamPercent(wiped)).toBe(0);
-  });
-
-  it('costs the defender units that the same force without the mark does not take', () => {
-    const attacking: Army = { demolishers: 14, razors: 26 };
-    const ground = dugIn(60);
-    const sapped = fight(attacking, { wardens: 30 }, 'sap-1', ground);
-    const intact = withoutMark('demolishers', 'sapper', () =>
-      fight(attacking, { wardens: 30 }, 'sap-1', ground),
+  it('is gone with the mark: the same force without it meets the gate', () => {
+    const withoutIt = withoutMark('the_colossus', 'wall_breaker', () =>
+      defenderVitality({ the_colossus: 1, razors: 20 }, 60),
     );
-    expect(lost(sapped.defender)).toBeGreaterThan(lost(intact.defender));
+    expect(withoutIt).toBeGreaterThan(defenderVitality({ the_colossus: 1, razors: 20 }, 0));
   });
 });
 

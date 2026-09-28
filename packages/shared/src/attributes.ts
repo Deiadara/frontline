@@ -116,8 +116,11 @@ export const MIN_ATTRIBUTE = 0;
 export const MAX_ATTRIBUTE = 100;
 
 /**
- * The ceiling at recruitment (B2a). The 40..100 band exists purely so progression has somewhere
- * to go; a freshly generated character never touches it.
+ * The ceiling at recruitment (B2a). The 40..100 band exists so progression has somewhere to go.
+ *
+ * It is the ceiling of every roll outside the Bar and of a young city's Bar. A mature city's room
+ * lifts it with the calibre of each roll (`recruitmentCeiling` on the server, 2026-09-28), to a
+ * little short of the top of the scale, so the Bar can pour officers a late-game job can lean on.
  */
 export const MAX_RECRUITMENT_ATTRIBUTE = 40;
 

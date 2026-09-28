@@ -28,8 +28,17 @@ import {
   recruitSlotsFor,
   signRecruit,
 } from './hire.js';
-import { barDay, findBarRecruit, recruitId, seatOf, type BarCharacter } from './roster.js';
+import {
+  barDay,
+  cityOfRecruit,
+  findBarRecruit,
+  recruitId,
+  seatOf,
+  type BarCharacter,
+} from './roster.js';
+import { barRoomOf } from './room.js';
 import { rosterFaces } from '../crew/faces.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * The Bar's daily auction (GDD §H7a), server side.
@@ -120,6 +129,24 @@ export interface BidRequest {
 }
 
 /**
+ * The tables this crew is sitting at in one city tonight.
+ *
+ * Per city, and that is a ruling rather than a detail (maintainer's brief, 2026-09-24): a table is
+ * a room you are standing in, so two tables in Ashfall say nothing about how many rooms you can
+ * stand in at Terminus. `bar_bids` is keyed `(user_id, day)` with no city column, and it does not
+ * need one: `recruit_id` carries the room it was minted in, so the split is a filter rather than a
+ * migration. See `cityOfRecruit`.
+ */
+export function tablesHeldIn(
+  repos: Repositories,
+  userId: string,
+  day: string,
+  cityId: string | null,
+): BarBid[] {
+  return repos.bar.bidsBy(userId, day).filter((bid) => cityOfRecruit(bid.recruitId) === cityId);
+}
+
+/**
  * §H3, §H8 and §H7a: whether this crew may be at this table at all.
  *
  * Every waiver is applied at its own check rather than to a single first-refusal, which is not a
@@ -144,7 +171,7 @@ function tableRefusal(
   }
   // §H7a: two tables at once, three past level 40. A table the crew is already at is not a new
   // one, so raising a bid never runs into the cap that the first bid cleared.
-  const mine = repos.bar.bidsBy(userId, day);
+  const mine = tablesHeldIn(repos, userId, day, cityOfRecruit(recruit.id));
   const seated = mine.some((bid) => bid.recruitId === recruit.id);
   if (!seated && mine.length >= maxOpenAuctionsFor(base.level)) return 'too_many_auctions';
   return undefined;
@@ -305,17 +332,19 @@ export function previousDay(day: string): string {
 }
 
 /**
- * Rebuilds the person a table was about.
+ * Rebuilds the person a table was about, off the room the day was frozen at (`barRoomOf`).
  *
- * The roster is a pure function of the day and of the city's average level, and the city keeps
- * levelling, so a room read back a day later can be a shade stronger than the one that was bid on.
- * That is why the *name* is stored on the result row rather than regenerated: the panel a player
- * reads must say who they lost, whatever the room has done since.
+ * The *name* is still stored on the result row rather than regenerated: a table from before the
+ * room was frozen can rebuild a shade differently, and the panel a player reads must say who they
+ * lost whatever the room has done since.
  */
 function recruitOn(repos: Repositories, day: string, recruitId: string): BarCharacter | undefined {
   const seat = seatOf(day, recruitId);
-  if (seat === null) return undefined;
-  return findBarRecruit(day, recruitId, seat + 1, repos.bases.averageLevel());
+  const cityId = cityOfRecruit(recruitId);
+  if (seat === null || cityId === null) return undefined;
+  // The room the bidders saw, not the city as it stands at midnight: a crew that levelled after
+  // the first read would otherwise have the close settle the table against a person nobody bid on.
+  return findBarRecruit(day, recruitId, seat + 1, barRoomOf(repos, cityId, day));
 }
 
 /**
@@ -328,12 +357,13 @@ function recruitOn(repos: Repositories, day: string, recruitId: string): BarChar
  */
 export function settleBarAuctions(repos: Repositories, now: Date): number {
   // Counted, so the world settle can tell every open tab the room changed. See `world/settle.ts`.
-  let closed = 0;
-  for (const table of repos.bar.unsettled(barDay(now))) {
-    repos.tx(() => closeTable(repos, table.day, table.recruitId, now));
-    closed += 1;
-  }
-  return closed;
+  return settleEach(
+    repos,
+    'bar auctions',
+    repos.bar.unsettled(barDay(now)),
+    (table) => `${table.day}:${table.recruitId}`,
+    (table) => closeTable(repos, table.day, table.recruitId, now),
+  );
 }
 
 function closeTable(repos: Repositories, day: string, recruitId: string, now: Date): void {
@@ -374,8 +404,11 @@ interface Winner {
  */
 function faceFor(repos: Repositories, day: string, recruit: BarCharacter): string | undefined {
   const seat = seatOf(day, recruit.id);
-  if (seat === null) return undefined;
-  const seats = Array.from({ length: seat + 1 }, (_, index) => recruitId(day, index));
+  const cityId = cityOfRecruit(recruit.id);
+  if (seat === null || cityId === null) return undefined;
+  // The seats before this one **in this room**. Built off the default city's ids, the probe walked
+  // a different room's faces and handed the winner a face their card never wore.
+  const seats = Array.from({ length: seat + 1 }, (_, index) => recruitId(day, index, cityId));
   return rosterFaces(repos, seats).get(recruit.id);
 }
 
@@ -466,8 +499,15 @@ function tellTheTable(
  * could not take the person at the close is not the same story as one that was simply outbid, and
  * the row alone cannot tell them apart.
  */
-export function resultsFor(repos: Repositories, userId: string, day: string): BarAuctionResult[] {
-  const mine = repos.bar.bidsBy(userId, day);
+export function resultsFor(
+  repos: Repositories,
+  userId: string,
+  day: string,
+  cityId: string,
+): BarAuctionResult[] {
+  // One room's tables, because this panel is drawn inside one room. A crew that bid in Terminus
+  // last night and opened Ashfall's Bar tonight was shown Terminus's closes under Ashfall's roster.
+  const mine = tablesHeldIn(repos, userId, day, cityId);
   if (mine.length === 0) return [];
   const closed = new Map(repos.bar.results(day).map((result) => [result.recruitId, result]));
 
@@ -506,11 +546,12 @@ export function latestResultsFor(
   repos: Repositories,
   userId: string,
   today: string,
+  cityId: string,
 ): BarAuctionResult[] {
   let day = today;
   for (let back = 0; back < RESULTS_LOOKBACK_DAYS; back += 1) {
     day = previousDay(day);
-    const results = resultsFor(repos, userId, day);
+    const results = resultsFor(repos, userId, day, cityId);
     if (results.length > 0) return results;
   }
   return [];

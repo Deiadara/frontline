@@ -37,7 +37,6 @@ import { cn } from '../../lib/cn';
 import {
   useActions,
   useBattles,
-  useMe,
   useMissions,
   useRecallColumn,
   useRecallMission,
@@ -58,6 +57,7 @@ import { Row, Section } from './rows';
 import { AutomationsPage } from './AutomationsPage';
 import { HomeMark, OutMark, OrdersMark, WorkMark } from './CensusMarks';
 import { fightPhase, onTheRoad, roadCounts, roadIsEmpty, type Road } from './road';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Actions (§A4): everybody who is not where they started, live.
@@ -185,7 +185,6 @@ function MonitorTab({
 export function ActionsPage() {
   const query = useActions();
   const missions = useMissions();
-  const me = useMe();
   const battles = useBattles();
   const recall = useRecallColumn();
   const recallJob = useRecallMission();
@@ -281,13 +280,9 @@ export function ActionsPage() {
               built and `/actions` polls at 5s, while the row's own `canRecall` is recomputed every
               second: for up to five seconds after the window shuts the row reads "0s left to
               decide" beside a live button. `DeclareDialog` renders this same mutation's error. */}
-          {[recall, recallJob, recallScout, recallCell].map(
+          {[recall, recallJob, recallScout, recallSpy, recallMove, recallCell].map(
             (write, index) =>
-              write.error && (
-                <p key={index} role="alert" className="font-body text-[13px] text-oxblood-300">
-                  {write.error.message}
-                </p>
-              ),
+              write.error && <ErrorNote key={index}>{write.error.message}</ErrorNote>,
           )}
 
           {road.columns.length > 0 && (
@@ -380,7 +375,6 @@ export function ActionsPage() {
                     key={mission.id}
                     mission={mission}
                     now={now}
-                    level={me.data?.base?.level ?? 1}
                     pending={recallJob.isPending}
                     onRecall={() => recallJob.mutate({ missionId: mission.id })}
                   />
@@ -703,14 +697,11 @@ const PHASE_LABEL: Record<MissionPhase, string> = {
 function Job({
   mission,
   now,
-  level,
   pending,
   onRecall,
 }: {
   mission: Mission;
   now: Date;
-  /** The crew's level, which the card the run was taken off read its odds at. */
-  level: number;
   pending: boolean;
   onRecall: () => void;
 }) {
@@ -725,7 +716,7 @@ function Job({
    * (`offerOfMission`), with no crew to send, which is the one thing the board's card has that
    * this one must not.
    */
-  const card = template ? offerOfMission(mission, template, level) : null;
+  const card = template ? offerOfMission(mission, template) : null;
   const [pinned, setPinned] = useState(false);
   return (
     <Row

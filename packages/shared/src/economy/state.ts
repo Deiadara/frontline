@@ -17,8 +17,8 @@ import { PayrollStateSchema, startingPayroll } from './payroll.js';
  * read except itself. Morale survives where it always meant something, on a unit in a fight
  * (`battle/morale.ts`). Reputation went with it: a one-word verdict on the crew that gated who
  * would sign, which turned recruitment into a quiz about a label rather than a negotiation. What
- * an officer judges now is the crew's rank, its level and its caps, and all three are numbers the
- * player can see and move.
+ * a recruit judges now is infamy alone (`bar/join.ts`): the crew's rank, the infamy in its wallet
+ * and what its faction has earned, all numbers the player can see and move.
  */
 export const EconomyStateSchema = z.object({
   /**

@@ -1,6 +1,7 @@
 import { MISC_AREA_ID, MISSION_TEMPLATES, type Base } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { launchMission } from './launch.js';
+import { sureLeader } from '../testing/leader.js';
 import {
   startingEconomy,
   startingProgression,
@@ -61,7 +62,8 @@ const roadMinutes = (anyRide: boolean): number =>
     vehicles: { heli_porter: 1 },
     now: T0,
     seed: 7,
-    unled: 'free',
+    grade: TEMPLATE.grades[0],
+    leader: sureLeader(),
     anyRide,
   }).mission.travelMinutes;
 

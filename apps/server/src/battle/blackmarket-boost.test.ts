@@ -48,14 +48,14 @@ const auth = (token: string): { authorization: string } => ({ authorization: `Be
 
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 /** Somewhere else in the same district, for the second fight of an evening. */
 const RAMP: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-ramp',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-ramp',
 };
 
 /** Records what the engine was asked to resolve, and hands the fight to the attacker. */
@@ -108,9 +108,9 @@ async function makeStack(): Promise<Stack> {
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   // One location off the looters, so the Rustyard's gate is no longer armed and a location can be called.
-  const control = app.repos.city.control('rustyard-bonefield');
+  const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }

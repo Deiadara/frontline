@@ -51,7 +51,9 @@ const INVALIDATES: Record<LiveEventKind, readonly (readonly unknown[])[]> = {
   // `faction` too: a `faction_invite` receipt is published as `message` (`live/kinds.ts` on the
   // server), and the invitation itself is listed on the faction screen, not in the inbox.
   message: [queryKeys.messages, queryKeys.me, queryKeys.faction],
-  faction: [queryKeys.faction, queryKeys.me],
+  // Feats as well: somebody taking or leaving a seat at this table moves `faction_seats` for
+  // everybody still sitting at it, and `me` alone moved the badge but not the board under it.
+  faction: [queryKeys.faction, queryKeys.me, queryKeys.feats],
   /*
    * Everything a `base` receipt can stand for. The server maps `officer_hired`, `training_done`,
    * `page_found` and `building_done` onto this one kind alongside the mission and research ones,
@@ -104,17 +106,23 @@ function applyEvent(queryClient: QueryClient, event: LiveEvent): void {
  * What each kind of event sounds like.
  *
  * `base` is the kind the game moves under you on: a mission home, a build finished, research or
- * training done. `notification` is the receipt written for one of those. Both get the chime. A
- * fight, declared or resolved, gets the drum, because it is the one event a player may have to do
- * something about tonight.
+ * training done. A fight, declared or resolved, gets the drum, because it is the one event a
+ * player may have to do something about tonight.
+ *
+ * `notification` is silent (bug pass, 2026-09-25). It is published for **every** receipt, and the
+ * receipt's own kind goes out beside it as the typed nudge (`server/live/kinds.ts`): a mission home
+ * is `notification` and `base`, a report is `notification` and `battle`. Chiming on the receipt
+ * therefore chimed on everything with a receipt, which included new mail, a faction invite,
+ * somebody joining or leaving, being outbid at the market or the Bar and a spy report: the exact
+ * list `docs/SOUND.md` says must stay quiet. The typed nudge is the one that knows what happened.
  *
  * Mail and faction churn are silent on purpose. A message is not an achievement, and a game that
  * chimes when somebody else's rank moved is a game whose sound the player switches off.
  */
 type EventSound = Extract<SoundKind, 'done' | 'call'>;
 
-const EVENT_SOUND: Readonly<Record<LiveEventKind, EventSound | null>> = {
-  notification: 'done',
+export const EVENT_SOUND: Readonly<Record<LiveEventKind, EventSound | null>> = {
+  notification: null,
   base: 'done',
   battle: 'call',
   message: null,

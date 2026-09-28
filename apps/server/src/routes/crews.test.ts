@@ -174,10 +174,11 @@ describe('GET /crews/:id', () => {
    */
   it('keeps their street and their whole districts behind the fog as well', async () => {
     /*
-     * The seeded neighbour rather than a second registered player: every new crew is planted on
-     * the same starter plot, so a registered rival lives on the reader's own street, which is
-     * always in sight. The house crew lives on its own ground, and the admin fog makes that
-     * definitely dark, which is the case under test.
+     * The seeded neighbour rather than a second registered player: this was written when every new
+     * crew was planted on the same starter plot, so a registered rival lived on the reader's own
+     * street, which is always in sight, and a registered rival's plot is now a random draw. The
+     * house crew lives on its own known ground, and the admin fog makes that definitely dark, which
+     * is the case under test.
      *
      * Seeded *before* the reader registers, and that order is load-bearing. The house crews hold
      * `fixer`, `enforcer` and `technocrat` (`seed/constants.ts`), §F6 makes a character one
@@ -235,6 +236,27 @@ describe('GET /crews/:id', () => {
     expect(row).toBeDefined();
     const theirs = (await file(app, me.token, them.baseId)).json<CrewProfileResponse>();
     expect(theirs.standing.rank).toBe(row?.rank);
+  });
+
+  /**
+   * "Write to them" addresses the composer by the name `POST /messages` resolves, and the file's
+   * `name` is the display name wherever one is set. With no login name on the file the door opened
+   * an empty mailbox.
+   */
+  it('carries the name a letter is addressed to, not only the one on screen', async () => {
+    const me = await player(app, 'reader');
+    const them = await player(app, 'rival');
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: auth(them.token),
+      payload: { displayName: 'Vex of the Ninth' },
+    });
+    expect(renamed.statusCode).toBe(200);
+
+    const theirs = (await file(app, me.token, them.baseId)).json<CrewProfileResponse>();
+    expect(theirs.player.name).toBe('Vex of the Ninth');
+    expect(theirs.player.handle).toBe('rival');
   });
 
   it('refuses an id that is nobody', async () => {

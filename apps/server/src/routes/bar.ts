@@ -1,5 +1,6 @@
 import {
   IncreasePayrollRequestSchema,
+  LEADER_HOLD_LABELS,
   PlaceBidRequestSchema,
   ReleaseOfficerRequestSchema,
   SealBidRequestSchema,
@@ -13,12 +14,14 @@ import {
   type ReleaseOfficerResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { requireAreaFor } from '../progression/doors.js';
 import {
   latestResultsFor,
   placeBid,
   projectAuction,
   sealBid,
   settleBarAuctions,
+  tablesHeldIn,
   type BidRefusal,
   type BidRequest,
   type BidResult,
@@ -32,13 +35,14 @@ import {
 } from '../bar/hire.js';
 import { projectOfficer, projectRecruit } from '../bar/project.js';
 import { rosterFaces } from '../crew/faces.js';
-import { barSeatsFor, barDay, barRoster, findBarRecruit } from '../bar/roster.js';
-import { calibreOf, cityAsked, citiesFor } from '../city/stakes.js';
+import { barSeatsFor, barDay, barRoster, cityOfRecruit, findBarRecruit } from '../bar/roster.js';
+import { barRoomOf } from '../bar/room.js';
+import { cityAsked, citiesFor } from '../city/stakes.js';
 import { seatedRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import type { BarBid } from '../db/repos/bar.js';
 import { settleBase } from '../district/settle.js';
-import { AppError, parseBody, type ErrorCode } from '../errors.js';
+import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { takeLevelUp } from '../progression/award.js';
 
 /**
@@ -142,22 +146,34 @@ const BID_ERRORS: Record<BidRefusal, { code: ErrorCode; message: (minimum: numbe
 
 export function registerBarRoutes(app: FastifyInstance): void {
   /**
-   * Resolves the person a bid names on today's roster, or 404s.
+   * Resolves the person a bid names on today's roster, and which room they are sitting in, or 404s.
    *
-   * The room is the same all day now, so there is one way to land here: an id from yesterday, in a
-   * tab left open across midnight. The answer is the same as it always was.
+   * The room is the same all day now, so there is one way to land on the 404: an id from yesterday,
+   * in a tab left open across midnight. The answer is the same as it always was.
+   *
+   * The **city comes out of the id** and is then put through the same door the read route uses. A
+   * bid route that trusted the id would let a crew with no stake in Terminus bid on Terminus's
+   * roster by typing its recruit id, and one that ignored the id's city rebuilt Ashfall's roster
+   * and 404'd every away recruit. The room is the city's own, frozen for the day, so the sheet on
+   * the contract is the sheet on the card (`findBarRecruit`, `barRoomOf`).
    */
   function recruitOnTheRoster(base: Base, day: string, recruitId: string) {
+    const room = cityOfRecruit(recruitId);
+    if (room === null) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
+    const cityId = cityAsked(app.repos, base, room);
+    if (cityId === null) {
+      throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
+    }
     const seats = barSeatsFor(crewEffectsFor(app.repos, base).recruitPoolPercent);
-    const recruit = findBarRecruit(day, recruitId, seats, app.repos.bases.averageLevel());
+    const recruit = findBarRecruit(day, recruitId, seats, barRoomOf(app.repos, cityId, day));
     if (!recruit) throw new AppError('NOT_FOUND', 'They are not at the Bar today');
-    return recruit;
+    return { recruit, cityId };
   }
 
   /** Both bid routes answer with the table as it now stands, so the screen never guesses. */
   function bidResponse(base: Base, userId: string, recruitId: string, now: Date): BidResponse {
     const window = auctionWindow(now);
-    const recruit = recruitOnTheRoster(base, window.day, recruitId);
+    const { recruit, cityId } = recruitOnTheRoster(base, window.day, recruitId);
     const bids = app.repos.bar.bidsFor(window.day, recruitId);
     return {
       auction: projectAuction({
@@ -168,7 +184,8 @@ export function registerBarRoutes(app: FastifyInstance): void {
         bids,
         usernames: usernamesFor(app, bids),
       }),
-      auctionsUsed: app.repos.bar.bidsBy(userId, window.day).length,
+      // The tables held in **this** room, which is the count the gate that just ran used.
+      auctionsUsed: tablesHeldIn(app.repos, userId, window.day, cityId).length,
       auctionsAllowed: maxOpenAuctionsFor(base.level),
     };
   }
@@ -181,7 +198,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
     const { recruitId, amount } = parseBody(schema, request.body);
     const now = new Date();
     const base = settledBase(app, request.currentUser.id, now);
-    const recruit = recruitOnTheRoster(base, barDay(now), recruitId);
+    const { recruit } = recruitOnTheRoster(base, barDay(now), recruitId);
 
     const result = app.db.transaction(() =>
       place(app.repos, {
@@ -202,7 +219,7 @@ export function registerBarRoutes(app: FastifyInstance): void {
 
   app.get('/bar', { preHandler: app.authenticate }, (request): BarResponse => {
     const now = new Date();
-    const asked = (request.query as { city?: string } | undefined)?.city;
+    const asked = cityQuery(request.query);
     // Last night's tables settle inside this, so the officer a crew won overnight is on the books
     // by the time this read draws them.
     const base = settledBase(app, request.currentUser.id, now);
@@ -237,11 +254,15 @@ export function registerBarRoutes(app: FastifyInstance): void {
      *
      * It was the flat average level of every base in the world, which stopped being the right
      * number the day a crew could drink in a city they do not live in: somebody holding half of
-     * Ashfall had exactly as much say over its room as somebody who has never been. `calibreOf`
+     * Ashfall had exactly as much say over its room as somebody who has never been. `roomProfileOf`
      * weights a resident at one and a visitor at the share of ten locations they hold, and counts
      * the notoriety ladder alongside the district level. See `city/access.ts`.
+     *
+     * Since 2026-09-28 the room also seats one person for the weakest crew in the city and one for
+     * the strongest (`seatKindOf`), and the profile is frozen for the day at the first read
+     * (`barRoomOf`), so a crew levelling at noon does not re-roll the room under everybody's bids.
      */
-    const roster = barRoster(day, seats, calibreOf(app.repos, cityId), cityId);
+    const roster = barRoster(day, seats, barRoomOf(app.repos, cityId, day), cityId);
     // One face each, free of every crew's in the city: the face the contract will keep.
     const faces = rosterFaces(
       app.repos,
@@ -284,13 +305,15 @@ export function registerBarRoutes(app: FastifyInstance): void {
           usernames,
         }),
       ),
-      auctionsUsed: app.repos.bar.bidsBy(request.currentUser.id, day).length,
+      // Per room: two tables in Ashfall do not spend the allowance for Terminus, so the number on
+      // this screen is the number of tables held in the room it is drawing.
+      auctionsUsed: tablesHeldIn(app.repos, request.currentUser.id, day, cityId).length,
       auctionsAllowed: maxOpenAuctionsFor(base.level),
       // The most this crew can put on a table: what the book holds after its own negotiators.
       bidCeiling: bidCeilingFor(ledger.available, effects.wageDiscountPercent),
       // Only the tables this crew sat at, from the last night it sat at any. A results panel that
       // carried every close in the city would be a leaderboard nobody asked for.
-      results: latestResultsFor(app.repos, request.currentUser.id, day),
+      results: latestResultsFor(app.repos, request.currentUser.id, day, cityId),
       levelUp,
       cityId,
       cities: citiesFor(app.repos, base),
@@ -299,11 +322,13 @@ export function registerBarRoutes(app: FastifyInstance): void {
 
   /** §H7a: a public bid. Live, visible to the whole city, and it has to beat the leader. */
   app.post('/bar/bid', { preHandler: app.authenticate }, (request): BidResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'bar');
     return bid(request, placeBid, PlaceBidRequestSchema);
   });
 
   /** §H7a: the one sealed final value, in the last half hour. No changes after it lands. */
   app.post('/bar/seal', { preHandler: app.authenticate }, (request): BidResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'bar');
     return bid(request, sealBid, SealBidRequestSchema);
   });
 
@@ -325,6 +350,12 @@ export function registerBarRoutes(app: FastifyInstance): void {
     if (result.kind === 'refused') {
       if (result.reason === 'not_on_the_books') {
         throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+      }
+      if (result.reason === 'on_duty') {
+        throw new AppError(
+          'STALE_STATE',
+          `They are ${LEADER_HOLD_LABELS[result.held]}. Let them come back first`,
+        );
       }
       throw new AppError('INSUFFICIENT_CAPS', 'You cannot cover what letting them go would cost');
     }

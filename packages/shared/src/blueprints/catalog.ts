@@ -157,6 +157,16 @@ export interface BlueprintSpec {
    */
   targets: readonly BlueprintTarget[];
   pages: readonly BlueprintPage[];
+  /**
+   * Sold whole by the fence and by nobody else (maintainer, 2026-09-28).
+   *
+   * A document like this has **no pages**: nothing drops it, the Runner never carries a sheet of it
+   * and Reimagining cannot draw one, so the only way to hold it is to win the fence's lot, which
+   * hands over the finished document already unlocked. `blueprints.test.ts` holds both halves:
+   * every fence document has no pages and is on the fence's shelf, and every other document has
+   * between two and eight.
+   */
+  fenceOnly?: true;
 }
 
 export const BLUEPRINTS = [
@@ -233,7 +243,8 @@ export const BLUEPRINTS = [
     motif: 'kite',
     category: 'unit',
     rarity: 'intricate',
-    blurb: 'Spars, sail and a winch. Somebody goes up and everybody else finds out what is coming.',
+    blurb:
+      'How to put one person in the air on a tethered kite and bring them down again with a report.',
     targets: [{ kind: 'unit', id: 'kite_crews' }],
     pages: [
       {
@@ -356,22 +367,21 @@ export const BLUEPRINTS = [
     motif: 'cuirass',
     category: 'unit',
     rarity: 'intricate',
-    blurb: 'Plate cut to a schedule somebody worked out under fire, and never changed since.',
+    blurb: 'Plate cut to a wartime schedule that has not been revised since.',
     targets: [{ kind: 'unit', id: 'ironsides' }],
     pages: [
       {
         id: 'pg_ironsides_plate_schedule',
         name: 'Plate Schedule',
         motif: 'table',
-        description:
-          'Plate thickness by body zone, in a schedule nobody has dared change since it was written.',
+        description: 'Plate thickness by body zone. The thickest figure is over the heart.',
         rarity: 'advanced',
       },
       {
         id: 'pg_ironsides_shoulder_anchors',
         name: 'Shoulder Anchors',
         motif: 'bolts',
-        description: 'Where the whole weight hangs from, with the bolt pattern circled twice.',
+        description: 'Where the whole weight hangs, and the bolt pattern that carries it.',
       },
       {
         id: 'pg_ironsides_visor_slits',
@@ -448,8 +458,7 @@ export const BLUEPRINTS = [
         id: 'pg_hollow_men_empty_shell',
         name: 'Empty Shell',
         motif: 'section',
-        description:
-          'A shell in section with nothing inside it, which is the drawing and the point.',
+        description: 'A shell in section with nothing inside it. That is the whole design.',
       },
       {
         id: 'pg_hollow_men_gait_governor',
@@ -524,8 +533,7 @@ export const BLUEPRINTS = [
         id: 'pg_the_specter_scent_null',
         name: 'Scent Null',
         motif: 'list',
-        description:
-          'A sealed bag and a chemical list, half of it in a shorthand nobody else uses.',
+        description: 'A sealed bag and a chemical list, half of it in a private shorthand.',
         rarity: 'advanced',
       },
       {
@@ -543,7 +551,7 @@ export const BLUEPRINTS = [
     motif: 'blade',
     category: 'unit',
     rarity: 'masterpiece',
-    blurb: 'Edge geometry and footwork, written by somebody who thought of it as choreography.',
+    blurb: 'Edge geometry and footwork, notated like a dance because that is how it was taught.',
     targets: [{ kind: 'unit', id: 'the_crimson_dancer' }],
     pages: [
       {
@@ -672,7 +680,7 @@ export const BLUEPRINTS = [
         id: 'pg_abomination_bone_lattice',
         name: 'Bone Lattice',
         motif: 'weave',
-        description: 'A lattice drawn over a skeleton nobody can name the species of.',
+        description: 'A lattice drawn over a skeleton that is not quite human.',
         rarity: 'advanced',
       },
       {
@@ -718,7 +726,8 @@ export const BLUEPRINTS = [
     motif: 'walking_hull',
     category: 'unit',
     rarity: 'masterpiece',
-    blurb: 'Eight pages and a hull nobody in this city could cast today. You are assembling it.',
+    blurb:
+      'Eight pages and a hull no foundry in the city could cast today. You are assembling it anyway.',
     targets: [{ kind: 'unit', id: 'the_colossus' }],
     pages: [
       {
@@ -726,7 +735,7 @@ export const BLUEPRINTS = [
         name: 'Hull Sections',
         motif: 'section',
         description:
-          'Hull stations drawn one over another, at a casting size nobody here can pour.',
+          'Hull stations drawn one over another, each larger than any mould in the city.',
         rarity: 'advanced',
       },
       {
@@ -747,7 +756,7 @@ export const BLUEPRINTS = [
         id: 'pg_colossus_reactor_housing',
         name: 'Reactor Housing',
         motif: 'core_vessel',
-        description: 'The housing, its shielding, and the clearance nobody is allowed inside of.',
+        description: 'The housing, its shielding, and the keep-out line painted round it.',
       },
       {
         id: 'pg_colossus_arm_assemblies',
@@ -925,7 +934,7 @@ export const BLUEPRINTS = [
     motif: 'balloon',
     category: 'unit',
     rarity: 'advanced',
-    blurb: 'Envelope panels and a page on the gas that nobody will put a source on.',
+    blurb: 'Envelope panels, and a page on the lifting gas with the supplier torn off.',
     targets: [{ kind: 'vehicle', id: 'gas_balloon' }],
     pages: [
       {
@@ -970,14 +979,14 @@ export const BLUEPRINTS = [
     motif: 'rotor_head',
     category: 'unit',
     rarity: 'masterpiece',
-    blurb: 'Rotor geometry, in a hand that assumed the reader already knew how to fly.',
+    blurb: 'Rotor geometry and a flight manual with the first chapter missing.',
     targets: [{ kind: 'vehicle', id: 'rotorcraft' }],
     pages: [
       {
         id: 'pg_rotorcraft_rotor_geometry',
         name: 'Rotor Geometry',
         motif: 'chart',
-        description: 'Blade twist and chord along the span, in a hand that assumed you could fly.',
+        description: 'Blade twist and chord along the span, with no explanation of either.',
         rarity: 'advanced',
       },
       {
@@ -1189,8 +1198,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_hook_and_line_grapple_bending',
         name: 'Grapple Bending',
         motif: 'dimension',
-        description:
-          'Four rebar tines bent round a jig and welded to a ring, with the bend radius dimensioned twice.',
+        description: 'Four rebar tines bent round a jig and welded to a ring.',
       },
       {
         id: 'pg_mod_hook_and_line_throwing_lines',
@@ -1261,7 +1269,7 @@ export const BLUEPRINTS = [
     category: 'upgrade',
     rarity: 'intricate',
     blurb:
-      'Horn speakers, a shoulder frame and a power pack. Drawn by somebody who had clearly done it before.',
+      'A shoulder-mounted horn array and the power pack to drive it. Built to be heard two streets away.',
     targets: [{ kind: 'unit_upgrade', id: 'stereo_rig' }],
     pages: [
       {
@@ -1284,7 +1292,7 @@ export const BLUEPRINTS = [
         name: 'Output Table',
         motif: 'table',
         description:
-          'What it measures at ten paces against what it measures at fifty, with a line under the figure nobody should stand inside.',
+          'What it measures at ten paces against fifty, with the distance where hearing does not come back underlined.',
       },
     ],
   },
@@ -1410,8 +1418,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_smoke_discipline_wind_cards',
         name: 'Wind Cards',
         motif: 'card',
-        description:
-          'A ruled card of wind against how far it carries, for smell as much as smoke, one row struck out.',
+        description: 'How far smell carries on each wind, for cooking as much as smoke.',
       },
       {
         id: 'pg_mod_smoke_discipline_halt_plan',
@@ -1428,7 +1435,7 @@ export const BLUEPRINTS = [
     motif: 'list',
     category: 'upgrade',
     rarity: 'intricate',
-    blurb: 'Forty pages of standing still, read aloud every morning until nobody needs it read.',
+    blurb: 'Forty pages of standing still, read aloud every morning until the squad can recite it.',
     targets: [{ kind: 'unit_upgrade', id: 'drill_book' }],
     pages: [
       {
@@ -1436,15 +1443,14 @@ export const BLUEPRINTS = [
         name: 'Parade Grid',
         motif: 'footprints',
         description:
-          'Footprints on a numbered grid, every movement of the morning drill in the order it is called.',
+          'The morning drill as a numbered list of movements, called in order from the top.',
         rarity: 'basic',
       },
       {
         id: 'pg_mod_drill_book_reading_order',
         name: 'Reading Order',
         motif: 'board',
-        description:
-          'The forty pages ruled into a week, morning by morning, with the ones to repeat marked twice.',
+        description: 'The forty pages split across a week, with the hard ones repeated.',
       },
       {
         id: 'pg_mod_drill_book_voice_of_command',
@@ -1496,7 +1502,7 @@ export const BLUEPRINTS = [
     category: 'upgrade',
     rarity: 'intricate',
     blurb:
-      'Load on the hips instead of the shoulders. Twice the bag comes home at the same walking pace.',
+      'Load on the hips instead of the shoulders, so more comes home at the same walking pace.',
     targets: [{ kind: 'unit_upgrade', id: 'counterweight_harness' }],
     pages: [
       {
@@ -1578,8 +1584,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_trophy_rack_markings_key',
         name: 'Markings Key',
         motif: 'card',
-        description:
-          'A ruled card of markings worth taking and what each is worth, one row struck out as no longer around.',
+        description: 'A key to the markings worth taking, and what each one says to the next crew.',
       },
       {
         id: 'pg_mod_trophy_rack_display_order',
@@ -1628,7 +1633,7 @@ export const BLUEPRINTS = [
         name: 'Weight Budget',
         motif: 'table',
         description:
-          'A ruled table of every panel against its weight, totalled, and the total circled twice.',
+          'Every panel weighed. The total at the bottom is what the wearer carries all day.',
       },
     ],
   },
@@ -1638,8 +1643,7 @@ export const BLUEPRINTS = [
     motif: 'gear_train',
     category: 'upgrade',
     rarity: 'advanced',
-    blurb:
-      'A drum, a wire and a cam cut by hand that solves the drop. Arguments about elevation end.',
+    blurb: 'A hand-cut cam that works out bullet drop, so the spotter stops guessing.',
     targets: [{ kind: 'unit_upgrade', id: 'ranging_gear' }],
     pages: [
       {
@@ -1669,7 +1673,7 @@ export const BLUEPRINTS = [
         name: 'Zeroing Card',
         motif: 'card',
         description:
-          'A ruled card of shots against range on the day it was zeroed, one row struck out as a flinch.',
+          'Shots against range from the day it was zeroed. One row is a flinch, and is labelled as one.',
       },
     ],
   },
@@ -1679,8 +1683,7 @@ export const BLUEPRINTS = [
     motif: 'boot',
     category: 'upgrade',
     rarity: 'advanced',
-    blurb:
-      'Graphite and rubber through every hinge and sole. Gravel underfoot stops being a warning.',
+    blurb: 'Graphite and rubber through every hinge and sole, so a squad can cross gravel quietly.',
     targets: [{ kind: 'unit_upgrade', id: 'dry_joints' }],
     pages: [
       {
@@ -1695,7 +1698,7 @@ export const BLUEPRINTS = [
         name: 'Silent Soles',
         motif: 'footprints',
         description:
-          'Footprints on a numbered grid, the loud ones marked in red, before and after the new soles.',
+          'Before-and-after readings for twenty paces on gravel. The after column is nearly empty.',
       },
       {
         id: 'pg_mod_dry_joints_servo_damping',
@@ -1728,8 +1731,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_adrenal_regulator_pump_housing',
         name: 'Pump Housing',
         motif: 'vessel',
-        description:
-          'The reservoir as a drum with a level line, the size of a thumb, drawn at full size beside the sheet.',
+        description: 'The reservoir, drawn full size. It is about as big as a thumb.',
       },
       {
         id: 'pg_mod_adrenal_regulator_dose_curve',
@@ -1751,7 +1753,7 @@ export const BLUEPRINTS = [
         name: 'Aftercare',
         motif: 'prose',
         description:
-          'Handwriting on what the week after looks like, and the line about the bill that somebody underlined.',
+          'What the week after looks like, day by day. The line about the bill is underlined.',
       },
     ],
   },
@@ -1776,8 +1778,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_breaching_charges_packing_weights',
         name: 'Packing Weights',
         motif: 'balance',
-        description:
-          'A beam on a fulcrum with the charge in the pan, and the grain weight for each liner size beside it.',
+        description: 'Charge weight for each liner size, weighed on a balance to the grain.',
         rarity: 'masterpiece',
       },
       {
@@ -1832,8 +1833,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_rescue_rig_recovery_drill',
         name: 'Recovery Drill',
         motif: 'footprints',
-        description:
-          'Footprints on a numbered grid: who goes to the casualty, who holds the line, who works the winch.',
+        description: 'Three roles for a recovery, and the count each one moves on.',
         rarity: 'intricate',
       },
     ],
@@ -1852,30 +1852,27 @@ export const BLUEPRINTS = [
         id: 'pg_mod_monofilament_edge_filament_draw',
         name: 'Filament Draw',
         motif: 'press',
-        description:
-          'A press with the drawing die under it, pulling the filament down through eleven passes.',
+        description: 'The filament pulled down through nine dies, each one finer than the last.',
         rarity: 'masterpiece',
       },
       {
         id: 'pg_mod_monofilament_edge_handle_keep',
         name: 'Handle Keep',
         motif: 'mount',
-        description:
-          'A bracket receiving the filament, with the load path drawn so the edge never turns toward the wrist.',
+        description: 'The grip and guard that keep the edge turned away from the wrist.',
       },
       {
         id: 'pg_mod_monofilament_edge_edge_testing',
         name: 'Edge Testing',
         motif: 'table',
-        description:
-          'A ruled table of what it went through and how far, plate at the bottom, with a note about the bench.',
+        description: 'What the edge cut through and how far, from cloth down to plate.',
       },
       {
         id: 'pg_mod_monofilament_edge_injury_log',
         name: 'Injury Log',
         motif: 'prose',
         description:
-          'Handwriting, no drawing, on every cut in the workshop, and the rule about holding it twice.',
+          'A tally of every cut taken at the yard bench, and the rule about how to hold it.',
       },
     ],
   },
@@ -1885,8 +1882,7 @@ export const BLUEPRINTS = [
     motif: 'piston',
     category: 'upgrade',
     rarity: 'masterpiece',
-    blurb:
-      'A powered shell with its own cooling and its own opinion about doorways. Three streets hear it coming.',
+    blurb: 'A powered shell with its own cooling and a firm opinion about doorways.',
     targets: [{ kind: 'unit_upgrade', id: 'hardshell_exoframe' }],
     pages: [
       {
@@ -1900,8 +1896,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_hardshell_exoframe_actuator_manifold',
         name: 'Actuator Manifold',
         motif: 'manifold',
-        description:
-          'A block with two circuits through it, one for each leg, and the cross-feed that keeps them level.',
+        description: 'A manifold feeding both legs, with the cross-feed that keeps them level.',
       },
       {
         id: 'pg_mod_hardshell_exoframe_cooling_loop',
@@ -1914,8 +1909,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_hardshell_exoframe_power_plant',
         name: 'Power Plant',
         motif: 'engine',
-        description:
-          'The engine opened across the sheet, small enough to carry and loud enough to hear three streets off.',
+        description: 'A small engine with a large exhaust. The noise figure is circled.',
       },
       {
         id: 'pg_mod_hardshell_exoframe_shell_plating',
@@ -1930,7 +1924,7 @@ export const BLUEPRINTS = [
         name: 'Egress Drill',
         motif: 'list',
         description:
-          'Numbered items down a sheet for getting out of it in under a minute, the last one about the latch.',
+          'How to get out of it in under a minute. The last step is the latch, which sticks.',
         rarity: 'advanced',
       },
     ],
@@ -2011,22 +2005,20 @@ export const BLUEPRINTS = [
         id: 'pg_mod_guided_rounds_steering_coil',
         name: 'Steering Coil',
         motif: 'coil',
-        description:
-          'Windings on a former inside the round, and the current that pushes the fins one way or the other.',
+        description: 'A small coil inside the round that pushes the fins one way or the other.',
       },
       {
         id: 'pg_mod_guided_rounds_trajectory_tables',
         name: 'Trajectory Tables',
         motif: 'table',
-        description:
-          'A ruled table of how far a round will steer at each range, with the row for point blank left empty.',
+        description: 'How far a round will steer at each range. The point-blank row is empty.',
       },
       {
         id: 'pg_mod_guided_rounds_per_shot_cost',
         name: 'Per-Shot Cost',
         motif: 'card',
         description:
-          'A ruled card of every part in one round against its caps value, totalled, one row struck out as unaffordable.',
+          'Every part in one round priced in caps. The total explains why they are rare.',
         rarity: 'advanced',
       },
     ],
@@ -2038,7 +2030,7 @@ export const BLUEPRINTS = [
     category: 'upgrade',
     rarity: 'masterpiece',
     blurb:
-      'Heat, sound and signal, each killed by a different hand, so that afterwards nobody can prove you were there.',
+      'Kill the heat first, then the sound, then the signal. Each has its own page and was written by a different hand.',
     targets: [{ kind: 'unit_upgrade', id: 'ghost_protocol' }],
     pages: [
       {
@@ -2052,8 +2044,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_ghost_protocol_footfall_damping',
         name: 'Footfall Damping',
         motif: 'footprints',
-        description:
-          'Footprints on a numbered grid with the sound of each in the margin, before and after the padding.',
+        description: 'Padding for boots and kit, with a list of what still rattles.',
       },
       {
         id: 'pg_mod_ghost_protocol_signal_blackout',
@@ -2066,8 +2057,7 @@ export const BLUEPRINTS = [
         id: 'pg_mod_ghost_protocol_lens_baffles',
         name: 'Lens Baffles',
         motif: 'optics',
-        description:
-          'A lens stack in its housing with the baffles that stop a scope glinting back at whoever is looking for one.',
+        description: 'Baffles that stop a scope glinting back at whoever is looking for one.',
       },
       {
         id: 'pg_mod_ghost_protocol_approach_timing',
@@ -2081,7 +2071,7 @@ export const BLUEPRINTS = [
         name: 'Combine Practice',
         motif: 'prose',
         description:
-          'Handwriting in a hand that was trained for it, on how this was done before, and who is still alive to ask.',
+          'Combine field practice, copied out by someone they trained. Two of the names in it are still alive.',
         rarity: 'advanced',
       },
     ],
@@ -2092,8 +2082,7 @@ export const BLUEPRINTS = [
     motif: 'mast',
     category: 'upgrade',
     rarity: 'masterpiece',
-    blurb:
-      'A standard, the pole it hangs from, and who carries it. A line that can see it does not break.',
+    blurb: 'How to make a standard, hang it and choose who carries it into a fight.',
     targets: [{ kind: 'unit_upgrade', id: 'colours_of_the_line' }],
     pages: [
       {
@@ -2108,14 +2097,13 @@ export const BLUEPRINTS = [
         name: 'Pole Ferrule',
         motif: 'mount',
         description:
-          'A bracket on the bearer harness receiving the pole, with the load path drawn against a wind.',
+          'The socket on the bearer’s harness, sized so the pole does not swing in a wind.',
       },
       {
         id: 'pg_mod_colours_of_the_line_bearer_roll',
         name: 'Bearer Roll',
         motif: 'list',
-        description:
-          'Numbered items down a sheet, names, every bearer the line has had and how each one stopped.',
+        description: 'Every bearer the line has had, and how each of them stopped carrying it.',
         rarity: 'advanced',
       },
       {
@@ -2123,7 +2111,7 @@ export const BLUEPRINTS = [
         name: 'Battle Honours',
         motif: 'board',
         description:
-          'A project ruled into columns, one for each fight the standard was carried in, and the ones it was not.',
+          'A column for every fight the standard was carried in, and a shorter one for the fights it missed.',
       },
       {
         id: 'pg_mod_colours_of_the_line_rally_signals',
@@ -2133,6 +2121,55 @@ export const BLUEPRINTS = [
           'The horn cavity in section, and the two calls it makes: one for stand, one for come back to the colours.',
       },
     ],
+  },
+
+  // ------------------------------------------ upgrade: the fence's four, sold whole (2026-09-28)
+  // No pages: see `fenceOnly`. The one place each of these comes from is the fence's shelf
+  // (`market/blackmarket.ts`), which is why the cards behind them are the best in their band.
+  {
+    id: 'bp_fence_black_clinic_chrome',
+    name: 'Black Clinic Chrome Blueprint',
+    motif: 'implant',
+    category: 'upgrade',
+    rarity: 'masterpiece',
+    blurb: 'Surgical plates and a wiring diagram, annotated by somebody who stopped writing.',
+    targets: [{ kind: 'unit_upgrade', id: 'black_clinic_chrome' }],
+    pages: [],
+    fenceOnly: true,
+  },
+  {
+    id: 'bp_fence_hollowpoint_munitions',
+    name: 'Hollowpoint Munitions Blueprint',
+    motif: 'shell',
+    category: 'upgrade',
+    rarity: 'masterpiece',
+    blurb: 'Hand-copied, in three different hands, and the last page is missing.',
+    targets: [{ kind: 'unit_upgrade', id: 'hollowpoint_munitions' }],
+    pages: [],
+    fenceOnly: true,
+  },
+  {
+    id: 'bp_fence_rotor_drop_rig',
+    name: 'Rotor Drop Rig Blueprint',
+    motif: 'swashplate',
+    category: 'upgrade',
+    rarity: 'masterpiece',
+    blurb:
+      'A full airframe set, rolled in a length of pipe. Somebody died carrying it out of the yard.',
+    targets: [{ kind: 'unit_upgrade', id: 'rotor_drop_rig' }],
+    pages: [],
+    fenceOnly: true,
+  },
+  {
+    id: 'bp_fence_field_surgeons_kit',
+    name: "Field Surgeon's Kit Blueprint",
+    motif: 'mortar_pestle',
+    category: 'upgrade',
+    rarity: 'masterpiece',
+    blurb: 'Two decades of a war nobody won, in handwriting that gets worse towards the end.',
+    targets: [{ kind: 'unit_upgrade', id: 'field_surgeons_kit' }],
+    pages: [],
+    fenceOnly: true,
   },
 
   // ---------------------------------------------------- upgrade: what a structure becomes (§D12f)
@@ -2183,7 +2220,7 @@ export const BLUEPRINTS = [
     motif: 'hut',
     category: 'upgrade',
     rarity: 'basic',
-    blurb: 'Bunk framing and a flue that draws. People sleep or they do not.',
+    blurb: 'Bunk framing and a stove flue that actually draws.',
     targets: [{ kind: 'building', id: 'quarters' }],
     pages: [
       {
@@ -2221,7 +2258,7 @@ export const BLUEPRINTS = [
         id: 'pg_greenhouse_irrigation_loop',
         name: 'Irrigation Loop',
         motif: 'loop',
-        description: 'A loop off a header tank, so nobody has to stand there with a watering can.',
+        description: 'A loop fed from a header tank, so the beds water themselves.',
         rarity: 'intricate',
       },
     ],
@@ -2253,7 +2290,7 @@ export const BLUEPRINTS = [
         id: 'pg_generator_exhaust_scrubber',
         name: 'Exhaust Scrubber',
         motif: 'column',
-        description: 'A scrubber, its packing, and how often somebody has to go and change it.',
+        description: 'A scrubber, its packing, and how often the packing needs changing.',
         rarity: 'basic',
       },
     ],
@@ -2561,7 +2598,7 @@ export const BLUEPRINTS = [
     motif: 'frontage',
     category: 'consumable',
     rarity: 'basic',
-    blurb: 'Somebody surveyed the doors and wrote down which way the specialists go in.',
+    blurb: 'A door-by-door survey of the target, and which way the specialists go in.',
     targets: [{ kind: 'battle_boost', id: 'boost_the_right_doors' }],
     pages: [
       {
@@ -2585,7 +2622,7 @@ export const BLUEPRINTS = [
     motif: 'can',
     category: 'consumable',
     rarity: 'advanced',
-    blurb: 'Fuel nobody should be able to make, and four pages on how not to be standing near it.',
+    blurb: 'Fuel the Combine banned, and four pages on standing well back from it.',
     targets: [{ kind: 'battle_boost', id: 'boost_the_colossus_walks' }],
     pages: [
       {
@@ -2630,7 +2667,7 @@ export const BLUEPRINTS = [
     motif: 'pressure_plate',
     category: 'consumable',
     rarity: 'basic',
-    blurb: 'Which boards to lift, what to put under them, and how much weight sets it off.',
+    blurb: 'A stairwell trigger, rated by the weight it takes to set it off.',
     targets: [{ kind: 'trap', id: 'trap_pressure_plates' }],
     pages: [
       {
@@ -2655,7 +2692,8 @@ export const BLUEPRINTS = [
     motif: 'buried_shell',
     category: 'consumable',
     rarity: 'intricate',
-    blurb: 'How to move a cracked chemical round, how deep to put it, and where the wire runs.',
+    blurb:
+      'Burial depth and trip wiring for a cracked chemical round. Handle it as little as possible.',
     targets: [{ kind: 'trap', id: 'trap_gas_shell' }],
     pages: [
       {
@@ -2777,7 +2815,7 @@ export const BLUEPRINTS = [
     motif: 'cable_run',
     category: 'consumable',
     rarity: 'advanced',
-    blurb: 'Which cellar to fill, where the water goes when it is let go, and what is in it.',
+    blurb: 'A cellar, a sluice and a live bus bar. Choose the cellar carefully.',
     targets: [{ kind: 'trap', id: 'trap_flooded_cellar' }],
     pages: [
       {
@@ -2860,12 +2898,18 @@ export function blueprintsOfCategory(category: BlueprintCategory): readonly Blue
  * Guards at load, because both of these are silent bugs rather than crashes.
  *
  * A duplicate page id would make two documents share a page, so collecting one would fill a square
- * on the other. A page count outside 2..8 is §D3 being broken by a content edit.
+ * on the other. A page count outside 2..8 is §D3 being broken by a content edit, and a fence
+ * document with any pages at all is a sheet that could drop somewhere other than the fence.
  */
 const MIN_PAGES = 2;
 const MAX_PAGES = 8;
 const seenPages = new Set<string>();
-for (const spec of BLUEPRINTS) {
+for (const spec of BLUEPRINTS as readonly BlueprintSpec[]) {
+  if (spec.fenceOnly) {
+    if (spec.pages.length > 0)
+      throw new Error(`${spec.id} is sold whole by the fence and has pages`);
+    continue;
+  }
   if (spec.pages.length < MIN_PAGES || spec.pages.length > MAX_PAGES) {
     throw new Error(
       `${spec.id} has ${spec.pages.length} pages, outside ${MIN_PAGES}..${MAX_PAGES}`,

@@ -1,5 +1,5 @@
 import {
-  CITY_DISTRICTS,
+  findLocation,
   LOCATION_CATALOG,
   weatherLabels,
   type EnvLabel,
@@ -60,12 +60,16 @@ export function whenItHolds(kind: LocationKind | null, weather: string): LabelWh
       : undefined;
 }
 
-/** The kind of location a fight is over, or null when it is a gate, a building or a home district. */
+/**
+ * The kind of location a fight is over, or null when it is a gate, a building or a home district.
+ *
+ * `findLocation` and not a walk of `CITY_DISTRICTS`, which is Ashfall's twelve rather than the
+ * world's (`atlas.ts`). A fight over ground in the second city answered null, and null is how this
+ * module says "the catalogue describes nothing here": every characteristic the weather also puts
+ * on a place was then noted as the sky's, so a Terminus sewer that is Wet in the dry was advertised
+ * as Wet until the rain stops. That is the misreading `whenItHolds` exists to prevent.
+ */
 export function locationKindOf(locationId: string | undefined): LocationKind | null {
   if (locationId === undefined) return null;
-  for (const district of CITY_DISTRICTS) {
-    const found = district.locations.find((location) => location.id === locationId);
-    if (found) return found.kind;
-  }
-  return null;
+  return findLocation(locationId)?.kind ?? null;
 }

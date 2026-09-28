@@ -92,12 +92,12 @@ describe('counters', () => {
   it('moves several counters together, and none of them on an empty list', () => {
     repo.bumpMany(BASE, [
       { tally: 'missions_done', amount: 1 },
-      { tally: 'missions_in_area:rustyard', amount: 1 },
+      { tally: 'missions_in_area:steelbelt', amount: 1 },
       { tally: 'resources_earned:caps', amount: 120 },
     ]);
     expect(repo.tallies(BASE)).toEqual({
       missions_done: 1,
-      'missions_in_area:rustyard': 1,
+      'missions_in_area:steelbelt': 1,
       'resources_earned:caps': 120,
     });
     repo.bumpMany(BASE, []);

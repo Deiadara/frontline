@@ -1,4 +1,4 @@
-import type { LevelUp } from '@frontline/shared';
+import type { LevelUp, PartialResources } from '@frontline/shared';
 import { z } from 'zod';
 
 /** Domain error codes from docs/SPEC-server.md: always SCREAMING_SNAKE. */
@@ -46,6 +46,22 @@ export type ErrorCode =
    * door now costs, and a code of its own is what lets the client say it.
    */
   | 'CITY_SHUT'
+  /**
+   * The city a new player asked to live in has no map behind it (maintainer, 2026-09-24).
+   *
+   * The choose-a-city screen draws every city and only offers the ones with a map, a seeded world
+   * and a mission board, so this is a request for something that was never on the menu: the same
+   * shape of mistake as `UNKNOWN_PRESET`, and it wears the same status.
+   */
+  | 'CITY_UNBUILT'
+  /**
+   * Four crews already live there (maintainer, 2026-09-24).
+   *
+   * A city has four residential plots and one resident player crew each. This is the honest race,
+   * two accounts on the last plot in the same second, so it is `PRESET_TAKEN`'s sibling and not a
+   * bad request: the screen that showed it was right when it drew it.
+   */
+  | 'CITY_FULL'
   // research (GDD §C)
   | 'RESEARCH_BUSY'
   | 'RESEARCH_OPTION_LOCKED'
@@ -90,7 +106,15 @@ export type ErrorCode =
    * refusal and it has a shape: the request is safe to repeat.
    */
   | 'DATABASE_BUSY'
+  /** The process is at a capacity it holds on purpose (live streams). Try again shortly. */
+  | 'SERVER_BUSY'
   | 'NOT_ENOUGH_INFAMY'
+  /**
+   * The request would credit more than the stores hold, and the player has not agreed to lose the
+   * difference (maintainer ruling, 2026-09-28). Carries the figure; the same request with
+   * `acceptWaste` goes through and throws the excess away.
+   */
+  | 'WOULD_WASTE'
   | 'INTERNAL';
 
 const STATUS_BY_CODE: Record<ErrorCode, number> = {
@@ -120,6 +144,8 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   NO_BASE: 409,
   // Not 404: the city is there and the crew is not welcome in it, which is what 403 says.
   CITY_SHUT: 403,
+  CITY_UNBUILT: 400,
+  CITY_FULL: 409,
   TRAINING_REFUSED: 409,
   MARKET_REFUSED: 409,
   BLACK_MARKET_REFUSED: 409,
@@ -163,7 +189,9 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   BATTLE_REFUSED: 409,
   // 503, not 500: nothing is wrong with the request or with the server, the moment was wrong.
   DATABASE_BUSY: 503,
+  SERVER_BUSY: 503,
   NOT_ENOUGH_INFAMY: 409,
+  WOULD_WASTE: 409,
   INTERNAL: 500,
 };
 
@@ -179,12 +207,15 @@ export class AppError extends Error {
    * the envelope or it is lost outright rather than deferred.
    */
   readonly levelUp: LevelUp | undefined;
+  /** `WOULD_WASTE`: what the request would have thrown away, for the dialog that asks first. */
+  readonly waste: PartialResources | undefined;
 
-  constructor(code: ErrorCode, message: string, levelUp?: LevelUp) {
+  constructor(code: ErrorCode, message: string, levelUp?: LevelUp, waste?: PartialResources) {
     super(message);
     this.name = 'AppError';
     this.code = code;
     this.levelUp = levelUp;
+    this.waste = waste;
   }
 
   get statusCode(): number {
@@ -202,4 +233,16 @@ export function parseBody<Schema extends z.ZodType>(
     throw new AppError('VALIDATION_ERROR', z.prettifyError(result.error));
   }
   return result.data;
+}
+
+const CityQuerySchema = z.object({ city: z.string().min(1).max(64).optional() });
+
+/**
+ * The `?city=` a room read may carry, or undefined for the crew's own.
+ *
+ * Parsed rather than cast: a repeated `?city=a&city=b` arrives as an array, and a cast lets it
+ * through as a string it is not. A malformed one is refused like any other bad input.
+ */
+export function cityQuery(query: unknown): string | undefined {
+  return parseBody(CityQuerySchema, query ?? {}).city;
 }

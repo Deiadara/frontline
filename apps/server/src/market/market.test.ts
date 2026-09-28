@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   BARTER_RATE,
+  barterQuote,
   UNIT_MODIFICATIONS,
   marketDay,
   instantAtHourInZone,
@@ -22,16 +23,22 @@ import {
   OFFICER_ROLES,
   createCommander,
   makeAttributes,
+  supplyPrice,
+  wasteWarning,
+  type ApiError,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { acceptOffer, buySupply, projectMarket } from './board.js';
+import { tickWorld } from '../live/clock.js';
+import { acceptOffer, buySupply, postOffer, projectMarket, settleMarketBoard } from './board.js';
 import { placeVendorBid, settleVendorAuctions } from './auction.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 import { crewEffectsFor } from '../crew/standing.js';
+import { storeCeilingsOf } from '../district/stores.js';
 
 /**
  * The market and the yard's refits, end to end over HTTP.
@@ -94,6 +101,7 @@ async function signIn(app: FastifyInstance, username = 'trader'): Promise<string
   });
   const token = registered.json<{ token: string }>().token;
   await chooseOverseer(app, token);
+  openDoors(app, token, 'market', 'offers');
   return token;
 }
 
@@ -222,7 +230,7 @@ describe('the Runner, over HTTP', () => {
 });
 
 describe('the Broker, over HTTP', () => {
-  it('takes one resource and gives back half of another', async () => {
+  it('takes one resource and gives back half its worth in another', async () => {
     const app = await makeApp();
     const token = await signIn(app);
     stock(app, 'trader', { oil: 1000, scrap: 0 });
@@ -237,7 +245,51 @@ describe('the Broker, over HTTP', () => {
 
     const after = baseOf(app, 'trader');
     expect(after.resources.oil).toBe(600);
-    expect(after.resources.scrap).toBe(400 * BARTER_RATE);
+    // By value: oil is worth less than scrap, so fewer come back than half the count.
+    expect(after.resources.scrap).toBe(barterQuote('oil', 'scrap', 400, BARTER_RATE));
+    expect(after.resources.scrap).toBeLessThan(400 * BARTER_RATE);
+  });
+
+  /**
+   * The store is a warning, not a wall (maintainer ruling, 2026-09-28).
+   *
+   * The Broker refused outright from 2026-09-27. Now the first press is answered with what would
+   * be thrown away and nothing moves; the same press with `acceptWaste` goes through, fills the
+   * shelf to its ceiling and loses the rest.
+   */
+  it('warns before a trade the store cannot hold, and goes through once the player agrees', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    // Far more metal's worth of supplies than any early store holds of metal.
+    stock(app, 'trader', { supplies: 900_000, highQualityMetal: 0 });
+    // The ceiling the till reads, the crew's own Logistics folded in.
+    const ceiling = storeCeilingsOf(app.repos, baseOf(app, 'trader'), new Date()).highQualityMetal;
+    const quote = barterQuote('supplies', 'highQualityMetal', 900_000, BARTER_RATE);
+    expect(quote).toBeGreaterThan(ceiling);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'supplies', want: 'highQualityMetal', amount: 900_000 },
+    });
+    expect(res.statusCode).toBe(409);
+    const refusal = res.json<ApiError>();
+    expect(refusal.error.code).toBe('WOULD_WASTE');
+    expect(refusal.waste).toEqual({ highQualityMetal: quote - ceiling });
+    expect(refusal.error.message).toBe(wasteWarning({ highQualityMetal: quote - ceiling }));
+    expect(baseOf(app, 'trader').resources.supplies).toBe(900_000);
+
+    const agreed = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'supplies', want: 'highQualityMetal', amount: 900_000, acceptWaste: true },
+    });
+    expect(agreed.statusCode).toBe(200);
+    const after = baseOf(app, 'trader').resources;
+    expect(after.supplies).toBe(0);
+    expect(after.highQualityMetal).toBe(ceiling);
   });
 
   it('refuses a trade for the same thing, and one that is too small', async () => {
@@ -286,6 +338,31 @@ describe('the Broker, over HTTP', () => {
     expect(after.resources.oil).toBe(1000);
   });
 
+  /**
+   * Past the minimum count and worth nothing back: fifteen supplies are 22.5 caps, the Broker keeps
+   * half, and a unit of high-quality metal is 12. The quote floors to nothing, and he used to take
+   * the fifteen anyway and count it as a trade.
+   */
+  it('refuses a trade that would hand back nothing', async () => {
+    const app = await makeApp();
+    const token = await signIn(app);
+    stock(app, 'trader', { supplies: 1000, highQualityMetal: 0 });
+    const baseId = baseOf(app, 'trader').id;
+    expect(barterQuote('supplies', 'highQualityMetal', 15, BARTER_RATE)).toBe(0);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/market/barter',
+      headers: auth(token),
+      payload: { give: 'supplies', want: 'highQualityMetal', amount: 15 },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: { message: string } }>().error.message).toContain('that little');
+    const after = baseOf(app, 'trader');
+    expect(after.resources.supplies).toBe(1000);
+    expect(app.repos.feats.tallies(baseId)['market_buys'] ?? 0, 'a refusal is not a trade').toBe(0);
+  });
+
   it('will not let a crew trade what it does not have', async () => {
     const app = await makeApp();
     const token = await signIn(app);
@@ -317,6 +394,13 @@ describe('the board', () => {
 
   const post = (app: FastifyInstance, token: string, payload: Record<string, unknown>) =>
     app.inject({ method: 'POST', url: '/api/market/offer', headers: auth(token), payload });
+  const claim = (app: FastifyInstance, token: string, claimId: string, acceptWaste?: boolean) =>
+    app.inject({
+      method: 'POST',
+      url: '/api/market/claim',
+      headers: auth(token),
+      payload: acceptWaste === undefined ? { claimId } : { claimId, acceptWaste },
+    });
 
   it('escrows what a listing gives, the moment it is posted', async () => {
     const { app, seller } = await twoCrews();
@@ -333,9 +417,11 @@ describe('the board', () => {
 
   it('gives the escrow back when the listing is withdrawn', async () => {
     const { app, seller } = await twoCrews();
+    // Inside the store, so everything that comes home has room: see the warning below for the rest.
+    stock(app, 'seller', { scrap: 500 });
     const before = baseOf(app, 'seller').resources.scrap;
     await post(app, seller, {
-      give: { resources: { scrap: 2000 }, items: {} },
+      give: { resources: { scrap: 400 }, items: {} },
       want: { resources: { caps: 3000 }, items: {} },
     });
     const mine = (await board(app, seller)).mine[0];
@@ -358,6 +444,7 @@ describe('the board', () => {
    */
   it('releases the counters when the listing they answer is withdrawn', async () => {
     const { app, seller, buyer } = await twoCrews();
+    stock(app, 'seller', { scrap: 500 });
     await post(app, seller, {
       give: { resources: { scrap: 100 }, items: {} },
       want: { resources: { caps: 5000 }, items: {} },
@@ -378,11 +465,18 @@ describe('the board', () => {
       payload: { offerId: listing?.id ?? '' },
     });
     expect(res.statusCode).toBe(200);
-    // The counter's escrow is back with the buyer, and the counter is off the board.
-    expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps);
+    // The counter is off the board and its escrow waits on the buyer's claim, not in their stores:
+    // the buyer was not the one pressing (maintainer, 2026-09-28).
     expect((await board(app, seller)).offers.find((offer) => offer.counterTo === listing?.id)).toBe(
       undefined,
     );
+    expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps - 2000);
+    const [held] = (await board(app, buyer)).claims;
+    expect(held).toMatchObject({ reason: 'closed', goods: { resources: { caps: 2000 } } });
+
+    expect((await claim(app, buyer, held!.id)).statusCode).toBe(200);
+    expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps);
+    expect((await board(app, buyer)).claims).toEqual([]);
   });
 
   it('moves both sides exactly once when somebody takes it', async () => {
@@ -407,8 +501,20 @@ describe('the board', () => {
 
     expect(baseOf(app, 'buyer').resources.caps).toBe(buyerCaps - 3000);
     expect(baseOf(app, 'buyer').inventory.rotor_hub).toBe(1);
-    expect(baseOf(app, 'seller').resources.caps).toBe(sellerCaps + 3000);
     expect(baseOf(app, 'seller').inventory.rotor_hub).toBeUndefined();
+    // The seller's payment waits for their Claim, and lands once (maintainer, 2026-09-28).
+    expect(baseOf(app, 'seller').resources.caps).toBe(sellerCaps);
+    const [held] = (await board(app, seller)).claims;
+    expect(held).toMatchObject({
+      reason: 'taken',
+      takenBy: baseOf(app, 'buyer').name,
+      goods: { resources: { caps: 3000 } },
+    });
+    expect((await claim(app, buyer, held!.id)).statusCode, 'somebody else claiming').toBe(409);
+    expect((await claim(app, seller, held!.id)).statusCode).toBe(200);
+    expect(baseOf(app, 'seller').resources.caps).toBe(sellerCaps + 3000);
+    expect((await claim(app, seller, held!.id)).statusCode, 'claimed twice').toBe(409);
+    expect(baseOf(app, 'seller').resources.caps).toBe(sellerCaps + 3000);
 
     // And it cannot be taken twice.
     const again = await app.inject({
@@ -453,6 +559,199 @@ describe('the board', () => {
       payload: { offerId: mine?.id ?? '' },
     });
     expect(res.statusCode).toBe(409);
+  });
+
+  /**
+   * The stores are a hard ceiling on a trade too (maintainer ruling, 2026-09-28).
+   *
+   * Whoever presses is warned first and nothing moves until they agree. Whoever is not pressing
+   * (the poster when a listing is taken, anybody whose escrow comes home on a sweep) has the goods
+   * held on the board for 24 hours, is warned when they claim, and after that loses what does not
+   * fit without a question.
+   */
+  describe('full stores', () => {
+    const ceilingOf = (app: FastifyInstance, username: string) =>
+      storeCeilingsOf(app.repos, baseOf(app, username), new Date()).scrap;
+    const accept = (app: FastifyInstance, token: string, offerId: string, acceptWaste?: boolean) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/market/accept',
+        headers: auth(token),
+        payload: acceptWaste === undefined ? { offerId } : { offerId, acceptWaste },
+      });
+
+    it('warns the taker, moves nothing, and throws the excess away once they agree', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      await post(app, seller, {
+        give: { resources: { scrap: 400 }, items: {} },
+        want: { resources: { caps: 100 }, items: {} },
+      });
+      const listing = (await board(app, buyer)).offers[0]!;
+      const ceiling = ceilingOf(app, 'buyer');
+      stock(app, 'buyer', { scrap: ceiling - 100 });
+      const caps = baseOf(app, 'buyer').resources.caps;
+
+      const warned = await accept(app, buyer, listing.id);
+      expect(warned.statusCode).toBe(409);
+      expect(warned.json<ApiError>()).toMatchObject({
+        error: { code: 'WOULD_WASTE' },
+        waste: { scrap: 300 },
+      });
+      expect(baseOf(app, 'buyer').resources.caps).toBe(caps);
+      expect((await board(app, buyer)).offers.map((offer) => offer.id)).toContain(listing.id);
+
+      expect((await accept(app, buyer, listing.id, true)).statusCode).toBe(200);
+      expect(baseOf(app, 'buyer').resources.scrap).toBe(ceiling);
+      expect(baseOf(app, 'buyer').resources.caps).toBe(caps - 100);
+    });
+
+    it('holds a taken listing for the poster, and warns them at the claim, not the post', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      const ceiling = ceilingOf(app, 'seller');
+      stock(app, 'seller', { scrap: ceiling - 100 }, { rotor_hub: 1 });
+      stock(app, 'buyer', { scrap: 500 });
+
+      // Asking for more than fits today is not a question at the post any more: the stock can
+      // move either way before anybody takes it, and the claim is where the poster is asked.
+      const posted = await post(app, seller, {
+        give: { resources: {}, items: { rotor_hub: 1 } },
+        want: { resources: { scrap: 500 }, items: {} },
+      });
+      expect(posted.statusCode).toBe(200);
+      const listing = (await board(app, buyer)).offers[0]!;
+      // The taker is not the one losing anything, so the taker is not asked.
+      expect((await accept(app, buyer, listing.id)).statusCode).toBe(200);
+      expect(baseOf(app, 'seller').resources.scrap).toBe(ceiling - 100);
+
+      const [held] = (await board(app, seller)).claims;
+      const warned = await claim(app, seller, held!.id);
+      expect(warned.statusCode).toBe(409);
+      expect(warned.json<ApiError>()).toMatchObject({
+        error: { code: 'WOULD_WASTE' },
+        waste: { scrap: 400 },
+      });
+      expect(baseOf(app, 'seller').resources.scrap).toBe(ceiling - 100);
+      expect((await board(app, seller)).claims.map((one) => one.id)).toEqual([held!.id]);
+
+      expect((await claim(app, seller, held!.id, true)).statusCode).toBe(200);
+      expect(baseOf(app, 'seller').resources.scrap).toBe(ceiling);
+    });
+
+    it('warns before a withdrawal lands on a full store', async () => {
+      const { app, seller } = await twoCrews();
+      // `twoCrews` stands the seller far over its scrap ceiling.
+      expect(baseOf(app, 'seller').resources.scrap).toBeGreaterThan(ceilingOf(app, 'seller'));
+      await post(app, seller, {
+        give: { resources: { scrap: 100 }, items: {} },
+        want: { resources: { caps: 100 }, items: {} },
+      });
+      const mine = (await board(app, seller)).mine[0]!;
+      const held = baseOf(app, 'seller').resources.scrap;
+      const withdraw = (acceptWaste?: boolean) =>
+        app.inject({
+          method: 'POST',
+          url: '/api/market/withdraw',
+          headers: auth(seller),
+          payload:
+            acceptWaste === undefined ? { offerId: mine.id } : { offerId: mine.id, acceptWaste },
+        });
+
+      const warned = await withdraw();
+      expect(warned.statusCode).toBe(409);
+      expect(warned.json<ApiError>().waste).toEqual({ scrap: 100 });
+      expect((await board(app, seller)).mine.map((offer) => offer.id)).toEqual([mine.id]);
+
+      expect((await withdraw(true)).statusCode).toBe(200);
+      expect((await board(app, seller)).mine).toEqual([]);
+      // Already over the top: the store keeps what it had and takes nothing more.
+      expect(baseOf(app, 'seller').resources.scrap).toBe(held);
+    });
+
+    it('holds an expired escrow for 24 hours, then pays it in and throws the excess away', async () => {
+      const { app, seller } = await twoCrews();
+      const ceiling = ceilingOf(app, 'seller');
+      stock(app, 'seller', { scrap: ceiling });
+      await post(app, seller, {
+        give: { resources: { scrap: 300 }, items: {} },
+        want: { resources: { caps: 100 }, items: {} },
+      });
+      // The yard fills again while the goods are on the board.
+      stock(app, 'seller', { scrap: ceiling - 50 });
+      const expired = new Date(Date.now() + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+      settleMarketBoard(app.repos, expired);
+      expect(baseOf(app, 'seller').resources.scrap).toBe(ceiling - 50);
+      const [held] = app.repos.market.claimsFor(baseOf(app, 'seller').id);
+      expect(held).toMatchObject({ reason: 'expired', goods: { resources: { scrap: 300 } } });
+
+      // A second short of the window, still held; at the window, paid whether it fits or not.
+      settleMarketBoard(app.repos, new Date(Date.parse(held!.claimUntil) - 1_000));
+      expect(app.repos.market.claimsFor(baseOf(app, 'seller').id)).toHaveLength(1);
+      // The world clock is what gets there, whether or not anybody opens the market.
+      tickWorld(app.repos, app.skirmishEngine, new Date(Date.parse(held!.claimUntil)));
+      expect(app.repos.market.claimsFor(baseOf(app, 'seller').id)).toEqual([]);
+      expect(baseOf(app, 'seller').resources.scrap).toBe(ceiling);
+      // And the crew is told what the full yard cost it, since nobody asked them.
+      const told = app.repos.social
+        .notifications(baseOf(app, 'seller').ownerId, 20)
+        .filter((one) => one.kind === 'market_claim');
+      expect(told.map((one) => one.title)).toContainEqual(expect.stringContaining('did not fit'));
+    });
+
+    /**
+     * One listing that no longer parses is its own problem (bug pass, 2026-09-28). It used to be
+     * parsed with every other open listing before any of them was settled, so a retired item id in
+     * one bundle stopped every expiry and payout in the world and failed `GET /market` for all.
+     */
+    it('expires the rest of the board past a listing that no longer parses', async () => {
+      const { app, seller, buyer } = await twoCrews();
+      await post(app, seller, {
+        give: { resources: { scrap: 100 }, items: {} },
+        want: { resources: { caps: 100 }, items: {} },
+      });
+      const [good] = app.repos.market.openBySeller(baseOf(app, 'seller').id);
+      app.db
+        .prepare(
+          `INSERT INTO market_offers (id, seller_base_id, seller_name, give_json, want_json, status,
+             created_at, counter_to, directed_at)
+           VALUES ('broken', ?, 'Somebody', '{"resources":{},"items":{"retired_part":1}}',
+             '{"resources":{"caps":1},"items":{}}', 'open', ?, NULL, NULL)`,
+        )
+        .run(baseOf(app, 'buyer').id, new Date(Date.now() - 1_000).toISOString());
+
+      const later = new Date(Date.now() + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+      expect(() => settleMarketBoard(app.repos, later)).not.toThrow();
+      expect(app.repos.market.findById(good!.id)?.status).toBe('expired');
+      expect((await board(app, buyer)).claims).toEqual([]);
+      const read = await app.inject({ method: 'GET', url: '/api/market', headers: auth(seller) });
+      expect(read.statusCode, read.body.slice(0, 200)).toBe(200);
+    });
+
+    it('warns before a supply run the store cannot take, and charges the whole order', async () => {
+      const app = await makeApp();
+      const token = await signIn(app);
+      const ceiling = ceilingOf(app, 'trader');
+      stock(app, 'trader', { scrap: ceiling - 5, caps: 100_000 });
+      const buy = (acceptWaste?: boolean) =>
+        app.inject({
+          method: 'POST',
+          url: '/api/market/supply',
+          headers: auth(token),
+          payload:
+            acceptWaste === undefined
+              ? { key: 'scrap', units: 10 }
+              : { key: 'scrap', units: 10, acceptWaste },
+        });
+
+      const warned = await buy();
+      expect(warned.statusCode).toBe(409);
+      expect(warned.json<ApiError>().waste).toEqual({ scrap: 5 });
+      expect(baseOf(app, 'trader').resources.caps).toBe(100_000);
+
+      expect((await buy(true)).statusCode).toBe(200);
+      const after = baseOf(app, 'trader').resources;
+      expect(after.scrap).toBe(ceiling);
+      expect(after.caps).toBe(100_000 - supplyPrice('scrap', 10));
+    });
   });
 
   describe('counters', () => {
@@ -707,12 +1006,43 @@ describe("unit modification cards, over the yard's route", () => {
       method: 'POST',
       url: '/api/units/burn',
       headers: auth(token),
-      payload: { upgradeId: 'taped_grips' },
+      payload: { unitId: 'razors', upgradeId: 'taped_grips' },
     });
     expect(burnt.statusCode, burnt.body).toBe(200);
     const after = baseOf(app, 'smith');
     expect(after.unitLoadouts['razors'] ?? []).not.toContain('taped_grips');
     expect(after.fittedUpgrades, 'nothing goes back to a stock: there is none').toEqual([]);
+  });
+
+  /**
+   * The same card on two sheets is two purchases, so a burn on one leaves the other.
+   *
+   * The route took the card alone and stripped it from every unit wearing it, which destroyed the
+   * Ghosts' copy when the player pressed Dismantle on the Razors.
+   */
+  it('dismantles the card off the unit it was pressed on and nowhere else', async () => {
+    const { app, token } = await ready();
+    expect((await buildCard(app, token, 'taped_grips', 'razors')).statusCode).toBe(200);
+    expect((await buildCard(app, token, 'taped_grips', 'ghosts')).statusCode).toBe(200);
+
+    const wrong = await app.inject({
+      method: 'POST',
+      url: '/api/units/burn',
+      headers: auth(token),
+      payload: { unitId: 'sparks', upgradeId: 'taped_grips' },
+    });
+    expect(wrong.statusCode, 'a unit not wearing it has nothing to burn').toBe(409);
+
+    const burnt = await app.inject({
+      method: 'POST',
+      url: '/api/units/burn',
+      headers: auth(token),
+      payload: { unitId: 'razors', upgradeId: 'taped_grips' },
+    });
+    expect(burnt.statusCode, burnt.body).toBe(200);
+    const after = baseOf(app, 'smith');
+    expect(after.unitLoadouts['razors'] ?? []).not.toContain('taped_grips');
+    expect(after.unitLoadouts['ghosts']).toContain('taped_grips');
   });
 
   it('serves two crews the same stock on the same day', async () => {
@@ -851,7 +1181,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/burn',
       headers: auth(token),
-      payload: { upgradeId: 'taped_grips' },
+      payload: { unitId: 'razors', upgradeId: 'taped_grips' },
     });
     expect(burnt.statusCode, burnt.body).toBe(200);
     const after = baseOf(app, 'plater');
@@ -865,7 +1195,7 @@ describe('one of a thing is one of a thing (§D5c)', () => {
       method: 'POST',
       url: '/api/units/burn',
       headers: auth(token),
-      payload: { upgradeId: 'taped_grips' },
+      payload: { unitId: 'razors', upgradeId: 'taped_grips' },
     });
     expect(res.statusCode).toBe(409);
   });
@@ -1033,6 +1363,38 @@ describe('an offer that has stood too long', () => {
       kind: 'refused',
     });
     void buyerToken;
+  });
+
+  it('cannot be countered either, and nothing leaves the counter’s store', async () => {
+    const app = await makeApp();
+    const sellerToken = await signIn(app, 'seller');
+    await signIn(app, 'buyer');
+    const listed = await app.inject({
+      method: 'POST',
+      url: '/api/market/offer',
+      headers: auth(sellerToken),
+      payload: {
+        give: { resources: { scrap: 10 }, items: {} },
+        want: { resources: { caps: 10 }, items: {} },
+      },
+    });
+    expect(listed.statusCode).toBe(200);
+    const stale = app.repos.market.listByStatus('open')[0]!;
+    const wellPast = new Date(Date.parse(stale.createdAt) + (OFFER_LIFETIME_HOURS + 1) * 3_600_000);
+    const id = app.repos.bases.listSummaries().find((b) => b.name.includes('buyer'))?.id;
+    const buyer = app.repos.bases.findById(id!)!;
+    const counter = { resources: { caps: 5 }, items: {} };
+
+    // Fresh, the same counter is taken: the refusal below is about the clock and nothing else.
+    expect(postOffer(app.repos, buyer, counter, stale.want, stale.id, new Date()).kind).toBe(
+      'done',
+    );
+    const after = app.repos.bases.findById(id!)!;
+    expect(postOffer(app.repos, after, counter, stale.want, stale.id, wellPast)).toMatchObject({
+      kind: 'refused',
+      reason: 'unknown_offer',
+    });
+    expect(app.repos.bases.findById(id!)!.resources.caps).toBe(after.resources.caps);
   });
 });
 

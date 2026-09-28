@@ -504,6 +504,37 @@ test('a player with no faction is offered both doors, and the invitation they ho
   await page.screenshot({ path: 'screenshots/faction-none.png', fullPage: false });
 });
 
+/**
+ * The picker at the foot of the join sheet (maintainer, 2026-09-24).
+ *
+ * An invitation is an ordinary message with a card on it, and what the sheet has in hand is the
+ * *invitation's* id: the faction payload carries no message id at all. So the door is
+ * `?invite=<id>` and the mailbox finds the letter holding it, which is the seam neither half's
+ * own test can see. The parameter is consumed on arrival, the same as `?to=` and `?scout=`.
+ */
+test('the picker on the join sheet opens the letter the invitation came in', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.route('**/api/factions', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(factionNone),
+    }),
+  );
+  await page.goto('/game/faction');
+
+  await page.getByTestId('invite-messages').click();
+  await page.getByRole('option', { name: /The Ninth Circle/ }).click();
+
+  const sheet = page.getByTestId('message-open');
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole('heading')).toHaveText('An invitation to The Ninth Circle');
+  // The card is what answers it, and it is on the message and nowhere else.
+  await expect(sheet.getByTestId('invite-card')).toBeVisible();
+  // Read once and stripped, so a refresh or a back button does not re-open the letter.
+  await expect(page).toHaveURL(/\/game\/messages$/);
+});
+
 test('founding one takes a name, a drawn badge and a description', async ({ page }) => {
   await installApi(page, lateGame);
   // §I3 gates this screen at level 10 (2026-09-19), and the harness answers `/api/factions` with

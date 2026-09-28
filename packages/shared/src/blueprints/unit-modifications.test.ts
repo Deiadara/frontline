@@ -8,7 +8,7 @@ import { BLUEPRINTS, type BlueprintSpec } from './catalog.js';
 import { blueprintForUnitUpgrade, blueprintGateMet } from './requirements.js';
 
 /**
- * The twenty-eight drawings behind the unit modification cards.
+ * The thirty-two drawings behind the unit modification cards.
  *
  * `units/modifications.ts` says which cards want a document and cannot say which document: it sits
  * below `blueprints/` in the import graph and takes the answer as a predicate. So the catalogue
@@ -47,9 +47,9 @@ describe('the unit modification documents (§D12g, second model)', () => {
    * Pinned so the rest of this file cannot pass on an empty catalogue. Every other test here is a
    * loop over `GATED` or `OPEN`, and a loop over nothing asserts nothing.
    */
-  it('has twenty-eight gated cards and three open ones to check', () => {
-    expect(UNIT_MODIFICATIONS).toHaveLength(31);
-    expect(GATED).toHaveLength(28);
+  it('has thirty-two gated cards and three open ones to check', () => {
+    expect(UNIT_MODIFICATIONS).toHaveLength(35);
+    expect(GATED).toHaveLength(32);
     expect(OPEN.map((spec) => spec.id)).toEqual(['taped_grips', 'scrap_vest', 'broken_in_boots']);
   });
 
@@ -74,6 +74,8 @@ describe('the unit modification documents (§D12g, second model)', () => {
       const document = blueprintForUnitUpgrade(spec.id);
       expect(document, spec.id).toBeDefined();
       if (!document) continue;
+      // The fence's four have no pages at all: `fenceOnly`, held in `blueprints.test.ts`.
+      if (document.fenceOnly) continue;
       expect(
         PAGES_BY_RARITY[spec.rarity],
         `${document.id} has ${document.pages.length} pages for a ${spec.rarity} card`,

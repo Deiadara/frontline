@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PLAYER_UNITS, type UnitSpec } from '../units/index.js';
 import { bareBattlefield, battlefieldFor, type Battlefield } from './battlefield.js';
 import { simulate } from './engine.js';
+import { noTerritoryEffects } from '../city/index.js';
 
 /**
  * Whether the roster is a **web** or a **ladder**.
@@ -40,28 +41,26 @@ const RUNS = 3;
  * `breaching` never applies is not a Demolisher, and it made the whole graph below a statement
  * about one location.
  *
- * Nine grounds, chosen to cover every context at least once, with one fortified so that
- * `vs_structure` has somewhere to happen.
+ * Nine grounds, chosen to cover every context the ground can offer at least once. (`vs_structure`
+ * is not one of them: it is the defender's gate, which arrives with their territory.)
  */
 const GROUNDS: Battlefield[] = [
   bareBattlefield(),
   ...(
     [
-      ['sewer_junction', 0],
-      ['foundry', 0],
-      ['barricade', 3],
-      ['high_ground', 0],
-      ['tavern', 0],
-      ['war_machine_graveyard', 0],
-      ['black_clinic', 2],
-      ['rail_yard', 0],
+      'sewer_junction',
+      'foundry',
+      'barricade',
+      'high_ground',
+      'tavern',
+      'war_machine_graveyard',
+      'black_clinic',
+      'rail_yard',
     ] as const
-  ).map(([kind, fortifyLevel]) =>
+  ).map((kind) =>
     battlefieldFor({
       locationName: kind,
       kind,
-      fortifyDifficulty: 'medium',
-      fortifyLevel,
       at: new Date('2026-08-20T12:00:00.000Z'),
       weather: 'normal',
     }),
@@ -71,6 +70,17 @@ const GROUNDS: Battlefield[] = [
 // The player's roster. A Combine sheet has no gate, so its depth is nothing and the question
 // this file asks (does what a unit cost you to reach predict what it is worth) has no answer for it.
 const ROSTER: UnitSpec[] = PLAYER_UNITS.filter((unit) => !unit.unique);
+
+/**
+ * The two grounds whose defenders stand behind a gate, at twenty per cent (a Gate at about level
+ * 8), so Breaching has somewhere to happen.
+ *
+ * These two were dug in until fortification left the game (2026-09-26), for exactly this reason.
+ * With no gate anywhere, a Breaker's one speciality never fired in this harness while it fires
+ * against every gated defender in the game, and the heavy tier read as weaker than the rabble.
+ */
+const GATED = new Set(['barricade', 'black_clinic']);
+const GATE_PERCENT = 20;
 
 function beatsGraph(): Map<string, Set<string>> {
   const beats = new Map<string, Set<string>>(ROSTER.map((unit) => [unit.id, new Set<string>()]));
@@ -93,6 +103,9 @@ function beatsGraph(): Map<string, Set<string>> {
               name: 'D',
               army: { [defender.id]: Math.max(1, Math.floor(SUPPLY_BUDGET / defender.unitSlots)) },
               defending: true,
+              ...(GATED.has(battlefield.locationName)
+                ? { territory: { ...noTerritoryEffects(), gatePercent: GATE_PERCENT } }
+                : {}),
             },
           });
           runs += 1;

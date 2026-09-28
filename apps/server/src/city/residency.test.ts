@@ -11,27 +11,26 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
- * Who "the crew that lives here" is, on a map with four residential districts and no cap on
- * accounts.
+ * Who "the crew that lives here" is, when a district from before the one-crew rule holds two.
  *
  * The `bases` table has no unique index on `district_id`, so a district holds as many crews as land
  * on it. Both city projections used to answer "the resident" with the first row of an unordered
  * `SELECT ... FROM bases`, which meant the earliest-registered player's whole structure list was
  * served to every other player on the one screen nobody has to scout: their own front door.
  *
- * Sharing used to be the default, because every account was created in `STARTER_DISTRICT_ID`. New
- * crews are spread across the four residential districts now (`quietestDistrict`), so these tests
- * put the second crew back on the first's ground **on purpose**: the bug is about a shared district
- * and a shared district has to be built rather than assumed. It is still an ordinary state, reached
- * as soon as there are more players than districts.
+ * Sharing used to be the default, because every account was created in `STARTER_DISTRICT_ID`.
+ * Since 2026-09-28 a plot holds one crew and a new account is only seated on a free one, so these
+ * tests put the second crew back on the first's ground **on purpose**: the bug is about a shared
+ * district, and a shared district is now only the legacy state a database from before that rule can
+ * still hold. It goes when the bots go (the TODO in `seed/index.ts`).
  */
 
 /**
  * Moves a crew onto somebody else's ground, which is the state both cases here are about.
  *
- * Written straight to the column because there is no route for it: a player does not choose where
- * they live. `quietestDistrict` spreads new crews, so two on one district is now something a test
- * has to arrange, and arranging it in one named helper says that out loud.
+ * Written straight to the column because there is no route for it: no route seats a crew on a
+ * taken plot, so two on one district is something a test has to arrange, and arranging it in one
+ * named helper says that out loud.
  */
 function share(app: FastifyInstance, baseId: string, districtId: string): void {
   app.db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(districtId, baseId);

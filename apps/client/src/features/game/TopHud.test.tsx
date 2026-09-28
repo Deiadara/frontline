@@ -92,6 +92,7 @@ describe('renaming the crew from the standing bar', () => {
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockImplementation(() =>
       Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',

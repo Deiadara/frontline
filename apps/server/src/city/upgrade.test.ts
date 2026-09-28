@@ -19,6 +19,7 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleBattles } from '../battle/resolve.js';
+import { settleMoves } from '../moves/moves.js';
 import { UPGRADE_SECONDS_SCALE, upgradeSeconds } from './upgrade.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
@@ -43,12 +44,12 @@ afterEach(async () => {
 const auth = (token: string): { authorization: string } => ({ authorization: `Bearer ${token}` });
 
 /** The Bonefield: handed to the crew in `makeStack`, so it is the one they can work on. */
-const MINE = 'rustyard-bonefield';
+const MINE = 'steelbelt-bonefield';
 /** Kessler Press: still the looters', so it is the one somebody can take off them. */
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 
 interface Stack {
@@ -86,7 +87,7 @@ async function makeStack(): Promise<Stack> {
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   const control = app.repos.city.control(MINE);
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
@@ -108,7 +109,7 @@ async function makeStack(): Promise<Stack> {
 const read = async (stack: Stack, locationId = MINE): Promise<LocationView> => {
   const res = await stack.app.inject({
     method: 'GET',
-    url: '/api/city/rustyard',
+    url: '/api/city/steelbelt',
     headers: auth(stack.token),
   });
   expect(res.statusCode, res.body).toBe(200);
@@ -204,7 +205,7 @@ describe('working a location up (§A4)', () => {
 
   it('refuses ground somebody else is holding', async () => {
     const stack = await makeStack();
-    const res = await upgrade(stack, 'rustyard-press');
+    const res = await upgrade(stack, 'steelbelt-press');
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { message: string } }>().error.message).toMatch(/do not hold/i);
   });
@@ -248,10 +249,10 @@ describe('what a capture does to the work', () => {
     const stack = await makeStack();
 
     // Somebody else's fully-developed location.
-    const held = stack.app.repos.city.control('rustyard-press');
+    const held = stack.app.repos.city.control('steelbelt-press');
     if (!held) throw new Error('no control row for the press');
     stack.app.repos.city.put({ ...held, level: MAX_LOCATION_LEVEL, garrison: { razors: 1 } });
-    expect((await read(stack, 'rustyard-press')).level).toBe(MAX_LOCATION_LEVEL);
+    expect((await read(stack, 'steelbelt-press')).level).toBe(MAX_LOCATION_LEVEL);
 
     const declared = await stack.app.inject({
       method: 'POST',
@@ -282,7 +283,7 @@ describe('what a capture does to the work', () => {
       .run(new Date(Date.now() - 60_000).toISOString(), view.battle.id);
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 
-    const taken = stack.app.repos.city.control('rustyard-press');
+    const taken = stack.app.repos.city.control('steelbelt-press');
     expect(taken?.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
     expect(taken?.level, 'a capture keeps the work').toBe(MAX_LOCATION_LEVEL);
     expect(taken?.upgradingUntil).toBeNull();
@@ -297,7 +298,7 @@ describe('what a capture does to the work', () => {
    */
   it('cancels an upgrade that was under way when the ground changed hands', async () => {
     const stack = await makeStack();
-    const held = stack.app.repos.city.control('rustyard-press');
+    const held = stack.app.repos.city.control('steelbelt-press');
     if (!held) throw new Error('no control row for the press');
     stack.app.repos.city.put({
       ...held,
@@ -334,14 +335,15 @@ describe('what a capture does to the work', () => {
       .run(new Date(Date.now() - 60_000).toISOString(), view.battle.id);
     settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 
-    const taken = stack.app.repos.city.control('rustyard-press');
+    const taken = stack.app.repos.city.control('steelbelt-press');
     expect(taken?.level).toBe(3);
     expect(taken?.upgradingUntil).toBeNull();
   });
 });
 
 /**
- * §D7 across two doors: `POST /battles/deploy` and `POST /city/garrison`.
+ * §D7 across two doors: `POST /battles/deploy` and `POST /actions/move` (which replaced
+ * `POST /city/garrison` on 2026-09-28: standing a unit on ground is walking it there).
  *
  * "A legend does not work for anybody the Combine has not opened a file on" is enforced by
  * `unitsBeyondNotoriety`, and `battle/deploy.ts` is the only caller in the codebase. Stationing a
@@ -361,9 +363,9 @@ describe('who will stand on your ground (§D7)', () => {
 
     const res = await stack.app.inject({
       method: 'POST',
-      url: '/api/city/garrison',
+      url: '/api/actions/move',
       headers: auth(stack.token),
-      payload: { locationId: MINE, changes: { the_specter: 1 } },
+      payload: onto({ the_specter: 1 }),
     });
     expect(res.statusCode).toBe(409);
     // And they are still on the roster rather than on the roof.
@@ -379,13 +381,26 @@ describe('who will stand on your ground (§D7)', () => {
 
     const res = await stack.app.inject({
       method: 'POST',
-      url: '/api/city/garrison',
+      url: '/api/actions/move',
       headers: auth(stack.token),
-      payload: { locationId: MINE, changes: { razors: 2 } },
+      payload: onto({ razors: 2 }),
     });
     expect(res.statusCode).toBe(200);
+    // On the road, and standing there once they arrive.
+    stack.db
+      .prepare('UPDATE unit_moves SET returns_at = ?')
+      .run(new Date(Date.now() - 1_000).toISOString());
+    settleMoves(stack.app.repos, new Date());
     expect(stack.app.repos.city.control(MINE)!.garrison.razors).toBe(2);
   });
+});
+
+/** A walk from home onto the crew's own plot: how units are stood on ground since 2026-09-28. */
+const onto = (army: Record<string, number>) => ({
+  from: { kind: 'district' },
+  to: { kind: 'location', locationId: MINE },
+  army,
+  vehicles: {},
 });
 
 /**
@@ -410,11 +425,17 @@ describe('a garrison order names units, and only units', () => {
       stack.app.repos.bases.updateArmy(base.id, { razors: 10 }, base.trainingQueue);
       const before = stack.app.repos.bases.findById(stack.baseId)!.army;
 
+      // The move door now, from the plot home: the withdrawal this case was written about.
       const res = await stack.app.inject({
         method: 'POST',
-        url: '/api/city/garrison',
+        url: '/api/actions/move',
         headers: auth(stack.token),
-        payload: { locationId: MINE, changes: { [key]: -1 } },
+        payload: {
+          from: { kind: 'location', locationId: MINE },
+          to: { kind: 'district' },
+          army: { [key]: 1 },
+          vehicles: {},
+        },
       });
       expect(res.statusCode, `${key} was accepted as a unit`).toBe(400);
 
@@ -449,7 +470,7 @@ describe('working up ground anywhere in the city', () => {
     const stack = await makeStack();
     const home = stack.app.repos.bases.findById(stack.baseId)?.districtId;
     expect(home, 'the fixture crew should not live on the ground it is working').not.toBe(
-      'rustyard',
+      'steelbelt',
     );
 
     // A second contested district, so the pass is not an accident of the one this file uses.

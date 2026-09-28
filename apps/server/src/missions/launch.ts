@@ -14,21 +14,20 @@ import {
   missionOdds,
   type Attributes,
   type Base,
-  type UnledRule,
+  type Grade,
   areaPayPercent,
-  levelPayPercent,
   missionTimings,
   missionXp,
-  scaledSuccessChance,
+  templateTimings,
   type Army,
   type MissionTemplate,
   hastenedMinutes,
   hastenedRoadMinutes,
-  type BattleTier,
 } from '@frontline/shared';
 import { adminMinutes } from '../admin/mode.js';
 import type { StoredMission } from '../db/repos/missions.js';
 import { pricedTimings } from './pricing.js';
+import { pagePrizeSalt } from './prize-salt.js';
 
 /*
  * How many missions one base can have in flight is `concurrentMissionSlots` now, off the player's
@@ -39,16 +38,14 @@ import { pricedTimings } from './pricing.js';
 /**
  * Mints the record for a launched mission.
  *
- * The clock and the success chance are copied off the template here and never re-read, so a run
- * in flight keeps the terms it launched under. The seed is drawn once, now, and decides the
- * outcome whenever the mission is finally settled: see `rollMissionOutcome`.
+ * The clock and the success chance are worked out here from the grade the card was dealt and
+ * never re-read, so a run in flight keeps the terms it launched under. The seed is drawn once,
+ * now, and decides the outcome whenever the mission is finally settled: see `rollMissionOutcome`.
  *
- * One modifier lands at exactly this point, and only this point: whoever is leading the run
- * (`missions.leading.ts`). Their edge on the job's own profile moves the authored odds, and a run
- * with nobody at the head of it takes `UNLED_PENALTY` off instead, or nothing, depending on what
- * the crew has researched. It is frozen onto the row with everything else, so training the
- * Overseer or reshuffling officers mid-flight cannot re-roll or re-price a crew that has already
- * left the gate.
+ * The odds are the leader's grade for the job against the job's grade (`missionOdds`), and every
+ * run has a leader (maintainer, 2026-09-28). They are frozen onto the row with everything else, so
+ * training the Overseer or reshuffling officers mid-flight cannot re-roll or re-price a crew that
+ * has already left the gate.
  *
  * The clock is no longer part of it. The old §G6 rule made an unled run half again as long as a
  * led one; leading is a question of odds now, and one number moving is easier to read on a card
@@ -66,26 +63,18 @@ export function launchMission(args: {
   template: MissionTemplate;
   now: Date;
   /**
-   * The fight's tier, as the board dealt it (`dealBattleTier`). Frozen on the row and priced
-   * into the pay and the XP; null on plain work.
+   * The grade the card was dealt (`missionOffers`). Frozen on the row; it sets the odds, the clock,
+   * what a fight fields and what either kind pays.
    */
-  battleTier?: BattleTier | null;
+  grade: Grade;
   /**
-   * Who is leading it, or absent for a run nobody leads (maintainer, 2026-09-10).
+   * Who is leading it (maintainer, 2026-09-10). Every run has somebody (2026-09-28).
    *
    * The Overseer and an officer reach this the same way and are scored the same way; which of the
    * two it was is recorded on the row, because the Overseer is not on the books and cannot be
    * named by `officerId`.
    */
-  leader?: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes } | undefined;
-  /**
-   * What the crew's research allows when nobody leads (`unledRule`).
-   *
-   * Passed in rather than read here, because whether an unled run may go out at all is the
-   * route's door: this function prices a launch that has already been through it. A `forbidden`
-   * run with no leader prices at zero, which is the honest reading of a job that cannot go.
-   */
-  unled: UnledRule;
+  leader: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes };
   /**
    * §C3: the machines carrying them, taken out of the Garage for this run.
    *
@@ -180,6 +169,15 @@ export function launchMission(args: {
   /** Which board it came off (`missions.areas.ts`). The area is locked until this crew is home. */
   areaId: string;
   /**
+   * A fight's chance, as the practice fights read it for this leader (`fight-leaders.ts`).
+   *
+   * A battle job never rolls against its chance, but the row carries one and the report prints
+   * it as what the leader was worth. Graded on attributes it was a number about the wrong thing;
+   * the route hands in the share of practice fights this leader won instead. Absent, the
+   * attribute grade stands, which is what a scrap run gets and what an old test expects.
+   */
+  fightChance?: number | undefined;
+  /**
    * The board key the card was read off, which is not always the key of the moment.
    *
    * `misc` turns over every `MISC_BOARD_ROTATION_MINUTES` and the route allows one slot of grace
@@ -199,8 +197,7 @@ export function launchMission(args: {
     template,
     now,
     leader,
-    unled,
-    battleTier = null,
+    grade,
     admin = false,
     missionSpeedPercent = 0,
     travelSpeedPercent = 0,
@@ -216,11 +213,6 @@ export function launchMission(args: {
     seed = randomInt(0, 2 ** 32),
     boardKey = missionBoardKey(areaId, now),
   } = args;
-
-  // §E5/§I: the crew's own level makes the same job harder, at the same rate it makes it pay
-  // more. Applied before the leader's edge, so what the leader is worth moves a number that
-  // already belongs to this crew.
-  const authored = scaledSuccessChance(template.successChance, base.level);
 
   /*
    * §C3: the road only. What a machine buys is the journey, not the job.
@@ -244,7 +236,7 @@ export function launchMission(args: {
   // The clock the crew actually keeps: the ground's cut and, on a led run, the officer's on top.
   const runSpeedPercent = missionSpeedPercent + Math.max(0, leadSpeedPercent);
   const durationMinutes = adminMinutes(
-    hastenedMinutes(template.durationMinutes, runSpeedPercent),
+    hastenedMinutes(templateTimings(template, grade).durationMinutes, runSpeedPercent),
     admin,
   );
   const walked = missionTimings({
@@ -278,7 +270,7 @@ export function launchMission(args: {
    * (`MissionSchema.pricedMinutes`) so a retune landing mid-flight cannot re-price a crew already
    * out.
    */
-  const priced = pricedTimings(template, missionSpeedPercent, ramp);
+  const priced = pricedTimings(template, grade, missionSpeedPercent, ramp);
 
   /*
    * The odds the run goes out with, from the one function the card and the gauge also read.
@@ -288,10 +280,9 @@ export function launchMission(args: {
    * job and the report has nothing else to say it with.
    */
   const odds = missionOdds({
-    authored,
-    leader: leader?.attributes ?? null,
+    grade,
+    leader: leader.attributes,
     profile: composeProfile(leaningsFor(template)),
-    unled,
   });
 
   return {
@@ -301,17 +292,16 @@ export function launchMission(args: {
       templateId: template.id,
       areaId,
       // Both frozen here, with the clock and the odds, so a crew already out keeps its terms.
-      // The crew's own cut on top of the area's premium and the player's level: `missionSpoilsPercent`
+      // The crew's own cut on top of the area's premium: `missionSpoilsPercent`
       // is the perk channel for officers who negotiate the contracts (`crew/perks.ts`). Frozen here
       // with everything else, so hiring a better fixer does not retroactively repay a run already out.
       payPercent:
         areaPayPercent(areaId) +
-        levelPayPercent(base.level) +
         missionSpoilsPercent +
         // The opening band's premium, the same figure the card printed (`missions.ramp.ts`).
         (ramp?.payPercent ?? 0),
-      xp: missionXp(template, priced.totalMinutes, base.level, battleTier),
-      battleTier,
+      xp: missionXp(template, priced.totalMinutes, grade),
+      grade,
       force,
       vehicles,
       pricedMinutes: priced.totalMinutes,
@@ -320,8 +310,8 @@ export function launchMission(args: {
       travelMinutes: timings.travelMinutes,
       durationMinutes: timings.durationMinutes,
       status: 'active',
-      officerId: leader?.kind === 'officer' ? leader.id : null,
-      overseerLed: leader?.kind === 'overseer',
+      officerId: leader.kind === 'officer' ? leader.id : null,
+      overseerLed: leader.kind === 'overseer',
       // Filled in by the settler, and only on a battle job: nobody dies on a standard run.
       lost: {},
       reported: true,
@@ -344,11 +334,12 @@ export function launchMission(args: {
        * Unit page that stores nothing and a card promising nothing that stores an Upgrade page.
        * The districts were never affected: their key *is* their day.
        */
-      pagePrize: pagePrizeFor(areaId, boardKey, template.id, template.difficulty),
+      pagePrize: pagePrizeFor(pagePrizeSalt(), areaId, boardKey, template.id, grade),
       pageWon: null,
       found: {},
     },
     seed,
-    successChance: odds.chance,
+    successChance:
+      template.kind === 'battle' && args.fightChance !== undefined ? args.fightChance : odds.chance,
   };
 }

@@ -1,5 +1,6 @@
 import { FEATS } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
+import { chooseAnyCity } from './harness';
 
 /**
  * REAL end to end, no `/api` interception, for everything the last two batches added.
@@ -19,41 +20,52 @@ import { expect, test, type Page } from '@playwright/test';
  */
 
 /**
- * Registers a fresh crew and walks it to the city.
+ * One crew for the whole file, registered by the first test and signed back in by the rest.
  *
- * A new account per test rather than the seeded operator, which `live.spec.ts` uses. Two reasons,
- * and the second is the one that matters. The obvious one is a clean slate: every feat below is
- * about a counter starting at zero, and an operator another spec has already played would arrive
- * with half of them finished. The second is ordering: these specs share one throwaway database,
- * so a suite that happened to run `live.spec.ts` first would leave the seeded operator already
- * holding an Overseer, and a helper that assumed the picker would appear would hang on whichever
- * spec drew second. A registration answers the same way every time it is called.
+ * A new account per test was the old shape, for a clean slate. It spent five of the world's home
+ * plots, and plots are one crew each with the seeded bots holding theirs (maintainer, 2026-09-28),
+ * so a seeded dev world has four for players and this file alone ran it out. The tests run in
+ * order (`serial`), and the only one that needs a crew that has done nothing comes before the one
+ * that does something. Never the seeded operator: `live.spec.ts` plays that one, and whichever of
+ * the two ran second would meet a crew the other had already moved.
  */
-async function arrive(page: Page, handle: string): Promise<void> {
-  await page.goto('/auth');
-  // The door has two handles before it has a form (maintainer, 2026-09-23): Sign up is the one.
-  await page.getByTestId('auth-choose-register').click();
-  await page.getByLabel('Operator ID').fill(handle);
-  await page.getByLabel('Password').fill('hunter2pass');
-  await page.getByRole('button', { name: 'Enlist' }).click();
+const HANDLE = 'feats_crew';
+let registered = false;
 
-  await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
-  // §F6: whichever character this account was offered, not a named one. The pool drains and the
-  // seeded rivals claim from it before any player registers, so a name is not a thing a live test
-  // can press: on a fresh world the rival already holds the one this used to ask for.
-  await page.locator('[data-testid^="overseer-card-"]').first().click();
-  const confirm = page.getByRole('button', { name: 'Confirm Overseer' });
-  await expect(confirm).toBeEnabled();
-  await confirm.click();
+async function arrive(page: Page): Promise<void> {
+  await page.goto('/auth');
+  if (registered) {
+    await page.getByTestId('auth-choose-login').click();
+    await page.getByLabel('Overseer ID').fill(HANDLE);
+    await page.getByLabel('Password').fill('hunter2pass');
+    await page.getByRole('button', { name: 'Jack In' }).click();
+  } else {
+    // The door has two handles before it has a form (maintainer, 2026-09-23): Sign up is the one.
+    await page.getByTestId('auth-choose-register').click();
+    await page.getByLabel('Overseer ID').fill(HANDLE);
+    await page.getByLabel('Password').fill('hunter2pass');
+    await page.getByRole('button', { name: 'Enlist' }).click();
+
+    await expect(page.getByRole('heading', { name: 'CHOOSE YOUR OVERSEER' })).toBeVisible();
+    // §F6: whichever character this account was offered, not a named one. The pool drains and the
+    // seeded rivals claim from it before any player registers, so a name is not a thing a live
+    // test can press: on a fresh world the rival already holds the one this used to ask for.
+    await page.locator('[data-testid^="overseer-card-"]').first().click();
+    const confirm = page.getByRole('button', { name: 'Confirm Overseer' });
+    await expect(confirm).toBeEnabled();
+    await confirm.click();
+    await chooseAnyCity(page, 'terminus');
+    registered = true;
+  }
 
   await page.waitForURL('**/game');
   await expect(page.getByTestId('city-room')).toBeVisible();
 }
 
-test.describe('the real server, over the new screens', () => {
+test.describe.serial('the real server, over the new screens', () => {
   test('draws every feat in the catalogue, from the real route', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await arrive(page, 'feats_catalogue');
+    await arrive(page);
 
     await page.goto('/game/feats');
     await expect(page.getByTestId('feats-ledger')).toBeVisible();
@@ -72,7 +84,7 @@ test.describe('the real server, over the new screens', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await arrive(page, 'feats_fresh');
+    await arrive(page);
     await page.goto('/game/feats');
     await expect(page.getByTestId('feats-ledger')).toBeVisible();
 
@@ -86,7 +98,7 @@ test.describe('the real server, over the new screens', () => {
   test('counts a real job and lets the crew collect the feat it finished', async ({ page }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await arrive(page, 'feats_claim');
+    await arrive(page);
 
     /*
      * The letter feat, driven the way a player would drive it.
@@ -122,7 +134,7 @@ test.describe('the real server, over the new screens', () => {
 
   test('shows the seeded crews on the standings, ranked', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await arrive(page, 'feats_board');
+    await arrive(page);
 
     await page.goto('/game/leaderboard');
     await expect(page.getByTestId('leaderboard')).toBeVisible();
@@ -135,7 +147,7 @@ test.describe('the real server, over the new screens', () => {
 
   test('opens the NPC faction’s file, which the reader is not in', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
-    await arrive(page, 'feats_rival');
+    await arrive(page);
 
     /*
      * Reached by clicking, not by typing a URL.

@@ -1,4 +1,5 @@
 import { applyPerkBonus, discounted, noCrewEffects, type CrewEffects } from '../crew/effects.js';
+import type { LeaderBonus } from '../crew/leading.js';
 import { describePerkBonus, type PerkBonus } from '../crew/perks.js';
 import {
   OFFICER_MARKS,
@@ -8,12 +9,11 @@ import {
   markIndex,
   type OfficerMark,
 } from '../crew/marks.js';
-import { RESEARCH_UNLED_FREE, RESEARCH_UNLED_PENALISED } from '../missions.leading.js';
 import { OFFICER_ROLES, OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import type { PartialResources } from '../resources.js';
 
 /**
- * Research, as nineteen tracks (maintainer brief 2026-09-03, §C).
+ * Research, as eighteen tracks (maintainer brief 2026-09-03, §C).
  *
  * One track per officer role, ten rungs each. A track is that officer's trade written down: what
  * the Cartographer knows about crossing the city, what the Chief Medic knows about who comes back.
@@ -138,7 +138,15 @@ export type ResearchBonus =
    * the medics recover is carrying nothing until this is held. Folded into
    * `CrewEffects.recoveredCarryLoot`, and spent by whatever sizes the haul.
    */
-  | { kind: 'recovered_carry_loot' };
+  | { kind: 'recovered_carry_loot' }
+  /**
+   * A chair's own rungs: what its officer is worth while *they* lead (`crew/leading.ts`).
+   *
+   * The Raid Boss's pay him alone (`leader_self`, `leader_taunt`), the Field Commander's pay the
+   * party (`leader_party`), and every one of them pays nothing while anybody else is at the head.
+   * Filed under the track's role by `researchEffects`, which is the one fold that knows it.
+   */
+  | LeaderBonus;
 
 export interface ResearchPayout {
   bonus: ResearchBonus;
@@ -149,7 +157,7 @@ export interface ResearchPayout {
  * The kinds of payout, and which bonus is which (§C4a, widened by the board on 2026-09-04).
  *
  * Held as a table rather than as a comment so `research.tracks.test.ts` can assert that every one
- * of the 190 rungs lands in one of them. A ninth family cannot be added by accident: a bonus kind
+ * of the 180 rungs lands in one of them. A ninth family cannot be added by accident: a bonus kind
  * with no entry here fails the same test.
  */
 export const PAYOUT_FAMILIES = [
@@ -242,6 +250,7 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   // The 2026-09-09 rules. Filed by what they change rather than by being new: a road is `travel`
   // whether it is bought in minutes or in percent, and a mark on a sheet is `battle`.
   road_shortcut: 'travel',
+  rail_link: 'travel',
   carriers_fight: 'battle',
   any_ride: 'travel',
   unit_mark: 'battle',
@@ -252,6 +261,11 @@ const KIND_FAMILY: Readonly<Record<ResearchBonus['kind'], PayoutFamily>> = {
   // haul reaches the yard, so it sits with `loot_capacity` and `mission_spoils` rather than with
   // the rest of the Chief Medic's track.
   recovered_carry_loot: 'yield',
+
+  // The chairs' own fighting rungs (2026-09-28): a sheet in a fight, whoever's it is.
+  leader_self: 'battle',
+  leader_taunt: 'battle',
+  leader_party: 'battle',
 };
 
 export function payoutFamily(payout: ResearchPayout): PayoutFamily {
@@ -279,7 +293,7 @@ const roundTo = (value: number, unit: number): number => Math.round(value / unit
 /**
  * What a rung costs, from its depth alone.
  *
- * A formula rather than 190 hand-written prices: the numbers are meant to read as one ladder, and
+ * A formula rather than 180 hand-written prices: the numbers are meant to read as one ladder, and
  * a table that long drifts the moment somebody retunes half of it. High quality metal appears from
  * the fourth rung, which is also where the Head of Research's own mark starts to bite.
  */
@@ -307,9 +321,9 @@ interface TrackEntry {
   /**
    * The id, when the rung's name is not what the rest of the game calls the thing it opens.
    *
-   * Only the two unled-run rungs use it. Their ids are declared in `missions.leading.ts`, because
-   * that is where the rule reading them lives, and a name derived from `tech_unled_runs_free`
-   * would be a rung called "Unled Runs Free" on a rail full of prose.
+   * Only two rungs on the Right Hand's track use it, and only to keep the ids they were stored
+   * under: they opened unled runs until every run needed a leader (2026-09-28), and a crew that
+   * researched them keeps them.
    */
   id?: string;
 }
@@ -639,8 +653,8 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Everybody Fights',
       blurb: 'Hand a bag-carrier a weapon and tell them where to stand. Most of them manage it.',
       /*
-       * §E: the porters take a place in the line at half strength (`carriers_fight`,
-       * `CARRIER_STRENGTH`).
+       * §E: the porters take a place in the line at their full sheet (`carriers_fight`); their own
+       * weak numbers are the balance (maintainer, 2026-09-27).
        *
        * The **first** rung of this track (maintainer, 2026-09-19), replacing `Order of March`,
        * and it moved here from the fifth rung of Deep Salvage. Two reasons it belongs at the
@@ -659,9 +673,16 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'carriers_fight' },
     },
     {
-      name: 'Standing Signals',
-      blurb: 'Three flags, and everyone knows what they mean under fire.',
-      bonus: { kind: 'cohesion', percent: 5 },
+      /*
+       * The Field Commander: about fights, and about the army fighting better under him
+       * (maintainer, 2026-09-28). Three rungs pay every unit on his side while he is the one
+       * leading, and nothing while anybody else is (`leader_party` in `crew/leading.ts`): this
+       * one on a battle job off the board, Hold the Line in any fight, and Field Marshal at the
+       * top, in any fight and stronger.
+       */
+      name: 'Marching Orders',
+      blurb: 'Who moves, who waits, and who fires: decided on the road, not in the doorway.',
+      bonus: { kind: 'leader_party', scope: 'mission', stat: 'offense', percent: 5 },
     },
     {
       name: 'Fire Discipline',
@@ -679,9 +700,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'cohesion', percent: 9 },
     },
     {
-      name: 'Rally Points',
-      blurb: 'Everybody knows where to run to, so running is not a rout.',
-      bonus: { kind: 'unit_morale', flat: 5 },
+      name: 'Hold the Line',
+      blurb: 'Nobody steps back until he says so, and he does not say so.',
+      bonus: { kind: 'leader_party', scope: 'fight', stat: 'offense', percent: 8 },
     },
     {
       name: 'Combined Arms',
@@ -689,9 +710,11 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'offense', percent: 10 },
     },
     {
-      name: 'Night Movement',
-      blurb: 'Arriving somewhere they were not looking, at an hour they were not up.',
-      bonus: { kind: 'travel_speed', percent: 8 },
+      // The one rung in the game that buys a second name on a fight; eighth so Field Marshal can
+      // top the track.
+      name: 'Two Names',
+      blurb: 'Enough people owe you that you can call in twice before one fight.',
+      bonus: { kind: 'battle_boosts', flat: 1 },
     },
     {
       name: 'Echelon Attack',
@@ -699,9 +722,9 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'allied_offense', percent: 10 },
     },
     {
-      name: 'Two Names',
-      blurb: 'Enough people owe you that you can call in twice before one fight.',
-      bonus: { kind: 'battle_boosts', flat: 1 },
+      name: 'Field Marshal',
+      blurb: 'The whole line moves as one thing, and the one thing is his.',
+      bonus: { kind: 'leader_party', scope: 'fight', stat: 'offense', percent: 12 },
     },
   ]),
 
@@ -951,20 +974,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       bonus: { kind: 'wage_discount', percent: 4 },
     },
     {
-      /*
-       * The first half of the unled rule (`missions.leading.ts`).
-       *
-       * The Right Hand's track is the one that says the room runs whether you are in it or not, so
-       * this is where a crew learns to send people out with nobody at the head of them. It is the
-       * second rung on purpose: a crew that has to put the Overseer on every scrap run has one
-       * decision to make all game, and the rule is meant to be a cost rather than a wall. What it
-       * costs is `UNLED_PENALTY` off the odds until the sixth rung takes that off too.
-       */
-      id: RESEARCH_UNLED_PENALISED,
+      // Opened unled runs until every run needed a leader (maintainer, 2026-09-28). The id stays
+      // what crews researched it under.
+      id: 'tech_unled_runs',
       name: 'Written Orders',
       blurb: 'Where to go, what to bring back, and what to do when it goes wrong.',
       bonus: { kind: 'cohesion', percent: 5 },
-      unlocks: 'sending a crew out with nobody leading it, at a cost to the odds',
     },
     {
       name: 'The Open Door',
@@ -984,13 +999,12 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       unlocks: 'naming a size for a standing order and letting the Right Hand pick the party',
     },
     {
-      /* ...and the second half: the same crew, out on the same job, with nothing docked for it. */
-      id: RESEARCH_UNLED_FREE,
+      // The id it was researched under, from when it also lifted the unled penalty.
+      id: 'tech_unled_runs_free',
       name: 'They Have Done It Before',
       blurb: 'The fourth time nobody has to be told anything.',
       bonus: { kind: 'recruit_pool', percent: 10 },
-      unlocks:
-        'unled runs at full odds, and a five minute gap between automated parties, down from fifteen',
+      unlocks: 'a five minute gap between automated parties, down from fifteen',
     },
     {
       name: 'The Word Goes Round',
@@ -1322,36 +1336,50 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
     },
   ]),
 
+  /*
+   * The Raid Boss: about fights, and about himself getting better at them (maintainer,
+   * 2026-09-28). Six of the ten rungs pay only while he is the one leading, and pay him alone
+   * (`leader_self`, `leader_taunt` in `crew/leading.ts`): the first for a battle job off the
+   * board, the next three in any fight, the fifth doubling his hit points on a job, the sixth
+   * more damage in any fight. The four crew-wide rungs the track kept sit above them. The seat
+   * itself doubles his damage and hit points in every fight before any of these
+   * (`officerSheetBonusFor`), so the rungs are what a Raid Boss buys on top of being one.
+   */
   ...buildTrack('raid_boss', [
     {
-      name: 'Door Work',
-      blurb: 'Getting through it in one go, loudly.',
-      bonus: { kind: 'unit_kind', unitId: 'breakers', stat: 'offense', percent: 10 },
+      name: 'Point Man',
+      blurb: 'First through the door on a contract, and hitting hardest because of it.',
+      bonus: { kind: 'leader_self', scope: 'mission', stat: 'offense', percent: 25 },
     },
     {
-      name: 'Split Loads',
-      blurb: 'Nobody carries everything, so nobody is caught with everything.',
-      bonus: { kind: 'loot_capacity', percent: 6 },
+      name: 'Plate Carrier',
+      blurb: 'Enough plate to stand where the fire is thickest, and the habit of standing there.',
+      bonus: { kind: 'leader_self', scope: 'fight', stat: 'armor', flat: 15 },
     },
     {
-      name: 'Reputation',
-      blurb: 'Half of them do not fight, because of who is standing in the door.',
-      bonus: { kind: 'intimidation', flat: 2 },
+      name: 'Loudest in the Room',
+      blurb: 'Everybody on the other side knows who is leading, and shoots at him first.',
+      bonus: { kind: 'leader_taunt', scope: 'fight', percent: 100 },
     },
     {
-      name: 'Snatch Teams',
-      blurb: 'In, out and away before anybody has decided anything.',
-      bonus: { kind: 'unit_speed', percent: 7 },
+      name: 'Hard to Kill',
+      blurb: 'Shot, patched and back in the door before the dressing has dried.',
+      bonus: { kind: 'leader_self', scope: 'fight', stat: 'vitality', percent: 30 },
+    },
+    {
+      name: 'Second Wind',
+      blurb: 'On a contract, whatever it takes to finish it. Twice over.',
+      bonus: { kind: 'leader_self', scope: 'mission', stat: 'vitality', percent: 100 },
+    },
+    {
+      name: 'Hits Like a Truck',
+      blurb: 'The first one is the fight. There is rarely a second.',
+      bonus: { kind: 'leader_self', scope: 'fight', stat: 'offense', percent: 30 },
     },
     {
       name: 'Overwhelming Force',
       blurb: 'Three times what is needed, so that it is over in a minute.',
       bonus: { kind: 'unit_offense', percent: 6 },
-    },
-    {
-      name: 'Loading Drill',
-      blurb: 'The truck is packed in four minutes, every time.',
-      bonus: { kind: 'loot_capacity', percent: 12 },
     },
     {
       name: 'The Example',
@@ -1362,11 +1390,6 @@ const CATALOGUE: readonly ResearchItemSpec[] = [
       name: 'Breaching Order',
       blurb: 'Who goes in first, and what they do in the first two seconds.',
       bonus: { kind: 'unit_tier', tier: 'heavy', stat: 'offense', percent: 12 },
-    },
-    {
-      name: 'Fence Network',
-      blurb: 'Everything moves within a day. Nothing sits in the yard.',
-      bonus: { kind: 'black_market_discount', percent: 10 },
     },
     {
       name: 'The Name',
@@ -1549,14 +1572,31 @@ export function researchEffects(known: readonly string[]): CrewEffects {
   const total = noCrewEffects();
   for (const id of known) {
     const spec = findResearchItem(id);
-    if (spec) applyResearchBonus(total, spec.payout.bonus);
+    if (spec) applyResearchBonus(total, spec.payout.bonus, spec.track);
   }
   return total;
 }
 
-/** One rung into a fold: the three grants here, everything else through the perk fold. */
-export function applyResearchBonus(into: CrewEffects, bonus: ResearchBonus): CrewEffects {
+/**
+ * One rung into a fold: the grants here, everything else through the perk fold.
+ *
+ * `track` is the chair a leading rung is filed under, and it is only read for those: a rung that
+ * pays "while the Raid Boss leads" has to remember which chair the Raid Boss is, and the bonus on
+ * its own does not say. Optional so the callers that fold a bare bonus (tests, the catalogue
+ * doc) need not invent one; a leading rung folded without a track is dropped rather than paid
+ * to every chair.
+ */
+export function applyResearchBonus(
+  into: CrewEffects,
+  bonus: ResearchBonus,
+  track?: OfficerRole,
+): CrewEffects {
   switch (bonus.kind) {
+    case 'leader_self':
+    case 'leader_taunt':
+    case 'leader_party':
+      if (track !== undefined) into.chairLeads.push({ role: track, bonus });
+      return into;
     case 'mission_slots':
       into.missionSlotsFlat += bonus.flat;
       return into;
@@ -1596,9 +1636,31 @@ export function describeResearchBonus(bonus: ResearchBonus): string {
       return `+${bonus.flat} ${bonus.flat === 1 ? 'person' : 'people'} drilling at the same time`;
     case 'recovered_carry_loot':
       return 'the ones the medics get back carry their share of the haul home';
+    case 'leader_self':
+      return describeLeaderSelf(bonus);
+    case 'leader_taunt':
+      return `draws ${bonus.percent}% more of the enemy's fire ${leaderWhen(bonus.scope)}`;
+    case 'leader_party':
+      return `+${bonus.percent}% ${describeStat(bonus.stat)} for every unit ${leaderWhen(bonus.scope)}`;
     default:
       return describePerkBonus(bonus);
   }
+}
+
+/** "while the Raid Boss leads a battle job", or "...leads any fight". The condition, in words. */
+function leaderWhen(scope: LeaderBonus['scope']): string {
+  return scope === 'mission'
+    ? 'while this chair leads a battle job'
+    : 'while this chair leads a fight';
+}
+
+function describeStat(stat: 'offense' | 'vitality' | 'armor'): string {
+  return stat === 'offense' ? 'damage' : stat === 'vitality' ? 'hit points' : 'armour';
+}
+
+function describeLeaderSelf(bonus: Extract<LeaderBonus, { kind: 'leader_self' }>): string {
+  const amount = bonus.stat === 'armor' ? `+${bonus.flat}` : `+${bonus.percent}%`;
+  return `${amount} ${describeStat(bonus.stat)} on the officer's own sheet ${leaderWhen(bonus.scope)}`;
 }
 
 /**

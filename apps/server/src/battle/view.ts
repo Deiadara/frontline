@@ -3,7 +3,7 @@ import {
   blueprintGateMet,
   describeBlueprintGate,
   BUILDING_CATALOG,
-  CITY_DISTRICTS,
+  ALL_DISTRICTS,
   BATTLE_BOOSTS,
   TRAP_CATALOG,
   declarableSlots,
@@ -12,7 +12,7 @@ import {
   gateIsBroken,
   deploymentIsOpen,
   deployedSize,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   findDistrict,
   findLocation,
   isHeldBy,
@@ -70,6 +70,9 @@ import {
   targetName,
 } from './ground.js';
 import { assemble, battlefieldOf } from './resolve.js';
+import { presenceAt, unrowedFor, type Presence } from './alignment.js';
+import { mergeArmies, removeForce } from './forces.js';
+import { insideLock } from './lock.js';
 import { workingRoles } from '../crew/roster.js';
 import { officerDuty } from '../crew/duty.js';
 import { officerTravelMinutesTo } from './movement.js';
@@ -106,13 +109,82 @@ export const REPORT_HISTORY = 2000;
  * screen that showed a player only their own contribution would tell them they were about to fight
  * alone when three of their allegiance had already arrived.
  */
-function musterOf(repos: Repositories, battle: ScheduledBattle, side: BattleSide) {
+function musterOf(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  side: BattleSide,
+  presence: Presence,
+) {
   const deployment = sideForce(repos, battle.id, side, battle.scheduledFor);
   return {
-    army: deployment.army,
+    army: realigned(deployment.army, side, presence),
     perimeter: deployment.perimeter,
     size: deployedSize(deployment),
+    standing: standingFor(repos, battle, side, presence),
   };
+}
+
+/**
+ * Everybody already at the place who fights on `side` without a row (maintainer, 2026-09-28: "The
+ * battle page shows what is there").
+ *
+ * The holder's garrison, or the resident's gate garrison or home army, for the defence; and for
+ * either side the postings, waiting cells and neighbours whose crews are on it, read by the same
+ * rule the settle applies at the mark (`battle/alignment.ts`). A neutral's units are on neither
+ * side and appear on neither screen.
+ */
+function standingFor(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  side: BattleSide,
+  presence: Presence,
+): Army {
+  const others = unrowedFor(presence, side);
+  if (side === 'attacker') return others;
+  const { target } = battle;
+  if (target.kind === 'location') {
+    return mergeArmies(others, repos.city.control(target.locationId)?.garrison ?? {});
+  }
+  const resident = defendingBaseOf(repos, battle);
+  if (!resident || resident.districtId !== target.districtId) return others;
+  return mergeArmies(others, target.kind === 'gate' ? (resident.gateArmy ?? {}) : resident.army);
+}
+
+/**
+ * The force the settle will price a boost against for `side`: the lines `assemble` draws, plus
+ * whoever the mark will fold in from the place (`musterAtTheMark`). Postings on the defence are
+ * already in `assemble`'s line, so only the cells and neighbours are added there.
+ */
+function forceAtTheMark(
+  repos: Repositories,
+  battle: ScheduledBattle,
+  defenderBase: Base | undefined,
+  side: BattleSide,
+  presence: Presence,
+): Army {
+  const lines = assemble(repos, battle, defenderBase);
+  if (side === 'attacker') {
+    return mergeArmies(
+      realigned(lines.attacking, side, presence),
+      unrowedFor(presence, 'attacker'),
+    );
+  }
+  return mergeArmies(
+    realigned(lines.defending, side, presence),
+    unrowedFor({ ...presence, postings: [] }, 'defender'),
+  );
+}
+
+/**
+ * A side's rows as the mark will field them (bug pass, 2026-09-28): a row whose crew is no longer
+ * on `side` comes off it, and one whose crew has crossed over from the other side is on it. The
+ * board used to count a crew that had left the faction until the moment the settle parked it.
+ */
+function realigned(rowed: Army, side: BattleSide, presence: Presence): Army {
+  return presence.misaligned.reduce<Army>((army, { row, side: fightsFor }) => {
+    if (row.side === side) return removeForce(army, row.army);
+    return fightsFor === side ? mergeArmies(army, row.army) : army;
+  }, rowed);
 }
 
 /**
@@ -132,6 +204,11 @@ function readEnemy(
   ownSide: BattleSide,
 ): { size: number | null; quality: string } {
   if (ownSide === 'defender') return { size: null, quality: 'Nobody reads a column on the road.' };
+  // A raid is fought by the crew's home army, behind the gate, and a spy only ever sees the gate:
+  // quoting the gate report here put the wrong force's number on the board (bug pass, 2026-09-27).
+  if (battle.target.kind === 'district') {
+    return { size: null, quality: 'Nobody sees past the gate into a district.' };
+  }
   const target: SpyTarget =
     battle.target.kind === 'location'
       ? { kind: 'location', locationId: battle.target.locationId }
@@ -146,6 +223,20 @@ function readEnemy(
   };
 }
 
+/**
+ * A fight as a board shows it: everything but the seed, which only the settler may know.
+ *
+ * And `wokeSleepers` only to the attacking side. It says a cell of theirs was already standing on
+ * the ground when the call was made, which is the one thing a cell is for nobody else to know: a
+ * spy needs a late Lab rung to list planted Sleepers (`spying.ts`), and this row handed the same
+ * fact to the defender and to every bystander who could see the district, for nothing.
+ */
+function shownBattle(battle: ScheduledBattle, side: BattleSide | null): BattleView['battle'] {
+  const { seed, ...shown } = battle;
+  void seed;
+  return side === 'attacker' ? shown : { ...shown, wokeSleepers: false };
+}
+
 function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: Date): BattleView {
   const district = findDistrict(battle.target.districtId);
   const resident = residentOf(repos, battle.target.districtId);
@@ -154,17 +245,20 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
   const attackerName = repos.bases.findById(battle.attackerBaseId)?.name ?? 'a crew nobody knows';
 
   const enemy = side ? readEnemy(repos, base, battle, side) : { size: null, quality: '' };
-  const muster = side ? musterOf(repos, battle, side) : null;
+  // Read only for a crew on a side: a bystander is told nothing about who is standing where.
+  const presence = side ? presenceAt(repos, battle) : null;
+  const muster = side && presence ? musterOf(repos, battle, side, presence) : null;
   // This crew's own row: the deployment screen edits what *you* have sent, not what your allies have.
   const deployment = side ? repos.sieges.deployment(battle.id, side, base.id) : undefined;
 
   return {
-    battle,
+    battle: shownBattle(battle, side),
     targetName: targetName(battle.target, resident),
     districtName: district?.name ?? 'somewhere',
     role: side ?? 'bystander',
     side,
     deploymentOpen: deploymentIsOpen(new Date(battle.scheduledFor), now),
+    withdrawalOpen: !insideLock(battle, now),
     muster,
     enemySize: enemy.size,
     enemyIntel: side ? enemy.quality : 'You are not in this one.',
@@ -176,33 +270,26 @@ function viewOf(repos: Repositories, base: Base, battle: ScheduledBattle, now: D
      * The ground, through the *same* function that will decide the fight (`battlefieldOf`).
      *
      * The deployment screen forecasts on it. Not a secret from either side: where the fight is and
-     * what that ground is like is the one thing a declaration makes public. Fortification is read
-     * live rather than frozen, so digging in between now and the mark shows up on both sides'
-     * estimates, which is the honest reading of a fortification that is still being built.
+     * what that ground is like is the one thing a declaration makes public.
      */
-    battlefield: battlefieldOf(
-      battle,
-      district?.name ?? 'somewhere',
-      battle.target.kind === 'location'
-        ? (repos.city.control(battle.target.locationId)?.fortification ?? 0)
-        : 0,
-    ),
+    battlefield: battlefieldOf(battle, district?.name ?? 'somewhere'),
     // A bystander is not buying anything for a fight they are not in, and sending them the shelf
     // would be sending them the caller's own research and officer list.
-    boosts: side
-      ? boostsFor(
-          base,
-          // The force the settle will price this against, not the one on the deployment rows.
-          // `reach` is what the drop-down promises, and for a defender the two are not close: a
-          // home raid folds in the whole roster and a location folds in the garrison, so a boost
-          // quoted at +35% on the screen landed as +7% in the fight. `assemble` is the settler's
-          // own function, so the two cannot drift apart again.
-          assemble(repos, battle, defenderBase)[side === 'attacker' ? 'attacking' : 'defending'],
-          repos.blackMarket.stashFor(base.id),
-          cityLevelFor(repos),
-          standingEffectsFor(repos, base),
-        )
-      : [],
+    boosts:
+      side && presence
+        ? boostsFor(
+            base,
+            // The force the settle will price this against, not the one on the deployment rows.
+            // `reach` is what the drop-down promises, and for a defender the two are not close: a
+            // home raid folds in the whole roster and a location folds in the garrison, so a boost
+            // quoted at +35% on the screen landed as +7% in the fight. `assemble` is the settler's
+            // own function, so the two cannot drift apart again.
+            forceAtTheMark(repos, battle, defenderBase, side, presence),
+            repos.blackMarket.stashFor(base.id),
+            cityLevelFor(repos),
+            standingEffectsFor(repos, base),
+          )
+        : [],
     boostIds: deployment?.boostIds ?? [],
     boostSlots: battleBoostSlots(crewEffectsFor(repos, base).battleBoostsFlat),
     officerId: deployment?.officerId ?? null,
@@ -245,19 +332,35 @@ function leadersFor(
 ): BattleLeader[] {
   return base.commanders
     .filter((officer) => officerDuty(repos, base, officer, now, battle.id) === null)
-    .map((officer) => ({
-      officerId: officer.id,
-      name: officer.name,
-      role: officer.role,
-      stats: officerBattleStats(officer.attributes),
-      travelMinutes: officerTravelMinutesTo(
+    .flatMap((officer) => {
+      /*
+       * An officer with no road to the fight is not offered to lead it.
+       *
+       * `officerTravelMinutesTo` answers `null` for ground the map cannot price, which it began
+       * doing when the road stopped returning zero for it: zero was not "no road", it was instant
+       * arrival. It is unreachable from here in practice, because a battle row only exists for a
+       * district that exists, so dropping the officer rather than widening the wire is the right
+       * trade. If it ever does fire, a leader missing from the list is a visible symptom, while a
+       * leader quoted at no travel at all is a wrong number nobody would question.
+       */
+      const travelMinutes = officerTravelMinutesTo(
         repos,
         base,
         battle.target.districtId,
         officer,
         vehicles,
-      ),
-    }));
+      );
+      if (travelMinutes === null) return [];
+      return [
+        {
+          officerId: officer.id,
+          name: officer.name,
+          role: officer.role,
+          stats: officerBattleStats(officer.attributes),
+          travelMinutes,
+        },
+      ];
+    });
 }
 
 function holderLabel(kind: ScheduledBattle['defender']['kind']): string {
@@ -437,6 +540,11 @@ function boostsFor(
  *
  * Computed here rather than on the district screen, so the answer to "may I attack a location here or
  * only the gate" comes from the same reading of the control table the declaration rules use.
+ *
+ * Walks every district in the world and lets `visible` do the narrowing (2026-09-24). The set is
+ * already exactly what this crew can see into, so widening the source cannot widen the answer, and
+ * the version that walked one city's array silently dropped the front door of every district a crew
+ * could see in a second one.
  */
 function gatesFor(
   repos: Repositories,
@@ -447,7 +555,7 @@ function gatesFor(
   // Read once for the whole city rather than per district: this runs for every district a crew can
   // see on every read of the board, and the lookup behind it is a scan.
   const lived = districtsLivedIn(repos);
-  return CITY_DISTRICTS.filter((district) => visible.has(district.id)).map((district) => {
+  return ALL_DISTRICTS.filter((district) => visible.has(district.id)).map((district) => {
     const gate = repos.sieges.gate(district.id);
     return {
       districtId: district.id,
@@ -467,10 +575,14 @@ function gatesFor(
  * Priced through the same `callPriceFor` the declaration charges with, so the dialog's quote and
  * the route's bill cannot disagree. Only charged ground is written down: the schema reads an
  * absent entry as free, and most of the map is free, so the common case is a short list.
+ *
+ * Over the world's districts, narrowed by `visible`, for the reason {@link gatesFor} gives. A price
+ * missing here reads as free, so a Terminus location the crew could see was quoted at nothing and
+ * charged at the route.
  */
 function callPricesFor(repos: Repositories, visible: ReadonlySet<string>): CallPrices {
   const prices: CallPrices = { locations: {}, districts: {} };
-  for (const district of CITY_DISTRICTS) {
+  for (const district of ALL_DISTRICTS) {
     if (!visible.has(district.id)) continue;
     for (const location of district.locations) {
       const target = {
@@ -524,7 +636,7 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
     /*
      * §A4: the cells this crew has planted (`city/sleepers.ts`).
      *
-     * Named rather than sent as ids: the Monitor is a page a player reads, and "rustyard-press"
+     * Named rather than sent as ids: the Monitor is a page a player reads, and "steelbelt-press"
      * is not a place anybody has heard of.
      */
     sleepers: repos.sleepers.forBase(base.id).map((cell) => {
@@ -553,11 +665,12 @@ export function projectActions(repos: Repositories, base: Base, now: Date): Acti
     stationed: (() => {
       const controls = repos.city.controls();
       // Postings on allies' ground, beside the crew's own garrisons (2026-09-22): the units are
-      // this crew's, so "where is everybody" has to list them.
+      // this crew's, so "where is everybody" has to list them. Over every location in the world,
+      // because a garrison in a second city is somewhere this crew's people are standing.
       const posted = new Map(
         repos.alliedGarrisons.forBase(base.id).map((row) => [row.locationId, row.army]),
       );
-      return CITY_LOCATIONS.flatMap((location) => {
+      return EVERY_LOCATION.flatMap((location) => {
         const control = controls.get(location.id);
         const army =
           control && isHeldBy(control, base.id) ? control.garrison : posted.get(location.id);

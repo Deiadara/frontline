@@ -79,13 +79,15 @@ describe('the Black Market sells pages (§F2)', () => {
   });
 
   it('prices a page of a long blueprint above a page of a short one', () => {
-    const shortest = [...BLUEPRINTS].sort((a, b) => a.pages.length - b.pages.length)[0]!;
-    const longest = [...BLUEPRINTS].sort((a, b) => b.pages.length - a.pages.length)[0]!;
+    // The fence's documents have no pages to price, so the shortest is the shortest with any.
+    const paged = BLUEPRINTS.filter((spec) => spec.pages.length > 0);
+    const shortest = [...paged].sort((a, b) => a.pages.length - b.pages.length)[0]!;
+    const longest = [...paged].sort((a, b) => b.pages.length - a.pages.length)[0]!;
     const priceOf = (pageId: string) =>
       Object.values(BLACK_MARKET_GOODS).find(
         (g) => (g.grants as Record<string, number> | undefined)?.[pageId] === 1,
       )!.infamy;
-    expect(priceOf(longest.pages[0].id)).toBeGreaterThan(priceOf(shortest.pages[0].id));
+    expect(priceOf(longest.pages[0]!.id)).toBeGreaterThan(priceOf(shortest.pages[0]!.id));
   });
 });
 

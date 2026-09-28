@@ -1,4 +1,4 @@
-import { BATTLE_TIERS } from '../missions.leading.js';
+import { FIGHT_CATEGORIES } from '../missions.grade.js';
 import { describe, expect, it } from 'vitest';
 import {
   BUILDING_KINDS,
@@ -26,7 +26,7 @@ import { UNIT_UPGRADE_SLOTS } from '../units/loadout.js';
 import { BUILDING_PART_GATES } from '../building/parts.js';
 import { UNIT_MODIFICATIONS } from '../units/modifications.js';
 import { COMBINE_LEADERS } from '../city/combine.js';
-import { CITY_DISTRICTS, CITY_LOCATIONS } from '../city/districts.js';
+import { CITY_LOCATIONS } from '../city/districts.js';
 import { OFFICER_MARKS } from '../crew/marks.js';
 import { ITEM_CATALOG } from '../items/catalog.js';
 import { BLACK_MARKET_GOOD_IDS } from '../market/blackmarket.js';
@@ -36,8 +36,22 @@ import { findUnit } from '../units/index.js';
 import { isUnitUnlocked } from '../units/unlocks.js';
 import type { LocationKind } from '../city/locations.js';
 import { FEATS, findFeat } from './catalog.js';
+import {
+  CHAPEL_LOCATIONS,
+  COMBINE_DISTRICTS,
+  GARRISONED_DISTRICTS,
+  HOLDABLE_DISTRICTS,
+  PLAYABLE_CITY_COUNT,
+  PLAYABLE_CONTESTED,
+  PLAYABLE_DISTRICTS,
+  PLAYABLE_LOCATIONS,
+  RAIL_STATIONS,
+  SMALLEST_CITY_DISTRICTS,
+  reachableAbroad,
+} from './world.js';
 import { FEAT_MEASURES, FEAT_MEASURE_SPECS, type FeatMeasure } from './measures.js';
 import { FEAT_ERAS, featRewardBand, featRewardValue } from './rewards.js';
+import { splitFeatReward } from './waste.js';
 
 /**
  * The catalogue, held to the rules it was authored under.
@@ -121,8 +135,8 @@ describe('the feat catalogue', () => {
    *
    * `featRewardValue` prices everything in caps-equivalent, so `rotor_hub: 100` is a correctly
    * priced reward and a meaningless one: the game asks for exactly **one** Rotor Hub, ever, as the
-   * toll for Garage 12. The catalogue shipped paying 376 of them and 256 Targeting Cores against a
-   * demand of two, and every existing test passed, because caps-equivalent is the wrong unit for a
+   * toll for the Garage’s top level. The catalogue shipped paying 376 of them and 256 Targeting
+   * Cores against a demand of two, and every existing test passed, because caps-equivalent is the wrong unit for a
    * thing whose whole design is scarcity (`building/parts.ts`: resources are the pace, parts are
    * the gate).
    *
@@ -192,7 +206,8 @@ describe('the feat catalogue', () => {
   /** A guard on the guard: a demand table that came out empty would make the above vacuous. */
   it('knows what the district and the unit bench actually ask for', () => {
     expect(Object.keys(LIFETIME_PART_DEMAND).length).toBeGreaterThan(5);
-    expect(LIFETIME_PART_DEMAND['rotor_hub']).toBe(1);
+    // One for the Garage's top level and two for the fence's Rotor Drop Rig.
+    expect(LIFETIME_PART_DEMAND['rotor_hub']).toBe(3);
   });
 
   /**
@@ -201,7 +216,7 @@ describe('the feat catalogue', () => {
    * The schema only holds four of the five channels to it: `xp`, `infamy`, items and units are all
    * `z.number().int()`, and **resources are not**, because production settles in fractional carry
    * and the bundle has to be able to carry it. So a reward computed rather than typed can put a
-   * fraction on a stockpile, and `addResources` adds it straight on: `rise(3, 'coin')` paid
+   * fraction on a stockpile, and the stores' credit adds it straight on: `rise(3, 'coin')` paid
    * 14000.000000000002 scrap, which a crew then held for ever (bug pass, 2026-09-17).
    */
   it('pays a whole number of everything, including the channel the schema lets be fractional', () => {
@@ -215,6 +230,59 @@ describe('the feat catalogue', () => {
       }
     }
     expect(fractional, fractional.join('\n')).toEqual([]);
+  });
+
+  /**
+   * Every reward survives the claim split untouched when there is room for it.
+   *
+   * A confirmed claim pays through `splitFeatReward`, which clamps to the ceilings and discards
+   * the rest (maintainer ruling, 2026-09-23). With the ceilings out of the way it has to be the
+   * identity, and it is worth checking against the whole catalogue rather than against a handful
+   * of hand-built rewards: a channel the split forgot to carry would silently stop being paid on
+   * every feat that uses it, and nothing else in the suite would notice.
+   */
+  it('hands every reward over whole when the district has room for it', () => {
+    const unlimited = {
+      resources: Object.fromEntries(
+        RESOURCE_KEYS.map((key) => [key, Number.POSITIVE_INFINITY]),
+      ) as Record<ResourceKey, number>,
+      unitSlots: Number.POSITIVE_INFINITY,
+    };
+    for (const feat of FEATS) {
+      const split = splitFeatReward(feat.reward, unlimited);
+      expect(split.wasted, feat.id).toBeUndefined();
+      expect(split.paid, feat.id).toEqual(feat.reward);
+    }
+  });
+
+  /**
+   * And it never invents anything: what lands plus what is lost is what the catalogue promised.
+   *
+   * Measured against a district with nothing left, which is the other end of the same function.
+   * Resources are the channel worth summing, because they are the one the clamp cuts by a
+   * fraction rather than by a whole object.
+   */
+  it('loses exactly the difference when the district has no room at all', () => {
+    const nothing = {
+      // Caps keep their `Infinity`, the way `storageCapacityFor` answers for them: the currency
+      // has no ceiling, so "no room at all" is not a state the wallet can be in.
+      resources: Object.fromEntries(
+        RESOURCE_KEYS.map((key) => [key, key === 'caps' ? Number.POSITIVE_INFINITY : 0]),
+      ) as Record<ResourceKey, number>,
+      unitSlots: 0,
+    };
+    for (const feat of FEATS) {
+      const split = splitFeatReward(feat.reward, nothing);
+      for (const key of RESOURCE_KEYS) {
+        const owed = feat.reward.resources?.[key] ?? 0;
+        const paid = split.paid.resources?.[key] ?? 0;
+        const lost = split.wasted?.resources?.[key] ?? 0;
+        expect(paid + lost, `${feat.id} ${key}`).toBe(owed);
+      }
+      // The wallet is paid in full even with every other shelf empty, which is the half of the
+      // ruling a player relies on: a feat's caps always arrive.
+      expect(split.paid.resources?.caps ?? 0, feat.id).toBe(feat.reward.resources?.caps ?? 0);
+    }
   });
 
   it('pays something real for every feat', () => {
@@ -397,7 +465,9 @@ describe('measures and scopes', () => {
   });
 
   it('scopes only things the game has', () => {
-    const areas = new Set([MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]);
+    // Every district of every open city, not Ashfall's twelve: a mission area is a district and
+    // the second city's districts are districts (2026-09-24).
+    const areas = new Set([MISC_AREA_ID, ...PLAYABLE_DISTRICTS.map((district) => district.id)]);
     for (const feat of FEATS) {
       const scope = feat.scope;
       if (scope === undefined) continue;
@@ -408,8 +478,11 @@ describe('measures and scopes', () => {
         case 'missions_of_kind':
           expect(['battle', 'standard'], feat.id).toContain(scope);
           break;
-        case 'fights_won_at_tier':
-          expect(BATTLE_TIERS, feat.id).toContain(scope);
+        case 'fights_won_in_category':
+          expect(FIGHT_CATEGORIES, feat.id).toContain(scope);
+          break;
+        case 'jobs_won_at_letter':
+          expect(['F', 'E', 'D', 'C', 'B', 'A', 'S'], feat.id).toContain(scope);
           break;
         case 'building_level':
           expect(BUILDING_KINDS, feat.id).toContain(scope);
@@ -532,9 +605,7 @@ describe('measures and scopes', () => {
    * or shortening the mark ladder fails this test instead of quietly stranding a rung.
    */
   it('never asks for more of a capped measure than the game can ever hold', () => {
-    const holdableDistricts = CITY_DISTRICTS.filter(
-      (district) => district.locations.length > 0,
-    ).length;
+    const holdableDistricts = HOLDABLE_DISTRICTS.length;
     const CEILINGS: Partial<Record<FeatMeasure, number>> = {
       // Both sums walk the structures one at a time: eleven times the tallest structure would say
       // 220 standing levels and 33 brackets, and neither is a district anybody can build.
@@ -571,17 +642,37 @@ describe('measures and scopes', () => {
        * One short of the map, because a crew cannot scout the district it lives in.
        *
        * `sendScout` refuses `own_district` and no other path writes a `district_intel` row for
-       * home, so the measure tops out at eleven of twelve. The last rung of `scouted` asked for
-       * twelve and sat at 11/12 for ever, which is the failure the note above this test describes.
+       * home, so the measure tops out at twenty three of twenty four. The last rung of `scouted`
+       * asked for the whole map and sat at 11/12 for ever, which is the failure the note above
+       * this test describes.
+       *
+       * The whole world and not one city: the counter was always a raw row count with no district
+       * filter, so it has counted both cities from the day the second one opened, and
+       * `sendScout` resolves its target through `findDistrict`, which answers for all of them.
        */
-      districts_scouted: CITY_DISTRICTS.length - 1,
-      // The regime's ground, whole: six districts today, and the last rung of `annexed` asks for
-      // exactly that many. The Chapel is one building, so a target past one is a feat for nobody.
-      combine_districts_held: CITY_DISTRICTS.filter(
-        (district) => district.allegiance === 'government' && district.locations.length > 0,
-      ).length,
-      chapel_held: CITY_LOCATIONS.filter((location) => location.kind === 'combine_chapel').length,
-      locations_held: CITY_LOCATIONS.length,
+      districts_scouted: PLAYABLE_DISTRICTS.length - 1,
+      // The regime's ground, whole: ten districts across the two open cities, and the last rung of
+      // `annexed` asks for exactly that many.
+      combine_districts_held: COMBINE_DISTRICTS.length,
+      // Two chapels, a city apart, and the top of the `chapels` ladder asks for both.
+      chapel_held: CHAPEL_LOCATIONS.length,
+      locations_held: PLAYABLE_LOCATIONS.length,
+      /*
+       * The frontier measures, every one bounded from the *worst* home a player could have picked.
+       *
+       * `reachableAbroad` takes the world total minus the largest city's share, which is the crew
+       * who lives in the biggest place and has the least foreign ground left. Sizing these off the
+       * world total would write rungs only half the playerbase could stand on, and which city
+       * somebody started in is not a thing a feat should charge for.
+       */
+      locations_held_abroad: reachableAbroad((district) => district.locations.length),
+      districts_held_whole_abroad: reachableAbroad((district) =>
+        district.locations.length > 0 ? 1 : 0,
+      ),
+      cities_held: PLAYABLE_CITY_COUNT,
+      // Seven platforms: the line does not climb Telemetry Hill, which is authored and not an
+      // oversight (`atlas.ts`).
+      rail_stations_held: RAIL_STATIONS.length,
       faction_seats: SEAT_SLOT_ORDER.length,
     };
 
@@ -589,10 +680,22 @@ describe('measures and scopes', () => {
     // gives: two of the eleven structures never open a third bracket, so a table that quietly
     // stopped covering `modification_sets` would leave the deepest deck feat unmeasured.
     expect(CEILINGS.modification_sets, 'structures that can hold a full set').toBe(9);
-    // Likewise pinned by hand: a map that quietly lost a Combine district, or gained a second
-    // chapel, would move the ceiling and the ladder with it and leave this green.
-    expect(CEILINGS.combine_districts_held, 'the Combine holds six districts').toBe(6);
-    expect(CEILINGS.chapel_held, 'there is one Chosen Chapel').toBe(1);
+    /*
+     * Likewise pinned by hand: a map that quietly lost a Combine district, or a chapel, would move
+     * the ceiling and the ladder with it and leave this green.
+     *
+     * Both moved on 2026-09-24 and neither moved because anybody edited a feat. The regime's
+     * ground went from six districts to ten when Terminus opened, and there are two chapels now:
+     * the Chosen Chapel over Ashfall and the Frontier Chapel inside Control. A `chapel_held`
+     * standalone at a target of one then quietly meant "hold either", on a measure counting both.
+     */
+    expect(CEILINGS.combine_districts_held, 'the Combine holds ten districts').toBe(10);
+    expect(CEILINGS.chapel_held, 'there are two Combine chapels').toBe(2);
+    // The two cities that are open, and the seven platforms on the one railway in the game.
+    expect(CEILINGS.cities_held, 'Ashfall and Terminus').toBe(2);
+    expect(CEILINGS.rail_stations_held, 'seven of eight contested districts have a Station').toBe(
+      7,
+    );
 
     const over: string[] = [];
     let checked = 0;
@@ -640,7 +743,9 @@ describe('the shape of the set', () => {
     // One per group named in the catalogue's own doc block. If a whole group is dropped, this says so.
     expect(measures.has('missions_done'), 'the work').toBe(true);
     expect(measures.has('battles_won'), 'fighting').toBe(true);
+    expect(measures.has('districts_emptied'), 'the week').toBe(true);
     expect(measures.has('districts_scouted'), 'the city').toBe(true);
+    expect(measures.has('locations_held_abroad'), 'the frontier').toBe(true);
     expect(measures.has('buildings_raised'), 'the district').toBe(true);
     expect(measures.has('officer_best_mark'), 'the crew').toBe(true);
     expect(measures.has('resources_earned'), 'the trade').toBe(true);
@@ -682,25 +787,38 @@ describe('the shape of the set', () => {
   });
 
   it('gives the contested districts their own work, off the city rather than by hand', () => {
-    const contested = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
+    const contested = PLAYABLE_CONTESTED;
     const areaFeats = FEATS.filter(
       (feat) => feat.measure === 'missions_in_area' && feat.scope !== MISC_AREA_ID,
     );
     // Four rungs each, ten jobs then fifty then two hundred then six hundred, all generated from
-    // the same city row. Pinned as a multiple rather than as a total so that adding a contested
-    // district to the map cannot silently leave it without work: the arithmetic moves with
-    // `CITY_DISTRICTS`.
+    // the same map row. Pinned as a multiple rather than as a total so that adding a contested
+    // district cannot silently leave it without work: the arithmetic moves with the map.
     const AREA_RUNGS = 4;
     expect(areaFeats.length).toBe(contested.length * AREA_RUNGS);
     // The multiple alone is derived from the same filter the generator runs, so it holds for any
     // generator that walks the contested list, including one that walks it and writes the wrong
-    // thing. One rung named by hand is the anchor that is not: Neon Docks is contested, and its
+    // thing. Two rungs named by hand are the anchor that is not: Neon Docks is contested, and its
     // work has to be the two rungs the doc comment promises, under the ids and scope it promises.
     expect(contested.map((district) => district.id)).toContain('neon-docks');
     expect(findFeat('area_neon_docks')?.scope).toBe('neon-docks');
     expect(findFeat('area_neon_docks')?.target).toBe(10);
     expect(findFeat('area_neon_docks_2')?.after).toBe('area_neon_docks');
     expect(findFeat('area_neon_docks_2')?.target).toBe(50);
+    /*
+     * ...and the same anchor in the second city, which is the half that was missing.
+     *
+     * The generator walked `CITY_DISTRICTS`, so the eight contested districts of Terminus arrived
+     * with no work on the board at all and every gate above stayed green: a total derived from
+     * the same array it generates from cannot see a map it does not look at. Coldwater Halt is
+     * difficulty 1, so its first rung is an `early` feat, which is the other thing the generator
+     * has to get right for a city whose ladder starts below Ashfall's.
+     */
+    expect(contested.map((district) => district.id)).toContain('coldwater-halt');
+    expect(findFeat('area_coldwater_halt')?.scope).toBe('coldwater-halt');
+    expect(findFeat('area_coldwater_halt')?.target).toBe(10);
+    expect(findFeat('area_coldwater_halt')?.era).toBe('early');
+    expect(findFeat('area_blockhouse')?.era, 'the Blockhouse is difficulty 10').toBe('late');
     for (const district of contested) {
       const rungs = areaFeats.filter((feat) => feat.scope === district.id);
       expect(rungs.length, district.id).toBe(AREA_RUNGS);
@@ -866,9 +984,12 @@ describe('the Combine', () => {
   });
 
   /**
-   * A leader dies once per world, so each one is a standalone with a target of one, and the
-   * board's rule that a standalone is never locked means all three are open from the first
-   * evening: a crew can go for Directive Xero before it has met the Syndic, if it likes.
+   * One standalone per leader, at a target of one, and **not** because the counter cannot climb.
+   *
+   * It can: a killed leader is back at the Sunday reset wherever no player holds the plot he stood
+   * on (2026-09-24). The target is one because the first kill is the whole of what there is to
+   * reward, and the board's rule that a standalone is never locked means all three are open from
+   * the first evening: a crew can go for Directive Xero before it has met the Syndic, if it likes.
    */
   it('stands one open feat per leader, at a target of one', () => {
     const slain = FEATS.filter((feat) => feat.measure === 'combine_leaders_slain');
@@ -955,16 +1076,231 @@ describe('the Combine', () => {
     }
   });
 
-  it('asks for the Chapel once, held, and never locks it', () => {
+  /**
+   * The chapel ladder ends on every chapel the regime has, which is no longer one.
+   *
+   * It was a standalone at a target of one, under the board's rule that a thing with no degrees
+   * does not get a ladder, and that was right while there was one Chosen Chapel. Terminus put a
+   * second `combine_chapel` inside Control, and the feat then read "hold the Chosen Chapel" on a
+   * measure that counts both: a crew holding the Frontier Chapel and nothing else collected a feat
+   * whose own sentence described a building in another city.
+   *
+   * The top rung is derived so a third chapel moves it rather than stranding it.
+   */
+  it('climbs the chapel ladder to every chapel the regime has', () => {
     const chapel = FEATS.filter((feat) => feat.measure === 'chapel_held');
-    expect(chapel.length).toBe(1);
-    expect(chapel[0]?.target).toBe(1);
-    expect(chapel[0]?.chain).toBeNull();
-    expect(chapel[0]?.after).toBeNull();
+    expect(CHAPEL_LOCATIONS.length, 'there is more than one Combine chapel').toBeGreaterThan(1);
+    expect(chapel.map((feat) => feat.target)).toEqual([1, CHAPEL_LOCATIONS.length]);
+    expect(chapel[0]?.after, 'the head of a ladder is never locked').toBeNull();
+    expect(chapel[1]?.after).toBe(chapel[0]?.id);
   });
 
   it('ends the held-districts ladder on the whole of the regime’s ground', () => {
     const rungs = FEATS.filter((feat) => feat.measure === 'combine_districts_held');
-    expect(rungs.map((feat) => feat.target)).toEqual([1, 3, 6]);
+    // Ten and not six: the regime holds four districts in Terminus as well, so the rung that read
+    // "the regime holds nothing" came to mean "the regime holds nothing here" on the day the
+    // second city opened, without anybody touching a feat.
+    expect(rungs.map((feat) => feat.target)).toEqual([1, 3, 6, COMBINE_DISTRICTS.length]);
+    expect(COMBINE_DISTRICTS.length).toBe(10);
+  });
+});
+
+/**
+ * The frontier: the feats that only mean anything once there are two cities (2026-09-24).
+ *
+ * The generic gates above hold these to the same rules as everything else, so what is pinned here
+ * is the shape no generic rule can ask for: that every ladder about foreign ground is reachable
+ * from **either** home, that the railway ladder tops out on the platforms the map actually has,
+ * and that the section exists at all. A board that silently lost this group would pass every other
+ * test in the file.
+ */
+describe('the frontier', () => {
+  const abroadMeasures: readonly FeatMeasure[] = [
+    'locations_held_abroad',
+    'districts_held_whole_abroad',
+    'cities_held',
+    'battles_won_abroad',
+    'rail_stations_held',
+    'rail_journeys',
+  ];
+
+  it('gives every frontier measure at least one feat', () => {
+    for (const measure of abroadMeasures) {
+      const asked = FEATS.filter((feat) => feat.measure === measure);
+      expect(asked.length, `nothing asks for ${measure}`).toBeGreaterThan(0);
+    }
+  });
+
+  /**
+   * A foreign target is reachable from whichever city a crew happens to live in.
+   *
+   * The two open cities hold sixty locations each, so a target sized off the world total is a rung
+   * nobody can stand on and a target sized off the bigger city is a rung half the players cannot.
+   * Held against the smaller of the two shares, which is what `reachableAbroad` answers.
+   */
+  it('never asks for more foreign ground than the leaner home leaves', () => {
+    const locations = reachableAbroad((district) => district.locations.length);
+    const districts = reachableAbroad((district) => (district.locations.length > 0 ? 1 : 0));
+    // A guard on the guard: with one open city there is no abroad and every assertion is vacuous.
+    expect(locations, 'no foreign ground at all').toBeGreaterThan(0);
+    for (const feat of FEATS.filter((one) => one.measure === 'locations_held_abroad')) {
+      expect(feat.target, feat.id).toBeLessThanOrEqual(locations);
+    }
+    for (const feat of FEATS.filter((one) => one.measure === 'districts_held_whole_abroad')) {
+      expect(feat.target, feat.id).toBeLessThanOrEqual(districts);
+    }
+  });
+
+  /**
+   * The railway ladder needs the rung that makes it a railway.
+   *
+   * One Station is a building. Two is the number `railwayOffer` refuses below (`city/rails.ts`:
+   * "if (stations.size < 2) return null"), so a ladder running 1, 4, 7 would skip the only rung
+   * whose reward is the mechanic itself, and the copy that sells the train would sit on a rung a
+   * crew reaches long after it has been riding.
+   */
+  it('puts a rung on the second Station, which is where the train starts running', () => {
+    const rungs = FEATS.filter((feat) => feat.measure === 'rail_stations_held');
+    expect(rungs.map((feat) => feat.target)).toContain(2);
+    expect(rungs.at(-1)?.target, 'the ladder ends on every platform').toBe(RAIL_STATIONS.length);
+    expect(RAIL_STATIONS.length, 'seven platforms, and none on Telemetry Hill').toBe(7);
+  });
+
+  /** Every open city at once, and never more than the world has. */
+  it('asks for ground in every open city and no more', () => {
+    const rungs = FEATS.filter((feat) => feat.measure === 'cities_held');
+    expect(rungs.length).toBe(1);
+    expect(rungs[0]?.target).toBe(PLAYABLE_CITY_COUNT);
+    // Standalone, because with two cities open there is exactly one interesting number here.
+    expect(rungs[0]?.chain).toBeNull();
+    expect(rungs[0]?.after).toBeNull();
+  });
+
+  /**
+   * The two ladders a second city is supposed to have moved, and did not until it was made to.
+   *
+   * `holdings` topped out at forty five of what was then sixty locations, and `whole` at eight of
+   * eight districts. Both were the whole of Ashfall and both quietly became a fraction of the
+   * world. The rungs below cannot be reached without ground in a second city, which is the
+   * property worth pinning rather than the numbers themselves.
+   */
+  it('takes the city ladders past what one city can give', () => {
+    const perCity = Math.max(
+      ...[...new Set(PLAYABLE_DISTRICTS.map((district) => district.cityId))].map(
+        (cityId) =>
+          PLAYABLE_LOCATIONS.filter(
+            (location) =>
+              PLAYABLE_DISTRICTS.find((district) => district.id === location.districtId)?.cityId ===
+              cityId,
+          ).length,
+      ),
+    );
+    const holdings = FEATS.filter((feat) => feat.measure === 'locations_held');
+    expect(
+      holdings.at(-1)?.target ?? 0,
+      'the holdings ladder fits inside one city',
+    ).toBeGreaterThan(perCity);
+
+    const districtsPerCity = Math.max(
+      ...[...new Set(HOLDABLE_DISTRICTS.map((district) => district.cityId))].map(
+        (cityId) => HOLDABLE_DISTRICTS.filter((district) => district.cityId === cityId).length,
+      ),
+    );
+    const whole = FEATS.filter((feat) => feat.measure === 'districts_held_whole');
+    expect(
+      whole.at(-1)?.target ?? 0,
+      'the whole-district ladder fits inside one city',
+    ).toBeGreaterThan(districtsPerCity);
+  });
+
+  /**
+   * The scouting ladder has a rung for home and a rung for the world.
+   *
+   * `districts_scouted` was always a raw count of `district_intel` rows with no district filter, so
+   * from the day Terminus opened it counted both cities while the top of its ladder still asked
+   * for one city's worth. That is the quiet half of the same bug as the rest of this section: the
+   * number moved and the sentence did not.
+   */
+  it('separates walking your own city from walking the world', () => {
+    const rungs = FEATS.filter((feat) => feat.measure === 'districts_scouted');
+    expect(rungs.at(-2)?.target, 'your own city, all but home').toBe(SMALLEST_CITY_DISTRICTS - 1);
+    expect(rungs.at(-1)?.target, 'the whole world, all but home').toBe(
+      PLAYABLE_DISTRICTS.length - 1,
+    );
+    expect(PLAYABLE_DISTRICTS.length).toBeGreaterThan(SMALLEST_CITY_DISTRICTS);
+  });
+});
+
+/**
+ * The week: the two mechanics that landed on 2026-09-24 and arrived with no feats at all.
+ *
+ * The regime's and the squatters' garrisons are now spent by the fights they turn up to
+ * (`battle/resolve.ts`, `spendGarrisons`), and every plot no crew holds is put back to its
+ * authored strength at Monday 00:00 Athens time (`city/regrowth.ts`). Together those turn the city
+ * into something that runs down over a week and refills, which is a whole new way to play that the
+ * board said nothing about: the one screen that tells a player what there is to do had no rung for
+ * stripping a district and none for keeping ground through the reset.
+ *
+ * What is pinned here is the shape no generic rule can ask for: that both measures are asked for at
+ * all, that a ladder about stripping districts cannot want more districts than the map garrisons,
+ * and that a ladder about tenure cannot want more plot-weeks than the world can pay in the weeks
+ * it is allowed.
+ */
+describe('the week', () => {
+  const weekMeasures: readonly FeatMeasure[] = ['districts_emptied', 'plots_held_through_regrowth'];
+
+  it('gives both halves of the weekly cycle a ladder', () => {
+    for (const measure of weekMeasures) {
+      const rungs = FEATS.filter((feat) => feat.measure === measure);
+      expect(rungs.length, `nothing asks for ${measure}`).toBeGreaterThan(1);
+      // A ladder and not two feats that share a measure: one chain, head open, targets climbing.
+      expect(new Set(rungs.map((feat) => feat.chain)).size, measure).toBe(1);
+      expect(rungs[0]?.chain, measure).not.toBeNull();
+      expect(rungs[0]?.after, measure).toBeNull();
+      // An instructor: the mechanic is invisible until somebody is paid to try it once.
+      expect(rungs[0]?.target, `${measure} opens too high`).toBe(1);
+    }
+  });
+
+  /**
+   * A district can only be stripped if somebody garrisons it.
+   *
+   * `GARRISONED_DISTRICTS` is derived off `startingGarrison`, so it is the same reading the world
+   * seeder and the Monday sweep take: sixteen of the twenty four playable districts have ground the
+   * regime or the squatters stand on, and the other eight are residential blocks with no locations
+   * in them at all. Sixteen is therefore the most a crew could strip in any one week, since Monday
+   * puts every one of them back.
+   *
+   * The top rung is held to a stated number of those weeks rather than to a number typed here, so
+   * a map that loses a garrisoned district moves the bound with it.
+   */
+  it('never asks for more districts than the map garrisons in the weeks it allows', () => {
+    // Pinned by hand, like the Combine ceilings above it: a map that quietly stopped garrisoning a
+    // district would move the bound and leave this green.
+    expect(GARRISONED_DISTRICTS.length, 'sixteen districts have NPC ground on them').toBe(16);
+    const rungs = FEATS.filter((feat) => feat.measure === 'districts_emptied');
+    const WEEKS = 2;
+    expect(rungs.at(-1)?.target ?? 0).toBeLessThanOrEqual(GARRISONED_DISTRICTS.length * WEEKS);
+    // ...and it has to be worth more than one week of it, or the ladder ends before the mechanic
+    // has asked anything of a player who plays past Sunday.
+    expect(rungs.at(-1)?.target ?? 0).toBeGreaterThan(GARRISONED_DISTRICTS.length);
+  });
+
+  /**
+   * Tenure is counted in plot-weeks, so its ceiling is the map times the weeks it may ask for.
+   *
+   * `plots_held_through_regrowth` goes up once per crew-held plot the Monday sweep walks past, so a
+   * crew holding twenty five plots banks twenty five a week. The absolute ceiling is one crew
+   * holding the whole world, which nobody will, which is exactly what makes it the honest upper
+   * bound for a guard rail.
+   */
+  it('never asks for more plot-weeks than the whole world can pay in the weeks it allows', () => {
+    const rungs = FEATS.filter((feat) => feat.measure === 'plots_held_through_regrowth');
+    const WEEKS = 4;
+    expect(PLAYABLE_LOCATIONS.length, 'a hundred and twenty plots').toBe(120);
+    expect(rungs.at(-1)?.target ?? 0).toBeLessThanOrEqual(PLAYABLE_LOCATIONS.length * WEEKS);
+    // More than one Monday's worth of the whole map, or the ladder is about how much you hold
+    // rather than about how long you kept it, which `locations_held` already asks.
+    expect(rungs.at(-1)?.target ?? 0).toBeGreaterThan(PLAYABLE_LOCATIONS.length);
   });
 });

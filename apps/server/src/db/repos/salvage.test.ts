@@ -358,7 +358,7 @@ describe('the machines the Garage no longer builds', () => {
         durationMinutes: 20,
         status: 'active',
         officerId: null,
-        battleTier: null,
+        grade: null,
         overseerLed: false,
         lost: {},
         reported: true,

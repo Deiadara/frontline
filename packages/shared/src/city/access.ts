@@ -108,6 +108,74 @@ export function cityCalibre(participants: readonly CityParticipant[]): number | 
   return weight === 0 ? null : weighted / weight;
 }
 
+/** One crew as a room sees it: how far it has built, and the rank the street has given it. */
+export interface RoomCrew {
+  level: number;
+  /** A `NOTORIETY_TIERS` index. Fractional on an average. */
+  notoriety: number;
+}
+
+/**
+ * Who a city's Bar is pouring for tonight (maintainer, 2026-09-28).
+ *
+ * "If 3 players are max level and one is a beginner have an officer appear for him as well." One
+ * weighted mean cannot say that: three crews at ninety and one at level one average out near
+ * seventy, and a room stocked at seventy has nobody the beginner can afford or clear. So the room
+ * carries both ends of the city as well as its middle, and the Bar seats one person for each end.
+ *
+ * `lowest` and `highest` are real crews, ranked by `crewStanding`. `average` is the same
+ * stake-weighted mean `cityCalibre` takes, split into its two halves so the sheet and the doors can
+ * each read the half that is theirs.
+ */
+export interface RoomProfile {
+  lowest: RoomCrew;
+  highest: RoomCrew;
+  average: RoomCrew;
+}
+
+/** A room where every crew stands in the same place: a city of one, and the shape tests read. */
+export function flatRoom(level: number, notoriety = 0): RoomProfile {
+  const crew = { level, notoriety };
+  return { lowest: crew, highest: crew, average: crew };
+}
+
+/**
+ * The room a city's rooms are stocked against, off everybody with a stake in it.
+ *
+ * A visitor holding one location is a tenth of a voice in the average and a whole crew at either
+ * end: they may walk in and bid, so the seat pitched at them has to exist for them too.
+ *
+ * `null` when nobody has a stake, for the reason `cityCalibre` gives.
+ */
+export function cityRoomProfile(participants: readonly CityParticipant[]): RoomProfile | null {
+  const inside = participants.filter((participant) => stakeWeight(participant.stake) > 0);
+  const [first, ...rest] = inside;
+  if (first === undefined) return null;
+
+  const standingOf = (crew: RoomCrew) => crewStanding(crew.level, crew.notoriety);
+  let lowest: RoomCrew = first;
+  let highest: RoomCrew = first;
+  for (const participant of rest) {
+    if (standingOf(participant) < standingOf(lowest)) lowest = participant;
+    if (standingOf(participant) > standingOf(highest)) highest = participant;
+  }
+
+  let weight = 0;
+  let level = 0;
+  let notoriety = 0;
+  for (const participant of inside) {
+    const share = stakeWeight(participant.stake);
+    weight += share;
+    level += share * participant.level;
+    notoriety += share * participant.notoriety;
+  }
+  return {
+    lowest: { level: lowest.level, notoriety: lowest.notoriety },
+    highest: { level: highest.level, notoriety: highest.notoriety },
+    average: { level: level / weight, notoriety: notoriety / weight },
+  };
+}
+
 /** Which city a district belongs to, or the default city for an id the map does not have. */
 export function cityOfDistrict(districtId: string): string {
   return ALL_DISTRICTS.find((district) => district.id === districtId)?.cityId ?? DEFAULT_CITY_ID;

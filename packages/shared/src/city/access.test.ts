@@ -6,7 +6,9 @@ import {
   citiesOpenTo,
   cityCalibre,
   cityOfDistrict,
+  cityRoomProfile,
   crewStanding,
+  flatRoom,
   stakeWeight,
   type CityStake,
 } from './access.js';
@@ -48,7 +50,7 @@ describe('the door', () => {
     const open = citiesOpenTo([
       stake({ cityId: 'saltmarch', locationsHeld: 2 }),
       stake({ cityId: 'ashfall', resident: true }),
-      stake({ cityId: 'verge-station', locationsHeld: 0 }),
+      stake({ cityId: 'terminus', locationsHeld: 0 }),
     ]);
     expect(open[0]).toBe('ashfall');
     expect(open).toEqual(['ashfall', 'saltmarch']);
@@ -128,5 +130,47 @@ describe('what a city’s rooms are stocked against', () => {
   it('says nothing about a city nobody has a stake in', () => {
     expect(cityCalibre([])).toBeNull();
     expect(cityCalibre([at(40, 5)])).toBeNull();
+  });
+});
+
+/**
+ * Both ends of the city as well as its middle (maintainer, 2026-09-28): the Bar pitches one seat at
+ * the weakest crew with a stake and one at the strongest, so the profile has to name them.
+ */
+describe('the room a city pours for', () => {
+  const at = (level: number, notoriety: number, over: Partial<CityStake> = {}) => ({
+    stake: stake(over),
+    level,
+    notoriety,
+  });
+
+  it('names the lowest and the highest crew, and keeps the weighted middle', () => {
+    const top = at(90, 10, { resident: true });
+    const room = cityRoomProfile([top, top, top, at(1, 0, { resident: true })]);
+    expect(room?.lowest).toEqual({ level: 1, notoriety: 0 });
+    expect(room?.highest).toEqual({ level: 90, notoriety: 10 });
+    expect(room?.average.level).toBeCloseTo((90 * 3 + 1) / 4, 10);
+    expect(room?.average.notoriety).toBeCloseTo(7.5, 10);
+  });
+
+  /** A token visitor barely moves the middle, and is still a whole crew at the bottom. */
+  it('seats a visitor at an end at full weight, and in the average at their share', () => {
+    const room = cityRoomProfile([at(60, 6, { resident: true }), at(2, 0, { locationsHeld: 1 })]);
+    expect(room?.lowest.level).toBe(2);
+    expect(room?.average.level).toBeCloseTo((60 + 2 * 0.1) / 1.1, 10);
+  });
+
+  /** Ranked on the whole standing, so a rank is worth what `crewStanding` says it is. */
+  it('ranks the ends on level and rank together', () => {
+    const room = cityRoomProfile([
+      at(20, 0, { resident: true }),
+      at(18, LEVELS_PER_NOTORIETY_RANK, { resident: true }),
+    ]);
+    expect(room?.highest).toEqual({ level: 18, notoriety: LEVELS_PER_NOTORIETY_RANK });
+  });
+
+  it('ignores a crew with no stake, and says nothing when nobody has one', () => {
+    expect(cityRoomProfile([at(30, 0, { resident: true }), at(1, 0)])).toEqual(flatRoom(30));
+    expect(cityRoomProfile([at(40, 5)])).toBeNull();
   });
 });

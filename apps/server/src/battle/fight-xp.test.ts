@@ -1,6 +1,7 @@
 import {
   DECLARE_INFAMY_COST,
   PLAYER_XP_AWARDS,
+  playerXpToNextLevel,
   declarationWindow,
   skirmishOutcome,
   type BattlesResponse,
@@ -73,8 +74,8 @@ async function makeStack(winner: 'attacker' | 'defender'): Promise<Stack> {
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
-  const control = app.repos.city.control('rustyard-bonefield');
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
+  const control = app.repos.city.control('steelbelt-bonefield');
   if (control) {
     app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
   }
@@ -89,7 +90,7 @@ async function fight(stack: Stack): Promise<void> {
     url: '/api/battles/declare',
     headers: auth(stack.token),
     payload: {
-      target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+      target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
       scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
     },
   });
@@ -114,8 +115,18 @@ async function fight(stack: Stack): Promise<void> {
   settleBattles(stack.app.repos, stack.app.skirmishEngine, new Date());
 }
 
-const xpOf = (stack: Stack): number =>
-  stack.app.repos.bases.findById(stack.baseId)?.progression.xpIntoLevel ?? -1;
+/**
+ * Every XP the crew has banked, levels included: the fight's award can carry a level-one crew over
+ * its first threshold (52 since the curve was retuned on 2026-09-28), and progress into the level
+ * alone would then read the award as a loss.
+ */
+const xpOf = (stack: Stack): number => {
+  const base = stack.app.repos.bases.findById(stack.baseId);
+  if (!base) return -1;
+  let total = base.progression.xpIntoLevel;
+  for (let level = 1; level < base.level; level += 1) total += playerXpToNextLevel(level);
+  return total;
+};
 
 describe('§I1: what a settled fight pays', () => {
   it('pays the winner', async () => {

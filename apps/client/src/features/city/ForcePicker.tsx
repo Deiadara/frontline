@@ -15,6 +15,7 @@ import { ApiRequestError } from '../../lib/api';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { NumberField } from '../../components/ui/NumberField';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Choosing who goes (GDD §A5).
@@ -45,12 +46,6 @@ interface ForcePickerProps {
   battlefield?: Battlefield;
   /** The crew's brackets (`Base.unitLoadouts`), for the bag the raid will actually pay. */
   loadouts?: UnitLoadouts;
-  /**
-   * Who is already there, for a garrison. A row can then go below zero, and a number below zero
-   * brings that many home: the garrison route takes signed deltas, and without this the only way
-   * units ever came back from a location was losing it.
-   */
-  standing?: Army;
 }
 
 export function ForcePicker({
@@ -64,35 +59,23 @@ export function ForcePicker({
   onConfirm,
   facingSize,
   battlefield,
-  standing = {},
   loadouts = {},
 }: ForcePickerProps) {
   const [force, setForce] = useState<Army>({});
 
-  // One row per unit the crew has at home or already on the ground, so a garrison of units the
-  // crew has none of at home still has its rows and can be brought back.
-  const available = [...new Set([...Object.keys(army), ...Object.keys(standing)])]
-    .flatMap((unitId) => {
+  const available = Object.entries(army)
+    .flatMap(([unitId, count]) => {
       const unit = findUnit(unitId);
-      const count = army[unitId] ?? 0;
-      const there = standing[unitId] ?? 0;
-      return unit && (count > 0 || there > 0) ? [{ unit, count, there }] : [];
+      return unit && count > 0 ? [{ unit, count }] : [];
     })
     .sort((a, b) => a.unit.name.localeCompare(b.unit.name));
 
-  // The positive half is what goes; the negative half is what comes home. Only the first is a
-  // force: capacity and odds are read off it alone.
-  const sending: Army = Object.fromEntries(Object.entries(force).filter(([, count]) => count > 0));
-  const chosen = Object.values(sending).reduce((total, count) => total + count, 0);
-  const returning = Object.values(force).reduce(
-    (total, count) => total + (count < 0 ? -count : 0),
-    0,
-  );
+  const chosen = Object.values(force).reduce((total, count) => total + count, 0);
   // With the crew's brackets, as the raid pays it (`battle/resolve.ts` passes the same map).
-  const capacity = Math.round(lootCapacityOf(sending, 0, loadouts));
+  const capacity = Math.round(lootCapacityOf(force, 0, loadouts));
 
-  const set = (unitId: string, value: number, min: number, max: number) => {
-    const clamped = Math.max(min, Math.min(max, Math.trunc(value)));
+  const set = (unitId: string, value: number, max: number) => {
+    const clamped = Math.max(0, Math.min(max, Math.trunc(value)));
     setForce((current) => {
       const next = { ...current };
       if (clamped === 0) delete next[unitId];
@@ -119,7 +102,7 @@ export function ForcePicker({
             You have nobody to send. Train units at the Gauntlet first.
           </p>
         ) : (
-          available.map(({ unit, count, there }) => (
+          available.map(({ unit, count }) => (
             <label
               key={unit.id}
               className="flex items-center justify-between gap-3 border border-surface-700 p-2"
@@ -137,14 +120,13 @@ export function ForcePicker({
               <span className="flex shrink-0 items-center gap-2">
                 <NumberField
                   label={`How many ${unit.name}`}
-                  min={-there}
+                  min={0}
                   max={count}
                   value={force[unit.id] ?? 0}
-                  onChange={(next) => set(unit.id, next, -there, count)}
+                  onChange={(next) => set(unit.id, next, count)}
                 />
                 <span className="font-display text-[11px] tabular-nums text-ink-300">
                   / {count}
-                  {there > 0 && ` · ${there} there`}
                 </span>
               </span>
             </label>
@@ -153,7 +135,6 @@ export function ForcePicker({
 
         <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Row label="Sending" value={String(chosen)} />
-          {returning > 0 && <Row label="Bringing back" value={String(returning)} />}
           <Row label="Can carry" value={`${capacity} loot slots`} />
         </dl>
 
@@ -162,28 +143,35 @@ export function ForcePicker({
          *
          * `Odds` renders "nobody has counted what is on this ground" for an absent `facingSize`,
          * which is the right sentence when a player is looking at ground nobody has scouted and a
-         * nonsense one on the garrison dialog, where the ground is *yours* and there is no enemy to
-         * count. It was the nonsense one every time: garrisoning is this picker's only caller.
+         * nonsense one when there is no enemy to count. Planting Sleepers, the one caller today, is
+         * that case: they go to ground and wait rather than fight.
          */}
         {facingSize !== undefined && (
-          <Odds force={sending} facingSize={facingSize} battlefield={battlefield} />
-        )}
-
-        {error !== null && error !== undefined && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
-            {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </p>
+          <Odds
+            force={force}
+            facingSize={facingSize}
+            battlefield={battlefield}
+            loadouts={loadouts}
+          />
         )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+        {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
+        {error !== null && error !== undefined && (
+          <div className="mr-auto flex min-w-0 flex-col gap-1.5">
+            <ErrorNote>
+              {error instanceof ApiRequestError ? error.message : 'That did not go through'}
+            </ErrorNote>
+          </div>
+        )}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
         <Button
           size="sm"
           variant="danger"
-          disabled={(chosen === 0 && returning === 0) || pending}
+          disabled={chosen === 0 || pending}
           onClick={() => onConfirm(force)}
         >
           {pending ? 'Working…' : confirmLabel}
@@ -204,10 +192,19 @@ function Odds({
   force,
   facingSize,
   battlefield,
+  loadouts,
 }: {
   force: Army;
   facingSize: number | undefined;
   battlefield: Battlefield | undefined;
+  /**
+   * The crew's brackets, because the engine fights with them and this was forecasting without.
+   *
+   * The same omission the battle page had (bug pass, 2026-09-25): `resolve.ts` hands the engine
+   * `attackerUpgrades`, and a forecast that leaves them out is a reading of a line the player did
+   * not build. Measured at 46% against a settle of 100% for one set of three common cards.
+   */
+  loadouts: UnitLoadouts;
 }) {
   const sending = Object.values(force).reduce((total, count) => total + count, 0);
   const read = useMemo(() => {
@@ -216,12 +213,12 @@ function Odds({
     return forecast({
       // Keyed off the plan, so the reading holds still while it is being read and changes only
       // when the player changes the plan.
-      seed: JSON.stringify([force, facing]),
+      seed: JSON.stringify([force, facing, loadouts]),
       ...(battlefield ? { battlefield } : {}),
-      attacker: { name: 'you', army: force, defending: false },
+      attacker: { name: 'you', army: force, defending: false, upgrades: loadouts },
       defender: { name: 'them', army: facing, defending: true },
     });
-  }, [force, facingSize, battlefield, sending]);
+  }, [force, facingSize, battlefield, sending, loadouts]);
 
   if (read === null) {
     return (

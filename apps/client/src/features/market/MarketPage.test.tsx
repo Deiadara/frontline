@@ -64,6 +64,7 @@ const market: MarketResponse = {
     },
   ],
   mine: [],
+  claims: [],
   supply: supplyBoard(12, resources, 10_000, 0, (key) =>
     Math.round(10_000 * (STORAGE_SHARES[key] ?? 0)),
   ),
@@ -90,6 +91,7 @@ const meIn = (timezone: string) => ({
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -253,8 +255,8 @@ describe('the day boundary is the house clock, quoted on the player’s own', ()
     // The hours live on the standing note's hover, on the tab row: open it the way a pointer does.
     const note = await screen.findByTestId('info-note');
     fireEvent.mouseEnter(note);
-    await waitFor(() => expect(screen.getByText(/Today he is in at/)).toHaveTextContent('14:00'));
-    expect(screen.getByText(/Today he is in at/)).not.toHaveTextContent('17:00');
+    await waitFor(() => expect(screen.getByText(/In today at/)).toHaveTextContent('14:00'));
+    expect(screen.getByText(/In today at/)).not.toHaveTextContent('17:00');
   });
 });
 
@@ -267,6 +269,54 @@ describe('the day boundary is the house clock, quoted on the player’s own', ()
  * through to "Not enough caps". A crew with fifty thousand caps and a full alloy shelf was told to
  * go and earn.
  */
+/**
+ * The Broker and a full shelf (maintainer ruling, 2026-09-28): a warning, not a wall.
+ *
+ * The server used to refuse a trade the store could not hold, and the panel disabled the button to
+ * match. Now the excess is thrown away if the player goes ahead, so the panel says how much before
+ * the press and leaves the button live; the till asks again with its own figure.
+ */
+describe('the Broker on a full shelf', () => {
+  it('says how much would go to waste, and still lets the trade be pressed', async () => {
+    renderMarket();
+    const take = await screen.findByTestId('broker-take');
+    // The fixture's alloy shelf is already over its third of the bulk store.
+    fireEvent.click(within(take).getByRole('radio', { name: RESOURCE_LABELS.highQualityMetal }));
+    const trade = await screen.findByRole('button', { name: 'Trade' });
+    await waitFor(() => expect(screen.getByTestId('broker-note')).toHaveTextContent('go to waste'));
+    expect(trade).toBeEnabled();
+  });
+
+  it('leaves the trade open where there is room, and says nothing about waste', async () => {
+    renderMarket();
+    const trade = await screen.findByRole('button', { name: 'Trade' });
+    expect(trade).toBeEnabled();
+    expect(screen.queryByTestId('broker-note')).toBeNull();
+  });
+});
+
+/**
+ * A trade worth nothing back is greyed before the press.
+ *
+ * Fifteen supplies clear the Broker's minimum count and are worth half a unit of high-quality
+ * metal after his cut, which floors to nothing. The server refuses it, so the button says so first.
+ */
+describe('the Broker on a trade worth nothing', () => {
+  it('greys the trade and says why', async () => {
+    renderMarket();
+    const give = await screen.findByTestId('broker-give');
+    fireEvent.click(within(give).getByRole('radio', { name: RESOURCE_LABELS.supplies }));
+    const take = screen.getByTestId('broker-take');
+    fireEvent.click(within(take).getByRole('radio', { name: RESOURCE_LABELS.highQualityMetal }));
+    const amount = screen.getByTestId('broker-amount');
+    fireEvent.change(amount, { target: { value: '15' } });
+    fireEvent.blur(amount);
+
+    await waitFor(() => expect(screen.getByTestId('broker-note')).toHaveTextContent('Too little'));
+    expect(screen.getByRole('button', { name: 'Trade' })).toBeDisabled();
+  });
+});
+
 describe('why the supply run is refusing', () => {
   const pick = async (label: string) => {
     renderMarket();

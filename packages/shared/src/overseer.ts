@@ -100,7 +100,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Marcus "Bulwark" Kane',
     'enforcer',
     '01',
-    'Ex-corporate security chief who turned his riot squad into a private army. Rules through discipline, fear, and an unbreakable line.',
+    'Ran riot control for a Combine contractor until the contract ended. Took the squad with him when he left, and their shields.',
     {
       intimidation: 34,
       leadership: 31,
@@ -118,7 +118,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Yumi "Ghostwire" Tanaka',
     'netrunner',
     '02',
-    'Legendary intrusion specialist who once blacked out three arcology grids in a single night. Wars are won in the datastream before a shot is fired.',
+    'The story is that she put three district grids to sleep in one night to see whether she could. She says it was four.',
     {
       signals: 36,
       cybernetics: 30,
@@ -136,7 +136,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Dante "Silver" Okonkwo',
     'fixer',
     '03',
-    'Broker who never carried a gun and never needed to. Every favour in this city passes through somebody, and for a while that somebody was him.',
+    'Never carried a gun and never needed one. For a decade every favour in this city paid him a cut on the way through.',
     {
       negotiation: 35,
       charisma: 31,
@@ -154,7 +154,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Dr. Adaeze Okafor',
     'technocrat',
     '04',
-    'Former arcology infrastructure director who believes the city is a machine that can be repaired, by force if necessary. Builds faster than anyone can destroy.',
+    'Ran water and power for the Combine until she decided the city deserved better management. Her own, specifically.',
     {
       engineering: 35,
       craft: 30,
@@ -172,7 +172,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Sergeant Ilse Vantner',
     'enforcer',
     '05',
-    'Ran a training yard for twenty years and outlived every class she put through it. Believes nobody is born useful.',
+    'Twenty years on a training yard. Outlived every class she ran through it and still knows all their names.',
     {
       authority: 33,
       leadership: 32,
@@ -208,7 +208,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Otto Brand',
     'technocrat',
     '07',
-    'Kept the books for three crews at once and none of them ever found out about the other two.',
+    'Did the books for three crews at once. None of them ever learned about the other two.',
     {
       logistics: 34,
       organization: 31,
@@ -226,7 +226,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Dr. Miriam Halloway',
     'technocrat',
     '08',
-    'Field hospital on a rooftop for six years. Has argued more people back from the edge than she can name.',
+    'Six years running a field hospital on a rooftop, with the generator on the stairs. Still keeps a tally of the ones she lost.',
     {
       medicine: 36,
       composure: 30,
@@ -244,7 +244,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Ansel Rooke',
     'technocrat',
     '09',
-    'Ran the depot nobody could rob, because he already knew which shelf they would try.',
+    'Ran a garrison depot for six years without losing a crate. Knows which shelf a thief goes for first.',
     {
       logistics: 33,
       organization: 30,
@@ -280,7 +280,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Kassim "The Hammer" Dris',
     'enforcer',
     '11',
-    'Has taken four districts and given none of them back. Believes a fight you did not start is a fight you have already lost.',
+    '"If they are talking about a fight, I have already started it." Four districts taken, none handed back.',
     {
       strength: 34,
       intimidation: 32,
@@ -316,7 +316,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Sol Ferreira',
     'enforcer',
     '13',
-    'Carries no rank and no weapon. Everybody knows where they are standing and everybody stays.',
+    'Carries no rank and no weapon. In a fight, people drift toward her without being told to.',
     {
       charisma: 34,
       leadership: 31,
@@ -334,7 +334,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Nadia Roskova',
     'fixer',
     '14',
-    'Has never fought a war alone and has never lost one. Keeps three tables talking at once.',
+    'Brokered the truce on the east side, and later the war that ended it. Speaks for four crews and owes none of them anything.',
     {
       diplomacy: 34,
       negotiation: 31,
@@ -352,7 +352,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Tomas Ilic',
     'enforcer',
     '15',
-    'First through every door for eleven years. Has the scars in the front, which is the point.',
+    'First through every door for eleven years. All his scars are on the front.',
     {
       reflexes: 33,
       speed: 31,
@@ -370,7 +370,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Wren Achebe',
     'technocrat',
     '16',
-    'Kept a plant running through two sieges and a blackout. It has never once stopped since.',
+    'Plant manager at a river smelter. Kept the line hot through two sieges and a blackout, then left with the keys.',
     {
       engineering: 33,
       logistics: 30,
@@ -388,7 +388,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Petra Mink',
     'technocrat',
     '17',
-    'Has never thrown anything away in her life and has been right about it four times.',
+    'Rents three lock-ups under three names. One is full of left boots, and she can tell you why.',
     {
       salvage: 35,
       organization: 30,
@@ -406,7 +406,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Gideon Arce',
     'technocrat',
     '18',
-    'Builds it for what the parts cost and pockets the difference, which he is open about.',
+    '"Cost, plus nothing, plus whatever falls off the truck." Has put up more scaffolding than anyone still working.',
     {
       craft: 33,
       engineering: 30,
@@ -424,7 +424,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Yusuf Baran',
     'technocrat',
     '19',
-    'Gets good metal out of what everybody else buried. Will not say how and does not need to.',
+    'Grew up beside the slag heaps and learned to read them. Will not say what goes into his furnace.',
     {
       craft: 34,
       chemistry: 30,
@@ -442,7 +442,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Ivo Sarkany',
     'fixer',
     '20',
-    'Owns every roof in the district by Friday. Has never once raised the rent, which is what makes it work.',
+    'Bought the whole block one winter by paying everyone’s rent. The tenants still send him a card on his birthday.',
     {
       negotiation: 33,
       authority: 30,
@@ -460,7 +460,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Kenji Aramaki',
     'technocrat',
     '21',
-    'Turns them out trained rather than merely alive. The difference is the first week.',
+    'Ran the recruit course for a security firm that no longer exists. Most of his graduates still do.',
     {
       encyclopedia: 33,
       communication: 30,
@@ -478,7 +478,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Lark Oduya',
     'netrunner',
     '22',
-    'Knows a way through that is on no map, because she took the map off the wall.',
+    'Drove freight convoys until she found faster roads than the ones on the company maps. Still finds them.',
     {
       navigation: 35,
       speed: 30,
@@ -496,7 +496,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Bram Teague',
     'fixer',
     '23',
-    'Comes back with more than went out, every time, and nobody has worked out where from.',
+    '"Everything down here belonged to somebody once. Most of them stopped asking." Runs the best salvage crew on the south side.',
     {
       salvage: 34,
       stamina: 30,
@@ -514,7 +514,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Dr. Sunniva Lind',
     'technocrat',
     '24',
-    'Read the manual nobody else finished and then wrote the corrections in the margin.',
+    'Former Combine archivist, dismissed for reading the archive. She left with a van full of it.',
     {
       logic: 34,
       encyclopedia: 31,
@@ -532,7 +532,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Odile Vasquez',
     'technocrat',
     '25',
-    'Keeps the yard running on parts that should not fit, using a method she calls persuasion.',
+    'Learned the trade keeping a bus fleet running on parts from other buses. Calls her method persuasion and will not show anyone.',
     {
       craft: 34,
       engineering: 30,
@@ -550,7 +550,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Ren "Nobody" Aslan',
     'netrunner',
     '26',
-    'There is no photograph of them anywhere. There used to be three.',
+    'Three crews say they have hired Ren. None of them describe the same person.',
     {
       stealth: 36,
       cryptography: 30,
@@ -568,7 +568,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Esme Dalgaard',
     'netrunner',
     '27',
-    'Has walked every street in this city twice and drawn it once, from memory, correctly.',
+    'Surveyed the city for the tax office and kept a second copy of every map, including the streets the office left off.',
     {
       navigation: 34,
       analysis: 30,
@@ -586,7 +586,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Cass Moreau',
     'netrunner',
     '28',
-    'Gets in before anybody has decided to stop them, which is earlier than it sounds.',
+    'Nine years as a building inspector, and she kept every set of keys.',
     {
       stealth: 34,
       dexterity: 31,
@@ -604,7 +604,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Vasska Grell',
     'enforcer',
     '29',
-    'The street clears before she reaches the end of it. She has never asked it to.',
+    'Collected debts for the Combine until the Combine started paying her to stop. Speaks quietly and never repeats herself.',
     {
       intimidation: 36,
       resolve: 30,
@@ -622,7 +622,7 @@ export const OVERSEER_PRESETS: readonly OverseerPreset[] = [
     'Dorian Vale',
     'fixer',
     '30',
-    'Makes sure the right people hear about it, in the right order, from the right mouth.',
+    'Wrote the pamphlets that made three gang bosses famous and got one of them killed. Charges by the column.',
     {
       communication: 34,
       charisma: 31,

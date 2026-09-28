@@ -18,6 +18,9 @@ import { pagesOnShelf } from '../market/blackmarket.js';
 import { BLUEPRINTS } from './catalog.js';
 import { drawPage, pagePrizeFor, pagePrizeOdds, pageWonFrom, pagesIn } from './prize.js';
 
+/** Any server secret: the rate is a property of the draw, not of which secret keys it. */
+const SALT = 'prize-test-salt';
+
 /** Enough days to settle a one-in-twenty-one rate, few enough to stay quick. */
 const DAYS = 150;
 const AREAS = [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)];
@@ -30,12 +33,14 @@ function sweep() {
   for (let day = 0; day < DAYS; day += 1) {
     const stamp = `2026-04-${day}`;
     for (const areaId of AREAS) {
-      const templates = missionOffers(areaId, stamp);
-      if (templates.length === 0) continue;
+      // Level 72, where C is the centre of the deal at half pace: the middle of the ladder, which
+      // is the rate `BOARD_DIFFICULTY_BLEND` is set to (2026-09-28).
+      const jobs = missionOffers(areaId, stamp, 72);
+      if (jobs.length === 0) continue;
       rotations += 1;
-      for (const template of templates) {
+      for (const job of jobs) {
         offers += 1;
-        const category = pagePrizeFor(areaId, stamp, template.id, template.difficulty);
+        const category = pagePrizeFor(SALT, areaId, stamp, job.template.id, job.grade);
         if (category === null) continue;
         pages += 1;
         byCategory.set(category, (byCategory.get(category) ?? 0) + 1);
@@ -60,11 +65,12 @@ describe('pages as mission pay (§F1)', () => {
   });
 
   it('never becomes something a crew can farm', () => {
-    // §F1h: harder work pays better, "but only by a bit". A hard job may not be worth double.
-    expect(pagePrizeOdds('hard')).toBeGreaterThan(pagePrizeOdds('easy'));
-    expect(pagePrizeOdds('hard')).toBeLessThan(pagePrizeOdds('easy') * 2);
+    // §F1h: harder work pays better, "but only by a bit". The hardest grade may not be worth double.
+    expect(pagePrizeOdds('S+')).toBeGreaterThan(pagePrizeOdds('F-'));
+    expect(pagePrizeOdds('C')).toBeGreaterThan(pagePrizeOdds('F-'));
+    expect(pagePrizeOdds('S+')).toBeLessThan(pagePrizeOdds('F-') * 2);
     // And no single offer is ever likely to carry one.
-    expect(pagePrizeOdds('hard')).toBeLessThan(0.1);
+    expect(pagePrizeOdds('S+')).toBeLessThan(0.1);
   });
 
   it('spreads across all three categories rather than favouring one', () => {
@@ -76,17 +82,47 @@ describe('pages as mission pay (§F1)', () => {
 
   it('gives the same offer the same answer every time it is read', () => {
     // A card that re-rolled its prize on every read is a card a player refreshes until it pays.
-    const first = pagePrizeFor('rustyard', '2026-04-09', 'anything', 'hard');
+    const first = pagePrizeFor(SALT, 'steelbelt', '2026-04-09', 'anything', 'S+');
     for (let i = 0; i < 5; i += 1) {
-      expect(pagePrizeFor('rustyard', '2026-04-09', 'anything', 'hard')).toBe(first);
+      expect(pagePrizeFor(SALT, 'steelbelt', '2026-04-09', 'anything', 'S+')).toBe(first);
     }
-    // ...and a different day is a different question.
-    const days = new Set(
-      Array.from({ length: 40 }, (_, d) =>
-        pagePrizeFor('rustyard', `2026-05-${d}`, 'anything', 'hard'),
-      ),
+    /*
+     * ...and a different day is a different question.
+     *
+     * Two hundred days rather than forty. A hard job carries a page under 10% of the time, so on
+     * forty days every one of them coming back empty is an ordinary result, about one run in
+     * twenty, and the set is then a single answer with nothing wrong. It passed on the sample it
+     * was written against and went red the day the Steelbelt's id changed, which is a found case
+     * expiring rather than a rule breaking. At two hundred the all-empty run is about one in two
+     * million.
+     */
+    const days = Array.from({ length: 200 }, (_, d) =>
+      pagePrizeFor(SALT, 'steelbelt', `2026-05-${d}`, 'anything', 'S+'),
     );
-    expect(days.size, 'every day gave the same answer').toBeGreaterThan(1);
+    expect(new Set(days).size, 'every day gave the same answer').toBeGreaterThan(1);
+    // And the spread is between paying and not, rather than between two kinds of nothing: without
+    // this a run where no day pays at all would satisfy the line above on a single stray value.
+    expect(days.some((page) => page !== null)).toBe(true);
+    expect(days.some((page) => page === null)).toBe(true);
+  });
+
+  /**
+   * The server's secret decides which cards pay, so the client cannot work it out.
+   *
+   * Everything else in the seed is on the card or comes off the clock, and this function ships in
+   * the client bundle. Unsalted, a player could run it over the board and take only the paying
+   * card. Two salts over the same offers must disagree about which ones carry a page.
+   */
+  it('answers differently under a different secret', () => {
+    const offers = Array.from({ length: 2000 }, (_, i) => `2026-06-${i}`);
+    const paying = (salt: string) =>
+      offers.filter((day) => pagePrizeFor(salt, 'steelbelt', day, 'anything', 'S+') !== null);
+    const ours = paying(SALT);
+    const theirs = new Set(paying('a-guess'));
+    expect(ours.length, 'nothing paid, so there was nothing to hide').toBeGreaterThan(20);
+    const agreed = ours.filter((day) => theirs.has(day)).length;
+    // Independent draws at under 10% agree on a paying offer about 10% of the time.
+    expect(agreed / ours.length).toBeLessThan(0.3);
   });
 });
 

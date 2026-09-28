@@ -117,6 +117,18 @@ export const RESOURCE_CAP_VALUE: Readonly<Record<keyof Resources, number>> = {
   highQualityMetal: 12,
 };
 
+/**
+ * A figure worked out of the values above, with the binary noise taken off before it is rounded.
+ *
+ * 2.2 and 1.5 have no exact binary form, so a hundred planks at the supplier came to
+ * 330.00000000000006 caps and `Math.ceil` charged 331, and thirty-three oil at the Broker came to
+ * 14.999999999999998 planks and `Math.floor` paid 14. Every honest figure here is a whole number of
+ * hundredths, so rounding to a millionth first moves nothing but the noise.
+ */
+export function withoutFloatNoise(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
 export type OfferRefusal =
   'nothing_offered' | 'nothing_wanted' | 'cannot_cover' | 'too_many_offers' | 'untradeable';
 
@@ -159,6 +171,43 @@ export function offerExpiresAt(offer: MarketOffer): Date {
 
 export function offerHasExpired(offer: MarketOffer, now: Date): boolean {
   return offerExpiresAt(offer).getTime() <= now.getTime();
+}
+
+/**
+ * Goods the board is holding for a crew until it presses Claim (maintainer, 2026-09-28).
+ *
+ * *"When you have a fulfilled trade, there is a claim button instead, and when you claim it you get
+ * the resources. This lasts 24 hours and then is auto claimed and doesn't matter if it overflows,
+ * then you lose it."*
+ *
+ * Everything the board hands a crew while it is not pressing anything waits here: the payment for
+ * a listing somebody took, a listing's own goods when it expires untaken, and a counter's goods
+ * when the listing it answered closes. The crew pressing Accept or Withdraw is on the screen and is
+ * warned there instead, so their goods never wait.
+ */
+export const CLAIM_WINDOW_HOURS = 24;
+
+/** Why the goods are waiting: somebody took the listing, nobody did, or its parent closed. */
+export const MARKET_CLAIM_REASONS = ['taken', 'expired', 'closed'] as const;
+export const MarketClaimReasonSchema = z.enum(MARKET_CLAIM_REASONS);
+export type MarketClaimReason = z.infer<typeof MarketClaimReasonSchema>;
+
+export const MarketClaimSchema = z.object({
+  id: IdSchema,
+  /** The listing the goods came off, as it stands now: it is closed for good once it is here. */
+  offer: MarketOfferSchema,
+  reason: MarketClaimReasonSchema,
+  goods: TradeBundleSchema,
+  /** The crew that took the listing. Null when nobody did. */
+  takenBy: z.string().min(1).nullable(),
+  createdAt: IsoDateTimeSchema,
+  /** When the board stops holding them and credits them whether the stores have room or not. */
+  claimUntil: IsoDateTimeSchema,
+});
+export type MarketClaim = z.infer<typeof MarketClaimSchema>;
+
+export function claimUntil(createdAt: Date): Date {
+  return new Date(createdAt.getTime() + CLAIM_WINDOW_HOURS * 3_600_000);
 }
 
 /** A listing a given crew is allowed to see: public ones, plus counters aimed at them. */

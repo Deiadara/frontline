@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
+import { IdSchema, IsoDateTimeSchema, REQUEST_AMOUNT_MAX } from '../primitives.js';
 import { MILESTONE_SECOND_SIGNATURE, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { seedFrom } from '../rng.js';
 import { GAME_TIMEZONE, dayInZone, nextDayBoundary } from '../time/zone.js';
@@ -203,13 +203,13 @@ export type BarAuctionResult = z.infer<typeof BarAuctionResultSchema>;
 
 export const PlaceBidRequestSchema = z.object({
   recruitId: IdSchema,
-  amount: z.number().int().positive(),
+  amount: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
 });
 export type PlaceBidRequest = z.infer<typeof PlaceBidRequestSchema>;
 
 export const SealBidRequestSchema = z.object({
   recruitId: IdSchema,
-  amount: z.number().int().positive(),
+  amount: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
 });
 export type SealBidRequest = z.infer<typeof SealBidRequestSchema>;
 

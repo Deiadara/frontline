@@ -1,7 +1,11 @@
-import { CITY_DISTRICTS, type District } from './city/districts.js';
+import type { District } from './city/districts.js';
+import { districtsOfCity, findDistrict } from './city/atlas.js';
+import { DEFAULT_CITY_ID } from './city/cities.js';
 import {
   MISSION_TEMPLATES,
   rewardScale,
+  templateTimings,
+  type Mission,
   type MissionKind,
   type MissionTemplate,
 } from './missions.js';
@@ -10,7 +14,7 @@ import { GAME_TIMEZONE, dayInZone } from './time/zone.js';
 import { MILESTONE_THIRD_CREW, isPlayerUnlockActive } from './progression/unlocks.js';
 import { RESOURCE_KEYS, type PartialResources, type ResourceKey } from './resources.js';
 import { seedFrom } from './rng.js';
-import type { BattleTier } from './missions.leading.js';
+import { GRADES, dealGrade, gradeIndex, type Grade } from './missions.grade.js';
 import { isCombatUnit, type Army, type UnitLoadouts } from './units/index.js';
 import { bareLineRules, type LineRules } from './battle/line.js';
 import { lootCapacityOf } from './raid.js';
@@ -37,10 +41,23 @@ import { lootCapacityOf } from './raid.js';
  * the screen. {@link areaIsOpen} is the rule and `missions/board.test.ts` on the server is what
  * holds the count.
  *
- * The three on offer are a pure function of the area, so two players looking at Steelbelt see
- * the same three jobs and a player can plan around them. What differs is what they pay: a job in a
- * hard district is worth more than the same job in an easy one, which is what makes the map worth
+ * The three on offer are a pure function of the area, its key and the crew's level, so a crew
+ * sees the same three on every read and can plan around them; two crews at different levels see
+ * different grades (see {@link missionOffers}). What the ground adds is pay: a job in a hard
+ * district is worth more than the same job in an easy one, which is what makes the map worth
  * pushing into.
+ *
+ * ## One city at a time, but the whole world priced (2026-09-24)
+ *
+ * Every enumeration here used to read `CITY_DISTRICTS`, which is Ashfall's twelve and nothing
+ * else. Two different bugs came out of that the day Terminus opened. The enumerations
+ * ({@link areasOffering}, {@link openAreas}) answered about the wrong city, so a crew standing in
+ * Terminus read Ashfall's boards; those take a `cityId` now and go through `districtsOfCity`.
+ * {@link areaDifficulty} was worse, because it does not enumerate anything: it looked a single
+ * district up in Ashfall's array, missed, and fell through to its `?? 1`, which is the `misc`
+ * floor. Every Terminus board would have paid the cheapest rate in the game, the Blockhouse's
+ * difficulty 10 included. That one is a world-wide lookup (`findDistrict`) rather than a city
+ * parameter: a district's difficulty is a fact about the ground and the caller already has its id.
  */
 
 /** The board that is not anybody's ground: scrap runs, expeditions, work with no address. */
@@ -64,57 +81,89 @@ export function concurrentMissionSlots(level: number): number {
   return BASE_CONCURRENT_MISSIONS + (isPlayerUnlockActive(MILESTONE_THIRD_CREW, level) ? 1 : 0);
 }
 
+/** One card on a board: the job, and the grade it was dealt at. */
+export interface DealtJob {
+  template: MissionTemplate;
+  grade: Grade;
+}
+
 /**
- * The three jobs an area offers, and the mix they come in.
+ * The three jobs an area offers a crew, and the grade each is dealt at (maintainer, 2026-09-28).
  *
- * **One fight and two plain jobs**, on every board (maintainer, 2026-09-23). It was a coin per
- * area between one fight and two; the rule now is the same mix everywhere, because a board of
- * three fights is a board a crew with no army cannot read and a board of three scrap runs is a
- * board nobody with an army wants, and one fight is enough of the first.
+ * **One fight and two plain jobs**, on every board (maintainer, 2026-09-23): a board of three
+ * fights is one a crew with no army cannot read, and a board of three scrap runs is one nobody with
+ * an army wants.
  *
- * Deterministic in the area **and the UTC day**: the pick walks each kind's own pool from a seeded
- * start in a seeded stride, so the three are stable for the whole day and two players looking at
- * Steelbelt see the same three, and the board turns over at midnight. The turnover is what
- * keeps a pool larger than the city's fifty-nine slots from being dead content: a job that is
- * on nobody's board today is on somebody's within the fortnight.
+ * Each card rolls its grade off the crew's level (`dealGrade`), then takes a job of its kind whose
+ * range covers that grade. Boards are a crew's own: taking a job touches nobody else's, and two
+ * crews at different levels looking at one district see different work. For one crew the board is
+ * deterministic in the area and its key (`missionBoardKey`), so a card re-read is the same card;
+ * the level moves which cut of the same roll a card lands in, so a crew that levels up can see an
+ * untaken card change, the way a fight's tier used to.
  *
  * `misc` gets the same treatment rather than a hand-picked list; what makes it different is that
  * it is always open, before a crew has scouted anything.
  */
-export function missionOffers(areaId: string, day = ''): MissionTemplate[] {
-  const seed = seedFrom(`${areaId}:${day}`);
-  // One fight and two plain jobs, every board, every day (maintainer, 2026-09-23). The coin that
-  // used to deal two fights half the time is gone: a board is read by crews with and without an
-  // army, and one of each kind is what both can use.
-  const battles = FIGHTS_PER_AREA;
-
-  const chosen = [
-    ...takeFrom(byKind('battle'), seed, battles),
-    ...takeFrom(byKind('standard'), seed >>> 8, MISSIONS_PER_AREA - battles),
+export function missionOffers(areaId: string, day = '', level = 1): DealtJob[] {
+  const kinds: MissionKind[] = [
+    ...Array<MissionKind>(FIGHTS_PER_AREA).fill('battle'),
+    ...Array<MissionKind>(MISSIONS_PER_AREA - FIGHTS_PER_AREA).fill('standard'),
   ];
+  const dealt: DealtJob[] = [];
+  kinds.forEach((kind, slot) => {
+    const seed = seedFrom(`deal:${areaId}:${day}:${slot}`);
+    const { covering, grades } = jobsOfKind(kind);
+    const grade = dealGrade((seed % 100_000) / 100_000, level, grades);
+    const fits = (covering.get(grade) ?? []).filter(
+      (template) => !dealt.some((job) => job.template === template),
+    );
+    const template = fits[(seed >>> 7) % fits.length];
+    if (template) dealt.push({ template, grade });
+  });
   // Ordered as the board draws them rather than grouped by kind: three cards that always put the
-  // fights on the left would make the arrows the only thing worth reading.
-  return chosen.sort((a, b) => a.durationMinutes - b.durationMinutes);
+  // fight on the left would make the arrows the only thing worth reading.
+  return dealt.sort(
+    (a, b) =>
+      templateTimings(a.template, a.grade).durationMinutes -
+      templateTimings(b.template, b.grade).durationMinutes,
+  );
 }
 
-const byKind = (kind: MissionKind): readonly MissionTemplate[] =>
-  MISSION_TEMPLATES.filter((template) => template.kind === kind);
+/**
+ * Each kind's jobs by the grades they cover, worked out once. Read three times a board, and a
+ * board is drawn for every area on every read of the missions screen.
+ *
+ * Built on first use rather than at load: this module and the catalogue import each other, and
+ * the catalogue is not there yet while this one is still loading.
+ */
+const JOBS_BY_KIND = new Map<
+  MissionKind,
+  { covering: Map<Grade, MissionTemplate[]>; grades: Grade[] }
+>();
 
-/** `count` different entries out of `pool`, walked from a seeded start in a seeded stride. */
-function takeFrom(
-  pool: readonly MissionTemplate[],
-  seed: number,
-  count: number,
-): MissionTemplate[] {
-  if (pool.length === 0) return [];
-  const start = seed % pool.length;
-  const stride = pool.length === 1 ? 1 : 1 + (seed % (pool.length - 1));
-  const chosen: MissionTemplate[] = [];
-  for (let step = 0; chosen.length < count && step < pool.length * 2; step += 1) {
-    const template = pool[(start + step * stride) % pool.length];
-    if (template && !chosen.includes(template)) chosen.push(template);
+function jobsOfKind(kind: MissionKind): {
+  covering: Map<Grade, MissionTemplate[]>;
+  grades: Grade[];
+} {
+  const known = JOBS_BY_KIND.get(kind);
+  if (known) return known;
+  const pool = MISSION_TEMPLATES.filter((template) => template.kind === kind);
+  const covering = new Map<Grade, MissionTemplate[]>();
+  for (const grade of GRADES) {
+    const jobs = pool.filter((template) => covers(template, grade));
+    if (jobs.length > 0) covering.set(grade, jobs);
   }
-  return chosen;
+  // Every grade holds at least eight jobs of each kind (`missions.grade.test.ts`), so leaving out
+  // the one or two already on the board never empties a grade the deal can land on.
+  const built = { covering, grades: [...covering.keys()] };
+  JOBS_BY_KIND.set(kind, built);
+  return built;
+}
+
+/** Whether a job can be dealt at this grade. */
+export function covers(template: MissionTemplate, grade: Grade): boolean {
+  const at = gradeIndex(grade);
+  return gradeIndex(template.grades[0]) <= at && at <= gradeIndex(template.grades[1]);
 }
 
 /**
@@ -130,16 +179,24 @@ function takeFrom(
  * asking "where is this job today" was handed a plot on the days the rotation put one first, and
  * the launch it built from that answer came back refused. The other half of {@link areaIsOpen},
  * whether the ground is scouted and loose, is a fact about one crew and cannot be answered here.
+ *
+ * One city's boards, because a crew reads one city's board at a time and "where is this job
+ * today" has a different answer in each of them. Defaulted to the city everybody starts in rather
+ * than answering for the whole world: a caller that does not say which city means the one it has
+ * always meant, and a list mixing three cities' district ids is a list nothing can act on without
+ * splitting it again.
  */
 export function areasOffering(
   templateId: string,
   now: Date,
+  level: number,
   zone: string = GAME_TIMEZONE,
+  cityId: string = DEFAULT_CITY_ID,
 ): string[] {
-  const boards = CITY_DISTRICTS.filter((district) => district.kind === 'contested');
+  const boards = districtsOfCity(cityId).filter((district) => district.kind === 'contested');
   return [MISC_AREA_ID, ...boards.map((district) => district.id)].filter((areaId) =>
-    missionOffers(areaId, missionBoardKey(areaId, now, zone)).some(
-      (template) => template.id === templateId,
+    missionOffers(areaId, missionBoardKey(areaId, now, zone), level).some(
+      (job) => job.template.id === templateId,
     ),
   );
 }
@@ -162,9 +219,10 @@ export function missionBoardDay(now: Date, zone: string = GAME_TIMEZONE): string
  * something to do on. Turning over hourly is what stops it being the same three cards every time
  * a player opens the page.
  *
- * An hour rather than minutes, because the board is still a shared fact: two players looking at
- * `misc` at the same moment see the same three, and `pagePrize` and the launch's own check read
- * the same key. See {@link missionBoardKey}.
+ * An hour rather than minutes, because the key is still a shared fact: two crews at the same level
+ * looking at `misc` at the same moment are dealt the same three (taking one touches nobody else's
+ * board), and `pagePrize` and the launch's own check read the same key. See {@link
+ * missionBoardKey}.
  */
 export const MISC_BOARD_ROTATION_MINUTES = 60;
 
@@ -174,6 +232,21 @@ export const MISC_BOARD_ROTATION_MINUTES = 60;
  * One function for both, so the screen, the launch's "is this still on offer" check and the page
  * prize cannot disagree about which board they are talking about. A district's key is its day
  * unchanged, which is exactly what every one of those three read before this existed.
+ *
+ * ## No city term, on purpose (2026-09-24)
+ *
+ * A district carries its city in its own id, so two cities' boards are already different boards.
+ * `misc` is the one area that is not ground, and the question a second city raised is whether a
+ * crew standing in Terminus should read a different three cards from the same crew at home.
+ *
+ * They read the same three, and that follows from what `misc` is: work with no address, and
+ * therefore work with no city. Two other things say the same. `areaPayPercent(misc)` is 0 in every
+ * city because the board that is always open is the board that pays least, so a per-city `misc`
+ * would differ in its cards and in nothing a player can weigh. And `areaId` is what the
+ * one-crew-per-area rule and the stored mission row are both keyed on, so making the cards differ
+ * per city without splitting the id would leave one lock over boards that are no longer the same
+ * board: a crew with a scrap run out of Ashfall would be refused a Terminus one it can see. The
+ * split is a bigger change than the cards are worth, and it is the maintainer's to call.
  */
 export function missionBoardKey(areaId: string, now: Date, zone: string = GAME_TIMEZONE): string {
   const day = missionBoardDay(now, zone);
@@ -214,9 +287,17 @@ export function launchableBoardKeys(
  */
 export const PAY_PERCENT_PER_DIFFICULTY = 9;
 
+/**
+ * The authored difficulty of the ground a board sits on, anywhere in the world.
+ *
+ * `findDistrict` rather than a walk of one city's array. The `?? 1` below is there for an area id
+ * the map genuinely does not have, a renamed district on a stale tab, and it has to stay a
+ * fall-through of last resort: a lookup scoped to Ashfall silently gave every Terminus board the
+ * `misc` rate, so the Blockhouse at difficulty 10 paid what the board that is always open pays.
+ */
 export function areaDifficulty(areaId: string): number {
   if (areaId === MISC_AREA_ID) return 1;
-  return CITY_DISTRICTS.find((district) => district.id === areaId)?.difficulty ?? 1;
+  return findDistrict(areaId)?.difficulty ?? 1;
 }
 
 export function areaPayPercent(areaId: string): number {
@@ -237,31 +318,6 @@ export function scaledSpoils(spoils: PartialResources, payPercent: number): Part
 }
 
 /**
- * What the crew's own level does to a job (§I, §E5).
- *
- * Both halves move together, and they have to: a board that paid more without asking more would
- * make levelling a way of skipping the game, and one that asked more without paying more would
- * make it a punishment. Ten percent more pay per level over the first, and a point of success
- * chance off every other level, floored so the hardest job on the board never becomes a coin flip.
- *
- * Applied at the *offer*, so what a player reads on the card is what the run was launched under:
- * `launchMission` freezes both onto the row and a level gained mid-flight cannot re-price a crew
- * that has already gone.
- */
-export const PAY_PERCENT_PER_LEVEL = 10;
-export const SUCCESS_DROP_PER_LEVEL = 0.005;
-export const MIN_SCALED_SUCCESS = 0.5;
-
-export function levelPayPercent(level: number): number {
-  return Math.max(0, Math.trunc(level) - 1) * PAY_PERCENT_PER_LEVEL;
-}
-
-export function scaledSuccessChance(base: number, level: number): number {
-  const harder = base - Math.max(0, Math.trunc(level) - 1) * SUCCESS_DROP_PER_LEVEL;
-  return Math.max(MIN_SCALED_SUCCESS, Math.min(1, harder));
-}
-
-/**
  * XP a job pays (§I1).
  *
  * Priced off the clock and the risk rather than authored per template: a job that takes a crew
@@ -274,13 +330,13 @@ export function scaledSuccessChance(base: number, level: number): number {
 export function missionXp(
   template: MissionTemplate,
   totalMinutes: number,
-  level: number,
-  /** The fight's tier, dealt on the card and frozen on the row. Null on plain work. */
-  tier: BattleTier | null = null,
+  /** The grade the card was dealt and the row froze: harder work is worth more to learn from. */
+  grade: Grade,
 ): number {
-  const scaled = PLAYER_XP_AWARDS.missionCompleted * rewardScale(totalMinutes, template.kind, tier);
-  // Harder ground is worth more to learn from, at the same rate the pay climbs.
-  return Math.max(1, Math.round(scaled * (1 + levelPayPercent(level) / 100)));
+  return Math.max(
+    1,
+    Math.round(PLAYER_XP_AWARDS.missionCompleted * rewardScale(totalMinutes, template.kind, grade)),
+  );
 }
 
 /**
@@ -291,6 +347,24 @@ export function missionXp(
  * taking. Resources are a different matter: a failure banks none, whatever kind it was.
  */
 export const FAILED_MISSION_XP_SHARE = 0.2;
+
+/**
+ * The XP a finished run paid: the figure frozen at launch on a clean run, the failure's share of
+ * it on one that came home empty, and none for a crew turned round before the site or one nobody
+ * came back from.
+ *
+ * One function because two readers print or pay it: the settle banks it and the mission report
+ * prints it, and the report printed the frozen figure whatever the outcome, so a failed run read
+ * five times what it paid. A row from before missions priced their own XP carries zero, which
+ * falls back to the table's anchor.
+ */
+export function missionXpEarned(
+  mission: Pick<Mission, 'xp' | 'outcome' | 'recalledAt' | 'reported'>,
+): number {
+  if (!mission.reported || mission.recalledAt !== null) return 0;
+  const full = mission.xp > 0 ? mission.xp : PLAYER_XP_AWARDS.missionCompleted;
+  return Math.round(full * (mission.outcome === 'success' ? 1 : FAILED_MISSION_XP_SHARE));
+}
 
 /** Whether this district is one a crew may still take work in. */
 export interface AreaAvailability {
@@ -326,11 +400,17 @@ export function areaIsOpen(district: District, { scouted, heldWhole }: AreaAvail
   return district.kind === 'contested' && scouted && !heldWhole;
 }
 
-/** Districts a crew may be offered work in, in map order. */
+/**
+ * Districts a crew may be offered work in, in map order, within one city.
+ *
+ * The city is a parameter for the reason {@link areasOffering} gives: a board belongs to the
+ * ground a crew is standing on, and Ashfall is the default rather than the whole of it.
+ */
 export function openAreas(
   availability: (district: District) => AreaAvailability,
+  cityId: string = DEFAULT_CITY_ID,
 ): readonly District[] {
-  return CITY_DISTRICTS.filter((district) => areaIsOpen(district, availability(district)));
+  return districtsOfCity(cityId).filter((district) => areaIsOpen(district, availability(district)));
 }
 
 // --- who goes ---

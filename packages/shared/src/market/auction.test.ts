@@ -4,12 +4,14 @@ import { MAX_OPEN_AUCTIONS } from '../bar/auction.js';
 import {
   MAX_OPEN_LOTS,
   canOpenLot,
+  largestBidWithin,
   lotSeed,
   nextLotBid,
   rankLotBids,
   vendorVisitAt,
   visitClosesAt,
 } from './auction.js';
+import { discountedInfamy } from './blackmarket.js';
 import { vendorSessionsFor } from './vendor.js';
 
 /**
@@ -203,5 +205,26 @@ describe('how many lots a crew may hold at once', () => {
 
   it('is the Bar’s number, so the two rooms read the same', () => {
     expect(MAX_OPEN_LOTS).toBe(MAX_OPEN_AUCTIONS);
+  });
+});
+
+/**
+ * The field's ceiling on a counter that charges the winner less than the bid.
+ *
+ * Both tables refuse on the charge, not on the bid, so the most a crew can say is the last bid whose
+ * charge still fits. A ceiling at the raw purse greyed out bids the server takes.
+ */
+describe('the most a crew can bid', () => {
+  it('is the purse itself when nothing comes off', () => {
+    expect(largestBidWithin(700, (bid) => bid)).toBe(700);
+    expect(largestBidWithin(0, (bid) => Math.max(1, bid))).toBe(0);
+  });
+
+  it('is the last bid whose charge still fits when the standing takes some off', () => {
+    const charge = (bid: number) => discountedInfamy(bid, 20);
+    const ceiling = largestBidWithin(700, charge);
+    expect(ceiling).toBeGreaterThan(700);
+    expect(charge(ceiling)).toBeLessThanOrEqual(700);
+    expect(charge(ceiling + 1)).toBeGreaterThan(700);
   });
 });

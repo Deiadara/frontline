@@ -18,7 +18,7 @@ import {
  * so they are measured on the same card.
  */
 
-const RUSTYARD = findDistrict('rustyard');
+const RUSTYARD = findDistrict('steelbelt');
 if (!RUSTYARD) throw new Error('fixture error: the Rustyard is missing from the city map');
 
 /** The one the fixture hands the crew, so it is the one with an upgrade button on it. */
@@ -29,7 +29,7 @@ async function openDistrict(page: Page, serverNow?: string): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await installApi(page, me);
   if (serverNow !== undefined) {
-    await page.route('**/api/city/rustyard', (route) =>
+    await page.route('**/api/city/steelbelt', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -37,7 +37,7 @@ async function openDistrict(page: Page, serverNow?: string): Promise<void> {
       }),
     );
   }
-  await page.goto('/game/city/rustyard');
+  await page.goto('/game/city/steelbelt');
   await settleFonts(page);
 }
 
@@ -281,11 +281,11 @@ test.describe('the weather over the city', () => {
 test('a sign says who holds it, in its own colour', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await installApi(page, me);
-  await page.route('**/api/city/datavault-sigma', (route) =>
+  await page.route('**/api/city/annexes', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(districtDetailFor('datavault-sigma')),
+      body: JSON.stringify(districtDetailFor('annexes')),
     }),
   );
   /*
@@ -296,14 +296,14 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
    * Combine holds, so it is the only place the orange can be seen, and a scouted copy has to be
    * built here rather than the fog fixture bent into one.
    */
-  const spire = findDistrict('combine-spire')!;
-  const held = districtDetailFor('datavault-sigma').locations[0]!;
-  await page.route('**/api/city/combine-spire', (route) =>
+  const spire = findDistrict('ccs')!;
+  const held = districtDetailFor('annexes').locations[0]!;
+  await page.route('**/api/city/ccs', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        ...districtDetailFor('combine-spire'),
+        ...districtDetailFor('ccs'),
         scouted: true,
         locations: spire.locations.map((location) => ({
           ...held,
@@ -330,7 +330,7 @@ test('a sign says who holds it, in its own colour', async ({ page }) => {
   };
 
   const seen = new Map<string, string>();
-  for (const districtId of ['datavault-sigma', 'combine-spire']) {
+  for (const districtId of ['annexes', 'ccs']) {
     for (const sign of await readSigns(districtId)) seen.set(sign.tone, sign.colour);
   }
 

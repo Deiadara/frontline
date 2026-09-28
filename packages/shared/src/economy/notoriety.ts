@@ -59,15 +59,17 @@ export const MAX_NOTORIETY = NOTORIETY_TIERS.length - 1;
 /**
  * What the first step off `Nobody` costs, and how much dearer each one after it is.
  *
- * The board set the shape: three hundred, then nine hundred, then two thousand seven hundred. A
- * clean tripling, which is what makes the early ladder feel like progress and the far end feel like
- * a rumour. `Nameless` at 300 x 3^12 is a number no crew is going to reach at current earn rates,
- * and that is a deliberate reading of the brief rather than an oversight: the last few rungs are
- * there to be seen from a distance, the way a Grepolis player can read the whole title list on day
- * one and know what the top of it means.
+ * Retuned 2026-09-28 (maintainer: "after two to three months of playing you are like three levels
+ * from the top one"). It was three hundred and a tripling, which priced the tenth rung at nine
+ * million infamy against the few hundred a day a fighting crew earns: in the progression
+ * simulation a crew had bought three rungs by day one hundred. At sixty and a growth of 1.625 a
+ * crew that fights every day and puts its infamy into its name buys the first rung on day two,
+ * the fifth around day sixteen and the tenth, `Street Devil`, around day seventy five, with the
+ * last three still ahead of it. A crew that spends on the back room as well gets there later,
+ * which is the other half of the two to three months.
  */
-export const NOTORIETY_FIRST_COST = 300;
-export const NOTORIETY_COST_GROWTH = 3;
+export const NOTORIETY_FIRST_COST = 60;
+export const NOTORIETY_COST_GROWTH = 1.625;
 
 /**
  * The price of moving from `tier` to the one above it, or `null` at the top.
@@ -77,7 +79,7 @@ export const NOTORIETY_COST_GROWTH = 3;
 export function notorietyUpgradeCost(tier: number): number | null {
   const at = clampNotoriety(tier);
   if (at >= MAX_NOTORIETY) return null;
-  return NOTORIETY_FIRST_COST * NOTORIETY_COST_GROWTH ** at;
+  return Math.round(NOTORIETY_FIRST_COST * NOTORIETY_COST_GROWTH ** at);
 }
 
 /** Total infamy spent to have reached `tier` from nothing. What the hover card calls "invested". */

@@ -19,6 +19,13 @@ declare  ->  deploy  ->  settle
 
 `simulate()` decides who holds the ground. Everything after it decides who goes home.
 
+**Who is in the two lines** is settled before the engine sees anything, by the server
+(`apps/server/src/battle/alignment.ts`, maintainer 2026-09-28): every unit at the place of the fight
+attacks if it is the attacker's or a faction-mate's, defends if it is the defender's or a
+faction-mate's, and otherwise is parked, neither counted nor killed. The place is the location, the
+gate or the district raided. Columns that land after the mark are not in either line: they walk on
+to whatever the fight leaves. The engine only ever receives the two armies that result.
+
 ## One round
 
 Both sides fire from the same snapshot and both take it. Sequential rounds would hand whoever went
@@ -146,7 +153,23 @@ What the retune changed, so that each rating has a use of its own:
 - **Evasion** scales with the enemy's engagement edges (`exchange`): fire that arrives from reach
   is dodged more (`EVASION_VS_REACH`), an attacker with a closing edge has caught the target and
   is dodged less (`EVASION_VS_CLOSING`), and `MAX_MISS` caps the whole thing. It was a flat miss
-  chance that interacted with nothing.
+  chance that interacted with nothing. `tracking` on the attacker's sheet (Kite Crews and the
+  Cartographer) takes half of whatever dodge is left (`evasionCut`), so it counters evasion by cutting the
+  miss chance rather than by adding damage.
+- **Gates** live on their own channel (`gatePercent`), folded into the defender's toughness beside
+  `defensePercent`. `breaching` (Breakers, Demolishers) divides that share back out of the hits it
+  lands (`Effective.gateToughness`), so for them there is no gate while the rest of their line still
+  meets it. A Colossus in the attacking line (`breaksWalls`) zeroes the defender's `gatePercent` for
+  the whole fight; the server then spends any trap without kills and lowers the gate it was at
+  (`apps/server/src/battle/wall-breaker.ts`). A gate is only in a fight at that gate (maintainer,
+  2026-09-28): the server hands the engine a `gatePercent` of zero for a location fight, a raid, or
+  a crew whose home Gate is somewhere else.
+- **Jamming** (`jammer`, the Netrunners) does two things that stack, each round off the jammers
+  still standing. The jam percent (`jamPercent`, up to 40 on nominal ground) weakens every enemy
+  modification by that share of what it adds (`Stack.modGain`, `jammedSheet`). And each Wonder of
+  Engineering the jammers' unit slots cover loses 10% of its damage and armour, 10% more per extra
+  jammer, 50% on nominal ground and up to 75% where the ground favours them (`wonderJam`). Machines
+  are covered as many as possible first, smallest first, before any cut deepens.
 - **Range** fires from the second rank (`SECOND_RANK_FIRE`): bodies queued behind the frontage
   still contribute in proportion to their range, so range is worth the most on narrow ground.
   Reach is also a duel now, bounded by the target's range as well as its speed, so two Sniper
@@ -192,6 +215,10 @@ and are re-statted on top of this, not the other way round.
   paid as 1. A death at the ring pays half too (`infamyForRingDead`), on either side, so a runner
   the ring kills paid a half for running and a half for dying. Battle jobs pay the same halves off
   their own rate (`missionInfamyForFled`).
+- **Going home** (the server's `homeFromTheFight`, maintainer 2026-09-28). Whoever is not staying
+  on the ground walks home from it on the ordinary clock, with the machines that survived: nobody
+  is back on a roster the second a fight ends. A crew that fought in its own district is already
+  home, and a gate garrison that held its gate stays on it.
 - **The report** (`reportReaches`). A defender is always told: it is their ground, gate or
   district. An attacker is told if they won or if at least one unit got home past the ring. The
   officer counts for nothing towards it.

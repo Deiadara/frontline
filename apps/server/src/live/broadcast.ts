@@ -24,13 +24,11 @@ interface Broadcast {
 }
 
 const PREFIXES: readonly Broadcast[] = [
-  // The map: a location taken, dug in, worked up or garrisoned; a captured gate raised.
+  // The map: a location worked up; a captured gate raised. A garrison changes when a column lands,
+  // which the world settle announces (`world/settle.ts`), not when it sets out.
   { prefix: '/city/gate', kind: 'world' },
-  { prefix: '/city/garrison', kind: 'world' },
-  { prefix: '/city/fortify', kind: 'world' },
   { prefix: '/city/upgrade', kind: 'world' },
   { prefix: '/city/cancel-upgrade', kind: 'world' },
-  { prefix: '/city/cancel-fortify', kind: 'world' },
   { prefix: '/city/gate/cancel', kind: 'world' },
   // The board: a fight called, a force moved or withdrawn, an ally's column sent, one recalled.
   // Not the trap, the leader, the boost or the rank: those are one crew's own books, and a tab
@@ -66,6 +64,8 @@ export function broadcastKindFor(method: string, path: string): LiveEventKind | 
   if (method !== 'POST' && method !== 'PATCH') return null;
   // Whatever prefix the API is mounted under, and any query string.
   const bare = path.replace(/\?.*$/, '').replace(/^.*?\/api(?=\/)/, '');
+  // A quote prices a write without making it, so nobody else's screen has anything to learn.
+  if (bare.endsWith('/quote')) return null;
   const hit = PREFIXES.find(({ prefix, match }) =>
     match === 'exact' ? bare === prefix : bare === prefix || bare.startsWith(`${prefix}/`),
   );

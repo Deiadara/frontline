@@ -21,7 +21,7 @@ import {
 import { UNIT_RATING_KEYS, UNIT_STAT_KEYS, type StatKey, type UnitStats } from './stats.js';
 
 /** The maintainer's figure, written here rather than read off the array it is checking. */
-const CATALOGUE_SIZE = 31;
+const CATALOGUE_SIZE = 35;
 /** Tape, offcuts and second-hand boots: the three a crew can build on its first day. */
 const OPEN_FROM_THE_START = ['taped_grips', 'scrap_vest', 'broken_in_boots'];
 
@@ -43,6 +43,7 @@ const KNOWN_OVERSHOOT: readonly string[] = [
   'demolishers.morale',
   'ghosts.morale',
   'ghosts.stealth',
+  'haulers.morale',
   'hollow_men.intimidation',
   'hollow_men.morale',
   'ironsides.armor',
@@ -56,10 +57,12 @@ const KNOWN_OVERSHOOT: readonly string[] = [
   'netrunners.morale',
   'netrunners.stealth',
   'road_reavers.morale',
+  'road_reavers.speed',
   'sleepers.morale',
   'sleepers.stealth',
   'sluggers.morale',
   'snipers.morale',
+  'snipers.penetration',
   'snipers.range',
   'snipers.stealth',
   'stitchers.morale',
@@ -71,7 +74,7 @@ const legendary = UNIT_CATALOG.filter((unit) => unit.tier === 'legendary');
 const carriers = UNIT_CATALOG.filter((unit) => unit.tier === 'carrier');
 
 describe('the modification catalogue', () => {
-  it('holds thirty-one cards with no two sharing an id', () => {
+  it('holds thirty-five cards with no two sharing an id', () => {
     expect(UNIT_MODIFICATIONS).toHaveLength(CATALOGUE_SIZE);
     expect(new Set(UNIT_MODIFICATION_IDS).size).toBe(CATALOGUE_SIZE);
     for (const spec of UNIT_MODIFICATIONS) {
@@ -359,10 +362,11 @@ describe('the hundred-point ceiling', () => {
       }
     }
     expect(over.sort()).toEqual([...KNOWN_OVERSHOOT].sort());
-    // Six ratings and no others: offense, vitality and the bag are open figures, and evasion and
-    // penetration sit low enough on every sheet for three cards to fit under the line.
+    // Seven ratings and no others: offense, vitality and the bag are open figures, and evasion sits
+    // low enough on every sheet for three cards to fit under the line. Penetration joined on
+    // 2026-09-28, when the fence's Hollowpoint Munitions put a third gun card on the Snipers.
     expect(new Set(KNOWN_OVERSHOOT.map((pair) => pair.split('.')[1]))).toEqual(
-      new Set(['morale', 'stealth', 'range', 'speed', 'armor', 'intimidation']),
+      new Set(['morale', 'stealth', 'range', 'speed', 'armor', 'intimidation', 'penetration']),
     );
   });
 

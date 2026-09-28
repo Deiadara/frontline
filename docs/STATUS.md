@@ -42,7 +42,8 @@ is the machines built in it. Caps are not farmed: they come off missions and rai
 power grid and no district morale; a structure runs at its own level and its own cards, and the
 Generator's oil burn is a purchase rather than a standing draw.
 
-✅ **Storage** (Apothecary) clamps production only: raid loot and pay are never clawed back. Three
+✅ **Storage** (Apothecary) is a hard ceiling on every credit (maintainer, 2026-09-28): what does not
+fit is thrown away, and a credit the player fires is warned about first (`WOULD_WASTE`). Three
 shelves, not one: bulk for scrap and planks, two thirds of it for oil and supplies, a third for HQ
 metal, and no ceiling at all on caps.
 ✅ **Unit slots** (Quarters) are one pool for the army, the bench, the officers and the fleet,
@@ -105,7 +106,7 @@ the clock (a Rail Yard, a Tram Depot, a district's unified bonus, an officer's N
 arithmetic for every road in the game: `roadMinutes` in `packages/shared/src/time/speed.ts`.
 
 ✅ **31 capturable places** across 20 kinds, each with an authored name, a hold bonus wired to a
-real mechanic, and a fortify difficulty. Holding every place in a district pays a **unified bonus**
+real mechanic. Holding every place in a district pays a **unified bonus**
 that is deliberately a different _kind_ of thing from anything inside it: enforced by a test.
 
 ✅ **Territory control** as world state: a place is held by exactly one party (unoccupied / the
@@ -116,9 +117,11 @@ on the crew, because they are what changes hands when it does.
 enforced server-side on the way out: unscouted ground returns no places at all, and `held` is
 `null` rather than `0 / 4`. A Satellite Uplink sees the nearest districts without walking in.
 
-✅ **Fortification**, five levels with scaling cost and time, settled lazily. Easy/medium/hard
-ground pays 5/4/3% defence per level: the board's inversion, so hard ground is already defensible
-and what you can add to it is marginal.
+✅ **No dug-in fortification** (removed 2026-09-26). What makes ground harder to take is the gate
+behind it (the defender's home Gate and, on a district held whole, its captured gate, both on the
+`gatePercent` channel), the garrison, traps and bonuses. A Colossus is the Wall Breaker: it takes
+the gates' toughness off the fight, walks through any trap (spent, no kills) and knocks each gate
+behind the defence down a level, win or lose, never below one.
 
 ✅ **Raiding a home district.** It can never be captured. A successful raid takes a share of the
 stockpile bounded by the **loot slots** the force can carry, and leaves the district's
@@ -157,7 +160,7 @@ Eight modules, each independently testable:
 
 | Module           | What it decides                                                                  |
 | ---------------- | -------------------------------------------------------------------------------- |
-| `battlefield.ts` | Which `CombatContext`s the ground has, and what digging in is worth.             |
+| `battlefield.ts` | Which `CombatContext`s the ground has, and how many fit on it.                   |
 | `effects.ts`     | The sheet → the numbers it fights with. Bonuses add, reductions multiply.        |
 | `matchup.ts`     | Damage type vs resistance, armour, reach/closing, and threat-weighted targeting. |
 | `morale.ts`      | The steady → shaken → wavering → broken ladder, intimidation and the cascade.    |
@@ -195,7 +198,7 @@ deleted and the test was confirmed to fail:
 - Intimidation works on low morale: the same shock hurts more the lower a stack already is.
 - Special units are almost immune to some damage and vulnerable to others (85% ceiling, no immunity).
 - Armour-piercing units walk toward the armour, with no rule anywhere saying they should.
-- The ground fires a unit's sheet, and fortification decides who _holds_ a place.
+- The ground fires a unit's sheet, and the gate behind it decides who _holds_ a place.
 - Narrow ground caps how many can fight at once, so numbers stop scaling.
 - An **opening strike**: `ambush` used to be a second `urban_bonus` under a different name, and is
   now a partial free exchange scaled by the stealth gap: the only combat use `stealth` has.
@@ -355,7 +358,7 @@ Two mapping rows are dead and worth knowing before anybody trusts them:
 
 - **There IS a tick, and this line used to deny it** (corrected 2026-09-22). `startWorldClock`
   (`live/clock.ts`) runs `tickWorld` every `WORLD_TICK_MS`, which is one second, and that calls
-  `settleWorld` for the whole world whether anybody is connected or not: fortifications, unit
+  `settleWorld` for the whole world whether anybody is connected or not: location upgrades, unit
   movements, sleepers, captured gates, **battles**, crews coming home, scouts, spy jobs, and both
   auction rooms. So a fight lands on its mark, a crew comes home, and loot changes hands while its
   owner is offline. The stale claim here is what made the architecture look absent.

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BUILDING_CATALOG, type BuildingKind } from '../building/kinds.js';
 import { OFFICER_ROLE_LABELS, type OfficerRole } from '../roles.js';
 import { PLAYER_LEVEL_MIN } from './curve.js';
+import { MAYHEM_UNLOCK_LEVEL } from '../missions.grade.js';
 
 /**
  * What opens the rest of the game (GDD §I3).
@@ -311,8 +312,8 @@ export const MILESTONE_BROKERS_RESPECT = 'brokers_respect';
 export const MILESTONE_DEEP_POCKETS = 'deep_pockets';
 /** Level 80: a third crew out at once, in a third area (§E). */
 export const MILESTONE_THIRD_CREW = 'third_crew';
-/** Level 90: the Siege, the sixth weight of fight job, starts turning up on the board. */
-export const MILESTONE_SIEGE = 'siege';
+/** Level 90: work graded S starts turning up on the board, and its fights are called Mayhem. */
+export const MILESTONE_MAYHEM = 'mayhem';
 
 const MILESTONES: readonly PlayerLevelUnlock[] = [
   {
@@ -346,11 +347,11 @@ const MILESTONES: readonly PlayerLevelUnlock[] = [
     description: 'Three jobs running at once, in three different parts of the city.',
   },
   {
-    id: MILESTONE_SIEGE,
-    level: 90,
-    name: 'The Siege',
+    id: MILESTONE_MAYHEM,
+    level: MAYHEM_UNLOCK_LEVEL,
+    name: 'Mayhem',
     description:
-      'A sixth weight of fight starts turning up on the board, above Fight V. It always pays a page and components on top of the haul.',
+      'Work graded S starts turning up on the board. The fights are called Mayhem, and a Mayhem always pays a page and components on top of the haul.',
   },
 ];
 

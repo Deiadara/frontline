@@ -16,7 +16,6 @@ import {
   queueCancellable,
   queueCompletesAt,
   cancelRefund,
-  addResources,
   addItems,
   spendResources,
   type PartialResources,
@@ -39,6 +38,7 @@ import {
 import { adminCost, adminSeconds } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { creditBase, refuseWaste } from './stores.js';
 
 /**
  * Placing one build order (GDD §A1, §D3: oil is what building consumes).
@@ -329,7 +329,7 @@ export function queueBuild(repos: Repositories, input: BuildInput): BuildResult 
  * followed by "you need Quarters at 4" is two round trips for one answer, and the district screen
  * shows the same list in its hover note.
  */
-export type BuildCancelRefusal = 'unknown_order' | 'window_closed';
+export type BuildCancelRefusal = 'unknown_order' | 'window_closed' | 'orders_behind';
 export type BuildCancelResult =
   | { kind: 'refused'; reason: BuildCancelRefusal }
   | { kind: 'cancelled'; base: Base; refund: PartialResources };
@@ -348,12 +348,18 @@ export function cancelBuild(
   base: Base,
   orderId: string,
   now: Date,
+  acceptWaste?: boolean,
 ): BuildCancelResult {
   const entry = base.buildQueue.find((queued) => queued.id === orderId);
   if (!entry) return { kind: 'refused', reason: 'unknown_order' };
   if (!queueCancellable(entry, now)) return { kind: 'refused', reason: 'window_closed' };
+  if (!tailStands(base, orderId)) return { kind: 'refused', reason: 'orders_behind' };
 
   const refund = cancelRefund(entry.paid);
+  // Back into the stores as far as they have room, warned about first (maintainer ruling,
+  // 2026-09-28).
+  const credit = creditBase(repos, base, refund, now);
+  refuseWaste(credit, acceptWaste);
   // Closed up in order, so a moved entry's completion feeds the one behind it. An order already
   // running keeps its clock; only the ones still waiting move up, and never to before now.
   const rechained: BuildQueueEntry[] = [];
@@ -370,13 +376,36 @@ export function cancelBuild(
 
   const cancelled: Base = {
     ...base,
-    resources: addResources(base.resources, refund),
+    resources: credit.resources,
     inventory: addItems(base.inventory, entry.parts),
     buildQueue: rechained,
   };
   repos.bases.updateHoldings(cancelled.id, cancelled.resources, cancelled.inventory);
   repos.bases.updateDistrict(cancelled.id, cancelled.buildings, cancelled.buildQueue);
   return { kind: 'cancelled', base: cancelled, refund };
+}
+
+/**
+ * Whether every order behind `orderId` would still have been allowed without it (bug pass,
+ * 2026-09-27).
+ *
+ * Each order was judged against the queue in front of it: its level is one above what that queue
+ * produces, and its Nexus requirement is met by it. Cancelling an order in front changes that
+ * answer, and nothing re-asks it when the later order lands, so a Gate queued 1 to 2 and 2 to 3
+ * with the first cancelled jumped from 1 to 3 for a tenth of level 2's price, and a structure
+ * queued behind the Nexus rung that unlocked it was built with the rung cancelled. Refused, with
+ * the reason, rather than cancelling the tail as well: those orders are the player's to call off.
+ */
+function tailStands(base: Base, orderId: string): boolean {
+  const at = base.buildQueue.findIndex((queued) => queued.id === orderId);
+  const remaining = base.buildQueue.filter((queued) => queued.id !== orderId);
+  return remaining.slice(at).every((later, offset) => {
+    const ahead = remaining.slice(0, at + offset);
+    return (
+      nextQueuedLevel(later.kind, base.buildings, ahead) === later.level &&
+      unmetForQueue(later.kind, base.buildings, ahead, base.level).length === 0
+    );
+  });
 }
 
 export function nexusGate(

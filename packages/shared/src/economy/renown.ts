@@ -11,10 +11,12 @@ import { MAX_NOTORIETY, NOTORIETY_TIERS, type NotorietyTier } from './notoriety.
  * What a rank is worth in a fight (§D7, maintainer 2026-09-16).
  *
  * Notoriety was a gate and nothing else, and it ran out of things to gate at rank 5: every unit
- * tier is fieldable there (`NOTORIETY_TO_FIELD`) and the Bar's hardest recruit asks for five
- * (`RECRUIT_MAX_MIN_NOTORIETY`). So the eight ranks above it, which cost a cumulative 239 million
- * infamy between them, bought a different word on a chip and nothing else. A ladder whose top half
- * changes no number is a ladder nobody climbs.
+ * tier was fieldable there (`NOTORIETY_TO_FIELD`) and the Bar's hardest recruit asked for five
+ * (`RECRUIT_MAX_MIN_NOTORIETY`). So the eight ranks above it, which then cost a cumulative 239
+ * million infamy between them, bought a different word on a chip and nothing else. A ladder whose
+ * top half changes no number is a ladder nobody climbs. (The unit gates have since moved up to the
+ * fourth and eighth rungs with the repriced ladder, 2026-09-28; every grant below still lands at or
+ * after the rung its tier can be fielded at.)
  *
  * Every rank pays something now, and what it pays is the fiction stated as arithmetic: a crew the
  * city is frightened of hits harder, holds longer and is *believed*. Intimidation is the spine of
@@ -61,8 +63,8 @@ export const NOTORIETY_GRANTS: Readonly<Record<NotorietyTier, readonly HoldBonus
   ],
 
   /**
-   * Marked is the old ceiling: every unit tier is fieldable here and every recruit will sit down.
-   * From here up the ladder used to be decoration, so this is where the numbers start to bite.
+   * Marked was the old ceiling, where every unit tier used to be fieldable and every recruit sat
+   * down. From here up the ladder used to be decoration, so this is where the numbers start to bite.
    */
   Marked: [
     { kind: 'unit_tier', tier: 'rabble', stat: 'vitality', percent: 8 },

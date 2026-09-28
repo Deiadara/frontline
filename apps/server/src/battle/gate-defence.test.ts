@@ -163,7 +163,7 @@ async function defenceWithGateAt(level: number): Promise<number> {
   const world = await makeWorld();
   raiseGate(world, level);
   await fightAtTheGate(world);
-  const handed = world.seen[0]?.defenderTerritory?.defensePercent;
+  const handed = world.seen[0]?.defenderTerritory?.gatePercent;
   expect(handed, 'the defender must have reached the engine with a fold').toBeDefined();
   return handed ?? 0;
 }

@@ -352,7 +352,11 @@ describe('what it costs, and who pays it', () => {
         .scoutPartiesFlat,
     ).toBe(1);
 
-    const dark = (await city(stack)).districts.filter((entry) => !entry.scouted).slice(0, 3);
+    // Contested ground: an empty home plot is closed to scouting (2026-09-28), which is a different
+    // refusal from the one this counts.
+    const dark = (await city(stack)).districts
+      .filter((entry) => !entry.scouted && entry.district.kind === 'contested')
+      .slice(0, 3);
     expect(dark.length).toBe(3);
 
     // Both parties are the Master of Whispers' own: nobody walks, so nobody is held, and the
@@ -361,6 +365,34 @@ describe('what it costs, and who pays it', () => {
     expect((await send(stack, dark[1]!.district.id)).statusCode).toBe(200);
     // Two, not unlimited: the third is refused exactly as the second was without the holding.
     expect((await send(stack, dark[2]!.district.id)).statusCode).not.toBe(200);
+  });
+
+  /** An unclaimed home plot is closed to everybody else until a crew moves in (2026-09-28). */
+  it('refuses a home plot nobody has claimed, and says it is closed', async () => {
+    const stack = await makeStack('unclaimed');
+    hire(stack);
+    const empty = (await city(stack)).districts.find(
+      (entry) => !entry.scouted && entry.district.kind === 'residential' && entry.base === null,
+    );
+    expect(empty, 'the fixture world needs an empty plot').toBeDefined();
+
+    const refused = await send(stack, empty!.district.id);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body).toContain('stays closed');
+    // The page for it says so too: closed, no scene to walk into, no scout to price.
+    const page = (
+      await stack.app.inject({
+        method: 'GET',
+        url: `/api/city/${empty!.district.id}`,
+        headers: { authorization: `Bearer ${stack.token}` },
+      })
+    ).json<{ closed: boolean; scoutPlan: unknown; residentBuildings: unknown[] }>();
+    expect(page).toMatchObject({ closed: true, scoutPlan: null, residentBuildings: [] });
+    // And the positive control: contested ground is scouted as ever.
+    const contested = (await city(stack)).districts.find(
+      (entry) => !entry.scouted && entry.district.kind === 'contested',
+    );
+    expect((await send(stack, contested!.district.id)).statusCode).toBe(200);
   });
 
   it('refuses ground the crew has already seen', async () => {

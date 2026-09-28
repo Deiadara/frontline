@@ -31,7 +31,6 @@ import { ProgressBar } from '../../components/ui/ProgressBar';
 import {
   useCancelBuild,
   useCancelDrill,
-  useCancelLocationFortify,
   useCancelLocationUpgrade,
   useCancelResearch,
   useCancelTraining,
@@ -47,13 +46,14 @@ import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { FileSection } from '../overseer/FileSection';
 import { Row, Section } from './rows';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Monitor's In progress page (maintainer, 2026-09-23): every clock that is running at home.
  *
  * "On the road" is everything that is somewhere else. This is everything that is *here* and not
  * finished: a level being built, a programme in the Archive, a batch on the bench, an officer's
- * drill, a place being worked up or dug in, and somebody laid up. It replaces the strip of chips
+ * drill, a place being worked up, and somebody laid up. It replaces the strip of chips
  * that used to sit under the Monitor ("In flight"), which had room for four words and a countdown
  * and drew the road's crews a second time; a page has room to say what each thing is, where, how
  * far along, and, inside its first tenth, the one X that calls it off.
@@ -389,10 +389,10 @@ function Drill({ session, who, now }: { session: TrainingSession; who: string; n
 }
 
 /**
- * One held district's places being worked up or dug in.
+ * One held district's places being worked up.
  *
- * A child per district rather than one list, because a location's clocks live on the district
- * read (`/city/:id`) and the two writes that call them off are keyed by district as well. A
+ * A child per district rather than one list, because a location's clock lives on the district read
+ * (`/city/:id`) and the write that calls it off is keyed by district as well. A
  * district with nothing under way draws nothing: the section is the work, not the holding.
  */
 function DistrictWorks({
@@ -408,37 +408,24 @@ function DistrictWorks({
 }) {
   const district = useDistrict(districtId);
   const cancelUpgrade = useCancelLocationUpgrade(baseId, districtId);
-  const cancelFortify = useCancelLocationFortify(baseId, districtId);
   const mine = (district.data?.locations ?? []).filter(
     (view) =>
-      view.holder.kind === 'crew' &&
-      view.holder.baseId === baseId &&
-      (view.upgradingUntil !== null || view.fortifyingUntil !== null),
+      view.holder.kind === 'crew' && view.holder.baseId === baseId && view.upgradingUntil !== null,
   );
   if (mine.length === 0) return null;
 
-  const works = mine.flatMap((view) => [
-    ...(view.upgradingUntil !== null ? [{ view, kind: 'upgrade' as const }] : []),
-    ...(view.fortifyingUntil !== null ? [{ view, kind: 'dig' as const }] : []),
-  ]);
   return (
-    <Section icon="city" title={`Worked in ${districtName}`} count={works.length}>
+    <Section icon="city" title={`Worked in ${districtName}`} count={mine.length}>
       <ul className="flex flex-col gap-2.5" data-testid={`progress-works-${districtId}`}>
-        {works.map(({ view, kind }) => {
-          const since = kind === 'upgrade' ? view.upgradingSince : view.fortifyingSince;
-          const until = kind === 'upgrade' ? view.upgradingUntil : view.fortifyingUntil;
-          const clock = workClock(since, until, now);
-          const name =
-            kind === 'upgrade'
-              ? `${view.location.name} to ${String(view.level + 1)}`
-              : `Digging in at ${view.location.name}`;
-          const write = kind === 'upgrade' ? cancelUpgrade : cancelFortify;
+        {mine.map((view) => {
+          const clock = workClock(view.upgradingSince, view.upgradingUntil, now);
+          const name = `${view.location.name} to ${String(view.level + 1)}`;
           return (
             <Row
-              key={`${view.location.id}-${kind}`}
-              testId={`progress-work-${view.location.id}-${kind}`}
+              key={view.location.id}
+              testId={`progress-work-${view.location.id}-upgrade`}
               name={name}
-              status={kind === 'upgrade' ? 'Upgrading' : 'Fortifying'}
+              status="Upgrading"
             >
               <Where place={districtName} remaining={formatRemaining(clock.left)} />
               <ProgressBar progress={clock.progress} label={name} />
@@ -447,11 +434,11 @@ function DistrictWorks({
                   <CancelMark
                     windowMs={clock.windowMs}
                     label={`Call off ${name}`}
-                    pending={write.isPending}
-                    onCancel={() => write.mutate({ locationId: view.location.id })}
-                    data-testid={`cancel-work-${view.location.id}-${kind}`}
+                    pending={cancelUpgrade.isPending}
+                    onCancel={() => cancelUpgrade.mutate({ locationId: view.location.id })}
+                    data-testid={`cancel-work-${view.location.id}-upgrade`}
                   />
-                  <WriteError message={write.error?.message} />
+                  <WriteError message={cancelUpgrade.error?.message} />
                 </Footer>
               )}
             </Row>
@@ -483,11 +470,7 @@ function workClock(
 
 function WriteError({ message }: { message: string | undefined }) {
   if (!message) return null;
-  return (
-    <span role="alert" className="mt-1 block font-body text-[12px] text-oxblood-300">
-      {message}
-    </span>
-  );
+  return <ErrorNote className="mt-1">{message}</ErrorNote>;
 }
 
 /** The one type this page reads off a district and nothing else needs. */

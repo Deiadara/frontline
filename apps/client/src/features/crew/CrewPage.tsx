@@ -23,9 +23,10 @@ import { cn } from '../../lib/cn';
 import { useCrew, useReassignOfficer, useReleaseOfficer } from '../../lib/queries';
 import { PageShell } from '../game/PageShell';
 import { ScreenLoad } from '../../components/ui/LoadFailure';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
- * The crew (GDD §C1, §C2): the nineteen chairs, and who is sitting in them.
+ * The crew (GDD §C1, §C2): the eighteen chairs, and who is sitting in them.
  *
  * This screen used to be the **assignee** page, and most of it was arithmetic about a pool: three
  * figures across the top counting units granted by player level, a row of pips on every card
@@ -50,7 +51,7 @@ interface SeatProps {
 /**
  * One chair, filled or empty.
  *
- * A fixed frame, for the roster's reason: nineteen of these run down a page and the eye should not
+ * A fixed frame, for the roster's reason: eighteen of these run down a page and the eye should not
  * have to re-find the name on each one. The portrait is the top two thirds and it is the whole
  * point of the card; everything under it is the caption.
  */
@@ -87,7 +88,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
       >
         {/* The empty chair, drawn (`.ink-chair`). A dashed frame rather than a grey block: a
             vacancy is a shape waiting to be filled, and a solid panel reads as something that is
-            broken instead. Most of the nineteen start empty, so this is the state a player spends
+            broken instead. Most of the eighteen start empty, so this is the state a player spends
             the most time looking at and it earns a real drawing rather than an icon. */}
         {/*
          * Exactly as tall as a portrait (maintainer, 2026-09-22: the empty chairs are broken,
@@ -201,7 +202,7 @@ function Seat({ role, officer, portraitId, onOpen }: SeatProps) {
        * There were four group peaks and a level here. The level is gone with the mechanic, and the
        * four numbers went because they were the wrong summary for this screen: every officer's
        * sheet sits in the same narrow recruitment band, so four numbers in the low twenties on
-       * nineteen cards is a wall of noise that never decides anything. A perk is the opposite: it
+       * eighteen cards is a wall of noise that never decides anything. A perk is the opposite: it
        * is discrete, it is the reason this person is worth their wage, and there are at most three.
        * The sheet is still one click away in the window.
        */}
@@ -534,11 +535,7 @@ function OfficerWindow({
                       cannot cover what letting them go would cost" and "Nobody on your books by
                       that id"), and a 500 or a dropped connection produces neither: printing the
                       caps explanation for all three sent a player to check a number that was fine. */}
-                  {release.error !== null && (
-                    <p role="alert" className="font-body text-[12px] text-oxblood-300">
-                      {release.error.message}
-                    </p>
-                  )}
+                  {release.error !== null && <ErrorNote>{release.error.message}</ErrorNote>}
                 </>
               ) : (
                 <button
@@ -602,7 +599,7 @@ function OfficerWindow({
 }
 
 /**
- * The nineteen chairs, the ones with somebody in them first.
+ * The eighteen chairs, the ones with somebody in them first.
  *
  * In `OFFICER_ROLES` order alone the roster opened on whoever happened to fall at the top of that
  * list, and on most crews that is nobody: at 1440 the first row was four vacancies 479px tall and
@@ -672,11 +669,7 @@ function Layout({ data }: { data: CrewResponse }) {
       {/* Reassignment is refused by an ordinary race: somebody took the chair in another tab. The
           mutation was read only for `isPending`, so a refusal left the window open with nothing
           said, and the window staying open was the whole of the feedback. */}
-      {reassign.error !== null && (
-        <p role="alert" className="font-body text-[13px] text-oxblood-300">
-          {reassign.error.message}
-        </p>
-      )}
+      {reassign.error !== null && <ErrorNote>{reassign.error.message}</ErrorNote>}
 
       {chair !== null && (
         <ChairWindow
@@ -702,7 +695,7 @@ function Layout({ data }: { data: CrewResponse }) {
         />
       )}
 
-      {/* No panel around it. Nineteen cards inside a bordered box is a box with a border you have
+      {/* No panel around it. Eighteen cards inside a bordered box is a box with a border you have
           to look past; the cards are the surface, and the page they sit on already scrolls. */}
       <div
         /*
@@ -740,7 +733,7 @@ function Layout({ data }: { data: CrewResponse }) {
        * The bench, under the chairs (maintainer request).
        *
        * Below rather than mixed in, because these are the same kind of thing in a different state
-       * and a roster is read as nineteen posts: somebody with no post does not belong in the grid
+       * and a roster is read as eighteen posts: somebody with no post does not belong in the grid
        * of posts. Drawn only when there is somebody on it, so a crew that has never used the bench
        * never sees a heading for it.
        *
@@ -759,8 +752,8 @@ function Layout({ data }: { data: CrewResponse }) {
             </span>
           </div>
           <p className="max-w-prose font-body text-[13px] leading-relaxed text-ink-300">
-            On the books and drawing a wage. They still bring what they know to the crew, at a
-            fraction of what the right chair would be worth, so give them one when you have it.
+            On the books and drawing a wage, and nothing else: no skills, no specialities, nobody to
+            lead a run or a fight until they have a chair. They can still train in the meantime.
           </p>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 [@media(min-width:1600px)]:grid-cols-5 [@media(min-width:1920px)]:grid-cols-6">
             {bench.map((officer) => (

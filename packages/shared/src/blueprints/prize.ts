@@ -1,3 +1,4 @@
+import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
 import type { ItemRarity } from '../items/rarity.js';
 import { drawWeighted, seedFrom } from '../rng.js';
 import {
@@ -35,7 +36,8 @@ import {
  * One page per seven rotations, expressed per offer.
  *
  * Seven rotations of three offers is twenty one offers, so the base is 1/21. `PAGE_PRIZE_HARD_LIFT`
- * is what a hard job adds, and it is deliberately small: the brief asks for harder work to pay
+ * is what the hardest grade adds, climbing evenly from none at F- (2026-09-28, when easy and hard
+ * became twenty one grades), and it is deliberately small: the brief asks for harder work to pay
  * better "but only by a bit", and a lift big enough to farm would make the Market pointless.
  */
 export const PAGE_PRIZE_ROTATION_ODDS = 1 / 7;
@@ -43,42 +45,47 @@ export const MISSIONS_PER_ROTATION = 3;
 export const PAGE_PRIZE_HARD_LIFT = 1.35;
 
 /**
- * How much the real board's mix of difficulties lifts the average offer above the easy rate.
+ * How much the grades a crew is dealt lift the average offer above the F- rate.
  *
- * Measured, not assumed: about 71% of the offers the twelve boards actually produce are hard work,
- * so applying {@link PAGE_PRIZE_HARD_LIFT} to that many of them multiplies the blended rate by
- * roughly a quarter. Dividing it back out here is what makes "one page every seven rotations" the
- * rate a **player** sees rather than the rate an all-easy board would have seen. Set the base to a
- * flat `1/21` instead and the measured rate comes out at one per 5.96 rotations, which is 17% more
- * generous than the brief.
+ * The lift is linear in the grade, so the blend is the lift at the average grade dealt. A crew
+ * spends most of its life in the middle of the ladder, and the middle mark lifts by half of
+ * {@link PAGE_PRIZE_HARD_LIFT}'s extra. Dividing it back out keeps "one page every seven
+ * rotations" the rate a player in the middle of the game sees; a new crew sees a little less and
+ * a crew dealt Mayhem a little more, which is the "only by a bit" the brief asked for.
  */
-export const BOARD_DIFFICULTY_BLEND = 1.25;
+export const BOARD_DIFFICULTY_BLEND = 1 + (PAGE_PRIZE_HARD_LIFT - 1) / 2;
 
 export const PAGE_PRIZE_BASE_ODDS =
   PAGE_PRIZE_ROTATION_ODDS / MISSIONS_PER_ROTATION / BOARD_DIFFICULTY_BLEND;
 
-/** The odds one offer of this difficulty carries a page. */
-export function pagePrizeOdds(difficulty: 'easy' | 'hard'): number {
-  return PAGE_PRIZE_BASE_ODDS * (difficulty === 'hard' ? PAGE_PRIZE_HARD_LIFT : 1);
+/** The odds one offer dealt at this grade carries a page. */
+export function pagePrizeOdds(grade: OfficerMark): number {
+  const hardness = markIndex(grade) / (OFFICER_MARKS.length - 1);
+  return PAGE_PRIZE_BASE_ODDS * (1 + (PAGE_PRIZE_HARD_LIFT - 1) * hardness);
 }
 
 /**
  * Whether this offer carries a page, and of which category.
  *
- * Seeded off the maintainer's own key so the answer is stable for as long as the offer is: a card that
+ * Seeded off the board's own key so the answer is stable for as long as the offer is: a card that
  * re-rolled its prize on every read would be a card a player could refresh until it paid.
+ *
+ * `salt` is a server secret (`missions/prize-salt.ts`). Everything else in the seed is on the
+ * card or derived from the clock, and this module ships in the client bundle, so without it any
+ * player could run this against the board and see which card pays before taking one.
  */
 export function pagePrizeFor(
+  salt: string,
   areaId: string,
   day: string,
   templateId: string,
-  difficulty: 'easy' | 'hard',
+  grade: OfficerMark,
 ): BlueprintCategory | null {
-  const seed = seedFrom(`page:${areaId}:${day}:${templateId}`);
+  const seed = seedFrom(`page:${salt}:${areaId}:${day}:${templateId}`);
   // Two independent readings of one hash: the low half decides whether, the high half decides
   // which. Drawing both off the same number keeps this a pure function of the offer's identity.
   const roll = (seed % 100_000) / 100_000;
-  if (roll >= pagePrizeOdds(difficulty)) return null;
+  if (roll >= pagePrizeOdds(grade)) return null;
   return BLUEPRINT_CATEGORIES[(seed >>> 17) % BLUEPRINT_CATEGORIES.length]!;
 }
 

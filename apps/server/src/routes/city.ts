@@ -1,10 +1,10 @@
 import {
   RaiseGateRequestSchema,
-  FortifyRequestSchema,
-  GarrisonRequestSchema,
   ScoutRequestSchema,
   type ScoutRefusal,
   UpgradeLocationRequestSchema,
+  cityOfDistrict,
+  districtsOfCity,
   findDistrict,
   findLocation,
   type Base,
@@ -23,12 +23,6 @@ import {
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { plantSleepers, recallSleepers } from '../city/sleepers.js';
-import {
-  cancelFortifying,
-  setGarrison,
-  startFortifying,
-  type CityRefusal,
-} from '../city/actions.js';
 import { projectCity, projectDistrict } from '../city/view.js';
 import {
   UPGRADE_REFUSALS,
@@ -37,7 +31,7 @@ import {
   type UpgradeRefusal,
 } from '../city/upgrade.js';
 import { settleBase } from '../district/settle.js';
-import { AppError, parseBody, type ErrorCode } from '../errors.js';
+import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { recallScout, sendScout } from '../scouting/scouting.js';
 import { recallSpy, sendSpy } from '../spying/spying.js';
 import { cancelGateRaise, raiseCapturedGate } from '../city/gates.js';
@@ -46,36 +40,10 @@ import { settleWorld } from '../world/settle.js';
 /**
  * The city (GDD §A4): the map, what is inside a district, and the four things you can do about it.
  *
- * Everything settles first: the crew's own district and payroll, then any fortification whose
- * clock ran out while nobody was looking. A location that finished digging in five minutes ago has to
- * be dug in *before* somebody attacks it.
+ * Everything settles first: the crew's own district and payroll, then any location upgrade whose
+ * clock ran out while nobody was looking. A location that finished its level five minutes ago has
+ * to be worth that level *before* somebody looks at it.
  */
-
-const REFUSAL_ERRORS: Record<CityRefusal, { code: ErrorCode; message: string }> = {
-  // §D7, the same refusal the battle board gives for the same reason.
-  needs_infamy: {
-    code: 'NOT_ENOUGH_INFAMY',
-    message: 'They will not stand on your ground for a name like yours',
-  },
-  not_enough_units: { code: 'NO_FORCE', message: 'You do not have those units to send' },
-  not_a_fighting_force: {
-    code: 'NO_FORCE',
-    message: 'Scavengers carry. They do not fight. Send them on a mission instead',
-  },
-  not_held: { code: 'PLACE_UNAVAILABLE', message: 'You do not hold that' },
-  not_contested: { code: 'INVALID_TARGET', message: 'There is nothing there to take' },
-  nothing_running: { code: 'NOT_FOUND', message: 'Nothing is under way there' },
-  window_closed: {
-    code: 'PLACE_UNAVAILABLE',
-    message: 'The work has gone too far to stop. It finishes now',
-  },
-  at_max_fortification: {
-    code: 'PLACE_UNAVAILABLE',
-    message: 'It is as dug in as that ground allows',
-  },
-  already_fortifying: { code: 'PLACE_UNAVAILABLE', message: 'Work is already under way there' },
-  cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the materials' },
-};
 
 /** Why a scouting run was refused, in the player's words. */
 const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: string }> = {
@@ -94,11 +62,17 @@ const SCOUT_REFUSAL_ERRORS: Record<ScoutRefusal, { code: ErrorCode; message: str
       'Your Master of Whispers has not worked Scouting out yet. It is the first thing on their track',
   },
   own_district: { code: 'VALIDATION_ERROR', message: 'You live there' },
+  no_road: { code: 'VALIDATION_ERROR', message: 'There is no road to that' },
+  unclaimed: {
+    code: 'VALIDATION_ERROR',
+    message: 'Nobody has claimed that plot. It stays closed until a crew moves in',
+  },
 };
 
 /** Why a spy job was refused, in the player's words (2026-09-22). */
 const SPY_REFUSAL_ERRORS: Record<SpyRefusal, { code: ErrorCode; message: string }> = {
   no_whispers: SCOUT_REFUSAL_ERRORS.no_whispers,
+  no_road: SCOUT_REFUSAL_ERRORS.no_road,
   cannot_afford: { code: 'INSUFFICIENT_RESOURCES', message: 'You cannot cover the caps' },
   already_out: {
     code: 'VALIDATION_ERROR',
@@ -155,11 +129,6 @@ const GATE_CANCEL_ERRORS: Record<
   },
 };
 
-function refuse(reason: CityRefusal): never {
-  const { code, message } = REFUSAL_ERRORS[reason];
-  throw new AppError(code, message);
-}
-
 export function registerCityRoutes(app: FastifyInstance): void {
   /** The caller's own crew, with everything that settles on a clock already settled. */
   function settled(app: FastifyInstance, ownerId: string, now: Date): Base {
@@ -176,9 +145,35 @@ export function registerCityRoutes(app: FastifyInstance): void {
     return settleBase(app.repos, fresh, now).base;
   }
 
+  /**
+   * The map, of the crew's own city or of one they asked for by name (2026-09-24).
+   *
+   * Takes `?city=` the way the Bar, the market, the back room and the mission board do, and
+   * **deliberately not their door**. Those run on `cityAsked` (`city/stakes.ts`), which wants
+   * ground already held in the city: a room is somewhere you walk into, and a crew with no stake
+   * has no business at the bar. A map is the opposite thing. Looking at a city is how a player
+   * decides to take something in it, so a door that wanted a holding first would be a door that
+   * can only be opened from the inside, and the world screen would offer five cities that answer
+   * nothing until you are already there.
+   *
+   * So looking is free, and the fog does the work instead: a crew that has never been to Terminus
+   * is served its districts with nothing known about any of them. What the map does need is ground
+   * drawn for it. Redline and Deepcut are a name and a blurb with no districts behind them
+   * (`city/cities.ts`), and there is no map of a place nobody has drawn.
+   */
+  function mapCity(base: Base, asked: string | undefined): string {
+    const wanted = asked ?? cityOfDistrict(base.districtId);
+    if (districtsOfCity(wanted).length === 0) {
+      throw new AppError('NOT_FOUND', 'Nobody has drawn a map of that place');
+    }
+    return wanted;
+  }
+
   app.get('/city', { preHandler: app.authenticate }, (request): CityResponse => {
     const now = new Date();
-    return projectCity(app.repos, settled(app, request.currentUser.id, now), now);
+    const base = settled(app, request.currentUser.id, now);
+    const asked = cityQuery(request.query);
+    return projectCity(app.repos, base, now, mapCity(base, asked));
   });
 
   app.get<{ Params: { id: string } }>(
@@ -243,10 +238,15 @@ export function registerCityRoutes(app: FastifyInstance): void {
         at_ceiling: 'That gate will not go any higher',
         cannot_afford: 'You cannot pay for that',
       };
-      throw new AppError(
-        outcome.reason === 'not_held' ? 'FORBIDDEN' : 'INSUFFICIENT_RESOURCES',
-        message[outcome.reason],
-      );
+      // Work already under way and a gate at its ceiling are the place being unavailable, the
+      // code `/city/upgrade` answers for the same two; only a short purse is a resource refusal.
+      const code =
+        outcome.reason === 'not_held'
+          ? 'FORBIDDEN'
+          : outcome.reason === 'cannot_afford'
+            ? 'INSUFFICIENT_RESOURCES'
+            : 'PLACE_UNAVAILABLE';
+      throw new AppError(code, message[outcome.reason]);
     }
     return projectCity(app.repos, outcome.base, now);
   });
@@ -278,7 +278,7 @@ export function registerCityRoutes(app: FastifyInstance): void {
     '/city/cancel-upgrade',
     { preHandler: app.authenticate },
     (request): CityMutationResponse => {
-      const { locationId } = parseBody(CancelLocationWorkRequestSchema, request.body);
+      const { locationId, acceptWaste } = parseBody(CancelLocationWorkRequestSchema, request.body);
       const now = new Date();
       const base = settled(app, request.currentUser.id, now);
       const location = findLocation(locationId);
@@ -287,34 +287,12 @@ export function registerCityRoutes(app: FastifyInstance): void {
       if (!location || !district || !control) throw new AppError('NOT_FOUND', 'No such location');
 
       const outcome = app.db.transaction(() =>
-        cancelUpgrade(app.repos, { base, location, control, now }),
+        cancelUpgrade(app.repos, { base, location, control, now, acceptWaste }),
       )();
       if (outcome.kind === 'refused') {
         const { code, message } = WORK_CANCEL_ERRORS[outcome.reason];
         throw new AppError(code, message);
       }
-      return {
-        district: projectDistrict(app.repos, outcome.base, district, now),
-        base: outcome.base,
-      };
-    },
-  );
-
-  app.post(
-    '/city/cancel-fortify',
-    { preHandler: app.authenticate },
-    (request): CityMutationResponse => {
-      const { locationId } = parseBody(CancelLocationWorkRequestSchema, request.body);
-      const now = new Date();
-      const base = settled(app, request.currentUser.id, now);
-      const location = findLocation(locationId);
-      const district = location ? findDistrict(location.districtId) : undefined;
-      if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
-
-      const outcome = app.db.transaction(() =>
-        cancelFortifying(app.repos, { base, location, now }),
-      )();
-      if (outcome.kind === 'refused') refuse(outcome.reason);
       return {
         district: projectDistrict(app.repos, outcome.base, district, now),
         base: outcome.base,
@@ -393,10 +371,12 @@ export function registerCityRoutes(app: FastifyInstance): void {
   );
 
   app.post('/city/gate/cancel', { preHandler: app.authenticate }, (request): CityResponse => {
-    const { districtId } = parseBody(CancelGateRaiseRequestSchema, request.body);
+    const { districtId, acceptWaste } = parseBody(CancelGateRaiseRequestSchema, request.body);
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
-    const outcome = app.db.transaction(() => cancelGateRaise(app.repos, base, districtId, now))();
+    const outcome = app.db.transaction(() =>
+      cancelGateRaise(app.repos, base, districtId, now, acceptWaste),
+    )();
     if (outcome.kind === 'refused') {
       const { code, message } = GATE_CANCEL_ERRORS[outcome.reason];
       throw new AppError(code, message);
@@ -404,23 +384,12 @@ export function registerCityRoutes(app: FastifyInstance): void {
     return projectCity(app.repos, outcome.base, now);
   });
 
-  app.post('/city/garrison', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const { locationId, changes } = parseBody(GarrisonRequestSchema, request.body);
-    const now = new Date();
-    const base = settled(app, request.currentUser.id, now);
-
-    const location = findLocation(locationId);
-    const district = location ? findDistrict(location.districtId) : undefined;
-    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
-
-    const outcome = app.db.transaction(() => setGarrison(app.repos, { base, location, changes }))();
-    if (outcome.kind === 'refused') refuse(outcome.reason);
-
-    return {
-      district: projectDistrict(app.repos, outcome.base, district, now),
-      base: outcome.base,
-    };
-  });
+  /*
+   * `POST /city/garrison` was here. It stood units on held ground, or brought them home, in the
+   * same instant (maintainer, 2026-09-28: "Nothing sends units immediately, you need to move
+   * them"). The Garrison button opens the Move dialog now, and the column walks
+   * (`POST /actions/move`).
+   */
 
   /**
    * §A4: plant a cell of Sleepers on ground this crew does not hold.
@@ -454,38 +423,25 @@ export function registerCityRoutes(app: FastifyInstance): void {
     const { cellId } = parseBody(RecallSleepersRequestSchema, request.body);
     const now = new Date();
     const base = settled(app, request.currentUser.id, now);
-    const cell = app.db.transaction(() => recallSleepers(app.repos, base, cellId, now))();
-    if (!cell) throw new AppError('NOT_FOUND', 'No cell of yours is out there');
+    const recalled = app.db.transaction(() => recallSleepers(app.repos, base, cellId, now))();
+    if (recalled.kind === 'refused' && recalled.reason === 'locked') {
+      throw new AppError(
+        'PLACE_UNAVAILABLE',
+        'A fight lands there within the hour. Nobody leaves the ground now',
+      );
+    }
+    if (recalled.kind === 'refused')
+      throw new AppError('NOT_FOUND', 'No cell of yours is out there');
     return { ok: true };
-  });
-
-  /** §A4: dig in one more level. */
-  app.post('/city/fortify', { preHandler: app.authenticate }, (request): CityMutationResponse => {
-    const { locationId } = parseBody(FortifyRequestSchema, request.body);
-    const now = new Date();
-    const base = settled(app, request.currentUser.id, now);
-
-    const location = findLocation(locationId);
-    const district = location ? findDistrict(location.districtId) : undefined;
-    if (!location || !district) throw new AppError('NOT_FOUND', 'No such location');
-
-    const outcome = app.db.transaction(() => startFortifying(app.repos, { base, location, now }))();
-    if (outcome.kind === 'refused') refuse(outcome.reason);
-
-    return {
-      district: projectDistrict(app.repos, outcome.base, district, now),
-      base: outcome.base,
-    };
   });
 
   /**
    * §A4: work a location up one level.
    *
-   * The other half of holding ground, and deliberately the same shape as fortifying: charged up
-   * front, a clock on the row, banked by the settler on the next read. What separates them is what
-   * they buy: a fortification makes a location *harder to take*, a level makes it *worth more*,
-   * and what happens on capture, which is that a fortification is lost and a banked level is not
-   * (§A4). Work still running is lost either way.
+   * Charged up front, a clock on the row, banked by the settler on the next read. A level makes a
+   * location *worth more*, and a banked level survives a capture (§A4); work still running is lost.
+   * Making a location *harder to take* is the gate's job alone since dug-in fortification left the
+   * game (maintainer, 2026-09-26).
    */
   app.post('/city/upgrade', { preHandler: app.authenticate }, (request): CityMutationResponse => {
     const { locationId } = parseBody(UpgradeLocationRequestSchema, request.body);

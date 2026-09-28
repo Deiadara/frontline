@@ -13,6 +13,7 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { ADMIN_ACTION_SECONDS, adminCost, adminMinutes, adminSeconds } from './mode.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { storeCeilingsOf } from '../district/stores.js';
 
 /**
  * Admin mode has two claims and they pull against each other, so both are pinned here:
@@ -268,16 +269,37 @@ describe('the bench', () => {
       method: 'POST',
       url: '/api/admin/knobs',
       headers: auth(token),
-      payload: { playerLevel: 17, infamy: 4_200, resources: { scrap: 12_345 } },
+      payload: { playerLevel: 17, infamy: 4_200, resources: { scrap: 500 } },
     });
     expect(res.statusCode).toBe(200);
 
     const base = await me(app, token);
     expect(base.level).toBe(17);
     expect(base.economy.infamy).toBe(4_200);
-    expect(base.resources.scrap).toBe(12_345);
+    expect(base.resources.scrap).toBe(500);
     // Absent keys are left alone rather than zeroed: a knob that sets scrap must not empty the oil.
     expect(base.resources.oil).toBeGreaterThan(0);
+  });
+
+  /** The stores are a hard ceiling for the Console too (maintainer ruling, 2026-09-28). */
+  it('fills the stockpile to its ceiling and no further', async () => {
+    const { app } = await makeApp(true);
+    const { token } = await crew(app);
+    const held = app.repos.bases.findByOwnerId((await me(app, token)).ownerId)!;
+    // The ceiling the stockpile panel draws, the crew's own Logistics folded in.
+    const ceiling = storeCeilingsOf(app.repos, held, new Date()).scrap;
+    expect(ceiling).toBeLessThan(12_345);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/admin/knobs',
+      headers: auth(token),
+      payload: { resources: { scrap: 12_345, caps: 12_345 } },
+    });
+    const base = await me(app, token);
+    expect(base.resources.scrap).toBe(ceiling);
+    // Caps have no ceiling, so the set figure is the figure.
+    expect(base.resources.caps).toBe(12_345);
   });
 
   it('empties every queue', async () => {

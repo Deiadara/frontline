@@ -182,7 +182,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Quarters',
     description:
       'Container stacks, hot bunks and a stove that never goes out. Changing the world requires a place to sleep at night.',
-    role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level. Every soldier, officer and machine take slot units, so upgrading the quarters is required in order to grow in number.',
+    role: 'Raises the district’s unit slots, and widens the payroll book by 2 points a level.',
     requires: [nexus(1)],
     // Supplies, alongside the timber: a bigger bunkhouse is stores laid in as much as it is beds
     // built, and it is the one structure whose whole purpose is keeping people.
@@ -208,7 +208,7 @@ export const BUILDING_CATALOG: Record<BuildingKind, BuildingSpec> = {
     shortName: 'Generator',
     description:
       'A turbine block running on whatever burns. It is loud and it is filthy, but everyone in the district prays it never stops, as everything depends on it.',
-    role: "Refines oil around the clock, takes time off every other structure's build by level, and sells a two-hour burn that makes upgrading other buildings faster. How much faster depends on its level.",
+    role: "Refines oil around the clock, takes time off every other structure's build by level, and sells a two-hour burn that makes upgrading other buildings faster.",
     requires: [nexus(1)],
     // Mainly oil (§B4). The turbine is fed rather than built: the plant is a drum, a rotor and a
     // fuel line, and what a bigger one costs is what it swallows getting there.

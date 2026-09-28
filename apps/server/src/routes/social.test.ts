@@ -1011,9 +1011,10 @@ describe('the leaderboard', () => {
     const hoarder = await player(app, 'hoarder');
     setInfamy(spender.id, 1000);
     setInfamy(hoarder.id, 2000);
-    // Three rungs bought: 300 + 900 + 2700, which is the cost of standing where they stand.
+    // Seven rungs bought (2,776 on the ladder since 2026-09-28), which is the cost of standing
+    // where they stand.
     const base = app.repos.bases.findByOwnerId(spender.id)!;
-    app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 1000, notoriety: 3 });
+    app.repos.bases.updateEconomy(base.id, { ...base.economy, infamy: 1000, notoriety: 7 });
 
     const rows = (await board(spender.token)).entries as {
       username: string;
@@ -1022,7 +1023,7 @@ describe('the leaderboard', () => {
     }[];
     const rowOf = (name: string) => rows.find((row) => row.username === name)!;
 
-    expect(rowOf('spender').totalInfamy).toBe(1000 + notorietySpentTo(3));
+    expect(rowOf('spender').totalInfamy).toBe(1000 + notorietySpentTo(7));
     // Nothing bought, so the two figures are the same number and the field is not a second wallet.
     expect(rowOf('hoarder').totalInfamy).toBe(2000);
     // And the two sorts genuinely disagree about these two, which is the whole point of the field:
@@ -1188,7 +1189,7 @@ describe('the leaderboard', () => {
     const home = app.repos.bases.findByOwnerId(mine.id)!.districtId;
     app.db
       .prepare('UPDATE bases SET district_id = ? WHERE id = ?')
-      .run(home === 'rustyard' ? 'neon-docks' : 'rustyard', base.id);
+      .run(home === 'steelbelt' ? 'neon-docks' : 'steelbelt', base.id);
 
     const local = await board(mine.token, '?localOnly=true');
     expect(

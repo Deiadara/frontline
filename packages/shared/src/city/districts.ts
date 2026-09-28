@@ -284,7 +284,7 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
      */
     bonus: { kind: 'market_discount', percent: 12 },
   },
-  rustyard: {
+  steelbelt: {
     title: 'Run of the Belt',
     bonus: { kind: 'training_cost', percent: 10 },
   },
@@ -299,7 +299,7 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
     title: 'Hand on the Power Spine',
     bonus: { kind: 'build_speed', percent: 12 },
   },
-  'datavault-sigma': {
+  annexes: {
     title: 'The Faculty Answers To You',
     bonus: { kind: 'unit_stealth', percent: 20 },
   },
@@ -307,11 +307,11 @@ export const UNIFIED_BONUSES: Readonly<Record<string, UnifiedBonus>> = {
     title: 'The Green Belt Is Fed',
     bonus: { kind: 'training_speed', percent: 15 },
   },
-  'blacksite-7': {
+  blacksite: {
     title: 'The Garrison Is Yours',
     bonus: { kind: 'unit_offense', percent: 15 },
   },
-  'combine-spire': {
+  ccs: {
     title: 'The Spire Is Taken',
     // The last district in the game, and the bonus is the Combine's own machinery rather than a
     // pile of anything: every price in this city was set from these offices, and now you set it.
@@ -360,26 +360,19 @@ export function districtFrom(spec: {
 }
 
 /**
- * One authored location, as a row: slug, name, kind, how hard it is to dig into, and optionally
- * what this particular place is. The fifth element is what lets two rail yards read differently
- * (`LocationSchema.blurb`); a row without one prints its kind's line.
+ * One authored location, as a row: slug, name, kind, and optionally what this particular place
+ * is. The fourth element is what lets two rail yards read differently (`LocationSchema.blurb`); a
+ * row without one prints its kind's line.
  */
-type LocationRow = readonly [
-  slug: string,
-  name: string,
-  kind: LocationKind,
-  fortify: Location['fortifyDifficulty'],
-  blurb?: string,
-];
+type LocationRow = readonly [slug: string, name: string, kind: LocationKind, blurb?: string];
 
 /** Terser than repeating the district id in every location literal. */
 function locationsIn(districtId: string, rows: readonly LocationRow[]): Location[] {
-  return rows.map(([slug, name, kind, fortifyDifficulty, blurb]) => ({
+  return rows.map(([slug, name, kind, blurb]) => ({
     id: `${districtId}-${slug}`,
     districtId,
     name,
     kind,
-    fortifyDifficulty,
     ...(blurb === undefined ? {} : { blurb }),
   }));
 }
@@ -439,19 +432,19 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     blurb:
       'Container stacks and a waterfront the Combine stopped patrolling years ago. Cheap ground, and far enough from the spire that nobody important looks at it.',
     locations: locationsIn('neon-docks', [
-      ['tideline', 'The Tideline Market', 'market', 'easy'],
-      ['pumphouse', 'Dockside Pumphouse', 'water_works', 'easy'],
+      ['tideline', 'The Tideline Market', 'market'],
+      ['pumphouse', 'Dockside Pumphouse', 'water_works'],
       // Under the quay and out past the boom: the reason anything the Combine bans is cheap here.
-      ['runners', "Runners' Tunnel", 'smugglers_tunnel', 'medium'],
-      ['galley', 'The Wet Galley', 'soup_kitchen', 'easy'],
+      ['runners', "Runners' Tunnel", 'smugglers_tunnel'],
+      ['galley', 'The Wet Galley', 'soup_kitchen'],
       // People have been living on the moored barges longer than anybody has been calling it a slum.
-      ['barges', 'The Moored Barges', 'refugee_camp', 'easy'],
+      ['barges', 'The Moored Barges', 'refugee_camp'],
       // A gantry crane with a cabin at the top of it. Whoever is up there sees the whole waterfront.
       // Named a Site rather than a Gate (maintainer request): a district's *gate* is a real mechanic
       // three files over, and a location whose name claimed to be one had players calling fights
       // at it expecting the district to open.
-      ['cranegate', 'Crane Site', 'watchtower', 'medium'],
-      ['chandler', 'The Chandlery', 'pawn_shop', 'easy'],
+      ['cranegate', 'Crane Site', 'watchtower'],
+      ['chandler', 'The Chandlery', 'pawn_shop'],
     ]),
   },
   {
@@ -484,7 +477,7 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
   },
 
   {
-    id: 'rustyard',
+    id: 'steelbelt',
     /*
      * The Steelbelt, and it used to be the Rustyard.
      *
@@ -505,17 +498,17 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     difficulty: 2,
     blurb:
       'Rolling mills, press houses and a furnace row that has not gone cold in thirty years. Nobody owns the Belt outright: the crews that work it hold their own gates, and none of them holds enough of it to stop anybody else walking in.',
-    locations: locationsIn('rustyard', [
-      ['press', 'No. 4 Press House', 'scrap_press', 'easy'],
-      ['bonefield', "The Breaker's Yard", 'war_machine_graveyard', 'hard'],
-      ['pawn', 'Toolhouse Pawn', 'pawn_shop', 'easy'],
+    locations: locationsIn('steelbelt', [
+      ['press', 'No. 4 Press House', 'scrap_press'],
+      ['bonefield', "The Breaker's Yard", 'war_machine_graveyard'],
+      ['pawn', 'Toolhouse Pawn', 'pawn_shop'],
       // A drained slag pit the shift kids ride. Industrial ground put to a use nobody planned.
-      ['ramp', 'The Slag Bowl', 'skate_ground', 'easy'],
-      ['pumps', 'Furnace Row Pumps', 'gas_station', 'easy'],
+      ['ramp', 'The Slag Bowl', 'skate_ground'],
+      ['pumps', 'Furnace Row Pumps', 'gas_station'],
       // Named, not renamed: the *kind* is the only `doghouse` in the city and it is what puts
       // Cyberhounds on the roster. See `units/catalog.ts`.
-      ['kennels', 'The Doghouse', 'doghouse', 'medium'],
-      ['bones', 'The Bone Market', 'bone_market', 'easy'],
+      ['kennels', 'The Doghouse', 'doghouse'],
+      ['bones', 'The Bone Market', 'bone_market'],
     ]),
   },
   {
@@ -531,14 +524,14 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     blurb:
       'What is left of downtown: bank halls turned into markets, a picture house that never closed, and a transmitter mast nobody has managed to hold for a whole season.',
     locations: locationsIn('chrome-row', [
-      ['exchange', 'The Exchange', 'downtown_market', 'medium'],
-      ['cathode', 'Cathode Tower', 'broadcast_tower', 'hard'],
-      ['overlook', 'The Overlook', 'high_ground', 'hard'],
-      ['ferrous', 'Saint Ferrous', 'hospital', 'easy'],
-      ['statue', 'Statue of the Revolutionary', 'revolutionary_statue', 'easy'],
-      ['regal', 'The Regal', 'cinema', 'easy'],
-      ['anvil', 'The Cracked Anvil', 'tavern', 'medium'],
-      ['coinop', 'Coin-Op Row', 'arcade', 'easy'],
+      ['exchange', 'The Exchange', 'downtown_market'],
+      ['cathode', 'Cathode Tower', 'broadcast_tower'],
+      ['overlook', 'The Overlook', 'high_ground'],
+      ['ferrous', 'Saint Ferrous', 'hospital'],
+      ['statue', 'Statue of the Revolutionary', 'revolutionary_statue'],
+      ['regal', 'The Regal', 'cinema'],
+      ['anvil', 'The Cracked Anvil', 'tavern'],
+      ['coinop', 'Coin-Op Row', 'arcade'],
     ]),
   },
   {
@@ -554,17 +547,17 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     blurb:
       'The Combine meters the whole undercity from down here. Bundled conduit running the walls like roots, transformer housings the size of buildings, and older tunnels underneath that are on nobody’s drawings.',
     locations: locationsIn('undergrid', [
-      ['substation', 'Undergrid Substation', 'power_station', 'hard'],
-      ['vault9', 'Transformer Vault 9', 'power_station', 'hard'],
-      ['junction', 'The Weeping Junction', 'sewer_junction', 'easy'],
-      ['reagent', 'Reagent Works', 'chemical_plant', 'medium'],
-      ['customs', 'The Old Customs Run', 'smugglers_tunnel', 'medium'],
-      ['depot', 'Lamplight Depot', 'tram_depot', 'medium'],
-      ['lair', 'The Laundry Stair', 'mad_scientist_lair', 'hard'],
+      ['substation', 'Undergrid Substation', 'power_station'],
+      ['vault9', 'Transformer Vault 9', 'power_station'],
+      ['junction', 'The Weeping Junction', 'sewer_junction'],
+      ['reagent', 'Reagent Works', 'chemical_plant'],
+      ['customs', 'The Old Customs Run', 'smugglers_tunnel'],
+      ['depot', 'Lamplight Depot', 'tram_depot'],
+      ['lair', 'The Laundry Stair', 'mad_scientist_lair'],
     ]),
   },
   {
-    id: 'datavault-sigma',
+    id: 'annexes',
     name: 'The Annexes',
     nickname: 'the Tech District',
     formalName: null,
@@ -575,16 +568,16 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     difficulty: 6,
     blurb:
       'Faculty buildings the Combine never closed, because it was easier to move in. Everything worth knowing in this city is written down somewhere in here.',
-    locations: locationsIn('datavault-sigma', [
-      ['faculty', 'The Faculty Annexe', 'university', 'medium'],
-      ['uplink', 'Annexe Uplink', 'satellite_uplink', 'hard'],
-      ['ward', 'The Quiet Ward', 'gene_clinic', 'hard'],
-      ['coldrow', 'Cold Row', 'foundry', 'medium'],
-      ['orrery', 'The Orrery', 'planetarium', 'medium'],
-      ['loft', 'Nine Roofs', 'pirate_radio', 'easy'],
+    locations: locationsIn('annexes', [
+      ['faculty', 'The Faculty Annexe', 'university'],
+      ['uplink', 'Annexe Uplink', 'satellite_uplink'],
+      ['ward', 'The Quiet Ward', 'gene_clinic'],
+      ['coldrow', 'Cold Row', 'foundry'],
+      ['orrery', 'The Orrery', 'planetarium'],
+      ['loft', 'Nine Roofs', 'pirate_radio'],
       // The half-built faculty tower. Also the only crane in the city outside the Spire: see the
       // note on the Colossus in `units/catalog.ts` for why that matters.
-      ['scaffold', 'The Unfinished Faculty', 'construction_site', 'hard'],
+      ['scaffold', 'The Unfinished Faculty', 'construction_site'],
     ]),
   },
   {
@@ -600,27 +593,26 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     blurb:
       'State hydroponics behind a fence. Everything the undercity eats is grown here, and none of it is sold here.',
     locations: locationsIn('glasshouse-fields', [
-      ['intake', 'Glasshouse Intake', 'water_works', 'medium'],
-      ['fieldgate', 'Fieldgate Market', 'market', 'easy'],
-      ['berm', 'The Berm', 'high_ground', 'easy'],
-      ['haulers', 'Hauler Yard', 'rail_yard', 'medium'],
-      ['ladle', 'The Long Ladle', 'soup_kitchen', 'easy'],
-      ['fieldchapel', 'Chapel of the Furrow', 'chapel', 'easy'],
+      ['intake', 'Glasshouse Intake', 'water_works'],
+      ['fieldgate', 'Fieldgate Market', 'market'],
+      ['berm', 'The Berm', 'high_ground'],
+      ['haulers', 'Hauler Yard', 'rail_yard'],
+      ['ladle', 'The Long Ladle', 'soup_kitchen'],
+      ['fieldchapel', 'Chapel of the Furrow', 'chapel'],
       // Against the fence, on the wrong side of the food.
-      ['fence', 'The Fence Camp', 'refugee_camp', 'easy'],
+      ['fence', 'The Fence Camp', 'refugee_camp'],
       // The glass itself, along the top of the painting (maintainer request, 2026-09-15). The
       // district was named for these and had no location standing on them.
       [
         'glasshouses',
         'The Glasshouses',
         'glasshouse',
-        'medium',
         'The row of glass houses along the top of the fields, lamps lit inside and windmills pumping the beds. Everything under that glass is on a Combine manifest before it is picked.',
       ],
     ]),
   },
   {
-    id: 'blacksite-7',
+    id: 'blacksite',
     name: 'Blacksite',
     nickname: 'the Military District',
     formalName: null,
@@ -633,73 +625,65 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
       'Hardened ferrocrete, layered berms, and a Combine rifle company that has never had to leave. The first place anyone learns not to walk into.',
     /*
      * Every location here carries its own blurb, written to where it stands in the delivered
-     * painting (`art-src/plate-district-blacksite-7.png`, 2026-09-15), so the sheet describes the
+     * painting (`art-src/plate-district-blacksite.png`, 2026-09-15), so the sheet describes the
      * thing the sign is hung on rather than the kind in general. Three were renamed the same day:
      * Motor Pool Seven, Ward Nine and Pit Seventeen lost their numbers. The slugs stayed, because
      * every saved control row is keyed on them; `pit17` now reads as a number the place no longer
      * has, and is left that way on purpose.
      */
-    locations: locationsIn('blacksite-7', [
+    locations: locationsIn('blacksite', [
       [
         'armory',
         'Blacksite Armory',
         'armory',
-        'hard',
         'The hardened bunker at the centre of the yard, under the tower, racks lit orange inside. Everything the rifle company carries when it goes out came off those racks.',
       ],
       [
         'outer',
         'Outer Berm',
         'barricade',
-        'hard',
         'The fortified compound at the top of the hill, its great gate under the red-diamond banners, and the ramparts running down from it along the whole left of the yard. The only way in is under those banners.',
       ],
       [
         'watchtower',
         'The Watchtower',
         'watchtower',
-        'hard',
         'The tower left of centre with the searchlight on top. Whoever is up there sees the whole yard lit at once, and most of the city past it.',
       ],
       [
         'pit17',
         'Robot Pit',
         'fight_pit',
-        'medium',
         'The lit ring at the bottom left of the yard. Machines are set against each other in it, and against men when the crowd wants that instead; the bookmaker takes both.',
       ],
       [
         'motorpool',
         'Motor Pool',
         'war_machine_graveyard',
-        'hard',
         'Trucks and tracked vehicles drawn up below the armoury, right of centre. Half of it runs, the other half is spares, and the gantry does not care which.',
       ],
       [
         'drill',
         'The Drill Hall',
         'gym',
-        'medium',
         'The bunker at the top right, with the rifle company drawn up in ranks on the square in front of it. Drill every morning, iron every evening, nobody excused.',
       ],
       [
         'blackward',
         'Psychic Ward',
         'black_clinic',
-        'hard',
         'The cyan-lit room set into the high wall on the right, glass on the yard side. The Combine takes minds apart in there and puts them back the way it wants them; what walks out remembers the wall and very little else.',
       ],
       [
         'pile',
         'The Pile',
         'nuclear_plant',
-        'hard',
         'Reactor drums and a cooling tower in the far bottom-right corner, steaming. The Combine never shut it down; it only stopped saying what it was for.',
       ],
     ]),
   },
   {
-    id: 'combine-spire',
+    id: 'ccs',
     name: 'CCS',
     formalName: 'Civic Command Sector',
     nickname: 'the Spire',
@@ -710,15 +694,15 @@ const ASHFALL: readonly Omit<District, 'cityId'>[] = [
     difficulty: 10,
     blurb:
       'The surface spire the government rules from, and the household guard that has never been tested. Taking this is not a raid. It is the end of something.',
-    locations: locationsIn('combine-spire', [
-      ['uplink', 'Command Uplink', 'satellite_uplink', 'hard'],
-      ['armory', 'Combine Armory', 'armory', 'hard'],
-      ['household', 'The Household Barricade', 'barricade', 'hard'],
-      ['broadcast', 'Command Broadcast', 'broadcast_station', 'hard'],
-      ['ascension', 'The Ascension Clinic', 'gene_clinic', 'hard'],
-      ['scaffold', 'The Unfinished Wing', 'construction_site', 'hard'],
-      ['martyrs', 'The Martyrs’ Ground', 'graveyard', 'medium'],
-      ['chapel', 'The Chosen Chapel', 'combine_chapel', 'hard'],
+    locations: locationsIn('ccs', [
+      ['uplink', 'Command Uplink', 'satellite_uplink'],
+      ['armory', 'Combine Armory', 'armory'],
+      ['household', 'The Household Barricade', 'barricade'],
+      ['broadcast', 'Command Broadcast', 'broadcast_station'],
+      ['ascension', 'The Ascension Clinic', 'gene_clinic'],
+      ['scaffold', 'The Unfinished Wing', 'construction_site'],
+      ['martyrs', 'The Martyrs’ Ground', 'graveyard'],
+      ['chapel', 'The Chosen Chapel', 'combine_chapel'],
     ]),
   },
   {
@@ -759,7 +743,7 @@ export const CITY_DISTRICTS: readonly District[] = ASHFALL.map((district) => ({
   cityId: DEFAULT_CITY_ID,
 }));
 
-export function findDistrict(districtId: string): District | undefined {
+export function findAshfallDistrict(districtId: string): District | undefined {
   return CITY_DISTRICTS.find((district) => district.id === districtId);
 }
 
@@ -779,7 +763,7 @@ export const CITY_LOCATIONS: readonly Location[] = CITY_DISTRICTS.flatMap(
   (district) => district.locations,
 );
 
-export function findLocation(locationId: string): Location | undefined {
+export function findAshfallLocation(locationId: string): Location | undefined {
   return CITY_LOCATIONS.find((location) => location.id === locationId);
 }
 
@@ -835,10 +819,12 @@ export function isDistrictRaidable(district: District, isOwnDistrict: boolean): 
   return district.kind === 'residential' && !isOwnDistrict;
 }
 
-/** What holding the whole of `districtId` is worth, or `null` for ground with nothing to hold. */
-export function unifiedBonusFor(districtId: string): UnifiedBonus | null {
-  return UNIFIED_BONUSES[districtId] ?? null;
-}
+/*
+ * `unifiedBonusFor` used to live here and read `UNIFIED_BONUSES` alone, which was Ashfall's table.
+ * It is in `atlas.ts` now, over every city's, because a Terminus district finished whole has to
+ * pay the same way an Ashfall one does. This module cannot answer that: it cannot see the atlas
+ * without importing the module that imports it.
+ */
 
 /**
  * Guards at module load that the authored content is complete and self-consistent: cheaper to

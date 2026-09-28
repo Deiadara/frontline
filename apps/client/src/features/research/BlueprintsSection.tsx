@@ -17,6 +17,7 @@ import { cn } from '../../lib/cn';
 import { useMarket, useUnlockBlueprint } from '../../lib/queries';
 import { RARITY_TAG, RarityTag } from '../../lib/rarity';
 import { BlueprintGlyph, PageGlyph } from './BlueprintGlyph';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Blueprints tab of the research page (§D4 to §D11, §I1d).
@@ -167,10 +168,10 @@ export function BlueprintsSection() {
           banner puts it through the catalogue's own wording map. It printed the raw string until
           now: a player one page short of a document read the literal word `missing_pages`. */}
       {unlock.error !== null && (
-        <p role="alert" className="font-body text-[13px] text-oxblood-300">
+        <ErrorNote>
           {BLUEPRINT_UNLOCK_MESSAGES[unlock.error.message as BlueprintUnlockRefusal] ??
             unlock.error.message}
-        </p>
+        </ErrorNote>
       )}
     </div>
   );
@@ -331,7 +332,11 @@ function DocumentRow({
 
       <div className="flex flex-col items-start gap-2 md:items-end">
         <span className="font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
-          {unlocked ? `${total} pages` : `${distinctHeld} of ${total} pages`}
+          {blueprint.fenceOnly
+            ? 'From the fence'
+            : unlocked
+              ? `${total} pages`
+              : `${distinctHeld} of ${total} pages`}
         </span>
         {unlocked ? (
           <span className="rubber-stamp font-display text-[12px] font-bold uppercase tracking-[0.2em]">
@@ -370,6 +375,17 @@ function DocumentRow({
 function PageStrip({ holding }: { holding: BlueprintHolding }) {
   const { blueprint } = holding;
   const unlocked = holding.status === 'unlocked';
+  // The fence's documents come whole and have no sheets to draw (`fenceOnly`).
+  if (blueprint.fenceOnly) {
+    return (
+      <p
+        className="break-words font-body text-[12px] leading-snug text-ink-300"
+        data-testid={`pages-${blueprint.id}`}
+      >
+        Bought whole from the fence. There are no pages of it to find.
+      </p>
+    );
+  }
   return (
     <ul className="flex flex-wrap items-stretch gap-1.5" data-testid={`pages-${blueprint.id}`}>
       {holding.pages.map(({ page, held }) => {

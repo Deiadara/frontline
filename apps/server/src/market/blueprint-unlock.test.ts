@@ -65,7 +65,10 @@ const inventoryOf = (app: FastifyInstance): Record<string, number> => {
 };
 
 /** The cheapest document in the catalogue, so the fixture is a full set without being a list. */
-const SMALLEST = [...BLUEPRINTS].sort((a, b) => a.pages.length - b.pages.length)[0]!;
+// Among documents with pages: the fence's four come whole and have nothing to unlock.
+const SMALLEST = BLUEPRINTS.filter((spec) => spec.pages.length > 0).sort(
+  (a, b) => a.pages.length - b.pages.length,
+)[0]!;
 
 describe('unlocking a blueprint (§D10)', () => {
   it('spends one of each page and hands back the document', async () => {

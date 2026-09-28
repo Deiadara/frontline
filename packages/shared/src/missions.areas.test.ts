@@ -6,14 +6,12 @@ import {
   MISC_BOARD_ROTATION_MINUTES,
   MISSIONS_PER_AREA,
   FAILED_MISSION_XP_SHARE,
-  MIN_SCALED_SUCCESS,
   areaIsOpen,
   areasOffering,
   areaPayPercent,
   carriedHome,
   concurrentMissionSlots,
   launchableBoardKeys,
-  levelPayPercent,
   missionCarry,
   missionXp,
   missionForceRefusal,
@@ -23,10 +21,10 @@ import {
   openAreas,
   payoutSlots,
   scaledSpoils,
-  scaledSuccessChance,
 } from './missions.areas.js';
 import { CITY_DISTRICTS } from './city/index.js';
 import { MISSION_TEMPLATES, missionRewards } from './missions.js';
+import { GRADES, gradeIndex, gradePeakLevel } from './missions.grade.js';
 import { RESOURCE_KG, lootCapacityOf } from './raid.js';
 import { RESOURCE_KEYS } from './resources.js';
 import { findUnit } from './units/index.js';
@@ -50,23 +48,23 @@ describe('the boards work comes off (§E)', () => {
     for (const areaId of AREAS) {
       const offers = missionOffers(areaId);
       expect(offers, areaId).toHaveLength(MISSIONS_PER_AREA);
-      expect(offers.filter((t) => t.kind === 'battle').length, areaId).toBe(FIGHTS_PER_AREA);
+      expect(offers.filter((job) => job.template.kind === 'battle').length, areaId).toBe(
+        FIGHTS_PER_AREA,
+      );
       expect(FIGHTS_PER_AREA).toBe(1);
     }
   });
 
   it('never offers the same job twice in one area', () => {
     for (const areaId of AREAS) {
-      const ids = missionOffers(areaId).map((template) => template.id);
+      const ids = missionOffers(areaId).map((job) => job.template.id);
       expect(new Set(ids).size, areaId).toBe(ids.length);
     }
   });
 
   it('is a pure function of the area: the same three, every time it is asked', () => {
     for (const areaId of AREAS) {
-      expect(missionOffers(areaId).map((t) => t.id)).toEqual(
-        missionOffers(areaId).map((t) => t.id),
-      );
+      expect(missionOffers(areaId)).toEqual(missionOffers(areaId));
     }
   });
 
@@ -79,7 +77,7 @@ describe('the boards work comes off (§E)', () => {
     const shapes = new Set(
       AREAS.map((areaId) =>
         missionOffers(areaId)
-          .map((t) => t.id)
+          .map((job) => job.template.id)
           .join(),
       ),
     );
@@ -89,85 +87,65 @@ describe('the boards work comes off (§E)', () => {
 
 describe('finding a board a job is on', () => {
   /**
-   * Every job in the catalogue reaches a board inside a fortnight, or it is content nobody can
-   * ever take.
+   * Every job circulates, for a crew at the level its grades are dealt (2026-09-28), or it is
+   * content nobody can ever take.
    *
-   * The pool is larger than the city's fifty-nine slots on purpose, so this cannot be true on
-   * any one day; the daily turnover is what makes it true over time, and this is the check that
-   * says the walk actually circulates rather than favouring the same third of the list.
+   * Asked per level rather than for the city as a whole, because boards are a crew's own now: a
+   * Mayhem job is never on a level-one crew's board and is not meant to be. Each job is asked at
+   * the level where the middle of its range is dealt most. Two claims, because with three hundred
+   * jobs "every one inside a fixed window from every start" is a claim about luck: every job turns
+   * up several times a year, and from any starting day almost all of them turn up within four
+   * weeks.
    */
-  it('puts every job in the catalogue on a board within a fortnight', () => {
-    const seen = new Set<string>();
-    for (let day = 0; day < 14; day += 1) {
-      const key = missionBoardDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      for (const areaId of AREAS) {
-        for (const template of missionOffers(areaId, key)) seen.add(template.id);
-      }
-    }
-    for (const template of MISSION_TEMPLATES) {
-      expect(seen.has(template.id), template.id).toBe(true);
-    }
-  });
-
-  /**
-   * And from any starting day, not just from the one this file happens to name.
-   *
-   * The test above starts on 2026-01-01 and covers the whole catalogue in three days, so it says
-   * very little about the walk: a job reachable only in January would sail through it. This asks
-   * the property a player actually has, which is that whenever they start playing, every job in
-   * the game turns up on a board in front of them soon.
-   *
-   * Three weeks rather than the fortnight above because the measured worst window is twelve days
-   * and the margin is the point: a catalogue that grows past the walk's ability to circulate it
-   * fails here first, while the entries are still content nobody has built a system on.
-   */
-  it('reaches every job from every starting day of a year', () => {
-    const WINDOW = 21;
+  it('circulates every job through a year, and nearly all of them inside four weeks', () => {
+    const WINDOW = 28;
     const dayAt = (index: number) => missionBoardDay(new Date(Date.UTC(2026, 0, 1 + index)));
-
-    for (let start = 0; start < 365; start += 1) {
-      const seen = new Set<string>();
-      for (let day = start; day < start + WINDOW; day += 1) {
+    const levelFor = (template: (typeof MISSION_TEMPLATES)[number]) => {
+      const middle = Math.round(
+        (gradeIndex(template.grades[0]) + gradeIndex(template.grades[1])) / 2,
+      );
+      return gradePeakLevel(GRADES[middle]!);
+    };
+    const byLevel = new Map<number, (typeof MISSION_TEMPLATES)[number][]>();
+    for (const template of MISSION_TEMPLATES) {
+      const level = levelFor(template);
+      byLevel.set(level, [...(byLevel.get(level) ?? []), template]);
+    }
+    for (const [level, templates] of byLevel) {
+      const daily = Array.from({ length: 365 }, (_, day) => {
+        const dealt: string[] = [];
         for (const areaId of AREAS) {
-          for (const template of missionOffers(areaId, dayAt(day))) seen.add(template.id);
+          for (const job of missionOffers(areaId, dayAt(day), level)) dealt.push(job.template.id);
         }
+        return dealt;
+      });
+      const yearly = new Map<string, number>();
+      for (const id of daily.flat()) yearly.set(id, (yearly.get(id) ?? 0) + 1);
+      for (const template of templates) {
+        expect(
+          yearly.get(template.id) ?? 0,
+          `${template.id} at level ${String(level)}`,
+        ).toBeGreaterThanOrEqual(6);
       }
-      const unreachable = MISSION_TEMPLATES.filter((template) => !seen.has(template.id));
-      expect(
-        unreachable.map((template) => template.id),
-        `no board offered these in the ${WINDOW} days from ${dayAt(start)}`,
-      ).toEqual([]);
+      for (let start = 0; start + WINDOW <= daily.length; start += 1) {
+        const seen = new Set(daily.slice(start, start + WINDOW).flat());
+        const share =
+          templates.filter((template) => seen.has(template.id)).length / templates.length;
+        expect(share, `level ${String(level)} from ${dayAt(start)}`).toBeGreaterThan(0.9);
+      }
     }
   });
 
-  /**
-   * Every day has an easy job and a hard job somewhere in the city.
-   *
-   * Not a content nicety: it is the property the server's test fixtures stand on. Those tests used
-   * to name a template outright, and because the boards turn over daily a named id is a fixture
-   * with a hidden expiry date. Measured over these two years, `scrap-run` is on no board on 19% of
-   * days, `convoy-ambush` 15% and `deep-expedition` 24%, so the suite was red about one day in
-   * four for a reason nobody had changed. They ask the maintainer for a job of the kind they need now,
-   * and this is the check that the board can always answer.
-   *
-   * It is also a player-facing rule in its own right. A day whose whole city offered only fights
-   * would be a day a crew with no army could not play, and one offering only errands would be a
-   * day an army had nothing to do.
-   */
-  it('always has an easy job and a hard job open somewhere, on every day of two years', () => {
+  it('deals a new crew nothing past E- on any day of two years', () => {
     const start = Date.UTC(2026, 0, 1);
     for (let index = 0; index < 730; index += 1) {
       const day = missionBoardDay(new Date(start + index * 86_400_000));
-      const open = AREAS.flatMap((areaId) => missionOffers(areaId, day));
-      expect(open.length, day).toBeGreaterThan(0);
-      expect(
-        open.some((template) => template.difficulty === 'easy'),
-        `no easy job anywhere on ${day}`,
-      ).toBe(true);
-      expect(
-        open.some((template) => template.difficulty === 'hard'),
-        `no hard job anywhere on ${day}`,
-      ).toBe(true);
+      for (const job of AREAS.flatMap((areaId) => missionOffers(areaId, day, 1))) {
+        expect(
+          gradeIndex(job.grade),
+          `${job.template.id} at ${job.grade} on ${day}`,
+        ).toBeLessThanOrEqual(gradeIndex('E-'));
+      }
     }
   });
 
@@ -181,14 +159,14 @@ describe('finding a board a job is on', () => {
     expect(monday).toBe(alsoMonday);
     const ids = (day: string) =>
       missionOffers(MISC_AREA_ID, day)
-        .map((t) => t.id)
+        .map((job) => job.template.id)
         .join();
     expect(ids(monday)).toBe(ids(alsoMonday));
     expect(ids(tuesday)).not.toBe(ids(monday));
   });
 
   it('says nothing at all for a job that is not in the catalogue', () => {
-    expect(areasOffering('a-job-that-was-retired', new Date())).toEqual([]);
+    expect(areasOffering('a-job-that-was-retired', new Date(), 30)).toEqual([]);
   });
 });
 
@@ -216,44 +194,23 @@ describe('what an area pays (§A4)', () => {
   });
 });
 
-describe("what the crew's own level does to a job (§I, §E5)", () => {
-  const template = MISSION_TEMPLATES[0]!;
+describe('the XP a job pays (§I1)', () => {
+  const template = MISSION_TEMPLATES.find((candidate) => candidate.kind === 'standard')!;
 
-  it('pays nothing extra at level one, and more at every level after', () => {
-    expect(levelPayPercent(1)).toBe(0);
-    expect(levelPayPercent(2)).toBeGreaterThan(0);
-    expect(levelPayPercent(20)).toBeGreaterThan(levelPayPercent(10));
-  });
-
-  it('asks more of a higher-level crew, and never turns a job into a coin flip', () => {
-    expect(scaledSuccessChance(0.9, 1)).toBe(0.9);
-    expect(scaledSuccessChance(0.9, 30)).toBeLessThan(0.9);
-    expect(scaledSuccessChance(0.7, 500)).toBe(MIN_SCALED_SUCCESS);
-    expect(scaledSuccessChance(0.9, 1)).toBeLessThanOrEqual(1);
-  });
-
-  /** Both halves move together, or levelling is either a shortcut or a punishment. */
-  it('moves pay and difficulty in step', () => {
-    const early = { pay: levelPayPercent(1), odds: scaledSuccessChance(0.9, 1) };
-    const late = { pay: levelPayPercent(40), odds: scaledSuccessChance(0.9, 40) };
-    expect(late.pay).toBeGreaterThan(early.pay);
-    expect(late.odds).toBeLessThan(early.odds);
-  });
-
-  it('pays XP off the clock and the risk, and more of it as the crew levels', () => {
-    const short = missionXp(template, 30, 1);
+  it('pays off the clock, the risk and the grade, and nothing off who reads the card', () => {
+    const short = missionXp(template, 30, 'F-');
     expect(short).toBeGreaterThan(0);
-    expect(missionXp(template, 600, 1)).toBeGreaterThan(short);
-    expect(missionXp(template, 30, 30)).toBeGreaterThan(short);
+    expect(missionXp(template, 600, 'F-')).toBeGreaterThan(short);
+    expect(missionXp(template, 30, 'C')).toBeGreaterThan(short);
     // A battle of the same length is worth more, because it can come home with nothing.
     const battle = MISSION_TEMPLATES.find((t) => t.kind === 'battle')!;
-    expect(missionXp(battle, 60, 1)).toBeGreaterThan(missionXp(template, 60, 1));
+    expect(missionXp(battle, 60, 'F-')).toBeGreaterThan(missionXp(template, 60, 'F-'));
   });
 
   it('pays a fifth of it for a run that came home empty', () => {
     expect(FAILED_MISSION_XP_SHARE).toBeGreaterThan(0);
     expect(FAILED_MISSION_XP_SHARE).toBeLessThan(1);
-    expect(Math.round(missionXp(template, 30, 1) * FAILED_MISSION_XP_SHARE)).toBeGreaterThan(0);
+    expect(Math.round(missionXp(template, 30, 'F-') * FAILED_MISSION_XP_SHARE)).toBeGreaterThan(0);
   });
 });
 
@@ -519,7 +476,7 @@ describe('how often a board turns over', () => {
     const boards = Array.from({ length: 12 }, (_, hour) => {
       const when = new Date(start + hour * 60 * 60 * 1000);
       return missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, when))
-        .map((offer) => offer.id)
+        .map((offer) => offer.template.id)
         .join(',');
     });
     // Not a claim that every hour differs from the last, which a hash cannot promise: a claim

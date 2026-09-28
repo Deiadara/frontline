@@ -134,14 +134,26 @@ export function rewardTokens(reward: FeatReward): Token[] {
 
 export function RewardTally({
   reward,
+  lost = false,
   className,
   'data-testid': testId,
 }: {
   reward: FeatReward;
+  /**
+   * Draws the same tokens as a **loss** rather than as a payment: minus signs, and one pigment.
+   *
+   * The waste dialog is the caller. Its tokens are the same objects in the same order as the ones
+   * on the rung behind it, and the only thing that separates the two lists is the sign, so drawing
+   * them from the same function is what makes them comparable at a glance. A `+600` over the words
+   * "would be lost" is the kind of contradiction a player reads as a bug.
+   */
+  lost?: boolean;
   className?: string;
   'data-testid'?: string;
 }) {
-  const tokens = rewardTokens(reward);
+  const tokens = rewardTokens(reward).map((token) =>
+    lost ? { ...token, amount: token.amount.replace(/^\+/, '-'), tone: 'text-oxblood-100' } : token,
+  );
 
   return (
     <ul

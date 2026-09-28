@@ -5,7 +5,6 @@ import {
   buildingCost,
   capturedGateCost,
   findDistrict,
-  fortifyCost,
   startingEconomy,
   startingProgression,
   startingResearch,
@@ -13,11 +12,11 @@ import {
   upgradeCost,
   type Base,
   type BuildStructureResponse,
+  type PartialResources,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
-import { cancelFortifying, startFortifying } from '../city/actions.js';
 import { cancelGateRaise, gateFor, raiseCapturedGate } from '../city/gates.js';
 import { cancelUpgrade, startUpgrade, upgradeSeconds } from '../city/upgrade.js';
 import { loadConfig } from '../config.js';
@@ -27,6 +26,7 @@ import { cancelBuild, queueBuild } from '../district/build.js';
 import { cancelResearch } from '../research/start.js';
 import { recallScout, settleScouting } from '../scouting/scouting.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { AppError } from '../errors.js';
 
 /**
  * Calling things off (maintainer request, 2026-09-12; `time/cancel.ts`).
@@ -39,6 +39,13 @@ import { chooseOverseer } from '../testing/overseer.js';
  */
 
 const HOUR = '2026-09-12T10:00:00.000Z';
+
+/**
+ * The fixtures hold far more than any store so every clock can be paid for, which means every
+ * refund here lands on a full store (maintainer ruling, 2026-09-28). The windows are what these
+ * tests measure, so they agree to the waste up front; `full stores` below is the warning itself.
+ */
+const RICH_ON_PURPOSE = true;
 const at = (minutes: number) => new Date(Date.parse(HOUR) + minutes * 60_000);
 
 const dbs: AppDatabase[] = [];
@@ -84,7 +91,7 @@ function stack(): { repos: Repositories; base: Base } {
   return { repos, base };
 }
 
-const RUSTYARD = findDistrict('rustyard')!;
+const RUSTYARD = findDistrict('steelbelt')!;
 const PRESS = RUSTYARD.locations[0]!;
 
 function hand(repos: Repositories, baseId: string, locationId: string): void {
@@ -122,7 +129,7 @@ describe('a build order', () => {
 
     // A second in: well inside the tenth of even a short first level.
     const soon = new Date(at(0).getTime() + 1000);
-    const cancelled = cancelBuild(repos, second.base, 'q1', soon);
+    const cancelled = cancelBuild(repos, second.base, 'q1', soon, RICH_ON_PURPOSE);
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
     expect(cancelled.refund).toEqual(ninety(price));
@@ -147,7 +154,7 @@ describe('a build order', () => {
       kind: 'refused',
       reason: 'window_closed',
     });
-    expect(cancelBuild(repos, queued.base, 'q1', before).kind).toBe('cancelled');
+    expect(cancelBuild(repos, queued.base, 'q1', before, RICH_ON_PURPOSE).kind).toBe('cancelled');
   });
 });
 
@@ -175,7 +182,7 @@ describe('a research project', () => {
       kind: 'refused',
       reason: 'window_closed',
     });
-    const cancelled = cancelResearch(repos, running, at(9));
+    const cancelled = cancelResearch(repos, running, at(9), RICH_ON_PURPOSE);
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
     expect(cancelled.refund).toEqual(ninety(paid));
@@ -215,39 +222,13 @@ describe("a location's work", () => {
       location: PRESS,
       control: started.control,
       now: early,
+      acceptWaste: RICH_ON_PURPOSE,
     });
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
     expect(cancelled.refund).toEqual(ninety(price));
     expect(cancelled.control.upgradingUntil).toBeNull();
     expect(repos.city.control(PRESS.id)!.upgradingUntil).toBeNull();
-  });
-
-  it('calls a dig off inside its first tenth, with ninety percent of the materials back', () => {
-    const { repos, base } = stack();
-    hand(repos, base.id, PRESS.id);
-    const started = startFortifying(repos, { base, location: PRESS, now: at(0) });
-    expect(started.kind).toBe('ok');
-    if (started.kind !== 'ok') return;
-    const until = Date.parse(repos.city.control(PRESS.id)!.fortifyingUntil!);
-    const total = until - at(0).getTime();
-
-    const late = new Date(at(0).getTime() + total / 10);
-    expect(cancelFortifying(repos, { base: started.base, location: PRESS, now: late })).toEqual({
-      kind: 'refused',
-      reason: 'window_closed',
-    });
-    const early = new Date(at(0).getTime() + total / 20);
-    const cancelled = cancelFortifying(repos, { base: started.base, location: PRESS, now: early });
-    expect(cancelled.kind).toBe('ok');
-    if (cancelled.kind !== 'ok') return;
-    expect(cancelled.refund).toEqual(ninety(fortifyCost(1)));
-    expect(repos.city.control(PRESS.id)!.fortifyingUntil).toBeNull();
-    // Nothing left to call off.
-    expect(cancelFortifying(repos, { base: cancelled.base, location: PRESS, now: early })).toEqual({
-      kind: 'refused',
-      reason: 'nothing_running',
-    });
   });
 });
 
@@ -262,7 +243,7 @@ describe('a scout', () => {
     repos.scouting.insert({
       id: 's1',
       baseId: base.id,
-      districtId: 'blacksite-7',
+      districtId: 'blacksite',
       officerId: 'nobody',
       departedAt: HOUR,
       returnsAt: at(300).toISOString(),
@@ -277,7 +258,7 @@ describe('a scout', () => {
     second.scouting.insert({
       id: 's2',
       baseId: other.id,
-      districtId: 'blacksite-7',
+      districtId: 'blacksite',
       officerId: 'nobody',
       departedAt: HOUR,
       returnsAt: at(300).toISOString(),
@@ -296,7 +277,7 @@ describe('a scout', () => {
     // Home, settled, and the ground stays shut: they never got there.
     settleScouting(second, at(16));
     expect(second.scouting.activeFor(other.id)).toEqual([]);
-    expect(second.city.scouted(other.id).has('blacksite-7')).toBe(false);
+    expect(second.city.scouted(other.id).has('blacksite')).toBe(false);
   });
 });
 
@@ -318,12 +299,98 @@ describe('a captured gate being raised', () => {
       started.base,
       RUSTYARD.id,
       new Date(at(0).getTime() + total / 20),
+      RICH_ON_PURPOSE,
     );
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
     expect(cancelled.refund).toEqual(ninety(capturedGateCost(2)));
     expect(gateFor(repos, RUSTYARD.id).upgradingTo).toBeNull();
     expect(gateFor(repos, RUSTYARD.id).level).toBe(1);
+  });
+});
+
+/**
+ * Every refund goes into the stores, and a refund onto a full one is warned about first
+ * (maintainer ruling, 2026-09-28).
+ *
+ * The fixtures stand far over the scrap, plank and oil ceilings, so that part of each refund would
+ * be thrown away whole. Without the player's yes each cancel is refused with the figure
+ * and nothing moves: the order is still on the row.
+ */
+describe('full stores', () => {
+  function wouldWaste(call: () => unknown): PartialResources {
+    try {
+      call();
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe('WOULD_WASTE');
+      return (error as AppError).waste ?? {};
+    }
+    throw new Error('the cancel went through without a warning');
+  }
+  /** The part of a refund aimed at the three stores `stack` fills far past their ceiling. */
+  const overTheTop = (refund: PartialResources): PartialResources =>
+    Object.fromEntries(
+      Object.entries(refund).filter(([key]) => ['scrap', 'planks', 'oil'].includes(key)),
+    );
+
+  it('warns before a build refund is thrown away, and leaves the order on the queue', () => {
+    const { repos, base } = stack();
+    const queued = queueBuild(repos, { base, structure: 'quarters', id: 'q1', now: at(0) });
+    if (queued.kind !== 'queued') throw new Error('fixture: the order was refused');
+    const waste = wouldWaste(() => cancelBuild(repos, queued.base, 'q1', at(0)));
+    expect(waste).toEqual(overTheTop(ninety(queued.entry.paid)));
+    expect(repos.bases.findById(base.id)!.buildQueue.map((entry) => entry.id)).toEqual(['q1']);
+  });
+
+  it('warns before a research refund is thrown away', () => {
+    const { repos, base } = stack();
+    const paid = { caps: 1_000, scrap: 250 };
+    const running: Base = {
+      ...base,
+      research: {
+        ...base.research,
+        active: {
+          id: 'r1',
+          project: { kind: 'technology', techId: RESEARCH_ITEMS[0]!.id },
+          startedAt: HOUR,
+          durationMinutes: 100,
+          paid,
+        },
+      },
+    };
+    repos.bases.updateResearch(base.id, running.research);
+    expect(wouldWaste(() => cancelResearch(repos, running, at(1)))).toEqual({ scrap: 225 });
+    expect(repos.bases.findById(base.id)!.research.active?.id).toBe('r1');
+  });
+
+  it("warns before a location's refund is thrown away", () => {
+    const { repos, base } = stack();
+    hand(repos, base.id, PRESS.id);
+    const control = repos.city.control(PRESS.id)!;
+    const started = startUpgrade(repos, { base, location: PRESS, control, now: at(0) });
+    if (started.kind !== 'started') throw new Error('fixture: the upgrade was refused');
+    const refund = ninety(upgradeCost(PRESS.kind, control.level)!);
+    const waste = wouldWaste(() =>
+      cancelUpgrade(repos, {
+        base: started.base,
+        location: PRESS,
+        control: started.control,
+        now: at(0),
+      }),
+    );
+    expect(waste).toEqual(overTheTop(refund));
+    expect(repos.city.control(PRESS.id)!.upgradingUntil).not.toBeNull();
+  });
+
+  it("warns before a gate's refund is thrown away", () => {
+    const { repos, base } = stack();
+    for (const location of RUSTYARD.locations) hand(repos, base.id, location.id);
+    const started = raiseCapturedGate(repos, base, RUSTYARD.id, at(0));
+    if (started.kind !== 'started') throw new Error('fixture: the raise was refused');
+    const waste = wouldWaste(() => cancelGateRaise(repos, started.base, RUSTYARD.id, at(0)));
+    expect(waste).toEqual(overTheTop(ninety(capturedGateCost(2))));
+    expect(gateFor(repos, RUSTYARD.id).upgradingTo).toBe(2);
   });
 });
 
@@ -379,5 +446,55 @@ describe('over the wire', () => {
       payload: { orderId: order.id },
     });
     expect(again.statusCode).toBe(404);
+  });
+
+  /*
+   * An order in front of another of the same structure cannot go while that one stays: the later
+   * order was priced as the level after it, and landing it without it jumped a level for a tenth
+   * of the skipped one's price (bug pass, 2026-09-27).
+   */
+  it('refuses to cancel an order another is built on, and takes the later one first', async () => {
+    const { app, token, baseId } = await player();
+    const base = app.repos.bases.findById(baseId)!;
+    app.repos.bases.updateResources(baseId, {
+      caps: 900_000,
+      supplies: 900_000,
+      oil: 900_000,
+      scrap: 900_000,
+      highQualityMetal: 90_000,
+      planks: 900_000,
+    });
+    app.repos.bases.updateBuildings(
+      baseId,
+      base.buildings.map((building) =>
+        building.kind === 'nexus' ? { ...building, level: 10 } : building,
+      ),
+    );
+    const build = () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/base/build',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { kind: 'generator' },
+      });
+    expect((await build()).statusCode).toBe(200);
+    const second = await build();
+    expect(second.statusCode, second.body.slice(0, 200)).toBe(200);
+    const [first, next] = second.json<BuildStructureResponse>().base.buildQueue;
+    // The stockpile is far over the stores so two generators can be paid for; what comes back
+    // from a cancel is thrown away, and that is agreed to up front because it is not the point.
+    const cancel = (orderId: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/base/cancel',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { orderId, acceptWaste: RICH_ON_PURPOSE },
+      });
+
+    const refused = await cancel(first!.id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.body).toContain('built on it');
+    expect((await cancel(next!.id)).statusCode).toBe(200);
+    expect((await cancel(first!.id)).statusCode).toBe(200);
   });
 });

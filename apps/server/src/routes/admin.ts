@@ -7,7 +7,12 @@ import {
   AdminGrantRequestSchema,
   BLUEPRINTS,
   BLUEPRINT_PAGE_IDS,
-  CITY_DISTRICTS,
+  ALL_DISTRICTS,
+  CITIES,
+  combineLeaderAt,
+  cityOfDistrict,
+  districtsOfCity,
+  findLocation,
   ITEM_CATALOG,
   BLACK_MARKET_GOODS,
   CONSUMABLE_ITEM_IDS,
@@ -36,12 +41,14 @@ import {
   seedFrom,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { offerOpeningInvitationAt } from '../factions/opening.js';
 import { startingBase } from '../crew/starting.js';
 import { ADMIN_ACTION_SECONDS } from '../admin/mode.js';
 import { listBackups } from '../db/backup.js';
 import { AppError, parseBody } from '../errors.js';
 import { declareBattle } from '../battle/declare.js';
 import { forfeitOffers } from '../market/board.js';
+import { storeCeilingsOf } from '../district/stores.js';
 import { ownBase } from './own-base.js';
 import { rollName } from '../bar/names.js';
 import { createRng } from '../characters/rng.js';
@@ -86,8 +93,17 @@ function snapshot(app: FastifyInstance, base: Base): AdminSnapshot {
     // Effective visibility, through the same seam the city view reads, so a tick here and the map
     // over there can never disagree. Home is listed and always visible: you live there.
     fog: (() => {
-      const visible = app.repos.city.visibleDistricts(base.id);
-      return CITY_DISTRICTS.map((district) => ({
+      /*
+       * The city this operator is standing in, not the first one.
+       *
+       * This enumerated `CITY_DISTRICTS`, so the Console listed Ashfall's twelve whoever was
+       * looking: a crew in Terminus got a fog panel for a map it is not on, with its own home
+       * missing from the list. `visibleDistricts` takes the city now so the tick and the map
+       * cannot disagree, which is the whole reason this reads through that seam.
+       */
+      const cityId = cityOfDistrict(base.districtId);
+      const visible = app.repos.city.visibleDistricts(base.id, cityId);
+      return districtsOfCity(cityId).map((district) => ({
         districtId: district.id,
         name: district.name,
         visible: district.id === base.districtId || visible.has(district.id),
@@ -161,7 +177,8 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
   );
   const candidates: BattleTarget[] = [];
   if (held.length === 0) {
-    const spare = CITY_DISTRICTS.flatMap((district) =>
+    // In the operator's own city, so the ground handed out is somewhere they can actually march to.
+    const spare = districtsOfCity(cityOfDistrict(base.districtId)).flatMap((district) =>
       district.locations
         .filter((location) => {
           const control = app.repos.city.control(location.id);
@@ -176,9 +193,8 @@ function mockBattleOn(app: FastifyInstance, base: Base, now: Date): ScheduledBat
     candidates.push({ kind: 'location', ...spare });
   }
   for (const control of held) {
-    const district = CITY_DISTRICTS.find((entry) =>
-      entry.locations.some((location) => location.id === control.locationId),
-    );
+    // Any city: the Console lists what this crew holds, and it may hold ground abroad.
+    const district = findLocationDistrict(control.locationId);
     if (!district) continue;
     candidates.push({ kind: 'location', districtId: district.id, locationId: control.locationId });
     candidates.push({ kind: 'gate', districtId: district.id });
@@ -291,6 +307,23 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         app.repos.bases.updateArmy(next.id, army, next.trainingQueue);
       }
 
+      /*
+       * Eyes on the whole world. See `AdminGrantRequestSchema.scouted` for why it is the world and
+       * not one city, and why it writes real marks rather than the Console's fog override.
+       *
+       * The crew's own district is marked like every other. It is already visible by residence, so
+       * the row changes nothing a player can see, and skipping it would be a special case that
+       * only pays off if somebody later asks "why is my own ground the one district with no mark".
+       */
+      if (body.scouted === 'all') {
+        const at = new Date().toISOString();
+        for (const district of ALL_DISTRICTS) {
+          app.repos.city.markScouted(next.id, district.id, at);
+        }
+      }
+
+      if (body.footholds === 'every-city') grantFootholds(app, next.id);
+
       if (body.technologies !== undefined || body.researchDepth !== undefined) {
         const technologies = [...new Set([...next.research.technologies, ...grantedRungs(body)])];
         const research = { ...next.research, technologies };
@@ -370,8 +403,6 @@ export function registerAdminRoutes(app: FastifyInstance): void {
           // under it made every read of the control table throw, so the world clock failed on
           // every tick after a Clean slate and the game never came back (maintainer, 2026-09-22).
           level: 1,
-          fortification: 0,
-          fortifyingUntil: null,
           upgradingUntil: null,
         });
       }
@@ -383,6 +414,18 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         // themselves, and a reset that renames it reads as a different account rather than a
         // fresh start on this one.
         name: base.name,
+        /*
+         * ...and its address (bug pass, 2026-09-24).
+         *
+         * `startingBase` defaults `districtId` to `STARTER_DISTRICT_ID`, and this passed none, so
+         * Clean slate moved every crew in the world onto Kettle Row. A player who picked Terminus
+         * at the character screen lost the city with the crew, and if somebody already lived on
+         * Kettle Row the two ended up on one plot, where `residentOf` answers for one of them and
+         * the other's home can neither be called on nor defended. `POST /overseer` already says
+         * what this should do: "a reset crew keeps its old address", because the plot it is
+         * standing on is still its own and nothing else has been allowed to take it.
+         */
+        districtId: base.districtId,
         now: new Date().toISOString(),
       });
       app.repos.bases.replace(fresh);
@@ -481,8 +524,15 @@ export function registerAdminRoutes(app: FastifyInstance): void {
 
       if (body.resources !== undefined) {
         // Absent keys keep what is there. A knob that sets supplies should not silently zero the oil.
+        // A set figure stops at the store's ceiling like every credit (maintainer ruling,
+        // 2026-09-28): "Fill the stockpile" fills it, and a save the game could never reach
+        // would be testing a state no player can be in.
+        const ceilings = storeCeilingsOf(app.repos, next, new Date());
         const resources: Resources = RESOURCE_KEYS.reduce(
-          (into, key) => ({ ...into, [key]: body.resources?.[key] ?? into[key] }),
+          (into, key) => ({
+            ...into,
+            [key]: Math.min(body.resources?.[key] ?? into[key], Math.max(into[key], ceilings[key])),
+          }),
           next.resources,
         );
         next = { ...next, resources };
@@ -553,6 +603,12 @@ export function registerAdminRoutes(app: FastifyInstance): void {
         const progression = startingProgression();
         next = { ...next, level: body.playerLevel, progression };
         app.repos.bases.updateProgression(next.id, body.playerLevel, progression);
+        offerOpeningInvitationAt(
+          app.repos,
+          next.ownerId,
+          body.playerLevel,
+          new Date().toISOString(),
+        );
       }
 
       if (body.notoriety !== undefined) {
@@ -578,4 +634,60 @@ export function registerAdminRoutes(app: FastifyInstance): void {
       return { admin: snapshot(app, next) };
     })();
   });
+}
+
+/** The district a location sits in, anywhere in the world, or nothing for an id nobody authored. */
+function findLocationDistrict(locationId: string) {
+  const location = findLocation(locationId);
+  return location ? findDistrict(location.districtId) : undefined;
+}
+
+/**
+ * One location in every open city, for the Console (`AdminGrantRequest.footholds`).
+ *
+ * Empty ground first, then ground the looters or the regime stand on; never another crew's, never
+ * a Combine leader's own plot, and never the last open plot of a district, which would shut it.
+ * Held with a small garrison so it reads as ground somebody is standing on.
+ */
+function grantFootholds(app: FastifyInstance, baseId: string): void {
+  const controls = app.repos.city.controls();
+  const at = new Date().toISOString();
+  for (const city of CITIES.filter((one) => one.open)) {
+    const districts = districtsOfCity(city.id);
+    const holdsHere = districts.some((district) =>
+      district.locations.some((location) => {
+        const holder = controls.get(location.id)?.holder;
+        return holder?.kind === 'crew' && holder.baseId === baseId;
+      }),
+    );
+    if (holdsHere) continue;
+    const candidates = districts.flatMap((district) => {
+      const open = district.locations.filter(
+        (location) => controls.get(location.id)?.holder.kind === 'unoccupied',
+      );
+      return district.locations
+        .filter((location) => {
+          const holder = controls.get(location.id)?.holder;
+          if (!holder || holder.kind === 'crew') return false;
+          if (combineLeaderAt(location.id)) return false;
+          // Taking the only empty plot of a district would shut it behind a gate.
+          return !(holder.kind === 'unoccupied' && open.length <= 1);
+        })
+        .map((location) => ({
+          location,
+          district,
+          empty: controls.get(location.id)?.holder.kind === 'unoccupied',
+        }));
+    });
+    const pick = candidates.find((one) => one.empty) ?? candidates[0];
+    if (!pick) continue;
+    const control = controls.get(pick.location.id)!;
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId },
+      upgradingUntil: null,
+      garrison: { razors: 10 },
+    });
+    app.repos.city.markScouted(baseId, pick.district.id, at);
+  }
 }

@@ -1,6 +1,5 @@
 import {
   COMBAT_CONTEXT_LABELS,
-  FORTIFY_DIFFICULTY_LABELS,
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
   UNIT_MODIFIERS,
@@ -10,10 +9,6 @@ import {
   cancelWindowMs,
   cellCanHold,
   findDistrict,
-  fortifyBonusPercent,
-  fortifyCost,
-  maxFortifyBonusPercent,
-  quoteFortify,
   weatherAt,
   type Army,
   type CombatContext,
@@ -26,24 +21,24 @@ import { Link } from 'react-router-dom';
 import { CostLine } from '../../components/Resources';
 import { Button } from '../../components/ui/Button';
 import { CancelMark } from '../../components/ui/CancelMark';
-import { FortifyMeter } from '../../components/ui/FortifyMeter';
 import { Icon, type IconName } from '../../components/ui/Icon';
 import { Characteristics } from '../../components/ui/LabelChip';
 import { cn } from '../../lib/cn';
 import {
-  useCancelLocationFortify,
   useCancelLocationUpgrade,
-  useFortify,
   useMe,
   usePlantSleepers,
-  useSetGarrison,
+  useUnits,
   useUpgradeLocation,
 } from '../../lib/queries';
 import { formatDuration, formatRemaining } from '../base/format';
+import { BurnNotice } from '../base/BurnNotice';
 import { HOLDER_PLATE } from './holder';
 import { whenItHolds } from './characteristics';
 import { ForcePicker } from './ForcePicker';
+import { MoveDialog } from '../actions/MoveDialog';
 import { SpyDialog, type SpyingProps } from './SpyPanel';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * One location, on one sheet, laid out the same way for every location in the city (board
@@ -133,11 +128,10 @@ export function LocationSheet({
   spying,
 }: LocationSheetProps) {
   const spec = LOCATION_CATALOG[view.location.kind];
-  const fortify = useFortify(baseId, districtId);
-  const garrison = useSetGarrison(baseId, districtId);
+  // The roster the Move dialog reads its places and counts off, for the Garrison control.
+  const roster = useUnits();
   const upgrade = useUpgradeLocation(baseId, districtId);
   const cancelUpgrade = useCancelLocationUpgrade(baseId, districtId);
-  const cancelFortify = useCancelLocationFortify(baseId, districtId);
   // For the bag the picker quotes: the raid pays against the crew's brackets, so the quote reads
   // the same map (`battle/resolve.ts`).
   const me = useMe();
@@ -156,8 +150,6 @@ export function LocationSheet({
     0,
   );
 
-  const quote = quoteFortify(view.location, view.fortification);
-  const digging = view.fortifyingUntil !== null;
   const upgrading = view.upgradingUntil !== null;
   const district = findDistrict(districtId);
 
@@ -219,6 +211,8 @@ export function LocationSheet({
         </div>
       </header>
 
+      {/* The Generator's burn, on ground the crew holds as on the district (2026-09-28). */}
+      {mine && me.data?.base && <BurnNotice economy={me.data.base.economy} now={now} />}
       <HolderPlate view={view} mine={mine} />
 
       <Sheet label="What it is">
@@ -264,7 +258,7 @@ export function LocationSheet({
           data-testid={`characteristics-${view.location.id}`}
         />
         <FightsAs view={view} now={now} />
-        <dl className="mt-1 grid grid-cols-3 gap-2">
+        <dl className="mt-1 grid grid-cols-2 gap-2">
           <Figure label={mine ? 'Defence' : 'Ground defence'} value={String(view.defense)} />
           {/* Nothing about their count is free (maintainer, 2026-09-22): the figure is the
               crew's own, or what its last spy report said, or a blank. */}
@@ -278,24 +272,6 @@ export function LocationSheet({
                   : 'Unknown'
             }
           />
-          <div className="flex min-w-0 flex-col gap-1">
-            <dt className="font-display text-[10px] uppercase tracking-[0.16em] text-ink-300">
-              Dug in
-            </dt>
-            {/* Drawn rather than counted: see `FortifyMeter`. The ground's difficulty stays in
-                words beside it, because it is what decides whether digging here is worth the
-                materials. */}
-            <dd className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <FortifyMeter
-                level={view.fortification}
-                percent={fortifyBonusPercent(view.location.fortifyDifficulty, view.fortification)}
-                size="sm"
-              />
-              <span className="font-body text-[11px] text-ink-300">
-                {FORTIFY_DIFFICULTY_LABELS[view.location.fortifyDifficulty]}
-              </span>
-            </dd>
-          </div>
         </dl>
       </Sheet>
 
@@ -320,11 +296,10 @@ export function LocationSheet({
         <Sheet label="Your options" icon="build" tone="mine">
           {/*
            * Working it up (§A4): the board-game half of holding ground, and the first thing
-           * offered because it is the decision the sheet exists for. Fortifying makes a location
-           * *harder to take*; a level makes it *worth more*. What happens to each on capture is
-           * not the same, and the sheet used to say here that both were lost: a fortification is
-           * lost, and a banked level changes hands with the ground (§A4, `battle/resolve.ts`).
-           * What a capture does destroy is an upgrade still running, paid for and not yet banked.
+           * offered because it is the decision the sheet exists for. A level makes it *worth
+           * more*, and a banked level changes hands with the ground on capture (§A4,
+           * `battle/resolve.ts`). What a capture does destroy is an upgrade still running, paid for
+           * and not yet banked.
            *
            * The authored sentence is shown, not the percentage: "you get the underground tanks
            * pumping again" is a thing that happens to a petrol station you own, and "+50% oil" is
@@ -346,11 +321,7 @@ export function LocationSheet({
                 onCancel={() => cancelUpgrade.mutate({ locationId: view.location.id })}
                 data-testid={`cancel-upgrade-${view.location.id}`}
               />
-              {cancelUpgrade.error && (
-                <p role="alert" className="w-full font-body text-[12px] text-oxblood-300">
-                  {cancelUpgrade.error.message}
-                </p>
-              )}
+              {cancelUpgrade.error && <ErrorNote>{cancelUpgrade.error.message}</ErrorNote>}
             </div>
           ) : view.upgrade === null ? (
             <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
@@ -375,53 +346,20 @@ export function LocationSheet({
                   {upgrade.isPending ? 'Working…' : 'Work it up'}
                 </Button>
               </div>
+              {upgrade.error && <ErrorNote>{upgrade.error.message}</ErrorNote>}
             </div>
           )}
-          {digging ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ember-300">
-                Digging in,{' '}
-                {formatRemaining(Date.parse(view.fortifyingUntil ?? '') - now.getTime())} left
-              </p>
-              <CancelMark
-                windowMs={workWindowMs(view.fortifyingSince, view.fortifyingUntil, now)}
-                label={`Call off digging in at ${view.location.name}`}
-                pending={cancelFortify.isPending}
-                onCancel={() => cancelFortify.mutate({ locationId: view.location.id })}
-                data-testid={`cancel-fortify-${view.location.id}`}
-              />
-              {cancelFortify.error && (
-                <p role="alert" className="w-full font-body text-[12px] text-oxblood-300">
-                  {cancelFortify.error.message}
-                </p>
-              )}
-            </div>
-          ) : quote === null ? (
-            <p className="font-display text-[11px] uppercase tracking-[0.16em] text-ink-300">
-              As dug in as this ground allows (
-              {maxFortifyBonusPercent(view.location.fortifyDifficulty)}
-              %)
-            </p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <span className="font-display text-[11px] uppercase tracking-[0.18em] text-ink-300">
-                Fortify to level {quote.level} · +{quote.bonusPercent}% ·{' '}
-                {formatDuration(quote.seconds)}
-              </span>
-              <CostLine cost={fortifyCost(quote.level)} stock={resources} />
-            </div>
-          )}
+          {/* Garrisoning is walking units there, on the clock (maintainer, 2026-09-28: "Nothing
+              sends units immediately, you need to move them"). The control opens the Move dialog
+              pointed at this place; bringing them home is the same dialog, from here. */}
           <div className="flex flex-wrap gap-2">
-            {!digging && quote !== null && (
-              <Button
-                size="sm"
-                disabled={fortify.isPending}
-                onClick={() => fortify.mutate({ locationId: view.location.id })}
-              >
-                {fortify.isPending ? 'Working…' : 'Dig in'}
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={() => setStaging(true)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={roster.data === undefined}
+              onClick={() => setStaging(true)}
+              data-testid={`garrison-${view.location.id}`}
+            >
               Garrison
             </Button>
           </div>
@@ -509,23 +447,11 @@ export function LocationSheet({
         />
       )}
 
-      {staging && (
-        <ForcePicker
-          title={`Garrison ${view.location.name}`}
-          blurb="Units left here hold the location. If it falls, half of them run and half do not. A number below zero brings that many home."
-          army={army}
-          standing={view.garrison ?? {}}
-          loadouts={me.data?.base?.unitLoadouts ?? {}}
-          pending={garrison.isPending}
-          error={garrison.error}
-          confirmLabel="Leave them"
+      {staging && roster.data && (
+        <MoveDialog
+          roster={roster.data}
+          towards={{ kind: 'location', locationId: view.location.id }}
           onClose={() => setStaging(false)}
-          onConfirm={(changes) =>
-            garrison.mutate(
-              { locationId: view.location.id, changes },
-              { onSuccess: () => setStaging(false) },
-            )
-          }
         />
       )}
     </section>
@@ -619,7 +545,7 @@ function HolderPlate({ view, mine }: { view: LocationView; mine: boolean }) {
           </span>
         )}
         <span className="font-body text-[11px] leading-snug text-ink-300">
-          {mine ? 'Your ground. Work it up, dig in, or leave people on it.' : reading.note}
+          {mine ? 'Your ground. Work it up, or leave people on it.' : reading.note}
         </span>
       </div>
       {mine && (
@@ -707,7 +633,7 @@ function Figure({ label, value }: { label: string; value: string }) {
  * decides who to bring.
  *
  * Read out of `battlefieldFor` rather than off `LOCATION_CONTEXTS` directly, so the chips are the
- * list the fight will actually use: digging in adds Fortified, and a dark sky adds Unlit. A row
+ * list the fight will actually use: a dark sky adds Unlit. A row
  * derived from the catalogue alone would tell a player their Tunnel Rats were no use on ground
  * the settler was about to call Underground.
  */
@@ -715,8 +641,6 @@ function FightsAs({ view, now }: { view: LocationView; now: Date }) {
   const ground = battlefieldFor({
     locationName: view.location.name,
     kind: view.location.kind,
-    fortifyDifficulty: view.location.fortifyDifficulty,
-    fortifyLevel: view.fortification,
     at: now,
   });
 

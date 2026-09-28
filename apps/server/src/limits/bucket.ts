@@ -47,12 +47,26 @@ interface Window {
  */
 export const LIMIT_SWEEP_MS = 60_000;
 
+/**
+ * The most windows held at once (hardening pass, 2026-09-27).
+ *
+ * Every caller the limiter has seen in the last fifteen minutes holds one, and an unauthenticated
+ * caller is keyed on its address, so a flood from rotating addresses grew the map without bound
+ * between sweeps. At the ceiling a new key first sweeps the rolled windows and then, if it is
+ * still full, evicts the oldest. Evicting forgets somebody's count, which is the cheaper failure:
+ * the alternative is the process running out of memory for everybody.
+ */
+export const LIMIT_MAX_KEYS = 200_000;
+
 export class RateLimiter {
   readonly #windows = new Map<string, Window>();
   readonly #now: () => number;
 
-  constructor(now: () => number = Date.now) {
+  readonly #maxKeys: number;
+
+  constructor(now: () => number = Date.now, maxKeys = LIMIT_MAX_KEYS) {
     this.#now = now;
+    this.#maxKeys = maxKeys;
   }
 
   /**
@@ -65,6 +79,7 @@ export class RateLimiter {
   take(key: string, rule: LimitRule): LimitDecision {
     const now = this.#now();
     const existing = this.#windows.get(key);
+    if (!existing && this.#windows.size >= this.#maxKeys) this.#makeRoom();
     const window =
       existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + rule.windowMs };
     window.count += 1;
@@ -79,6 +94,15 @@ export class RateLimiter {
   }
 
   /** Drops windows that have already rolled. Called on a timer; safe to call at any time. */
+  #makeRoom(): void {
+    this.sweep();
+    while (this.#windows.size >= this.#maxKeys) {
+      const oldest = this.#windows.keys().next();
+      if (oldest.done) return;
+      this.#windows.delete(oldest.value);
+    }
+  }
+
   sweep(): void {
     const now = this.#now();
     for (const [key, window] of this.#windows) {

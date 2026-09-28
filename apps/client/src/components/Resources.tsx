@@ -495,7 +495,15 @@ export function CostLine({ cost, stock }: { cost: PartialResources; stock: Resou
 }
 
 /** Inline "+120 scrap · +60 caps" style reward line for partial bundles. */
-export function RewardLine({ rewards }: { rewards: PartialResources }) {
+export function RewardLine({
+  rewards,
+  size = 'sm',
+}: {
+  rewards: PartialResources;
+  /** `md` for a card with room for it: the mission board's haul (maintainer, 2026-09-28). */
+  size?: 'sm' | 'md';
+}) {
+  const md = size === 'md';
   const entries = RESOURCE_ORDER.filter(
     (kind): kind is ResourceKey => (rewards[kind] ?? 0) > 0,
   ).map((kind) => ({ kind, amount: rewards[kind] ?? 0 }));
@@ -505,19 +513,30 @@ export function RewardLine({ rewards }: { rewards: PartialResources }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1" data-testid="reward-line">
       {entries.map(({ kind, amount }) => {
         const meta = RESOURCE_META[kind];
         return (
           <span
             key={kind}
-            className={cn('flex items-center gap-1.5 font-display text-xs', meta.color)}
+            className={cn(
+              'flex items-center gap-1.5 font-display',
+              md ? 'text-[14px]' : 'text-xs',
+              meta.color,
+            )}
           >
-            <ResourceIcon kind={kind} />
+            <ResourceIcon kind={kind} className={md ? 'h-5 w-5' : 'h-4 w-4'} />
             <span className="font-semibold tabular-nums">
               +{Math.round(amount).toLocaleString()}
             </span>
-            <span className="text-[11px] uppercase tracking-[0.15em] opacity-70">{meta.label}</span>
+            <span
+              className={cn(
+                'uppercase tracking-[0.15em] opacity-70',
+                md ? 'text-[12px]' : 'text-[11px]',
+              )}
+            >
+              {meta.label}
+            </span>
           </span>
         );
       })}

@@ -32,29 +32,27 @@ const ARMY: Army = { razors: 9, road_reavers: 4, the_colossus: 1 };
 const view: BattleView = {
   battle: {
     id: 'press',
-    target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+    target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
     attackerBaseId: 'base-1',
     defender: { kind: 'looters' },
     scheduledFor: MARK,
-    holdAfterCapture: false,
+    holdAfterCapture: true,
     wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
-    seed: 'press-seed',
   },
   targetName: 'Kessler Press',
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
     kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: new Date(MARK),
     weather: 'normal',
   }),
   role: 'attacker',
   side: 'attacker',
   deploymentOpen: true,
+  withdrawalOpen: true,
   muster: { army: {}, perimeter: {}, size: 0 },
   enemySize: 10,
   enemyIntel: 'A rough count.',
@@ -77,6 +75,7 @@ function stubApi(anyRide = false): void {
   fetchMock.mockImplementation((path: string) => {
     if (String(path).endsWith('/units')) {
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',
@@ -117,7 +116,6 @@ function open(over: Partial<BattleView> = {}, army: Army = ARMY) {
         army={army}
         loadouts={{}}
         bagPercent={0}
-        homeDistrictId="neon-docks"
         notoriety={100_000}
         mode="line"
         pending={false}

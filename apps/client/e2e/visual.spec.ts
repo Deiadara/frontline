@@ -9,6 +9,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   BUILDING_CATALOG,
+  playerXpToNextLevel,
   BUILDING_KINDS,
   CITY_DISTRICTS,
   DISTRICT_NAME_MAX,
@@ -714,10 +715,11 @@ for (const size of VIEWPORTS) {
 
       // Fifteen since 2026-09-19: the Market opens at 15 and the back room at notoriety 3, so the
       // late-game fixture was raised past every door it is meant to be able to walk through. The
-      // readout is wider for it, which is what this case exists to catch: five digits either side
-      // of the slash rather than four.
+      // readout is off the curve, so it reads whatever level fifteen asks (3,960 since the curve
+      // was retuned on 2026-09-28).
+      const needed = playerXpToNextLevel(15);
       await expect(page.getByText('Level 15 → 16')).toBeInViewport({ ratio: 1 });
-      await expect(page.getByText('11999 / 12000 XP')).toBeInViewport({ ratio: 1 });
+      await expect(page.getByText(`${needed - 1} / ${needed} XP`)).toBeInViewport({ ratio: 1 });
 
       // §I2 grants at level 15: §H8 slots 2+14.
       await expect(grantValue('Recruit slots')).toHaveText('16');
@@ -921,7 +923,7 @@ for (const size of VIEWPORTS) {
        */
       await expect(note).not.toContainText('How it works');
       await expect(note).not.toContainText('Nothing is negotiated');
-      await expect(note).toContainText('at midnight the highest signs them');
+      await expect(note).toContainText('midnight the highest signs at what they bid');
     });
     /*
      * §C/§D/§G2/§I1: the research page, at all three of its tabs.
@@ -2392,7 +2394,7 @@ test.describe('the standing bar does not resize itself', () => {
     test(`nothing in the bar sits on anything else at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await installApi(page, hudExtremes);
-      await page.goto('/game/city');
+      await page.goto('/game');
       await expect(page.getByTestId('infamy-chip')).toBeVisible();
       await settleFonts(page);
 
@@ -2441,7 +2443,7 @@ test.describe('the standing bar does not resize itself', () => {
     test(`holds its shape at the widest legal values at ${tag}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await installApi(page, hudExtremes);
-      await page.goto('/game/city');
+      await page.goto('/game');
       await expect(page.getByTestId('infamy-chip')).toBeVisible();
       await settleFonts(page);
 
@@ -2482,7 +2484,7 @@ test.describe('the standing bar does not resize itself', () => {
 
       await page.setViewportSize({ width, height });
       await installApi(page, me);
-      await page.goto('/game/city');
+      await page.goto('/game');
       await expect(page.getByTestId('infamy-chip')).toBeVisible();
       await settleFonts(page);
       const small = await widthsOf();
@@ -2506,7 +2508,7 @@ test.describe('the standing bar does not resize itself', () => {
     test(`shows every figure in full at its largest at ${tag}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
       await installApi(page, hudExtremes);
-      await page.goto('/game/city');
+      await page.goto('/game');
       await expect(page.getByTestId('infamy-chip')).toBeVisible();
       await settleFonts(page);
 

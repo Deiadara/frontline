@@ -40,7 +40,7 @@ const offer: MissionOffer = {
   name: 'Long Haul',
   brief: 'A long way out and a long way back.',
   kind: 'standard',
-  difficulty: 'easy',
+  grade: 'E',
   travelMinutes: 100,
   durationMinutes: 60,
   totalMinutes: missionTimings({ travelMinutes: 100, durationMinutes: 60 }).totalMinutes,
@@ -51,10 +51,9 @@ const offer: MissionOffer = {
   payoutSlots: 8,
   xp: 100,
   failedXp: 20,
-  pagePrize: null,
-  authoredChance: 0.8,
   leanings: ['road'],
-  battleTier: null,
+  // Out of the opening band: this fixture is not about the ramp.
+  ramp: null,
 };
 
 const area: MissionArea = {
@@ -98,8 +97,6 @@ function renderBoard(switches: { carriersFight?: boolean; anyRide?: boolean } = 
       // The card a unit's name opens comes off the roster; these fixtures draw names bare.
       roster={undefined}
       leaders={[officer]}
-      unledRule="free"
-      level={10}
       now={NOW}
       atCapacity={false}
       automated={false}

@@ -1,4 +1,5 @@
 import {
+  MAX_WAGE_DISCOUNT,
   DISMISSAL_WEEKS,
   MAX_OPEN_AUCTIONS,
   PAYROLL_BASE,
@@ -36,6 +37,8 @@ import {
   type JoinRequirement,
   type Notification,
   startingTraining,
+  OFFICER_ROLES,
+  flatRoom,
 } from '@frontline/shared';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -49,12 +52,14 @@ import { projectRecruit } from './project.js';
 import {
   bidCeilingFor,
   committedWage,
+  recruitSlotsFor,
   releaseOfficer,
   signRecruit,
   wageAskedOf,
   type HireRefusal,
 } from './hire.js';
 import { reserveFor, settleBarAuctions } from './auction.js';
+import { MAX_CALIBRE, recruitmentCeiling } from '../characters/generate.js';
 import {
   BAR_OPEN_DOOR_FLOOR,
   BAR_ROSTER_SIZE,
@@ -64,6 +69,7 @@ import {
   recruitId,
 } from './roster.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 
 /*
  * The clock, pinned.
@@ -110,6 +116,19 @@ async function makeApp(): Promise<{ app: FastifyInstance; db: AppDatabase }> {
   return handle;
 }
 
+/** Sits somebody in every chair this crew has, so a win at the close has nowhere to go. */
+function fillEveryChair(app: FastifyInstance, baseId: string, prefix: string): void {
+  const base = app.repos.bases.findById(baseId);
+  if (!base) throw new Error('no base');
+  const chairs = recruitSlotsFor(app.repos, base);
+  app.repos.bases.updateCommanders(
+    base.id,
+    OFFICER_ROLES.slice(0, chairs).map((role, index) =>
+      createCommander(`${prefix}-${String(index)}`, `Sitter ${String(index)}`, role),
+    ),
+  );
+}
+
 interface Player {
   token: string;
   userId: string;
@@ -117,8 +136,17 @@ interface Player {
   username: string;
 }
 
-/** A registered player who has picked an overseer, i.e. one who has a base. */
-async function makePlayer(app: FastifyInstance, username: string): Promise<Player> {
+/**
+ * A registered player who has picked an overseer, i.e. one who has a base.
+ *
+ * With the Bar's door open by default, because the server holds it now (level 5) and nearly every
+ * case here bids. `shut` leaves the crew as it arrives, for the cases about a fresh player.
+ */
+async function makePlayer(
+  app: FastifyInstance,
+  username: string,
+  { shut = false }: { shut?: boolean } = {},
+): Promise<Player> {
   const register = await app.inject({
     method: 'POST',
     url: '/api/auth/register',
@@ -128,6 +156,7 @@ async function makePlayer(app: FastifyInstance, username: string): Promise<Playe
   const registered = register.json<{ token: string; user: { id: string } }>();
 
   const overseer = await chooseOverseer(app, registered.token);
+  if (!shut) openDoors(app, registered.token, 'bar');
   expect(overseer.statusCode).toBe(201);
   // The room is the same eight tables for everybody on a given game day, and one §F6 signature
   // widens the pool it is drawn from by 40%, which is the thing this file counts.
@@ -231,7 +260,10 @@ interface Written {
 }
 
 /** A repository double: signing writes through three calls and the tests assert on what landed. */
-function fakeRepos(): {
+function fakeRepos(
+  /** Who is out: a run led by this officer id, or a fight they are leading. */
+  out: { runLedBy?: string; fightLedBy?: string } = {},
+): {
   repos: Parameters<typeof signRecruit>[0];
   written: Written;
 } {
@@ -269,9 +301,28 @@ function fakeRepos(): {
   const city = { controls: () => new Map(), control: () => undefined, scouted: () => new Set() };
   const users = { findById: () => undefined };
   const overseers = { findById: () => undefined };
-  const sieges = { deploymentsFor: () => [] };
+  const sieges = {
+    deploymentsFor: () => [],
+    leadingElsewhere: (officerId: string) =>
+      officerId === out.fightLedBy ? [{ battleId: 'battle-1' }] : [],
+  };
   const movements = { forBase: () => [] };
-  const missions = { listActiveByBaseId: () => [] };
+  const missions = {
+    listActiveByBaseId: () =>
+      out.runLedBy === undefined
+        ? []
+        : [
+            {
+              mission: {
+                officerId: out.runLedBy,
+                startedAt: new Date().toISOString(),
+                travelMinutes: 10,
+                durationMinutes: 10,
+                recalledAt: null,
+              },
+            },
+          ],
+  };
   /*
    * A crew in no faction, which is the state these cases are written for.
    *
@@ -377,7 +428,6 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
           (r) =>
             assessJoin(r.requirement, {
               notoriety: 0,
-              level: 1,
               infamy: 0,
               factionInfamy: 0,
             }).interested,
@@ -412,25 +462,34 @@ describe('§H2/§H2a: one global roster, generated from the game date', () => {
     const early = meanOf(0);
     const late = meanOf(30);
     expect(late).toBeGreaterThan(early + 3);
-    // And the recruitment ceiling still holds: the 40..100 band is what progression is for.
+    /*
+     * The recruitment ceiling climbs with the room since 2026-09-28 (maintainer: "officers up to
+     * even higher ones"), and it used to hold at 40 whatever the city. It still stops short of the
+     * top of the scale, which is what training is for, and a finished city really does pass 40.
+     */
+    let highest = 0;
     for (let day = 0; day < 30; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      for (const recruit of barRoster(key, BAR_ROSTER_SIZE, 90)) {
+      for (const recruit of barRoster(key, BAR_ROSTER_SIZE, 110)) {
         for (const name of ATTRIBUTE_NAMES) {
-          expect(recruit.attributes[name]).toBeLessThanOrEqual(MAX_RECRUITMENT_ATTRIBUTE);
+          expect(recruit.attributes[name]).toBeLessThanOrEqual(recruitmentCeiling(MAX_CALIBRE));
+          highest = Math.max(highest, recruit.attributes[name]);
         }
       }
     }
+    expect(recruitmentCeiling(MAX_CALIBRE)).toBeLessThan(100);
+    expect(highest).toBeGreaterThan(MAX_RECRUITMENT_ATTRIBUTE);
   });
 
   it('leaves the ungated seats free to be anyone else: the floor is a floor, not the roster', () => {
     // A guarantee that quietly flattened every recruit into the same safe disposition would pass
-    // the check above and gut §H3 entirely.
+    // the check above and gut §H3 entirely. Read in a city whose crews have bought a few rungs,
+    // because the high seat asks the top crew's own rank and a city of `Nobody`s has none to ask.
     const gated = new Set<number>();
     const perksSeen = new Set<string>();
     for (let day = 0; day < 200; day++) {
       const key = barDay(new Date(Date.UTC(2026, 0, 1) + day * 86_400_000));
-      barRoster(key).forEach((recruit, index) => {
+      barRoster(key, BAR_ROSTER_SIZE, flatRoom(20, 3)).forEach((recruit, index) => {
         if (recruit.requirement.minNotoriety > 0) gated.add(index);
         for (const id of recruit.perks) perksSeen.add(id);
       });
@@ -516,7 +575,6 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
     const hire = recruit();
     const doors: [string, JoinRequirement, HireRefusal][] = [
       ['rank', { ...hire.requirement, minNotoriety: 4 }, 'requirement'],
-      ['level', { ...hire.requirement, minLevel: 40 }, 'level'],
       ['wallet', { ...hire.requirement, minInfamy: 500 }, 'infamy'],
       ['badge', { ...hire.requirement, minFactionInfamy: 250 }, 'faction'],
     ];
@@ -743,6 +801,29 @@ describe('§H7/§H8: putting a won recruit on the books', () => {
       kind: 'refused',
       reason: 'not_on_the_books',
     });
+  });
+
+  /** Every run has a leader (2026-09-28), so nobody is let go from the head of one. */
+  it('will not let somebody go while they are out leading a run or a fight', () => {
+    const { repos } = fakeRepos();
+    const hired = sign(repos, makeBase(), reserveFor(recruit()));
+    if (hired.kind !== 'signed') throw new Error('expected a signing');
+    const id = hired.officer.id;
+
+    expect(releaseOfficer(fakeRepos({ runLedBy: id }).repos, hired.base, id)).toEqual({
+      kind: 'refused',
+      reason: 'on_duty',
+      held: 'run',
+    });
+    expect(releaseOfficer(fakeRepos({ fightLedBy: id }).repos, hired.base, id)).toEqual({
+      kind: 'refused',
+      reason: 'on_duty',
+      held: 'fight',
+    });
+    // Somebody else out leading changes nothing for this one.
+    expect(releaseOfficer(fakeRepos({ runLedBy: 'someone-else' }).repos, hired.base, id).kind).toBe(
+      'released',
+    );
   });
 });
 
@@ -1011,7 +1092,7 @@ describe('§H7a: bidding at the Bar', () => {
 
   it('reports slots, crew standing and an empty roster of officers to a fresh player', async () => {
     const { app } = await makeApp();
-    const bar = await readBar(app, await makePlayer(app, 'fresh_operator'));
+    const bar = await readBar(app, await makePlayer(app, 'fresh_operator', { shut: true }));
 
     expect(bar.slotsUsed).toBe(0);
     expect(bar.slotsTotal).toBe(playerLevelGrants(1).recruitSlots);
@@ -1171,13 +1252,8 @@ describe('§H7a: the close', () => {
     );
     expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
 
-    // The highest bidder fills both chairs after bidding. The close has to notice.
-    const base = app.repos.bases.findById(one.baseId);
-    if (!base) throw new Error('no base');
-    app.repos.bases.updateCommanders(base.id, [
-      createCommander('sitting-1', 'Halvard', 'master_of_whispers'),
-      createCommander('sitting-2', 'Vasso', 'lead_engineer'),
-    ]);
+    // The highest bidder fills every chair after bidding. The close has to notice.
+    fillEveryChair(app, one.baseId, 'sitting');
 
     const runnerUp = app.repos.bases.findById(two.baseId);
     if (!runnerUp) throw new Error('no base');
@@ -1211,14 +1287,7 @@ describe('§H7a: the close', () => {
     expect((await bid(app, one, auction.recruitId, top?.nextBid ?? 0)).statusCode).toBe(200);
 
     // Both crews fill every chair after bidding, so the ranking runs out of takers.
-    for (const player of [one, two]) {
-      const base = app.repos.bases.findById(player.baseId);
-      if (!base) throw new Error('no base');
-      app.repos.bases.updateCommanders(base.id, [
-        createCommander(`${player.username}-1`, 'Halvard', 'master_of_whispers'),
-        createCommander(`${player.username}-2`, 'Vasso', 'lead_engineer'),
-      ]);
-    }
+    for (const player of [one, two]) fillEveryChair(app, player.baseId, player.username);
 
     vi.setSystemTime(AFTER);
     const first = await readBar(app, one);
@@ -1489,20 +1558,30 @@ describe('§H2a: the Bar gets better as the city does', () => {
     }
   };
 
+  /**
+   * On the next game day: the room is frozen at the day's first read since 2026-09-28
+   * (`bar/room.ts`), so a city that levels at noon changes tomorrow's room and not today's. Held
+   * against the same people poured at yesterday's profile, so the gain is the city's and not a
+   * different night's luck.
+   */
   it('offers a stronger room once the city has levelled', async () => {
     const { app } = await makeApp();
     const player = await makePlayer(app, 'young_city');
     const before = await readBar(app, player);
+    const yesterday = app.repos.bar.room(before.day, before.cityId);
+    if (!yesterday) throw new Error('the first read froze no room');
 
     growTheCity(app, 30);
+    vi.setSystemTime(AFTER);
     const after = await readBar(app, player);
+    const unmoved = barRoster(after.day, after.recruits.length, yesterday, after.cityId);
 
-    const mean = (bar: { recruits: { attributes: Record<string, number> }[] }) =>
-      bar.recruits.reduce(
+    const mean = (recruits: readonly { attributes: Record<string, number> }[]) =>
+      recruits.reduce(
         (total, recruit) => total + Object.values(recruit.attributes).reduce((a, b) => a + b, 0),
         0,
-      ) / bar.recruits.length;
-    expect(mean(after)).toBeGreaterThan(mean(before));
+      ) / recruits.length;
+    expect(mean(after.recruits)).toBeGreaterThan(mean(unmoved));
   });
 
   /**
@@ -1670,6 +1749,20 @@ describe('what a table opens at (§H7)', () => {
     expect(over.statusCode).toBe(409);
     expect(errorOf(over.body).code).toBe('NO_PAYROLL');
     expect((await bid(app, haggler, table.recruitId, bar.bidCeiling)).statusCode).toBe(200);
+  });
+
+  /**
+   * Past the cap on the talk-down. A late crew's wage channel reaches 119 (see `committedWage`),
+   * which the contract clamps to half off, so the ceiling has to clamp the same way: it read the
+   * raw figure, found nothing left to pay, and quoted the bare book, half of what the gate takes.
+   */
+  it('quotes the ceiling off the capped talk-down, however big the raw channel is', () => {
+    for (const discount of [MAX_WAGE_DISCOUNT, 100, 119]) {
+      const ceiling = bidCeilingFor(200, discount);
+      expect(committedWage(ceiling, discount), `at ${discount}`).toBeLessThanOrEqual(200);
+      expect(committedWage(ceiling + 1, discount), `at ${discount}`).toBeGreaterThan(200);
+    }
+    expect(bidCeilingFor(200, 119)).toBe(bidCeilingFor(200, MAX_WAGE_DISCOUNT));
   });
 
   /** The panel reads the last night the crew sat at a table, not only last night. */

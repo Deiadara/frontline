@@ -78,12 +78,10 @@ function stack(): { repos: Repositories; base: Base } {
   repos.bases.insert(base);
   // A Doghouse at level 6, so the Cyberhounds carry a private discount on top of the crew's.
   const control: LocationControl = {
-    locationId: 'rustyard-kennels',
+    locationId: 'steelbelt-kennels',
     holder: { kind: 'crew', baseId: base.id },
     level: 6,
     upgradingUntil: null,
-    fortification: 0,
-    fortifyingUntil: null,
     garrison: {},
   };
   repos.city.put(control);

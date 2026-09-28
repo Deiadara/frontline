@@ -12,7 +12,7 @@ import {
   type UnitsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { settleFortifications } from '../city/actions.js';
+import { settleLocationUpgrades } from '../city/actions.js';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { projectUnits } from '../units/roster.js';
@@ -41,7 +41,7 @@ const REFUSAL_ERRORS: Record<TrainingRefusal, { code: ErrorCode; message: string
 
 const BURN_ERRORS: Record<BurnRefusal, { code: ErrorCode; message: string }> = {
   unknown_upgrade: { code: 'NOT_FOUND', message: 'No such modification' },
-  not_fitted: { code: 'WORKSHOP_REFUSED', message: 'That is not bolted to anything' },
+  not_fitted: { code: 'WORKSHOP_REFUSED', message: 'That unit is not wearing it' },
 };
 
 const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }> = {
@@ -54,9 +54,11 @@ const CANCEL_ERRORS: Record<CancelRefusal, { code: ErrorCode; message: string }>
 
 export function registerUnitRoutes(app: FastifyInstance): void {
   function settled(ownerId: string, now: Date): Base {
+    // The upgrades before the crew is read: a level landing settles its holder (`putControl`), and
+    // a copy read before that would settle the same stretch of production a second time.
+    settleLocationUpgrades(app.repos, now);
     const owned = app.repos.bases.findByOwnerId(ownerId);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
-    settleFortifications(app.repos, now);
     return settleTraining(app.repos, settleBase(app.repos, owned, now).base, now).base;
   }
 
@@ -102,11 +104,13 @@ export function registerUnitRoutes(app: FastifyInstance): void {
    * open lands in the army on this request and is then correctly not there to cancel.
    */
   app.post('/units/cancel', { preHandler: app.authenticate }, (request): TrainUnitsResponse => {
-    const { orderId } = parseBody(CancelTrainingRequestSchema, request.body);
+    const { orderId, acceptWaste } = parseBody(CancelTrainingRequestSchema, request.body);
     const now = new Date();
     const base = settled(request.currentUser.id, now);
 
-    const result = app.db.transaction(() => cancelTraining(app.repos, base, orderId, now))();
+    const result = app.db.transaction(() =>
+      cancelTraining(app.repos, base, orderId, now, acceptWaste),
+    )();
     if (result.kind === 'refused') {
       const { code, message } = CANCEL_ERRORS[result.reason];
       throw new AppError(code, message);
@@ -121,23 +125,26 @@ export function registerUnitRoutes(app: FastifyInstance): void {
    * different unit means paying the yard for another, which is what makes bolting one on a
    * decision rather than a loadout screen.
    *
+   * Names the unit as well as the card: the same card can be on several sheets, each billed, and
+   * a burn pressed on the Razors must leave the Ghosts' copy where it is.
+   *
    * Fitting is not here any more (maintainer rule, 2026-09-16). The yard cuts a card *for* a named
    * unit and bolts it on in the same press (`district/scrapyard.ts`), so `POST /units/loadout` and
    * the crew's stock of unfitted cards are both gone: there is nothing left to move around.
    */
   app.post('/units/burn', { preHandler: app.authenticate }, (request): UnitsResponse => {
-    const { upgradeId } = parseBody(BurnUpgradeRequestSchema, request.body);
+    const { unitId, upgradeId } = parseBody(BurnUpgradeRequestSchema, request.body);
     const now = new Date();
 
     return app.db.transaction(() => {
       const base = settled(request.currentUser.id, now);
-      const refusal = burnRefusal(base.unitLoadouts, upgradeId);
+      const refusal = burnRefusal(base.unitLoadouts, unitId, upgradeId);
       if (refusal !== null) {
         const { code, message } = BURN_ERRORS[refusal];
         throw new AppError(code, message);
       }
 
-      const burnt = burnUpgrade(base.unitLoadouts, base.fittedUpgrades, upgradeId);
+      const burnt = burnUpgrade(base.unitLoadouts, base.fittedUpgrades, unitId, upgradeId);
       app.repos.bases.updateUnitLoadouts(base.id, burnt.loadouts);
       return projectUnits(app.repos, { ...base, unitLoadouts: burnt.loadouts }, now);
     })();

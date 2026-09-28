@@ -182,15 +182,23 @@ export function createSoundEngine(env: SoundEnvironment = browserEnvironment()):
   let volume = readStoredVolume(env.storage);
   let context: AudioContext | null = null;
   let master: GainNode | null = null;
-  /** One entry per kind once the file has been asked for. Missing means "not loaded". */
+  /** One entry per kind once the file has decoded. Missing means "not loaded". */
   const buffers = new Map<SoundKind, AudioBuffer>();
-  let loading = false;
+  /** Kinds whose file is on its way. A failure takes the kind back out so it is asked for again. */
+  const asked = new Set<SoundKind>();
   const lastPlayedAt = new Map<SoundKind, number>();
 
+  /*
+   * Asks for every file not yet decoded or on its way, and is called on every gesture.
+   *
+   * It ran once per session. A file that failed on that one attempt (the dev server restarting
+   * under the tab, a dropped connection on the first click) stayed silent until a reload, with
+   * nothing to say why. Retrying on the next gesture costs nothing once every buffer is in.
+   */
   function load(ctx: AudioContext): void {
-    if (loading) return;
-    loading = true;
     for (const kind of SOUND_KINDS) {
+      if (buffers.has(kind) || asked.has(kind)) continue;
+      asked.add(kind);
       void env
         .fetchBytes(SOUND_URL(kind))
         .then((bytes) => ctx.decodeAudioData(bytes))
@@ -199,13 +207,30 @@ export function createSoundEngine(env: SoundEnvironment = browserEnvironment()):
         })
         .catch(() => {
           // A missing or undecodable file is one silent sound, not a broken game.
+          asked.delete(kind);
         });
     }
   }
 
   return {
     unlock() {
-      if (context !== null || env.createContext === undefined) return;
+      /*
+       * Already built: wake it if the browser put it to sleep, and fetch anything still missing.
+       *
+       * Safari suspends a context when the machine sleeps or the tab is backgrounded (and iOS
+       * reports `interrupted` after a call), and it only resumes from inside a gesture. This
+       * returned early on every gesture after the first, so once suspended the game was silent
+       * until a reload.
+       */
+      if (context !== null) {
+        const state = context.state;
+        if (state === 'suspended' || state === 'interrupted') {
+          void context.resume().catch(() => undefined);
+        }
+        load(context);
+        return;
+      }
+      if (env.createContext === undefined) return;
       try {
         context = env.createContext();
         master = context.createGain();

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { tallyUnitsTrained, tallyVehicleBuilt } from '../feats/tally.js';
 import {
   findVehicle,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   MAX_TRAINING_QUEUE,
   VEHICLES,
   buildingLevel,
@@ -11,7 +11,6 @@ import {
   homeTrainingBonus,
   trainingSuppliesReduction,
   trainingTimeReduction,
-  addResources,
   addToArmy,
   alreadyHolds,
   blueprintGateMet,
@@ -43,8 +42,11 @@ import {
 import { adminCost, adminSeconds, adminWaives } from '../admin/mode.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
+import { creditBase, refuseWaste } from '../district/stores.js';
 import { awardPlayerXp } from '../progression/award.js';
-import { districtUnitSlots } from '../district/unit-slots.js';
+import { districtUnitSlots, unitsAbroad } from '../district/unit-slots.js';
+import { mergeArmies } from '../battle/forces.js';
+import { garrisonedUnits } from './roster.js';
 
 /**
  * Making units (GDD §A5).
@@ -95,7 +97,7 @@ export function unlockContextFor(repos: Repositories, base: Base): UnlockContext
   const controls = repos.city.controls();
   return {
     buildings: base.buildings,
-    heldPlaceKinds: heldPlaceKindsOf(CITY_LOCATIONS, (locationId) => {
+    heldPlaceKinds: heldPlaceKindsOf(EVERY_LOCATION, (locationId) => {
       const control = controls.get(locationId);
       return control !== undefined && isHeldBy(control, base.id);
     }),
@@ -119,7 +121,7 @@ export function heldLocationLevels(
 ): ReadonlyMap<LocationKind, number> {
   const controls = repos.city.controls();
   const levels = new Map<LocationKind, number>();
-  for (const location of CITY_LOCATIONS) {
+  for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (!control || !isHeldBy(control, base.id)) continue;
     const level = clampLevel(control.level);
@@ -335,12 +337,17 @@ export function cancelTraining(
   base: Base,
   orderId: string,
   now: Date,
+  acceptWaste?: boolean,
 ): CancelResult {
   const order = base.trainingQueue.find((entry) => entry.id === orderId);
   if (!order) return { kind: 'refused', reason: 'unknown_order' };
   if (!trainingCancellable(order, now)) return { kind: 'refused', reason: 'window_closed' };
 
   const refund = trainingRefund(order);
+  // Back into the stores as far as they have room, warned about first (maintainer ruling,
+  // 2026-09-28).
+  const credit = creditBase(repos, base, refund, now);
+  refuseWaste(credit, acceptWaste);
   // Closed up, not merely shortened. Every order's clock is absolute and was frozen at the
   // completion time of the order in front of it, so taking one out of the middle left the ones
   // behind it waiting out a batch that no longer exists.
@@ -350,7 +357,7 @@ export function cancelTraining(
   );
   const cancelled: Base = {
     ...base,
-    resources: addResources(base.resources, refund),
+    resources: credit.resources,
     trainingQueue: left,
   };
   repos.bases.updateResources(cancelled.id, cancelled.resources);
@@ -441,7 +448,14 @@ export function queueTraining(repos: Repositories, input: TrainInput): TrainingR
     const refused = refuse('queue_full');
     if (refused) return refused;
   }
-  if (unit.unique && alreadyHolds(unit, base.army, base.trainingQueue) + count > 1) {
+  // Everywhere the crew has people, not only at home (bug pass, 2026-09-27): a legendary standing
+  // on a location, at the gate or out on a job was invisible to this check, so a second could be
+  // trained and the first brought home beside it.
+  const everywhere = mergeArmies(
+    mergeArmies(base.army, garrisonedUnits(repos, base)),
+    mergeArmies(unitsAbroad(repos, base), base.gateArmy ?? {}),
+  );
+  if (unit.unique && alreadyHolds(unit, everywhere, base.trainingQueue) + count > 1) {
     return { kind: 'refused', reason: 'already_have_one' };
   }
 

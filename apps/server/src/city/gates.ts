@@ -1,7 +1,7 @@
 import {
   CAPTURED_GATE_MAX_LEVEL,
   CAPTURED_GATE_START_LEVEL,
-  CITY_DISTRICTS,
+  ALL_DISTRICTS,
   capturedGateDefensePercent,
   capturedGateIntelResistancePercent,
   CapturedGateSchema,
@@ -16,12 +16,13 @@ import {
   type CapturedGate,
   type CapturedGateRefusal,
   type CapturedGateView,
-  addResources,
   cancelRefund,
   cancelWindowOpen,
   type PartialResources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { creditBase, refuseWaste } from '../district/stores.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * §B7: the gate on a district a crew has taken whole (maintainer request).
@@ -53,10 +54,18 @@ export function holdsDistrictWhole(
   });
 }
 
-/** Every district this crew holds outright, in city order. */
+/**
+ * Every district this crew holds outright, in map order.
+ *
+ * Every district in the **world**, not Ashfall's twelve (2026-09-24). `holdsDistrictWhole` above
+ * already answered for any district on the map, because it resolves the id through `findDistrict`;
+ * this one enumerated one city, so a Terminus district held end to end was true when asked about
+ * and absent from the list the city screen draws gates from. The gate existed and nothing offered
+ * it.
+ */
 export function districtsHeldWhole(repos: Repositories, baseId: string): string[] {
   const controls = repos.city.controls();
-  return CITY_DISTRICTS.filter(
+  return ALL_DISTRICTS.filter(
     (district) =>
       district.locations.length > 0 &&
       district.locations.every((location) => {
@@ -182,16 +191,21 @@ export function raiseCapturedGate(
  */
 export function settleCapturedGates(repos: Repositories, now: Date): number {
   const due = repos.capturedGates.due(now.toISOString());
-  for (const gate of due) {
-    repos.capturedGates.put({
-      districtId: gate.districtId,
-      level: gate.upgradingTo ?? gate.level,
-      upgradingTo: null,
-      upgradingUntil: null,
-      upgradingSince: null,
-    });
-  }
-  return due.length;
+  return settleEach(
+    repos,
+    'captured gates',
+    due,
+    (gate) => gate.districtId,
+    (gate) => {
+      repos.capturedGates.put({
+        districtId: gate.districtId,
+        level: gate.upgradingTo ?? gate.level,
+        upgradingTo: null,
+        upgradingUntil: null,
+        upgradingSince: null,
+      });
+    },
+  );
 }
 
 /**
@@ -252,14 +266,16 @@ export type GateCancelOutcome =
 
 /**
  * Call off the level being raised (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first
- * tenth since it began, with ninety percent of the price back. A raise written before the start
- * was recorded has no tenth to measure and finishes as it was going to.
+ * tenth since it began, with ninety percent of the price back, as far as the stores have room
+ * (warned about first: maintainer ruling, 2026-09-28). A raise written before the start was
+ * recorded has no tenth to measure and finishes as it was going to.
  */
 export function cancelGateRaise(
   repos: Repositories,
   base: Base,
   districtId: string,
   now: Date,
+  acceptWaste?: boolean,
 ): GateCancelOutcome {
   if (!holdsDistrictWhole(repos, base.id, districtId))
     return { kind: 'refused', reason: 'not_held' };
@@ -272,13 +288,15 @@ export function cancelGateRaise(
     return { kind: 'refused', reason: 'window_closed' };
   }
   const refund = cancelRefund(capturedGateCost(gate.upgradingTo));
+  const credit = creditBase(repos, base, refund, now);
+  refuseWaste(credit, acceptWaste);
   const cleared: CapturedGate = {
     ...gate,
     upgradingTo: null,
     upgradingUntil: null,
     upgradingSince: null,
   };
-  const repaid: Base = { ...base, resources: addResources(base.resources, refund) };
+  const repaid: Base = { ...base, resources: credit.resources };
   repos.capturedGates.put(cleared);
   repos.bases.updateResources(repaid.id, repaid.resources);
   return { kind: 'cancelled', gate: cleared, base: repaid, refund };

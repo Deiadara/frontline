@@ -1,5 +1,5 @@
 import {
-  BATTLE_TIERS,
+  GRADES,
   bareBattlefield,
   enemyStrength,
   fieldStrength,
@@ -9,68 +9,88 @@ import {
   MAX_ATTRIBUTE,
   TacticalSkirmishEngine,
   type Army,
-  type BattleTier,
+  type Grade,
 } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import {
   ENEMY_MIX_VARIANCE,
+  ENEMY_ROSTERS,
   ENEMY_STRENGTH_TOLERANCE,
-  ENEMY_TIER_ROSTERS,
   enemyForce,
+  rosterFor,
 } from './enemy.js';
 import { fightMissionBattle } from './battle.js';
 
 /**
  * What a battle job fields, and what happens when a crew walks into it (maintainer, 2026-09-10).
  *
- * Two properties carry the whole feature. The force has to weigh what the tier says it weighs, or
+ * Two properties carry the whole feature. The force has to weigh what the grade says it weighs, or
  * the band on the card is a lie; and it has to be the same force twice, or a player who reloads
  * gets a different fight from the one their crew was in.
  */
 
 const total = (army: Army) => Object.values(army).reduce((sum, count) => sum + count, 0);
 
+/** One grade per letter, the middle mark: every roster, without fighting all twenty-one. */
+const ONE_PER_LETTER = GRADES.filter((grade) => grade.length === 1);
+
 describe('the force waiting at a battle job', () => {
   it('names only units the catalogue still carries', () => {
-    for (const tier of BATTLE_TIERS) {
-      for (const draw of ENEMY_TIER_ROSTERS[tier]) {
-        expect(findUnit(draw.unitId), `${tier}: ${draw.unitId}`).toBeDefined();
+    for (const [letter, roster] of Object.entries(ENEMY_ROSTERS)) {
+      for (const draw of roster) {
+        expect(findUnit(draw.unitId), `${letter}: ${draw.unitId}`).toBeDefined();
       }
-      const shares = ENEMY_TIER_ROSTERS[tier].reduce((sum, draw) => sum + draw.share, 0);
-      expect(shares, tier).toBeCloseTo(1, 10);
+      const shares = roster.reduce((sum, draw) => sum + draw.share, 0);
+      expect(shares, letter).toBeCloseTo(1, 10);
     }
   });
 
-  it('weighs what the tier says it weighs, at every level', () => {
-    for (const tier of BATTLE_TIERS) {
-      for (const level of [1, 5, 20, 40]) {
-        for (let seed = 0; seed < 25; seed += 1) {
-          const target = enemyStrength(tier, level);
-          const built = fieldStrength(enemyForce(tier, level, `run-${seed}`));
-          expect(
-            Math.abs(built - target) / target,
-            `${tier} at level ${level}, seed ${seed}: ${built} against ${target}`,
-          ).toBeLessThanOrEqual(ENEMY_STRENGTH_TOLERANCE);
-        }
+  it('has a roster for every grade, one per letter', () => {
+    expect(Object.keys(ENEMY_ROSTERS).sort()).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'S']);
+    for (const grade of GRADES) expect(rosterFor(grade), grade).toBe(ENEMY_ROSTERS[grade[0]!]);
+  });
+
+  it('weighs what the grade says it weighs, at every grade', () => {
+    for (const grade of GRADES) {
+      for (let seed = 0; seed < 25; seed += 1) {
+        const target = enemyStrength(grade);
+        const built = fieldStrength(enemyForce(grade, `run-${seed}`));
+        expect(
+          Math.abs(built - target) / target,
+          `${grade}, seed ${seed}: ${built} against ${target}`,
+        ).toBeLessThanOrEqual(ENEMY_STRENGTH_TOLERANCE);
       }
     }
   });
 
   it('is the same force twice from the same seed, and a different one from another', () => {
-    expect(enemyForce('fight_3', 3, 'seed-a')).toEqual(enemyForce('fight_3', 3, 'seed-a'));
-    expect(enemyForce('fight_3', 3, 'seed-a')).not.toEqual(enemyForce('fight_3', 3, 'seed-b'));
-    // ...and the level moves it, which is what makes the same job harder as a crew grows.
-    expect(fieldStrength(enemyForce('fight_3', 20, 'seed-a'))).toBeGreaterThan(
-      fieldStrength(enemyForce('fight_3', 1, 'seed-a')),
+    expect(enemyForce('D+', 'seed-a')).toEqual(enemyForce('D+', 'seed-a'));
+    expect(enemyForce('D+', 'seed-a')).not.toEqual(enemyForce('D+', 'seed-b'));
+    // ...and the grade moves it, which is what makes the same job harder when it is dealt higher.
+    expect(fieldStrength(enemyForce('D+', 'seed-a'))).toBeGreaterThan(
+      fieldStrength(enemyForce('D-', 'seed-a')),
     );
   });
 
+  /**
+   * The letter sets who turns up and the mark sets how many (`ENEMY_ROSTERS`), so a C- and a C+
+   * are the same people in different numbers.
+   */
+  it('fields the same people across one letter, and more of them at the top of it', () => {
+    for (let seed = 0; seed < 10; seed += 1) {
+      const low = enemyForce('C-', `letter-${seed}`);
+      const high = enemyForce('C+', `letter-${seed}`);
+      expect(Object.keys(low).sort(), `seed ${seed}`).toEqual(Object.keys(high).sort());
+      expect(total(high), `seed ${seed}`).toBeGreaterThan(total(low));
+    }
+  });
+
   it('fields every line on the roster, however the mix rolled', () => {
-    for (const tier of BATTLE_TIERS) {
+    for (const grade of GRADES) {
       for (let seed = 0; seed < 20; seed += 1) {
-        const force = enemyForce(tier, 1, `mix-${seed}`);
-        for (const draw of ENEMY_TIER_ROSTERS[tier]) {
-          expect(force[draw.unitId] ?? 0, `${tier}/${draw.unitId}/${seed}`).toBeGreaterThan(0);
+        const force = enemyForce(grade, `mix-${seed}`);
+        for (const draw of rosterFor(grade)) {
+          expect(force[draw.unitId] ?? 0, `${grade}/${draw.unitId}/${seed}`).toBeGreaterThan(0);
         }
       }
     }
@@ -78,18 +98,16 @@ describe('the force waiting at a battle job', () => {
 
   it('mixes differently from job to job rather than dealing one order of battle', () => {
     const drawn = new Set(
-      Array.from({ length: 30 }, (_, seed) => JSON.stringify(enemyForce('fight_5', 1, `s${seed}`))),
+      Array.from({ length: 30 }, (_, seed) => JSON.stringify(enemyForce('B+', `s${seed}`))),
     );
     expect(drawn.size, 'the roll is not moving the composition').toBeGreaterThan(5);
     expect(ENEMY_MIX_VARIANCE).toBeGreaterThan(0);
   });
 
-  it('gets heavier every rung, from Fight I to the Siege', () => {
-    const weights = BATTLE_TIERS.map((tier: BattleTier) =>
-      fieldStrength(enemyForce(tier, 1, 'ladder')),
-    );
+  it('gets heavier every mark, from F- to S+', () => {
+    const weights = GRADES.map((grade: Grade) => fieldStrength(enemyForce(grade, 'ladder')));
     for (let index = 1; index < weights.length; index += 1) {
-      expect(weights[index - 1], BATTLE_TIERS[index]).toBeLessThan(weights[index] as number);
+      expect(weights[index - 1], GRADES[index]).toBeLessThan(weights[index] as number);
     }
   });
 });
@@ -104,8 +122,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Foundry Raid',
       force: bigCrew,
       vehicles: {},
-      tier: 'fight_1',
-      level: 1,
+      grade: 'F-',
       anyRide: false,
     });
     expect(fought.outcome).toBe('success');
@@ -117,22 +134,21 @@ describe('a crew in a battle job', () => {
   /**
    * §D7: the job pays a name for the enemy's dead, so the fight has to say who they were.
    *
-   * The crew fields nothing the Fight I roster does (`ENEMY_TIER_ROSTERS.fight_1` is Razors and
-   * Scrapers; this crew is all Wardens), so the two casualty lists cannot share a unit id and the
+   * The crew fields nothing the F roster does (`ENEMY_ROSTERS.F` is Razors and Scrapers; this
+   * crew is all Wardens), so the two casualty lists cannot share a unit id and the
    * engine's two lists cannot be confused for one another: a `killed` that named a Warden would
    * be our own dead under the wrong heading. Bounded by who was waiting, per unit, because a list
-   * that named more than the tier fielded would be paying for a kill that did not happen.
+   * that named more than the grade fielded would be paying for a kill that did not happen.
    */
   it('names the enemy dead, and never more of them than were waiting', () => {
     const wardens: Army = { wardens: 30 };
-    for (const draw of ENEMY_TIER_ROSTERS.fight_1) expect(draw.unitId).not.toBe('wardens');
+    for (const draw of ENEMY_ROSTERS.F!) expect(draw.unitId).not.toBe('wardens');
     const fought = fightMissionBattle({
       seed: 7,
       jobName: 'Foundry Raid',
       force: wardens,
       vehicles: {},
-      tier: 'fight_1',
-      level: 1,
+      grade: 'F-',
       anyRide: false,
     });
     expect(total(fought.killed)).toBeGreaterThan(0);
@@ -149,8 +165,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force: { razors: 4 },
       vehicles: {},
-      tier: 'fight_5',
-      level: 1,
+      grade: 'B+',
       anyRide: false,
     });
     expect(fought.outcome).toBe('failure');
@@ -172,8 +187,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Convoy Ambush',
       force,
       vehicles: {},
-      tier: 'fight_1' as const,
-      level: 1,
+      grade: 'F-' as const,
       anyRide: false,
     };
     const alone = fightMissionBattle(args);
@@ -200,7 +214,7 @@ describe('a crew in a battle job', () => {
    * stream, and fewer dead is the card doing what its face says.
    */
   it('fights with what the yard bolted on, and loses fewer people for it', () => {
-    const force: Army = { razors: 9 };
+    const force: Army = { razors: 11 };
     const grips = findUnitModification('taped_grips');
     expect(grips?.effect.offense ?? 0).toBeGreaterThan(0);
     const fewerDead = [];
@@ -211,8 +225,7 @@ describe('a crew in a battle job', () => {
         jobName: 'Convoy Ambush',
         force,
         vehicles: {},
-        tier: 'fight_1' as const,
-        level: 1,
+        grade: 'F' as const,
         anyRide: false,
       };
       const bare = fightMissionBattle(args);
@@ -221,9 +234,10 @@ describe('a crew in a battle job', () => {
       if (total(fitted.lost) > total(bare.lost)) moreDead.push(seed);
     }
     // Most seeds, not one lucky one: a card worth sixteen damage has to show on a crew this size.
-    // Measured 2026-09-21 over a hundred seeds: fewer dead on 45, more dead on 1. That one is a
-    // fight the extra damage re-timed rather than one it lost, and it is tallied rather than
-    // forbidden, because "never worse on any seed" is a claim about the stream and not the card.
+    // Measured 2026-09-28 at F with eleven Razors, over a hundred seeds: fewer dead on 82, more
+    // dead on 1. That one is a fight the extra damage re-timed rather than one it lost, and it is
+    // tallied rather than forbidden, because "never worse on any seed" is a claim about the
+    // stream and not the card.
     expect(fewerDead.length, `fewer dead on ${fewerDead.length} of 40`).toBeGreaterThan(12);
     expect(moreDead.length, `more dead on seeds ${moreDead.join(', ')}`).toBeLessThanOrEqual(2);
   });
@@ -234,8 +248,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Convoy Ambush',
       force: bigCrew,
       vehicles: {},
-      tier: 'fight_3' as const,
-      level: 2,
+      grade: 'D+' as const,
       anyRide: false,
     };
     expect(fightMissionBattle(args)).toEqual(fightMissionBattle(args));
@@ -257,8 +270,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force,
       vehicles: {},
-      tier: 'fight_5',
-      level: 1,
+      grade: 'D',
       anyRide: false,
     });
     expect(fought.outcome).toBe('failure');
@@ -271,7 +283,7 @@ describe('a crew in a battle job', () => {
       locationName: 'Refinery Assault',
       battlefield: bareBattlefield('Refinery Assault'),
       attacking: force,
-      defending: enemyForce('fight_5', 1, String(seed)),
+      defending: enemyForce('D', String(seed)),
       defenderPerimeter: { razors: 40 },
     });
     expect(total(ringed.fled)).toBeLessThan(total(fought.home));
@@ -288,20 +300,19 @@ describe('a crew in a battle job', () => {
   it('never kills a porter, whichever way the fight went', () => {
     const force: Army = { razors: 4, scavengers: 7 };
     let sawTheLineDie = false;
-    for (const tier of BATTLE_TIERS) {
+    for (const grade of ONE_PER_LETTER) {
       for (let seed = 1; seed <= 30; seed += 1) {
         const fought = fightMissionBattle({
           seed,
           jobName: 'Refinery Assault',
           force,
           vehicles: {},
-          tier,
-          level: 1,
+          grade,
           anyRide: false,
         });
-        expect(fought.lost.scavengers ?? 0, `${tier}/${seed}`).toBe(0);
-        expect(fought.home.scavengers, `${tier}/${seed}`).toBe(7);
-        expect(total(fought.home) + total(fought.lost), `${tier}/${seed}`).toBe(total(force));
+        expect(fought.lost.scavengers ?? 0, `${grade}/${seed}`).toBe(0);
+        expect(fought.home.scavengers, `${grade}/${seed}`).toBe(7);
+        expect(total(fought.home) + total(fought.lost), `${grade}/${seed}`).toBe(total(force));
         if ((fought.home.razors ?? 0) === 0) sawTheLineDie = true;
       }
     }
@@ -315,8 +326,7 @@ describe('a crew in a battle job', () => {
       jobName: 'Refinery Assault',
       force: doomedCrew,
       vehicles: { motorcycle: 2 },
-      tier: 'fight_5',
-      level: 1,
+      grade: 'B+',
       anyRide: false,
     });
     expect(total(fought.home)).toBe(0);

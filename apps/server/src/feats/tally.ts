@@ -2,6 +2,7 @@ import {
   ITEM_CATALOG,
   RESOURCE_KEYS,
   battleFeatsEarned,
+  cityOf,
   featMeasureKey,
   isCombineUnit,
   rarityOfPage,
@@ -10,9 +11,14 @@ import {
   type FeatMeasure,
   type ItemCost,
   type ItemId,
+  type LocationControl,
   type PartialResources,
-  type BattleTier,
+  LONG_ODDS_CHANCE,
+  fightCategory,
+  type Grade,
 } from '@frontline/shared';
+import { forceSize } from '../battle/forces.js';
+import { controlsIn } from '../battle/ground.js';
 import type { TallyBump } from '../db/repos/feats.js';
 import type { Repositories } from '../db/repos/index.js';
 
@@ -25,7 +31,7 @@ import type { Repositories } from '../db/repos/index.js';
  * of them. The symptom would be a feat that sits at zero forever while everything around it works,
  * which is the hardest kind of bug to notice in a table of two hundred. So the sites call
  * a named function that says what happened in the game's own words, and this file is the only
- * thing that knows what `missions_in_area:rustyard` is called.
+ * thing that knows what `missions_in_area:steelbelt` is called.
  *
  * ## Why every one of these is best-effort
  *
@@ -87,8 +93,10 @@ export function tallyMissionHome(
     areaId: string;
     kind: 'battle' | 'standard';
     succeeded: boolean;
-    /** The fight's tier, for the ladder that counts wins by weight. Null on plain work. */
-    tier?: BattleTier | null;
+    /** The grade the card was dealt: counts wins by fight category and by letter. */
+    grade?: Grade;
+    /** The chance a plain run went out with, for the long-odds ladder. Fights do not roll one. */
+    chance?: number | undefined;
   },
 ): void {
   record(repos, baseId, [
@@ -96,7 +104,20 @@ export function tallyMissionHome(
     ...(mission.succeeded ? [one('missions_won')] : []),
     one('missions_in_area', mission.areaId),
     one('missions_of_kind', mission.kind),
-    ...(mission.succeeded && mission.tier ? [one('fights_won_at_tier', mission.tier)] : []),
+    ...(mission.succeeded && mission.grade !== undefined
+      ? [
+          one('jobs_won_at_letter', mission.grade[0]),
+          ...(mission.kind === 'battle'
+            ? [one('fights_won_in_category', fightCategory(mission.grade))]
+            : []),
+        ]
+      : []),
+    ...(mission.succeeded &&
+    mission.kind === 'standard' &&
+    mission.chance !== undefined &&
+    mission.chance < LONG_ODDS_CHANCE
+      ? [one('jobs_won_long_odds')]
+      : []),
   ]);
 }
 
@@ -178,7 +199,16 @@ export function tallyInfamyEarned(repos: Repositories, baseId: string, amount: n
 export function tallyBattleResolved(
   repos: Repositories,
   baseId: string,
-  outcome: { attacked: boolean; won: boolean; kills: number },
+  outcome: {
+    attacked: boolean;
+    won: boolean;
+    kills: number;
+    /**
+     * Where the fight was, for the away ladder. Optional, so a call site that has not been given
+     * a district yet loses one counter rather than a fight.
+     */
+    districtId?: string;
+  },
 ): void {
   record(repos, baseId, [
     one('battles_fought'),
@@ -186,7 +216,48 @@ export function tallyBattleResolved(
     ...(outcome.won && outcome.attacked ? [one('battles_attacked_won')] : []),
     ...(outcome.won && !outcome.attacked ? [one('battles_defended_won')] : []),
     ...(outcome.kills > 0 ? [by('kills', outcome.kills)] : []),
+    ...(outcome.won && foughtAbroad(repos, baseId, outcome.districtId)
+      ? [one('battles_won_abroad')]
+      : []),
   ]);
+}
+
+/**
+ * Whether that fight was in a city this crew does not live in (2026-09-24).
+ *
+ * Decided here rather than at the settle, which is the rule this whole module is built on: the
+ * site says what happened, in the game's own words ("the fight was in `viaduct`"), and this
+ * file decides what it is worth counting. The alternative was an `abroad: boolean` argument, and a
+ * boolean computed at the call site is exactly the shape of the `forced` bug the raid counter
+ * above was written about.
+ *
+ * Costs one indexed read of the crew row, and only on a win with a district to compare, so a lost
+ * fight and a call site that passes nothing both pay nothing. Answers false when either end is
+ * unknown, because a counter is never worth a guess.
+ */
+function foughtAbroad(
+  repos: Repositories,
+  baseId: string,
+  districtId: string | undefined,
+): boolean {
+  if (districtId === undefined) return false;
+  const base = repos.bases.findById(baseId);
+  if (!base) return false;
+  const home = cityOf(base.districtId);
+  const where = cityOf(districtId);
+  return home !== undefined && where !== undefined && home !== where;
+}
+
+/**
+ * A unit move or a battle column that took the train (maintainer, 2026-09-24).
+ *
+ * Counted when the ride is **chosen**, not when it arrives, for the same reason `tallyDeployed`
+ * counts at the muster: the feat is about the decision, and a column recalled halfway still rode.
+ * Missions and scouting runs never ride and so never reach here, and neither does a party carrying
+ * vehicles or the Colossus, which `partyCanRide` refuses outright.
+ */
+export function tallyRailJourney(repos: Repositories, baseId: string): void {
+  record(repos, baseId, [one('rail_journeys')]);
 }
 
 /**
@@ -238,6 +309,12 @@ export function tallyDistrictRaid(
 export function tallyTrapKills(repos: Repositories, baseId: string, killed: number): void {
   if (killed <= 0) return;
   record(repos, baseId, [by('trap_kills', killed)]);
+}
+
+/** Gate levels a Colossus knocked down, counted for the crew that called the fight. */
+export function tallyGateLevelsBroken(repos: Repositories, baseId: string, levels: number): void {
+  if (levels <= 0) return;
+  record(repos, baseId, [by('gate_levels_broken', levels)]);
 }
 
 /** Beaten runners a ring stopped on the way out, counted for the side that set it. */
@@ -348,6 +425,95 @@ export function tallyAddonBuilt(repos: Repositories, baseId: string, isTrap: boo
 
 export function tallyMessageSent(repos: Repositories, baseId: string): void {
   record(repos, baseId, [one('messages_sent')]);
+}
+
+/**
+ * A district worn down to nobody (maintainer, 2026-09-24: "the army of combine erodes").
+ *
+ * `spendGarrisons` in `battle/resolve.ts` writes a gate or district fight's survivors back onto the
+ * plots they were drawn off, so the regime's and the squatters' standing armies really do shrink
+ * across a week of assaults. The board had nothing on it, and this is the counter that says so:
+ * `districts_emptied`, one for each district this crew's fight left with nothing of theirs standing
+ * anywhere in it.
+ *
+ * `plots` is the rows that put bodies in the line, in the settle's own words, and the decision about
+ * what that is worth is here, which is the rule this whole module is built on. Three conditions, and
+ * each one is a way the counter could otherwise be dishonest:
+ *
+ *   * **This fight has to have stripped something.** At least one of the rows that fought must now
+ *     be empty **and still theirs**. Still theirs is what keeps a capture from counting: clear six
+ *     plots, take the seventh, and the district has none of them left in it, but the seventh was
+ *     never worn down. Without that word a crew taking every garrisoned plot in Chrome Row one at a
+ *     time would collect this, which is `districts_held_whole` and `locations_captured` wearing
+ *     another ladder's name.
+ *   * **Nothing of theirs may be left anywhere in the district**, including on plots that were not
+ *     in this fight. A legendary is never in a gate fight (`withoutTheLeader`), so his plot keeps one
+ *     body and holds his district off this counter until somebody takes it off him. That is the rule
+ *     the erosion was written under and it is load-bearing here.
+ *   * **A crew's plot is neither.** It is not stripped, because that garrison is not the regime's,
+ *     and it does not hold the district either. Ground held away from a fight is defended by the
+ *     column you send to it, which is the same rule `assemble` skips those rows under.
+ *
+ * Not conditional on winning. A defence that holds can still be apportioned down to nothing on the
+ * plot it stood on, and a district with nobody left in it is stripped whoever took the door.
+ *
+ * Nothing refills a garrison until Monday (`city/regrowth.ts`), so a second fight in the same week
+ * finds no rows to spend and pays nothing: the counter climbs once per stripping, and a crew that
+ * wants another has to wait for the rebuild. That is the whole shape of the feat rather than a
+ * limitation of it.
+ */
+export function tallyDistrictStripped(
+  repos: Repositories,
+  baseId: string,
+  fight: { districtId: string; plots: readonly string[] },
+): void {
+  if (fight.plots.length === 0) return;
+
+  // Their ground, and how many are standing on each bit of it. A plot that is not in here is not
+  // theirs, which is why the two questions below can both be asked of one map.
+  const theirs = new Map(
+    controlsIn(repos, fight.districtId)
+      .filter(
+        ({ control }) => control.holder.kind === 'government' || control.holder.kind === 'looters',
+      )
+      .map(({ locationId, control }) => [locationId, forceSize(control.garrison)] as const),
+  );
+
+  const strippedHere = fight.plots.some((locationId) => theirs.get(locationId) === 0);
+  if (!strippedHere) return;
+  if ([...theirs.values()].some((standing) => standing > 0)) return;
+
+  record(repos, baseId, [one('districts_emptied')]);
+}
+
+/**
+ * Ground that was still a crew's when the regime was rebuilt (maintainer, 2026-09-24).
+ *
+ * `settleGarrisonRegrowth` walks every control row at Monday 00:00 Athens time and puts back
+ * whatever the regime or the squatters hold. A crew's plot is skipped, and that skip is the only
+ * thing regrowth adds that a player can chase, so it is the one it is counted on:
+ * `plots_held_through_regrowth`, one per plot per crew per rebuild.
+ *
+ * Plot-weeks, deliberately. A crew holding twenty five plots banks twenty five a week, so the number
+ * climbs with how much ground is yours **and** with how long you have kept it, which is what the
+ * rebuild made worth asking about. `locations_held` already answers the first half on its own.
+ *
+ * Handed the whole control map rather than a count per crew, so the sweep's only job is to say when
+ * it ran. One `record` per crew, because a tally row is keyed by base and the write is per base
+ * anyway; a crew holding nothing is not written at all rather than written a zero.
+ */
+export function tallyHeldThroughRegrowth(
+  repos: Repositories,
+  controls: ReadonlyMap<string, LocationControl>,
+): void {
+  const kept = new Map<string, number>();
+  for (const control of controls.values()) {
+    if (control.holder.kind !== 'crew') continue;
+    kept.set(control.holder.baseId, (kept.get(control.holder.baseId) ?? 0) + 1);
+  }
+  for (const [baseId, plots] of kept) {
+    record(repos, baseId, [by('plots_held_through_regrowth', plots)]);
+  }
 }
 
 /**

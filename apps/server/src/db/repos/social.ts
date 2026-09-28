@@ -58,6 +58,8 @@ export interface SocialRepo {
   inbox(userId: string, limit: number): Message[];
   sent(userId: string, limit: number): SentMessage[];
   findMessage(id: string, userId: string): Message | undefined;
+  /** Letters this account has sent since `sinceIso`, deleted or not. */
+  sentSince(userId: string, sinceIso: string): number;
   markMessageRead(id: string, userId: string, at: string): void;
   markAllMessagesRead(userId: string, at: string): void;
   deleteMessage(id: string, userId: string): void;
@@ -171,6 +173,11 @@ const MESSAGE_SELECT = `SELECT m.*,
      LEFT JOIN factions f ON f.id = m.invite_faction_id`;
 
 export function createSocialRepo(db: AppDatabase): SocialRepo {
+  // The sender's copy is addressed to the sender, so the inbox index answers this.
+  const sentSinceStmt = db.prepare(
+    `SELECT COUNT(*) AS n FROM messages
+      WHERE recipient_user_id = ? AND is_sent_copy = 1 AND sent_at >= ?`,
+  );
   const putMessageStmt = db.prepare(
     `INSERT INTO messages
        (id, thread_id, sender_user_id, sender_name, sender_faction, recipient_user_id,
@@ -295,6 +302,10 @@ export function createSocialRepo(db: AppDatabase): SocialRepo {
         recipients: row.recipients,
         readBy: row.read_by,
       }));
+    },
+    sentSince(userId, sinceIso) {
+      const row = sentSinceStmt.get(userId, sinceIso) as { n: number };
+      return row.n;
     },
     findMessage(id, userId) {
       const row = findMessageStmt.get(id, userId) as MessageRow | undefined;

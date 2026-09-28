@@ -239,9 +239,7 @@ describe('the worst ground in the game', () => {
     battlefieldFor({
       kind: 'nuclear_plant',
       locationName: 'The Abandoned Nuclear Plant',
-      fortifyLevel: 0,
       // Fortification is irrelevant at level 0, and this file is about the labels.
-      fortifyDifficulty: 'medium',
       weather: 'stormy',
       at: new Date('2026-08-14T12:00:00.000Z'),
     });
@@ -274,8 +272,6 @@ describe('the worst ground in the game', () => {
         const field = battlefieldFor({
           kind,
           locationName: kind,
-          fortifyLevel: 0,
-          fortifyDifficulty: 'medium',
           weather,
           at: new Date('2026-08-14T12:00:00.000Z'),
         });

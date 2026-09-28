@@ -105,6 +105,16 @@ describe('the payroll book (§H7)', () => {
     expect(payrollLedger(startingPayroll(), 0).nextStepCost).toBe(600);
   });
 
+  /** The button says `+stepSize`, so it has to be what buying the step does to the ceiling. */
+  it('quotes the step as what it actually adds, the district bonus included', () => {
+    const at = { ...startingPayroll(), purchasedSteps: 3 };
+    const bought = { ...at, purchasedSteps: 4 };
+    expect(payrollLedger(at, 2).stepSize).toBe(PAYROLL_STEP);
+    const ledger = payrollLedger(at, 2, 10);
+    expect(ledger.stepSize).toBe(payrollLedger(bought, 2, 10).capacity - ledger.capacity);
+    expect(ledger.stepSize).toBe(33);
+  });
+
   it('reports what is spoken for and what is left', () => {
     const payroll = { ...startingPayroll(), commitments: { a: 60, b: 40 } };
     const ledger = payrollLedger(payroll, 0);

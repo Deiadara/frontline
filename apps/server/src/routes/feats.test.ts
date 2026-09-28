@@ -25,11 +25,12 @@ import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { districtUnitSlots } from '../district/unit-slots.js';
+import { featClaimRoom } from '../feats/room.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /** The one plot in the whole city whose kind pays `infamy_gain` for being held. */
-const GRAVEYARD = 'combine-spire-martyrs';
+const GRAVEYARD = 'ccs-martyrs';
 
 /**
  * Feats over HTTP: reading the board, and collecting one (maintainer request, 2026-09-13).
@@ -91,12 +92,20 @@ async function board(app: FastifyInstance, token: string): Promise<FeatsResponse
   return response.json<FeatsResponse>();
 }
 
-const claim = (app: FastifyInstance, token: string, featId: string) =>
+/**
+ * One claim, agreeing by default to lose whatever does not fit.
+ *
+ * `acceptWaste` defaults to **true** here because almost every case below is about the till and
+ * not about the dialog: a fresh district holds 800 scrap and a great many rewards pay more than
+ * that, so a helper that left the flag off would have most of these tests measuring the warning.
+ * The cases that *are* about the warning pass `false` and say so.
+ */
+const claim = (app: FastifyInstance, token: string, featId: string, acceptWaste = true) =>
   app.inject({
     method: 'POST',
     url: '/api/feats/claim',
     headers: auth(token),
-    payload: { featId },
+    payload: { featId, acceptWaste },
   });
 
 /** The feat every crew can finish first: one letter written. Small, and pays plain caps. */
@@ -418,33 +427,136 @@ describe('collecting one', () => {
   });
 
   /**
-   * A reward that overflows the store.
+   * A reward that overflows the store, paid up to the ceiling (maintainer ruling, 2026-09-23).
    *
-   * The same question for resources, and the answer is already settled by how raid loot behaves:
-   * `walk` caps production at `max(what is held, the ceiling)`, so being over the top means
-   * production adds nothing and nothing is taken away. A feat paying past the ceiling has to
-   * behave the same, or a crew would collect a large reward and watch most of it vanish on their
-   * next read of the district.
+   * Since 2026-09-28 every credit is clamped this way (`district/stores.ts`); a feat has its own
+   * dialog because it can also lose units, which the stores' `WOULD_WASTE` does not carry.
+   *
+   * `letters_1` pays 240 caps, 40 scrap, 40 planks and 20 oil. The scrap shelf is left with room
+   * for ten, so exactly ten land and thirty are burned, and the other three channels are
+   * untouched: a bundle is clamped line by line and not refused whole.
    */
-  it('keeps a reward that overflows the store, the way raid loot is kept', async () => {
+  it('pays a claim up to the ceiling and discards the rest', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_overflow');
     give(app, one.baseId, featMeasureKey('messages_sent'), 1);
 
     const base = app.repos.bases.findByOwnerId(one.userId)!;
-    // Far over every ceiling: this crew has no Apothecary, so storage is at its base of 800.
-    app.repos.bases.updateResources(base.id, { ...base.resources, scrap: 90_000 });
+    // Off the route's own fold rather than off the structures, because §F2 Logistics raises the
+    // shelf and a test that read the bare figure would leave room the claim can see and it cannot.
+    const ceiling =
+      base.resources.scrap + featClaimRoom(app.repos, base, new Date()).resources.scrap;
+    const room = 10;
+    app.repos.bases.updateResources(base.id, { ...base.resources, scrap: ceiling - room });
+    const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
 
-    expect((await claim(app, one.token, LETTER)).statusCode).toBe(200);
-    const paid = app.repos.bases.findByOwnerId(one.userId)!.resources.scrap;
-    expect(paid).toBeGreaterThanOrEqual(90_000);
+    const response = await claim(app, one.token, LETTER);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json<ClaimFeatResponse & { wasted?: { resources?: Resources } }>();
 
-    // And a settle afterwards does not take it back.
-    await board(app, one.token);
-    expect(app.repos.bases.findByOwnerId(one.userId)!.resources.scrap).toBe(paid);
+    const after = app.repos.bases.findByOwnerId(one.userId)!.resources;
+    // Exactly to the top of the shelf, and no further.
+    expect(after.scrap).toBe(ceiling);
+    const owed = findFeat(LETTER)!.reward.resources!;
+    expect(body.wasted?.resources?.scrap).toBe((owed.scrap ?? 0) - room);
+    expect(body.paid).toMatchObject({ resources: { scrap: room } });
+
+    // The channels with room take the whole of what they were promised.
+    expect(after.caps).toBe(before.caps + (owed.caps ?? 0));
+    expect(after.planks).toBe(before.planks + (owed.planks ?? 0));
   });
 
-  it('pays infamy into the ledger and counts it as earned', async () => {
+  /**
+   * The same claim with nothing said, which is the state the screen is in before the dialog.
+   *
+   * Refused, and **nothing written**: the rung stays ready, the stockpile does not move, and the
+   * claim row is not there, so pressing yes afterwards still pays. The confirmation has to reach
+   * the server because the discard happens on this side of the wire, and a route that clamped
+   * silently would burn a reward for anybody on a client that had never heard of the dialog.
+   */
+  it('refuses a claim that would waste something until the player agrees to it', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_unconfirmed');
+    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+
+    const base = app.repos.bases.findByOwnerId(one.userId)!;
+    app.repos.bases.updateResources(base.id, {
+      ...base.resources,
+      scrap: base.resources.scrap + featClaimRoom(app.repos, base, new Date()).resources.scrap,
+    });
+    const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
+
+    const refused = await claim(app, one.token, LETTER, false);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ error: { message: string } }>().error.message).toBe('would_waste');
+    expect(app.repos.bases.findByOwnerId(one.userId)!.resources).toEqual(before);
+    expect(app.repos.feats.claimed(one.baseId).has(LETTER)).toBe(false);
+    expect((await board(app, one.token)).progress.find((row) => row.id === LETTER)?.state).toBe(
+      'ready',
+    );
+
+    // And saying yes then pays, which is what makes the refusal a question rather than a wall.
+    expect((await claim(app, one.token, LETTER)).statusCode).toBe(200);
+    expect(app.repos.feats.claimed(one.baseId).has(LETTER)).toBe(true);
+  });
+
+  /**
+   * The figure the screen is drawn from, against the figure the till discards.
+   *
+   * The dialog is built from `FeatsResponse.waste`, which is quoted on the read; the claim
+   * recomputes the split against the state it writes against. Those are two calls to the same
+   * function in two places, and the test that matters is that they agree, because a warning that
+   * overstates the loss teaches players to ignore it.
+   */
+  it('quotes on the board exactly what the claim goes on to discard', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_quote');
+    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+
+    const base = app.repos.bases.findByOwnerId(one.userId)!;
+    app.repos.bases.updateResources(base.id, {
+      ...base.resources,
+      scrap: base.resources.scrap + featClaimRoom(app.repos, base, new Date()).resources.scrap - 10,
+    });
+
+    const quoted = (await board(app, one.token)).waste[LETTER];
+    expect(quoted, 'the board quoted no waste on a rung that cannot be paid in full').toBeDefined();
+
+    const response = await claim(app, one.token, LETTER);
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json<{ wasted?: unknown }>().wasted).toEqual(quoted);
+  });
+
+  /**
+   * A reward that fits is untouched, and says nothing.
+   *
+   * The control on both of the cases above: with room in every store the board quotes no waste,
+   * the response carries no `wasted`, and the payout is the catalogue's own figure. Without this
+   * a split that wrongly reported a loss on every feat would pass everything else here.
+   */
+  it('pays a reward that fits in full, and quotes no waste for it', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_fits');
+    give(app, one.baseId, featMeasureKey('messages_sent'), 1);
+
+    const before = app.repos.bases.findByOwnerId(one.userId)!.resources;
+    expect((await board(app, one.token)).waste[LETTER]).toBeUndefined();
+
+    const response = await claim(app, one.token, LETTER, false);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json<ClaimFeatResponse & { wasted?: unknown }>();
+    expect(body.wasted).toBeUndefined();
+    expect(body.paid).toEqual(findFeat(LETTER)!.reward);
+
+    const after = app.repos.bases.findByOwnerId(one.userId)!.resources;
+    for (const [key, amount] of Object.entries(findFeat(LETTER)!.reward.resources ?? {})) {
+      expect(after[key as keyof Resources], key).toBe(
+        before[key as keyof Resources] + (amount ?? 0),
+      );
+    }
+  });
+
+  it('pays infamy into the ledger, and does not count it on the lifetime ladder', async () => {
     const app = await makeApp();
     const one = await player(app, 'feats_infamy');
     const feat = FEATS.find((spec) => spec.reward.infamy !== undefined && spec.after === null)!;
@@ -455,10 +567,9 @@ describe('collecting one', () => {
 
     const after = app.repos.bases.findByOwnerId(one.userId)!.economy.infamy;
     expect(after).toBe(before + (feat.reward.infamy ?? 0));
-    // And it is infamy they now have and did not before, so the lifetime ladder counts it too.
-    expect(
-      app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')],
-    ).toBeGreaterThanOrEqual(feat.reward.infamy ?? 0);
+    // Not earned in a fight, so not on the lifetime ladder (bug pass, 2026-09-28): that ladder pays
+    // infamy, and counting its own rewards let one claim finish every rung above it.
+    expect(app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')] ?? 0).toBe(0);
   });
 
   /**
@@ -471,8 +582,9 @@ describe('collecting one', () => {
    * folds `xpGainPercent` into a feat's XP at its own funnel, so the same reward already scaled one
    * of its two currencies and not the other.
    *
-   * `gates_1` pays 240, which is large enough that nine percent survives the round to a whole
-   * number: a small reward would round back onto the flat figure and prove nothing.
+   * `gates_1` pays 24 since the feat infamy was cut to a tenth (2026-09-28), still large enough
+   * that nine percent survives the round to a whole number: a smaller reward would round back onto
+   * the flat figure and prove nothing.
    */
   it('scales a feat’s infamy by the crew’s own infamy_gain, the way a fight’s is', async () => {
     const app = await makeApp();
@@ -496,11 +608,6 @@ describe('collecting one', () => {
     // +9% off `legend_builder`, the same arithmetic `earnedInfamy` does for a raid.
     expect(paid).toBe(Math.round(reward * 1.09));
     expect(paid, 'the catalogue figure was paid flat').toBeGreaterThan(reward);
-    // And the ladder counts what the crew was actually paid, not what the catalogue printed.
-    expect(app.repos.feats.tallies(one.baseId)[featMeasureKey('infamy_earned')]).toBeCloseTo(
-      reward * 1.09,
-      6,
-    );
   });
 
   /**
@@ -650,8 +757,10 @@ describe('a claim that cannot be paid', () => {
    * left open, and it let a crew walk out of the feats screen holding an army its district could
    * not house.
    *
-   * Refused **without** marking it collected, which is the half that matters: the feat stays ready
-   * and the reward is still there once the crew has made room.
+   * Beds went through the same door as the shelves on 2026-09-23. An unconfirmed claim is refused
+   * **without** marking it collected, which is the half that matters: the feat stays ready and the
+   * reward is still there once the crew has made room. Saying yes fills the beds and loses the
+   * rest, which is the second case below.
    */
   it('refuses a feat whose units the district cannot house, and leaves it ready', async () => {
     const app = await makeApp();
@@ -670,14 +779,55 @@ describe('a claim that cannot be paid', () => {
       (await board(app, one.token)).progress.find((row) => row.id === big.id)?.state;
     expect(await stateOf()).toBe('ready');
 
-    const response = await claim(app, one.token, big.id);
+    const response = await claim(app, one.token, big.id, false);
     expect(response.statusCode).toBe(409);
-    expect(response.json<{ error: { message: string } }>().error.message).toBe('no_unit_slots');
+    expect(response.json<{ error: { message: string } }>().error.message).toBe('would_waste');
 
     // Nothing was paid and nothing was spent: the roster is untouched and the feat is collectable
     // the moment there is room for it.
     expect(app.repos.bases.findById(one.baseId)!.army).toEqual(before);
     expect(await stateOf()).toBe('ready');
+    // And the board says which rung it was and what it would cost to take it anyway.
+    expect((await board(app, one.token)).waste[big.id]?.units).toBeDefined();
+  });
+
+  /**
+   * The same feat, confirmed: the district fills to its last bed and the rest of the army is gone.
+   *
+   * Units are taken **whole** and in the order the reward lists them, because half a Juggernaut is
+   * not a thing the roster can hold. What is pinned is the invariant the ceiling exists for, that
+   * the district still houses everything it holds, plus that something actually arrived: a clamp
+   * that paid nothing would satisfy the ceiling and fail the player.
+   */
+  it('fills the beds it has and discards the units it cannot house, once confirmed', async () => {
+    const app = await makeApp();
+    const one = await player(app, 'feats_partial_beds');
+    const big = findFeat('deployed_3')!;
+    give(app, one.baseId, big.measure, big.target);
+
+    const spare = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!).spare;
+    expect(unitSlotsUsed(big.reward.units ?? {}), 'the reward must not fit').toBeGreaterThan(spare);
+
+    const before = app.repos.bases.findById(one.baseId)!.army;
+    const response = await claim(app, one.token, big.id);
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json<{ paid: FeatReward; wasted?: { units?: Record<string, number> } }>();
+
+    // Something landed, and the district still houses everything it holds.
+    expect(unitSlotsUsed(body.paid.units ?? {})).toBeGreaterThan(0);
+    expect(unitSlotsUsed(body.paid.units ?? {})).toBeLessThanOrEqual(spare);
+    const housed = districtUnitSlots(app.repos, app.repos.bases.findById(one.baseId)!);
+    expect(housed.total).toBeLessThanOrEqual(housed.capacity);
+
+    // The roster moved by exactly what the receipt says, and the rest is on the receipt as lost.
+    const after = app.repos.bases.findById(one.baseId)!.army;
+    for (const [unitId, count] of Object.entries(body.paid.units ?? {})) {
+      expect((after[unitId] ?? 0) - (before[unitId] ?? 0), unitId).toBe(count);
+    }
+    for (const [unitId, count] of Object.entries(big.reward.units ?? {})) {
+      const paid = body.paid.units?.[unitId] ?? 0;
+      expect((body.wasted?.units?.[unitId] ?? 0) + paid, unitId).toBe(count);
+    }
   });
 
   it('refuses a feat that does not exist', async () => {
@@ -796,30 +946,19 @@ describe('the whole board, collected', () => {
     const BUDGET = 100;
     let collected = 0;
     /*
-     * The feats that pay units can run out of district before they run out of ladder (§A1), and
-     * being refused leaves them ready, so they are remembered and not offered again: without this
-     * the walk below would spend all twenty passes re-pressing the same shut door.
-     *
-     * That they are refused at all is the point of the whole cap, so it is asserted rather than
-     * tolerated silently, and the invariant it exists to keep is checked at the end.
+     * Every press agrees to the waste, so nothing here is ever refused: the feats that pay units
+     * run out of district long before they run out of ladder (§A1) and the stores are a fraction
+     * of what the deep rungs pay, so a walk that declined would stall on the same shut doors for
+     * all twenty passes. What that buys is the strongest form of the invariant this test exists
+     * for, checked at the end: a hundred confirmed claims, every one of them clamped, and the
+     * district still houses everything it holds.
      */
-    const noRoom = new Set<string>();
     for (let pass = 0; pass < 20 && collected < BUDGET; pass += 1) {
-      const ready = (await board(app, one.token)).progress
-        .filter((row) => row.state === 'ready')
-        .filter((row) => !noRoom.has(row.id));
+      const ready = (await board(app, one.token)).progress.filter((row) => row.state === 'ready');
       if (ready.length === 0) break;
       for (const row of ready) {
         if (collected >= BUDGET) break;
         const response = await claim(app, one.token, row.id);
-        if (response.statusCode === 409) {
-          expect(response.json<{ error: { message: string } }>().error.message).toBe(
-            'no_unit_slots',
-          );
-          expect(unitSlotsUsed(findFeat(row.id)?.reward.units ?? {})).toBeGreaterThan(0);
-          noRoom.add(row.id);
-          continue;
-        }
         expect(response.statusCode, `${row.id}: ${response.body}`).toBe(200);
         collected += 1;
       }

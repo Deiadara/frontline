@@ -60,6 +60,7 @@ import { DeployDialog, type DeployMode } from './DeployDialog';
 import { UnitChip } from '../units/UnitChip';
 import { EffectiveCard } from './EffectiveCard';
 import { Tutorial } from '../tutorial/Tutorial';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Battles page (GDD §A4, battle rework).
@@ -233,7 +234,6 @@ export function BattlePage() {
       // No lede (maintainer, 2026-09-21). "Fights are called for a time, and everybody gets to
       // see them coming" is a rule a player learns from the board itself, and it was a line of
       // standing grey text over the one screen where every row is already a clock.
-      action={data ? <Counts data={data} /> : null}
       wide
       fills
     >
@@ -392,15 +392,14 @@ export function BattlePage() {
           army={army}
           loadouts={loadouts}
           bagPercent={standing.data?.haulPercent ?? 0}
-          homeDistrictId={me.data?.base?.districtId ?? null}
           notoriety={notoriety}
           mode={deploying.mode}
           pending={deploy.isPending}
           error={deploy.error}
           onClose={closeDeploy}
-          onConfirm={(changes, perimeterChanges) =>
+          onConfirm={(changes, perimeterChanges, byRail) =>
             deploy.mutate(
-              { battleId: deployingView.battle.id, changes, perimeterChanges },
+              { battleId: deployingView.battle.id, changes, perimeterChanges, byRail },
               {
                 onSuccess: (result) => {
                   setCaughtLeaving(result.caughtLeaving);
@@ -421,20 +420,6 @@ export function BattlePage() {
       )}
       {readingSpy && <SpyReportModal report={readingSpy} onClose={() => setReadingSpy(null)} />}
     </PageShell>
-  );
-}
-
-/** The two numbers worth having in the title bar: what is coming, and what you have to spend. */
-function Counts({ data }: { data: BattlesResponse }) {
-  return (
-    <span className="flex items-center gap-3">
-      <span
-        data-testid="board-infamy"
-        className="font-display text-sm font-bold tabular-nums text-oxblood-300"
-      >
-        {Math.round(data.infamy).toLocaleString()} infamy
-      </span>
-    </span>
   );
 }
 
@@ -661,13 +646,11 @@ function BattleDetail({
             data-testid="battle-characteristics"
           />
           {/* The two figures the ground is worth on its own, said in words rather than left in the
-              chips: a fortified location and a defensible one are different problems. */}
+              chips: a narrow front and an armoured one are different problems. */}
           <p className="mt-1.5 font-body text-[12px] leading-snug text-ink-300">
             {view.battlefield.locationName} holds {view.battlefield.frontage} across the front
             {view.battlefield.baseDefense > 0 &&
               `, and is worth ${view.battlefield.baseDefense} armour to whoever stands on it`}
-            {view.battlefield.fortifyPercent > 0 &&
-              `. Dug in: +${Math.round(view.battlefield.fortifyPercent)}% toughness to the holder`}
             .
           </p>
         </div>
@@ -687,7 +670,7 @@ function BattleDetail({
 
         <Forces view={view} walking={walking} loadouts={loadouts} />
 
-        <Odds view={view} />
+        <Odds view={view} loadouts={loadouts} />
 
         {view.side !== null && (
           <div className="flex flex-wrap items-center gap-3 border-t border-surface-700 p-4">
@@ -743,10 +726,16 @@ function BattleDetail({
                 </span>
               </HoverCard>
             )}
-            {!view.deploymentOpen && (
+            {!view.deploymentOpen ? (
               <span className="font-body text-[11px] text-ink-300">
-                Nobody moves in the last minute before the mark.
+                The mark has come. Nobody moves now.
               </span>
+            ) : (
+              !view.withdrawalOpen && (
+                <span className="font-body text-[11px] text-ink-300">
+                  The last hour: more can still arrive, but nobody leaves the ground.
+                </span>
+              )
             )}
           </div>
         )}
@@ -914,11 +903,7 @@ function VehiclePicker({
             </ul>
           )}
         </PanelSection>
-        {take.error && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {take.error.message}
-          </p>
-        )}
+        {take.error && <ErrorNote>{take.error.message}</ErrorNote>}
       </div>
     </FileSection>
   );
@@ -998,11 +983,7 @@ function LeadPicker({ view }: { view: BattleView }) {
           onChange={(officerId) => lead.mutate({ battleId: view.battle.id, officerId })}
           data-testid="lead-officer-picker"
         />
-        {lead.error && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {lead.error.message}
-          </p>
-        )}
+        {lead.error && <ErrorNote>{lead.error.message}</ErrorNote>}
       </div>
     </FileSection>
   );
@@ -1114,7 +1095,21 @@ function usePresenceOver(view: BattleView): CombinePower | undefined {
  * This is not fog of war. The district header names him, his card is public and his power is on
  * the chip at the top of it, so the only thing hidden was the sum.
  */
-function Odds({ view }: { view: BattleView }) {
+/*
+ * ...and **the refits the crew has bolted on** (bug pass, 2026-09-25).
+ *
+ * The same omission as the legendary, one channel along, and it reverses the answer the same way.
+ * `resolve.ts` hands the engine `attackerUpgrades: attacker.unitLoadouts`, and this passed none:
+ * measured on 40 Razors against 40 Razors on open ground over 200 runs, a crew with Taped Grips,
+ * a Scrap Vest and Knuckle Guards fitted forecasts at 46% and settles at 100%. A player who has
+ * spent the yard's output on their line was being shown the odds of the line they did not build.
+ *
+ * The crew's *ground* is the half still missing, and it is not fixable here: the territory fold is
+ * not on `BattleView`, so the screen cannot see it. That one shades the answer in the player's
+ * favour, which is the safer direction to be wrong in, and it is written down rather than quietly
+ * left out.
+ */
+function Odds({ view, loadouts }: { view: BattleView; loadouts: UnitLoadouts }) {
   const facing = view.enemySize;
   const defending = view.role === 'defender';
   const presence = usePresenceOver(view);
@@ -1131,21 +1126,25 @@ function Odds({ view }: { view: BattleView }) {
     view.battlefield,
     defending,
     presence ?? null,
+    // In the key as well as in the setup, for the same reason the presence is: a card bolted on
+    // while the window is open has to move the number under it.
+    loadouts,
   ]);
   const read = useMemo(() => {
-    const [sending, size, ground, holding, shadow] = JSON.parse(plan) as [
+    const [sending, size, ground, holding, shadow, fitted] = JSON.parse(plan) as [
       Record<string, number>,
       number | null,
       BattleView['battlefield'],
       boolean,
       CombinePower | null,
+      UnitLoadouts,
     ];
     const units = Object.values(sending).reduce((total, count) => total + count, 0);
     if (size === null || units === 0) return null;
     return forecast({
       seed: plan,
       battlefield: ground,
-      attacker: { name: 'you', army: sending, defending: holding },
+      attacker: { name: 'you', army: sending, defending: holding, upgrades: fitted },
       defender: {
         name: 'them',
         army: estimatedForce(size),
@@ -1205,6 +1204,10 @@ function Forces({
   const rows = Object.entries(muster.army).filter(([, count]) => count > 0);
   const ring = Object.entries(muster.perimeter).filter(([, count]) => count > 0);
   const road = Object.entries(walking).filter(([, count]) => count > 0);
+  // Everybody already at the place on this side with no deployment: the garrison, postings, the
+  // home army or gate garrison, and faction Sleepers (maintainer, 2026-09-28: "The battle page
+  // shows what is there").
+  const standing = Object.entries(muster.standing ?? {}).filter(([, count]) => count > 0);
 
   return (
     <div className="border-t border-surface-700 p-4" data-testid="battle-forces">
@@ -1215,7 +1218,9 @@ function Forces({
         <p className="mt-1 font-body text-[12px] text-ink-300">
           {road.length > 0
             ? 'Nobody yet. They are still walking.'
-            : 'Nobody yet. An empty field is a loss you called yourself.'}
+            : standing.length > 0
+              ? 'Nobody sent yet. Those standing there below fight either way.'
+              : 'Nobody yet. An empty field is a loss you called yourself.'}
         </p>
       ) : (
         // Wraps, and the box grows with it: a force of nine kinds is a real state and it used to
@@ -1237,6 +1242,26 @@ function Forces({
             </li>
           ))}
         </ul>
+      )}
+      {standing.length > 0 && (
+        <>
+          <p className="mt-3 font-display text-[10px] uppercase tracking-[0.2em] text-ink-300">
+            Standing there
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-1.5" data-testid="battle-standing">
+            {standing.map(([unitId, count]) => (
+              <li key={`standing-${unitId}`}>
+                <UnitChip
+                  unitId={unitId}
+                  count={count}
+                  label={onGroundLabel(unitId)}
+                  card={<EffectiveCard unitId={unitId} view={view} loadouts={loadouts} />}
+                  data-testid={`battle-standing-${unitId}`}
+                />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {/*
        * §A4: what has left but not arrived.
@@ -1421,11 +1446,7 @@ function NameBuys({ view, infamy }: { view: BattleView; infamy: number }) {
             )}
           </div>
         </PanelSection>
-        {buy.error && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {buy.error.message}
-          </p>
-        )}
+        {buy.error && <ErrorNote>{buy.error.message}</ErrorNote>}
       </div>
 
       {confirming && (
@@ -1574,11 +1595,7 @@ function TrapPicker({ view }: { view: BattleView }) {
             )}
           </div>
         </PanelSection>
-        {set.error && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {set.error.message}
-          </p>
-        )}
+        {set.error && <ErrorNote>{set.error.message}</ErrorNote>}
       </div>
     </FileSection>
   );

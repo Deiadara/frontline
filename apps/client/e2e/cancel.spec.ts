@@ -380,7 +380,7 @@ test('a gate being raised wears the X on its plate over the city', async ({ page
   const paid = gate.nextCost;
   await installApi(page, lateGame, { underWay: { gate: { since, until, paid } } });
 
-  await page.goto('/game/city');
+  await page.goto('/game');
   const panel = page.getByTestId(`captured-gate-${gate.districtId}`);
   await expect(panel).toBeVisible();
   await settleFonts(page);

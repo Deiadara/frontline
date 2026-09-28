@@ -925,7 +925,7 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     funicular track climbs the slope. Quiet, elegiac, almost beautiful: a place that used to be
     desirable. Two figures on separate terraces, not looking at each other.
   `),
-  rustyard: block(`
+  steelbelt: block(`
     A ship-breaking yard of beached hulls half-dismantled in orange mud, ribs of vessels
     standing like cathedral vaulting. Cutting torches throwing small hot #ffd166 pools against the
     enormous cold mass of the hulls. Slag heaps, chained dogs, a crane made from three other cranes.
@@ -945,7 +945,7 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     coolant seams and inspection ports, with the cyan key entering as a single distant shaft from a
     grate far above. Catwalks at three levels. Oppressive, immense, wet, humming.
   `),
-  'datavault-sigma': block(`
+  annexes: block(`
     A windowless black monolith of a data fortress, its face broken only by cooling louvres
     exhaling white vapour lit cold #22d3ee from within. Set in a cleared exclusion zone of cracked
     concrete and dead lighting columns. A single armoured entry ramp. Fibre trunking as thick as
@@ -980,14 +980,14 @@ export const DISTRICT_SUBJECTS: Readonly<Record<string, string>> = {
     rather than as infrastructure: figures on the steps, a game in the road, a repaired door standing
     open. Warm #f59e0b sodium led, the cyan key arriving only down the length of the cut.
   `),
-  'blacksite-7': block(`
+  blacksite: block(`
     A hardened military compound sunk into a bomb crater: sloped ferrocrete revetments,
     staggered blast walls, a squat command bunker with slit apertures leaking hostile magenta #e11d8f
     light. Automated turret masts on the perimeter. Vehicle ramps descending out of sight. No signage,
     no windows, no invitation. Searchlight beams sweeping the crater walls. The magenta is the only
     saturated colour in frame and it reads as a warning.
   `),
-  'combine-spire': block(`
+  ccs: block(`
     The single tallest structure in the city: a corporate megaspire punching through the smog
     ceiling into clear air, its lower two thirds lost in haze so only the crowning arcology is legible.
     Buttressed, ribbed, cathedral-like, deliberately intimidating. Magenta #e11d8f beacon light bleeding
@@ -1080,7 +1080,7 @@ export const PLATE_SUBJECTS = {
     gate with a watch platform closes the bottom edge. Wet stone, standing water, green and amber
     light. Painted signage is part of the street; nothing that reads as a label for a game object.
   `),
-  'plate-district-datavault-sigma': block(`
+  'plate-district-annexes': block(`
     The Annexes from above and slightly forward, the same camera as the other contested plates and
     **no sky**: a fogged faculty quarter of wet stone under cold grey-green light. Eight places a
     player can stand, each recognisable at a glance: a satellite dish bolted to the roof of a
@@ -1105,7 +1105,7 @@ export const PLATE_SUBJECTS = {
     with a watch post closes the bottom edge. Wet earth, green beds, a few lit windows. Painted
     signage is part of the street; nothing that reads as a label for a game object.
   `),
-  'plate-district-blacksite-7': block(`
+  'plate-district-blacksite': block(`
     The Blacksite from above and slightly forward, the same camera as the other contested plates
     and **no sky**: a hardened ferrocrete garrison closed on every side by sheer walls. Eight
     places a player can stand, each recognisable at a glance: a fortified compound with a great gate
@@ -1117,7 +1117,7 @@ export const PLATE_SUBJECTS = {
     lower left. Sodium lamps on wet concrete, the searchlight the only cold note. Painted signage is
     part of the street; nothing that reads as a label for a game object.
   `),
-  'plate-district-combine-spire': block(`
+  'plate-district-ccs': block(`
     The CCS from above and slightly forward, the same camera as the other contested plates and
     **no sky**: the Combine's civic spire at night, a walled cathedral precinct of grey stone and
     gold-lit windows on a rock above the rest of the city. Eight places a player can stand, each
@@ -1130,7 +1130,80 @@ export const PLATE_SUBJECTS = {
     the city beyond. Painted signage is part of the street; nothing that reads as a label for a
     game object.
   `),
-  'plate-district-rustyard': block(`
+  'plate-district-coldwater-halt': block(`
+    Coldwater Halt from above and slightly forward, the same camera as the other contested plates
+    and **no sky**: a gated frontier rail town on the flats at the end of a timber trestle, wet
+    stone and duckboard under a cold dusk. Seven places a player can stand, each recognisable at a
+    glance: a long covered platform with a pitched canopy along the top left, an arcade of stone
+    arches turned market with striped awnings and stalls under it at the left, a stone gatehouse in
+    the middle of the frame with a barred iron gate and red signal lamps burning on either side of
+    it, a cookhouse row of open-fronted sheds with fires and trestle tables in the lower middle, a
+    fuelling stand of tanks and hose gantries on the lower left quay, a camp of canvas tents on the
+    high ground at the upper right, and a lattice signal tower with a lit cabin and a red lamp at
+    the far right. A timber trestle bridge carries a steam train over the water across the right of
+    the frame. Warm lamplight on wet timber against cold green water, emissives small and at head
+    height. Painted signage is part of the street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-ironmouth': block(`
+    Ironmouth from above and slightly forward, the same camera as the other contested plates and
+    **no sky**: a tunnel mouth cut into a ridge, with a town built on the rock terraces either
+    side of it, wet stone and iron stairs under a cold dusk. Seven places a player can stand, each
+    recognisable at a glance: a great arched tunnel portal closed by a red barred gate with signal
+    lamps burning beside it at top centre, a covered platform with a steam train standing at it in
+    the middle of the frame and track running down to the bottom edge, a row of bricked-up brick
+    arches lived in with lit windows and washing strung across them at the right, a chapel with a
+    lit stained glass window on the terrace above them at top right, a chemical works of green-lit
+    vats and tanks under steam at the left, tall ventilation stacks and pipework at the far left, a
+    spoil tip with a conveyor and a grab crane on the terrace at top left, and a row of small lit
+    shopfronts at the lower right. Warm lamplight on wet rock against cold green chemical light,
+    smoke off every stack, emissives small and at head height. Painted signage is part of the
+    street; nothing that reads as a label for a game object.
+  `),
+  'plate-city-terminus': block(`
+    Terminus whole, from above and at an angle, the second city's answer to the Ashfall aerial and
+    the screen a player opens the city on: a night rail city stacked along one line, seen across
+    the whole frame with no horizon and only a band of smog sky at the very top. A great brick
+    viaduct of lit arches runs from the left edge down across the middle to the lower right, each
+    arch bricked up into a workshop, a bar or a dwelling, and a river gorge with waterfalls cuts
+    under it. A glass-roofed station shed stands upper left of centre with its concourse in front
+    of it; a walled stone garrison with a barred gate and red banners holds the upper right, masts
+    and a dish on the rock above it; marshalling sidings, wagons, a turning loop and standing
+    locomotives fill the right; terraced housing, a spired chapel and a lit street market fill the
+    lower left. Roughly twelve distinguishable quarters across the frame, separated by the line,
+    the gorge and the walls, with quiet clearings between them for tags to sit in. Value kept in
+    the middle range (#1e293b to #55617e), warm sodium windows against cold blue stone. Keep the
+    outer eight percent of the frame quiet. Painted signage is part of the street; nothing that
+    reads as a label for a game object.
+  `),
+  'plate-district-marshalling-yards': block(`
+    The Marshalling Yards from above and slightly forward, the same camera as the other contested
+    plates and **no sky**: sixty miles of siding seen across the whole frame at night, wet steel and
+    soot under a cold blue dusk. Seven places a player can stand, each recognisable at a glance: a
+    fan of sorting sidings full of parked wagons with a hump and its gantry across the top left and
+    centre, a lattice signal box with a lit teal cabin standing over the throat of the yard at the
+    centre right, an arched train shed with lit platforms and a stopped train at the right, a
+    coaling stage of black bunkers and fuel tanks along the left edge, a wagon breaker's floor of
+    stripped bogies, wheelsets and cut frames in the lower left, a lit mess room of awnings and
+    trestle tables full of people in the lower middle, and a running shed with open doors and
+    furnaces burning orange at the upper right. Warm furnace and lamplight against cold blue steel,
+    steam off every stack, emissives small and at head height. Painted signage is part of the
+    street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-bonded-row': block(`
+    Bonded Row from above and slightly forward, the same camera as the other contested plates and
+    **no sky**: a bonded warehouse quarter at night, crates stacked to the roofline on wet concrete
+    under red and violet light. Eight places a player can stand, each recognisable at a glance: a
+    gantry crane lifting a crate over a stacked yard at the upper left, a long covered market shed
+    of lit trestles and stalls running across the top left and centre, a two-storey brick office
+    with lit windows standing alone in the middle of the frame, a goods platform under a great
+    timber shed with a standing train at the upper right, an open-fronted shed of hanging carcasses
+    and cutting tables at the right, a fenced run of kennels with dogs and handlers in the lower
+    left, a roped ring of crates with a crowd around two fighters in the lower middle, and a
+    violet-lit clinic of curtained bays and steel trolleys at the lower right. Hot red and cold
+    violet on wet concrete, emissives small and at head height. Painted signage is part of the
+    street; nothing that reads as a label for a game object.
+  `),
+  'plate-district-steelbelt': block(`
     The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press
     houses and furnace rows closing on all four sides, a hoarding fence along the lower left, and
     the city stacked beyond the top edge. Seven distinguishable places: a long glass-roofed press
@@ -1506,6 +1579,10 @@ export const LOCATION_ICON_SUBJECTS: Readonly<Record<LocationKind, string>> = {
   combine_chapel: block(`
     A steel-and-glass chapel at the top of a tower seen three-quarter from above, a long table
     under a vaulted roof where the pews would be, one cold #22d3ee light down the length of it.
+  `),
+  rail_station: block(`
+    A single railway platform seen three-quarter from above, a canopy on iron columns over half its
+    length, a running-in board at the near end and a warm #f59e0b lamp burning over the empty track.
   `),
 };
 

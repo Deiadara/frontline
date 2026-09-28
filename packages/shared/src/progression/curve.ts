@@ -16,19 +16,27 @@
 export const PLAYER_LEVEL_MIN = 1;
 
 /**
- * XP to clear level 1. Each subsequent level costs a further multiple of it, so the curve is
- * `PLAYER_XP_LEVEL_STEP * triangular(level)`: integer-exact at every level, no rounding.
+ * The curve: `PLAYER_XP_LEVEL_STEP * level ^ PLAYER_XP_LEVEL_POWER` to clear each level, rounded.
+ *
+ * Retuned 2026-09-28 (maintainer: "all the levels a little earlier and a little easier to reach",
+ * the late game about two and a half months in for a crew that plays every day). It was
+ * `100 * triangular(level)`, which grows with the square of the level: a crew in the progression
+ * simulation (`apps/server/scripts/progression-sim.ts`) was level thirty on day 156 and never saw
+ * level ninety. At this one it reaches level ten on day five, forty on day thirty two, sixty on day
+ * fifty and ninety, the last milestone, on day seventy nine. The simulation leaves out the XP from
+ * buildings, research, drills and hires, so a real crew playing that much runs a few days ahead.
  */
-export const PLAYER_XP_LEVEL_STEP = 100;
+export const PLAYER_XP_LEVEL_STEP = 52;
+export const PLAYER_XP_LEVEL_POWER = 1.6;
 
 /**
- * XP required to advance *from* `level` to `level + 1`: 100, 300, 600, 1000, 1500, …
+ * XP required to advance *from* `level` to `level + 1`: 52, 158, 302, 478, 683, …
  *
  * Strictly increasing and always positive, which is what makes `applyPlayerXp`'s loop terminate.
  */
 export function playerXpToNextLevel(level: number): number {
   const from = Math.max(PLAYER_LEVEL_MIN, Math.trunc(level));
-  return (PLAYER_XP_LEVEL_STEP * from * (from + 1)) / 2;
+  return Math.round(PLAYER_XP_LEVEL_STEP * from ** PLAYER_XP_LEVEL_POWER);
 }
 
 /** Where a player sits on the curve: `Base.level` plus progress towards the next one. */

@@ -1,5 +1,5 @@
 import {
-  officerIsInjured,
+  officerIsWorking,
   markFromPoints,
   type AttributeLift,
   type Attributes,
@@ -8,6 +8,7 @@ import {
   type CrewOfficer,
   type CrewResponse,
   type OfficerRole,
+  type SeatedOfficer,
 } from '@frontline/shared';
 import { roleFit } from '../roles/requirements.js';
 import { liftedOfficerSheet, officerLiftRoom } from './standing.js';
@@ -114,6 +115,9 @@ export function seatedRoles(commanders: readonly Commander[]): OfficerRole[] {
  * not, so a crew whose Consigliere was in a hospital bed still had their counter-intel, their
  * Master of Whispers still ran the network, and their Fabricator still cut cards.
  *
+ * An officer on the bench is out the same way (maintainer, 2026-09-28), through the same
+ * predicate (`officerIsWorking`), so this list and the fold drop the same people.
+ *
  * Deliberately separate from {@link seatedRoles}, which answers a different question and must keep
  * answering it: the Bar asks "is this chair taken" so it can refuse to seat two people in one, and
  * a chair does not come free because the person in it is hurt.
@@ -121,8 +125,8 @@ export function seatedRoles(commanders: readonly Commander[]): OfficerRole[] {
 export function workingOfficers(
   commanders: readonly Commander[],
   now: Date = new Date(),
-): Commander[] {
-  return commanders.filter((officer) => !officerIsInjured(officer.injuredUntil, now));
+): SeatedOfficer<Commander>[] {
+  return commanders.filter((officer) => officerIsWorking(officer, now));
 }
 
 /** The chair, if somebody is in it and fit to work. See {@link workingOfficers}. */
@@ -130,7 +134,7 @@ export function workingOfficer(
   commanders: readonly Commander[],
   role: OfficerRole,
   now: Date = new Date(),
-): Commander | undefined {
+): SeatedOfficer<Commander> | undefined {
   return workingOfficers(commanders, now).find((officer) => officer.role === role);
 }
 

@@ -27,6 +27,7 @@ import { cn } from '../../lib/cn';
 import { useAutomations, useMe, useSaveAutomation } from '../../lib/queries';
 import { formatRemaining } from '../base/format';
 import { OrdersMark } from './CensusMarks';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The Right Hand's standing orders, on the Monitor's third page (§C2b, maintainer 2026-09-22).
@@ -195,7 +196,7 @@ function Ladder({ powers }: { powers: AutomationsResponse['powers'] }) {
       label: 'Chase a resource',
       open: powers.optimise,
       rung: AUTOMATION_RUNGS.optimise,
-      tip: 'Pick one resource and the slot takes whichever job pays the most of it per minute.',
+      tip: 'Pick one resource and the slot takes whichever job brings the most of it home per minute, counting only what the party can carry.',
     },
     {
       label: 'Battles',
@@ -378,7 +379,7 @@ function SlotSheet({
             testId={`automation-${slot}-bestfit`}
             tip={
               powers.bestFit
-                ? 'Name a size in unit slots. The Right Hand fills it with the best party and the best free officer for the job, every time it sends.'
+                ? 'Name a size in unit slots. For a fight the Right Hand sends the units most likely to win it, for other work the ones that carry most, and the best free officer to lead them.'
                 : `Opens with ${rungName(AUTOMATION_RUNGS.bestFit)}.`
             }
           >
@@ -508,11 +509,7 @@ function SlotSheet({
         </Field>
       )}
 
-      {save.error && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {save.error.message}
-        </p>
-      )}
+      {save.error && <ErrorNote>{save.error.message}</ErrorNote>}
 
       <footer className="flex flex-wrap items-center justify-between gap-3">
         <p className="font-body text-[11px] leading-snug text-ink-400">

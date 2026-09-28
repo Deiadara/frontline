@@ -1,15 +1,12 @@
 import { z } from 'zod';
 import {
   ENV_LABEL_IDS,
-  FORTIFY_MAX_LEVEL,
   LOCATION_CATALOG,
   frontageFactor,
-  fortifyBonusPercent,
   mergeLabels,
   weatherAt,
   weatherLabels,
   type EnvLabel,
-  type FortifyDifficulty,
   type LocationKind,
   type WeatherKind,
 } from '../city/index.js';
@@ -40,8 +37,6 @@ export const BattlefieldSchema = z.object({
   labels: z.array(z.object({ id: z.enum(ENV_LABEL_IDS), tier: z.number().int().min(1).max(4) })),
   /** The sky over the whole city on the day of the fight. `normal` is most days and shows nothing. */
   weather: z.string(),
-  /** Percentage the holder's effective toughness is raised by ground and digging in. */
-  fortifyPercent: z.number().min(0),
   /** The location's own `baseDefense`, 0..10: how defensible it is before anybody works on it. */
   baseDefense: z.number().min(0),
   /** How many units per side can be in contact at once. See {@link FRONTAGE_BY_CONTEXT}. */
@@ -113,6 +108,9 @@ export const LOCATION_CONTEXTS: Record<LocationKind, readonly CombatContext[]> =
   glasshouse: ['indoor'],
   // A room at the top of a tower in the middle of a city: a corridor into it, streets around it.
   combine_chapel: ['indoor', 'urban'],
+  // the railway. A platform is a long open strip with a canopy over part of it and nothing to
+  // take cover behind, which is why taking one is loud and holding one is hard.
+  rail_station: ['open_ground', 'urban'],
 };
 
 /**
@@ -174,8 +172,6 @@ function isDarkGround(labels: readonly EnvLabel[]): boolean {
 export interface BattlefieldInput {
   locationName: string;
   kind: LocationKind;
-  fortifyDifficulty: FortifyDifficulty;
-  fortifyLevel: number;
   at: Date;
   /**
    * Override the sky. Only tests and the forecast pass this: everything real reads the day out of
@@ -188,15 +184,13 @@ export interface BattlefieldInput {
 /**
  * The ground for a fight over one location.
  *
- * `vs_structure` is on the list whenever anything has been dug in, which is what makes a Demolisher
- * worth its unit slots against a level-5 barricade and worth nothing against bare ground. `defending`
- * is *not* here: it is a property of a side rather than of the location, and `effects.ts` adds it to
- * whichever side is holding.
+ * `defending` is *not* here: it is a property of a side rather than of the location, and
+ * `effects.ts` adds it to whichever side is holding. Neither is anything about the works: dug-in
+ * fortification left the game (maintainer, 2026-09-26), and a gate is the holder's rather than the
+ * ground's, so it arrives with their territory.
  */
 export function battlefieldFor(input: BattlefieldInput): Battlefield {
-  const level = Math.min(FORTIFY_MAX_LEVEL, Math.max(0, Math.trunc(input.fortifyLevel)));
   const contexts: CombatContext[] = [...LOCATION_CONTEXTS[input.kind]];
-  if (level > 0) contexts.push('vs_structure');
 
   const weather = input.weather ?? weatherAt(input.at);
   const labels = mergeLabels(LOCATION_CATALOG[input.kind].labels, weatherLabels(weather));
@@ -207,15 +201,13 @@ export function battlefieldFor(input: BattlefieldInput): Battlefield {
     contexts,
     labels,
     weather,
-    fortifyPercent: fortifyBonusPercent(input.fortifyDifficulty, level),
     baseDefense: LOCATION_CATALOG[input.kind].baseDefense,
     frontage: frontageFor(contexts, labels),
   };
 }
 
 /**
- * A crew's own district under raid (GDD §A4). There is no fortification to speak of and no location
- * kind: a home district is streets and structures, so it fights urban.
+ * A crew's own district under raid (GDD §A4). There is no location kind: a home district is streets and structures, so it fights urban.
  */
 export function homeBattlefield(locationName: string, at: Date): Battlefield {
   const contexts: CombatContext[] = ['urban'];
@@ -228,7 +220,6 @@ export function homeBattlefield(locationName: string, at: Date): Battlefield {
     contexts,
     labels,
     weather,
-    fortifyPercent: 0,
     baseDefense: 0,
     frontage: frontageFor(contexts, labels),
   };
@@ -241,7 +232,6 @@ export function bareBattlefield(locationName = 'open ground'): Battlefield {
     contexts: ['open_ground'],
     labels: [],
     weather: 'normal',
-    fortifyPercent: 0,
     baseDefense: 0,
     frontage: frontageFor(['open_ground']),
   };

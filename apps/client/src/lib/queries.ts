@@ -1,7 +1,8 @@
-import { readyCount } from '@frontline/shared';
+import { cityOf, readyCount } from '@frontline/shared';
 import type {
   ActionsResponse,
   MoveUnitsRequest,
+  DeployRequest,
   RecallMoveRequest,
   BaseDetailResponse,
   ClaimFeatRequest,
@@ -30,7 +31,8 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ApiRequestError } from './api';
+// A value import, not a type one: `isCityShut` below asks an error whether it is one of these.
+import { ApiRequestError } from './api';
 import {
   burnUpgrade,
   raiseGate,
@@ -59,14 +61,12 @@ import {
   reinforceAlly,
   sendMessage,
   setNotificationSettings,
-  fortifyLocation,
   upgradeLocation,
   getDistrict,
   getUnits,
   scoutDistrict,
   plantSleepers,
   recallSleepers,
-  setGarrison,
   cancelTraining,
   increasePayroll,
   releaseOfficer,
@@ -101,12 +101,14 @@ import {
   postOffer,
   withdrawOffer,
   acceptOffer,
+  claimMarketGoods,
   getBlackMarket,
   placeBlackMarketBid,
   getSettings,
   updateProfile,
   markTutorialSeen,
   changePassword,
+  logoutEverywhere,
   getAdmin,
   mockBattleOnMe,
   setAdminFog,
@@ -133,17 +135,57 @@ import {
   cancelBuild,
   cancelResearch,
   cancelLocationUpgrade,
-  cancelLocationFortify,
   recallScout,
   recallSpy,
   spyOn,
   moveUnits,
   quoteMove,
+  quoteDeploy,
   recallMove,
   cancelGateRaise,
   cancelDrill,
 } from './api';
 import { useSession } from '../store/session';
+import { useViewedCity } from '../store/viewedCity';
+
+/**
+ * Whether a failed read is the server saying this crew may not walk into that city.
+ *
+ * `CITY_SHUT` is a 403 the Bar, the market, the board of offers, the back room and the mission
+ * board all answer with when the asked-for city is one the crew holds no ground in. It is the one
+ * refusal a screen should not print: the player has not done anything wrong, they are simply
+ * remembered as standing somewhere they can no longer get into, and the answer is to put them back
+ * in their own city rather than to show them a red line about it.
+ */
+export function isCityShut(error: unknown): boolean {
+  return error instanceof ApiRequestError && error.code === 'CITY_SHUT';
+}
+
+/**
+ * Keeps the door list behind {@link useViewedCity} honest, off one room's read.
+ *
+ * Called by each of the room queries below rather than by the screens, so the four of them cannot
+ * drift, and so a room learns which cities are open to it from whichever room the player happened
+ * to visit first.
+ *
+ * `asked` is the city this read was for, needed only for the refusal: a 403 carries no list, so all
+ * it can teach is that this one city is shut.
+ */
+function useCityDoor(
+  asked: string | undefined,
+  read: { data: { cities?: readonly string[] } | undefined; error: unknown },
+): void {
+  const noteRooms = useViewedCity((state) => state.noteRooms);
+  const shutRoom = useViewedCity((state) => state.shutRoom);
+  const cities = read.data?.cities;
+  const shut = isCityShut(read.error);
+  useEffect(() => {
+    if (cities !== undefined) noteRooms(cities);
+  }, [cities, noteRooms]);
+  useEffect(() => {
+    if (shut && asked !== undefined) shutRoom(asked);
+  }, [shut, asked, shutRoom]);
+}
 
 /** Canonical react-query keys (see docs/SPEC-client.md). */
 export const queryKeys = {
@@ -315,12 +357,36 @@ export function useMe() {
   });
 }
 
-/** City map: districts + public base summaries. */
-export function useCity() {
+/**
+ * Which city this crew lives in. `null` until `/me` has answered.
+ *
+ * Derived from the crew's own district rather than read off a field, because there is no city
+ * column on a base: a crew is in a district and a district is in a city, and `cityOf` walks the one
+ * edge that exists. See `city/cities.ts` for why the fact is stored in exactly one place.
+ */
+export function useHomeCity(): string | null {
+  const me = useMe();
+  return cityOf(me.data?.base?.districtId ?? '') ?? null;
+}
+
+/**
+ * City map: districts, their fog and what this crew holds on them.
+ *
+ * `city` is the city being looked at, `undefined` for the crew's own, and it is part of the key so
+ * two maps are two cache entries: the same rule `useMarket`, `useBar` and `useMissions` follow.
+ * Without it, switching to a city you do not live in draws the previous city's fog over the new
+ * city's districts until the next poll lands, and on a map that decides what a tag does when it is
+ * clicked, the wrong fog is a tag that opens the wrong thing.
+ *
+ * The `queryFn` is a call, never the bare fetcher: React Query passes the query's own context
+ * object as the first argument, and `getCity` would read that object as the city (`getMissions`
+ * was bitten by exactly this and asked the server for `?city=[object Object]`).
+ */
+export function useCity(city?: string) {
   const token = useSession((s) => s.token);
   return useQuery({
-    queryKey: queryKeys.city,
-    queryFn: getCity,
+    queryKey: [...queryKeys.city, city ?? ''],
+    queryFn: () => getCity(city),
     enabled: token !== null,
     refetchInterval: SHELL_POLL_MS,
   });
@@ -375,12 +441,15 @@ export function useRenameDistrict(baseId: string | undefined) {
 }
 
 /** The mission board and everything in flight (GDD §E3, §E4). */
-export function useMissions() {
+export function useMissions(city?: string) {
   const token = useSession((s) => s.token);
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryKey: queryKeys.missions,
-    queryFn: getMissions,
+    // The city is in the key so two boards are two cache entries, the way `useMarket` and `useBar`
+    // are keyed and for the same reason: without it, switching city shows the previous city's work
+    // until the next poll lands.
+    queryKey: [...queryKeys.missions, city ?? ''],
+    queryFn: () => getMissions(city),
     enabled: token !== null,
     refetchInterval: MISSION_POLL_MS,
   });
@@ -401,6 +470,7 @@ export function useMissions() {
     invalidateLevelSensitive(queryClient);
   }, [settledAt, queryClient]);
 
+  useCityDoor(city, query);
   return query;
 }
 
@@ -449,12 +519,14 @@ const BAR_POLL_MS = 10_000;
  */
 export function useBar(city?: string) {
   const token = useSession((s) => s.token);
-  return useQuery({
+  const query = useQuery({
     queryKey: [...queryKeys.bar, city ?? ''],
     queryFn: () => getBar(city),
     enabled: token !== null,
     refetchInterval: BAR_POLL_MS,
   });
+  useCityDoor(city, query);
+  return query;
 }
 
 /**
@@ -723,9 +795,8 @@ function useCityWrite<Body, Result>(
  * One district's places, who holds them, and what they are worth.
  *
  * Polled on the district cadence, and it is the read with the most standing on it: `GET /city/:id`
- * runs `settleWorld` and `settleBase` on its first two lines, so a fortification finishing, an
- * upgrade landing, a column arriving and a scout walking back in all happen *on this request*.
- * Without an interval nothing ever made it again, and the screen has four live countdowns drawn
+ * runs `settleWorld` and `settleBase` on its first two lines, so an upgrade landing, a column
+ * arriving and a scout walking back in all happen *on this request*. Without an interval nothing ever made it again, and the screen has four live countdowns drawn
  * off the payload: a scout at zero read "Walking back in" until the player navigated away, and a
  * finished upgrade kept its clock at `0s left` beside a location still at the old level.
  */
@@ -741,13 +812,10 @@ export function useDistrict(districtId: string | undefined) {
 
 export const useScout = () => useCityWrite(scoutDistrict, undefined, (body) => body.districtId);
 
-export const useSetGarrison = (baseId: string | undefined, districtId: string | undefined) =>
-  useCityWrite(setGarrison, baseId, () => districtId ?? null);
-
 /**
  * §A4: plant a cell, and pull one back out (`sleepers.ts`).
  *
- * Planting is a city write like garrisoning: it moves units off the roster and changes what the
+ * Planting is a city write: it moves units off the roster and changes what the
  * district looks like, so the same invalidations apply. The Monitor is added to both, because a
  * cell appears there the moment it is sent and leaves it when it is recalled, and that page is
  * the only place a player can see one at all.
@@ -772,10 +840,7 @@ export function useRecallSleepers() {
   });
 }
 
-export const useFortify = (baseId: string | undefined, districtId: string | undefined) =>
-  useCityWrite(fortifyLocation, baseId, () => districtId ?? null);
-
-/** §A4: work a location up a level. Same write path as fortifying; same invalidations. */
+/** §A4: work a location up a level. Same write path as garrisoning; same invalidations. */
 export const useUpgradeLocation = (baseId: string | undefined, districtId: string | undefined) =>
   useCityWrite(upgradeLocation, baseId, () => districtId ?? null);
 
@@ -788,11 +853,6 @@ export const useCancelLocationUpgrade = (
   baseId: string | undefined,
   districtId: string | undefined,
 ) => useCityWrite(cancelLocationUpgrade, baseId, () => districtId ?? null);
-
-export const useCancelLocationFortify = (
-  baseId: string | undefined,
-  districtId: string | undefined,
-) => useCityWrite(cancelLocationFortify, baseId, () => districtId ?? null);
 
 /**
  * Turn the scout round. The unit is empty (a crew has one scout out at a time), so the district
@@ -842,6 +902,29 @@ export function useMoveQuote(body: MoveUnitsRequest | null) {
     queryFn: () => quoteMove(body!),
     enabled: token !== null && body !== null,
     staleTime: 10_000,
+  });
+}
+
+/**
+ * The clock a battle column would run to, and the ride Terminus's line would offer instead.
+ *
+ * `useMoveQuote`'s twin, and deliberately the same shape: `DeployQuoteResponse` carries the same
+ * pair a move's quote does, so the two screens draw the same choice the same way. The body is the
+ * deploy's own, so the number that comes back is the number the send will use.
+ *
+ * `retry` is already off for every query in this app (`main.tsx`), which matters here: a road this
+ * cannot price leaves the caller on its own upper bound rather than on a spinner.
+ */
+export function useDeployQuote(body: DeployRequest | null) {
+  const token = useSession((s) => s.token);
+  return useQuery({
+    queryKey: ['deploy-quote', body] as const,
+    queryFn: () => quoteDeploy(body!),
+    enabled: token !== null && body !== null,
+    staleTime: 10_000,
+    // The answer carries a landing time measured from the moment it was asked (`arrivesAt`), so a
+    // window left open near the mark is re-asked rather than promising a landing that has slipped.
+    refetchInterval: 15_000,
   });
 }
 
@@ -963,7 +1046,7 @@ export function useCrewStanding() {
  */
 export function useMarket(city?: string) {
   const token = useSession((s) => s.token);
-  return useQuery({
+  const query = useQuery({
     // The city is in the key so two markets are two cache entries: see `useBar`, which is keyed the
     // same way for the same reason.
     queryKey: [...queryKeys.market, city ?? ''],
@@ -971,6 +1054,8 @@ export function useMarket(city?: string) {
     enabled: token !== null,
     refetchInterval: DISTRICT_POLL_MS,
   });
+  useCityDoor(city, query);
+  return query;
 }
 
 /**
@@ -994,6 +1079,8 @@ function marketMutation<TArgs>(mutationFn: (args: TArgs) => Promise<MarketMutati
         void queryClient.invalidateQueries({ queryKey: queryKeys.me });
         void queryClient.invalidateQueries({ queryKey: queryKeys.scrapyard });
         void queryClient.invalidateQueries({ queryKey: queryKeys.units });
+        // A vehicle blueprint assembled here is what the yard reads to stop calling it locked.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.garage });
       },
     });
   };
@@ -1058,6 +1145,7 @@ export const useBuySupply = marketMutation(buySupply);
 export const usePostOffer = marketMutation(postOffer);
 export const useWithdrawOffer = marketMutation(withdrawOffer);
 export const useAcceptOffer = marketMutation(acceptOffer);
+export const useClaimMarketGoods = marketMutation(claimMarketGoods);
 
 /**
  * The back room.
@@ -1068,7 +1156,7 @@ export const useAcceptOffer = marketMutation(acceptOffer);
  */
 export function useBlackMarket(city?: string) {
   const token = useSession((s) => s.token);
-  return useQuery({
+  const query = useQuery({
     // The city is in the key so two rooms are two cache entries, the way `useMarket` and `useBar`
     // are keyed: without it, switching city would show the previous city's crates until the
     // refetch landed, and a crate is a lot somebody may be about to bid on.
@@ -1077,6 +1165,8 @@ export function useBlackMarket(city?: string) {
     enabled: token !== null,
     refetchInterval: DISTRICT_POLL_MS,
   });
+  useCityDoor(city, query);
+  return query;
 }
 
 /**
@@ -1098,6 +1188,10 @@ export function usePlaceBlackMarketBid() {
     mutationFn: placeBlackMarketBid,
     onSuccess: (response) => {
       setBoard(queryClient, queryKeys.blackMarket, response.blackMarket);
+    },
+    // Settled, not succeeded: the route closes last night's lots before it judges this bid, so a
+    // refused bid can already have handed over a crate and moved the caps.
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.blackMarket });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.market });
@@ -1165,15 +1259,29 @@ export function usePrefetchScreens(ready: boolean): void {
 
   useEffect(() => {
     if (token === null || !ready) return;
+    /*
+     * Every entry is a **call**, never a bare fetcher.
+     *
+     * React Query hands the query's own context object to `queryFn` as its first argument. A
+     * fetcher that takes no parameters ignores it; one that takes an optional parameter reads it
+     * as that parameter. `getMissions` grew a `city?` when the second city opened, so the bare
+     * reference here started warming `/missions?city=[object Object]`, which the server's city
+     * door correctly answered 403. Nothing in the client surfaced it: the prefetch is fire and
+     * forget, so the only symptom was a console error in the one end to end spec that runs against
+     * the real backend and fails on console errors.
+     *
+     * The key has to match the hook's too. `useMissions` keys on `[...queryKeys.missions, city]`,
+     * so warming the bare prefix filled a cache entry nothing reads.
+     */
     const warm: [readonly unknown[], () => Promise<unknown>][] = [
-      [queryKeys.battles, getBattles],
-      [queryKeys.missions, getMissions],
-      [queryKeys.units, getUnits],
-      [queryKeys.crew, getCrew],
-      [queryKeys.actions, getActions],
-      [queryKeys.research, getResearch],
-      [queryKeys.messages, getMessages],
-      [queryKeys.notifications, getNotifications],
+      [queryKeys.battles, () => getBattles()],
+      [[...queryKeys.missions, ''], () => getMissions()],
+      [queryKeys.units, () => getUnits()],
+      [queryKeys.crew, () => getCrew()],
+      [queryKeys.actions, () => getActions()],
+      [queryKeys.research, () => getResearch()],
+      [queryKeys.messages, () => getMessages()],
+      [queryKeys.notifications, () => getNotifications()],
     ];
     for (const [queryKey, queryFn] of warm) {
       void queryClient.prefetchQuery({ queryKey, queryFn, staleTime: 10_000 });
@@ -1313,6 +1421,11 @@ export const useUpgradeNotoriety = battleMutation(upgradeNotoriety);
 
 export const useUpdateProfile = settingsMutation(updateProfile);
 export const useChangePassword = settingsMutation(changePassword);
+
+/** "Log out everywhere": the new token rides the answer, so this tab needs nothing else. */
+export function useLogoutEverywhere() {
+  return useMutation({ mutationFn: logoutEverywhere });
+}
 /**
  * Marks opening tutorial cards as shown.
  *
@@ -1527,13 +1640,21 @@ export function useBuildVehicle() {
 
 export const useTakeVehicles = battleMutation(takeVehicles);
 
-/** §E: turn a crew around. The board answers with the whole refreshed set of runs. */
+/**
+ * §E: turn a crew around. The board answers with the whole refreshed set of runs.
+ *
+ * Written through {@link setBoard}, not with an exact `setQueryData(queryKeys.missions, …)`. The
+ * board is keyed by city (`['missions', 'terminus']`, and `['missions', '']` for the crew's own),
+ * so the bare prefix has no observer: the refreshed set went into a cache entry nothing reads and
+ * the recalled crew stayed in the In flight list until the invalidation's round trip landed. The
+ * market boards learnt this first; see the note on `setBoard`.
+ */
 export function useRecallMission() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: recallMission,
     onSuccess: (missions) => {
-      queryClient.setQueryData(queryKeys.missions, missions);
+      setBoard(queryClient, queryKeys.missions, missions);
       void queryClient.invalidateQueries({ queryKey: queryKeys.missions });
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
@@ -1544,8 +1665,8 @@ export function useRecallMission() {
  * §C2: move an officer into a different position.
  *
  * `crewStanding` with the rest, because a chair is not decoration: `crewSheet` pays somebody their
- * full rating only in the attributes the seat they are sitting in actually uses, and
- * `benchedMember` pays the off-duty share of everything. Taking a chair therefore moves every
+ * full rating only in the attributes the seat they are sitting in actually uses, and somebody on
+ * the bench is paid nothing at all. Taking a chair therefore moves every
  * channel of the fold `/overseer/me` reports, and that query has no poll and a 30s `staleTime`, so
  * the crew effects page kept the pre-move numbers for as long as the player stayed inside `/game`.
  */
@@ -1647,6 +1768,9 @@ function useFactionMutation<TInput>(
       void queryClient.invalidateQueries({ queryKey: queryKeys.units });
       void queryClient.invalidateQueries({ queryKey: queryKeys.actions });
       void queryClient.invalidateQueries({ queryKey: queryKeys.battles });
+      // A seat taken or given up moves `faction_seats`, and `/me` above already moves the badge:
+      // left alone, the board under it disagreed with it for as long as it stayed fresh.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
     },
   });
 }
@@ -1880,7 +2004,24 @@ export function useLeaderboard(board: LeaderboardBoard, localOnly: boolean) {
   });
 }
 export const useInviteToFaction = () => useFactionMutation(inviteToFaction);
-export const useAnswerFactionInvite = () => useFactionMutation(answerFactionInvite);
+/** The letter that carried the invitation is re-read too, so its buttons go once it is answered. */
+export function useAnswerFactionInvite() {
+  const queryClient = useQueryClient();
+  const answer = useFactionMutation(answerFactionInvite);
+  return {
+    ...answer,
+    mutate: (...args: Parameters<typeof answer.mutate>) => {
+      const [input, options] = args;
+      answer.mutate(input, {
+        ...options,
+        onSettled: (...settled) => {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.messages });
+          options?.onSettled?.(...settled);
+        },
+      });
+    },
+  };
+}
 export const useLeaveFaction = () => useFactionMutation(() => leaveFaction());
 export const useFactionMemberAction = () => useFactionMutation(factionMemberAction);
 export const useReinforceAlly = () => useFactionMutation(reinforceAlly);
@@ -1907,6 +2048,8 @@ function useMessageMutation<TInput>(
       // The HUD badge is on `/me`, so reading a message has to move it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications });
+      // A letter sent is counted towards a feat (`tallyMessageSent`), so the board moves with it.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.feats });
     },
   });
 }

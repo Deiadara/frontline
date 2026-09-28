@@ -37,15 +37,23 @@ interface Fake {
   advance: (ms: number) => void;
   resumed: () => number;
   contexts: () => number;
+  /** What the browser does to a context when the machine sleeps or the tab is backgrounded. */
+  suspend: () => void;
+  /** How many times each file has been asked for. */
+  fetched: (kind: SoundKind) => number;
 }
 
-function fakeEnvironment(options: { audio?: boolean; stored?: string | null } = {}): Fake {
+function fakeEnvironment(
+  options: { audio?: boolean; stored?: string | null; failFirst?: SoundKind } = {},
+): Fake {
   const started: StartedSound[] = [];
   let masterGainValue = 0;
   let clock = 1_000;
   let resumes = 0;
   let contexts = 0;
   let store = options.stored === undefined ? null : options.stored;
+  let state: AudioContextState = 'running';
+  const fetches = new Map<string, number>();
 
   const makeGain = (register: (node: { gain: { value: number } }) => void) => {
     const node = {
@@ -90,7 +98,11 @@ function fakeEnvironment(options: { audio?: boolean; stored?: string | null } = 
       decodeAudioData: (bytes: ArrayBuffer) => Promise.resolve({ bytes } as unknown as AudioBuffer),
       resume: () => {
         resumes += 1;
+        state = 'running';
         return Promise.resolve();
+      },
+      get state() {
+        return state;
       },
     };
     return ctx as unknown as AudioContext;
@@ -104,9 +116,20 @@ function fakeEnvironment(options: { audio?: boolean; stored?: string | null } = 
     },
     resumed: () => resumes,
     contexts: () => contexts,
+    suspend: () => {
+      state = 'suspended';
+    },
+    fetched: (kind) => fetches.get(`/sounds/${kind}.ogg`) ?? 0,
     env: {
       createContext: options.audio === false ? undefined : createContext,
-      fetchBytes: (url) => Promise.resolve(new TextEncoder().encode(url).buffer),
+      fetchBytes: (url) => {
+        const count = (fetches.get(url) ?? 0) + 1;
+        fetches.set(url, count);
+        if (options.failFirst !== undefined && url.includes(options.failFirst) && count === 1) {
+          return Promise.reject(new Error('the dev server restarted'));
+        }
+        return Promise.resolve(new TextEncoder().encode(url).buffer);
+      },
       now: () => clock,
       storage: {
         getItem: () => store,
@@ -121,7 +144,11 @@ function fakeEnvironment(options: { audio?: boolean; stored?: string | null } = 
 /** Lets the six `fetchBytes().then(decode).then(set)` chains settle. */
 const loaded = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-async function readyEngine(options?: { audio?: boolean; stored?: string | null }) {
+async function readyEngine(options?: {
+  audio?: boolean;
+  stored?: string | null;
+  failFirst?: SoundKind;
+}) {
   const fake = fakeEnvironment(options);
   const engine = createSoundEngine(fake.env);
   engine.unlock();
@@ -318,6 +345,35 @@ describe('the engine', () => {
     expect(fake.contexts()).toBe(1);
     expect(fake.resumed()).toBe(1);
     expect(engine.unlocked()).toBe(true);
+  });
+
+  /*
+   * Safari suspends a context when the machine sleeps or the tab goes to the background, and only a
+   * gesture may resume it. Every gesture after the first used to return early, so a suspended
+   * game stayed silent until a reload.
+   */
+  it('wakes a context the browser suspended on the next gesture', async () => {
+    const { fake, engine } = await readyEngine();
+    engine.setVolume(100);
+    fake.suspend();
+    engine.unlock();
+    expect(fake.resumed()).toBe(2);
+    // One context still: a wake is not a rebuild.
+    expect(fake.contexts()).toBe(1);
+  });
+
+  it('asks again for a file that failed, and only for that one', async () => {
+    const { fake, engine } = await readyEngine({ failFirst: 'click' });
+    engine.setVolume(100);
+    engine.play('click');
+    expect(fake.started).toHaveLength(0);
+
+    engine.unlock();
+    await loaded();
+    expect(fake.fetched('click')).toBe(2);
+    expect(fake.fetched('page')).toBe(1);
+    engine.play('click');
+    expect(fake.started).toHaveLength(1);
   });
 
   it('is a no-op game with no sound where the browser has no Web Audio', async () => {

@@ -154,6 +154,7 @@ export const DECLARATION_REFUSALS = [
   'no_gate',
   'gate_intact',
   'nothing_to_break',
+  'gate_down',
 ] as const;
 export const DeclarationRefusalSchema = z.enum(DECLARATION_REFUSALS);
 export type DeclarationRefusal = z.infer<typeof DeclarationRefusalSchema>;
@@ -163,6 +164,7 @@ export const DECLARATION_REFUSAL_MESSAGES: Readonly<Record<DeclarationRefusal, s
   no_gate: 'Nobody holds all of that district and nobody lives there. There is no gate to break',
   gate_intact: 'The gate is standing. Nothing behind it can be reached',
   nothing_to_break: 'Nobody lives there, so there is nothing to raid',
+  gate_down: 'That gate is already down. Go through it while it is',
 };
 
 /** What the map says about the district a declaration names. */
@@ -191,7 +193,13 @@ export function declarationRefusal(
     case 'location':
       return standing.shut && !standing.breached ? 'gate_armed' : null;
     case 'gate':
-      return standing.shut ? null : 'no_gate';
+      if (!standing.shut) return 'no_gate';
+      /*
+       * Not a second time while it is down (bug pass, 2026-09-28). A gate fight won during a breach
+       * broke the gate again from the new mark, so a gate that was never put back up could be
+       * kept down for ever, and the home behind it raidable, one call a day.
+       */
+      return standing.breached ? 'gate_down' : null;
     case 'district':
       if (!standing.breached) return 'gate_intact';
       return standing.inhabited ? null : 'nothing_to_break';
@@ -293,19 +301,13 @@ export const ScheduledBattleSchema = z.object({
   resolvedAt: IsoDateTimeSchema.nullable(),
   seed: z.string().min(1),
   /**
-   * Do the survivors hold the location they just took, or come home?
-   *
-   * Chosen at declaration, before anybody has committed a unit, because it is the question that
-   * decides what the fight is *for*. Coming home is a raid: you take the ground, the map changes
-   * colour, and the crew is back on the roster tonight to be sent somewhere else. Holding is an
-   * occupation: the survivors become the location's garrison, they defend it against whoever comes to
-   * take it back, and they are not available for anything until they are pulled out.
-   *
-   * Defaulted, so a row written before the flag existed reads as a raid, which is what those
-   * fights actually were.
+   * Whether the survivors hold the location they just took. It was once chosen at declaration; it
+   * is always yes now: the survivors become the location's garrison and defend it against whoever
+   * comes to take it back, until they are walked somewhere else.
    */
-  // True by default since 2026-09-22 (maintainer): winning attackers stay and hold what they
-  // took. The flag stays on the row so an old fight settles as it was called.
+  // Always true since 2026-09-28 (maintainer): winners hold what they took, and the settle no
+  // longer reads it, so a row written before the rule with it false holds as well. Kept on the row
+  // because old rows carry the column.
   holdAfterCapture: z.boolean().default(true),
   /**
    * §A4: whether a Sleeper cell woke into this fight when it was called (`city/sleepers.ts`).

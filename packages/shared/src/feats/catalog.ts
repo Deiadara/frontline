@@ -1,7 +1,16 @@
+import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { BUILDING_KINDS } from '../building/kinds.js';
 import { SYNDIC_ARMOR, SYNDIC_PENETRATION } from '../city/combine.js';
-import { CITY_DISTRICTS } from '../city/districts.js';
 import { MISC_AREA_ID } from '../missions.areas.js';
+import {
+  CHAPEL_LOCATIONS,
+  COMBINE_DISTRICTS,
+  PLAYABLE_CITY_COUNT,
+  PLAYABLE_CONTESTED,
+  PLAYABLE_DISTRICTS,
+  RAIL_STATIONS,
+  SMALLEST_CITY_DISTRICTS,
+} from './world.js';
 import { markIndex } from '../crew/marks.js';
 import type { FeatSpec } from './feats.js';
 import type { FeatEra, FeatReward, FeatSize } from './rewards.js';
@@ -30,7 +39,9 @@ import type { FeatMeasure } from './measures.js';
  *   * **the work**: missions, the core loop, and the one every player touches;
  *   * **fighting**: declared battles, units committed, ground taken;
  *   * **the Combine**: the regime's units, its leaders and its ground, on a card of their own;
+ *   * **the week**: the NPC garrisons worn down, and the ground kept through Monday's rebuild;
  *   * **the city**: scouting, holdings, whole districts, gates;
+ *   * **the frontier**: ground held in a city you do not live in, and Terminus's railway;
  *   * **the district**: buildings, traps, fittings, the things that are built and not won;
  *   * **the crew**: units, officers, the Overseer's own sheet;
  *   * **the trade**: caps earned over a lifetime, the market, the back room;
@@ -44,10 +55,11 @@ import type { FeatMeasure } from './measures.js';
  *
  * Most chains are two, three or four rungs, which is the right length for a thing with three
  * interesting sizes. The trouble with a board made only of those is that a crew six months in has
- * the top of every one of them and the screen has nothing left to say. So each of the eight groups
- * above carries one ladder of **ten**: `runs`, `kills`, `taken`, `addons`, `trained`, `caps`,
+ * the top of every one of them and the screen has nothing left to say. So eight of the groups
+ * above carry one ladder of **ten** each: `runs`, `kills`, `taken`, `addons`, `trained`, `caps`,
  * `infamy` and `faction`. Whatever you spend your evenings doing, there is a rung above the one you
- * are on.
+ * are on. The frontier has no ten-rung ladder, and should not have one yet: two open cities is not
+ * enough map to ask anybody for ten sizes of the same thing.
  *
  * The deep rungs are deliberately far off, in the same spirit as the top of the notoriety ladder
  * (`economy/notoriety.ts`: "there to be seen from a distance"). Tier X of the work is fourteen
@@ -110,20 +122,31 @@ const purse = (era: FeatEra, size: FeatSize): FeatReward =>
     },
   })[era][size];
 
+/**
+ * Experience. A fifth of what it was before the level curve was retuned (2026-09-28): a level
+ * costs about a fifth of the XP it did, and a late feat paying 260,000 took a crew from level 50
+ * to 58 at once. `CAPS_PER_XP` rose by the same five, so every band still prices the same.
+ */
 const lesson = (era: FeatEra, size: FeatSize): FeatReward => ({
   xp: {
-    early: { small: 150, medium: 900, large: 3_000 },
-    mid: { small: 1_600, medium: 10_000, large: 42_000 },
-    late: { small: 9_000, medium: 55_000, large: 260_000 },
+    early: { small: 30, medium: 180, large: 600 },
+    mid: { small: 320, medium: 2_000, large: 8_400 },
+    late: { small: 1_800, medium: 11_000, large: 52_000 },
   }[era][size],
 });
 
-/** Infamy. Named `street` because `name` is what the game calls the thing infamy buys. */
+/**
+ * Infamy. Named `street` because `name` is what the game calls the thing infamy buys.
+ *
+ * A tenth of what it was before the rank ladder was repriced (2026-09-28): the whole ladder costs
+ * about fifty thousand now, and two late feats paid enough to buy all of it on the spot.
+ * `CAPS_PER_INFAMY` rose by the same ten, so every band still prices the same.
+ */
 const street = (era: FeatEra, size: FeatSize): FeatReward => ({
   infamy: {
-    early: { small: 22, medium: 130, large: 450 },
-    mid: { small: 240, medium: 1_500, large: 6_000 },
-    late: { small: 1_300, medium: 8_000, large: 20_000 },
+    early: { small: 2, medium: 13, large: 45 },
+    mid: { small: 24, medium: 150, large: 600 },
+    late: { small: 130, medium: 800, large: 2_000 },
   }[era][size],
 });
 
@@ -160,9 +183,9 @@ const recruits = (era: FeatEra, size: FeatSize): FeatReward =>
  * Parts, in quantities a crew can actually spend.
  *
  * This helper used to pay `rotor_hub: 100, targeting_core: 80` at the top tier, and across the
- * catalogue it handed over **376 Rotor Hubs and 256 Targeting Cores**. The whole game consumes one
- * Rotor Hub and two Targeting Cores, ever: one is the toll for Garage 12, and two are the cost of
- * the last weapons refit. It passed the band check because a reward is priced in caps-equivalent
+ * catalogue it handed over **376 Rotor Hubs and 256 Targeting Cores**. The whole game then consumed
+ * one Rotor Hub and two Targeting Cores, ever: one was the toll for the Garage’s top level, and two
+ * were the cost of the last weapons refit. It passed the band check because a reward is priced in caps-equivalent
  * and a Rotor Hub is worth 2,400 caps, so a hundred of them is a correctly-priced number of caps
  * and a meaningless number of parts. Worse, `lab_2` is a **mid-game** feat and paid four of them,
  * which is the tightest gate in the game handed over four times before a player would reach it.
@@ -322,7 +345,7 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
        * Rounded in `coinAt`, and the rounding is not cosmetic (bug pass, 2026-09-17).
        *
        * `50_000 * 0.28` is 14000.000000000002 in binary floating point, and nothing downstream
-       * fixes it: `addResources` adds the reward straight onto the stockpile, so collecting
+       * fixes it: the stores' credit (`creditStores`) adds the reward straight on, so collecting
        * `hauls_4` left a crew holding a scrap pile with a tail of noughts and a 2 on the end of it,
        * for ever. Resources are the one reward channel whose schema allows a fraction, because
        * production settles in fractional carry, so the type system was never going to catch this
@@ -330,7 +353,8 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
        */
       return coinAt(times);
     case 'blood':
-      return { infamy: Math.round(42_200 * times) };
+      // A tenth of the old 42,200, with the ladder: see `street`.
+      return { infamy: Math.round(4_220 * times) };
     case 'bodies': {
       /*
        * A squad, bounded by the beds that exist, with the rest paid in coin (bug pass, 2026-09-17).
@@ -359,7 +383,8 @@ const rise = (step: number, flavour: DeepFlavour): FeatReward => {
       };
     }
     case 'schooling':
-      return { xp: Math.round(300_000 * times) };
+      // A fifth of the old 300,000, with the level curve: see `lesson`.
+      return { xp: Math.round(60_000 * times) };
   }
 };
 
@@ -836,17 +861,21 @@ const WORK: FeatSpec[] = [
 /**
  * Twenty five runs in each contested district, which is the maintainer's own example.
  *
- * Generated off `CITY_DISTRICTS` rather than typed out, so a district authored next year arrives
- * with its feat already on the screen. Contested ground only: the residential districts are where
- * crews live, they all share one authored name, and three feats reading "twenty five in Player
- * District" would be the wall of identical sentences these are grouped to avoid.
+ * Generated off the map rather than typed out, so a district authored next year arrives with its
+ * feat already on the screen. Contested ground only: the residential districts are where crews
+ * live, they all share one authored name, and three feats reading "twenty five in Player District"
+ * would be the wall of identical sentences these are grouped to avoid.
+ *
+ * Off `PLAYABLE_CONTESTED` and not `CITY_DISTRICTS` (2026-09-24). It walked Ashfall, so the eight
+ * contested districts of the second city arrived with no work on the board at all: the one screen
+ * that tells a player what there is to do had nothing to say about half the map. `world.ts` says
+ * why the filter is "open cities" rather than "every district in the atlas".
  *
  * The era comes off the district's own difficulty, so the deep ground is a late feat without
- * anybody having to remember to say so.
+ * anybody having to remember to say so. Difficulty runs 1 to 10 across the whole world rather than
+ * within a city, which is what makes one rule work for both.
  */
-const DISTRICT_WORK: FeatSpec[] = CITY_DISTRICTS.filter(
-  (district) => district.kind === 'contested',
-).flatMap((district) => {
+const DISTRICT_WORK: FeatSpec[] = PLAYABLE_CONTESTED.flatMap((district) => {
   const era: FeatEra =
     district.difficulty <= 2 ? 'early' : district.difficulty <= 5 ? 'mid' : 'late';
   // The second rung sits one era deeper, because fifty jobs out of one district is a season's work
@@ -1406,36 +1435,269 @@ const FIGHTING: FeatSpec[] = [
    * with Razors, and why counting a district's porters made it farmable against a warehouse.
    */
   /**
-   * The top of the fight ladder (maintainer, 2026-09-23): a board deals fights by the crew's
-   * level, and these two are the weights only a grown crew sees. Solo, because each is one thing
-   * done once, and the Siege is the one the level-up card at 90 promised.
+   * Fights won by what the grade makes them (maintainer, 2026-09-28: "add feats that have to do
+   * with mission difficulty"). One ladder per category, so the board says how far up the fight
+   * ladder a crew has come and how often it has been there.
+   *
+   * `siege_held` and `fight_five` were the solo feats for the top two rungs when the Fight I to V
+   * tiers became grades; they head the Siege and Mayhem ladders now, with their ids, so a feat
+   * already won stays won.
    */
-  solo(
-    {
-      id: 'fight_five',
-      name: 'The Heaviest Thing They Send',
-      blurb: 'Win a Fight V off the board. Mostly armour, and you held it.',
-      era: 'late',
-      size: 'medium',
-      target: 1,
-      reward: kit('late', 'medium'),
-    },
-    'fights_won_at_tier',
-    'fight_5',
+  ...chain(
+    'skirmishes',
+    'fights_won_in_category',
+    [
+      {
+        id: 'skirmish_1',
+        name: 'Street Scrap',
+        blurb: 'Win five Skirmishes off the board. Pipes, grudges and a crew that stayed standing.',
+        era: 'early',
+        size: 'small',
+        target: 5,
+        reward: purse('early', 'small'),
+      },
+      {
+        id: 'skirmish_2',
+        name: 'Known on the Block',
+        blurb: 'Twenty five Skirmishes won. The street has stopped picking fights with you.',
+        era: 'early',
+        size: 'medium',
+        target: 25,
+        reward: spoils('early', 'medium'),
+      },
+    ],
+    'skirmish',
   ),
-  solo(
-    {
-      id: 'siege_held',
-      name: 'A Siege Held',
-      blurb: 'Win a Siege. It pays a page and parts on top of everything, and it earns this.',
-      era: 'late',
-      size: 'large',
-      target: 1,
-      reward: rise(6, 'bodies'),
-    },
-    'fights_won_at_tier',
+  ...chain(
+    'battles_graded',
+    'fights_won_in_category',
+    [
+      {
+        id: 'battle_1',
+        name: 'Proper Fight',
+        blurb: 'Win a Battle off the board. Wardens, a checkpoint, somebody with a real gun.',
+        era: 'mid',
+        size: 'small',
+        target: 1,
+        reward: purse('mid', 'small'),
+      },
+      {
+        id: 'battle_2',
+        name: 'Regular Work',
+        blurb: 'Fifteen Battles won. The Combine has started sending more of them.',
+        era: 'mid',
+        size: 'medium',
+        target: 15,
+        reward: spoils('mid', 'medium'),
+      },
+    ],
+    'battle',
+  ),
+  ...chain(
+    'sieges',
+    'fights_won_in_category',
+    [
+      {
+        id: 'siege_held',
+        name: 'A Siege Held',
+        blurb: 'Win a Siege off the board. Walls, snipers on them, and you went through anyway.',
+        era: 'late',
+        size: 'medium',
+        target: 1,
+        reward: kit('late', 'medium'),
+      },
+      {
+        id: 'siege_2',
+        name: 'Wallbreakers',
+        blurb: 'Ten Sieges won. Somewhere a Combine engineer is redrawing a wall because of you.',
+        era: 'late',
+        size: 'large',
+        target: 10,
+        reward: kit('late', 'large'),
+      },
+    ],
     'siege',
   ),
+  ...chain(
+    'mayhem',
+    'fights_won_in_category',
+    [
+      {
+        id: 'fight_five',
+        name: 'The Heaviest Thing They Send',
+        blurb: 'Win a Mayhem. The worst the Combine has, and you held it.',
+        era: 'late',
+        size: 'large',
+        target: 1,
+        reward: rise(6, 'bodies'),
+      },
+      {
+        id: 'mayhem_2',
+        name: 'Their Worst, Twice Over',
+        blurb: 'Five Mayhems won. They have run out of worse things to send.',
+        era: 'late',
+        size: 'large',
+        target: 5,
+        reward: rise(7, 'bodies'),
+      },
+    ],
+    'mayhem',
+  ),
+  /**
+   * Work landed at each letter of the grade ladder (2026-09-28). The grade is the one number on a
+   * card that says how far a crew has come, so each new letter is a feat and staying there is a
+   * ladder. From D, because F and E are where every crew starts and a feat for turning up is not
+   * one. The first rung of each keeps the id the solo feat it replaced had.
+   */
+  ...chain(
+    'graded_d',
+    'jobs_won_at_letter',
+    [
+      {
+        id: 'graded_d',
+        name: 'A D on the Stamp',
+        blurb: 'Land a job graded D. Real work, with real people on the other side of it.',
+        era: 'early',
+        size: 'small',
+        target: 1,
+        reward: purse('early', 'small'),
+      },
+      {
+        id: 'graded_d_2',
+        name: 'Steady Hands',
+        blurb: 'Land twenty jobs graded D. The Combine knows your crew by its work.',
+        era: 'mid',
+        size: 'small',
+        target: 20,
+        reward: purse('mid', 'small'),
+      },
+    ],
+    'D',
+  ),
+  ...chain(
+    'graded_c',
+    'jobs_won_at_letter',
+    [
+      {
+        id: 'graded_c',
+        name: 'A C on the Stamp',
+        blurb: 'Land a job graded C. The Combine stops treating you as weather.',
+        era: 'mid',
+        size: 'small',
+        target: 1,
+        reward: purse('mid', 'small'),
+      },
+      {
+        id: 'graded_c_2',
+        name: 'C for Consistent',
+        blurb: 'Land twenty jobs graded C. It is not luck when it happens every week.',
+        era: 'mid',
+        size: 'medium',
+        target: 20,
+        reward: spoils('mid', 'medium'),
+      },
+    ],
+    'C',
+  ),
+  ...chain(
+    'graded_b',
+    'jobs_won_at_letter',
+    [
+      {
+        id: 'graded_b',
+        name: 'Top of the Pile',
+        blurb: 'Land a job graded B. The work that comes with a file on whoever takes it.',
+        era: 'mid',
+        size: 'medium',
+        target: 1,
+        reward: purse('mid', 'medium'),
+      },
+      {
+        id: 'graded_b_2',
+        name: 'A Thick File',
+        blurb: 'Land fifteen jobs graded B. The file on your crew needs a second box.',
+        era: 'late',
+        size: 'medium',
+        target: 15,
+        reward: kit('late', 'medium'),
+      },
+    ],
+    'B',
+  ),
+  ...chain(
+    'graded_a',
+    'jobs_won_at_letter',
+    [
+      {
+        id: 'graded_a',
+        name: 'First Class',
+        blurb: 'Land a job graded A. Most crews in the city never see one of these cards.',
+        era: 'late',
+        size: 'medium',
+        target: 1,
+        reward: kit('late', 'medium'),
+      },
+      {
+        id: 'graded_a_2',
+        name: 'Nothing Less',
+        blurb: 'Land ten jobs graded A. The board has stopped offering you anything smaller.',
+        era: 'late',
+        size: 'large',
+        target: 10,
+        reward: kit('late', 'large'),
+      },
+    ],
+    'A',
+  ),
+  ...chain(
+    'graded_s',
+    'jobs_won_at_letter',
+    [
+      {
+        id: 'graded_s',
+        name: 'Off the Scale',
+        blurb: 'Land a job graded S. There is no letter above it.',
+        era: 'late',
+        size: 'large',
+        target: 1,
+        reward: rise(6, 'bodies'),
+      },
+      {
+        id: 'graded_s_2',
+        name: 'Past the Top',
+        blurb: 'Land five jobs graded S. The stamp ran out of letters and you kept going.',
+        era: 'late',
+        size: 'large',
+        target: 5,
+        reward: rise(7, 'bodies'),
+      },
+    ],
+    'S',
+  ),
+  /**
+   * Plain work landed against the odds: a leader the card gave under one chance in three
+   * (`LONG_ODDS_CHANCE`). The grade system's own long shot, and a feat for taking one.
+   */
+  ...chain('long_odds', 'jobs_won_long_odds', [
+    {
+      id: 'long_odds_1',
+      name: 'Long Odds',
+      blurb: 'Land a job the card gave you under one chance in three.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: purse('early', 'small'),
+    },
+    {
+      id: 'long_odds_2',
+      name: 'Nobody Told Them',
+      blurb: 'Land ten jobs against those odds. Somebody at the Combine is checking the grades.',
+      era: 'mid',
+      size: 'medium',
+      target: 10,
+      reward: spoils('mid', 'medium'),
+    },
+  ]),
   ...chain('odds', 'battles_won_outnumbered', [
     {
       id: 'odds_1',
@@ -1757,6 +2019,26 @@ const FIGHTING: FeatSpec[] = [
       reward: rise(4, 'blood'),
     },
   ]),
+  ...chain('breaker', 'gate_levels_broken', [
+    {
+      id: 'breaker_1',
+      name: 'Knock Knock',
+      blurb: 'Take a gate down a level by walking a Colossus into the fight behind it.',
+      era: 'late',
+      size: 'small',
+      target: 1,
+      reward: purse('late', 'small'),
+    },
+    {
+      id: 'breaker_2',
+      name: 'Rubble Merchant',
+      blurb: 'Twenty five gate levels brought down. Masons in the city know your name.',
+      era: 'late',
+      size: 'medium',
+      target: 25,
+      reward: spoils('late', 'medium'),
+    },
+  ]),
   ...chain('ring', 'runners_caught', [
     {
       id: 'ring_1',
@@ -1811,9 +2093,18 @@ const FIGHTING: FeatSpec[] = [
  *
  * ## The three leaders are standalones
  *
- * The Syndic, the Executioner and Directive Xero each die once, for the whole world, and are never
- * replaced. `combine_leaders_slain` under any one of their ids can never reach two, so a ladder on
- * it would be a ladder with one rung; these are `solo` for the same reason `overseer_taken` is.
+ * The Syndic, the Executioner and Directive Xero come back (2026-09-24). The regime's garrisons
+ * and the looters' erode through the week and are put back at Sunday midnight, Athens time, on
+ * every location no player holds, and a named leader returns on the same condition: only where
+ * nobody holds the plot he stood on. Hold the Annexe Uplink and keep it and the Syndic stays dead;
+ * lose it and he is standing there again the following Monday.
+ *
+ * So `combine_leaders_slain` under one of their ids really can reach two and beyond, and these are
+ * `solo` at a target of one anyway. Killing a leader is something a crew has done or has not, and
+ * the only ladder available on it reads "kill the Syndic five times", which is a feat that asks
+ * somebody to lose the Annexes four times to finish it. The first kill is the whole of what there
+ * is to reward.
+ *
  * They pay at the top of the late band because each one is the end of a district, and the Chapel,
  * which is Directive Xero's own plot, has a feat of its own for being held afterwards.
  *
@@ -1821,8 +2112,13 @@ const FIGHTING: FeatSpec[] = [
  *
  * `combine_districts_held` and `chapel_held` are read off the control map rather than tallied,
  * for the reason every holding measure is: ground can be taken back, and a feat that asked "have
- * you ever" would stay lit over a district the regime has walked back into. Six is the whole of
- * the Combine's ground, which is why the ladder ends there and `catalog.test.ts` bounds it there.
+ * you ever" would stay lit over a district the regime has walked back into.
+ *
+ * Both count the whole world and not one city (2026-09-24). Six was the regime's ground while
+ * Ashfall was the world; Terminus put the Hill, the Viaduct, the Last Platform and the Blockhouse
+ * under the same flag and a second chapel inside Control, so the ladders end on ten and on two,
+ * derived off the map in `feats/world.ts` and bounded there by `catalog.test.ts`. It is the same
+ * regime either side of the frontier, which is why neither measure asks which city you are in.
  *
  * ## The turncoats
  *
@@ -1965,7 +2261,8 @@ const COMBINE: FeatSpec[] = [
       {
         id: 'greycoats_3',
         name: 'A Rifle Company, Twice',
-        blurb: 'Eight hundred Greycoats killed in your fights. The dug-in ones die where they dug.',
+        blurb:
+          'Eight hundred Greycoats killed in your fights. The ones who held their ground die on it.',
         era: 'mid',
         size: 'large',
         target: 800,
@@ -2344,7 +2641,7 @@ const COMBINE: FeatSpec[] = [
     {
       id: 'annexed_2',
       name: 'Half Their Map',
-      blurb: 'Three of the six Combine districts held whole, at the same time, in your name.',
+      blurb: 'Three Combine districts held whole, at the same time, in your name.',
       era: 'late',
       size: 'large',
       target: 3,
@@ -2352,20 +2649,38 @@ const COMBINE: FeatSpec[] = [
     },
     {
       id: 'annexed_3',
-      name: 'The Regime Holds Nothing',
+      name: 'A City’s Worth',
       blurb:
-        'All six Combine districts held whole at once: Docks, Belt, Green Belt, Annexes, Blacksite and the Spire.',
+        'Six of the regime’s districts held whole at once, which is everything it keeps in Ashfall.',
       era: 'late',
       size: 'large',
       target: 6,
       reward: rise(8, 'coin'),
+    },
+    {
+      id: 'annexed_4',
+      name: 'The Regime Holds Nothing',
+      blurb:
+        'Every district the Combine owns, in both cities, held whole on the same evening. There is nowhere left it can call its own.',
+      era: 'late',
+      size: 'large',
+      /*
+       * The whole of the regime's ground, which is ten districts and no longer six (2026-09-24).
+       *
+       * Six was Ashfall's share and the ladder ended there because Ashfall was the world. Terminus
+       * put the Hill, the Viaduct, the Last Platform and the Blockhouse under the same flag, so
+       * the rung that used to mean "the regime holds nothing" came to mean "the regime holds
+       * nothing here", which is a different and much smaller sentence.
+       */
+      target: COMBINE_DISTRICTS.length,
+      reward: rise(9, 'coin'),
     },
   ]),
   solo(
     {
       id: 'syndic_slain',
       name: 'The Liaison Is Dead',
-      blurb: `Kill the Syndic on the Annexe Uplink. Every yard in the Annexes fights without Standing Orders from then on: no +${SYNDIC_PENETRATION} penetration, no +${SYNDIC_ARMOR} armour.`,
+      blurb: `Kill the Syndic on the Annexe Uplink. Every yard in the Annexes fights without Standing Orders for as long as the plot is yours: no +${SYNDIC_PENETRATION} penetration, no +${SYNDIC_ARMOR} armour.`,
       era: 'late',
       size: 'large',
       target: 1,
@@ -2380,7 +2695,7 @@ const COMBINE: FeatSpec[] = [
       id: 'executioner_slain',
       name: 'Arrests Resume',
       blurb:
-        'Kill the Executioner at the Blacksite Armory. Nobody on the Blacksite is finished off where they stand again.',
+        'Kill the Executioner at the Blacksite Armory. Nobody on the Blacksite is finished off where they stand while the Armory is yours. Let it go and he is back the Monday after.',
       era: 'late',
       size: 'large',
       target: 1,
@@ -2394,7 +2709,7 @@ const COMBINE: FeatSpec[] = [
       id: 'directive_xero_slain',
       name: 'The Chapel Is Quiet',
       blurb:
-        'Kill Directive Xero in the Chosen Chapel. The Combine, in one person, carried out; nobody changes sides for him again.',
+        'Kill Directive Xero in the Chosen Chapel. The Combine in one person, carried out: nobody changes sides for him while the Chapel is yours. Lose it and he is back the following Monday.',
       era: 'late',
       size: 'large',
       target: 1,
@@ -2403,19 +2718,167 @@ const COMBINE: FeatSpec[] = [
     'combine_leaders_slain',
     'directive_xero',
   ),
-  solo(
+  /*
+   * The chapels, which became a ladder the day there were two of them (2026-09-24).
+   *
+   * There was one Chosen Chapel and so one standalone feat, under the rule that a thing with no
+   * degrees does not get a ladder. Terminus put a second `combine_chapel` inside Control, and a
+   * standalone at a target of one then meant "hold either of them", on a measure that counts both.
+   * The rungs are derived off `CHAPEL_LOCATIONS` so a third one arrives with its own rung.
+   *
+   * They are a city apart on purpose, which makes the top of this the plainest cross-city feat on
+   * the board: nobody holds both without a crew in each place.
+   */
+  ...chain('chapels', 'chapel_held', [
     {
       id: 'chapel_held',
       name: 'Whose Chapel It Is',
       blurb:
-        'Hold the Chosen Chapel at the top of the city. The regime’s headquarters, with your colours on the door.',
+        'Hold a Combine chapel: the Chosen Chapel over Ashfall, or the Frontier Chapel inside Control. The regime’s own door, with your colours on it.',
       era: 'late',
       size: 'large',
       target: 1,
       reward: rise(5, 'coin'),
     },
-    'chapel_held',
-  ),
+    {
+      id: 'chapel_held_2',
+      name: 'Both Their Chapels',
+      blurb:
+        'The Chosen Chapel and the Frontier Chapel, held on the same evening, a frontier apart.',
+      era: 'late',
+      size: 'large',
+      target: CHAPEL_LOCATIONS.length,
+      reward: rise(7, 'coin'),
+    },
+  ]),
+];
+
+// --- the week ---
+
+/**
+ * The week (maintainer, 2026-09-24): the city runs down, and Monday morning builds it back.
+ *
+ * Two mechanics landed together and the board had nothing on either of them.
+ *
+ *   * **The regime's army is spent by the fights it turns up to.** Survivors of a gate or a district
+ *     fight go back onto the control rows they were drawn off (`battle/resolve.ts`,
+ *     `spendGarrisons`), so a Combine or looter district really can be worn down to nobody across a
+ *     week of assaults. Before that write existed its garrison was an immortal defence that was
+ *     nonetheless counted as killed.
+ *   * **Every plot no crew holds is rebuilt at Monday 00:00, Athens time** (`city/regrowth.ts`), back
+ *     to the strength the district's difficulty and the location's own ground say it should have.
+ *     Crew ground is untouched, and the named leaders come back on the same condition.
+ *
+ * Between them those two turn the city into something with a tide, and the board is where a player
+ * finds out it has one. Two ladders, one per half:
+ *
+ * **`stripped`** asks for districts emptied. A district counts when nothing of the regime's or the
+ * squatters' is left standing anywhere in it and it was this crew's fight that wore the last of them
+ * down. Worn down, not taken: a plot a crew holds is neither counted nor a blocker, so clearing six
+ * plots and capturing the seventh is `districts_held_whole` rather than this
+ * (`apps/server/src/feats/tally.ts` has the three conditions and what each one keeps out).
+ *
+ * It cannot be farmed inside a week: once a district is empty there is no garrison left to spend, so
+ * the counter only moves again after a Monday has put one back. That is deliberately the whole shape
+ * of the feat, and it is why the ladder tops out at twenty five rather than at the sixteen districts
+ * the map garrisons (`GARRISONED_DISTRICTS`): the number asks for more than one week of the world.
+ *
+ * The one district a gate fight cannot strip is one with a legendary on it. He is held out of the
+ * line (`withoutTheLeader`), so his plot keeps one body however many times the door falls, and the
+ * only way to an empty Annexes, Blacksite or Spire is to take his plot off him. That is the rule
+ * the erosion was written under, and this ladder is sized knowing it.
+ *
+ * **`kept`** asks for ground held through the rebuild, one plot per Monday. It is the only thing
+ * regrowth adds that a player can chase, and it is deliberately not the same question as
+ * `holdings`: that ladder asks how much of the map is yours, and this one asks how long it has
+ * stayed yours. A crew standing on twenty five plots banks twenty five a week, so a rung is really a
+ * number of plot-weeks; the blurbs put that in the player's words, since nobody says plot-weeks.
+ */
+const WEEK: FeatSpec[] = [
+  ...chain('stripped', 'districts_emptied', [
+    {
+      id: 'stripped_1',
+      name: 'Nobody Left at the Door',
+      blurb:
+        'Wear every Combine or looter garrison in one district down to nothing. Monday morning stands them all back up, so the week is your clock.',
+      era: 'mid',
+      size: 'small',
+      target: 1,
+      reward: spoils('mid', 'small'),
+    },
+    {
+      id: 'stripped_2',
+      name: 'Three Blocks Nobody Answers For',
+      blurb:
+        'Three districts with none of theirs left standing in them. Not taken off them, emptied: whether you then walk in is your business.',
+      era: 'mid',
+      size: 'medium',
+      target: 3,
+      reward: street('mid', 'medium'),
+    },
+    {
+      id: 'stripped_3',
+      name: 'The Weekly Requisition',
+      blurb:
+        'Ten districts stripped of every garrison on them. The replacements come out every Monday and you keep taking them off the board.',
+      era: 'late',
+      size: 'medium',
+      target: 10,
+      reward: spoils('late', 'medium'),
+    },
+    {
+      id: 'stripped_4',
+      name: 'Faster Than They Can Post Them',
+      blurb:
+        'Twenty five districts emptied, which is more than the map holds: you have been doing this for weeks and the rebuild has not caught up.',
+      era: 'late',
+      size: 'large',
+      target: 25,
+      reward: purse('late', 'large'),
+    },
+  ]),
+  ...chain('kept', 'plots_held_through_regrowth', [
+    {
+      id: 'kept_1',
+      name: 'Still There on Monday',
+      blurb:
+        'Be standing on one holding when the regime is rebuilt. Everything nobody holds goes back to full strength; what you hold is left exactly as you left it.',
+      era: 'early',
+      size: 'small',
+      target: 1,
+      reward: purse('early', 'small'),
+    },
+    {
+      id: 'kept_2',
+      name: 'Ten Times Unbothered',
+      blurb:
+        'Ten holdings kept through a Monday rebuild, counted a plot at a time and added up across however many weeks it takes.',
+      era: 'early',
+      size: 'medium',
+      target: 10,
+      reward: wages('early', 'medium'),
+    },
+    {
+      id: 'kept_3',
+      name: 'The Ground Stopped Moving',
+      blurb:
+        'Sixty held through the rebuild. Clearing a street is an afternoon. Still being on it six Mondays later is the part anybody notices.',
+      era: 'mid',
+      size: 'medium',
+      target: 60,
+      reward: purse('mid', 'medium'),
+    },
+    {
+      id: 'kept_4',
+      name: 'Older Than the Rota',
+      blurb:
+        'Two hundred and fifty kept through a rebuild. Whoever writes the Monday postings has stopped writing most of your map into them.',
+      era: 'late',
+      size: 'medium',
+      target: 250,
+      reward: spoils('late', 'medium'),
+    },
+  ]),
 ];
 
 // --- the city ---
@@ -2466,6 +2929,24 @@ const CITY: FeatSpec[] = [
       size: 'large',
       target: 45,
       reward: rise(8, 'coin'),
+    },
+    {
+      id: 'holdings_6',
+      name: 'Ninety Rent Books',
+      blurb:
+        'Ninety holdings standing in your name across the frontier. One city does not have that many.',
+      era: 'late',
+      size: 'large',
+      /*
+       * Past what either city holds on its own, which is the point of the rung (2026-09-24).
+       *
+       * `locations_held` counted Ashfall alone, so the ladder's top was forty five of fifty one
+       * and read as "most of the map". It counts the world now, and the world is a hundred and
+       * eleven places, so the top of the ladder was two fifths of it. Ninety cannot be reached
+       * without ground in both cities.
+       */
+      target: 90,
+      reward: rise(9, 'coin'),
     },
   ]),
   ...chain('taken', 'locations_captured', [
@@ -2597,6 +3078,16 @@ const CITY: FeatSpec[] = [
       target: 8,
       reward: rise(7, 'coin'),
     },
+    {
+      id: 'whole_5',
+      name: 'Twelve, Across the Frontier',
+      blurb:
+        'Twelve districts held end to end at once. Eight is everything one city has to give, so four of these are somewhere else.',
+      era: 'late',
+      size: 'large',
+      target: 12,
+      reward: rise(8, 'coin'),
+    },
   ]),
   ...chain('gates', 'gates_captured', [
     {
@@ -2676,20 +3167,41 @@ const CITY: FeatSpec[] = [
     {
       id: 'scouted_3',
       name: 'Nowhere Left Dark',
-      blurb: 'Every district but your own walked. There is nothing on that map you have not seen.',
+      blurb: 'Every district of your own city but the one you live in. You can stop guessing.',
       era: 'mid',
       size: 'medium',
       /*
-       * Every district a crew can send anybody to, which is one short of the map.
+       * Every district a crew can send anybody to at home, which is one short of its own city.
        *
        * `sendScout` refuses the crew's own district outright (`own_district`), and nothing else
-       * ever writes a `district_intel` row for where you live, so `districts_scouted` tops out at
-       * eleven of twelve. This asked for twelve and sat at 11/12 for ever: the `stock_3` failure
-       * again, where a feat nobody can finish is indistinguishable from one nobody has got round
-       * to. Derived rather than typed, so a thirteenth district moves the rung with it.
+       * ever writes a `district_intel` row for where you live, so this tops out at eleven of
+       * twelve. It asked for twelve and sat at 11/12 for ever: the `stock_3` failure again, where
+       * a feat nobody can finish is indistinguishable from one nobody has got round to.
+       *
+       * Derived off the smallest city rather than off Ashfall, because the rung has to be one any
+       * crew can stand on and a crew lives in exactly one of them.
        */
-      target: CITY_DISTRICTS.length - 1,
+      target: SMALLEST_CITY_DISTRICTS - 1,
       reward: lesson('mid', 'medium'),
+    },
+    {
+      id: 'scouted_4',
+      name: 'The Whole Frontier',
+      blurb:
+        'Every district in the world but your own, walked into. Two cities, and no fog left in either.',
+      era: 'late',
+      size: 'medium',
+      /*
+       * The same rule read across the world instead of across one city (2026-09-24).
+       *
+       * `districts_scouted` was always a raw count of `district_intel` rows with no city filter,
+       * so the day Terminus opened it silently started counting both and the rung above stopped
+       * being the top of anything. Rather than narrow the measure, the ladder grew a rung that
+       * means what the number already said. `sendScout` resolves its target through
+       * `findDistrict`, which answers for every city, so a scout really can be sent across.
+       */
+      target: PLAYABLE_DISTRICTS.length - 1,
+      reward: lesson('late', 'medium'),
     },
   ]),
   /*
@@ -2808,6 +3320,231 @@ const CITY: FeatSpec[] = [
       size: 'large',
       target: 15_000,
       reward: rise(5, 'schooling'),
+    },
+  ]),
+];
+
+// --- the frontier ---
+
+/**
+ * The second city, and what a crew does once it is there (maintainer, 2026-09-24).
+ *
+ * "Add feats for cross city achievements." The rest of the board is written as though a crew has
+ * one map, because for a year it did; these are the ones that only mean anything once there are
+ * two. Three questions, in the order a crew meets them:
+ *
+ *   * **Have you been?** `abroad` and `two_cities`, off ground held somewhere you do not live.
+ *     Getting a foothold abroad is not moving house: a crew keeps its district and marches.
+ *   * **What did it cost?** `away`, off fights won in a city that is not yours.
+ *   * **Do you run the line?** `platforms` and `rails`, off Terminus's railway, which is the one
+ *     thing in the game that replaces a road rather than discounting one (`city/rails.ts`).
+ *
+ * Everything here is bounded by `reachableAbroad` in `feats/world.ts` rather than by a world
+ * total, because a crew lives in exactly one city and the two are not the same size. A rung priced
+ * off the bigger city's ground is a rung an Ashfall crew can stand on and a Terminus crew cannot,
+ * and which city you started in is not a thing a feat should charge for. `catalog.test.ts` holds
+ * every target here to that bound.
+ */
+const FRONTIER: FeatSpec[] = [
+  ...chain('abroad', 'locations_held_abroad', [
+    {
+      id: 'abroad_1',
+      name: 'A Foot in the Door',
+      blurb: 'Hold one location in a city you do not live in. The frontier is a place you can go.',
+      era: 'mid',
+      size: 'medium',
+      reward: wages('mid', 'medium'),
+      target: 1,
+    },
+    {
+      id: 'abroad_2',
+      name: 'Five Addresses Away',
+      blurb: 'Five holdings in somebody else’s city at once. Not a raid any more: a presence.',
+      era: 'late',
+      size: 'medium',
+      reward: wages('late', 'medium'),
+      target: 5,
+    },
+    {
+      id: 'abroad_3',
+      name: 'The Other Half of Your Ledger',
+      blurb:
+        'Fifteen holdings abroad on the same evening. Half your rent comes from a city you have never lived in.',
+      era: 'late',
+      size: 'large',
+      reward: wages('late', 'large'),
+      target: 15,
+    },
+    {
+      id: 'abroad_4',
+      name: 'Forty, and None of Them Home',
+      blurb:
+        'Forty holdings outside your own city, held at once. Whoever lives there works around you.',
+      era: 'late',
+      size: 'large',
+      reward: rise(7, 'coin'),
+      target: 40,
+    },
+  ]),
+  solo(
+    {
+      id: 'two_cities',
+      name: 'Two Cities',
+      blurb:
+        'Hold ground in two cities on the same evening. Somebody has to answer for you in both of them.',
+      era: 'late',
+      size: 'medium',
+      reward: spoils('late', 'medium'),
+      /*
+       * Every open city at once, which is two.
+       *
+       * Standalone rather than a ladder, under the board's own rule: with two cities open there is
+       * exactly one interesting number here, and a chain of one rung is not a chain. The day a
+       * third opens this wants to become one, which is what `PLAYABLE_CITY_COUNT` moving will say.
+       */
+      target: PLAYABLE_CITY_COUNT,
+    },
+    'cities_held',
+  ),
+  ...chain('expat', 'districts_held_whole_abroad', [
+    {
+      id: 'expat_1',
+      name: 'A Whole District, Elsewhere',
+      blurb:
+        'Hold every location in a district of a city that is not yours. Nobody walks that ground without your say.',
+      era: 'late',
+      size: 'large',
+      reward: wages('late', 'large'),
+      target: 1,
+    },
+    {
+      id: 'expat_2',
+      name: 'Three Districts Abroad',
+      blurb:
+        'Three foreign districts held end to end at the same time, with the unified bonus on all of them.',
+      era: 'late',
+      size: 'large',
+      reward: rise(7, 'coin'),
+      target: 3,
+    },
+  ]),
+  ...chain('away', 'battles_won_abroad', [
+    {
+      id: 'away_1',
+      name: 'Won It Away From Home',
+      blurb: 'Win a declared fight in a city you do not live in.',
+      era: 'mid',
+      size: 'medium',
+      reward: spoils('mid', 'medium'),
+      target: 1,
+    },
+    {
+      id: 'away_2',
+      name: 'Ten on the Road',
+      blurb: 'Ten fights won abroad. The march is part of the plan now, not an adventure.',
+      era: 'late',
+      size: 'medium',
+      reward: spoils('late', 'medium'),
+      target: 10,
+    },
+    {
+      id: 'away_3',
+      name: 'They Know You There',
+      blurb:
+        'Fifty wins in cities that are not yours. Your colours mean something a long way from your own street.',
+      era: 'late',
+      size: 'large',
+      reward: spoils('late', 'large'),
+      target: 50,
+    },
+    {
+      id: 'away_4',
+      name: 'Two Hundred Away Wins',
+      blurb: 'Fought somewhere else and won. There is no such thing as far for this crew.',
+      era: 'late',
+      size: 'large',
+      reward: rise(5, 'blood'),
+      target: 200,
+    },
+  ]),
+  ...chain('platforms', 'rail_stations_held', [
+    {
+      id: 'platforms_1',
+      name: 'One Platform',
+      blurb:
+        'Hold a Station on the Terminus line. A platform on its own is a building, not a railway.',
+      era: 'mid',
+      size: 'medium',
+      reward: wages('mid', 'medium'),
+      target: 1,
+    },
+    {
+      id: 'platforms_2',
+      name: 'The Line Runs',
+      blurb:
+        'Two Stations held at once, which is the number a train needs: units and columns can ride between them.',
+      era: 'late',
+      size: 'medium',
+      reward: wages('late', 'medium'),
+      target: 2,
+    },
+    {
+      id: 'platforms_3',
+      name: 'Four Stops',
+      blurb: 'Four platforms in your name. Most of the frontier is fifteen minutes from you.',
+      era: 'late',
+      size: 'large',
+      reward: wages('late', 'large'),
+      target: 4,
+    },
+    {
+      id: 'platforms_4',
+      name: 'Every Platform on the Line',
+      blurb:
+        'Every Station in Terminus held at once. Telemetry Hill is the only ground the train will not take you to, and it never was.',
+      era: 'late',
+      size: 'large',
+      reward: rise(7, 'coin'),
+      /*
+       * Seven, because the line does not climb the Hill.
+       *
+       * Seven of the eight contested districts hold one `rail_station` and Telemetry Hill holds
+       * none, which is authored rather than incidental (`atlas.ts`). Derived, so a platform added
+       * to the map moves the top of this ladder with it rather than leaving a rung that reads
+       * "every one" and means "all but the new one".
+       */
+      target: RAIL_STATIONS.length,
+    },
+  ]),
+  ...chain('rails', 'rail_journeys', [
+    {
+      id: 'rails_1',
+      name: 'Put Them on the Train',
+      blurb:
+        'Send one move or one column by rail. Fifteen minutes on the line, plus the walk to the platform at each end.',
+      era: 'mid',
+      size: 'small',
+      reward: kit('mid', 'small'),
+      target: 1,
+    },
+    {
+      id: 'rails_2',
+      name: 'The Timetable',
+      blurb: 'Twenty five journeys by rail. Your people stopped asking how far it is.',
+      era: 'late',
+      size: 'small',
+      reward: kit('late', 'small'),
+      target: 25,
+    },
+    {
+      id: 'rails_3',
+      name: 'The Line Is Yours',
+      blurb:
+        'A hundred and twenty rides. Nobody in this city moves an army faster than you do, and nobody moves one at all without your platforms.',
+      era: 'late',
+      size: 'medium',
+      reward: lesson('late', 'medium'),
+      target: 120,
     },
   ]),
 ];
@@ -4842,75 +5579,75 @@ const NAME: FeatSpec[] = [
     {
       id: 'infamy_3',
       name: 'A Name Like a Threat',
-      blurb: 'Twenty five thousand infamy earned over a lifetime.',
+      blurb: 'Eight thousand infamy earned over a lifetime.',
       era: 'late',
       size: 'large',
-      target: 25_000,
+      target: 8_000,
       reward: purse('late', 'large'),
     },
     {
       id: 'infamy_4',
       name: 'Told as a Warning',
-      blurb: 'Sixty thousand earned. People end arguments with your name.',
+      blurb: 'Twelve thousand earned. People end arguments with your name.',
       era: 'late',
       size: 'large',
-      target: 60_000,
+      target: 12_000,
       reward: rise(6, 'blood'),
     },
     {
       id: 'infamy_5',
       name: 'No Introduction',
-      blurb: 'A hundred and forty five thousand. Nobody asks which crew.',
+      blurb: 'Seventeen thousand. Nobody asks which crew.',
       era: 'late',
       size: 'large',
-      target: 145_000,
+      target: 17_000,
       reward: rise(7, 'blood'),
     },
     {
       id: 'infamy_6',
       name: 'The Price of a Rank',
-      blurb:
-        'Three hundred and twenty thousand, which is about what the seventh rung of the ladder costs.',
+      blurb: 'Twenty thousand, which is about what the first eleven rungs of the ladder cost.',
       era: 'late',
       size: 'large',
-      target: 320_000,
+      target: 20_000,
       reward: rise(8, 'blood'),
     },
     {
       id: 'infamy_7',
-      name: 'Three Quarters of a Million',
-      blurb: 'The street stopped grading you against other crews a long way back.',
+      name: 'Past Grading',
+      blurb:
+        'Twenty eight thousand. The street stopped grading you against other crews a while back.',
       era: 'late',
       size: 'large',
-      target: 750_000,
+      target: 28_000,
       reward: rise(9, 'blood'),
     },
     {
       id: 'infamy_8',
       name: 'A Story Told Wrong',
       blurb:
-        'One million seven hundred thousand. The versions people tell are worse than the truth, and you let them be.',
+        'Thirty six thousand. The versions people tell are worse than the truth, and you let them be.',
       era: 'late',
       size: 'large',
-      target: 1_700_000,
+      target: 36_000,
       reward: rise(10, 'blood'),
     },
     {
       id: 'infamy_9',
-      name: 'Four Million Reasons',
+      name: 'Forty Six Thousand Reasons',
       blurb: 'Earned one dead body and one taken street at a time.',
       era: 'late',
       size: 'large',
-      target: 4_000_000,
+      target: 46_000,
       reward: rise(11, 'blood'),
     },
     {
       id: 'infamy_10',
       name: 'The Name Itself',
-      blurb: 'Nine million infamy earned. The city has run out of ways of saying it.',
+      blurb: 'Sixty thousand infamy earned. The city has run out of ways of saying it.',
       era: 'late',
       size: 'large',
-      target: 9_000_000,
+      target: 60_000,
       reward: rise(12, 'blood'),
     },
   ]),
@@ -4918,7 +5655,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'notoriety_1',
       name: 'Off Nobody',
-      blurb: 'Buy the first rung of the ladder. Three hundred infamy and you have a name.',
+      blurb: 'Buy the first rung of the ladder, and you have a name.',
       era: 'early',
       size: 'medium',
       target: 1,
@@ -4927,20 +5664,20 @@ const NAME: FeatSpec[] = [
     {
       id: 'notoriety_2',
       name: 'Four Rungs Up',
-      blurb: 'Twelve thousand infamy sunk into a title.',
-      era: 'mid',
+      blurb: 'Four rungs bought. People have started asking who you are.',
+      era: 'early',
       size: 'large',
       target: 4,
-      reward: purse('mid', 'large'),
+      reward: purse('early', 'large'),
     },
     {
       id: 'notoriety_3',
       name: 'Seven',
-      blurb: 'Most of a million infamy spent on being called something.',
-      era: 'late',
+      blurb: 'Seven rungs, every one of them paid for in blood.',
+      era: 'mid',
       size: 'large',
       target: 7,
-      reward: purse('late', 'large'),
+      reward: purse('mid', 'large'),
     },
     {
       id: 'notoriety_4',
@@ -5264,10 +6001,13 @@ const NAME: FeatSpec[] = [
     {
       id: 'blueprints_6',
       name: 'Every Plan There Is',
-      blurb: 'All sixty eight. Nothing in this city is a mystery to your bench.',
+      blurb:
+        'Every one, the fence’s four included. Nothing in this city is a mystery to your bench.',
       era: 'late',
       size: 'large',
-      target: 68,
+      // Read off the catalogue: this said sixty eight while sixty nine documents existed, so the
+      // feat could be earned one short of its own name.
+      target: BLUEPRINTS.length,
       reward: rise(8, 'coin'),
     },
   ]),
@@ -5275,7 +6015,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_1',
       name: 'Level Five',
-      blurb: 'The Market is open by now and the Lab is buildable.',
+      blurb: 'The Bar lets you in, and the Lab can go up once the Nexus is ready for it.',
       era: 'early',
       size: 'small',
       target: 5,
@@ -5284,7 +6024,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_2',
       name: 'Level Ten',
-      blurb: 'The Bar opens. You can hire somebody who knows what they are doing.',
+      blurb: 'The factions will talk to you now, and a seat at one is yours to ask for.',
       era: 'early',
       size: 'medium',
       target: 10,
@@ -5293,7 +6033,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_3',
       name: 'Level Twenty',
-      blurb: 'A hundred and fifty four thousand experience. Most of it was walking.',
+      blurb: 'Forty five thousand experience. Most of it was walking.',
       era: 'mid',
       size: 'medium',
       target: 20,
@@ -5302,7 +6042,7 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_4',
       name: 'Level Thirty',
-      blurb: 'Half a million experience. The city treats you differently.',
+      blurb: 'A hundred and thirty thousand experience. The city treats you differently.',
       era: 'mid',
       size: 'large',
       target: 30,
@@ -5311,11 +6051,11 @@ const NAME: FeatSpec[] = [
     {
       id: 'level_5',
       name: 'Level Fifty',
-      blurb: 'Two and a quarter million. There is not much left that is new.',
-      era: 'late',
+      blurb: 'Half a million experience. There is not much left that is new.',
+      era: 'mid',
       size: 'large',
       target: 50,
-      reward: lesson('late', 'large'),
+      reward: lesson('mid', 'large'),
     },
     {
       id: 'level_6',
@@ -5558,7 +6298,9 @@ export const FEATS: readonly FeatSpec[] = [
   ...DISTRICT_WORK,
   ...FIGHTING,
   ...COMBINE,
+  ...WEEK,
   ...CITY,
+  ...FRONTIER,
   ...DISTRICT,
   ...CREW,
   ...TRADE,

@@ -1,4 +1,5 @@
 import {
+  FOUND_FACTION_PLAYER_LEVEL,
   DEFAULT_ATTRIBUTES,
   cardBonusPercent,
   randomBadge,
@@ -46,7 +47,7 @@ async function register(app: FastifyInstance, username: string) {
   // Established enough to found and join a table: the faction routes gate on standing.
   const base = app.repos.bases.findById(baseId);
   if (!base) throw new Error('fixture: no base');
-  app.repos.bases.updateProgression(baseId, 9, base.progression);
+  app.repos.bases.updateProgression(baseId, FOUND_FACTION_PLAYER_LEVEL, base.progression);
   app.repos.bases.updateBuildings(
     baseId,
     base.buildings.map((building) =>

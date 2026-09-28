@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BaseSchema } from './base.js';
-import { BuildingKindSchema, MAX_MODIFICATION_SLOTS } from './building/index.js';
+import { AcceptWasteSchema, BuildingKindSchema, MAX_MODIFICATION_SLOTS } from './building/index.js';
 import { ModificationRaritySchema } from './modification-rarity.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
 import { IdSchema, IsoDateTimeSchema } from './primitives.js';
@@ -181,5 +181,8 @@ export const RaiseGateRequestSchema = z.object({ districtId: IdSchema });
 export type RaiseGateRequest = z.infer<typeof RaiseGateRequestSchema>;
 
 /** `POST /city/gate/cancel`: call off the level being raised, inside its first tenth. */
-export const CancelGateRaiseRequestSchema = z.object({ districtId: IdSchema });
+export const CancelGateRaiseRequestSchema = z.object({
+  districtId: IdSchema,
+  acceptWaste: AcceptWasteSchema,
+});
 export type CancelGateRaiseRequest = z.infer<typeof CancelGateRaiseRequestSchema>;

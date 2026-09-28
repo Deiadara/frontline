@@ -46,6 +46,8 @@ export const MovementSchema = z.object({
   perimeter: ArmySchema.default({}),
   departedAt: IsoDateTimeSchema,
   arrivesAt: IsoDateTimeSchema,
+  /** On Terminus's railway rather than the road. The re-timer leaves these alone. */
+  byRail: z.boolean().optional(),
 });
 export type Movement = z.infer<typeof MovementSchema>;
 

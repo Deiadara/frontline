@@ -71,7 +71,9 @@ function arm(stack: Stack, army: Record<string, number>): void {
   stack.app.repos.bases.updateArmy(base.id, army, base.trainingQueue);
 }
 
-const move = (stack: Stack, body: MoveUnitsRequest) =>
+// `byRail` carries a Zod default, so the parsed type has it and a hand-written body does not.
+// Optional here because every case below is a walk; the railway has its own file.
+const move = (stack: Stack, body: Omit<MoveUnitsRequest, 'byRail'> & { byRail?: boolean }) =>
   stack.app.inject({
     method: 'POST',
     url: '/api/actions/move',
@@ -232,20 +234,20 @@ describe('ground', () => {
   it('claims empty ground on arrival, with no fight', async () => {
     const { me } = await makeWorld();
     arm(me, { razors: 10 });
-    const press = me.app.repos.city.control('rustyard-press')!;
+    const press = me.app.repos.city.control('steelbelt-press')!;
     me.app.repos.city.put({ ...press, holder: { kind: 'unoccupied' }, garrison: {} });
-    me.app.repos.city.markScouted(me.baseId, 'rustyard', new Date().toISOString());
+    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
 
     const res = await move(me, {
       from: { kind: 'district' },
-      to: { kind: 'location', locationId: 'rustyard-press' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
       army: { razors: 4 },
       vehicles: {},
     });
     expect(res.statusCode, res.body.slice(0, 200)).toBe(200);
     windBack(me);
     settleMoves(me.app.repos, new Date());
-    const taken = me.app.repos.city.control('rustyard-press')!;
+    const taken = me.app.repos.city.control('steelbelt-press')!;
     expect(taken.holder).toEqual({ kind: 'crew', baseId: me.baseId });
     expect(taken.garrison).toEqual({ razors: 4 });
     expect(me.app.repos.feats.tallies(me.baseId).locations_captured).toBe(1);
@@ -256,16 +258,16 @@ describe('ground', () => {
     arm(me, { razors: 10 });
     const dark = await move(me, {
       from: { kind: 'district' },
-      to: { kind: 'location', locationId: 'rustyard-press' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
       army: { razors: 4 },
       vehicles: {},
     });
     expect(dark.statusCode).toBe(400);
-    me.app.repos.city.markScouted(me.baseId, 'rustyard', new Date().toISOString());
+    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
     // The Press is the looters' in the seeded city.
     const theirs = await move(me, {
       from: { kind: 'district' },
-      to: { kind: 'location', locationId: 'rustyard-press' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
       army: { razors: 4 },
       vehicles: {},
     });
@@ -273,21 +275,56 @@ describe('ground', () => {
     expect(theirs.json<{ error: { message: string } }>().error.message).toMatch(/Call a fight/);
   });
 
+  /** Found by the playthrough: the list offered an ally's ground the send then refused. */
+  it("lists an ally's ground only once this crew has seen the district", async () => {
+    const { me, ally } = await makeWorld();
+    const press = me.app.repos.city.control('steelbelt-press')!;
+    me.app.repos.city.put({ ...press, holder: { kind: 'crew', baseId: ally.baseId } });
+    me.app.repos.factions.insert({
+      id: 'f1',
+      name: 'The Compact',
+      badge: DEFAULT_BADGE,
+      blurb: '',
+      foundedAt: new Date().toISOString(),
+    });
+    for (const [userId, rank] of [
+      [ally.userId, 'leader'],
+      [me.userId, 'member'],
+    ] as const) {
+      me.app.repos.factions.addMember({
+        userId,
+        factionId: 'f1',
+        rank,
+        joinedAt: new Date().toISOString(),
+      });
+    }
+    const allied = async () =>
+      (await me.app.inject({ method: 'GET', url: '/api/units', headers: auth(me.token) }))
+        .json<UnitsResponse>()
+        .moveDestinations.filter((d) => d.group === 'faction');
+
+    expect(await allied()).toEqual([]);
+    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
+    expect(
+      (await allied()).map((d) => (d.place.kind === 'location' ? d.place.locationId : null)),
+    ).toContain('steelbelt-press');
+  });
+
   it("posts units on a faction ally's ground: theirs, standing for the holder", async () => {
     const { me, ally } = await makeWorld();
     arm(me, { razors: 10 });
-    const press = me.app.repos.city.control('rustyard-press')!;
+    const press = me.app.repos.city.control('steelbelt-press')!;
     me.app.repos.city.put({
       ...press,
       holder: { kind: 'crew', baseId: ally.baseId },
       garrison: { razors: 3 },
     });
-    me.app.repos.city.markScouted(me.baseId, 'rustyard', new Date().toISOString());
+    me.app.repos.city.markScouted(me.baseId, 'steelbelt', new Date().toISOString());
 
     // Strangers first: their ground is not a place to walk onto.
     const stranger = await move(me, {
       from: { kind: 'district' },
-      to: { kind: 'location', locationId: 'rustyard-press' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
       army: { razors: 4 },
       vehicles: {},
     });
@@ -320,7 +357,7 @@ describe('ground', () => {
 
     const res = await move(me, {
       from: { kind: 'district' },
-      to: { kind: 'location', locationId: 'rustyard-press' },
+      to: { kind: 'location', locationId: 'steelbelt-press' },
       army: { razors: 4 },
       vehicles: {},
     });
@@ -329,15 +366,15 @@ describe('ground', () => {
     settleMoves(me.app.repos, new Date());
 
     // The ground is still the ally's, the garrison still theirs, and the posting is ours.
-    const held = me.app.repos.city.control('rustyard-press')!;
+    const held = me.app.repos.city.control('steelbelt-press')!;
     expect(held.holder).toEqual({ kind: 'crew', baseId: ally.baseId });
     expect(held.garrison).toEqual({ razors: 3 });
-    expect(me.app.repos.alliedGarrisons.get('rustyard-press', me.baseId)).toEqual({ razors: 4 });
+    expect(me.app.repos.alliedGarrisons.get('steelbelt-press', me.baseId)).toEqual({ razors: 4 });
     const mine = (
       await me.app.inject({ method: 'GET', url: '/api/units', headers: auth(me.token) })
     ).json<UnitsResponse>();
     expect(mine.garrisoned).toEqual({ razors: 4 });
-    expect(mine.standingAt['rustyard-press']).toEqual({ razors: 4 });
+    expect(mine.standingAt['steelbelt-press']).toEqual({ razors: 4 });
     /*
      * ...and reported in exactly one place.
      *
@@ -349,14 +386,17 @@ describe('ground', () => {
     expect(mine.abroad.razors ?? 0, 'the posting was counted twice').toBe(0);
     expect(mine.unitSlotsUsed).toBe(unitSlotsUsed({ ...base(me).army, razors: 10 }));
 
-    // A spy on the place counts both, because both stand in the line: the ground is theirs, so
-    // it can be read, and what is read is the garrison and the posting together.
+    /*
+     * A spy counts what it would have to beat (maintainer, 2026-09-28): the holder's garrison. The
+     * posting is the reader's own, and in a fight the reader called it would stand on the reader's
+     * side (`battle/alignment.ts`), so it is not in the count. It used to be, as a defender.
+     */
     const reader = me.app.repos.bases.findById(me.baseId)!;
     const looked = groundBehind(me.app.repos, reader, {
       kind: 'location',
-      locationId: 'rustyard-press',
+      locationId: 'steelbelt-press',
     });
     expect(looked.kind).toBe('ground');
-    if (looked.kind === 'ground') expect(looked.ground.army).toEqual({ razors: 7 });
+    if (looked.kind === 'ground') expect(looked.ground.army).toEqual({ razors: 3 });
   });
 });

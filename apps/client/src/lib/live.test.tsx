@@ -2,7 +2,7 @@ import { LIVE_STABLE_MS } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useLiveEvents } from './live';
+import { EVENT_SOUND, useLiveEvents } from './live';
 import { useSession } from '../store/session';
 
 /**
@@ -97,6 +97,23 @@ describe('the live channel', () => {
     // Not the ones a fight does not touch: an event that invalidated everything would be a poll
     // with extra steps, and would refetch eight screens for a receipt about a finished roof.
     expect(keys).not.toContain(JSON.stringify(['bar']));
+  });
+
+  /** Somebody else joining or leaving the table moves the seat count a feat measures. */
+  it('refreshes the feats board when the faction moves under this player', async () => {
+    const stream = fakeStream();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(stream.body, { status: 200 }));
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    const { result } = renderHook(() => useLiveEvents(), { wrapper: wrapper(client) });
+    await waitFor(() => expect(result.current).toBe('live'));
+    invalidate.mockClear();
+
+    stream.push('event: faction\ndata: {"kind":"faction","at":"2026-08-31T12:00:00.000Z"}\n\n');
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    const keys = invalidate.mock.calls.map((call) => JSON.stringify(call[0]?.queryKey));
+    expect(keys).toContain(JSON.stringify(['feats']));
   });
 
   /**
@@ -360,5 +377,28 @@ describe('the live channel', () => {
     unmount();
 
     expect(signal.aborted).toBe(true);
+  });
+});
+
+/**
+ * What an event sounds like (`docs/SOUND.md` 3.1 and 3.2).
+ *
+ * `notification` goes out for every receipt, beside the typed nudge that says what the receipt is
+ * about. It chimed on its own, which put a chime on new mail, faction invites and joins, and being
+ * outbid at the market or the Bar: everything the design says must stay quiet. The typed nudges
+ * carry the sound; a receipt with no typed nudge is one the design never wanted heard.
+ */
+describe('which events make a sound', () => {
+  it('chimes for the district moving and drums for a fight, and nothing else', () => {
+    expect(EVENT_SOUND).toEqual({
+      notification: null,
+      base: 'done',
+      battle: 'call',
+      message: null,
+      faction: null,
+      world: null,
+      market: null,
+      bar: null,
+    });
   });
 });

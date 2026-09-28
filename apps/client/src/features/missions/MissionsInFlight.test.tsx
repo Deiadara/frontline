@@ -50,7 +50,7 @@ function out(
     travelMinutes: 5,
     durationMinutes,
     officerId: null,
-    battleTier: null,
+    grade: null,
     overseerLed: false,
     lost: {},
     found: {},
@@ -84,8 +84,11 @@ const board: MissionsResponse = {
   army: { razors: 6 },
   serverNow: NOW,
   leaders: [],
-  unledRule: 'free',
   level: 12,
+  // The board's city and the rooms this crew may read. Both carry a Zod default on the
+  // wire; a hand-written fixture has to say them.
+  cityId: 'ashfall',
+  cities: ['ashfall'],
 };
 
 const crew: CrewResponse = { officers: [], bench: [], serverNow: NOW } as unknown as CrewResponse;
@@ -93,6 +96,7 @@ const crew: CrewResponse = { officers: [], bench: [], serverNow: NOW } as unknow
 const fetchMock = vi.fn();
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -214,7 +218,9 @@ const led: MissionsResponse = {
   missions: [
     { ...out('m-overseer', 'scrap-run', 10, 30), overseerLed: true },
     { ...out('m-officer', 'scrap-run', 10, 40), officerId: 'off-1' },
-    out('m-alone', 'scrap-run', 10, 50),
+    // Home from before every run needed a leader (maintainer, 2026-09-28). No run still out can
+    // look like this, but a returned row from then still says who led it, which was nobody.
+    home('m-alone', 'scrap-run', { outcome: 'success' }),
     // Somebody who was let go while their crew was still on the road. The run remembers them; the
     // list of who may lead the *next* one does not, and cannot.
     { ...out('m-gone', 'scrap-run', 10, 60), officerId: 'off-vanished' },
@@ -236,10 +242,12 @@ describe('who was in charge of a run', () => {
     expect(await screen.findByTestId('mission-leader-m-officer')).toHaveTextContent('Reza Malik');
   });
 
-  it('says so when nobody led it', async () => {
+  it('says so on a run from before every run was led', async () => {
     served = led;
     renderPage();
-    expect(await screen.findByTestId('mission-leader-m-alone')).toHaveTextContent(
+    fireEvent.click(await screen.findByTestId('mission-open-m-alone'));
+    const report = await screen.findByTestId('mission-report-m-alone');
+    expect(within(report).getByTestId('mission-leader-m-alone')).toHaveTextContent(
       'Nobody leading them',
     );
   });

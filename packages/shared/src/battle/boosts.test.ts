@@ -14,7 +14,7 @@ import {
 } from './boosts.js';
 import { blueprintForBattleBoost, blueprintGateMet } from '../blueprints/requirements.js';
 import { findTech } from '../research/tech.js';
-import { NOTORIETY_TO_FIELD, infamyForKill } from '../economy/infamy.js';
+import { infamyForKill } from '../economy/infamy.js';
 import { notorietySpentTo } from '../economy/notoriety.js';
 
 const techName = (id: string): string => findTech(id)?.name ?? id;
@@ -229,15 +229,16 @@ describe('what the engine is handed', () => {
    * Priced against the fights that pay for them. The cheapest boost has to be worth more than a
    * skirmish against rabble and less than a career, or the sink is either free or decorative.
    *
-   * A career is the ladder: `infamy.ts` says most of a crew's earnings go on rank, so the rung a
-   * legend asks for is what a career of fights adds up to. It used to be twenty Colossi, which
-   * was a career when one paid 250 and is an afternoon now that one pays its twelve slots.
+   * A career is the ladder: `infamy.ts` says most of a crew's earnings go on rank. Since the ladder
+   * was repriced (2026-09-28) the rung a legend asks for is a few weeks of fighting, and a career
+   * is the tenth rung, the one a fighting crew reaches around the late game.
    */
+  const CAREER_RUNG = 10;
   it('prices the shelf on the scale a real fight earns', () => {
     const cheapest = Math.min(...BATTLE_BOOSTS.map((spec) => spec.cost));
     const dearest = Math.max(...BATTLE_BOOSTS.map((spec) => spec.cost));
     expect(cheapest).toBeGreaterThan(20 * infamyForKill('razors'));
-    expect(dearest).toBeLessThan(notorietySpentTo(NOTORIETY_TO_FIELD.legendary));
+    expect(dearest).toBeLessThan(notorietySpentTo(CAREER_RUNG));
   });
 });
 

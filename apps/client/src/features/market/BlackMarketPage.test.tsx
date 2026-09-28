@@ -92,10 +92,30 @@ const shelf: BlackMarketResponse = {
   serverNow: NOW,
 };
 
+/**
+ * The same shelf with the reader on one lot rather than two, so a fresh lot is still theirs to
+ * open (§H7a, `MAX_OPEN_LOTS`). The cases that bid on slot 0 read this one.
+ */
+const roomy: BlackMarketResponse = {
+  ...shelf,
+  offers: shelf.offers.map((offer, index) => (index === 2 ? offerFor(2) : offer)),
+};
+
 const fetchMock = vi.fn();
+
+function serve(body: BlackMarketResponse): void {
+  fetchMock.mockImplementation((path: string) => {
+    if (path.endsWith('/black-market')) return reply(body);
+    if (path.endsWith('/black-market/bid')) return reply({ blackMarket: body });
+    if (path.endsWith('/me'))
+      return reply({ admin: false, user: null, overseer: null, base: null });
+    throw new Error(`unstubbed request: ${path}`);
+  });
+}
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -120,13 +140,7 @@ function renderShelf() {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
   fetchMock.mockReset();
-  fetchMock.mockImplementation((path: string) => {
-    if (path.endsWith('/black-market')) return reply(shelf);
-    if (path.endsWith('/black-market/bid')) return reply({ blackMarket: shelf });
-    if (path.endsWith('/me'))
-      return reply({ admin: false, user: null, overseer: null, base: null });
-    throw new Error(`unstubbed request: ${path}`);
-  });
+  serve(shelf);
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -176,6 +190,7 @@ describe('the shelf as five lots', () => {
   });
 
   it('sends the number, the slot and what was standing in it', async () => {
+    serve(roomy);
     renderShelf();
     fireEvent.click(await screen.findByTestId('black-bid-0'));
 
@@ -198,7 +213,33 @@ describe('the shelf as five lots', () => {
     });
   });
 
+  /**
+   * The fence charges the winner after their standing, and the table refuses on that charge. A
+   * crew whose ledger is under the opening figure but whose discount brings the charge inside it
+   * has a card saying "affordable", so the window has to take the bid rather than grey it out.
+   */
+  it('takes a bid past the ledger when the standing brings the charge inside it', async () => {
+    const opening = shelf.offers[0]!.lot!.nextBid;
+    const stretched: BlackMarketResponse = {
+      ...roomy,
+      infamy: opening - 1,
+      bidCeiling: opening * 2,
+    };
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/black-market')) return reply(stretched);
+      if (path.endsWith('/me'))
+        return reply({ admin: false, user: null, overseer: null, base: null });
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderShelf();
+    fireEvent.click(await screen.findByTestId('black-bid-0'));
+    const window = await screen.findByTestId('black-lot-window');
+    expect(within(window).getByTestId('lot-place')).toBeEnabled();
+    expect(within(window).queryByTestId('lot-refusal')).toBeNull();
+  });
+
   it('offers the four quick raises, the big two included', async () => {
+    serve(roomy);
     renderShelf();
     fireEvent.click(await screen.findByTestId('black-bid-0'));
     const window = await screen.findByTestId('black-lot-window');
@@ -214,5 +255,27 @@ describe('the shelf as five lots', () => {
     fireEvent.click(within(window).getByTestId('lot-raise-100'));
     // Doubled, and inside the ledger, so nothing is clamped in this case.
     expect(within(window).getByTestId('lot-amount')).toHaveValue(String(opening * 2));
+  });
+
+  /**
+   * §H7a: two lots at once. The fixture's crew has money on slots 1 and 2, so a third is refused
+   * by the fence; the window greys the press and says why rather than letting the server say it.
+   * Raising on a lot it is already in is not a new lot, and stays live.
+   */
+  it('shuts a third lot to a crew with money on two, and leaves its own lots open', async () => {
+    // A ledger deep enough to top the 999,999 on slot 1, so the only thing that can grey a press
+    // here is the cap.
+    serve({ ...shelf, infamy: 10_000_000 });
+    renderShelf();
+    fireEvent.click(await screen.findByTestId('black-bid-0'));
+    const fresh = await screen.findByTestId('black-lot-window');
+    expect(within(fresh).getByTestId('lot-place')).toBeDisabled();
+    expect(within(fresh).getByTestId('lot-refusal')).toHaveTextContent('every lot you can hold');
+    fireEvent.click(within(fresh).getByRole('button', { name: 'Leave it' }));
+
+    fireEvent.click(await screen.findByTestId('black-bid-1'));
+    const own = await screen.findByTestId('black-lot-window');
+    expect(within(own).getByTestId('lot-place')).toBeEnabled();
+    expect(within(own).queryByTestId('lot-refusal')).toBeNull();
   });
 });

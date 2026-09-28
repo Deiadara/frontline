@@ -82,6 +82,11 @@ test('a returned row is three facts, and the window behind it is the rest', asyn
   await expect(page.getByTestId('haul-caps')).toContainText('268');
   await expect(page.getByTestId('haul-caps')).toContainText('of 402');
   await expect(page.getByTestId('mission-carry-m-5')).toContainText('could not carry everything');
+  // And what the full yard threw away, per resource and in total (2026-09-28).
+  await expect(page.getByTestId('haul-wasted-scrap')).toHaveText('120 wasted');
+  await expect(page.getByTestId('haul-wasted-planks')).toHaveText('35 wasted');
+  await expect(page.getByTestId('haul-wasted-oil')).toHaveCount(0);
+  await expect(page.getByTestId('mission-wasted-m-5')).toContainText('155 loot');
 
   // The drops, by name, with the won page named once rather than twice.
   const drops = page.getByTestId('mission-drops-m-5');

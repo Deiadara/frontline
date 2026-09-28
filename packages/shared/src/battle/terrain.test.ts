@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FORTIFY_MAX_LEVEL, noTerritoryEffects } from '../city/index.js';
+import { noTerritoryEffects } from '../city/index.js';
 import { findUnit, type CombatContext, type UnitSpec } from '../units/index.js';
 import { LOCATION_KINDS, LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
 import {
@@ -16,7 +16,8 @@ import { simulate } from './engine.js';
  *
  * "The ground where we are fighting adds or removes bonuses" is a promise a player plans a roster
  * around, so what these pin is that a sheet saying *below street level* actually fires below street
- * level, and that digging in is worth what the fortification tables say it is.
+ * level, and that a gate is worth something to the people behind it and nothing to the people
+ * walking at it.
  */
 
 const unit = (id: string): UnitSpec => {
@@ -43,8 +44,6 @@ describe('what each location fights like', () => {
     const sewer = battlefieldFor({
       locationName: 'The Junction',
       kind: 'sewer_junction',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 0,
       at: DAY,
     });
     expect(sewer.contexts).toContain('underground');
@@ -53,23 +52,22 @@ describe('what each location fights like', () => {
     const yard = battlefieldFor({
       locationName: 'The Yard',
       kind: 'rail_yard',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 0,
       at: DAY,
     });
     expect(yard.contexts).toContain('open_ground');
     expect(yard.contexts).not.toContain('underground');
   });
 
-  it('only offers something to breach once somebody has dug in', () => {
-    const base = {
-      locationName: 'The Berm',
-      kind: 'high_ground',
-      fortifyDifficulty: 'easy',
-      at: DAY,
-    } as const;
-    expect(battlefieldFor({ ...base, fortifyLevel: 0 }).contexts).not.toContain('vs_structure');
-    expect(battlefieldFor({ ...base, fortifyLevel: 1 }).contexts).toContain('vs_structure');
+  /*
+   * The ground never offers a wall of its own (maintainer, 2026-09-26). Dug-in fortification left
+   * the game, and a gate is the holder's rather than the ground's, so it reaches a fight through
+   * their territory (`gatePercent`) and not through the battlefield.
+   */
+  it('never makes a wall out of the ground itself', () => {
+    for (const kind of LOCATION_KINDS) {
+      const ground = battlefieldFor({ locationName: 'x', kind, at: DAY });
+      expect(ground.contexts, kind).not.toContain('vs_structure');
+    }
   });
 
   /**
@@ -84,8 +82,6 @@ describe('what each location fights like', () => {
       battlefieldFor({
         locationName: 'x',
         kind,
-        fortifyDifficulty: 'easy',
-        fortifyLevel: 0,
         at,
       }).contexts;
 
@@ -98,21 +94,6 @@ describe('what each location fights like', () => {
   it('fights a home district in the streets, at every hour', () => {
     expect(homeBattlefield('Kettle Row', DAY).contexts).toEqual(['urban']);
     expect(homeBattlefield('Kettle Row', NIGHT).contexts).toEqual(['urban']);
-  });
-
-  /** Easy ground pays the most per level: the board's inversion, carried through to the fight. */
-  it('carries the fortification tables into the battlefield', () => {
-    const at = (difficulty: 'easy' | 'medium' | 'hard') =>
-      battlefieldFor({
-        locationName: 'x',
-        kind: 'barricade',
-        fortifyDifficulty: difficulty,
-        fortifyLevel: FORTIFY_MAX_LEVEL,
-        at: DAY,
-      }).fortifyPercent;
-    expect(at('easy')).toBe(12);
-    expect(at('medium')).toBe(10);
-    expect(at('hard')).toBe(8);
   });
 });
 
@@ -131,25 +112,24 @@ describe('what the ground does to a unit', () => {
     expect(both.reasons).toHaveLength(2);
   });
 
-  it('raises the holder rather than the attacker when the ground is dug in', () => {
+  it('raises the holder rather than the attacker behind a gate', () => {
     const field = battlefieldFor({
       locationName: 'x',
       kind: 'barricade',
-      fortifyDifficulty: 'easy',
-      fortifyLevel: 5,
       at: DAY,
     });
+    const gated = { ...noTerritoryEffects(), gatePercent: 20 };
     const held = effectiveStats(
       unit('wardens'),
       field,
       { defending: true, outnumbered: false },
-      noTerritoryEffects(),
+      gated,
     );
     const came = effectiveStats(
       unit('wardens'),
       field,
       { defending: false, outnumbered: false },
-      noTerritoryEffects(),
+      gated,
     );
     // Toughness, not damage: a wall does not make a rifle shoot harder.
     expect(held.vitality).toBeGreaterThan(came.vitality);
@@ -200,8 +180,6 @@ describe('the ground changes how the fight goes', () => {
           battlefield: battlefieldFor({
             locationName: kind,
             kind,
-            fortifyDifficulty: 'medium',
-            fortifyLevel: 0,
             at: NIGHT,
           }),
           attacker: { name: 'A', army: { ash_walkers: 22 }, defending: false },
@@ -220,55 +198,8 @@ describe('the ground changes how the fight goes', () => {
     expect(run('sewer_junction')).toBeGreaterThan(run('rail_yard') * 1.3);
   });
 
-  /**
-   * Measured as **whether the location is held**, not as how many units walked away.
-   *
-   * Those two come apart, and the way they come apart is the design working: a stack that breaks
-   * early loses fewer people and loses the ground, so an unfortified defender can finish a fight
-   * with *more* survivors and no location. Fortification buys the objective. Measured at 30 v 26,
-   * level 5 turns 3 holds in 24 into 24 in 24; by 32 v 26 it is nearly worthless, which is the
-   * intended ceiling: a quarter more defence does not beat a quarter more units.
-   */
-  it('makes digging in decide who holds the location', () => {
-    const held = (fortifyLevel: number) => {
-      let holds = 0;
-      const runs = 24;
-      for (let seed = 0; seed < runs; seed += 1) {
-        const simulation = simulate({
-          seed: `fort-${seed}`,
-          battlefield: battlefieldFor({
-            locationName: 'The Barricade',
-            kind: 'barricade',
-            fortifyDifficulty: 'easy',
-            fortifyLevel,
-            at: DAY,
-          }),
-          attacker: { name: 'A', army: { razors: 30 }, defending: false },
-          defender: { name: 'D', army: { razors: 26 }, defending: true },
-        });
-        if (simulation.winner === 'defender') holds += 1;
-      }
-      return holds;
-    };
-    // Stated as a ratio as well as a level, so a change that shifts every seeded fight by one: an
-    // extra draw from the stream, say: moves the numbers without breaking the claim.
-    // Measured 1/24 undug and 9/24 dug in fully. The thresholds sit either side of that with
-    // room, because the claim is "digging in decides fights", not "digging in wins exactly nine".
-    // The three-level curve is worth less at the top than the five-level one it replaced (12% on
-    // easy ground rather than 25%), so these numbers moved with it and the ratio did not.
-    // Measured 1/24 undug and 6/24 dug in fully. The thresholds sit either side of that with
-    // room, because the claim is "digging in decides fights", not "digging in wins exactly six".
-    //
-    // It was 9/24 before penetration replaced the critical-hit chance: an attacker now cancels
-    // part of what the defender is wearing, so the same works are worth a little less than they
-    // were. The ratio is what the test is really about and it did not move.
-    expect(held(0)).toBeLessThan(5);
-    expect(held(FORTIFY_MAX_LEVEL)).toBeGreaterThan(4);
-    expect(held(FORTIFY_MAX_LEVEL)).toBeGreaterThan(held(0) * 3);
-  });
-
-  /** ...and does not make a location unbreakable. Enough units still take it. */
-  it('leaves a fortified location takeable by weight of numbers', () => {
+  /** A held location is never unbreakable. Enough units still take it. */
+  it('leaves a held location takeable by weight of numbers', () => {
     let taken = 0;
     for (let seed = 0; seed < 24; seed += 1) {
       const simulation = simulate({
@@ -276,8 +207,6 @@ describe('the ground changes how the fight goes', () => {
         battlefield: battlefieldFor({
           locationName: 'The Barricade',
           kind: 'barricade',
-          fortifyDifficulty: 'easy',
-          fortifyLevel: 5,
           at: DAY,
         }),
         attacker: { name: 'A', army: { razors: 34 }, defending: false },
@@ -299,7 +228,7 @@ describe('what the defender built reaches the fight', () => {
    * function rather than by any test failing, which is why this one exists.
    */
   it('makes a defended district harder to raid than a bare one', () => {
-    const raid = (defensePercent: number) => {
+    const raid = (gatePercent: number) => {
       let held = 0;
       const runs = 24;
       for (let seed = 0; seed < runs; seed += 1) {
@@ -311,7 +240,7 @@ describe('what the defender built reaches the fight', () => {
             name: 'D',
             army: { razors: 22 },
             defending: true,
-            territory: { ...noTerritoryEffects(), defensePercent },
+            territory: { ...noTerritoryEffects(), gatePercent },
           },
         });
         if (simulation.winner === 'defender') held += 1;
@@ -326,7 +255,7 @@ describe('what the defender built reaches the fight', () => {
     const wardens = unit('wardens');
     const held = effectiveStats(
       wardens,
-      { ...homeBattlefield('x', DAY), fortifyPercent: 25 },
+      { ...homeBattlefield('x', DAY) },
       { defending: true, outnumbered: false },
       { ...noTerritoryEffects(), defensePercent: 500 },
     );

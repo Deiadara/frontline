@@ -10,6 +10,7 @@ import {
 } from '@frontline/shared';
 import type { CSSProperties } from 'react';
 import { deliveredUrl } from '../../assets/delivered';
+import { FEATHER_PX, FRAME_VIGNETTE, SURROUND_CLASS } from '../game/PlateRoom';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
@@ -167,10 +168,16 @@ export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CS
    *   * where the band fits at full bleed, nothing changes and the picture still runs edge to edge;
    *   * where it does not, the picture shrinks until the band fits, leaving margin down the sides.
    *
-   * That margin is not a slab of background: `DistrictScene` feathers the cut edges into a blurred
-   * copy of the painting, which is exactly what the city and the Bar do through `PlateRoom`. The
+   * That margin is not a slab of background: `DistrictScene` draws it the way the Bar draws its own,
+   * a blurred copy of the painting with the picture's edge feathered into it under a frame-wide
+   * vignette. The
    * twelve building outlines are positions on the picture and they ride the box, so they stay on
    * their buildings either way, which the squash could only promise by compensating for itself.
+   *
+   * Tried the other way on 2026-09-25 and reverted the same day (maintainer): filling the frame's
+   * width the way the city does put 2560px of picture into a 1080px window, and cutting 139px off a
+   * painting whose Quarters and Lab outlines touch its top edge cost more on a big screen than the
+   * side margin did.
    */
   const full = room.width / DISTRICT_ASPECT;
   const fits = clear / BAND_SPAN;
@@ -204,13 +211,17 @@ export function fitted(room: MeasuredSize, band: MeasuredSize, bleed = true): CS
   };
 }
 
-/**
- * How far the painting's cut edge is faded into the surround, in pixels.
+/*
+ * The margin down each side, where the picture is narrower than the frame, is drawn the way the
+ * Bar draws its own (maintainer, 2026-09-25): `PlateRoom`'s blurred surround, its 36px edge feather
+ * and its frame-wide vignette, imported rather than copied so the two rooms cannot drift apart.
  *
- * Wide enough that there is no line to find and narrow enough that no building is dimmed: the
- * outermost plates sit well inside this on every viewport the game is drawn at.
+ * It was briefly a mirrored reflection of the painting's edge fading into fog. That hid the edge
+ * and read as a kaleidoscope where the reflection met the picture, and the maintainer preferred the
+ * Bar. Before that it was a 56px feather into a slightly fainter blur with no vignette, which left a
+ * visible band of grey: the vignette is the piece that was missing, because it darkens the
+ * picture's edge and the surround by the same amount and so leaves no line between them.
  */
-const SCENE_FEATHER_PX = 56;
 
 /** The share of the picture the buildings occupy: what actually has to fit between the bars. */
 const BAND_SPAN = (DISTRICT_BAND.bottom - DISTRICT_BAND.top) / 100;
@@ -341,16 +352,27 @@ export function DistrictScene({
   const [safeRef, safe] = useMeasuredSize();
   const scene = fitted(room, band, fill);
   /*
-   * Which way the painting is short of the frame, so its cut edge can be faded into the surround.
+   * Which way the painting is short of the frame, so the fog knows where it stands.
    *
-   * Only on the axis that has margin: feathering an edge that runs to the frame's own edge would
+   * Only on the axis that has margin: fogging an edge that runs to the frame's own edge would
    * dim the artwork for nothing. With the aspect now inviolable the short axis is always the
    * width, but it is measured rather than assumed, because a room wider than 21:10 has none.
    */
   const sceneWidth = typeof scene.width === 'number' ? scene.width : 0;
-  const feather =
+  /*
+   * The margin either side, in whole pixels, or 0 where the picture fills the frame.
+   *
+   * Rounded **up**: the picture is centred and the frame is an integer width, so a half-pixel
+   * margin rounded down would leave a one-pixel slit of page between the fog and the frame's edge.
+   * The frame clips, so the pixel rounding up adds is never drawn.
+   */
+  const margin =
     fill && sceneWidth > 0 && sceneWidth < room.width - 1
-      ? `linear-gradient(to right, transparent, #000 ${SCENE_FEATHER_PX}px, #000 calc(100% - ${SCENE_FEATHER_PX}px), transparent)`
+      ? Math.ceil((room.width - sceneWidth) / 2)
+      : 0;
+  const feather =
+    margin > 0
+      ? `linear-gradient(to right, transparent, #000 ${FEATHER_PX}px, #000 calc(100% - ${FEATHER_PX}px), transparent)`
       : undefined;
   // What `plateTop` needs to pull a plate back inside the bars: the picture it is hung on, and the
   // room the chrome left. Zero for the city screen's preview, which has no chrome and no bleed.
@@ -435,7 +457,7 @@ export function DistrictScene({
       <div
         ref={bandRef}
         className={cn(
-          'absolute left-0 right-0 flex justify-center',
+          'absolute left-0 right-0 isolate flex justify-center',
           fill ? 'items-start' : 'items-center',
         )}
         style={
@@ -453,13 +475,13 @@ export function DistrictScene({
         {/*
          * The surround, where the painting is narrower than the room.
          *
-         * A blurred, dimmed copy of the plate rather than flat background, and the picture's own
-         * edges feathered into it. A cut edge is what reads as a border: matching the surround's
-         * brightness gets the two within a few values and the line is still there, because the eye
-         * is not comparing greys, it is finding a straight vertical boundary between detail and no
-         * detail. This is the same treatment `PlateRoom` gives the city and the Bar.
+         * A blurred, dimmed copy of the plate rather than flat background, with the picture's own
+         * edges feathered into it and the Bar's vignette over both. A cut edge is what reads as a
+         * border: the eye is not comparing greys, it is finding a straight vertical boundary
+         * between detail and no detail, so the edge is faded and then darkened by the same amount
+         * as the surround beside it.
          */}
-        {fill && plate !== null && feather !== undefined && (
+        {fill && plate !== null && margin > 0 && (
           /*
            * The same two pieces `PlateRoom` uses for the city and the Bar, for the same reasons.
            *
@@ -477,7 +499,7 @@ export function DistrictScene({
               alt=""
               aria-hidden="true"
               data-scenery
-              className="absolute inset-0 h-full w-full scale-125 object-cover opacity-60 blur-[48px] saturate-[0.9]"
+              className={SURROUND_CLASS}
               data-testid="district-surround"
             />
           </span>
@@ -536,7 +558,7 @@ export function DistrictScene({
            * picture. The outlines still exist and still earn their keep. They are what `plots.ts`
            * positions these from, and what `building-portraits` cuts the dialog art with.
            */}
-          <div className="absolute inset-0" data-testid="district-plots">
+          <div className="absolute inset-0 z-20" data-testid="district-plots">
             {sites.map(({ site, level, state, unmet }, index) => (
               <PlotLabel
                 key={site.kind}
@@ -552,6 +574,26 @@ export function DistrictScene({
             ))}
           </div>
         </div>
+
+        {/*
+         * The Bar's vignette, over the picture and the margin at once, and only where there is margin.
+         *
+         * Across both is the point: it darkens the picture's feathered edge and the surround beside
+         * it by the same amount, so there is no line between two greys. `z-10`, under the name
+         * plates at `z-20`, which share this band's stacking context because the scene box between
+         * them is `z-auto`; `isolate` on the band keeps both numbers local to the district.
+         *
+         * Only with margin, because that is the case it was asked for: on a frame the picture fills
+         * the district is drawn exactly as it was, with nothing darkening its outer buildings.
+         */}
+        {margin > 0 && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-10"
+            style={{ background: FRAME_VIGNETTE }}
+            data-testid="district-vignette"
+          />
+        )}
       </div>
     </div>
   );

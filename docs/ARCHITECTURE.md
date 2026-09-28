@@ -53,7 +53,6 @@ or client-facing type.
 | `raid.ts`               | Loot capacity in loot slots, what a raid takes, and the disruption it leaves         |
 | `economy/`              | Meters (§D4/§D7), payroll (§H7), the §D8 reputation tally                            |
 | `bar/`                  | §H join gates, the daily roster, the §H7a auction and its close                      |
-| `delegation/`           | §G6 terms for a run that goes out with nobody leading it                             |
 | `research/`             | §B9/§F2 projects, discovered facts, effects                                          |
 | `progression/`          | §I player levels, grants, the (empty) §I3 unlock catalogue                           |
 | `user.ts`               | Client-facing `User` (no password material)                                          |
@@ -97,9 +96,11 @@ why the client can render the same numbers the server enforces without a DTO for
   percentage of what is left and **multiplies**. The two used to be one number, so a Rotorcraft and
   a Rail Yard were the same kind of thing and a unit's own speed reached no clock at all. See
   `docs/PLAN-research-and-blueprints.md` §AE.
-- **Snapshots every ten minutes**: `VACUUM INTO` writes a whole consistent database file while the
-  server keeps taking writes, and the newest 24 are kept. A file copy is not an option: in WAL mode
-  the newest commits live in the `-wal` sidecar. Recovery path in `docs/RECOVERY.md`.
+- **Snapshots every two minutes**: `VACUUM INTO` writes a whole consistent database file while the
+  server keeps taking writes; each is integrity-checked before it gets its name, kept by tiers
+  (two hours whole, hourly for two days, daily for thirty) and copied to `BACKUP_MIRROR_DIR`. A file
+  copy is not an option: in WAL mode the newest commits live in the `-wal` sidecar. Recovery path
+  in `docs/RECOVERY.md`, deployment in `docs/DEPLOY.md`.
 - **Admin mode is the default build**: `ADMIN=false` turns it off. Every clock becomes five seconds
   and nothing is charged, while every screen still quotes the real price and the real duration, and
   every gate still refuses. Off automatically under the test runner, because a suite in which
@@ -167,9 +168,9 @@ stating the split plainly.
 
 **The world ticks.** `startWorldClock` (`apps/server/src/live/clock.ts`) runs `tickWorld` every
 `WORLD_TICK_MS`, one second, from `index.ts`. It calls `settleWorld`
-(`apps/server/src/world/settle.ts`) across the whole world with nobody connected: fortifications,
-unit movements and moves, sleepers, captured gates, **battles**, crews coming home, scouts, spy
-reports, and the two auction rooms. This is what makes a fight land on its mark, a crew arrive
+(`apps/server/src/world/settle.ts`) across the whole world with nobody connected: location upgrades,
+unit movements and moves, sleepers, captured gates, the weekly garrison regrowth, **battles**,
+crews coming home, scouts, spy reports, and the two auction rooms. This is what makes a fight land on its mark, a crew arrive
 home, and ground change hands while its owner is asleep. It is started in `index.ts` rather than
 in `buildApp` so a test that builds an app per case does not get fights resolving underneath it.
 

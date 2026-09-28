@@ -4,7 +4,6 @@ import { BATTLE_BOOSTS } from '../battle/boosts.js';
 import { noCrewEffects } from '../crew/effects.js';
 import { findUnit } from '../units/catalog.js';
 import { OFFICER_MARKS, markIndex, type OfficerMark } from '../crew/marks.js';
-import { RESEARCH_UNLED_FREE, RESEARCH_UNLED_PENALISED, unledRule } from '../missions.leading.js';
 import { OFFICER_ROLES } from '../roles.js';
 import { TECH_DISTRICT_OFFERS, isAreaUnlocked, noUnlocks } from '../progression/unlocks.js';
 import { ResearchStateSchema } from './state.js';
@@ -392,31 +391,24 @@ describe('§C4a: what a rung pays', () => {
   });
 });
 
-describe('the two rungs that open an unled run (maintainer, 2026-09-10)', () => {
-  it(`puts both on the Right Hand's track, the penalised one first`, () => {
+/**
+ * The two rungs that opened unled runs (maintainer, 2026-09-10), after every run needed a leader
+ * (maintainer, 2026-09-28). They stay on the track with the ids crews researched them under, and
+ * neither promises an unled run any more.
+ */
+describe('the two rungs that used to open an unled run', () => {
+  it(`keeps both on the Right Hand's track under their old ids, and neither offers one`, () => {
     const rungs = itemsInTrack('right_hand');
-    const penalised = rungs.find((spec) => spec.id === RESEARCH_UNLED_PENALISED);
-    const free = rungs.find((spec) => spec.id === RESEARCH_UNLED_FREE);
-    if (!penalised || !free) throw new Error('the unled rungs are not on the Right Hand track');
-    expect(penalised.step).toBe(2);
-    expect(free.step).toBe(6);
-    expect(penalised.payout.unlocks).toBe(
-      'sending a crew out with nobody leading it, at a cost to the odds',
+    const orders = rungs.find((spec) => spec.id === 'tech_unled_runs');
+    const before = rungs.find((spec) => spec.id === 'tech_unled_runs_free');
+    if (!orders || !before) throw new Error('the two rungs are no longer on the Right Hand track');
+    expect(orders.step).toBe(2);
+    expect(before.step).toBe(6);
+    expect(orders.payout.unlocks).toBeUndefined();
+    expect(before.payout.unlocks).toBe(
+      'a five minute gap between automated parties, down from fifteen',
     );
-    // Extended on 2026-09-22: the same rung also shortens the Right Hand's automation gap, and a
-    // rung's unlock line is one string, so the two are said together.
-    expect(free.payout.unlocks).toBe(
-      'unled runs at full odds, and a five minute gap between automated parties, down from fifteen',
-    );
-  });
-
-  it('is what `unledRule` reads, in the order the track climbs', () => {
-    const rungs = itemsInTrack('right_hand');
-    const upTo = (step: number) => rungs.filter((spec) => spec.step <= step).map((spec) => spec.id);
-    expect(unledRule(upTo(1))).toBe('forbidden');
-    expect(unledRule(upTo(2))).toBe('penalised');
-    expect(unledRule(upTo(5))).toBe('penalised');
-    expect(unledRule(upTo(6))).toBe('free');
+    for (const rung of rungs) expect(rung.payout.unlocks ?? '', rung.id).not.toMatch(/unled/i);
   });
 });
 

@@ -12,13 +12,13 @@ import {
   playerLevelGrants,
   templateTimings,
   type LaunchMissionRequest,
+  type FightLeaderRating,
   type MissionLeader,
   type LaunchMissionResponse,
   type MissionArea,
   type MissionOffer,
   type MissionsResponse,
   makeAttributes,
-  BLUEPRINTS,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -48,31 +48,30 @@ function areaOf(id: string, name: string, payPercent = 0): MissionArea {
     blurb: `Everything anybody is paying for in ${name}.`,
     difficulty: 1,
     payPercent,
-    offers: missionOffers(id).map((template): MissionOffer => ({
+    offers: missionOffers(id, '', 12).map(({ template, grade }): MissionOffer => ({
       templateId: template.id,
       name: template.name,
       brief: template.brief,
       kind: template.kind,
-      difficulty: template.difficulty,
-      travelMinutes: templateTimings(template).travelMinutes,
-      durationMinutes: template.durationMinutes,
-      totalMinutes: templateTimings(template).totalMinutes,
+      grade,
+      travelMinutes: templateTimings(template, grade).travelMinutes,
+      durationMinutes: templateTimings(template, grade).durationMinutes,
+      totalMinutes: templateTimings(template, grade).totalMinutes,
       // The clock before anything is taken off it: what the send dialog runs the launch's own
       // arithmetic on. See `MissionOfferSchema.rawTravelMinutes`.
       rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-      rawDurationMinutes: template.durationMinutes,
+      rawDurationMinutes: templateTimings(template, grade).durationMinutes,
       speedPercent: 0,
       rewards: template.spoils,
       payoutSlots: 40,
       xp: 240,
       failedXp: 48,
-      pagePrize: null,
       // Off the template, not typed in: what a job leans on is `leaningsFor`, and a fixture
       // that made it up would let the picker agree with itself while disagreeing with the
-      // maintainer. A fight's tier is dealt by the board; here every fight is a Fight I.
-      authoredChance: template.successChance,
+      // maintainer. The grade is the one the board deals a level-twelve crew.
       leanings: [...leaningsFor(template)],
-      battleTier: template.kind === 'battle' ? ('fight_1' as const) : null,
+      // Out of the opening band. The band's own case has its own test below.
+      ramp: null,
     })),
     activeMissionId: null,
   };
@@ -117,7 +116,7 @@ const LEADERS: MissionLeader[] = [
 ];
 
 const MISC = areaOf(MISC_AREA_ID, 'Miscellaneous Missions');
-const RUSTYARD = areaOf('rustyard', 'The Rustyard', 27);
+const RUSTYARD = areaOf('steelbelt', 'The Rustyard', 27);
 
 const board: MissionsResponse = {
   missions: [],
@@ -128,10 +127,11 @@ const board: MissionsResponse = {
   army: { razors: 6, scavengers: 4 },
   serverNow: NOW,
   leaders: LEADERS,
-  // The crew has the first rung: a run may go out unled, at a price. The forbidden half of that
-  // gate has a group of its own below.
-  unledRule: 'penalised',
   level: 12,
+  // The board's city and the rooms this crew may read. Both carry a Zod default on the
+  // wire; a hand-written fixture has to say them.
+  cityId: 'ashfall',
+  cities: ['ashfall'],
 };
 
 /**
@@ -155,7 +155,7 @@ const accepted: LaunchMissionResponse = {
     travelMinutes: 5,
     durationMinutes: 3,
     officerId: 'off-1',
-    battleTier: null,
+    grade: null,
     overseerLed: false,
     lost: {},
     found: {},
@@ -203,11 +203,14 @@ interface Stubbed {
   launch?: { ok: boolean; status: number; body: unknown };
   /** How `GET /missions` answers. Defaults to the plain two-area board above. */
   missions?: MissionsResponse;
+  /** How `POST /missions/leaders/quote` rates the bench for a fight. Defaults to nobody rated. */
+  quote?: FightLeaderRating[];
 }
 
-function stubApi({ launch, missions = board }: Stubbed = {}): void {
+function stubApi({ launch, missions = board, quote = [] }: Stubbed = {}): void {
   const reply = (body: unknown, { ok = true, status = 200 } = {}) =>
     Promise.resolve({
+      headers: new Headers(),
       ok,
       status,
       statusText: '',
@@ -221,6 +224,9 @@ function stubApi({ launch, missions = board }: Stubbed = {}): void {
         : reply(accepted);
     }
     if (path.endsWith('/missions')) return reply(missions);
+    // A fight's send window asks the engine who should lead it; the board tests are not about
+    // that answer, so the bench comes back unrated and the window keeps its first free leader.
+    if (path.endsWith('/missions/leaders/quote')) return reply({ leaders: quote });
     throw new Error(`unstubbed request: ${path}`);
   });
 }
@@ -325,7 +331,7 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
     take(dialog, 'Razors', 1);
     send(dialog);
 
-    await waitFor(() => expect(launchBody().areaId).toBe('rustyard'));
+    await waitFor(() => expect(launchBody().areaId).toBe('steelbelt'));
   });
 
   /**
@@ -388,24 +394,80 @@ describe('what a launch puts on the wire (§E, §G6)', () => {
   });
 
   /**
-   * The unled gate, on the button rather than on the wire.
-   *
-   * Both halves, because a fix applied to one of them alone is the failure this shape of test
-   * exists to catch: a dead button that stays dead once somebody is put in charge is a screen
-   * nobody can launch from, and it would pass an assertion that only checked the refusal.
+   * Every run has a leader (maintainer, 2026-09-28), so the window starts with the most suitable
+   * free one picked and never offers to send nobody. Both halves, because a window that picked
+   * somebody and still offered "nobody" would let a player choose a run the server refuses.
    */
-  it('will not send a run nobody is leading until the crew has researched it', async () => {
-    stubApi({ missions: { ...board, unledRule: 'forbidden' } });
+  /**
+   * A fight's bench is rated by fighting it (maintainer, 2026-09-28): the window asks the server
+   * who wins with this force, follows the best *free* one, and says what each is worth in
+   * practice fights rather than in a letter off a sheet the engine never reads.
+   */
+  it('rates a fight\u2019s leaders by practice fights and follows the best free one', async () => {
+    stubApi({
+      quote: [
+        // Odile is out on a run: rated best, and still not the pick.
+        { id: 'off-2', wins: 6, fights: 6, kept: 0.9, score: 1.45 },
+        { id: 'off-1', wins: 5, fights: 6, kept: 0.7, score: 1.18 },
+        { id: 'ov-1', wins: 2, fights: 6, kept: 0.4, score: 0.53 },
+      ],
+    });
+    renderBoard();
+    await screen.findByTestId('board-area');
+    const battle = MISC.offers.find((offer) => offer.kind === 'battle');
+    if (!battle) throw new Error('fixture error: no battle job on the miscellaneous board');
+
+    const dialog = await openSend(battle);
+    take(dialog, 'Razors', 2);
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('leader-fit')).toHaveTextContent(
+        /wins 5 of 6 practice fights/,
+      ),
+    );
+    expect(within(dialog).getByTestId('leader-fit')).toHaveTextContent(/Officer/);
+    // The quote was asked for this force, on this job, at its grade.
+    const asked = fetchMock.mock.calls.find(([path]) =>
+      String(path).endsWith('/missions/leaders/quote'),
+    );
+    expect(asked).toBeDefined();
+    const body = JSON.parse((asked![1] as RequestInit).body as string) as {
+      templateId: string;
+      grade: string;
+      force: Record<string, number>;
+    };
+    expect(body.templateId).toBe(battle.templateId);
+    expect(body.grade).toBe(battle.grade);
+    expect(body.force).toEqual({ razors: 2 });
+
+    // Choosing by hand sticks: the quote does not take the pick back.
+    fireEvent.click(within(dialog).getByTestId('send-leader'));
+    const rook = (await screen.findAllByRole('option')).find((option) =>
+      /Rook/.test(option.textContent ?? ''),
+    );
+    if (!rook) throw new Error('the Overseer is not on the list');
+    fireEvent.click(rook);
+    await waitFor(() =>
+      expect(within(dialog).getByTestId('leader-fit')).toHaveTextContent(
+        /wins 2 of 6 practice fights/,
+      ),
+    );
+    expect(within(dialog).getByTestId('leader-fit')).toHaveTextContent(/Overseer/);
+  });
+
+  it('starts with the most suitable free leader and never offers nobody', async () => {
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
     const dialog = await openSend(firstOffer(MISC));
     take(dialog, 'Razors', 2);
-    await within(dialog).findByText('Nobody leads this. Research unled runs, or send somebody.');
-    expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
-
-    await lead(dialog, /Reza Malik/);
+    expect(within(dialog).getByTestId('leader-fit')).toBeInTheDocument();
+    expect(within(dialog).queryByTestId('leader-note')).toBeNull();
     expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
+
+    fireEvent.click(within(dialog).getByTestId('send-leader'));
+    const options = await screen.findAllByRole('option');
+    expect(options.map((option) => option.textContent ?? '').join(' ')).not.toMatch(/nobody/i);
   });
 });
 
@@ -478,7 +540,7 @@ describe('the board says what a job leans on, and why', () => {
     renderBoard();
     await screen.findByTestId('board-area');
 
-    const job = MISC.offers.find((offer) => offer.battleTier === null && offer.leanings.length > 0);
+    const job = MISC.offers.find((offer) => offer.kind === 'standard' && offer.leanings.length > 0);
     if (!job) throw new Error('fixture error: no job with leanings on the miscellaneous board');
     const leaning = job.leanings[0]!;
 
@@ -507,71 +569,56 @@ describe('the board says what a job leans on, and why', () => {
 });
 
 /**
- * §F1b: a job that has a blueprint page on it says so, and says only the category.
+ * §F1b: whether a job pays a blueprint page is never on the card (maintainer, 2026-09-28).
  *
- * Two separate things go wrong here and only one of them is about the badge. The badge itself is
- * the deliberate half of the design: which sheet you get is decided when the crew is home, so the
- * card names a *kind* and the player finds out the rest on the way back.
- *
- * The other half is the accident this group exists to keep from coming back. The badge first
- * shipped with the test id `offer-page-<template>`, which sits under the `offer-` prefix that both
- * the visual sweep and the layout sweep use to count the cards on a board. Three offers plus one
- * badge counted as four cards, and the count assertion is on the far side of the repo from the
- * component that broke it. So the last test here pins the namespace, not the appearance.
+ * A player learns it from the notification when a crew comes home with one, and from the Recently
+ * returned list, and not before. The offer no longer carries the field; this pins the card too,
+ * because a label left behind with a hard-coded category would still read as a promise.
  */
-describe('a job carrying a blueprint page (§F1b)', () => {
-  const withPrize = (): MissionsResponse => {
-    const [first, ...rest] = MISC.offers;
-    if (!first) throw new Error('fixture error: the miscellaneous board is empty');
-    return {
-      ...board,
-      areas: board.areas.map((area) =>
-        area.id === MISC_AREA_ID
-          ? { ...area, offers: [{ ...first, pagePrize: 'consumable' as const }, ...rest] }
-          : area,
-      ),
-    };
-  };
-
-  it('names the category on the card and never the page', async () => {
-    const [first] = MISC.offers;
-    if (!first) throw new Error('fixture error: the miscellaneous board is empty');
-    stubApi({ missions: withPrize() });
-    renderBoard();
+describe('a job and the blueprint page it might pay (§F1b)', () => {
+  it('says nothing about a page on any card', async () => {
+    stubApi();
+    const { container } = renderBoard();
     await screen.findByTestId('board-area');
 
-    const badge = await screen.findByTestId(`page-prize-${first.templateId}`);
-    expect(badge).toHaveTextContent(/page/i);
-    // The page ids live in the blueprint catalogue. None of their names may reach the card.
-    for (const spec of Object.values(BLUEPRINTS)) {
-      for (const page of spec.pages) {
-        expect(badge.textContent).not.toContain(page.name);
-      }
+    expect(container.querySelector('[data-testid^="page-prize-"]')).toBeNull();
+    for (const card of container.querySelectorAll('[data-testid^="offer-"]')) {
+      expect(card.textContent).not.toMatch(/blueprint|\bpages?\b/i);
     }
   });
+});
 
-  it('leaves a job with no page on it unbadged', async () => {
-    const rest = MISC.offers.slice(1);
-    expect(
-      rest.length,
-      'fixture error: nothing to compare the badged card against',
-    ).toBeGreaterThan(0);
-    stubApi({ missions: withPrize() });
+/**
+ * The difficulty stamp in the corner of each brief (maintainer, 2026-09-28).
+ *
+ * The grade the card was dealt, and nothing else: the same for every crew who reads it, which is
+ * the point of it (maintainer, 2026-09-28: "objective, regardless of who sees it").
+ */
+describe('the difficulty stamp', () => {
+  it('stamps every card with the grade it was dealt', async () => {
+    stubApi();
     renderBoard();
     await screen.findByTestId('board-area');
 
-    for (const offer of rest) {
-      expect(screen.queryByTestId(`page-prize-${offer.templateId}`)).toBeNull();
+    expect(MISC.offers.length, 'fixture error: the miscellaneous board is empty').toBeGreaterThan(
+      0,
+    );
+    for (const offer of MISC.offers) {
+      const card = screen.getByTestId(`offer-${offer.templateId}`);
+      const stamp = within(card).getByTestId('difficulty-stamp');
+      const mark = offer.grade;
+      expect(stamp).toHaveAttribute('data-mark', mark);
+      expect(stamp).toHaveAccessibleName(`Difficulty ${mark}`);
     }
   });
 
   it('keeps its test id out of the `offer-` namespace the card count reads', async () => {
-    stubApi({ missions: withPrize() });
+    stubApi();
     const { container } = renderBoard();
     await screen.findByTestId('board-area');
 
     const cards = container.querySelectorAll('[data-testid^="offer-"]');
-    expect(cards, 'the page badge is being counted as a mission card').toHaveLength(
+    expect(cards, 'something inside a card is being counted as a card').toHaveLength(
       MISC.offers.length,
     );
   });

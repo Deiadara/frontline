@@ -1,14 +1,18 @@
 import {
   FEATS,
   evaluateFeats,
+  findFeat,
   readyCount,
+  splitFeatReward,
   type Base,
   type FeatProgress,
   type FeatSnapshot,
+  type FeatWaste,
   type FeatsResponse,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
 import { featSnapshot, overseerSnapshot } from './snapshot.js';
+import { featClaimRoom } from './room.js';
 
 /**
  * Every threshold the catalogue asks the Overseer's sheet about.
@@ -53,10 +57,50 @@ export function projectFeats(repos: Repositories, base: Base, now: Date): FeatsR
   const progress = progressFor(repos, base);
   return {
     progress,
+    waste: wasteQuotes(repos, base, progress, now),
     ready: readyCount(progress),
     claimed: progress.filter((one) => one.state === 'claimed').length,
     serverNow: now.toISOString(),
   };
+}
+
+/**
+ * What each waiting rung would throw away if it were collected now (maintainer ruling, 2026-09-23).
+ *
+ * Ready rungs only, and nothing at all when none is waiting. That is not a micro-optimisation:
+ * `featClaimRoom` walks the garrisons, the columns, the missions, the sleepers and the allied
+ * postings to count beds, and the feats screen is refetched on almost every nudge the live channel
+ * sends. A crew with an empty backlog is the common case and pays none of it.
+ *
+ * Only the rungs that lose something are in the map, so the usual answer is `{}` and the client's
+ * test for "does this need a dialog" is a lookup that misses.
+ */
+function wasteQuotes(
+  repos: Repositories,
+  base: Base,
+  progress: readonly FeatProgress[],
+  now: Date,
+): Record<string, FeatWaste> {
+  const ready = progress.filter((one) => one.state === 'ready');
+  if (ready.length === 0) return {};
+
+  const room = featClaimRoom(repos, base, now);
+  const quotes: Record<string, FeatWaste> = {};
+  for (const one of ready) {
+    const reward = findFeat(one.id)?.reward;
+    if (reward === undefined) continue;
+    /*
+     * Each rung against the **whole** room, not against what the ones above it left.
+     *
+     * A quote answers "what happens if I press this one", and only one of them is ever pressed:
+     * the claim route pays a single feat against the room it reads for itself. Spending the
+     * ceiling down across the list, the way Collect All has to, would quote a waste on rungs that
+     * would land in full if the player took them in any other order.
+     */
+    const { wasted } = splitFeatReward(reward, room);
+    if (wasted !== undefined) quotes[one.id] = wasted;
+  }
+  return quotes;
 }
 
 /**

@@ -126,6 +126,14 @@ describe('the shelf', () => {
     }
   });
 
+  // A bid names its good off the wire, and a record index answered these with `Object`'s own
+  // methods: a function handed back where a caller expected a spec or nothing.
+  it('knows nothing by the name of an object built-in', () => {
+    for (const id of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(findBlackMarketGood(id), id).toBeUndefined();
+    }
+  });
+
   it('prices everything in infamy and nothing in anything else', () => {
     for (const id of BLACK_MARKET_GOOD_IDS) {
       const spec = BLACK_MARKET_GOODS[id];

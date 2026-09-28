@@ -3,9 +3,10 @@ import {
   findLocation,
   combineLeaderOf,
   combineLeaderAlive,
-  CITY_DISTRICTS,
+  EVERY_LOCATION,
+  cityOfDistrict,
+  districtsOfCity,
   findDistrict,
-  CITY_LOCATIONS,
   HOLDER_LABELS,
   LOCATION_CATALOG,
   describeHoldBonus,
@@ -24,6 +25,7 @@ import {
   type District,
   type DistrictDetailResponse,
   type DistrictSummary,
+  type Location,
   type LocationControl,
   type LocationView,
   type SpyReport,
@@ -34,13 +36,11 @@ import {
   upgradeNote,
   weatherAt,
   weatherLabels,
-  BUILDING_KINDS,
-  type Building,
 } from '@frontline/shared';
 import { standingEffectsFor } from '../crew/standing.js';
 import { upgradeSeconds, upgradingSince } from './upgrade.js';
-import { fortifyingSince } from './actions.js';
 import type { Repositories } from '../db/repos/index.js';
+import { isClosedPlot } from '../battle/ground.js';
 import { scoutBlocker, scoutParty, planScout } from '../scouting/scouting.js';
 import { planSpy, spyBlocker, spyRunView } from '../spying/spying.js';
 import { capturedGatesFor } from './gates.js';
@@ -74,7 +74,11 @@ export interface CityContext {
   latestSpyReport: (locationId: string) => SpyReport | null;
 }
 
-export function cityContextFor(repos: Repositories, base: Base): CityContext {
+/**
+ * @param cityId the city being looked at, for the fog. Defaults to the crew's own, which is where
+ *   every reader but the map is standing.
+ */
+export function cityContextFor(repos: Repositories, base: Base, cityId?: string): CityContext {
   const controls = repos.city.controls();
   const effects = standingEffectsFor(repos, base);
   const summaries = repos.bases.listSummaries();
@@ -87,7 +91,7 @@ export function cityContextFor(repos: Repositories, base: Base): CityContext {
     base,
     controls,
     effects,
-    visible: visibleDistricts(repos, base, controls, effects),
+    visible: visibleDistricts(repos, base, controls, effects, cityId),
     nameOf: (baseId) => names.get(baseId) ?? 'a crew nobody knows',
     latestSpyReport: (locationId) =>
       repos.spying.latestFor(base.id, { kind: 'location', locationId }) ?? null,
@@ -116,13 +120,17 @@ export function visibleDistricts(
   base: Base,
   controls: Map<string, LocationControl>,
   effects: TerritoryEffects,
+  /** The city being looked at. The crew's own unless the map has been pointed somewhere else. */
+  cityId: string = cityOfDistrict(base.districtId),
 ): Set<string> {
   // Through the admin-aware read, so the testing build sees every district it has not hidden.
-  const visible = repos.city.visibleDistricts(base.id);
+  const visible = repos.city.visibleDistricts(base.id, cityId);
   visible.add(base.districtId);
 
-  // Anywhere this crew is already standing is, self-evidently, somewhere they can see.
-  for (const location of CITY_LOCATIONS) {
+  // Anywhere this crew is already standing is, self-evidently, somewhere they can see. Read off
+  // every location in the world: ground a crew took in a second city is ground it can see into,
+  // and walking one city's catalogue left that district fogged on the holder's own map.
+  for (const location of EVERY_LOCATION) {
     const control = controls.get(location.id);
     if (control && isHeldBy(control, base.id)) visible.add(location.districtId);
   }
@@ -136,17 +144,12 @@ export function visibleDistricts(
 /**
  * The crew a residential district page is about, from the viewer's side of the fog.
  *
- * **Your own front door is always you.** New accounts are spread across the four residential
- * districts now (`quietestDistrict` in `routes/overseer.ts`), but spreading is not exclusivity: the
- * `bases` table carries no unique index on `district_id`, four districts hold any number of players,
- * and the seeded rivals live in three of them. So a district still holds as many crews as have
- * landed on it. Answering "the resident" with the first row of a `SELECT ... FROM bases` served the
- * earliest-registered player's whole structure list to every other player on the one screen
- * nobody has to scout.
- *
- * For somebody else's ground it is still the first row, but a stably ordered one
- * (`db/repos/bases.ts` orders the summary scan), so at least the map and the battle board name the
- * same crew from one request to the next.
+ * **Your own front door is always you.** A home plot holds one crew now, bots included
+ * (`takenHomes` in `routes/overseer.ts`, maintainer 2026-09-28), so for anybody else's plot there is
+ * one row to find. A database from before that rule can still hold a player on a seeded bot's plot,
+ * and there the player is the resident, as `residentOf` (`battle/ground.ts`) answers for the fight
+ * rules: the map used to take the first row, the bot, so the plate, the buildings and the raid
+ * button named one crew while every call landed on the other.
  */
 function residentSummary(
   summaries: DistrictSummary['base'][],
@@ -156,7 +159,8 @@ function residentSummary(
   if (districtId === base.districtId) {
     return summaries.find((summary) => summary?.id === base.id) ?? null;
   }
-  return summaries.find((summary) => summary?.districtId === districtId) ?? null;
+  const living = summaries.filter((summary) => summary?.districtId === districtId);
+  return living.find((summary) => summary?.isBot === false) ?? living[0] ?? null;
 }
 
 function summarise(
@@ -165,7 +169,7 @@ function summarise(
   resident: DistrictSummary['base'],
 ): DistrictSummary {
   const scouted = context.visible.has(district.id);
-  const home = CITY_DISTRICTS.find((candidate) => candidate.id === context.base.districtId);
+  const home = findDistrict(context.base.districtId);
 
   return {
     district,
@@ -193,41 +197,50 @@ function summarise(
   };
 }
 
-export function projectCity(repos: Repositories, base: Base, now: Date): CityResponse {
-  const context = cityContextFor(repos, base);
+/**
+ * The map of one city, as one crew sees it.
+ *
+ * `cityId` defaults to the city the crew is standing in, which is the answer a bare read wants and
+ * what every write that answers with the map gives back. `cityOfDistrict` walks the one edge the
+ * map carries (a crew is in a district, a district is in a city) and answers Ashfall for an id the
+ * map does not have, so a save written before the second city opened still draws the map it was
+ * written against.
+ *
+ * Any other city is a map a player is **looking at** rather than standing in (`routes/city.ts`
+ * holds that door). The fog is the same fog: a crew that has never been to Terminus is served its
+ * twelve districts with `scouted` false on every one of them and no counts at all, which is the
+ * honest answer and the one that lets the screen offer a scout instead of a locked page.
+ */
+export function projectCity(
+  repos: Repositories,
+  base: Base,
+  now: Date,
+  cityId: string = cityOfDistrict(base.districtId),
+): CityResponse {
+  const context = cityContextFor(repos, base, cityId);
   const summaries = repos.bases.listSummaries();
 
   return {
-    districts: CITY_DISTRICTS.map((district) =>
+    districts: districtsOfCity(cityId).map((district) =>
       summarise(district, context, residentSummary(summaries, district.id, base)),
     ),
-    // §B7: the gates on ground this crew holds outright. Empty for a crew that holds none.
+    /*
+     * §B7: the gates on ground this crew holds outright, in every city.
+     *
+     * Not narrowed to `cityId`, because a gate is a fact about the crew rather than about the map
+     * being looked at, and the same list is read by the screens that draw what a crew has running
+     * anywhere. The map filters to the city it is painting.
+     */
     capturedGates: capturedGatesFor(repos, base, now),
+    cityId,
     homeDistrictId: base.districtId,
     serverNow: now.toISOString(),
   };
 }
 
-/**
- * A plot as it stands before anybody builds on it: every structure at level 1.
- *
- * Not persisted and never written: it is what the *scene* needs to draw a district, for a plot that
- * has no crew on it. Ids are derived from the district and the kind so the same plot draws the same
- * way on every read, which the scene needs to keep its outlines stable between polls.
- */
-function unbuiltDistrict(districtId: string): Building[] {
-  return BUILDING_KINDS.map((kind) => ({
-    id: `${districtId}-${kind}`,
-    kind,
-    level: 1,
-    modifications: [] as string[],
-    fortification: 0,
-  }));
-}
-
 /** One location as its holder's opponent sees it, or, for a location you hold, in full. */
 function projectLocation(
-  location: (typeof CITY_LOCATIONS)[number],
+  location: Location,
   control: LocationControl,
   context: CityContext,
   now: Date,
@@ -258,15 +271,12 @@ function projectLocation(
         ? context.nameOf(control.holder.baseId)
         : HOLDER_LABELS[control.holder.kind],
     holderPlayer: control.holder.kind === 'crew' ? context.playerOf(control.holder.baseId) : null,
-    fortification: control.fortification,
-    fortifyingUntil: control.fortifyingUntil,
     // So the sheet can offer to call the work off in its first tenth (`time/cancel.ts`).
     upgradingSince: upgradingSince(location, control),
-    fortifyingSince: fortifyingSince(control),
     /*
      * Nothing about somebody else's garrison is free any more (maintainer, 2026-09-22). The
      * count used to be blurred by their counter-intel and served anyway; now the defence figure
-     * on their ground is the ground and the digging alone, the count is null, and what the crew
+     * on their ground is the ground alone, the count is null, and what the crew
      * knows is whatever its last spy report on the place said. Ours, we know exactly.
      */
     defense: mine
@@ -374,26 +384,20 @@ export function projectDistrict(
 ): DistrictDetailResponse {
   const context = cityContextFor(repos, base);
   const scouted = context.visible.has(district.id);
-  const home = CITY_DISTRICTS.find((candidate) => candidate.id === base.districtId);
+  const home = findDistrict(base.districtId);
   const unified = unifiedBonusFor(district.id);
   const resident = residentSummary(repos.bases.listSummaries(), district.id, base);
   /*
    * What is standing on their ground. Read behind the fog like everything else: you cannot describe
    * a street you have never walked down.
    *
-   * A plot **nobody has moved into** draws a district at level 1 rather than nothing at all. The
-   * screen for another crew's home is the district scene, and an empty plot used to render as one
-   * sentence saying nobody was there: a hole where every other plot has a place. Every plot is the
-   * same ground, so an unoccupied one is honestly drawn as that ground before anybody built on it,
-   * which is also exactly what a crew moving in would start from.
+   * A plot **nobody has moved into** is closed until a crew claims it (maintainer, 2026-09-28), so it
+   * draws nothing. It used to draw a level-1 district, so a crew could walk the streets of a plot
+   * that is nobody's.
    */
-  const residentBuildings = !scouted
-    ? []
-    : resident
-      ? (repos.bases.findById(resident.id)?.buildings ?? [])
-      : district.kind === 'residential'
-        ? unbuiltDistrict(district.id)
-        : [];
+  const closed = isClosedPlot(repos, district, base);
+  const residentBuildings =
+    !scouted || closed ? [] : resident ? (repos.bases.findById(resident.id)?.buildings ?? []) : [];
 
   return {
     district,
@@ -417,6 +421,7 @@ export function projectDistrict(
     unified: unified ? { title: unified.title, effect: describeHoldBonus(unified.bonus) } : null,
     base: district.kind === 'residential' ? resident : null,
     residentBuildings: district.kind === 'residential' ? residentBuildings : [],
+    closed,
     raidable:
       resident !== null &&
       resident.id !== base.id &&
@@ -425,7 +430,9 @@ export function projectDistrict(
     // Quoted only where it could be acted on. A price beside ground you have already walked is
     // noise, and one beside your own front door is nonsense.
     scoutPlan:
-      scouted || district.id === base.districtId ? null : quoteScout(repos, base, district, now),
+      scouted || closed || district.id === base.districtId
+        ? null
+        : quoteScout(repos, base, district, now),
     scoutBlocker: scoutBlocker(base),
     spyRun: spyRunView(repos, base),
     // Quoted where a job could be sent: open ground somebody else holds. The tier is the

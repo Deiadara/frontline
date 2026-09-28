@@ -4,7 +4,7 @@ import {
   mulberry32,
   seedFrom,
   type Army,
-  type BattleTier,
+  type Grade,
 } from '@frontline/shared';
 
 /**
@@ -17,91 +17,105 @@ import {
  * - **Deterministic on the row's seed.** Two reads of the same finished run cannot disagree about
  *   what the crew walked into, and a player who closes the tab gets the fight they would have got
  *   watching the timer.
- * - **Worth what the tier says it is worth.** `enemyStrength` is the yardstick the card's band is
- *   read off (`missions.leading.ts`), so a force that came out 40% under it would make the band a
+ * - **Worth what the grade says it is worth.** `enemyStrength` is the yardstick the card's band is
+ *   read off (`missions.grade.ts`), so a force that came out 40% under it would make the band a
  *   lie. The composition behind the figure is the job's secret; the weight is not.
  *
- * What is *not* here is a difficulty knob. A Fight V is a Fight V at level 1 and at level 40;
- * what changes with the crew's level is the figure `enemyStrength` returns, which is the same
- * curve the odds already scale on, and which tier the board deals (`dealBattleTier`).
+ * What is *not* here is a difficulty knob. A B+ is a B+ whoever meets it: the crew's level decides
+ * which grades it is dealt and nothing about the fight (maintainer, 2026-09-28).
  */
 
-/** One line of a tier's order of battle: who, and what share of the tier's strength they are. */
+/** One line of a grade's order of battle: who, and what share of its strength they are. */
 export interface EnemyDraw {
   unitId: string;
-  /** Share of the tier's total strength, before the roll moves it. The lines sum to 1. */
+  /** Share of the grade's total strength, before the roll moves it. The lines sum to 1. */
   share: number;
 }
 
 /**
- * What each tier fields.
+ * Who a fight fields, by its grade's letter (2026-09-28).
  *
- * Six rungs from the street to the Combine's armour (maintainer, 2026-09-23). Each roster is
- * annotated inline; the odd rungs are the three the ladder had, the even ones sit between them,
- * and the Siege is the top rung with more of the heaviest sheet on it.
+ * The six rosters the Fight I to V ladder and the Siege used, one per letter from F to A, and a
+ * seventh for Mayhem with the heaviest sheet at the front. The letter sets who turns up and the
+ * grade sets how many (`GRADE_ENEMY_STRENGTH`), so a C- and a C+ are the same people in different
+ * numbers.
  */
-export const ENEMY_TIER_ROSTERS: Readonly<Record<BattleTier, readonly EnemyDraw[]>> = {
-  // Fight I is the street: razors and scrapers, people with a pipe and a grudge.
-  fight_1: [
+export const ENEMY_ROSTERS: Readonly<Record<string, readonly EnemyDraw[]>> = {
+  // F is the street: razors and scrapers, people with a pipe and a grudge.
+  F: [
     { unitId: 'razors', share: 0.65 },
     { unitId: 'scrapers', share: 0.35 },
   ],
-  // Fight II: the street with ash walkers behind it, who do not stop.
-  fight_2: [
+  // E: the street with ash walkers behind it, who do not stop.
+  E: [
     { unitId: 'razors', share: 0.45 },
     { unitId: 'scrapers', share: 0.25 },
     { unitId: 'ash_walkers', share: 0.3 },
   ],
-  // Fight III puts Combine muscle in the middle: a warden squad holding the line.
-  fight_3: [
+  // D puts Combine muscle in the middle: a warden squad holding the line.
+  D: [
     { unitId: 'razors', share: 0.35 },
     { unitId: 'scrapers', share: 0.15 },
     { unitId: 'ash_walkers', share: 0.2 },
     { unitId: 'wardens', share: 0.3 },
   ],
-  // Fight IV: wardens with breakers and a sniper on something high, and no street left.
-  fight_4: [
+  // C: wardens with breakers and a sniper on something high, and no street left.
+  C: [
     { unitId: 'wardens', share: 0.35 },
     { unitId: 'ash_walkers', share: 0.2 },
     { unitId: 'breakers', share: 0.25 },
     { unitId: 'snipers', share: 0.2 },
   ],
-  // Fight V is what the Combine sends when it means it, and it is mostly armour.
-  fight_5: [
+  // B is what the Combine sends when it means it, and it is mostly armour.
+  B: [
     { unitId: 'wardens', share: 0.3 },
     { unitId: 'breakers', share: 0.25 },
     { unitId: 'snipers', share: 0.15 },
     { unitId: 'juggernauts', share: 0.3 },
   ],
-  // The Siege: the armour, and more of the heaviest of it.
-  siege: [
+  // A: the armour, and more of the heaviest of it.
+  A: [
     { unitId: 'wardens', share: 0.2 },
     { unitId: 'breakers', share: 0.25 },
     { unitId: 'snipers', share: 0.15 },
     { unitId: 'juggernauts', share: 0.4 },
   ],
+  // S, Mayhem: the heaviest sheet at the front and the rest there to keep it standing.
+  S: [
+    { unitId: 'wardens', share: 0.15 },
+    { unitId: 'breakers', share: 0.2 },
+    { unitId: 'snipers', share: 0.15 },
+    { unitId: 'juggernauts', share: 0.5 },
+  ],
 };
+
+/** The roster a grade draws from, off its letter. */
+export function rosterFor(grade: Grade): readonly EnemyDraw[] {
+  const roster = ENEMY_ROSTERS[grade[0] ?? 'F'];
+  if (!roster) throw new Error(`no enemy roster for grade ${grade}`);
+  return roster;
+}
 
 /**
  * How far the roll moves one line's share, either way.
  *
- * A quarter, so the same tier at the same level is not the same fight twice: a skirmish that comes
+ * A quarter, so the same grade is not the same fight twice: a skirmish that comes
  * out mostly scrapers is a different problem from one that comes out mostly razors, and neither is
- * a harder or an easier one, because the total is corrected back to the tier's figure afterwards.
+ * a harder or an easier one, because the total is corrected back to the grade's figure afterwards.
  */
 export const ENEMY_MIX_VARIANCE = 0.25;
 
 /**
- * How close to the tier's figure the built force lands, as a share of it.
+ * How close to the grade's figure the built force lands, as a share of it.
  *
  * Units are lumpy: the cheapest sheet on the skirmish roster is worth 175 on `fieldStrength` and
- * a skirmish fields 1,400, so a whole unit is an eighth of the job. The fill below adds and drops
- * that cheapest sheet while doing so moves the total *closer* to the figure, which bounds the
- * error at half a unit, and this is that bound written as a fraction of the smallest tier.
+ * an F- fields 1,600, so a whole unit is a ninth of the job. The fill below adds and drops that
+ * cheapest sheet while doing so moves the total *closer* to the figure, which bounds the error at
+ * half a unit, and this is that bound written as a fraction of the smallest grade.
  */
 export const ENEMY_STRENGTH_TOLERANCE = 0.07;
 
-/** What one of these is worth on the same yardstick the tier figures are quoted in. */
+/** What one of these is worth on the same yardstick the grade figures are quoted in. */
 function unitStrength(unitId: string): number {
   return fieldStrength({ [unitId]: 1 });
 }
@@ -114,15 +128,15 @@ function rolledShares(roster: readonly EnemyDraw[], next: () => number): number[
 }
 
 /**
- * The force a battle job fields, at a crew's level, off the mission's own seed.
+ * The force a battle job fields at its grade, off the mission's own seed.
  *
  * Every line gets at least one body: a roster that rolled a line down to nothing would quietly
  * turn a siege into a fight with more wardens in it, and the composition is the half of this the
  * card deliberately does not print.
  */
-export function enemyForce(tier: BattleTier, level: number, seed: string): Army {
-  const roster = ENEMY_TIER_ROSTERS[tier];
-  const target = enemyStrength(tier, level);
+export function enemyForce(grade: Grade, seed: string): Army {
+  const roster = rosterFor(grade);
+  const target = enemyStrength(grade);
   const next = mulberry32(seedFrom(`${seed}:enemy`));
   const shares = rolledShares(roster, next);
 

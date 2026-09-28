@@ -1,6 +1,7 @@
 export * from './perks.js';
 export * from './perk-worth.js';
 export * from './effects.js';
+export * from './leading.js';
 export * from './importance.js';
 export * from './training.js';
 export * from './marks.js';

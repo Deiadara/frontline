@@ -8,6 +8,7 @@ import {
   drillEndsAt,
   findUnit,
   queueCompletesAt,
+  researchCompletesAt,
   splitDueQueue,
   xpForClock,
   type Base,
@@ -22,7 +23,7 @@ import type { Repositories } from '../db/repos/index.js';
 import { tallyBuildingRaised, tallyResourcesEarned } from '../feats/tally.js';
 import { crewEffectsFor, standingEffectsFor } from '../crew/standing.js';
 import { settleTrainingFor } from '../crew/training.js';
-import { awardPlayerXp } from '../progression/award.js';
+import { awardPlayerXp, settleRetunedCurve } from '../progression/award.js';
 import { settleResearchFor } from '../research/settle.js';
 import { settleTraining } from '../units/training.js';
 import { notifyBase } from '../social/notify.js';
@@ -275,29 +276,95 @@ export function settleDistrict(repos: Repositories, base: Base, now: Date): Dist
  * before they were eaten; no recurring charge is left in the game, so what is left is production
  * and then the batches it paid for.
  *
- * The Lab is third, and it is here because it was nowhere. `settleResearch` ran on the two
- * research routes alone, so a rung that landed while the player was on any other screen was not
- * finished: not in `technologies`, so every door it opens stayed shut, and its receipt did not
- * ring until the player opened the page it points at. It goes last because nothing above it reads
- * a technology, and its own due check keeps a read that finished nothing to one comparison.
- *
- * The drills go **first**, and they were in the same place the Lab was: `settleTrainingFor` ran on
- * the Training tab's routes and nowhere else, so an hour that finished while the player was on
- * any other screen stayed unpaid. The point it buys is not decoration: `crewEffectsFor` and
- * `standingEffectsFor` read the sheets on every settle below, so a Chemistry drill that landed at
- * 09:00 priced nothing until the tab was opened, and a player who never opens it has a crew that
- * never learns. Before the district rather than after, because the district's own settle is what
- * reads the sheet. The due check is one comparison over the sessions in flight, so a read with
- * nothing finished pays for no lookup.
+ * The Lab and the drills are here because they were nowhere. `settleResearch` ran on the two
+ * research routes alone and `settleTrainingFor` on the Training tab's, so a rung or an hour that
+ * finished while the player was on any other screen stayed unpaid: every door the rung opens shut,
+ * the sheet unmoved, the receipt silent until the player opened the page it points at. Both land
+ * *inside* the district's walk rather than before or after it, at the instant they finished
+ * (`crewChangesDue`), because `crewEffectsFor` reads the sheets and the Lab to price production:
+ * settled before the district they were back-dated over the whole window, and after it they were
+ * ignored for the rest of it. The due check is one comparison over the clocks in flight, so a read
+ * with nothing finished pays for no lookup.
  */
 export function settleBase(repos: Repositories, base: Base, now: Date): DistrictSettlement {
-  const drilled = base.training.sessions.some((session) => drillEndsAt(session) <= now.getTime())
-    ? settleTrainingFor(repos, base, now.toISOString()).base
-    : base;
-  const district = settleDistrict(repos, drilled, now);
+  /*
+   * One transaction (hardening pass, 2026-09-27). The settle writes the district, the stockpile,
+   * the economy and the tallies as separate statements, and it runs on nearly every read: as
+   * separate commits that was a disk sync apiece, and a failure between the stockpile and the
+   * economy stamp would have let the next read credit the same stretch of production again.
+   * `repos.tx` nests as a savepoint when a route already holds a transaction.
+   */
+  return repos.tx(() => settleBaseNow(repos, base, now));
+}
+
+/**
+ * Every crew named, settled to `now`, each once. Ids with no row are skipped.
+ *
+ * For code that is about to read or write crews other than the one asking: a fight, a change of
+ * who holds a location. The row is read fresh here, so a caller must re-read any base it holds
+ * after this rather than write back the copy it had.
+ */
+export function settleBasesById(
+  repos: Repositories,
+  ids: Iterable<string | null | undefined>,
+  now: Date,
+): void {
+  for (const id of new Set(ids)) {
+    const base = id ? repos.bases.findById(id) : undefined;
+    if (base) settleBase(repos, base, now);
+  }
+}
+
+/**
+ * The instants inside this window where the crew itself changes: a drill landing on a sheet, a Lab
+ * rung landing on `technologies`. Oldest first, and none at or after `now`'s own settle.
+ *
+ * Both move what the district makes (`crewEffectsFor` reads the sheets and the Lab for Engineering,
+ * Chemistry and Logistics), so both are cuts in the timeline exactly as a finished build is.
+ */
+function crewChangesDue(base: Base, now: Date): number[] {
+  const at = now.getTime();
+  const instants = base.training.sessions.map(drillEndsAt);
+  if (base.research.active) instants.push(researchCompletesAt(base.research.active).getTime());
+  return [...new Set(instants.filter((instant) => instant <= at))].sort((a, b) => a - b);
+}
+
+function settleBaseNow(repos: Repositories, base: Base, now: Date): DistrictSettlement {
+  /*
+   * The window is walked in stretches, one per change to the crew (audit, 2026-09-28).
+   *
+   * The district is priced against one reading of the crew for the whole window, so the order the
+   * clocks settled in decided which reading that was. Drills went first and the Lab last: an hour
+   * of Chemistry that finished at 09:00 was paid across a window that began at 03:00, and a
+   * Logistics rung that finished at 09:00 was not paid at all until the next read. Now the
+   * district settles up to each change, the change lands, and the next stretch is priced with it.
+   * A read with nothing finished has no changes and costs what it did.
+   */
+  let current = settleRetunedCurve(repos, base);
+  const completed: BuildQueueEntry[] = [];
+  const awards: PlayerXpAward[] = [];
+  const settleDistrictTo = (at: Date): void => {
+    const district = settleDistrict(repos, current, at);
+    current = district.base;
+    completed.push(...district.completed);
+    awards.push(...district.awards);
+  };
+  for (const instant of crewChangesDue(current, now)) {
+    // Never behind the production clock: a stretch already paid for is not walked twice.
+    const since = current.economy.productionSettledAt;
+    const at = new Date(since === null ? instant : Math.max(instant, Date.parse(since)));
+    settleDistrictTo(at);
+    if (current.training.sessions.some((session) => drillEndsAt(session) <= instant)) {
+      current = settleTrainingFor(repos, current, at.toISOString()).base;
+    }
+    const researched = settleResearchFor(repos, current, at);
+    current = researched.base;
+    awards.push(...researched.awards);
+  }
+  settleDistrictTo(now);
+  const district = { base: current, completed, awards };
   // Training second: a batch landing does not feed anything else in the settle.
   const trained = settleTraining(repos, district.base, now);
-  const researched = settleResearchFor(repos, trained.base, now);
 
   /*
    * The receipts, written once, here.
@@ -338,8 +405,8 @@ export function settleBase(repos: Repositories, base: Base, now: Date): District
   }
 
   return {
-    ...district,
-    base: researched.base,
-    awards: [...district.awards, ...trained.awards, ...researched.awards],
+    base: trained.base,
+    completed: district.completed,
+    awards: [...district.awards, ...trained.awards],
   };
 }

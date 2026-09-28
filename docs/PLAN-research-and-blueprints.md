@@ -163,8 +163,9 @@ player reads.
 ### F1. Missions (the common way)
 
 - [x] F1a. Pages turn up as random mission rewards.
-- [x] F1b. Before the mission, the reward line says only the **category**: an Upgrade Blueprint's
-      Page, a Consumable Blueprint's Page, or a Unit Blueprint's Page.
+- [x] F1b. Before the mission, the card says **nothing** about a page, not even the category
+      (maintainer, 2026-09-28, replacing the category line it used to carry). A player learns of
+      one from the notification on a successful return and from the Recently returned list.
 - [x] F1c. It does **not** say which page.
 - [x] F1d. Duplicates are possible.
 - [x] F1e. The page arrives **on completion**, into the inventory.

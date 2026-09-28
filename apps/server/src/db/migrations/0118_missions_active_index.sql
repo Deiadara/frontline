@@ -1,0 +1,11 @@
+-- The world tick asks "which crews have a run out" once a second, for ever.
+--
+-- `basesWithActiveRuns` is `SELECT DISTINCT base_id FROM missions WHERE status = 'active'`, and the
+-- best plan available to it was a SCAN of a covering index: it never touched the table, but it read
+-- every row of that index, and nothing ever deletes a mission. So the cost of one tick grew with
+-- every job any crew had ever run, in a query that runs sixty times a minute.
+--
+-- Leading on `status` turns the scan into a search: the planner seeks straight to the active rows
+-- and walks only those, which is a handful at any moment however long the world has been up. It is
+-- still covering, so the table is still never touched.
+CREATE INDEX IF NOT EXISTS idx_missions_status_base ON missions (status, base_id);

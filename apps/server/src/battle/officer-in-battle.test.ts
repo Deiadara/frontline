@@ -27,6 +27,7 @@ import {
   upgradedStats,
   type ApiError,
   type BattlesResponse,
+  type DeployQuoteResponse,
   type BattleTarget,
   type SideAnalysis,
   type SkirmishEngine,
@@ -41,6 +42,7 @@ import { crewEffectsFor, crewSheetsFor, standingEffectsFor } from '../crew/stand
 import { officerTravelMinutesTo, settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { everybodyHome } from '../testing/walk.js';
 
 /**
  * Officers on the field, end to end (§D, §B10, §C3).
@@ -71,12 +73,12 @@ afterEach(async () => {
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('rustyard')?.locations ?? []).map(
+const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('steelbelt')?.locations ?? []).map(
   (location) => location.id,
 );
 
 const SQUATTED: string = (() => {
-  const district = findDistrict('rustyard');
+  const district = findDistrict('steelbelt');
   const held = district?.locations.find(
     (location) => startingHolder(location, district).kind !== 'unoccupied',
   );
@@ -84,7 +86,7 @@ const SQUATTED: string = (() => {
   return held.id;
 })();
 
-const PRESS: BattleTarget = { kind: 'location', districtId: 'rustyard', locationId: SQUATTED };
+const PRESS: BattleTarget = { kind: 'location', districtId: 'steelbelt', locationId: SQUATTED };
 
 async function makeStack(engine?: SkirmishEngine, username = 'leader'): Promise<Stack> {
   const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
@@ -112,9 +114,9 @@ async function makeStack(engine?: SkirmishEngine, username = 'leader'): Promise<
   const purse = app.repos.bases.findById(baseId)!.economy;
   app.repos.bases.updateEconomy(baseId, { ...purse, infamy: DECLARE_INFAMY_COST * 8 });
 
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
-  const ramp = app.repos.city.control('rustyard-ramp')!;
+  const ramp = app.repos.city.control('steelbelt-ramp')!;
   app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });
 
   return { app, db, token, baseId };
@@ -237,6 +239,28 @@ describe('naming a leader (§D1)', () => {
     expect(engine.seen[0]!.attackerOfficer).toBeUndefined();
   });
 
+  /**
+   * Bug pass, 2026-09-28: a benched officer is inert, and a fight named before that rule (the
+   * seat route refuses to bench somebody named now) must not be led by one at the mark.
+   */
+  it('sends nobody when the officer named has since been benched', async () => {
+    const engine = spy('attacker');
+    const stack = await makeStack(engine);
+    const officer = hire(stack);
+    const battleId = await declare(stack);
+    expect((await lead(stack, battleId, officer.id)).statusCode).toBe(200);
+    await deploy(stack, battleId, { razors: 10 });
+    const base = stack.app.repos.bases.findById(stack.baseId)!;
+    stack.app.repos.bases.updateCommanders(
+      base.id,
+      base.commanders.map((one) => (one.id === officer.id ? { ...one, role: null } : one)),
+    );
+    bringForward(stack, battleId, new Date(Date.now() - 1000));
+    settleBattles(stack.app.repos, engine, new Date());
+
+    expect(engine.seen[0]!.attackerOfficer).toBeUndefined();
+  });
+
   it('refuses an officer who is still laid up (§D4)', async () => {
     const stack = await makeStack();
     const hurt = hire(stack, 'off-hurt', new Date(Date.now() + 3_600_000).toISOString());
@@ -299,7 +323,7 @@ describe('the road an officer has to take (§D1)', () => {
 
     const base = stack.app.repos.bases.findById(stack.baseId)!;
     const home = findDistrict(base.districtId)!;
-    const target = findDistrict('rustyard')!;
+    const target = findDistrict('steelbelt')!;
     const effects = standingEffectsFor(stack.app.repos, base);
     const road = (speed: number) =>
       travelMinutesBetween(home, target, {
@@ -323,8 +347,13 @@ describe('the road an officer has to take (§D1)', () => {
     const byDistance = CITY_DISTRICTS.filter((district) => district.id !== base.districtId).sort(
       (a, b) => mapDistance(home.position, a.position) - mapDistance(home.position, b.position),
     );
-    const minutesTo = (districtId: string) =>
-      officerTravelMinutesTo(stack.app.repos, base, districtId, officer, {});
+    // The road answers `null` for ground it cannot price, and every district in this sweep is on
+    // the map, so a `null` here is the test's own fixture having gone wrong.
+    const minutesTo = (districtId: string) => {
+      const minutes = officerTravelMinutesTo(stack.app.repos, base, districtId, officer, {});
+      expect(minutes, districtId).not.toBeNull();
+      return minutes!;
+    };
     expect(minutesTo(byDistance[0]!.id)).toBeLessThan(
       minutesTo(byDistance[byDistance.length - 1]!.id),
     );
@@ -369,6 +398,60 @@ describe('the road an officer has to take (§D1)', () => {
     expect(led, 'naming a leader took nothing off the road they promised to shorten').toBeLessThan(
       alone,
     );
+  });
+
+  /**
+   * §C3: the figure the deploy window quotes is the road the column then walks.
+   *
+   * The window cannot work the road out itself, so it asks (`POST /battles/deploy/quote`): the
+   * march is spent with `standingEffectsFor`, which folds the crew's ground, and the client only
+   * ever receives the people-only fold. The quote read the *unled* fold while the send read the led
+   * one, so a crew that had named an officer was told a march up to a tenth longer than the one it
+   * got, and `columnMinutesTo`'s own doc claimed the two could not disagree.
+   *
+   * Both worlds are asserted equal, and the led one is asserted shorter than the other, because
+   * equality alone is what a quote that ignores the leader also passes: it agrees with a send that
+   * ignores the leader too, and the perk being worth nothing is the bug next door.
+   */
+  it('quotes the road the column actually walks, leader and all', async () => {
+    const quoted = async (named: boolean): Promise<{ said: number; walked: number }> => {
+      const stack = await makeStack(undefined, named ? 'quoted_led' : 'quoted_alone');
+      const officer = { ...hire(stack), perks: [SHORT_WAY] };
+      const base = stack.app.repos.bases.findById(stack.baseId)!;
+      stack.app.repos.bases.updateCommanders(base.id, [officer]);
+
+      const battleId = await declare(stack);
+      if (named) {
+        const took = await lead(stack, battleId, officer.id);
+        expect(took.statusCode, took.body.slice(0, 200)).toBe(200);
+      }
+
+      const said = await stack.app.inject({
+        method: 'POST',
+        url: '/api/battles/deploy/quote',
+        headers: auth(stack.token),
+        payload: { battleId, changes: { razors: 4 }, perimeterChanges: {} },
+      });
+      expect(said.statusCode, said.body.slice(0, 200)).toBe(200);
+      const minutes = said.json<DeployQuoteResponse>().minutes;
+
+      await deploy(stack, battleId, { razors: 4 });
+      const movement = stack.app.repos.movements
+        .forBattle(battleId)
+        .find((one) => one.baseId === stack.baseId);
+      if (!movement) throw new Error('fixture: the column never left');
+      const road = Date.parse(movement.arrivesAt) - Date.parse(movement.departedAt);
+      return { said: minutes, walked: Math.round(road / 60_000) };
+    };
+
+    const alone = await quoted(false);
+    const led = await quoted(true);
+    expect(alone.said, 'the window quoted a march nobody walks').toBe(alone.walked);
+    expect(led.said, 'the window quoted a march nobody walks').toBe(led.walked);
+    expect(
+      led.said,
+      'naming a leader moved neither figure, so the pair agree about nothing',
+    ).toBeLessThan(alone.said);
   });
 
   /**
@@ -568,6 +651,21 @@ describe('an injured officer is out of the room (§D4)', () => {
   });
 });
 
+/**
+ * Razors on the roster plus Razors standing on ground the crew holds. Winners hold what they took
+ * (maintainer, 2026-09-28), so a won location's survivors are its garrison rather than back home.
+ */
+function razorsKept(stack: Stack): number {
+  const home = stack.app.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
+  let held = 0;
+  for (const control of stack.app.repos.city.controls().values()) {
+    if (control.holder.kind === 'crew' && control.holder.baseId === stack.baseId) {
+      held += control.garrison.razors ?? 0;
+    }
+  }
+  return home + held;
+}
+
 describe('the Infirmary gets some of the dead back (§B10)', () => {
   it('adds the structure to whatever the crew was already recovering, on a win', async () => {
     const stack = await makeStack();
@@ -591,14 +689,14 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     await deploy(stack, battleId, { razors: 20 });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, engine, new Date());
+    everybodyHome(stack.app.repos);
 
     // 20 sent, 10 lost outright, and the Infirmary hands some of the ten back.
     const expectedDead =
       recoverCasualties({ razors: 10 }, 8 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL).razors ?? 0;
     expect(expectedDead).toBeLessThan(10);
-    const home = stack.app.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
-    // 30 trained, 20 sent, so 10 stayed at home and the survivors joined them.
-    expect(home).toBe(10 + (20 - expectedDead));
+    // 30 trained, 20 sent, so 10 stayed at home and the survivors hold the ground they took.
+    expect(razorsKept(stack)).toBe(10 + (20 - expectedDead));
   });
 
   /**
@@ -676,6 +774,8 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
             trap: null,
             legends: [],
             headline: 'Taken.',
+            spoils: {},
+            target: 'location',
             brokeThrough: true,
             weather: 'normal',
             ground: [],
@@ -698,6 +798,7 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     await deploy(stack, battleId, { razors: SENT });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     const [resolved] = settleBattles(stack.app.repos, engine, new Date());
+    everybodyHome(stack.app.repos);
     if (!resolved) throw new Error('fixture: the fight did not resolve');
 
     const recovery = 20 * CASUALTY_RECOVERY_PER_INFIRMARY_LEVEL;
@@ -716,8 +817,7 @@ describe('the Infirmary gets some of the dead back (§B10)', () => {
     expect(reported.units.reduce((sum, unit) => sum + unit.survived, 0)).toBe(reported.survived);
 
     // And the roster it is supposed to agree with. 30 on the books, `deploy` sends SENT of them.
-    const home = stack.app.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
-    expect(home).toBe(30 - SENT + (SENT - expectedDead));
+    expect(razorsKept(stack)).toBe(30 - SENT + (SENT - expectedDead));
 
     // The loser recovers nobody: a routed force leaves its wounded where they fell.
     expect(resolved.analysis.defender.lost).toBe(5);
@@ -768,6 +868,7 @@ describe('taking machines to a fight (§C3)', () => {
     const engine = spy('attacker', { winnerLosses: {} });
     bringForward(won, wonBattle, new Date(Date.now() - 1000));
     settleBattles(won.app.repos, engine, new Date());
+    everybodyHome(won.app.repos);
     expect(won.app.repos.bases.findById(won.baseId)!.fleet).toEqual({ motorcycle: 2 });
 
     const lost = await makeStack(undefined, 'lost');
@@ -779,6 +880,7 @@ describe('taking machines to a fight (§C3)', () => {
     const wipe = spy('defender', { killed: { razors: 4 }, fled: {} });
     bringForward(lost, lostBattle, new Date(Date.now() - 1000));
     settleBattles(lost.app.repos, wipe, new Date());
+    everybodyHome(lost.app.repos);
     expect(lost.app.repos.bases.findById(lost.baseId)!.fleet).toEqual({});
   });
 
@@ -838,6 +940,7 @@ describe('taking machines to a fight (§C3)', () => {
     const wipe = spy('defender', { killed: { razors: 10 }, fled: {} });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, wipe, new Date());
+    everybodyHome(stack.app.repos);
     expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ armoured_car: 1 });
   });
 
@@ -858,7 +961,7 @@ describe('taking machines to a fight (§C3)', () => {
      * test is about. `makeStack` hands the crew every location in the Rustyard, the yard among
      * them, so without this the Colossus takes a seat and the wagon is correctly wrecked with it.
      */
-    const yard = stack.app.repos.city.control('rustyard-bonefield')!;
+    const yard = stack.app.repos.city.control('steelbelt-bonefield')!;
     stack.app.repos.city.put({ ...yard, holder: { kind: 'unoccupied' }, garrison: {} });
     park(stack, { armoured_car: 1 });
     const base = stack.app.repos.bases.findById(stack.baseId)!;
@@ -882,6 +985,7 @@ describe('taking machines to a fight (§C3)', () => {
     const wipe = spy('defender', { killed: { the_colossus: 1 }, fled: {} });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, wipe, new Date());
+    everybodyHome(stack.app.repos);
     expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ armoured_car: 1 });
   });
 
@@ -932,6 +1036,7 @@ describe('taking machines to a fight (§C3)', () => {
     const cost = spy('attacker', { winnerLosses: { juggernauts: 1 } });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, cost, new Date());
+    everybodyHome(stack.app.repos);
     expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ scrap_car: 1 });
   });
 
@@ -944,6 +1049,7 @@ describe('taking machines to a fight (§C3)', () => {
     const engine = spy('defender', { killed: {}, fled: {} });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, engine, new Date());
+    everybodyHome(stack.app.repos);
     expect(stack.app.repos.bases.findById(stack.baseId)!.fleet).toEqual({ motorcycle: 2 });
   });
 
@@ -1128,6 +1234,7 @@ describe('taking machines to a fight (§C3)', () => {
     const engine = spy('attacker', { winnerLosses: {} });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, engine, new Date());
+    everybodyHome(stack.app.repos);
     expect(stack.app.repos.bases.findById(allyId)!.fleet).toEqual({ motorcycle: 3 });
   });
 
@@ -1158,10 +1265,10 @@ describe('taking machines to a fight (§C3)', () => {
 describe('an officer cannot lead two fights at once', () => {
   /** A second location in the same district, so the crew can have two fights coming at once. */
   const SECOND: BattleTarget = (() => {
-    const district = findDistrict('rustyard');
+    const district = findDistrict('steelbelt');
     const other = district?.locations.find((location) => location.id !== SQUATTED);
     if (!other) throw new Error('the Rustyard has only one location');
-    return { kind: 'location', districtId: 'rustyard', locationId: other.id };
+    return { kind: 'location', districtId: 'steelbelt', locationId: other.id };
   })();
 
   it('refuses the second fight, and says where they already are', async () => {
@@ -1263,7 +1370,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
     takeRustyard(stack, rivalId);
     if (gateLevel !== null) {
       stack.app.repos.capturedGates.put({
-        districtId: 'rustyard',
+        districtId: 'steelbelt',
         level: gateLevel,
         upgradingTo: null,
         upgradingUntil: null,
@@ -1271,12 +1378,12 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
       });
     }
 
-    const battleId = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const battleId = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     await deploy(stack, battleId, { razors: 4 });
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, engine, new Date());
 
-    return engine.seen[0]?.defenderTerritory?.defensePercent ?? 0;
+    return engine.seen[0]?.defenderTerritory?.gatePercent ?? 0;
   }
 
   /** A rival crew living in the Rustyard, so the district has somebody to defend it. */
@@ -1294,7 +1401,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
       id: 'rival-base',
       ownerId: 'rival-user',
       name: 'The Other Crew',
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       army: { razors: 10 },
       commanders: [],
     };
@@ -1343,7 +1450,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
     const rivalId = plantRustyardRival(stack);
     takeRustyard(stack, rivalId);
     stack.app.repos.capturedGates.put({
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       level: 12,
       upgradingTo: null,
       upgradingUntil: null,
@@ -1361,7 +1468,7 @@ describe('a captured gate in the fight it stands over (§B7)', () => {
     bringForward(stack, battleId, new Date(Date.now() - 1000));
     settleBattles(stack.app.repos, engine, new Date());
 
-    const defence = engine.seen[0]?.defenderTerritory?.defensePercent ?? 0;
+    const defence = engine.seen[0]?.defenderTerritory?.gatePercent ?? 0;
     // Whatever else the defenders have, none of it is the twelve-level wall.
     expect(defence).toBeLessThan(capturedGateDefensePercent(12));
   });

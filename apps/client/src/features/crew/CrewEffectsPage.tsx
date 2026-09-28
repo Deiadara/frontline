@@ -13,7 +13,7 @@ import { PageShell } from '../game/PageShell';
  * Its own screen, reached from the crew page, rather than the bottom two thirds of the overseer's
  * own file. It was on that file because the numbers are computed from the same sheet, which is a
  * reason about the code rather than about the reader: the file is *who you are*, and this is a
- * ledger of what nineteen people between them are worth to the district. Two subjects, two screens.
+ * ledger of what eighteen people between them are worth to the district. Two subjects, two screens.
  *
  * Every number here is the **best** figure anybody on the books has, the reader included. That is
  * the rule the whole page rests on and it is the one thing a player has to be told, so it is said

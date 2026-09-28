@@ -7,6 +7,16 @@ import {
   missionBoardKey,
   missionOffers,
   templateTimings,
+  areaIsOpen,
+  cityOfDistrict,
+  districtsOfCity,
+  MAX_ATTRIBUTE,
+  RESOURCE_KG,
+  TacticalSkirmishEngine,
+  bestFitParty,
+  carriedHome,
+  missionCarry,
+  missionRewards,
   createCommander,
   makeAttributes,
   boardIsAutomated,
@@ -14,6 +24,10 @@ import {
   startingProgression,
   startingResearch,
   startingTraining,
+  findMissionTemplate,
+  missionOdds,
+  composeProfile,
+  leaningsFor,
   type Automation,
   type Base,
 } from '@frontline/shared';
@@ -21,8 +35,12 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { createRepositories, type Repositories } from '../db/repos/index.js';
-import { settleAutomations } from './runners.js';
+import { STALL_RETRY_MS, settleAutomations } from './runners.js';
+import { enemyForce } from '../missions/enemy.js';
+import { areaStatesFor } from '../missions/board.js';
 import { tickWorld } from '../live/clock.js';
+import { fightChanceFor } from '../missions/fight-leaders.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
 import { skirmishOutcome, type SkirmishEngine } from '@frontline/shared';
 
@@ -112,6 +130,25 @@ function slot(repos: Repositories, base: Base, over: Partial<Automation> = {}): 
   return automation;
 }
 
+/**
+ * The boards a crew's standing order reads, by the runner's own rule: the misc board and every
+ * district of the crew's city the board screen would draw (`areaIsOpen`). A test that priced every
+ * district in the city was pricing boards the runner cannot see, and passed only while the best
+ * job happened to sit on one it could.
+ */
+function openAreas(repos: Repositories, base: Base): string[] {
+  const states = areaStatesFor(repos, base);
+  return [
+    MISC_AREA_ID,
+    ...districtsOfCity(cityOfDistrict(base.districtId))
+      .filter((district) => {
+        const state = states.get(district.id);
+        return state !== undefined && areaIsOpen(district, state);
+      })
+      .map((district) => district.id),
+  ];
+}
+
 describe('a standing order on the world clock', () => {
   it('sends a party without anybody being logged in', () => {
     const { repos, base } = stack();
@@ -163,11 +200,33 @@ describe('a standing order on the world clock', () => {
     expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
   });
 
+  it('stalls, and says why, when a raid on home is inside its last hour', () => {
+    const { repos, base } = stack();
+    slot(repos, base);
+    repos.sieges.insert({
+      id: 'raid-on-home',
+      target: { kind: 'district', districtId: base.districtId },
+      attackerBaseId: base.id,
+      defender: { kind: 'unoccupied' },
+      scheduledFor: new Date(NOW.getTime() + 30 * 60_000).toISOString(),
+      declaredAt: NOW.toISOString(),
+      resolvedAt: null,
+      seed: 'seed',
+      holdAfterCapture: true,
+      wokeSleepers: false,
+    });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toMatch(/raid lands on your district/i);
+    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+  });
+
   it('stalls when the officer it was told to send is not there', () => {
     const { repos, base } = stack();
     slot(repos, base, { officerId: 'nobody' });
     expect(settleAutomations(repos, NOW)).toBe(0);
-    expect(repos.automations.get(base.id, 0)?.stalled).toMatch(/not free/i);
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe(
+      'The officer you named is no longer on your books',
+    );
   });
 
   it('ignores a slot that is switched off', () => {
@@ -433,7 +492,7 @@ describe('a standing order on the world clock', () => {
     );
     slot(hurt.repos, hurt.base);
     expect(settleAutomations(hurt.repos, NOW)).toBe(0);
-    expect(hurt.repos.automations.get(hurt.base.id, 0)?.stalled).toMatch(/not free/i);
+    expect(hurt.repos.automations.get(hurt.base.id, 0)?.stalled).toMatch(/is still laid up$/);
   });
 
   /**
@@ -494,7 +553,7 @@ describe('a standing order on the world clock', () => {
     slot(repos, base);
     slot(repos, base, { slot: 1, officerId: 'off-1' });
     expect(settleAutomations(repos, NOW)).toBe(1);
-    expect(repos.automations.get(base.id, 1)?.stalled).toMatch(/not free/i);
+    expect(repos.automations.get(base.id, 1)?.stalled).toMatch(/is out leading a run$/);
   });
 
   /**
@@ -509,23 +568,55 @@ describe('a standing order on the world clock', () => {
       AUTOMATION_RUNGS.optimise,
     ]);
     // Every board this crew can see (the fixture scouts the whole map), so the expectation is
-    // computed over the same set the runner reads. The day is one where the richest scrap job
-    // and the best scrap rate are different jobs, which is the only case that tells the rule
-    // apart from "take the biggest pile": scrap-run pays 34 in 13 minutes, rail-cut 51 in 105.
-    const day = new Date('2026-09-25T12:00:00.000Z');
-    const offers = [MISC_AREA_ID, ...CITY_DISTRICTS.map((one) => one.id)].flatMap((areaId) =>
-      missionOffers(areaId, missionBoardKey(areaId, day)).filter((one) => one.kind !== 'battle'),
-    );
-    const scrap = (template: (typeof offers)[number]): number => template.spoils.scrap ?? 0;
-    const rate = (template: (typeof offers)[number]): number =>
-      scrap(template) / templateTimings(template).totalMinutes;
-    const best = offers.reduce((top, one) => (rate(one) > rate(top) ? one : top));
-    const richest = offers.reduce((top, one) => (scrap(one) > scrap(top) ? one : top));
-    expect(best.id).toBe('scrap-run');
-    expect(richest.id).toBe('rail-cut');
+    // computed over the same set the runner reads.
+    const offersOn = (at: Date) =>
+      openAreas(repos, base).flatMap((areaId) =>
+        missionOffers(areaId, missionBoardKey(areaId, at), base.level).filter(
+          (one) => one.template.kind !== 'battle',
+        ),
+      );
+    type Offer = ReturnType<typeof offersOn>[number];
+    const minutesOf = (job: Offer): number => templateTimings(job.template, job.grade).totalMinutes;
+    // What comes home, as the settle banks it: the card's weights through the reward curve at the
+    // grade it was dealt, cut to what the four Razors this slot fills can lift.
+    const scrap = (job: Offer): number =>
+      carriedHome(
+        missionRewards(job.template, 'success', minutesOf(job), job.grade),
+        missionCarry({ razors: 4 }),
+        RESOURCE_KG,
+      ).scrap ?? 0;
+    const rate = (job: Offer): number => scrap(job) / minutesOf(job);
+    /*
+     * The first hour on which the biggest pile of scrap and the best scrap rate are different
+     * jobs, which is the only case that tells the rule apart from "take the biggest pile".
+     *
+     * Searched for rather than pinned. The pinned day has gone red twice: once when the districts
+     * took their tags' names and the board dealt a different hand, and again when this rung
+     * started ranking on what comes home rather than on the card's weights (2026-09-25), which
+     * made that day's biggest pile its best rate as well.
+     */
+    let day: Date | null = null;
+    let best: Offer | null = null;
+    for (let hour = 0; hour < 24 * 30 && day === null; hour += 1) {
+      const at = new Date(NOW.getTime() + hour * 3_600_000);
+      const offers = offersOn(at);
+      const byRate = offers.reduce((top, one) => (rate(one) > rate(top) ? one : top));
+      const byPile = offers.reduce((top, one) => (scrap(one) > scrap(top) ? one : top));
+      if (
+        byRate.template.id !== byPile.template.id &&
+        scrap(byPile) > scrap(byRate) &&
+        rate(byRate) > rate(byPile)
+      ) {
+        day = at;
+        best = byRate;
+      }
+    }
+    expect(day, 'no hour in a month where the biggest pile is not the best rate').not.toBeNull();
     slot(repos, base, { unitSlots: 4, officerId: null, force: {}, optimiseFor: 'scrap' });
-    expect(settleAutomations(repos, day)).toBe(1);
-    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId).toBe(best.id);
+    expect(settleAutomations(repos, day!)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId).toBe(
+      best!.template.id,
+    );
   });
 
   it('does not advance a mixed order on a stall, only on a send', () => {
@@ -550,5 +641,304 @@ describe('a standing order on the world clock', () => {
     expect(boardIsAutomated(repos.automations.forBase(base.id))).toBe(false);
     slot(repos, base);
     expect(boardIsAutomated(repos.automations.forBase(base.id))).toBe(true);
+  });
+});
+
+/**
+ * The bug pass of 2026-09-25: the job, the party and the leader, each chosen on what actually
+ * happens rather than on a figure standing in for it.
+ */
+describe('choosing on what actually happens', () => {
+  const plainOffers = (areas: readonly string[], at: Date, level: number) =>
+    areas.flatMap((areaId) =>
+      missionOffers(areaId, missionBoardKey(areaId, at), level).filter(
+        (one) => one.template.kind !== 'battle',
+      ),
+    );
+
+  /*
+   * What the settle banks is the card's weights through the reward curve, cut to what the party
+   * lifts. Ranked on the weights, a small party chasing scrap took a job it could carry a fraction
+   * of. The day is searched for rather than pinned: it is the first hour on which the two rules
+   * name different jobs for a two-Razor party, so a retune of the board moves the day, not the
+   * point of the test.
+   */
+  it('chases what comes home per minute, not what the card lists', () => {
+    const { repos, base } = stack([
+      AUTOMATION_RUNGS.open,
+      AUTOMATION_RUNGS.bestFit,
+      AUTOMATION_RUNGS.optimise,
+    ]);
+    const areas = openAreas(repos, base);
+    const carry = missionCarry({ razors: 2 });
+    type Offer = ReturnType<typeof plainOffers>[number];
+    const minutesOf = (job: Offer): number => templateTimings(job.template, job.grade).totalMinutes;
+    const home = (job: Offer) =>
+      (carriedHome(
+        missionRewards(job.template, 'success', minutesOf(job), job.grade),
+        carry,
+        RESOURCE_KG,
+      ).scrap ?? 0) / minutesOf(job);
+    const listed = (job: Offer) => (job.template.spoils.scrap ?? 0) / minutesOf(job);
+
+    let day: Date | null = null;
+    let expected = '';
+    for (let hour = 0; hour < 24 * 30 && day === null; hour += 1) {
+      const at = new Date(NOW.getTime() + hour * 3_600_000);
+      const offers = plainOffers(areas, at, base.level);
+      const byHome = offers.reduce((top, one) => (home(one) > home(top) ? one : top));
+      const byCard = offers.reduce((top, one) => (listed(one) > listed(top) ? one : top));
+      if (byHome.template.id !== byCard.template.id && home(byHome) > home(byCard)) {
+        day = at;
+        expected = byHome.template.id;
+      }
+    }
+    expect(day, 'no hour in a month where carrying changes the pick').not.toBeNull();
+
+    slot(repos, base, { unitSlots: 2, officerId: null, force: {}, optimiseFor: 'scrap' });
+    expect(settleAutomations(repos, day!)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.templateId).toBe(expected);
+  });
+
+  const laidUp = (repos: Repositories, base: Base) =>
+    repos.bases.updateCommanders(
+      base.id,
+      base.commanders.map((one) => ({
+        ...one,
+        injuredUntil: new Date(NOW.getTime() + 86_400_000).toISOString(),
+      })),
+    );
+
+  /*
+   * Every run has a leader (maintainer, 2026-09-28), and the Overseer is the player rather than a
+   * standing order's to send. The two rungs that used to let a crew out unled keep their ids and
+   * open nothing, so a slot with every officer laid up stalls with them researched as without.
+   */
+  it('stalls rather than sending nobody at the head of a run, whatever the research', () => {
+    const { repos, base } = stack([
+      AUTOMATION_RUNGS.open,
+      'tech_unled_runs',
+      'tech_unled_runs_free',
+    ]);
+    laidUp(repos, base);
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+  });
+
+  it('stalls for want of an officer with nothing researched', () => {
+    const { repos, base } = stack();
+    laidUp(repos, base);
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+  });
+
+  it('never sends a named officer’s run without them, whatever the research', () => {
+    const { repos, base } = stack([
+      AUTOMATION_RUNGS.open,
+      'tech_unled_runs',
+      'tech_unled_runs_free',
+    ]);
+    laidUp(repos, base);
+    slot(repos, base, { officerId: 'off-1' });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toMatch(/is still laid up$/);
+  });
+
+  /*
+   * A leader who fits nothing still leads: going unled is not a choice any more, so an officer
+   * graded F- for the job is sent rather than the slot stalling on a bad fit.
+   */
+  it('sends an officer who fits the job badly rather than nobody', () => {
+    const { repos, base } = stack();
+    repos.bases.updateCommanders(
+      base.id,
+      base.commanders.map((one) => ({ ...one, attributes: makeAttributes(0) })),
+    );
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.officerId).not.toBeNull();
+  });
+
+  /*
+   * And a slot choosing for itself takes the best fit on the books, the board's own "best
+   * leader". The better one is listed second, so a runner that took the first free officer
+   * would send the wrong one.
+   */
+  it('takes the officer who fits the job best', () => {
+    const { repos, base } = stack();
+    repos.bases.updateCommanders(base.id, [
+      { ...base.commanders[0]!, attributes: makeAttributes(0) },
+      { ...base.commanders[1]!, attributes: makeAttributes(MAX_ATTRIBUTE) },
+    ]);
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.officerId).toBe('off-2');
+  });
+
+  /*
+   * The bench leads nothing (maintainer, 2026-09-28). The same two officers as the test above, with
+   * the better one taken out of their chair: the runner has to send the worse one, and the test
+   * above is the positive control that it would otherwise have sent off-2.
+   */
+  it('never sends an officer on the bench, however well they fit', () => {
+    const { repos, base } = stack();
+    repos.bases.updateCommanders(base.id, [
+      { ...base.commanders[0]!, attributes: makeAttributes(0) },
+      { ...base.commanders[1]!, role: null, attributes: makeAttributes(MAX_ATTRIBUTE) },
+    ]);
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    expect(repos.missions.listActiveByBaseId(base.id)[0]?.mission.officerId).toBe('off-1');
+  });
+
+  it('stalls with everybody on the bench', () => {
+    const { repos, base } = stack();
+    repos.bases.updateCommanders(
+      base.id,
+      base.commanders.map((one) => ({ ...one, role: null })),
+    );
+    slot(repos, base, { officerId: null });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    expect(repos.missions.listActiveByBaseId(base.id)).toHaveLength(0);
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe('No officer is free to lead');
+  });
+
+  it('stalls a slot that names somebody on the bench rather than sending them', () => {
+    const { repos, base } = stack();
+    repos.bases.updateCommanders(base.id, [
+      { ...base.commanders[0]!, role: null },
+      base.commanders[1]!,
+    ]);
+    slot(repos, base, { officerId: 'off-1' });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+    // Named, and told what to fix: the order stalls every tick until somebody gives them a chair.
+    expect(repos.automations.get(base.id, 0)?.stalled).toBe(
+      `${base.commanders[0]!.name} is on the bench. Give them a chair first`,
+    );
+  });
+
+  /*
+   * A fight's party is ranked by the engine against the job's own grade. Measured independently
+   * here on seeds the runner never uses: whatever it sends must win at least as often as the
+   * catalogue's order (offense plus a fifth of vitality per slot), which fielded twelve Sparks
+   * and lost a Fight II every time where two Juggernauts won most of them.
+   */
+  it('sends a fight party that wins at least as often as the catalogue order would', () => {
+    const { repos, base } = stack([
+      AUTOMATION_RUNGS.open,
+      AUTOMATION_RUNGS.bestFit,
+      AUTOMATION_RUNGS.battles,
+    ]);
+    const yard = { sparks: 30, razors: 30, juggernauts: 4, sleepers: 10, cyber_dogs: 10 };
+    repos.bases.updateArmy(base.id, yard, []);
+    // A name big enough to field all of it, so the ranking and not the notoriety gate decides.
+    repos.bases.updateEconomy(base.id, { ...base.economy, notoriety: 10 });
+    slot(repos, base, { order: 'battles', unitSlots: 12, officerId: null, force: {} });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    const sent = repos.missions.listActiveByBaseId(base.id)[0]!;
+    const grade = sent.mission.grade ?? 'F-';
+
+    const winRate = (party: Record<string, number>) => {
+      let won = 0;
+      for (let seed = 0; seed < 40; seed += 1) {
+        const out = new TacticalSkirmishEngine().resolve({
+          seed: `check-${seed}`,
+          attackerName: 'A',
+          defenderName: 'D',
+          locationName: 'job',
+          attacking: party,
+          defending: enemyForce(grade, `check-${seed}`),
+        });
+        if (out.winner === 'attacker') won += 1;
+      }
+      return won / 40;
+    };
+    const catalogue = bestFitParty(yard, 12, 'battle')!;
+    const ours = winRate(sent.mission.force);
+    const theirs = winRate(catalogue);
+    // Strictly better, unless the catalogue's party already all but always wins: a test that
+    // allowed a tie would pass with the ranking taken out, since that sends the catalogue party.
+    if (theirs < 0.95) expect(ours).toBeGreaterThan(theirs);
+    else expect(ours).toBeGreaterThanOrEqual(0.95);
+  });
+
+  /*
+   * A stall was re-asked every second of the world clock. It waits `STALL_RETRY_MS` now, unless
+   * the order is edited, which is answered on the next tick.
+   */
+  it('asks a stalled slot again after the wait, or at once when its order changes', () => {
+    const { repos, base } = stack();
+    const stalled = slot(repos, base, { force: { razors: 400 } });
+    expect(settleAutomations(repos, NOW)).toBe(0);
+
+    // Fixed behind its back: still waiting out the retry, so nothing goes yet...
+    repos.bases.updateArmy(base.id, { razors: 400 }, []);
+    const soon = new Date(NOW.getTime() + STALL_RETRY_MS / 2);
+    expect(settleAutomations(repos, soon)).toBe(0);
+    // ...and it goes once the wait is over.
+    expect(settleAutomations(repos, new Date(NOW.getTime() + STALL_RETRY_MS))).toBe(1);
+
+    // An edit is answered at once.
+    const other = stack();
+    const edited = slot(other.repos, other.base, { force: { razors: 400 } });
+    expect(settleAutomations(other.repos, NOW)).toBe(0);
+    other.repos.automations.put({ ...edited, force: { razors: 4 } });
+    expect(settleAutomations(other.repos, new Date(NOW.getTime() + 1_000))).toBe(1);
+    expect(stalled.id).not.toBe(edited.id);
+  });
+});
+
+/** Audit, 2026-09-28: a standing order against the crew as it stands, on the odds a hand gets. */
+describe('the crew a standing order sends', () => {
+  it('fills the party from units that came off the bench since the owner last looked', () => {
+    const { repos, base } = stack();
+    // Nobody home on the row, and eight Razors whose batch finished an hour before the tick.
+    repos.bases.updateArmy(base.id, {}, [
+      {
+        id: 'batch-1',
+        unitId: 'razors',
+        count: 8,
+        delivered: 0,
+        startedAt: new Date(NOW.getTime() - 2 * 3_600_000).toISOString(),
+        durationSeconds: 3_600,
+        paid: {},
+      },
+    ]);
+    slot(repos, base, { force: { razors: 4 } });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    const after = repos.bases.findById(base.id)!;
+    expect(after.army.razors).toBe(4);
+    expect(after.trainingQueue).toEqual([]);
+  });
+
+  it('freezes the practice-fight odds on a fight, the figure the hand-sent launch freezes', () => {
+    const { repos, base } = stack([AUTOMATION_RUNGS.open, AUTOMATION_RUNGS.battles]);
+    // A small party, so the practice fights and the leader's attribute grade disagree and the
+    // test can tell which of the two was frozen.
+    slot(repos, base, { order: 'battles', force: { razors: 3 } });
+    expect(settleAutomations(repos, NOW)).toBe(1);
+    const sent = repos.missions.listActiveByBaseId(base.id)[0]!;
+    const template = findMissionTemplate(sent.mission.templateId)!;
+    expect(template.kind).toBe('battle');
+    const deputy = base.commanders[0]!;
+    const expected = fightChanceFor({
+      base: repos.bases.findById(base.id)!,
+      template,
+      grade: sent.mission.grade!,
+      force: sent.mission.force,
+      vehicles: {},
+      leader: { id: deputy.id, name: deputy.name, kind: 'officer', attributes: deputy.attributes },
+      effects: standingEffectsFor(repos, base, NOW),
+    });
+    const graded = missionOdds({
+      grade: sent.mission.grade!,
+      leader: deputy.attributes,
+      profile: composeProfile(leaningsFor(template)),
+    }).chance;
+    expect(expected).not.toBe(graded);
+    expect(sent.successChance).toBe(expected);
   });
 });

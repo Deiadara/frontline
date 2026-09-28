@@ -22,6 +22,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -401,6 +402,7 @@ describe('while the other board is still coming', () => {
     const held = new Promise<Response>((resolve) => {
       release = () =>
         resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           statusText: '',

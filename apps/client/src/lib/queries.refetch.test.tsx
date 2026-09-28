@@ -118,7 +118,7 @@ beforeEach(() => {
   getBattles.mockReset().mockResolvedValue({ coming: [], reports: [] });
   buildAddon.mockReset();
   startTech.mockReset();
-  getDistrict.mockReset().mockResolvedValue({ district: { id: 'rustyard' } });
+  getDistrict.mockReset().mockResolvedValue({ district: { id: 'steelbelt' } });
   placeVendorBid.mockReset();
   getCrewStanding.mockReset().mockResolvedValue({ crewSheet: {}, effects: {} });
   reassignOfficer.mockReset();
@@ -160,6 +160,7 @@ describe('a refused launch that had already settled the board', () => {
       templateId: 'convoy-ambush',
       areaId: 'misc',
       force: { razors: 1 },
+      leaderId: 'ov-1',
     });
     await waitFor(() => expect(result.current.launch.isError).toBe(true));
 
@@ -197,6 +198,7 @@ describe('a deploy made from the battle board', () => {
 
     result.current.deploy.mutate({
       battleId: 'battle-1',
+      byRail: false,
       changes: { razors: 2 },
       perimeterChanges: {},
     });
@@ -258,7 +260,7 @@ describe('a refused write that had already settled the crew', () => {
     });
     await waitFor(() => expect(getScrapyard).toHaveBeenCalledTimes(1));
 
-    result.current.burn.mutate({ upgradeId: 'taped_grips' });
+    result.current.burn.mutate({ unitId: 'razors', upgradeId: 'taped_grips' });
     await waitFor(() => expect(result.current.burn.isSuccess).toBe(true));
 
     await waitFor(() => expect(getScrapyard).toHaveBeenCalledTimes(2));
@@ -288,8 +290,8 @@ describe('a refused write that had already settled the crew', () => {
  * `GET /city/:id` is a settle, not a read.
  *
  * `routes/city.ts` runs `settleWorld` (movements, scouting runs, gates) and then `settleBase` on
- * its first two lines, so a fortification finishing, an upgrade landing, a column arriving and a
- * scout walking back in all happen *on this request*. The screen drawn from it has four countdowns
+ * its first two lines, so an upgrade landing, a column arriving and a scout walking back in all
+ * happen *on this request*. The screen drawn from it has four countdowns
  * on it and no other query behind them, so with no interval the last thing a player saw was
  * whatever was true when they opened the street: a scout at zero read "Walking back in" until they
  * navigated away and came back.
@@ -301,7 +303,7 @@ describe('the district screen, which settles on its own read', () => {
   it('re-asks the server while the page is open', async () => {
     vi.useFakeTimers();
     try {
-      const { result } = screen(() => useDistrict('rustyard'));
+      const { result } = screen(() => useDistrict('steelbelt'));
       await vi.waitFor(() => expect(getDistrict).toHaveBeenCalledTimes(1));
       expect(result.current).toBeDefined();
       await vi.advanceTimersByTimeAsync(5_000);
@@ -338,9 +340,9 @@ describe('a refused bid at the barrow', () => {
 /**
  * The crew fold is a different fact from the roster, and three writes move it.
  *
- * `crewSheetsFor` builds `/overseer/me` out of everybody on the books: a seated officer is paid
- * their full rating in the attributes their chair uses, a benched one the off-duty share of
- * everything, and a departed one takes their perks and the lift those perks put on every peer's
+ * `crewSheetsFor` builds `/overseer/me` out of everybody in a chair: a seated officer is paid
+ * their full rating in the attributes their chair uses, a benched one nothing at all, and a
+ * departed one takes their perks and the lift those perks put on every peer's
  * sheet with them. `crewStanding` has no poll and a 30s `staleTime`, so nothing else re-reads it.
  */
 describe('the writes that change what the crew is buying', () => {

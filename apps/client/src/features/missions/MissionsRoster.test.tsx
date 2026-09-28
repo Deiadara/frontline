@@ -1,13 +1,14 @@
 import {
   BATTLE_ODDS_LABELS,
   MISC_AREA_ID,
-  UNLED_PENALTY,
   battleOdds,
   chanceTone,
   composeProfile,
   enemyStrength,
   fieldStrength,
+  leaderEdge,
   leaderFit,
+  leaderMark,
   makeAttributes,
   missionOdds,
   type Attributes,
@@ -15,7 +16,6 @@ import {
   type MissionLeader,
   type MissionOffer,
   type MissionsResponse,
-  type UnledRule,
 } from '@frontline/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
@@ -35,9 +35,9 @@ import { useSession } from '../../store/session';
  * worth drawing at all.
  *
  * The odds are pinned two ways on purpose. `missionOdds` is the shared function the screen and
- * the launch both price with, so the derived assertions here are the contract; and the unled
- * cases are pinned to literal percentages that do not go through it, because a test that only
- * ever asks the source what the source says cannot catch a rule that was applied nowhere.
+ * the launch both price with, so the derived assertions here are the contract; and the certain
+ * case is pinned to a literal that does not go through it, because a test that only ever asks the
+ * source what the source says cannot catch a rule that was applied nowhere.
  */
 
 const NOW = '2026-08-13T12:00:00.000Z';
@@ -48,7 +48,9 @@ const HAUL: MissionOffer = {
   name: 'Bay Clearance',
   brief: 'Somebody wants a bay emptied before the morning shift.',
   kind: 'standard',
-  difficulty: 'easy',
+  // E, so the three free leaders below land in three different bands: the Overseer (about F+ on a
+  // haul) a little short of it, Reza (S- on a haul) far past it, Little Ivo nowhere near.
+  grade: 'E',
   travelMinutes: 12,
   durationMinutes: 30,
   totalMinutes: 54,
@@ -61,24 +63,20 @@ const HAUL: MissionOffer = {
   payoutSlots: 8,
   xp: 240,
   failedXp: 48,
-  pagePrize: null,
-  // 62 rather than a round half: `chanceTone` bands at every twenty, and 62 with the unled
-  // penalty on it is 52, which is a *different* band. A figure that stayed in its band under the
-  // penalty would let a dial that never re-coloured pass.
-  authoredChance: 0.62,
   leanings: ['haul'],
-  battleTier: null,
+  // Out of the opening band: this fixture is about a leader's fit, not about the clock.
+  ramp: null,
 };
 
-/** And a fight, at the tier a level-1 crew reads as 1,400 of `fieldStrength` (`enemyStrength`): Fight I. */
+/** And a fight at F-, the lightest Skirmish: 1,600 of `fieldStrength` (`enemyStrength`). */
 const FIGHT: MissionOffer = {
   ...HAUL,
   templateId: 'test-fight',
   name: 'Yard Skirmish',
   brief: 'They are on that ground and they intend to stay there.',
   kind: 'battle',
+  grade: 'F-',
   leanings: ['fight'],
-  battleTier: 'fight_1',
 };
 
 const leader = (
@@ -140,7 +138,7 @@ const HOPELESS = leader('off-3', 'Little Ivo', 'officer', makeAttributes(0));
 
 const LEADERS = [OVERSEER, FREE_OFFICER, OUT_OFFICER, HOPELESS];
 
-function boardWith(unledRule: UnledRule, leaders: MissionLeader[] = LEADERS): MissionsResponse {
+function boardWith(leaders: MissionLeader[] = LEADERS): MissionsResponse {
   return {
     missions: [],
     justResolved: [],
@@ -157,11 +155,15 @@ function boardWith(unledRule: UnledRule, leaders: MissionLeader[] = LEADERS): Mi
         activeMissionId: null,
       },
     ],
-    army: { razors: 12, scavengers: 4 },
+    // Sixteen Razors: enough to put an F- fight (1,600) past one and a half to one.
+    army: { razors: 16, scavengers: 4 },
     serverNow: NOW,
     leaders,
-    unledRule,
     level: LEVEL,
+    // The board's city and the rooms this crew may read. Both carry a Zod default on the
+    // wire; a hand-written fixture has to say them.
+    cityId: 'ashfall',
+    cities: ['ashfall'],
   };
 }
 
@@ -169,13 +171,14 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
     json: () => Promise.resolve(body),
   } as Response);
 
-/** The level the fixture player is at, which is what a battle tier is scaled against. */
+/** The level the fixture player is at, which is what a card's grade is dealt off. */
 const LEVEL = F.me.base?.level ?? 1;
 
 function stub(board: MissionsResponse): void {
@@ -244,8 +247,8 @@ afterEach(() => {
 });
 
 describe('the leader picker', () => {
-  it('offers the Overseer first, with each one’s kind and fit for this job', async () => {
-    stub(boardWith('free'));
+  it('offers the Overseer first, with each one’s kind and grade for this job', async () => {
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
@@ -253,21 +256,23 @@ describe('the leader picker', () => {
     await openPicker(dialog);
     const options = screen.getAllByRole('option');
 
-    // "Nobody" is the first entry only because the rule allows it; the Overseer heads the people.
-    const people = options.filter((option) => !/Nobody/.test(option.textContent ?? ''));
-    expect(people[0]).toHaveTextContent('Rook');
-    expect(people[0]).toHaveTextContent('Overseer');
+    // Nobody is not an option any more: every run has a leader, the Overseer first.
+    expect(options.map((option) => option.textContent ?? '').join(' ')).not.toMatch(/nobody/i);
+    expect(options[0]).toHaveTextContent('Rook');
+    expect(options[0]).toHaveTextContent('Overseer');
 
     const profile = composeProfile(HAUL.leanings);
     for (const one of [OVERSEER, FREE_OFFICER, HOPELESS]) {
       const row = screen.getByRole('option', { name: new RegExp(one.name) });
-      const fit = Math.round(leaderFit(one.attributes, profile).fit * 100);
-      expect(row, `${one.name} shows no fit for this job`).toHaveTextContent(`${fit}%`);
+      const mark = leaderMark(one.attributes, profile);
+      expect(row, `${one.name} shows no grade for this job`).toHaveTextContent(
+        `${mark} for this job`,
+      );
     }
   });
 
   it('draws somebody who is out as out, and will not let them be picked', async () => {
-    stub(boardWith('free'));
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
@@ -275,9 +280,9 @@ describe('the leader picker', () => {
     const option = await pick(dialog, /Odile Marchetti/);
     expect(option).toHaveAttribute('aria-disabled', 'true');
     expect(option).toHaveTextContent('out leading a run');
-    // The click did nothing: no leader chosen, so the dial still reads the bare authored figure.
-    expect(within(dialog).queryByTestId('leader-fit')).toBeNull();
-    expect(dial(dialog).figure).toBe('62%');
+    // The click did nothing: the most suitable free leader is still the one picked.
+    expect(within(dialog).getByTestId('send-leader')).toHaveTextContent('Reza Malik');
+    expect(within(dialog).getByTestId('send-leader')).not.toHaveTextContent('Odile');
   });
 
   /**
@@ -291,7 +296,7 @@ describe('the leader picker', () => {
   it('says why each held leader cannot go, and counts down only where there is a clock', async () => {
     const backAt = BACK_AT;
     stub(
-      boardWith('free', [
+      boardWith([
         OVERSEER,
         leader('h-run', 'Rosa Vey', 'officer', makeAttributes(20), 'run', backAt),
         leader('h-fight', 'Tam Brisk', 'officer', makeAttributes(20), 'fight', null),
@@ -326,7 +331,7 @@ describe('the leader picker', () => {
     // All three holds, on sheets that would each win the button outright if it read the whole list.
     const strong = makeAttributes(90, { logistics: 100, organization: 100, navigation: 100 });
     stub(
-      boardWith('free', [
+      boardWith([
         OVERSEER,
         FREE_OFFICER,
         leader('h-run', 'Rosa Vey', 'officer', strong, 'run', backAt),
@@ -348,7 +353,7 @@ describe('the leader picker', () => {
   });
 
   it('sends the most suitable of the ones who are free, never the one who is out', async () => {
-    stub(boardWith('free'));
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
@@ -360,91 +365,56 @@ describe('the leader picker', () => {
     expect(within(dialog).getByTestId('send-leader')).not.toHaveTextContent('Odile');
   });
 
-  it('moves the dial when the leader changes, up for a good one and down for a bad one', async () => {
-    stub(boardWith('free'));
+  it('moves the dial when the leader changes, and reads the job’s grade against theirs', async () => {
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
     const dialog = await openSend(HAUL);
-    const bare = dial(dialog);
-    expect(bare.figure).toBe('62%');
-    expect(bare.tone).toBe('green');
-
     const profile = composeProfile(HAUL.leanings);
     const oddsWith = (attributes: Attributes) =>
-      missionOdds({ authored: HAUL.authoredChance, leader: attributes, profile, unled: 'free' });
+      missionOdds({ grade: HAUL.grade, leader: attributes, profile });
 
-    await pick(dialog, /Reza Malik/);
-    const good = dial(dialog);
-    expect(good.figure).toBe(`${Math.round(oddsWith(FREE_OFFICER.attributes).chance * 100)}%`);
-    expect(good.tone).toBe(chanceTone(oddsWith(FREE_OFFICER.attributes).chance));
-    expect(Number.parseInt(good.figure, 10)).toBeGreaterThan(62);
+    // Reza, picked to start with: an S- hauler on an E job is five marks and more over, which is
+    // certain. Pinned as a literal, not through `missionOdds`.
+    const best = dial(dialog);
+    expect(best.figure).toBe('100%');
+    expect(best.tone).toBe('blue');
+
+    await pick(dialog, /Rook/);
+    const middling = dial(dialog);
+    expect(middling.figure).toBe(`${Math.round(oddsWith(OVERSEER.attributes).chance * 100)}%`);
+    expect(middling.tone).toBe(chanceTone(oddsWith(OVERSEER.attributes).chance));
     // The needle travels with it: -90 degrees is the left of the dial, +90 the right.
-    expect(good.angle).toBeGreaterThan(bare.angle);
+    expect(middling.angle).toBeLessThan(best.angle);
 
     await pick(dialog, /Little Ivo/);
     const bad = dial(dialog);
-    expect(Number.parseInt(bad.figure, 10)).toBeLessThan(62);
+    expect(Number.parseInt(bad.figure, 10)).toBeLessThan(Number.parseInt(middling.figure, 10));
     expect(bad.tone).toBe(chanceTone(oddsWith(HOPELESS.attributes).chance));
-    expect(bad.angle).toBeLessThan(bare.angle);
+    expect(bad.angle).toBeLessThan(middling.angle);
   });
 });
 
-describe('going out with nobody in charge', () => {
-  it('refuses the launch outright until the crew has researched it', async () => {
-    stub(boardWith('forbidden'));
+/** Every run has a leader (maintainer, 2026-09-28). */
+describe('a run with nobody free to lead it', () => {
+  it('says so and will not send, with nobody to choose instead', async () => {
+    stub(boardWith([OUT_OFFICER]));
     renderPage();
     await screen.findByTestId('board-area');
 
     const dialog = await openSend(HAUL);
     take(dialog, 'Razors', 2);
-    expect(within(dialog).getByTestId('unled-note')).toHaveTextContent(
-      'Nobody leads this. Research unled runs, or send somebody.',
+    expect(within(dialog).getByTestId('leader-note')).toHaveTextContent(
+      'Somebody has to lead this.',
     );
     expect(within(dialog).getByTestId('confirm-send')).toBeDisabled();
-
-    // And there is no "nobody" to choose, because choosing it is not a thing this crew may do.
-    await openPicker(dialog);
-    expect(screen.queryByRole('option', { name: /send them alone/i })).toBeNull();
-  });
-
-  it('takes the penalty off the dial, and says so, once the first rung is done', async () => {
-    stub(boardWith('penalised'));
-    renderPage();
-    await screen.findByTestId('board-area');
-
-    const dialog = await openSend(HAUL);
-    // 62 authored less the ten-point penalty, which is also a band lower on the dial.
-    expect(dial(dialog).figure).toBe(`${Math.round((HAUL.authoredChance - UNLED_PENALTY) * 100)}%`);
-    expect(dial(dialog).figure).toBe('52%');
-    expect(dial(dialog).tone).toBe('yellow');
-    expect(within(dialog).getByTestId('unled-note')).toHaveTextContent(/10.*points off the odds/);
-    // It is a price, not a refusal: the crew still goes.
-    take(dialog, 'Razors', 2);
-    expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
-
-    // Putting somebody in charge pays the penalty back and takes the line away.
-    await pick(dialog, /Reza Malik/);
-    expect(Number.parseInt(dial(dialog).figure, 10)).toBeGreaterThan(62);
-    expect(within(dialog).queryByTestId('unled-note')).toBeNull();
-  });
-
-  it('says nothing at all once the crew has researched its way out of the penalty', async () => {
-    stub(boardWith('free'));
-    renderPage();
-    await screen.findByTestId('board-area');
-
-    const dialog = await openSend(HAUL);
-    expect(within(dialog).queryByTestId('unled-note')).toBeNull();
-    expect(dial(dialog).figure).toBe('62%');
-    take(dialog, 'Razors', 2);
-    expect(within(dialog).getByTestId('confirm-send')).toBeEnabled();
   });
 });
 
 describe('a battle job', () => {
   it('shows a band and never a number, and the band follows the force sent', async () => {
-    stub(boardWith('free'));
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
@@ -458,29 +428,30 @@ describe('a battle job', () => {
     take(dialog, 'Razors', 2);
     expect(dial(dialog).figure).toBe('Low chance');
 
-    // Eight Razors is exactly what a Fight I fields at this level, which is the top of the
-    // middle. Read through the shared function so a stat retune moves the fixture, not the rule.
+    // Eight Razors is about what an F- fields. Read through the shared functions, with the edge of
+    // whoever the window picked, so a stat retune moves the fixture and not the rule.
     take(dialog, 'Razors', 8);
+    const edge = leaderEdge(leaderFit(OVERSEER.attributes, composeProfile(FIGHT.leanings)).fit);
     const expected = battleOdds({
       ours: fieldStrength({ razors: 8 }),
-      theirs: enemyStrength('fight_1', LEVEL),
-      edge: 0,
+      theirs: enemyStrength(FIGHT.grade),
+      edge,
     });
     expect(dial(dialog).figure).toBe(BATTLE_ODDS_LABELS[expected]);
     expect(dial(dialog).figure).not.toBe('Low chance');
 
-    take(dialog, 'Razors', 12);
+    take(dialog, 'Razors', 16);
     expect(dial(dialog).figure).toBe('Very high chance');
     expect(dial(dialog).tone).toBe('blue');
   });
 
-  it('says which tier it is on the card, and nothing about what is fought', async () => {
-    stub(boardWith('free'));
+  it('says which category it is on the card, and nothing about what is fought', async () => {
+    stub(boardWith());
     renderPage();
     await screen.findByTestId('board-area');
 
     const chips = await screen.findByTestId(`job-chips-${FIGHT.templateId}`);
-    expect(chips).toHaveTextContent('Fight I');
+    expect(chips).toHaveTextContent('Skirmish');
     // The standard job beside it says what it leans on instead.
     expect(screen.getByTestId(`job-chips-${HAUL.templateId}`)).toHaveTextContent('A haul');
   });

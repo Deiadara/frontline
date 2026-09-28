@@ -128,7 +128,7 @@ async function makeStack(engine: SkirmishEngine = bloody): Promise<Stack> {
   // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens
   // ground: it sends somebody who walks back hours later. A fixture wants the *state*,
   // not the trip, so the intel is written directly.
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   return { app, db, token, baseId };
 }
 
@@ -204,12 +204,12 @@ describe('the Bone Market pays for what a fight cost', () => {
   it('turns the attacker’s dead into caps', async () => {
     const stack = await makeStack();
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
-    give(stack, 'rustyard-bones');
+    give(stack, 'steelbelt-bones');
 
     const target: BattleTarget = {
       kind: 'location',
-      districtId: 'rustyard',
-      locationId: 'rustyard-press',
+      districtId: 'steelbelt',
+      locationId: 'steelbelt-press',
     };
     const { caps } = await fight(stack, target, { razors: 8 });
     expect(caps, 'the refund never reached the stockpile').toBeGreaterThan(0);
@@ -221,12 +221,12 @@ describe('the Bone Market pays for what a fight cost', () => {
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
     // The case above opens the Belt by *holding* the Bone Market. This one must hold nothing, so
     // the seam is opened on a plot nobody is given: the Slag Bowl goes back to standing empty.
-    vacate(stack, 'rustyard-ramp');
+    vacate(stack, 'steelbelt-ramp');
 
     const target: BattleTarget = {
       kind: 'location',
-      districtId: 'rustyard',
-      locationId: 'rustyard-press',
+      districtId: 'steelbelt',
+      locationId: 'steelbelt-press',
     };
     const { caps } = await fight(stack, target, { razors: 8 });
     expect(caps).toBe(0);
@@ -241,7 +241,7 @@ describe('the Bone Market pays for what a fight cost', () => {
  */
 describe('the Chosen Chapel', () => {
   it('pays its infamy the moment it changes hands, and only then', async () => {
-    const chapel = findLocation('combine-spire-chapel');
+    const chapel = findLocation('ccs-chapel');
     expect(chapel, 'the Chapel is not on the map').toBeDefined();
     expect(LOCATION_CATALOG[chapel!.kind].captureInfamy ?? 0).toBeGreaterThan(0);
 
@@ -251,17 +251,17 @@ describe('the Chosen Chapel', () => {
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
     // Scouting is a journey now (`scouting/scouting.ts`), so the button no longer opens ground:
     // it sends somebody who walks back hours later. A fixture wants the *state*, not the trip.
-    stack.app.repos.city.markScouted(stack.baseId, 'combine-spire', new Date().toISOString());
+    stack.app.repos.city.markScouted(stack.baseId, 'ccs', new Date().toISOString());
     // The Spire is held end to end at the start, so its gate is armed. One location off the
     // Combine opens the seam a location fight needs.
-    give(stack, 'combine-spire-uplink', 1);
+    give(stack, 'ccs-uplink', 1);
 
     const plain = await fight(
       stack,
       {
         kind: 'location',
-        districtId: 'combine-spire',
-        locationId: 'combine-spire-armory',
+        districtId: 'ccs',
+        locationId: 'ccs-armory',
       },
       { razors: 6 },
     );
@@ -269,8 +269,8 @@ describe('the Chosen Chapel', () => {
       stack,
       {
         kind: 'location',
-        districtId: 'combine-spire',
-        locationId: 'combine-spire-chapel',
+        districtId: 'ccs',
+        locationId: 'ccs-chapel',
       },
       { razors: 6 },
     );
@@ -367,7 +367,7 @@ describe('the Watchtower', () => {
       createCommander('rival-consigliere', 'The Ghost', 'consigliere', makeAttributes(70), []),
     ]);
 
-    const press = stack.app.repos.city.control('rustyard-press');
+    const press = stack.app.repos.city.control('steelbelt-press');
     if (!press) throw new Error('no ground to look at');
     stack.app.repos.city.put({
       ...press,
@@ -385,12 +385,12 @@ describe('the Watchtower', () => {
       ...mine.research,
       technologies: [...mine.research.technologies, SCOUTING_RESEARCH_ID],
     });
-    stack.app.repos.city.markScouted(stack.baseId, 'rustyard', new Date().toISOString());
+    stack.app.repos.city.markScouted(stack.baseId, 'steelbelt', new Date().toISOString());
 
     const run: SpyRun = {
       id: 'run-1',
       baseId: stack.baseId,
-      target: { kind: 'location', locationId: 'rustyard-press' },
+      target: { kind: 'location', locationId: 'steelbelt-press' },
       tier: 'loose_ears',
       capsPaid: 100,
       departedAt: new Date().toISOString(),
@@ -412,9 +412,9 @@ describe('the Watchtower', () => {
       method: 'POST',
       url: '/api/city/scout',
       headers: auth(stack.token),
-      payload: { districtId: 'blacksite-7' },
+      payload: { districtId: 'blacksite' },
     });
-    give(stack, 'blacksite-7-watchtower');
+    give(stack, 'blacksite-watchtower');
 
     // The Watchtower pays into the intel channel, and the intel channel is spy points now: holding
     // it must move the strength, and a bigger budget must never read fewer bodies.
@@ -448,14 +448,14 @@ describe('the sky a fight happens under', () => {
     stack.app.repos.bases.updateArmy(stack.baseId, { razors: 20 }, []);
     // The Belt is Combine ground and therefore shut. Which sky a fight is decided under has
     // nothing to do with gates, so the fixture opens a seam and calls an ordinary location fight.
-    vacate(stack, 'rustyard-ramp');
+    vacate(stack, 'steelbelt-ramp');
 
     const declared = await stack.app.inject({
       method: 'POST',
       url: '/api/battles/declare',
       headers: auth(stack.token),
       payload: {
-        target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+        target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
         scheduledFor: declarationWindow(new Date()).earliest.toISOString(),
       },
     });
@@ -508,7 +508,7 @@ describe('the sky a fight happens under', () => {
  * price, and what the training route actually takes out of the stockpile.
  */
 describe('the ground a unit is trained on (§A4)', () => {
-  const KENNELS = 'rustyard-kennels';
+  const KENNELS = 'steelbelt-kennels';
   const HOUNDS = findUnit('cyber_dogs')!;
 
   /** Cyberhounds want an Infirmary at 6 as well as the Doghouse, and a purse to pay with. */

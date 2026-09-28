@@ -7,12 +7,12 @@ import {
   type Base,
   type Location,
   type LocationControl,
-  addResources,
   cancelRefund,
   cancelWindowOpen,
   type PartialResources,
 } from '@frontline/shared';
 import type { Repositories } from '../db/repos/index.js';
+import { creditBase, refuseWaste } from '../district/stores.js';
 
 /**
  * Working a location up a level (§A4).
@@ -24,9 +24,8 @@ import type { Repositories } from '../db/repos/index.js';
  * settled in `battle/resolve.ts` rather than here. What that capture does clear is an upgrade
  * still under way, so a level charged for and not yet banked dies with the holding.
  *
- * Deliberately shaped exactly like fortifying (`actions.ts`): a clock on the control row, charged
- * up front, banked lazily on the next read. Two mechanics that behave the same way are one mechanic
- * a player has to learn.
+ * A clock on the control row, charged up front, banked lazily on the next read
+ * (`settleLocationUpgrades` in `actions.ts`), the way every other clock in the city works.
  */
 
 /**
@@ -64,9 +63,9 @@ export type UpgradeOutcome =
  * There is no `settleUpgrade` here.
  *
  * There was, and its doc said "called on every read of the city, the way every clock here settles",
- * and nothing called it: `settleFortifications` in `city/actions.ts` banks both clocks on the row
- * in one pass, which is where it belongs, because they live on the same row and a second settler
- * over the same table is a second chance to forget one. A second implementation sitting beside the
+ * and nothing called it: `settleLocationUpgrades` in `city/actions.ts` banks the clock on the row,
+ * which is where it belongs, because a second settler over the same table is a second chance to
+ * forget one. A second implementation sitting beside the
  * live one under a name that reads like the live one is worse than no implementation at all.
  */
 
@@ -111,12 +110,19 @@ export type UpgradeCancelOutcome =
 
 /**
  * Call the work off (maintainer request, 2026-09-12; `time/cancel.ts`): inside the first tenth, with
- * ninety percent of the level's price back. The clock's start is derived from its end and the
- * duration the level always takes, so nothing new is stored for it.
+ * ninety percent of the level's price back, as far as the stores have room (warned about first:
+ * maintainer ruling, 2026-09-28). The clock's start is derived from its end and the duration the
+ * level always takes, so nothing new is stored for it.
  */
 export function cancelUpgrade(
   repos: Repositories,
-  args: { base: Base; location: Location; control: LocationControl; now: Date },
+  args: {
+    base: Base;
+    location: Location;
+    control: LocationControl;
+    now: Date;
+    acceptWaste?: boolean | undefined;
+  },
 ): UpgradeCancelOutcome {
   const { base, location, control, now } = args;
   if (control.holder.kind !== 'crew' || control.holder.baseId !== base.id) {
@@ -131,8 +137,10 @@ export function cancelUpgrade(
     return { kind: 'refused', reason: 'window_closed' };
   }
   const refund = cancelRefund(upgradeCost(location.kind, control.level) ?? {});
+  const credit = creditBase(repos, base, refund, now);
+  refuseWaste(credit, args.acceptWaste);
   const cleared: LocationControl = { ...control, upgradingUntil: null };
-  const repaid: Base = { ...base, resources: addResources(base.resources, refund) };
+  const repaid: Base = { ...base, resources: credit.resources };
   repos.city.put(cleared);
   repos.bases.updateResources(repaid.id, repaid.resources);
   return { kind: 'cancelled', control: cleared, base: repaid, refund };

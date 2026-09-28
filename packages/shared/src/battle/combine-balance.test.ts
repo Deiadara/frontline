@@ -5,7 +5,8 @@ import {
   combineSlotBudget,
   type CombinePower,
 } from '../city/combine.js';
-import { CITY_DISTRICTS, findDistrict } from '../city/districts.js';
+import { CITY_DISTRICTS } from '../city/districts.js';
+import { findDistrict } from '../city/atlas.js';
 import { startingGarrison } from '../city/control.js';
 import { noTerritoryEffects, type TerritoryEffects } from '../city/locations.js';
 import { COMBINE_UNITS, PLAYER_UNITS, findUnit } from '../units/catalog.js';
@@ -266,7 +267,7 @@ describe('the leaders, in and out of the fight', () => {
   });
 
   it('is beaten by nobody in the CCS until he is off his plot', () => {
-    const ccs = findDistrict('combine-spire');
+    const ccs = findDistrict('ccs');
     if (!ccs) throw new Error('no CCS');
     const chapel = ccs.locations.find((one) => one.kind === 'combine_chapel');
     if (!chapel) throw new Error('no chapel');
@@ -277,8 +278,6 @@ describe('the leaders, in and out of the fight', () => {
     const ground = battlefieldFor({
       locationName: chapel.name,
       kind: chapel.kind,
-      fortifyDifficulty: chapel.fortifyDifficulty,
-      fortifyLevel: 0,
       at: new Date('2026-09-20T12:00:00Z'),
     });
     const wins = Array.from({ length: 12 }, (_, seed) =>

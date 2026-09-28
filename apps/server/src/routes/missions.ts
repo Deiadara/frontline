@@ -1,39 +1,47 @@
 import { randomUUID } from 'node:crypto';
 import {
   removeFleet,
-  CITY_DISTRICTS,
+  districtsOfCity,
   LEADER_HOLD_MESSAGES,
   LaunchMissionRequestSchema,
   MISC_AREA_ID,
-  dealBattleTier,
   RecallMissionRequestSchema,
   canRecall,
   concurrentMissionSlots,
   findDistrict,
   findMissionTemplate,
+  FightLeaderQuoteRequestSchema,
+  type FightLeaderQuoteResponse,
   missionForceRefusal,
   unitsBeyondNotoriety,
   launchableBoardKeys,
   missionOffers,
   boardIsAutomated,
-  unledRule,
   type Base,
+  type Fleet,
   type LaunchMissionResponse,
+  type LevelUp,
+  type Mission,
   type MissionForceRefusal,
+  type MissionRoad,
   type MissionsResponse,
   type LocationHolder,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { removeForce } from '../battle/forces.js';
-import { AppError, parseBody, type ErrorCode } from '../errors.js';
+import { AppError, cityQuery, parseBody, type ErrorCode } from '../errors.js';
 import { areaStatesFor, projectAreas } from '../missions/board.js';
 import { benchFor, leadersFor, runLedBy } from '../missions/leaders.js';
 import { launchMission } from '../missions/launch.js';
+import { chairOf, fightChanceFor, rankFightLeaders } from '../missions/fight-leaders.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { cityAsked, citiesFor, mayEnter } from '../city/stakes.js';
 import { officerDuty } from '../crew/duty.js';
-import { resolveDueMissions } from '../missions/resolve.js';
+import { settleAndResolveMissions } from '../missions/resolve.js';
 import { takeLevelUp } from '../progression/award.js';
 import { rampFor } from '../missions/pricing.js';
+import { placeLocked } from '../battle/lock.js';
+import { settledOwnBase } from './own-base.js';
 
 /** Why a crew cannot go, in the player's words. */
 const FORCE_ERRORS: Record<MissionForceRefusal, { code: ErrorCode; message: string }> = {
@@ -86,17 +94,82 @@ function shutAreaRefusal(holder: LocationHolder | null): string {
   }
 }
 
+/**
+ * Whose boards this request is reading (2026-09-24).
+ *
+ * The board is the districts of one city, and it used to be Ashfall's twelve whoever asked. A crew
+ * living in Terminus read a board of twelve districts it cannot walk to, and the areas it can
+ * actually work were on nobody's screen.
+ *
+ * Which city is decided by the access model the Bar and the market already run on
+ * (`city/access.ts`): **a crew's own city, or any city they hold at least one location in**. Work
+ * is somebody in a city paying a crew to do a job, and the same sentence that says a crew with a
+ * stake may drink there and bid there says they may be hired there. It reads the same `?city=`
+ * parameter and refuses the same way, so the three doors of a city cannot disagree about who is
+ * inside it: a crew thrown out of their last Terminus plot loses the board on the next read,
+ * because the stake is read off the control map every time rather than granted and stored.
+ *
+ * A name they hold nothing in is refused rather than quietly answered with their own boards, which
+ * is the market's argument: the jobs are different jobs, and a player looking at Terminus cards
+ * they cannot launch would find out at the send button.
+ */
+function boardCity(app: FastifyInstance, base: Base, asked: string | undefined): string {
+  const cityId = cityAsked(app.repos, base, asked);
+  if (cityId === null) {
+    throw new AppError('CITY_SHUT', 'You hold no ground in that city. Take a place in it first.');
+  }
+  return cityId;
+}
+
+/** The city a request named, if it named one. Absent means the crew's own. */
+function askedCity(request: { query: unknown }): string | undefined {
+  return cityQuery(request.query);
+}
+
+/**
+ * A run as the client is shown it: without the page it may be carrying (maintainer, 2026-09-28).
+ *
+ * The offer stopped naming the prize so a player could not shop the board for it, and the row
+ * still carried it. The launch answers with the row and every read of the board lists it, so a
+ * player could launch, read the answer, call the crew back inside the window when it said
+ * nothing, and try the next card. What a run found is `pageWon`, written on arrival; nothing on
+ * the client reads the prize itself.
+ */
+function onTheWire(mission: Mission): Mission {
+  return { ...mission, pagePrize: null };
+}
+
+/**
+ * The crew's own cuts off the road to a job, off the same fold and with the same clamps the launch
+ * spends them with, so the send dialog's round trip is the one the run keeps (`MissionRoadSchema`).
+ */
+function missionRoad(app: FastifyInstance, base: Base, now: Date): MissionRoad {
+  const { travelSpeedPercent, roadMinutesOff, unitSpeedPercent } = standingEffectsFor(
+    app.repos,
+    base,
+    now,
+  );
+  return {
+    travelSpeedPercent: Math.max(0, travelSpeedPercent),
+    roadMinutesOff: Math.max(0, roadMinutesOff),
+    unitSpeedPercent,
+  };
+}
+
 export function registerMissionRoutes(app: FastifyInstance): void {
   app.get('/missions', { preHandler: app.authenticate }, (request): MissionsResponse => {
     const now = new Date();
     const own = requireOwnBase(app, request.currentUser.id);
     // In a transaction, the way the world clock runs it: the settle marks a run resolved before it
     // pays, so a write failing halfway left a crew marked home with its units and its haul gone.
-    const settlement = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
+    const settlement = settleAndResolveMissions(app.repos, own, now);
     // Whatever this crew is owed, including a level the *world clock* banked while nobody was
     // looking: `takeLevelUp` reads the durable marker and clears it (migration 0083). Read off the
     // marker rather than off `settlement.levelUp`, so a threshold the clock crossed at 03:00 is
     // announced here rather than lost.
+    // The board is chosen first: `boardCity` refuses a city this crew has lost its ground in, and a
+    // refusal after `takeLevelUp` had cleared the marker lost the announcement for good.
+    const cityId = boardCity(app, settlement.base, askedCity(request));
     const levelUp = takeLevelUp(app.repos, settlement.base.id);
 
     const stored = app.repos.missions.listByBaseId(settlement.base.id);
@@ -107,6 +180,10 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     const active = app.repos.missions.listActiveByBaseId(settlement.base.id);
 
     return {
+      // Which board this is, and every board this crew may read. The same pair the Bar, the
+      // market and the back room carry, so the picker on this screen works the way those do.
+      cityId,
+      cities: citiesFor(app.repos, settlement.base),
       leaders: leadersFor({
         repos: app.repos,
         base: settlement.base,
@@ -116,18 +193,16 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         active,
         now,
       }),
-      // What this crew may do with nobody at the head of a run, off the two rungs that open it.
-      unledRule: unledRule(settlement.base.research.technologies),
       level: settlement.base.level,
-      missions: stored.map((entry) => entry.mission),
-      justResolved: settlement.resolved,
+      missions: stored.map((entry) => onTheWire(entry.mission)),
+      justResolved: settlement.resolved.map(onTheWire),
       resources: settlement.base.resources,
       activeLimit: missionSlotsFor(app, settlement.base, now),
       // The card quotes what the launch will freeze. Read from the same fold `POST /missions`
       // reads: a Smuggler's Tunnel shortens the clock and the crew's own fixer widens the cut, and
       // both used to be invisible to the board and frozen onto the run.
       areas: projectAreas(
-        CITY_DISTRICTS,
+        districtsOfCity(boardCity(app, settlement.base, askedCity(request))),
         areaStatesFor(app.repos, settlement.base),
         active,
         settlement.base.level,
@@ -140,6 +215,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           ramp: rampFor(app.repos, settlement.base),
         }))(standingEffectsFor(app.repos, settlement.base, now)),
       ),
+      road: missionRoad(app, settlement.base, now),
       army: settlement.base.army,
       serverNow: now.toISOString(),
       levelUp,
@@ -166,26 +242,40 @@ export function registerMissionRoutes(app: FastifyInstance): void {
      * the wall when they read it. `launchableBoardKeys` is one key for a district and two for
      * misc, so nothing about the daily boards changed.
      *
-     * The matching key is kept rather than only asked about, because it is what the card's page
-     * prize was drawn from and `launchMission` freezes that prize onto the row. The current slot
+     * The matching key is kept rather than only asked about, because it is what the run's page
+     * prize is drawn from and `launchMission` freezes that prize onto the row. The current slot
      * is first in the list, so a job standing on both boards is launched on the terms the player
      * is looking at now.
+     *
+     * Dealt at the crew's level before the settle, which is the board the player was reading: a
+     * level banked by this very request must not swap the card they pressed for another one. The
+     * grade comes with it, and is what the run is frozen at.
      */
-    const boardKey = launchableBoardKeys(areaId, now).find((key) =>
-      missionOffers(areaId, key).some((offer) => offer.id === templateId),
-    );
-    if (boardKey === undefined) {
+    const own = requireOwnBase(app, request.currentUser.id);
+    // ...or the level before it: the world clock can bank a level-up between the player reading
+    // the board and pressing Send, and the card they pressed must not vanish under them. The
+    // current level first, so a card on both boards goes out as it reads now.
+    const dealt = [own.level, own.level - 1]
+      .filter((level) => level >= 1)
+      .flatMap((level) =>
+        launchableBoardKeys(areaId, now).map((key) => ({
+          key,
+          job: missionOffers(areaId, key, level).find((job) => job.template.id === templateId),
+        })),
+      )
+      .find((entry) => entry.job !== undefined);
+    if (dealt?.job === undefined) {
       throw new AppError('NOT_FOUND', 'That job is not on offer there');
     }
-
-    const own = requireOwnBase(app, request.currentUser.id);
+    const boardKey = dealt.key;
+    const grade = dealt.job.grade;
 
     /*
      * Who is leading it (maintainer, 2026-09-10).
      *
-     * Naming somebody who is not on this crew's bench is a 404, not a quiet demotion to an unled
-     * run: a stale tab or a typo would otherwise cost the player the unled penalty with nothing on
-     * screen to explain it, or be refused outright now that unled runs are researched into.
+     * Naming somebody who is not on this crew's bench is a 404. Every run has a leader
+     * (maintainer, 2026-09-28), and the Overseer is always on the bench, so a request with nobody
+     * valid in it is a stale tab or a typo rather than a choice.
      *
      * This half is checked *before* the settle so a doomed request never banks one (MOU-280): the
      * settle's level-up can only be announced by the response that caused it, and this one is an
@@ -199,14 +289,14 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         : undefined,
       own.commanders,
     );
-    const leader = leaderId ? bench.find((candidate) => candidate.id === leaderId) : undefined;
-    if (leaderId !== undefined && !leader) {
+    const leader = bench.find((candidate) => candidate.id === leaderId);
+    if (!leader) {
       throw new AppError('NOT_FOUND', 'Nobody on your bench by that id');
     }
 
     // Settle first: a mission that came home while the player was reading the board frees a slot
     // they should be allowed to use on this very request.
-    const { base } = app.repos.tx(() => resolveDueMissions(app.repos, own, now));
+    const { base } = settleAndResolveMissions(app.repos, own, now);
     // Drained here, before any refusal below, because every exit from this handler carries it.
     const levelUp = takeLevelUp(app.repos, base.id);
     // The active runs, not the whole history filtered down to them: the repo has a query for this
@@ -215,21 +305,18 @@ export function registerMissionRoutes(app: FastifyInstance): void {
 
     // One job at a time, for the Overseer as much as for an officer: a person who is out is out.
     // Read off the runs the settle left active, so the leader who just came home is free again.
-    if (leader && runLedBy(leader, active) !== null) {
+    if (runLedBy(leader, active) !== null) {
       throw new AppError('MISSION_REFUSED', `${leader.name} ${LEADER_HOLD_MESSAGES.run}`, levelUp);
     }
     /*
-     * §D4 and the rest of what can hold an officer: injured, leading a declared fight, or out
-     * scouting. Refused rather than quietly demoted to an unled run, because the player picked a
-     * person. The Overseer answers to none of it: they are the player, not an employee.
+     * §D4 and the rest of what can hold an officer: injured, leading a declared fight, or on the
+     * bench. Refused, because the player picked a person. The Overseer answers to none of it: they are the player, not an employee.
      *
      * Below the settle with the rule above, and for the same reason: `officerDuty` reads the
      * crew's active runs too, so hoisted it would hold an officer whose run has just landed.
      */
     const officer =
-      leader?.kind === 'officer'
-        ? base.commanders.find((held) => held.id === leader.id)
-        : undefined;
+      leader.kind === 'officer' ? base.commanders.find((held) => held.id === leader.id) : undefined;
     const duty = officer ? officerDuty(app.repos, base, officer, now) : null;
     if (officer && duty !== null) {
       throw new AppError(
@@ -258,6 +345,21 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       const state = areaStatesFor(app.repos, base).get(areaId);
       if (!state?.scouted) {
         throw new AppError('DISTRICT_UNSCOUTED', 'You have not had eyes on that ground', levelUp);
+      }
+      /*
+       * The city's own door, the same one the read draws the board through (see `boardCity`).
+       *
+       * Checked here as well as there because the screen is not the only way to post: a crew that
+       * has lost its last plot in Terminus still has yesterday's card in an open tab, and the read
+       * would refuse them while the launch waved them through. The wording names the stake rather
+       * than the ground, because the fix is a place in that city rather than another scout.
+       */
+      if (district && !mayEnter(app.repos, base, district.cityId)) {
+        throw new AppError(
+          'CITY_SHUT',
+          'Nobody in that city hires a crew that holds nothing in it. Take a place there first',
+          levelUp,
+        );
       }
       // The same rule the board draws with, worded for whoever is actually behind the gate.
       if (state.heldWhole) {
@@ -299,14 +401,6 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     }
 
     /*
-     * A crew with nobody at the head of it goes out only once somebody has written down how.
-     *
-     * The refusal names the rung rather than saying no, because "you cannot" with no next step is
-     * the worst thing a launch screen can say: the Overseer is always available, so the player's
-     * choice here is between sending themselves and finishing a piece of research. The level-up
-     * rides out on the envelope because the settle above may have banked one before this refused.
-     */
-    /*
      * §C2b: while any standing order is on, the board is the Right Hand's.
      *
      * The maintainer's rule is the strong one: not "the slots it is holding" but the whole board,
@@ -321,46 +415,51 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       );
     }
 
-    const unled = unledRule(base.research.technologies);
-    if (!leader && unled === 'forbidden') {
+    /*
+     * The party leaves from home, and nothing leaves home in the last hour before a raid on it
+     * (`battle/lock.ts`, maintainer 2026-09-28): the district army is what that raid meets.
+     */
+    if (placeLocked(app.repos, base, { kind: 'district' }, now)) {
       throw new AppError(
-        'MISSION_NEEDS_OFFICER',
-        'Somebody has to lead this. Written Orders, on the Right Hand track, is what lets a crew go out without one',
+        'MISSION_REFUSED',
+        'A raid lands on your district within the hour. Nobody leaves home now',
         levelUp,
       );
     }
 
-    /*
-     * §C3: the machines leave the yard with the crew.
-     *
-     * Checked against the yard rather than trusted, like the force above: a client naming four
-     * trucks it does not own would otherwise buy the speed of four trucks. Refused whole rather
-     * than silently trimmed, because a crew that thought it was riding and is walking has made a
-     * different decision about a clock it cannot see.
-     */
-    for (const [id, count] of Object.entries(vehicles)) {
-      if ((base.fleet[id as keyof typeof base.fleet] ?? 0) < (count ?? 0)) {
-        throw new AppError('FORBIDDEN', 'You do not have that many in the yard', levelUp);
-      }
-    }
+    // §C3: the machines leave the yard with the crew, checked like the force above.
+    refuseVehiclesNotHeld(base, vehicles, levelUp);
 
+    // Read once: two calls would be two settles of the same effects.
+    const book = standingEffectsFor(app.repos, base, now);
     const stored = launchMission({
       id: randomUUID(),
       base,
       template,
       areaId,
       boardKey,
-      // The tier this card was dealt on this board at this level: what the crew walks into and
-      // what it pays, frozen with everything else the card promised.
-      battleTier:
-        template.kind === 'battle'
-          ? dealBattleTier(areaId, boardKey, template.id, base.level)
-          : null,
+      // A fight's chance is what the practice fights say this leader is worth with this force
+      // (`fight-leaders.ts`), frozen for the report; a plain job keeps its attribute grade.
+      ...(template.kind === 'battle'
+        ? {
+            fightChance: fightChanceFor({
+              base,
+              template,
+              grade,
+              force,
+              vehicles: vehicles ?? {},
+              leader,
+              effects: book,
+            }),
+          }
+        : {}),
+      // The grade this card was dealt: the odds, what a fight fields, the clock and the pay, frozen
+      // with everything else the card promised.
+      grade,
       force,
       vehicles,
       now,
       leader,
-      unled,
       // The band this crew is in, read before the run goes out and frozen on the row with the
       // clock and the pay it decides (`missions.ramp.ts`).
       ramp: rampFor(app.repos, base),
@@ -405,7 +504,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
         // The march read it and the job did not, so one crew's Colossus rode to a fight and walked
         // to a mission on the same streets.
         anyRide,
-      }))(standingEffectsFor(app.repos, base, now)),
+      }))(book),
     });
     // The row and the roster move together: a crew that is out is a crew that is not at home to
     // defend the district, and a split between these two would let the same people do both.
@@ -418,7 +517,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
     })();
     // The settle above is the only place this level-up is ever reported: the next `GET /missions`
     // re-resolves nothing, so dropping it here loses it outright rather than deferring it.
-    return { mission: stored.mission, serverNow: now.toISOString(), levelUp };
+    return { mission: onTheWire(stored.mission), serverNow: now.toISOString(), levelUp };
   });
 
   /**
@@ -429,6 +528,66 @@ export function registerMissionRoutes(app: FastifyInstance): void {
    * return leg is derived from it, so the report afterwards can still say how long the run was
    * meant to take and how far they got before the order reached them.
    */
+  /**
+   * Who should lead a fight, for the force the player is filling in (maintainer, 2026-09-28).
+   *
+   * Advice, not a launch: little is refused that the launch would refuse, because the window asks
+   * as the force changes and a half-filled party is a fair question. A party bigger than the crew
+   * has is the exception (see below).
+   * Every leader on the bench is rated, held or not, so the row of somebody out on a run still
+   * says what they would be worth; the window keeps its own rule about who can be picked. An
+   * officer with no chair is the exception and is not fought at all: they cannot lead until they
+   * are seated (maintainer, 2026-09-28), and the chair they would get changes what they are worth.
+   */
+  app.post(
+    '/missions/leaders/quote',
+    { preHandler: app.authenticate },
+    (request): FightLeaderQuoteResponse => {
+      const { templateId, grade, force, vehicles } = parseBody(
+        FightLeaderQuoteRequestSchema,
+        request.body,
+      );
+      const template = findMissionTemplate(templateId);
+      if (!template) throw new AppError('NOT_FOUND', 'That mission is not on the board');
+      if (template.kind !== 'battle') {
+        throw new AppError('VALIDATION_ERROR', 'Only a fight is led by whoever wins it');
+      }
+      const now = new Date();
+      const base = settledOwnBase(app, request.currentUser.id, now);
+      /*
+       * A party the crew could not send is not a question worth fighting out (audit, 2026-09-28).
+       *
+       * Every candidate is rated over practice fights, and each fight's cost grows with the force,
+       * so nothing capping the force let one account ask about ten million of every unit and hold
+       * the event loop for seconds a request. Half-filled parties and no fighters yet are still
+       * fair questions; more than the roster or the yard holds is not.
+       */
+      if (missionForceRefusal(force, base.army, template.kind) === 'not_enough_units') {
+        const { code, message } = FORCE_ERRORS.not_enough_units;
+        throw new AppError(code, message);
+      }
+      refuseVehiclesNotHeld(base, vehicles ?? {});
+      const bench = benchFor(
+        request.currentUser.overseerId
+          ? app.repos.overseers.findById(request.currentUser.overseerId)
+          : undefined,
+        base.commanders,
+      );
+      return {
+        leaders: rankFightLeaders({
+          base,
+          template,
+          grade,
+          force,
+          vehicles: vehicles ?? {},
+          candidates: bench.filter((one) => one.kind === 'overseer' || chairOf(base, one) !== null),
+          effects: standingEffectsFor(app.repos, base, now),
+          practice: `practice-leader:${base.id}:${template.id}:${grade}`,
+        }),
+      };
+    },
+  );
+
   app.post('/missions/recall', { preHandler: app.authenticate }, (request): MissionsResponse => {
     const { missionId } = parseBody(RecallMissionRequestSchema, request.body);
     const now = new Date();
@@ -445,7 +604,7 @@ export function registerMissionRoutes(app: FastifyInstance): void {
       app.repos.missions.markRecalled(missionId, now.toISOString());
       // Settled first, as the read is, so the board this answers with is the board the next read
       // would show: a crew that came home while the order was given frees its slot here.
-      const settlement = resolveDueMissions(app.repos, base, now);
+      const settlement = settleAndResolveMissions(app.repos, base, now);
       const settled = settlement.base;
       const levelUp = takeLevelUp(app.repos, settled.id);
       const all = app.repos.missions.listByBaseId(settled.id);
@@ -465,16 +624,20 @@ export function registerMissionRoutes(app: FastifyInstance): void {
           active,
           now,
         }),
-        unledRule: unledRule(settled.research.technologies),
         level: settled.level,
-        missions: all.map((entry) => entry.mission),
-        justResolved: settlement.resolved,
+        cityId: boardCity(app, settled, askedCity(request)),
+        cities: citiesFor(app.repos, settled),
+        missions: all.map((entry) => onTheWire(entry.mission)),
+        justResolved: settlement.resolved.map(onTheWire),
         resources: settled.resources,
         activeLimit: missionSlotsFor(app, settled, now),
         // The same fold the read prices from. Without it every card was repainted at bare timings
         // and bare pay until the next poll put the crew's tunnel and fixer back on it.
+        // The same city the read draws, off the same `?city=`: a recall repaints the board the
+        // player is looking at, and answering with their home city would swap the screen under
+        // somebody working a second city.
         areas: projectAreas(
-          CITY_DISTRICTS,
+          districtsOfCity(boardCity(app, settled, askedCity(request))),
           areaStatesFor(app.repos, settled),
           active,
           settled.level,
@@ -485,10 +648,26 @@ export function registerMissionRoutes(app: FastifyInstance): void {
             ramp: rampFor(app.repos, settled),
           }))(standingEffectsFor(app.repos, settled, now)),
         ),
+        road: missionRoad(app, settled, now),
         army: settled.army,
         serverNow: now.toISOString(),
         levelUp,
       };
     })();
   });
+}
+
+/**
+ * §C3: the machines named are in the yard, or the request is refused whole.
+ *
+ * Checked against the yard rather than trusted: a client naming four trucks it does not own would
+ * otherwise buy the speed of four trucks. Refused rather than silently trimmed, because a crew that
+ * thought it was riding and is walking has made a different decision about a clock it cannot see.
+ */
+function refuseVehiclesNotHeld(base: Base, vehicles: Fleet, levelUp?: LevelUp): void {
+  for (const [id, count] of Object.entries(vehicles)) {
+    if ((base.fleet[id as keyof Fleet] ?? 0) < (count ?? 0)) {
+      throw new AppError('FORBIDDEN', 'You do not have that many in the yard', levelUp);
+    }
+  }
 }

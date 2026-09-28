@@ -169,6 +169,7 @@ describe('luck makes a losing side likelier to get away', () => {
       suppressed: 0,
       dealt: 0,
       sheet: spec.stats,
+      modGain: {},
       loudTier: 0,
     };
   };

@@ -5,10 +5,12 @@ import {
   MAX_JAM_CEILING,
   bareBattlefield,
   battlefieldFor,
-  contextBonusPercent,
   effectiveStats,
   findUnit,
   jamPercent,
+  WONDER_JAM_CAP,
+  wonderJam,
+  jammedSheet,
   LOCATION_KINDS,
   noTerritoryEffects,
   simulate,
@@ -64,6 +66,7 @@ function stackOf(
     dealt: 0,
     // What `buildStacks` puts here: the sheet with the workshop's refits on and the ground off.
     sheet: upgradedStats(unit.stats, fitted),
+    modGain: {},
     loudTier: 0,
   };
 }
@@ -126,8 +129,6 @@ describe('what a jamming line takes off the other side', () => {
     const cellar = battlefieldFor({
       locationName: 'a cellar',
       kind: 'smugglers_tunnel',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 0,
       at: new Date('2026-09-18T12:00:00.000Z'),
       weather: 'normal',
     });
@@ -174,23 +175,18 @@ describe('what a jamming line takes off the other side', () => {
    * The card used to promise that "everything that would make another unit hit harder makes them
    * jam harder instead", and two whole families of bonus are outside that: the workshop's refits,
    * pinned above, and the `vs_` modifiers, which `matchup.ts` decides against one target at a
-   * time. The Netrunners carry `tracking`, the biggest of them at +45%, so a player reading that
-   * sentence beside that chip would conclude the jam bites deeper into something evasive. It does
-   * not, and cannot: a jam is laid on the whole enemy line at once, so there is no target to read
-   * a `vs_` modifier against.
+   * time. A jam is laid on the whole enemy line at once, so there is no target to read a `vs_`
+   * modifier against. (The Netrunners carried `tracking` until 2026-09-26, which is what made
+   * this worth pinning; the sweep below still is, for any target-shaped modifier.)
    */
-  it('is not moved by what it is jamming, though Tracking is on the sheet', () => {
-    expect(NETRUNNERS.modifiers).toContain('tracking');
-    // Tracking is worth real points, and more of them than any other modifier in the table.
-    expect(contextBonusPercent(NETRUNNERS, ['vs_evasive']).percent).toBeGreaterThan(0);
-
+  it('is not moved by what it is jamming', () => {
     /*
      * ...and none of them can reach the jam, because no ground the game builds carries them.
      *
      * The jam's ratio comes out of `effectiveStats`, which resolves `battlefield.contexts` and
-     * nothing else, and `battlefieldFor` pushes exactly one of the `vs_` family: `vs_structure`,
-     * which is a property of the ground. The three target-shaped ones are decided per exchange
-     * in `matchup.ts`, against one defender at a time, and a jam has no one defender.
+     * nothing else, and `battlefieldFor` pushes none of the `vs_` family. The target-shaped ones
+     * are decided per exchange in `matchup.ts`, against one defender at a time, and a jam has no
+     * one defender.
      *
      * Swept over every location kind rather than asserted about one, because this is a claim
      * about the whole map and a new kind is the way it would quietly stop being true.
@@ -200,17 +196,14 @@ describe('what a jamming line takes off the other side', () => {
       const ground = battlefieldFor({
         locationName: kind,
         kind,
-        fortifyDifficulty: 'medium',
-        fortifyLevel: 10,
         at: new Date('2026-09-19T22:00:00.000Z'),
         weather: 'stormy',
       });
-      for (const context of targetShaped) {
+      // And since fortification left the game (2026-09-26), not `vs_structure` either: a gate is
+      // the holder's and arrives with their territory, so no ground carries any of the family.
+      for (const context of [...targetShaped, 'vs_structure' as const]) {
         expect(ground.contexts, `${kind} carries ${context}`).not.toContain(context);
       }
-      // The control: fortified ground does carry the one `vs_` context that is about the place,
-      // so this sweep is reading a list that really can hold members of that family.
-      expect(ground.contexts).toContain('vs_structure');
     }
   });
 
@@ -249,146 +242,113 @@ describe('the Netrunners sheet the jam replaced', () => {
  * identical and the only thing that moved is the jam: a swap would confound the effect with the
  * bodies it cost.
  */
-describe('the jam, in a fight', () => {
-  /*
-   * Room for everybody, so adding jammers does not quietly answer a different question.
-   *
-   * `frontageShare` divides a side's fire by how much of it fits on the ground, so putting twenty
-   * more bodies beside sixty razors on ordinary ground makes each razor fire *less*. Measured on
-   * open ground the jam looked like a penalty for exactly that reason: 0.083 against 0.100. A
-   * frontage nothing reaches takes combat width out of the comparison and leaves the jam.
-   */
-  const ROOMY: Battlefield = { ...bareBattlefield(), frontage: 10_000 };
+/*
+ * What the jam does (maintainer, 2026-09-27). It used to cut the whole enemy line's armour and
+ * damage; now it does two narrower things that stack: it weakens what modifications add, and it
+ * cuts Wonders of Engineering the jammers cover.
+ */
+describe('the jam against modifications', () => {
+  const fitted = (): Stack => ({
+    ...stackOf(RAZORS, 10),
+    effective: { ...stackOf(RAZORS, 10).effective, armor: 50, offense: 100, penetration: 30 },
+    modGain: { armor: 20, offense: 30 },
+  });
 
-  /** What each side dealt and lost over the whole fight, from the stacks themselves. */
-  const fight = (army: Record<string, number>, enemy: Record<string, number>) => {
+  it('strips the jam percent off what the modifications add, and nothing else', () => {
+    const sheet = jammedSheet(fitted(), 40);
+    expect(sheet.armor).toBeCloseTo(50 - 20 * 0.4, 6);
+    expect(sheet.offense).toBeCloseTo(100 - 30 * 0.4, 6);
+    expect(sheet.penetration).toBe(30);
+  });
+
+  it('does nothing to a unit with nothing fitted', () => {
+    const bare = stackOf(RAZORS, 10);
+    expect(jammedSheet(bare, 40)).toEqual(bare.effective);
+  });
+
+  it('knows what a fitted stack was given, from the fight itself', () => {
+    // The Scrap Vest: four points of armour, fitted in the first bracket.
+    const card = 'scrap_vest';
     const out = simulate({
-      seed: 'jam-probe',
-      attacker: { name: 'A', army, defending: false },
-      defender: { name: 'D', army: enemy, defending: true },
-      battlefield: ROOMY,
+      seed: 'mod-gain',
+      attacker: { name: 'A', army: { razors: 10 }, defending: false },
+      defender: {
+        name: 'D',
+        army: { razors: 10 },
+        defending: true,
+        upgrades: { razors: [card] },
+      },
+      battlefield: bareBattlefield(),
     });
-    const dead = (side: SideState, unitId: string): number =>
-      side.stacks
-        .filter((stack) => stack.unit.id === unitId)
-        .reduce((total, stack) => total + (stack.started - stack.alive), 0);
-    const first = out.rounds[0];
-    if (!first) throw new Error('the fight had no rounds');
-    return {
-      theirDead: dead(out.defender, Object.keys(enemy)[0] ?? ''),
-      ourRazorsDead: dead(out.attacker, 'razors'),
-      /*
-       * Round one alone, which is the only window where the armour half can be seen on its own.
-       *
-       * Both sides fire from the same snapshot, so nothing the jam did to the *enemy's damage*
-       * has saved a single one of our shooters yet: whatever extra they lose in round one, they
-       * lost to their own armour being down. By round two the two halves are tangled, and a
-       * whole-fight count passes with the armour cut deleted, which is how this test was wrong
-       * the first time.
-       */
-      theirFirstRound: first.defenderLost,
+    expect(out.defender.stacks[0]!.modGain.armor ?? 0).toBeGreaterThan(0);
+    expect(out.attacker.stacks[0]!.modGain.armor ?? 0).toBe(0);
+  });
+});
+
+describe('the jam against Wonders of Engineering', () => {
+  const WONDER = findUnit('hollow_men')!;
+  const jammers = (count: number): SideState => sideOf([stackOf(NETRUNNERS, count)]);
+  const wonders = (...units: UnitSpec[]): SideState =>
+    sideOf(units.map((unit) => stackOf(unit, 1)));
+  const cutOn = (jamming: SideState, target: SideState, at = 0): number =>
+    wonderJam(jamming, target).get(target.stacks[at]!) ?? 0;
+
+  it('does nothing until the jammers cover the machine, then 10% and 10% more each', () => {
+    // A 5-slot Hollow Men against 3-slot Netrunners: one covers 3, two cover 6.
+    expect(WONDER.unitSlots).toBe(5);
+    expect(NETRUNNERS.unitSlots).toBe(3);
+    const target = wonders(WONDER);
+    expect(cutOn(jammers(1), target)).toBe(0);
+    expect(cutOn(jammers(2), target)).toBeCloseTo(10, 6);
+    expect(cutOn(jammers(3), target)).toBeCloseTo(20, 6);
+    expect(cutOn(jammers(4), target)).toBeCloseTo(30, 6);
+  });
+
+  it('stops at half on nominal ground', () => {
+    expect(cutOn(jammers(40), wonders(WONDER))).toBeCloseTo(WONDER_JAM_CAP, 6);
+  });
+
+  it('covers as many machines as it can before it deepens any', () => {
+    // Two 5-slot machines and four Netrunners (12 slots): both covered, 2 slots left over.
+    const target = wonders(WONDER, WONDER);
+    expect(cutOn(jammers(4), target, 0)).toBeCloseTo(10, 6);
+    expect(cutOn(jammers(4), target, 1)).toBeCloseTo(10, 6);
+  });
+
+  it('takes the cut off damage and armour, on top of the modification strip', () => {
+    const stack = { ...stackOf(WONDER, 1), modGain: { armor: 10 } };
+    const sheet = jammedSheet(stack, 50, 20);
+    expect(sheet.armor).toBeCloseTo((stack.effective.armor - 5) * 0.8, 6);
+    expect(sheet.offense).toBeCloseTo(stack.effective.offense * 0.8, 6);
+  });
+
+  /*
+   * Through a real fight, so a cut that is computed and never reaches a round fails here. The
+   * control is the same army without the mark: forty Razors granted Jamming by a holding, one slot
+   * each, which covers the Twins' four slots and deepens the cut to the cap. The fight is over in
+   * one round, so both runs are read from the same snapshot.
+   */
+  it('lets a covered Wonder deal half as much', () => {
+    const TWINS = findUnit('the_twins')!;
+    expect(TWINS.unitSlots).toBe(4);
+    const dealtByTheTwins = (marked: boolean): number => {
+      const out = simulate({
+        seed: 'wonder-jam',
+        attacker: {
+          name: 'A',
+          army: { razors: 40 },
+          defending: false,
+          ...(marked
+            ? { territory: { ...noTerritoryEffects(), unitMarks: { razors: ['jammer'] } } }
+            : {}),
+        },
+        defender: { name: 'D', army: { the_twins: 1 }, defending: true },
+        battlefield: bareBattlefield(),
+      });
+      expect(out.rounds).toHaveLength(1);
+      return out.defender.stacks[0]!.dealt;
     };
-  };
-
-  /**
-   * The armour half, measured against something that has some.
-   *
-   * A Razor wears five points of armour, so taking forty per cent of it off is worth two points
-   * and the effect is inside the noise. The jam's armour half is a rule about *armoured* enemies,
-   * which is what makes a Juggernaut the honest target for it.
-   */
-  /**
-   * The armour half, isolated by **what it is worth against different armour**.
-   *
-   * Two confounds have to go before this measures anything. Round one alone removes the damage
-   * half, because both sides fire from the same snapshot and nothing the jam did to the enemy's
-   * offense has saved one of our shooters yet. What is left is that the two hundred Netrunners
-   * are themselves two hundred more guns, and adding them raises the round-one figure whether or
-   * not the armour cut exists at all: with the cut deleted the reading was still "more than the
-   * bare line", which is how this test was wrong the first time it was written.
-   *
-   * So the reading is a *ratio of ratios*. The same comparison runs against Juggernauts (68
-   * armour) and against Razors (5), and only the armour half can care which. Measured on the
-   * same seed:
-   *
-   * | | gain vs armour 68 | vs armour 5 | ratio |
-   * | --- | --- | --- | --- |
-   * | as shipped | 2.250 | 1.095 | **2.05** |
-   * | armour half deleted | 1.500 | 1.095 | 1.37 |
-   *
-   * The floor sits at 1.7, between the two. The unarmoured column is identical in both rows,
-   * which is the check that this is measuring armour and not the size of the army.
-   *
-   * Six hundred Razors because `defenderLost` is a share of a stack: twelve Juggernauts lose
-   * nobody at all in one round to sixty of them, jam or no jam, and zero against zero proves
-   * nothing.
-   */
-  it('is worth far more against armour than against none', () => {
-    const gainAgainst = (enemy: Record<string, number>): number => {
-      const alone = fight({ razors: 600 }, enemy).theirFirstRound;
-      const jammed = fight({ razors: 600, netrunners: 200 }, enemy).theirFirstRound;
-      expect(alone, 'nobody died in round one, so there is no ratio to take').toBeGreaterThan(0);
-      return jammed / alone;
-    };
-
-    /*
-     * Twenty-four Juggernauts since 2026-09-21. Armour is worth less per point now, so the gap is
-     * smaller, and on this field six hundred Razors kill every smaller armoured line to the last
-     * body in round one, jam or no jam, which reads as a ratio of exactly one and proves nothing.
-     *
-     * The bar has come down twice, and each time against a freshly measured control rather than
-     * against the shipped number alone, because a floor that drifts up to meet the code is a test
-     * that has stopped asking anything:
-     *
-     * | | ratio, as shipped | ratio, armour half deleted | bar |
-     * | --- | --- | --- | --- |
-     * | before 2026-09-21 | 2.05 | 1.37 | 1.7 |
-     * | after the armour retune | 1.47 | ~1.2 | 1.4 |
-     * | after the ambush weighting | **1.387** | **1.134** | **1.25** |
-     *
-     * The last row moved because the opening volley is now scaled by how much of the force is
-     * hidden (`ambushShare`): two hundred Netrunners carry the `ambush` mark and six hundred
-     * Razors do not, so the jammed line and the bare line no longer open with the same share of a
-     * round. The mechanic is untouched, and the control says so: delete the armour half and the
-     * reading falls to 1.134, a fifth of the way from the bar to nothing.
-     */
-    const armoured = gainAgainst({ juggernauts: 24 });
-    const unarmoured = gainAgainst({ razors: 200 });
-    expect(armoured, 'the jam did nothing extra to an armoured enemy').toBeGreaterThan(
-      unarmoured * 1.25,
-    );
-  });
-
-  it('kills more of an armoured enemy over the whole fight', () => {
-    const enemy = { juggernauts: 24 };
-    expect(fight({ razors: 600, netrunners: 200 }, enemy).theirDead).toBeGreaterThan(
-      fight({ razors: 600 }, enemy).theirDead,
-    );
-  });
-
-  it('does more the more of the line is doing it', () => {
-    const enemy = { juggernauts: 12 };
-    const few = fight({ razors: 60, netrunners: 2 }, enemy);
-    const many = fight({ razors: 60, netrunners: 20 }, enemy);
-    expect(many.theirDead).toBeGreaterThan(few.theirDead);
-  });
-
-  /**
-   * ...and the damage half, which needs its own control.
-   *
-   * Both sides field sixty razors, so the stack being counted is the same stack with the same
-   * sheet in both runs. The jammed run has twenty Netrunners standing beside them, and the
-   * control has twenty *razors* standing beside them instead: the same twenty extra bodies to
-   * soak and to split incoming fire, so what is left between the two runs is the jam on the
-   * enemy's offense and twenty razors' worth of guns the jammed side is giving up.
-   */
-  it('keeps more of the line alive by taking the enemy down a peg', () => {
-    const enemy = { razors: 80 };
-    const moreGuns = fight({ razors: 80 }, enemy);
-    const jammed = fight({ razors: 60, netrunners: 20 }, enemy);
-    expect(
-      jammed.ourRazorsDead,
-      'the jam did not protect the line it was brought for',
-    ).toBeLessThan(moreGuns.ourRazorsDead);
+    const bare = dealtByTheTwins(false);
+    expect(dealtByTheTwins(true)).toBeCloseTo(bare * (1 - WONDER_JAM_CAP / 100), 1);
   });
 });

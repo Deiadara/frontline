@@ -38,9 +38,10 @@ import {
  * Everything here is tradeable between players unless it says otherwise, because an item economy
  * where the interesting items cannot move is a collection, not a market.
  *
- * The six `blueprint_*` goods below predate pages and are still what the Lab's tracks and the
- * Black Market's shelf name. They are not part of the pages model and are left alone here: both
- * of those catalogues are owned elsewhere, and moving them is their change to make.
+ * Six `blueprint_*` goods that predated pages were retired on 2026-09-28 (maintainer: drop anything
+ * sold that cannot be used). They gated nothing; the fence's four blueprint lots now sell real
+ * documents instead (`fenceOnly` in `blueprints/catalog.ts`). A stored inventory that still names
+ * one is repaired on read (`db/repos/bases.ts`).
  */
 
 // `consumable` is a thing built to be spent once: a trap laid under one fight. It is not a good
@@ -74,13 +75,6 @@ export const ITEM_IDS = [
   'hydraulic_ram',
   'signal_relay',
   'pressure_valve',
-  // Blueprints: read once, known forever.
-  'blueprint_cybernetics',
-  'blueprint_composite_armour',
-  'blueprint_rotorcraft',
-  'blueprint_signal_theory',
-  'blueprint_field_medicine',
-  'blueprint_munitions',
 ] as const;
 
 export type GoodId = (typeof ITEM_IDS)[number];
@@ -164,7 +158,7 @@ const SPECS: readonly ItemSpec[] = [
     kind: 'component',
     rarity: 'basic',
     description: 'A salvaged actuator, rewound by hand. Whines, but holds.',
-    usedFor: 'The first tier of unit upgrades, and the Garage’s early frames.',
+    usedFor: 'The Gauntlet’s upper levels, and the unit cards with moving parts in them.',
     capsValue: 120,
     tradeable: true,
   },
@@ -173,8 +167,9 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Gyro Assembly',
     kind: 'component',
     rarity: 'intricate',
-    description: 'Three rings and a weight, machined true. Nobody in the district makes these.',
-    usedFor: 'Motorcycles, and anything that has to stay upright at speed.',
+    description:
+      'Three rings and a weight, machined true. The last shop that made them closed in the war.',
+    usedFor: 'The Garage’s upper levels, and the fence’s chrome and drop rigs.',
     capsValue: 320,
     tradeable: true,
   },
@@ -214,7 +209,7 @@ const SPECS: readonly ItemSpec[] = [
     kind: 'component',
     rarity: 'advanced',
     description: 'Sealed, pressurised, and older than anyone using it.',
-    usedFor: 'Anything that runs hot: the Generator’s upper levels, and rotorcraft.',
+    usedFor: 'Anything that runs hot: the Generator’s upper levels, and the unit cards that do.',
     capsValue: 760,
     tradeable: true,
   },
@@ -223,8 +218,8 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Rotor Hub',
     kind: 'component',
     rarity: 'masterpiece',
-    description: 'The one part of a helicopter nobody has worked out how to fabricate.',
-    usedFor: 'Rotorcraft. There is no substitute and no second use.',
+    description: 'The one part of a helicopter the yard cannot make from scratch.',
+    usedFor: 'The Garage’s top level, and every Rotor Drop Rig the yard cuts.',
     capsValue: 2400,
     tradeable: true,
   },
@@ -234,7 +229,7 @@ const SPECS: readonly ItemSpec[] = [
     kind: 'component',
     rarity: 'masterpiece',
     description: 'A dead drone’s brain, still counting things it can no longer see.',
-    usedFor: 'The last tier of weapon upgrades.',
+    usedFor: 'The yard’s best gun cards.',
     capsValue: 2100,
     tradeable: true,
   },
@@ -243,8 +238,7 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Welding Rods',
     kind: 'component',
     rarity: 'basic',
-    description:
-      'A bundle of flux-coated rod, the size somebody actually uses rather than the size sold.',
+    description: 'A bundle of flux-coated rod, 3.2 mm, the size that actually gets used.',
     usedFor:
       'Anything joined rather than bolted: the early structures, and the first armour plate.',
     capsValue: 90,
@@ -255,7 +249,7 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Hydraulic Ram',
     kind: 'component',
     rarity: 'intricate',
-    description: 'A cylinder with the seals still good, which is the rare part of a hydraulic ram.',
+    description: 'A cylinder with its seals still good. The seals are the part worth having.',
     usedFor: 'Anything that has to lift or brace: the Gate, the yard, and heavy armour.',
     capsValue: 360,
     tradeable: true,
@@ -265,7 +259,7 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Signal Relay',
     kind: 'component',
     rarity: 'intricate',
-    description: 'A repeater board off a Combine handset, still paired to a network nobody runs.',
+    description: 'A repeater board off a Combine handset, still paired to a dead network.',
     usedFor: 'Talking to each other under fire: the Lab, and the discipline line.',
     capsValue: 300,
     tradeable: true,
@@ -275,88 +269,10 @@ const SPECS: readonly ItemSpec[] = [
     name: 'Pressure Valve',
     kind: 'component',
     rarity: 'advanced',
-    description:
-      'Rated far past anything it will be asked to do here, which is why it is worth taking.',
+    description: 'Rated for pressures this district will never reach. Worth taking for that alone.',
     usedFor:
       'Anything that runs hot or wet: the Generator, the Greenhouse, and cooled cybernetics.',
     capsValue: 820,
-    tradeable: true,
-  },
-
-  /*
-   * The six pre-war `blueprint_*` documents, which gate nothing.
-   *
-   * They gated the old five-theme research tree and the old single-item unit unlocks. Research is
-   * nineteen officer tracks now and a blueprint is a document assembled out of named pages
-   * (`blueprints/`), so neither reader exists. They are still in the catalogue on purpose: crews
-   * hold them, the Runner's barrow and the Black Market both stock them, and deleting an item a
-   * player is holding is a migration and a theft.
-   *
-   * What was changed is the copy. Every one of them used to name a track or a line of upgrades it
-   * would open, and a player buying one for 1,400 caps on the strength of that sentence was being
-   * lied to by the shop. They are worth what they sell for and nothing else, and now say so.
-   *
-   * Whether they should be retired from the shelves or turned into page sets is a content call
-   * that has not been made.
-   */
-  {
-    id: 'blueprint_cybernetics',
-    name: 'Blueprint: Cybernetics',
-    kind: 'blueprint',
-    rarity: 'advanced',
-    description: 'Surgical plates and a wiring diagram, annotated by somebody who stopped writing.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 1400,
-    tradeable: true,
-  },
-  {
-    id: 'blueprint_composite_armour',
-    name: 'Blueprint: Composite Armour',
-    kind: 'blueprint',
-    rarity: 'intricate',
-    description: 'Lamination schedules for plate that is mostly air.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 800,
-    tradeable: true,
-  },
-  {
-    id: 'blueprint_rotorcraft',
-    name: 'Blueprint: Rotorcraft',
-    kind: 'blueprint',
-    rarity: 'masterpiece',
-    description: 'Rotor geometry, in a hand that assumed the reader already knew how to fly.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 3200,
-    tradeable: true,
-  },
-  {
-    id: 'blueprint_signal_theory',
-    name: 'Blueprint: Signal Theory',
-    kind: 'blueprint',
-    rarity: 'advanced',
-    description: 'Combine cipher practice, written down by somebody who should not have.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 1200,
-    tradeable: true,
-  },
-  {
-    id: 'blueprint_field_medicine',
-    name: 'Blueprint: Field Medicine',
-    kind: 'blueprint',
-    rarity: 'intricate',
-    description: 'Triage under fire, in eleven pages and no diagrams.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 700,
-    tradeable: true,
-  },
-  {
-    id: 'blueprint_munitions',
-    name: 'Blueprint: Munitions',
-    kind: 'blueprint',
-    rarity: 'advanced',
-    description: 'Load tables. The margins argue with the tables.',
-    usedFor: 'Nothing the Lab can use. Collectors pay for it anyway.',
-    capsValue: 1100,
     tradeable: true,
   },
 ];
@@ -395,15 +311,25 @@ function pageItemSpec(blueprint: BlueprintSpec, page: BlueprintPage): ItemSpec {
  * blueprint that had been unlocked is knowledge somebody has, and knowledge does not come back out
  * of a head and onto a barrow.
  */
+/**
+ * What a fence document is valued as, in pages: the longest document in the game.
+ *
+ * A fence document has no pages to count (`fenceOnly`), and pricing it off zero would value the
+ * rarest thing on the shelf at nothing.
+ */
+const FENCE_DOCUMENT_PAGE_WEIGHT = 8;
+
 function blueprintItemSpec(blueprint: BlueprintSpec): ItemSpec {
-  const pages = blueprint.pages.length;
+  const pages = blueprint.fenceOnly ? FENCE_DOCUMENT_PAGE_WEIGHT : blueprint.pages.length;
   return {
     id: blueprint.id as ItemId,
     name: blueprint.name,
     kind: 'blueprint',
     rarity: blueprint.rarity,
     description: blueprint.blurb,
-    usedFor: `Unlocked, permanently. Assembled from ${pages} pages.`,
+    usedFor: blueprint.fenceOnly
+      ? 'Unlocked, permanently. Bought whole from the fence.'
+      : `Unlocked, permanently. Assembled from ${pages} pages.`,
     capsValue: CAPS_PER_PAGE_STEP * pages * pages,
     tradeable: false,
   };

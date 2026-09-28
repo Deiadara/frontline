@@ -19,7 +19,7 @@ import { officerFitReader } from '../crew/standing.js';
 import { labResearchItems, researchHead, trackStatuses } from '../research/tracks.js';
 
 /**
- * Research (GDD §C): the nineteen role tracks and the Lab's one bench.
+ * Research (GDD §C): the eighteen role tracks and the Lab's one bench.
  *
  * Nothing in the response is keyed by role id beyond the track list itself, and the only role
  * knowledge on it is the mark, which is the coarse hint §B8a allows. The scores behind the marks
@@ -83,8 +83,8 @@ const CANCEL_ERRORS: Record<ResearchCancelRefusal, { code: ErrorCode; message: s
  */
 function researchScreen(app: FastifyInstance, base: Base, now: Date): ResearchResponse {
   const { active } = base.research;
-  // Read once for the page: the same lifted sheets answer the head's cut, the nineteen track marks
-  // and all 190 rungs, and building the room three times would triple the cost of the route.
+  // Read once for the page: the same lifted sheets answer the head's cut, the eighteen track marks
+  // and all 180 rungs, and building the room three times would triple the cost of the route.
   const fit = officerFitReader(app.repos, base, now);
   return {
     serverNow: now.toISOString(),
@@ -113,7 +113,7 @@ export function registerResearchRoutes(app: FastifyInstance): void {
    */
   /** Take the project off the bench inside its first tenth (maintainer request, 2026-09-12). */
   app.post('/research/cancel', { preHandler: app.authenticate }, (request): ResearchResponse => {
-    parseBody(CancelResearchRequestSchema, request.body ?? {});
+    const { acceptWaste } = parseBody(CancelResearchRequestSchema, request.body ?? {});
     const now = new Date();
     const user = request.currentUser;
     return app.db.transaction(() => {
@@ -121,6 +121,7 @@ export function registerResearchRoutes(app: FastifyInstance): void {
         app.repos,
         settledBase(app, user.id, user.overseerId, now),
         now,
+        acceptWaste,
       );
       if (result.kind === 'refused') {
         const { code, message } = CANCEL_ERRORS[result.reason];

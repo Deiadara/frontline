@@ -9,27 +9,33 @@ import type * as ApiModule from './api';
 const launchMission = vi.hoisted(() => vi.fn());
 const getMissions = vi.hoisted(() => vi.fn());
 const buildStructure = vi.hoisted(() => vi.fn());
-const setGarrison = vi.hoisted(() => vi.fn());
+const plantSleepers = vi.hoisted(() => vi.fn());
 const getMarket = vi.hoisted(() => vi.fn());
 const barterResources = vi.hoisted(() => vi.fn());
 const getBlackMarket = vi.hoisted(() => vi.fn());
 const placeBlackMarketBid = vi.hoisted(() => vi.fn());
+const recallMission = vi.hoisted(() => vi.fn());
+const sendMessage = vi.hoisted(() => vi.fn());
+const leaveFaction = vi.hoisted(() => vi.fn());
 vi.mock('./api', async (importOriginal) => ({
   ...(await importOriginal<typeof ApiModule>()),
   launchMission,
   getMissions,
   buildStructure,
-  setGarrison,
+  plantSleepers,
   getMarket,
   barterResources,
   getBlackMarket,
   placeBlackMarketBid,
+  recallMission,
+  sendMessage,
+  leaveFaction,
 }));
 
 const { ApiRequestError } = await import('./api');
 const {
   queryKeys,
-  useSetGarrison,
+  usePlantSleepers,
   useBuildStructure,
   useLaunchMission,
   useMissions,
@@ -37,6 +43,9 @@ const {
   useBarter,
   useBlackMarket,
   usePlaceBlackMarketBid,
+  useRecallMission,
+  useSendMessage,
+  useLeaveFaction,
 } = await import('./queries');
 const { useSession } = await import('../store/session');
 
@@ -65,11 +74,14 @@ beforeEach(() => {
   launchMission.mockReset();
   getMissions.mockReset();
   buildStructure.mockReset();
-  setGarrison.mockReset();
+  plantSleepers.mockReset();
   getMarket.mockReset();
   barterResources.mockReset();
   getBlackMarket.mockReset();
   placeBlackMarketBid.mockReset();
+  recallMission.mockReset();
+  sendMessage.mockReset();
+  leaveFaction.mockReset();
   useSession.setState({ token: 'session-token', user: null });
 });
 
@@ -90,7 +102,12 @@ describe('a refused launch that had already settled the board', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'convoy-ambush', areaId: 'misc', force: { razors: 1 } });
+    result.current.mutate({
+      templateId: 'convoy-ambush',
+      areaId: 'misc',
+      force: { razors: 1 },
+      leaderId: 'ov-1',
+    });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -107,7 +124,12 @@ describe('a refused launch that had already settled the board', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'scrap-run', areaId: 'misc', force: { razors: 1 } });
+    result.current.mutate({
+      templateId: 'scrap-run',
+      areaId: 'misc',
+      force: { razors: 1 },
+      leaderId: 'ov-1',
+    });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -117,7 +139,12 @@ describe('a refused launch that had already settled the board', () => {
     launchMission.mockResolvedValueOnce({ missions: [] });
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'scrap-run', areaId: 'misc', force: { razors: 1 } });
+    result.current.mutate({
+      templateId: 'scrap-run',
+      areaId: 'misc',
+      force: { razors: 1 },
+      leaderId: 'ov-1',
+    });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidated()).toEqual(expect.arrayContaining(BOTH));
@@ -158,7 +185,12 @@ describe('a level-up refreshes the §G layer it moved', () => {
     );
     const { result, invalidated } = harness(useLaunchMission);
 
-    result.current.mutate({ templateId: 'convoy-ambush', areaId: 'misc', force: { razors: 1 } });
+    result.current.mutate({
+      templateId: 'convoy-ambush',
+      areaId: 'misc',
+      force: { razors: 1 },
+      leaderId: 'ov-1',
+    });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(invalidated()).toContain(JSON.stringify(queryKeys.crew));
@@ -198,11 +230,12 @@ describe('a level-up refreshes the §G layer it moved', () => {
   });
 
   it('refreshes the roster, the map and the HUD after moving people onto a place', async () => {
-    // Was `useAttackPlace`, which went with the instant-attack route (board, battle rework). The
-    // contract it guarded is a property of `useCityWrite` rather than of any one call, so it is
-    // measured on the garrison write instead: the one that is still there and still moves units.
-    setGarrison.mockResolvedValueOnce({ district: {}, base: {} });
-    const { result, invalidated } = harness(() => useSetGarrison('base-1', 'rustyard'));
+    // Was `useAttackPlace`, which went with the instant-attack route (board, battle rework), and
+    // then the garrison write, which went with `POST /city/garrison` (2026-09-28). The contract it
+    // guards is a property of `useCityWrite` rather than of any one call, so it is measured on the
+    // city write that still moves units off the roster: planting a cell.
+    plantSleepers.mockResolvedValueOnce({ district: {}, base: {} });
+    const { result, invalidated } = harness(() => usePlantSleepers('base-1', 'steelbelt'));
 
     result.current.mutate({} as never);
 
@@ -213,7 +246,7 @@ describe('a level-up refreshes the §G layer it moved', () => {
       expect.arrayContaining([
         JSON.stringify(queryKeys.city),
         JSON.stringify(queryKeys.units),
-        JSON.stringify(queryKeys.district('rustyard')),
+        JSON.stringify(queryKeys.district('steelbelt')),
       ]),
     );
   });
@@ -287,6 +320,58 @@ describe('a write answered with a whole board puts it on the screen reading that
     expect(result.current.market.data?.caps).toBe(10);
   });
 
+  /*
+   * The mission board is keyed by city the same way, and `POST /missions/recall` answers with the
+   * whole refreshed set of runs for exactly this reason: a crew turned round should leave the
+   * In flight list on the press rather than a poll later.
+   */
+  it('shows the recalled board on the mission board reading that city', async () => {
+    getMissions.mockResolvedValueOnce({ cityId: 'crossroads', activeLimit: 3, justResolved: [] });
+    getMissions.mockImplementation(pending);
+    recallMission.mockResolvedValueOnce({ cityId: 'crossroads', activeLimit: 9, justResolved: [] });
+    const { result } = harness(() => ({
+      board: useMissions('crossroads'),
+      recall: useRecallMission(),
+    }));
+
+    await waitFor(() => expect(result.current.board.data?.activeLimit).toBe(3));
+    result.current.recall.mutate({} as never);
+
+    await waitFor(() => expect(result.current.recall.isSuccess).toBe(true));
+    expect(result.current.board.data?.activeLimit).toBe(9);
+  });
+
+  /** And the crew's own board, read bare as `['missions', '']`. */
+  it('shows it on the bare read of the board a crew lives in', async () => {
+    getMissions.mockResolvedValueOnce({ cityId: 'crossroads', activeLimit: 3, justResolved: [] });
+    getMissions.mockImplementation(pending);
+    recallMission.mockResolvedValueOnce({ cityId: 'crossroads', activeLimit: 9, justResolved: [] });
+    const { result } = harness(() => ({ board: useMissions(), recall: useRecallMission() }));
+
+    await waitFor(() => expect(result.current.board.data?.activeLimit).toBe(3));
+    result.current.recall.mutate({} as never);
+
+    await waitFor(() => expect(result.current.recall.isSuccess).toBe(true));
+    expect(result.current.board.data?.activeLimit).toBe(9);
+  });
+
+  /** The control: a board for a city this answer is not about is left where it was. */
+  it('leaves a mission board for a different city alone', async () => {
+    getMissions.mockResolvedValueOnce({ cityId: 'the-hollow', activeLimit: 3, justResolved: [] });
+    getMissions.mockImplementation(pending);
+    recallMission.mockResolvedValueOnce({ cityId: 'crossroads', activeLimit: 9, justResolved: [] });
+    const { result } = harness(() => ({
+      board: useMissions('the-hollow'),
+      recall: useRecallMission(),
+    }));
+
+    await waitFor(() => expect(result.current.board.data?.activeLimit).toBe(3));
+    result.current.recall.mutate({} as never);
+
+    await waitFor(() => expect(result.current.recall.isSuccess).toBe(true));
+    expect(result.current.board.data?.activeLimit).toBe(3);
+  });
+
   it('shows the bid shelf on the back room reading that city', async () => {
     getBlackMarket.mockResolvedValueOnce({ cityId: 'crossroads', infamy: 10 });
     getBlackMarket.mockImplementation(pending);
@@ -303,5 +388,32 @@ describe('a write answered with a whole board puts it on the screen reading that
 
     await waitFor(() => expect(result.current.bid.isSuccess).toBe(true));
     expect(result.current.room.data?.infamy).toBe(90);
+  });
+});
+
+/**
+ * Two writes that move a feat's number without touching the district: a letter sent is counted
+ * (`tallyMessageSent`), and a seat given up moves `faction_seats`. Both refreshed `/me`, so the
+ * badge moved, and left the feats board cached, so the page under the badge disagreed with it.
+ */
+describe('a write that moves a feat refreshes the feats board', () => {
+  it('after a letter is sent', async () => {
+    sendMessage.mockResolvedValueOnce({ messages: {} });
+    const { result, invalidated } = harness(() => useSendMessage());
+
+    result.current.mutate({} as never);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.feats));
+  });
+
+  it('after a seat at a table is given up', async () => {
+    leaveFaction.mockResolvedValueOnce({ faction: {} });
+    const { result, invalidated } = harness(() => useLeaveFaction());
+
+    result.current.mutate(undefined);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidated()).toContain(JSON.stringify(queryKeys.feats));
   });
 });

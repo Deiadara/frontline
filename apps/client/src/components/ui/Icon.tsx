@@ -68,6 +68,7 @@ export const ICON_NAMES = [
   'bell',
   'faction',
   'alert',
+  'combine',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -440,6 +441,19 @@ export const ICON_GLYPHS: Record<IconName, ReactNode> = {
       <path d="M5.4 11.4h2.3l1.5-3.1 2 6 1.7-3.9 1.3 2.2h3.4" {...S} />
       <path d="M9.4 20.2h5.2" {...S} />
       <path d="M12 16.8v3.4" {...S} />
+    </>
+  ),
+  /**
+   * The Combine: the regime's spire over the city, its ring of lamps, and a stroke through it
+   * (maintainer, 2026-09-28). Drawn for the landing screen's "Defeat the Combine", and the same
+   * spire the skyline behind that screen is inked with (`InkSkyline`).
+   */
+  combine: (
+    <>
+      <path d="M5.5 21h13" {...S} />
+      <path d="M9.4 21V11.2L10.8 7.4L12 2.8L13.2 7.4L14.6 11.2V21" {...S} />
+      <path d="M9.4 11.2h5.2M10.3 8.6h3.4" {...S} />
+      <path d="M4.2 18.6L19.8 5.4" {...S} />
     </>
   ),
   eye: (

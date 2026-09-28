@@ -15,8 +15,19 @@ A snapshot is a **whole database**, taken with `VACUUM INTO` inside a single rea
 has no `-wal` sidecar of its own, it is defragmented, and it carries its own `schema_migrations`
 table, so a restore never needs a migration re-run and never needs anything replayed on top.
 
-Snapshots are taken every **10 minutes** (`BACKUP_INTERVAL_MS`) and the newest **24** are kept
-(`BACKUP_KEEP`), which is a rolling window of four hours. The admin bench (`/game/admin`) lists what
+Snapshots are taken every **2 minutes** (`BACKUP_INTERVAL_MS`) and once more on every clean stop.
+Each is written under a `.partial` name, checked with `PRAGMA quick_check`, and only then renamed
+into place, so every file with a snapshot name passed its check.
+
+Retention is tiered (`BACKUP_TIERS`): everything from the last **two hours**, the newest of each
+hour for **two days**, and the newest of each day for **thirty days**. A server crash-looping for an
+hour cannot push the older tiers out.
+
+With `BACKUP_MIRROR_DIR` set, every snapshot is also copied there and pruned by the same tiers.
+Point it at a second disk: a backup on the database's own disk dies with that disk.
+
+The server also runs `PRAGMA quick_check` on the live database at boot and refuses to start on a
+damaged one, which is the signal to restore. The admin bench (`/game/admin`) lists what
 is currently on disk with its timestamp and size, so the choice can be made without an ssh session.
 
 ## Restoring
@@ -57,7 +68,7 @@ damaged, take the next one down the list. They are independent files, not a chai
 
 ## What was lost
 
-At most the ten minutes between the chosen snapshot and the incident. To find out exactly what,
+At most the two minutes between the chosen snapshot and the incident. To find out exactly what,
 read `game_events` in the **damaged** database if it still opens: it is an append-only record of
 every account change, black-market purchase and admin knob, with the actor and the instant. Nothing
 in the game reads that table to make a decision, so it is safe to read out of a broken save.

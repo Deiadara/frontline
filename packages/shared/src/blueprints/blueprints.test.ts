@@ -17,6 +17,7 @@ import {
   blueprintsOfCategory,
   blueprintOfPage,
   findBlueprint,
+  type BlueprintSpec,
   type BlueprintTargetKind,
 } from './catalog.js';
 import {
@@ -54,8 +55,13 @@ describe('the blueprint catalogue (§D1 to §D3)', () => {
       expect(spec.name.length, spec.id).toBeGreaterThan(3);
       expect(BLUEPRINT_CATEGORIES, spec.id).toContain(spec.category);
       expect(spec.blurb.length, spec.id).toBeGreaterThan(20);
-      expect(spec.pages.length, spec.id).toBeGreaterThanOrEqual(2);
-      expect(spec.pages.length, spec.id).toBeLessThanOrEqual(8);
+      if ((spec as BlueprintSpec).fenceOnly) {
+        // Sold whole by the fence: a page of it would be a way to it that is not the fence.
+        expect(spec.pages.length, spec.id).toBe(0);
+      } else {
+        expect(spec.pages.length, spec.id).toBeGreaterThanOrEqual(2);
+        expect(spec.pages.length, spec.id).toBeLessThanOrEqual(8);
+      }
       expect(spec.targets.length, spec.id).toBeGreaterThan(0);
       for (const page of spec.pages) expect(page.name.length, page.id).toBeGreaterThan(2);
     }

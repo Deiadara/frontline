@@ -145,7 +145,10 @@ async function makeWorld(engine: SkirmishEngine): Promise<World> {
 
   app.repos.city.markScouted(raider.baseId, victim.districtId, new Date().toISOString());
   // Nothing behind a standing gate can be reached. Breaking it is its own fight with its own tests.
-  app.repos.sieges.breakGate(victim.districtId, new Date(Date.now() + 3_600_000).toISOString());
+  app.repos.sieges.breakGate(
+    victim.districtId,
+    new Date(Date.now() + 24 * 3_600_000).toISOString(),
+  );
   return { app, db, raider, victim };
 }
 

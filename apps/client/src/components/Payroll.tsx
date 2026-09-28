@@ -1,6 +1,7 @@
 import type { PayrollLedger } from '@frontline/shared';
 import { Button } from './ui/Button';
 import { cn } from '../lib/cn';
+import { ErrorNote } from './ui/ErrorNote';
 
 /**
  * The two pieces of the payroll panel that are the same wherever it is drawn.
@@ -111,11 +112,7 @@ export function RaisePayroll({
           {(price - caps).toLocaleString()} caps short of the next step.
         </p>
       )}
-      {error !== null && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
     </>
   );
 }

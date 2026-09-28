@@ -44,7 +44,10 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import type { Repositories } from '../db/repos/index.js';
 import { MAX_PENDING_DECLARATIONS } from './declare.js';
 import { settleMovements } from './movement.js';
+import { settleMoves } from '../moves/moves.js';
+import { everybodyHome } from '../testing/walk.js';
 import { settleBattles } from './resolve.js';
+import { reportTickFailuresTo, type TickFailure } from '../world/guard.js';
 import { gateFor, holdsDistrictWhole } from '../city/gates.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
 
@@ -115,7 +118,7 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
    * a district nobody had read had no rows for a fixture to hand over, put a garrison on, or read
    * a holder back out of.
    */
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   for (const locationId of RUSTYARD_LOCATIONS) app.repos.city.control(locationId);
 
   /*
@@ -133,7 +136,7 @@ async function makeStack(username = 'caller', engine?: SkirmishEngine): Promise<
   // Every district in the city starts wholly held by one NPC party, which means every gate in the
   // city starts armed: see the test that pins exactly that. Most of what is worth testing here is
   // about a district with a seam in it, so the fixture opens one.
-  const ramp = app.repos.city.control('rustyard-ramp')!;
+  const ramp = app.repos.city.control('steelbelt-ramp')!;
   app.repos.city.put({ ...ramp, holder: { kind: 'unoccupied' }, garrison: {} });
 
   return { app, db, repos: app.repos, token, baseId };
@@ -154,13 +157,13 @@ function shutTheRustyard(stack: Stack): void {
  * it: `shutTheRustyard` still returned, the gate was never armed, and three tests about the gate
  * rule went red for a reason that had nothing to do with the gate rule.
  */
-const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('rustyard')?.locations ?? []).map(
+const RUSTYARD_LOCATIONS: readonly string[] = (findDistrict('steelbelt')?.locations ?? []).map(
   (location) => location.id,
 );
 
 /** The one the looters are actually standing on: an empty lot has nobody to answer a call. */
 const SQUATTED_RUSTYARD_LOCATION: string = (() => {
-  const district = findDistrict('rustyard');
+  const district = findDistrict('steelbelt');
   const held = district?.locations.find(
     (location) => startingHolder(location, district).kind !== 'unoccupied',
   );
@@ -175,7 +178,7 @@ function nextMark(): string {
 
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
+  districtId: 'steelbelt',
   locationId: SQUATTED_RUSTYARD_LOCATION,
 };
 
@@ -202,7 +205,7 @@ async function board(stack: Stack): Promise<BattlesResponse> {
   return res.json<BattlesResponse>();
 }
 
-/** A Gate on the ground, since a new district has none and only the Gate can be dug in. */
+/** A Gate on the ground, since a new district has none. */
 function raiseGate(stack: Stack): { id: string } {
   const base = stack.repos.bases.findById(stack.baseId)!;
   const gate = {
@@ -246,7 +249,7 @@ function plantRival(
     id: baseId,
     ownerId: userId,
     name: 'The Other Crew',
-    districtId: over.districtId ?? 'rustyard',
+    districtId: over.districtId ?? 'steelbelt',
     level: 4,
     isBot: false,
     resources: STARTING_RESOURCES,
@@ -321,7 +324,7 @@ function armTrap(stack: Stack, battleId: string, baseId: string, trapId: string)
 }
 
 /** Puts a declared fight's mark in the past so the settler will pick it up. */
-function bringForward(stack: Stack, battle: ScheduledBattle, at: Date): void {
+function bringForward(stack: Stack, battle: Pick<ScheduledBattle, 'id'>, at: Date): void {
   stack.db
     .prepare('UPDATE scheduled_battles SET scheduled_for = ? WHERE id = ?')
     .run(at.toISOString(), battle.id);
@@ -396,8 +399,8 @@ describe('calling a fight (§A4)', () => {
     const stack = await makeStack();
     const res = await declare(stack, {
       kind: 'location',
-      districtId: 'blacksite-7',
-      locationId: 'blacksite-7-armory',
+      districtId: 'blacksite',
+      locationId: 'blacksite-armory',
     });
     expect(res.statusCode).toBe(409);
   });
@@ -414,8 +417,8 @@ describe('calling a fight (§A4)', () => {
     const stack = await makeStack();
     const res = await declare(stack, {
       kind: 'location',
-      districtId: 'rustyard',
-      locationId: 'blacksite-7-armory',
+      districtId: 'steelbelt',
+      locationId: 'blacksite-armory',
     });
     expect(res.statusCode).toBe(409);
     expect(stack.repos.sieges.pending()).toHaveLength(0);
@@ -425,7 +428,7 @@ describe('calling a fight (§A4)', () => {
     const stack = await makeStack();
     const results = [];
     for (const locationId of RUSTYARD_LOCATIONS) {
-      results.push(await declare(stack, { kind: 'location', districtId: 'rustyard', locationId }));
+      results.push(await declare(stack, { kind: 'location', districtId: 'steelbelt', locationId }));
     }
     expect(results.filter((res) => res.statusCode === 200)).toHaveLength(MAX_PENDING_DECLARATIONS);
     expect(errorCode(results[MAX_PENDING_DECLARATIONS]!)).toBe('BATTLE_REFUSED');
@@ -449,7 +452,7 @@ describe('calling a fight (§A4)', () => {
     expect(atPlace.statusCode).toBe(409);
     expect(atPlace.json<{ error: { message: string } }>().error.message).toMatch(/gate/);
 
-    const atGate = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const atGate = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(atGate.statusCode).toBe(200);
   });
 
@@ -463,19 +466,19 @@ describe('calling a fight (§A4)', () => {
     const stack = await makeStack();
     shutTheRustyard(stack);
     expect((await declare(stack)).statusCode).toBe(409);
-    expect((await declare(stack, { kind: 'gate', districtId: 'rustyard' })).statusCode).toBe(200);
+    expect((await declare(stack, { kind: 'gate', districtId: 'steelbelt' })).statusCode).toBe(200);
   });
 
   it('has no gate to break while the district is split', async () => {
     const stack = await makeStack();
-    const res = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const res = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(res.statusCode).toBe(409);
     expect(res.json<{ error: { message: string } }>().error.message).toMatch(/no gate/i);
   });
 });
 
 describe('moving people up to it (§A4)', () => {
-  it('takes units off the roster when they are sent, and puts them back when they are pulled', async () => {
+  it('takes units off the roster when they are sent, and walks them home when they are pulled', async () => {
     const stack = await makeStack();
     const declared = await declare(stack);
     const battleId = declared.json<BattleMutationResponse>().battles.coming[0]!.battle.id;
@@ -496,8 +499,23 @@ describe('moving people up to it (§A4)', () => {
 
     const pulled = await deploy(stack, battleId, { razors: -2 });
     expect(pulled.statusCode).toBe(200);
-    // Nobody has a ring out, so a withdrawal costs nothing at all.
-    expect(pulled.json<BattleMutationResponse>().base.army.razors ?? 0).toBe(before);
+    /*
+     * Not home yet: they walk back from the fight (maintainer, 2026-09-28, "Nothing sends units
+     * immediately"). A withdrawal used to put them on the roster the moment the request landed.
+     */
+    expect(pulled.json<BattleMutationResponse>().base.army.razors ?? 0).toBe(before - 2);
+    const [walking] = stack.repos.moves.activeFor(stack.baseId);
+    expect(walking?.from).toEqual({ kind: 'location', locationId: SQUATTED_RUSTYARD_LOCATION });
+    expect(walking?.to).toEqual({ kind: 'district' });
+    expect(walking?.army).toEqual({ razors: 2 });
+    expect(Date.parse(walking!.arrivesAt)).toBeGreaterThan(Date.now());
+
+    // Nobody has a ring out, so a withdrawal costs nothing at all once they are in.
+    stack.db
+      .prepare('UPDATE unit_moves SET returns_at = ?')
+      .run(new Date(Date.now() - 1_000).toISOString());
+    settleMoves(stack.repos, new Date());
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
   });
 
   it('will not send units the crew does not have', async () => {
@@ -575,7 +593,7 @@ async function readyFight(stack: Stack, force: Record<string, number> = { razors
 }
 
 describe('resolving it (§A4)', () => {
-  it('takes the location on a win, clears its diggings and brings the survivors home', async () => {
+  it('takes the location on a win and holds it with the survivors', async () => {
     const stack = await makeStack('winner', decided('attacker'));
     const { battle } = await readyFight(stack);
     const before = stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0;
@@ -583,12 +601,13 @@ describe('resolving it (§A4)', () => {
     const settled = settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
     expect(settled).toHaveLength(1);
 
+    // Winners hold what they took, always (maintainer, 2026-09-28).
     const control = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
     expect(control.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
-    expect(control.fortification).toBe(0);
-    expect(control.garrison).toEqual({});
-    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before + 4);
+    expect(control.garrison).toEqual({ razors: 4 });
     expect(stack.repos.sieges.find(battle.id)!.resolvedAt).not.toBeNull();
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
+    expect(stack.repos.moves.activeFor(stack.baseId)).toEqual([]);
   });
 
   /**
@@ -598,9 +617,8 @@ describe('resolving it (§A4)', () => {
    * contested ground a wager on never losing it. It does not any more: banked levels change hands
    * with the location, and taking a worked one off somebody is now the fastest way to own one.
    *
-   * The two things that still reset are here as well, because the contrast is the rule: the
-   * diggings go (fortification is the loser's own work on the ground, not the ground) and so does
-   * an upgrade that was paid for and not yet banked.
+   * The one thing that still resets is here as well, because the contrast is the rule: an upgrade
+   * that was paid for and not yet banked goes with the loser.
    */
   it('takes a worked location at the level it had been worked to', async () => {
     const stack = await makeStack('winner', decided('attacker'));
@@ -609,7 +627,6 @@ describe('resolving it (§A4)', () => {
     stack.repos.city.put({
       ...before,
       level: 7,
-      fortification: 2,
       upgradingUntil: new Date(Date.now() + 3_600_000).toISOString(),
     });
 
@@ -619,18 +636,16 @@ describe('resolving it (§A4)', () => {
     expect(control.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
     expect(control.level).toBe(7);
     expect(control.upgradingUntil).toBeNull();
-    expect(control.fortification).toBe(0);
     expect(stack.repos.sieges.find(battle.id)!.resolvedAt).not.toBeNull();
   });
 
   /**
-   * A column still on the road when the fight is decided comes home, and stays home.
+   * A column still on the road when the fight is decided is not lost.
    *
-   * `recallOvertaken` turns those units round, and it does the right thing: it re-reads the base
-   * and merges the column back into the roster. Then the settlement wrote the roster again from a
-   * snapshot taken before any of that, and the column went with it. The units were not returned,
-   * not killed, and not reported: they were deleted, and the only trace was a stockpile that did
-   * not add up.
+   * It walks on and lands on whatever the fight left (maintainer, 2026-09-28): here the ground its
+   * crew has just taken. It used to be put back on the roster by `recallOvertaken`, and before
+   * that the settlement wrote the roster again from a snapshot taken before the recall, and the
+   * column went with it: not returned, not killed, not reported, deleted.
    *
    * Reachable without doing anything strange: deployment stays open until a second before the
    * mark (`battle/schedule.ts`) and a march can take up to two hours (`city/geography.ts`), so any
@@ -656,9 +671,21 @@ describe('resolving it (§A4)', () => {
 
     expect(settleBattles(stack.repos, stack.app.skirmishEngine, new Date())).toHaveLength(1);
 
-    // Turned round and back on the books: nothing was lost by arriving late.
+    // Off the fight's road and onto an ordinary walk to the place, on the clock it already had.
     expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(0);
-    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
+    const [walking] = stack.repos.moves.activeFor(stack.baseId);
+    expect(walking?.to).toEqual({ kind: 'location', locationId: SQUATTED_RUSTYARD_LOCATION });
+    expect(walking?.army).toEqual({ razors: 3 });
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before - 3);
+
+    // It lands on what the fight left: the ground this crew took, so they join its garrison.
+    stack.db
+      .prepare('UPDATE unit_moves SET returns_at = ?')
+      .run(new Date(Date.now() - 1_000).toISOString());
+    settleMoves(stack.repos, new Date());
+    const held = stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!;
+    expect(held.holder).toEqual({ kind: 'crew', baseId: stack.baseId });
+    expect(held.garrison.razors ?? 0).toBe(3);
   });
 
   /**
@@ -667,9 +694,9 @@ describe('resolving it (§A4)', () => {
    * Deployment shuts a second before the mark, but the settle that runs the fight is the next tick
    * or read, and a server asleep between the two folded in every column with `arrivesAt` up to
    * `now`: a column that arrived minutes after the hour the fight was called for fought in it.
-   * It turns round instead, and the units are back on the books.
+   * It waits for the fight to be run instead, and then walks on to what the fight left.
    */
-  it('turns round a column that lands after the mark, rather than folding it into the fight', async () => {
+  it('keeps a column that lands after the mark out of the fight, and walks it on afterwards', async () => {
     const stack = await makeStack('late', decided('attacker'));
     const declared = await declare(stack);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
@@ -691,12 +718,17 @@ describe('resolving it (§A4)', () => {
 
     settleMovements(stack.app.repos, new Date());
 
-    expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(0);
-    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
-    // And nothing of theirs is on the ground for the fight to spend.
+    // Nothing of theirs is on the ground for the fight to spend.
     expect(stack.repos.sieges.deployment(battle.id, 'attacker', stack.baseId)?.army ?? {}).toEqual(
       {},
     );
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before - 3);
+
+    // The fight runs without them, and they walk on to the place, landing on what it left.
+    settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+    expect(stack.repos.movements.forBattle(battle.id)).toHaveLength(0);
+    settleMoves(stack.repos, new Date());
+    expect(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!.garrison.razors ?? 0).toBe(3);
   });
 
   /**
@@ -755,17 +787,39 @@ describe('resolving it (§A4)', () => {
     const answered = deployedSize(stack.repos.sieges.deployment(battle.id, 'defender')!);
 
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
+    /*
+     * The runner is on the road from the plot, not home the second the fight ended (maintainer,
+     * 2026-09-28: "Nothing sends units immediately, you need to move them").
+     */
+    expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before);
+    const [walking] = stack.repos.moves.activeFor(stack.baseId);
+    expect(walking?.from).toEqual({ kind: 'location', locationId: SQUATTED_RUSTYARD_LOCATION });
+    expect(walking?.to).toEqual({ kind: 'district' });
+    expect(walking?.army).toEqual({ razors: 1 });
+    expect(Date.parse(walking!.arrivesAt)).toBeGreaterThan(Date.now());
+    everybodyHome(stack.repos);
 
     // `government`, not `looters`: the 2026-09-19 re-cut made the Steelbelt Combine ground, so the
     // party a failed raid leaves standing on the press is the regime.
     expect(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!.holder.kind).toBe('government');
     expect(stack.repos.bases.findById(stack.baseId)!.army.razors ?? 0).toBe(before + 1);
-    // A successful defence rewrites the garrison: whoever came up for the fight is standing on the
-    // location now, less whatever the defence cost. Leaving the old garrison there would quietly make
-    // defending free and would lose the reinforcements that answered the call.
-    expect(garrisonSize(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!)).toBe(
-      standing + answered - 2,
-    );
+    /*
+     * A successful defence rewrites the garrison: what stood on the plot is standing on it still,
+     * less its own share of whatever the defence cost. Leaving the old garrison untouched would
+     * quietly make defending free.
+     *
+     * The muster is **not** left on the plot (bug pass, 2026-09-24). It used to be, and this
+     * assertion used to read `standing + answered - 2`: a raid the regime turned back left more
+     * bodies on the ground than it started with, which is the regime growing by fighting.
+     * `spendGarrisons` drops the muster's share at a gate for exactly that reason, and since the
+     * garrisons became a resource the week spends (`city/regrowth.ts`) the two paths have to give
+     * one answer. The muster came from the district rather than from a plot, so it goes back to
+     * no plot; what the district can stand up again is Monday's business.
+     */
+    const kept = garrisonSize(stack.repos.city.control(SQUATTED_RUSTYARD_LOCATION)!);
+    expect(answered, 'fixture error: the district turned nobody out').toBeGreaterThan(0);
+    expect(kept, 'the defence was free').toBeLessThan(standing);
+    expect(kept, 'the plot paid more than the two who fell').toBeGreaterThanOrEqual(standing - 2);
   });
 
   /**
@@ -820,7 +874,16 @@ describe('resolving it (§A4)', () => {
     const holder = plantRival(stack, { districtId: 'neon-docks' });
     armTrap(stack, battle.id, holder, spec.id);
 
-    expect(() => settleBattles(stack.repos, exploding, new Date())).toThrow('engine exploded');
+    // Caught and reported rather than thrown (`world/guard.ts`), so the fights beside it still
+    // run; what this test is for is that the one that threw left nothing half done.
+    const failures: TickFailure[] = [];
+    const restore = reportTickFailuresTo((failure) => failures.push(failure));
+    try {
+      settleBattles(stack.repos, exploding, new Date());
+    } finally {
+      restore();
+    }
+    expect(failures.map((one) => (one.error as Error).message)).toEqual(['engine exploded']);
 
     // Both halves: the trap is still in the bag, and the fight is still coming.
     expect(stack.repos.bases.findById(holder)!.inventory[spec.id as ItemId]).toBe(1);
@@ -839,7 +902,7 @@ describe('resolving it (§A4)', () => {
     shutTheRustyard(stack);
     const rivalId = plantRival(stack);
 
-    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const declared = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(declared.statusCode).toBe(200);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
     bringForward(stack, battle, new Date(Date.now() - 60_000));
@@ -855,7 +918,7 @@ describe('resolving it (§A4)', () => {
     const stack = await makeStack('breacher', decided('attacker'));
     shutTheRustyard(stack);
 
-    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const declared = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(declared.statusCode).toBe(200);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
     bringForward(stack, battle, new Date(Date.now() - 60_000));
@@ -863,7 +926,7 @@ describe('resolving it (§A4)', () => {
     const now = new Date();
     settleBattles(stack.repos, stack.app.skirmishEngine, now);
 
-    const gate = stack.repos.sieges.gate('rustyard')!;
+    const gate = stack.repos.sieges.gate('steelbelt')!;
     expect(Date.parse(gate.brokenUntil!) - now.getTime()).toBeGreaterThan(
       (GATE_BREACH_HOURS - 1) * 3_600_000,
     );
@@ -919,7 +982,7 @@ describe('losing a location behind a broken gate (§A4)', () => {
       });
     }
     stack.repos.capturedGates.put({
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       level: gateLevel,
       upgradingTo: null,
       upgradingUntil: null,
@@ -936,16 +999,16 @@ describe('losing a location behind a broken gate (§A4)', () => {
    * runs for twenty-four: a call made late in the window resolves after the door is back on.
    */
   async function takeOneOff(stack: Stack, breachStillOpen: boolean): Promise<void> {
-    stack.repos.sieges.breakGate('rustyard', breachExpiry(new Date()));
+    stack.repos.sieges.breakGate('steelbelt', breachExpiry(new Date()));
     const declared = await declare(stack, {
       kind: 'location',
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       locationId: RUSTYARD_LOCATIONS[0]!,
     });
     expect(declared.statusCode).toBe(200);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
     if (!breachStillOpen) {
-      stack.repos.sieges.breakGate('rustyard', new Date(Date.now() - 60_000).toISOString());
+      stack.repos.sieges.breakGate('steelbelt', new Date(Date.now() - 60_000).toISOString());
     }
     bringForward(stack, battle, new Date(Date.now() - 60_000));
     settleBattles(stack.repos, stack.app.skirmishEngine, new Date());
@@ -955,12 +1018,12 @@ describe('losing a location behind a broken gate (§A4)', () => {
     const stack = await makeStack('holder', decided('attacker'));
     const rivalId = plantRival(stack);
     rivalHoldsItAll(stack, rivalId, 9);
-    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(true);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(true);
 
     await takeOneOff(stack, true);
 
-    expect(gateFor(stack.repos, 'rustyard').level).toBe(CAPTURED_GATE_START_LEVEL);
-    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(false);
+    expect(gateFor(stack.repos, 'steelbelt').level).toBe(CAPTURED_GATE_START_LEVEL);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(false);
   });
 
   /** The breach is the condition. A gate standing again keeps its levels for whoever holds next. */
@@ -971,8 +1034,8 @@ describe('losing a location behind a broken gate (§A4)', () => {
 
     await takeOneOff(stack, false);
 
-    expect(gateFor(stack.repos, 'rustyard').level).toBe(9);
-    expect(holdsDistrictWhole(stack.repos, rivalId, 'rustyard')).toBe(false);
+    expect(gateFor(stack.repos, 'steelbelt').level).toBe(9);
+    expect(holdsDistrictWhole(stack.repos, rivalId, 'steelbelt')).toBe(false);
   });
 });
 
@@ -1554,8 +1617,9 @@ describe('reading a battle history written by an older build', () => {
  *
  * `resolveOne` looks the defender up twice and by different means: `residentOf(district)` decides
  * whose army *fights*, and `defendingBaseOf(battle)` decides whose roster is *written back*. They
- * agree while a district holds one crew, and every human account is planted on the same opening
- * ground with no unique index on `district_id`, so two is reachable on day one.
+ * agree while a district holds one crew. A plot now holds one crew (2026-09-28), but there is no
+ * unique index on `district_id` and a database from before that ruling can still hold two, which
+ * is the state this pins.
  *
  * When they disagree the settle consumes one crew's army and overwrites the other's with the
  * survivors: units destroyed for a player who was not in the fight, and conjured for one who was.
@@ -1605,7 +1669,7 @@ describe('a district with two crews on it', () => {
     const before =
       standingUnits(stack.repos.bases.findById(rivalId)!.army) + standingUnits(bystanderBefore);
 
-    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const declared = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
     bringForward(stack, battle, new Date(Date.now() - 60_000));
@@ -1669,7 +1733,7 @@ describe('a gate held from a district you do not live in', () => {
     // The whole premise. If a later change plants new crews in the Rustyard this fixture stops
     // testing anything, and it should say so rather than quietly pass.
     expect(base.districtId, 'the fixture crew was planted in the district it is holding').not.toBe(
-      'rustyard',
+      'steelbelt',
     );
     return { token, id: base.id };
   }
@@ -1688,7 +1752,7 @@ describe('a gate held from a district you do not live in', () => {
     holder: { token: string; id: string },
     send: Record<string, number> | null,
   ): Promise<void> {
-    const declared = await declare(stack, { kind: 'gate', districtId: 'rustyard' });
+    const declared = await declare(stack, { kind: 'gate', districtId: 'steelbelt' });
     expect(declared.statusCode, declared.body.slice(0, 200)).toBe(200);
     const battle = declared.json<BattleMutationResponse>().battles.coming[0]!.battle;
     expect(battle.defender).toEqual({ kind: 'crew', baseId: holder.id });
@@ -1733,6 +1797,7 @@ describe('a gate held from a district you do not live in', () => {
     stack.repos.bases.updateArmy(holder.id, { razors: 10 }, []);
 
     await fightOverTheGate(stack, holder, { razors: 6 });
+    everybodyHome(stack.repos);
 
     // Nobody died: `decided` names a winner and no losses. The six that marched are owed back, and
     // the four that stayed home were never in it.

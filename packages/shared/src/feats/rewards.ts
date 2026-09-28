@@ -31,11 +31,15 @@ import { findUnit } from '../units/index.js';
  *
  * Read off the board itself. A `checkpoint-shakedown` pays 271 caps of spoils and 166 XP for the
  * same twenty-five minutes, which is 1.63 caps to the point; a `courier-contract` is 433 and 388,
- * which is 1.12. The middle of that is the rate, and it is deliberately a *low* one: experience is
- * the reward a player cannot buy anywhere else, so overpaying it here would make feats the fastest
- * way to level and turn the rest of the game into the slow path.
+ * which is 1.12. The middle of that, 1.4, was the rate, and it is deliberately a *low* one:
+ * experience is the reward a player cannot buy anywhere else, so overpaying it here would make
+ * feats the fastest way to level and turn the rest of the game into the slow path.
+ *
+ * Five times that since the level curve was retuned (2026-09-28): a level costs about a fifth of
+ * the XP it did, so a point of experience is worth five times as much of a crew's progress, and
+ * the feat tables pay a fifth of the XP they did for the same value.
  */
-export const CAPS_PER_XP = 1.4;
+export const CAPS_PER_XP = 7;
 
 /**
  * What one point of infamy is worth in caps.
@@ -45,15 +49,20 @@ export const CAPS_PER_XP = 1.4;
  * It is worth more than the arithmetic suggests, because infamy is not farmable: the only faucets
  * are fights and a battle mission landing, so a feat paying infamy is paying in the one currency a
  * patient player cannot simply wait for.
+ *
+ * Ten times that since the rank ladder was repriced (2026-09-28): infamy's other job, buying a
+ * name, got about seven hundred times cheaper at the tenth rung, and at the old rate two late feats
+ * paid enough infamy to buy the whole ladder. The feat tables pay a tenth for the same value. The
+ * back room's own prices are unchanged, so `CAPS_PER_BOOST` still reads them at the street rate.
  */
-export const CAPS_PER_INFAMY = 10;
+export const CAPS_PER_INFAMY = 100;
 
 /**
  * What a one-time battle boost is worth.
  *
  * Priced off the back room it comes from: the shelf sells these for 120 to 520 infamy, so the
- * middle of the shelf at the rate above is about three thousand, and a feat handing one over is
- * handing over a back-room visit nobody had to spend infamy on.
+ * middle of the shelf at the street rate of ten caps a point is about three thousand, and a feat
+ * handing one over is handing over a back-room visit nobody had to spend infamy on.
  */
 export const CAPS_PER_BOOST = 3_000;
 

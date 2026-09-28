@@ -1,5 +1,5 @@
 import {
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   districtHolder,
   districtIsShut,
   findDistrict,
@@ -81,13 +81,19 @@ export function defenderOf(
   return districtHolder(district, repos.city.controls()) ?? { kind: 'unoccupied' };
 }
 
-/** Every control row in a district, in map order. */
+/**
+ * Every control row in a district, in map order.
+ *
+ * Filtered out of the world's locations rather than Ashfall's (2026-09-24). A district in a second
+ * city matched nothing here, so it answered "no control rows": the fight over a Terminus location
+ * would have been resolved against an empty district, with nobody defending and no neighbours.
+ */
 export function controlsIn(
   repos: Repositories,
   districtId: string,
 ): { locationId: string; control: LocationControl }[] {
   const controls = repos.city.controls();
-  return CITY_LOCATIONS.filter((location) => location.districtId === districtId).flatMap(
+  return EVERY_LOCATION.filter((location) => location.districtId === districtId).flatMap(
     (location) => {
       const control = controls.get(location.id);
       return control ? [{ locationId: location.id, control }] : [];
@@ -143,6 +149,9 @@ function districtLabel(districtId: string, resident: Base | undefined): string {
  * rather than all planted on the starter, a player living in one of those three was invisible: the
  * bot answered for their home, the bot's roster defended it, the report named the bot's crew, and
  * the player was never told a fight had been called on the ground they live on.
+ *
+ * Since 2026-09-28 a plot holds one crew and a player is never seated on a bot's, so the preference
+ * only matters in a database from before that; it goes with the bots (the TODO in `seed/index.ts`).
  */
 export function residentOf(repos: Repositories, districtId: string): Base | undefined {
   const living = repos.bases
@@ -150,6 +159,33 @@ export function residentOf(repos: Repositories, districtId: string): Base | unde
     .filter((candidate) => candidate.districtId === districtId);
   const summary = living.find((candidate) => !candidate.isBot) ?? living[0];
   return summary ? repos.bases.findById(summary.id) : undefined;
+}
+
+/**
+ * A home plot nobody lives on, from where `viewer` stands: closed to them until a crew claims it
+ * (maintainer, 2026-09-28). A crew's own plot is never closed to it.
+ */
+export function isClosedPlot(
+  repos: Repositories,
+  district: Pick<District, 'id' | 'kind'>,
+  viewer: Pick<Base, 'districtId'>,
+): boolean {
+  return (
+    district.kind === 'residential' &&
+    district.id !== viewer.districtId &&
+    residentOf(repos, district.id) === undefined
+  );
+}
+
+/**
+ * Every crew living in a district: the resident, and anybody sharing the ground with them. Only a
+ * database from before 2026-09-28 has anybody sharing; that case leaves with the bots.
+ */
+export function livingIn(repos: Repositories, districtId: string): Base[] {
+  return repos.bases
+    .listSummaries()
+    .filter((summary) => summary.districtId === districtId)
+    .flatMap((summary) => repos.bases.findById(summary.id) ?? []);
 }
 
 /**

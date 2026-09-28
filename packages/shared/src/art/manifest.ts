@@ -722,6 +722,64 @@ const FACTION_ROOM_PLATE_DELIVERY = {
   aspect: '21:10',
 } as const satisfies Partial<AssetSpec>;
 
+/**
+ * Coldwater Halt, the first painted district in Terminus, delivered at 3780x1800 (maintainer,
+ * 2026-09-24) and measured rather than read off the file name. Its own entry for the reason the
+ * eight above it give: seven signs and a gate are fractions of this exact image
+ * (`features/city/marks.ts`).
+ */
+const COLDWATER_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * Terminus, the whole city from above, delivered at 3780x1800 (maintainer, 2026-09-24).
+ *
+ * The second city's answer to {@link CITY_PLATE_DELIVERY}, and load-bearing the same way: twelve
+ * district tags are positioned as fractions of this exact painting, so a crop or a re-export at
+ * another shape slides all twelve off the ground they name. Kept separate from Ashfall's constant
+ * even though the numbers agree, because the two are different paintings and either can be
+ * redelivered without the other.
+ */
+const TERMINUS_CITY_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * Ironmouth, the second painted district in Terminus, delivered at 3780x1800 (maintainer,
+ * 2026-09-24) and measured rather than read off the file name. Its own entry for the reason the
+ * ten above it give: seven signs and a gate are fractions of this exact image
+ * (`features/city/marks.ts`).
+ */
+const IRONMOUTH_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+/**
+ * The Marshalling Yards and Bonded Row, Terminus's third and fourth painted districts, both
+ * delivered at 3780x1800 (maintainer, 2026-09-25) and measured rather than read off the file name.
+ * Their own entries for the reason every plate above them has one: seven signs on the one and
+ * eight on the other are fractions of these exact images (`features/city/marks.ts`), so a re-export
+ * at another shape slides every sign off the thing it names.
+ */
+const MARSHALLING_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
+const BONDED_PLATE_DELIVERY = {
+  width: 3780,
+  height: 1800,
+  aspect: '21:10',
+} as const satisfies Partial<AssetSpec>;
+
 const SIZE_EXCEPTIONS: Readonly<
   Partial<Record<AssetKey, Pick<AssetSpec, 'width' | 'height' | 'aspect'>>>
 > = {
@@ -735,14 +793,19 @@ const SIZE_EXCEPTIONS: Readonly<
   'plate-bar': BAR_PLATE_DELIVERY,
   'plate-city': CITY_PLATE_DELIVERY,
   'plate-district-neon-docks': NEON_DOCKS_PLATE_DELIVERY,
-  'plate-district-rustyard': STEELBELT_PLATE_DELIVERY,
+  'plate-district-steelbelt': STEELBELT_PLATE_DELIVERY,
   'plate-district-chrome-row': CHROME_ROW_PLATE_DELIVERY,
   'plate-faction-room': FACTION_ROOM_PLATE_DELIVERY,
   'plate-district-undergrid': UNDERGRID_PLATE_DELIVERY,
-  'plate-district-datavault-sigma': ANNEXES_PLATE_DELIVERY,
+  'plate-district-annexes': ANNEXES_PLATE_DELIVERY,
   'plate-district-glasshouse-fields': GLASSHOUSE_PLATE_DELIVERY,
-  'plate-district-blacksite-7': BLACKSITE_PLATE_DELIVERY,
-  'plate-district-combine-spire': CCS_PLATE_DELIVERY,
+  'plate-district-blacksite': BLACKSITE_PLATE_DELIVERY,
+  'plate-district-ccs': CCS_PLATE_DELIVERY,
+  'plate-district-coldwater-halt': COLDWATER_PLATE_DELIVERY,
+  'plate-city-terminus': TERMINUS_CITY_PLATE_DELIVERY,
+  'plate-district-ironmouth': IRONMOUTH_PLATE_DELIVERY,
+  'plate-district-marshalling-yards': MARSHALLING_PLATE_DELIVERY,
+  'plate-district-bonded-row': BONDED_PLATE_DELIVERY,
 };
 
 /**
@@ -786,17 +849,29 @@ const plateDrafts = (
     ['plate-bar', 'plate'],
     // Appended for the same reason the two above it were: the seed is the index.
     ['plate-district-neon-docks', 'plate'],
-    ['plate-district-rustyard', 'plate'],
+    ['plate-district-steelbelt', 'plate'],
     ['plate-district-chrome-row', 'plate'],
     ['plate-faction-room', 'plate'],
     // Appended after the faction room rather than beside the other districts: the seed is the index.
     ['plate-district-undergrid', 'plate'],
-    ['plate-district-datavault-sigma', 'plate'],
+    ['plate-district-annexes', 'plate'],
     // Appended, again: the seed is the index.
     ['plate-district-glasshouse-fields', 'plate'],
-    ['plate-district-blacksite-7', 'plate'],
+    ['plate-district-blacksite', 'plate'],
     // The CCS, appended last (2026-09-20): the seed is the index.
-    ['plate-district-combine-spire', 'plate'],
+    ['plate-district-ccs', 'plate'],
+    // Terminus arrives (2026-09-24): the second city's first painted district, then the city
+    // itself. Appended for the reason written down three times above, the seed is the index.
+    ['plate-district-coldwater-halt', 'plate'],
+    ['plate-city-terminus', 'plate'],
+    // Ironmouth, the city's second painted district. Appended, for the fourth time: the seed is
+    // the index.
+    ['plate-district-ironmouth', 'plate'],
+    // The Yards and the Bond (2026-09-25), the city's third and fourth. Appended, for the fifth
+    // time: the seed is the index, so a plate filed beside its neighbours re-rolls every plate
+    // after it.
+    ['plate-district-marshalling-yards', 'plate'],
+    ['plate-district-bonded-row', 'plate'],
   ] as const
 ).map(([key, assetClass], index) =>
   draft({
@@ -815,14 +890,19 @@ const plateDrafts = (
     ...(key === 'plate-bar' ? BAR_PLATE_DELIVERY : {}),
     ...(key === 'plate-city' ? CITY_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-neon-docks' ? NEON_DOCKS_PLATE_DELIVERY : {}),
-    ...(key === 'plate-district-rustyard' ? STEELBELT_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-steelbelt' ? STEELBELT_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-chrome-row' ? CHROME_ROW_PLATE_DELIVERY : {}),
     ...(key === 'plate-faction-room' ? FACTION_ROOM_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-undergrid' ? UNDERGRID_PLATE_DELIVERY : {}),
-    ...(key === 'plate-district-datavault-sigma' ? ANNEXES_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-annexes' ? ANNEXES_PLATE_DELIVERY : {}),
     ...(key === 'plate-district-glasshouse-fields' ? GLASSHOUSE_PLATE_DELIVERY : {}),
-    ...(key === 'plate-district-blacksite-7' ? BLACKSITE_PLATE_DELIVERY : {}),
-    ...(key === 'plate-district-combine-spire' ? CCS_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-blacksite' ? BLACKSITE_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-ccs' ? CCS_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-coldwater-halt' ? COLDWATER_PLATE_DELIVERY : {}),
+    ...(key === 'plate-city-terminus' ? TERMINUS_CITY_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-ironmouth' ? IRONMOUTH_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-marshalling-yards' ? MARSHALLING_PLATE_DELIVERY : {}),
+    ...(key === 'plate-district-bonded-row' ? BONDED_PLATE_DELIVERY : {}),
   }),
 );
 

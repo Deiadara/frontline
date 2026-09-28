@@ -1,15 +1,10 @@
 import {
   CITY_DISTRICTS,
   MAX_ATTRIBUTE,
-  MIN_SCALED_SUCCESS,
   MISC_AREA_ID,
-  RESEARCH_UNLED_FREE,
-  RESEARCH_UNLED_PENALISED,
-  UNLED_PENALTY,
   areasOffering,
-  BATTLE_TIERS,
-  type BattleTier,
   composeProfile,
+  covers,
   createCommander,
   findMissionTemplate,
   leaningsFor,
@@ -18,11 +13,11 @@ import {
   missionOdds,
   missionBoardKey,
   missionOffers,
-  scaledSuccessChance,
   templateTimings,
   type Army,
   type Attributes,
   type Base,
+  type Grade,
   type Mission,
   type MissionTemplate,
   type MissionsResponse,
@@ -40,6 +35,7 @@ import { launchMission } from './launch.js';
 import { resolveDueMissions } from './resolve.js';
 import { fightMissionBattle } from './battle.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { sureLeader } from '../testing/leader.js';
 
 /**
  * Who leads a run, and what a battle job does to the crew that goes (maintainer, 2026-09-10).
@@ -114,7 +110,7 @@ async function makeStack(username = 'leader'): Promise<Stack> {
   return { app, repos, base, token, overseer, userId: user.id };
 }
 
-/** What this crew has researched about going out with nobody in charge. */
+/** What this crew has researched. */
 function teach(stack: Stack, ...technologies: string[]): void {
   const base = stack.repos.bases.findById(stack.base.id);
   if (!base) throw new Error('no base');
@@ -145,7 +141,7 @@ function withOfficer(stack: Stack, id = 'off-1', name = 'Halvard Nyx'): string {
  */
 const OPEN_ON_DAY_ONE = ['chrome-row', 'glasshouse-fields'];
 
-function aJobToday(): { template: MissionTemplate; areaId: string } {
+function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId: string } {
   const now = new Date();
   // Misc, then the districts that actually post work. A residential district is somebody's plot
   // and a Combine district starts behind an armed gate (maintainer, 2026-09-21), so a walk over
@@ -153,10 +149,10 @@ function aJobToday(): { template: MissionTemplate; areaId: string } {
   // an area the launch route refuses, and the refusal would read as a fault in the thing under
   // test. Chrome Row and the Glasshouse Fields are the two that are open from the first day.
   for (const areaId of [MISC_AREA_ID, ...OPEN_ON_DAY_ONE]) {
-    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
-      (entry) => entry.kind === 'standard',
+    const job = missionOffers(areaId, missionBoardKey(areaId, now), level).find(
+      (entry) => entry.template.kind === 'standard',
     );
-    if (template) return { template, areaId };
+    if (job) return { template: job.template, grade: job.grade, areaId };
   }
   throw new Error(`no standard job on any board at ${now.toISOString()}`);
 }
@@ -172,7 +168,7 @@ async function board(stack: Stack): Promise<MissionsResponse> {
 }
 
 async function launch(stack: Stack, extra: Record<string, unknown> = {}) {
-  const { template, areaId } = aJobToday();
+  const { template, areaId } = aJobToday(stack.base.level);
   return stack.app.inject({
     method: 'POST',
     url: '/api/missions',
@@ -185,7 +181,7 @@ describe('the bench the board hands over', () => {
   it('puts the Overseer first, then the books, with nobody out', async () => {
     const stack = await makeStack();
     withOfficer(stack);
-    const { leaders, unledRule } = await board(stack);
+    const { leaders } = await board(stack);
 
     expect(leaders[0]?.id).toBe(stack.overseer.id);
     expect(leaders[0]?.kind).toBe('overseer');
@@ -194,8 +190,6 @@ describe('the bench the board hands over', () => {
     expect(leaders[1]?.name).toBe('Halvard Nyx');
     expect(leaders.map((leader) => leader.held)).toEqual([null, null]);
     expect(leaders.map((leader) => leader.heldUntil)).toEqual([null, null]);
-    // Nothing researched yet, so a crew cannot go out on its own at all.
-    expect(unledRule).toBe('forbidden');
   });
 
   it('says a leader is held by a run, for the Overseer as much as for an officer', async () => {
@@ -269,50 +263,77 @@ describe('the bench the board hands over', () => {
 });
 
 describe('what a card carries about the odds', () => {
-  it('quotes the authored chance at this crew\u2019s level, and what the job leans on', async () => {
+  /**
+   * The level picks the grades a board deals, and nothing else (maintainer, 2026-09-28).
+   *
+   * Level forty, so the crew's deal and a new crew's deal differ: a board that dealt at level one
+   * whoever read it would agree with a level-one crew by accident. The control below says they do
+   * differ on this day.
+   */
+  it('deals each card at the grade this crew\u2019s level draws, and says what the job leans on', async () => {
     const stack = await makeStack('carder');
-    // Level 4, so the scaled figure and the authored one differ: at level 1 they are equal and a
-    // card that quoted the raw template would pass this test without doing anything.
-    stack.repos.bases.updateProgression(stack.base.id, 4, { xpIntoLevel: 0 });
+    stack.repos.bases.updateProgression(stack.base.id, 40, { xpIntoLevel: 0 });
 
-    const { areas, unledRule: rule } = await board(stack);
-    expect(rule).toBe('forbidden');
+    const now = new Date();
+    const { areas } = await board(stack);
+    const dealtAt = (areaId: string, level: number) =>
+      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
+        templateId: job.template.id,
+        grade: job.grade,
+      }));
     const offers = areas.flatMap((area) => area.offers);
     expect(offers.length).toBeGreaterThan(0);
+    let differsFromANewCrew = false;
+    for (const area of areas) {
+      const quoted = area.offers.map((offer) => ({
+        templateId: offer.templateId,
+        grade: offer.grade,
+      }));
+      expect(quoted, area.id).toEqual(dealtAt(area.id, 40));
+      if (JSON.stringify(quoted) !== JSON.stringify(dealtAt(area.id, 1))) {
+        differsFromANewCrew = true;
+      }
+    }
+    expect(
+      differsFromANewCrew,
+      'level forty deals what level one does, so this measures nothing',
+    ).toBe(true);
     for (const offer of offers) {
       const template = findMissionTemplate(offer.templateId) as MissionTemplate;
-      expect(offer.authoredChance, offer.templateId).toBeCloseTo(
-        scaledSuccessChance(template.successChance, 4),
-        10,
-      );
-      expect(offer.authoredChance, offer.templateId).toBeLessThan(template.successChance);
+      // Only ever a grade the job can be dealt at.
+      expect(covers(template, offer.grade), `${offer.templateId} at ${offer.grade}`).toBe(true);
       expect(offer.leanings, offer.templateId).toEqual(leaningsFor(template));
-      // A fight carries a dealt tier and plain work none; which tier is `dealBattleTier`'s and
-      // is pinned in shared, where the deal is a pure function of the board and the level.
-      expect(offer.kind === 'battle', offer.templateId).toBe(offer.battleTier !== null);
-      if (offer.battleTier !== null) expect(BATTLE_TIERS).toContain(offer.battleTier);
     }
   });
 
   /**
-   * The floor is where a card and a launch are most easily made to disagree.
+   * The card and the launch price the same grade.
    *
-   * `scaledSuccessChance` takes half a point off per level and stops at `MIN_SCALED_SUCCESS`, so
-   * high up the board every job quotes the same figure and any reader still working off the raw
-   * template diverges from the one that is not. The card and the row go through the same function
-   * with the same crew figure, so the needle and the frozen odds land on the same number there too.
+   * A card dealt above its job's floor, because at the floor a launch that read the job's lowest
+   * grade rather than the card's would land on the same number. The control checks the two
+   * readings really do differ here. Plain work only: a fight freezes the practice-fight chance
+   * (`fightChanceFor`), and which kind of card the clock deals first changes through the day.
    */
-  it('quotes the floored figure, and freezes the odds the card was reading', async () => {
-    const stack = await makeStack('floored');
-    stack.repos.bases.updateProgression(stack.base.id, 200, { xpIntoLevel: 0 });
+  it('freezes the odds the card was reading, at the grade it was dealt', async () => {
+    const stack = await makeStack('graded');
+    stack.repos.bases.updateProgression(stack.base.id, 40, { xpIntoLevel: 0 });
 
+    const oddsAt = (grade: Grade, leanings: MissionTemplate['leanings']) =>
+      missionOdds({
+        grade,
+        leader: stack.overseer.attributes,
+        profile: composeProfile(leanings),
+      }).chance;
     const { areas } = await board(stack);
-    const area = areas.find((entry) => entry.offers.length > 0);
-    const offer = area?.offers[0];
-    if (!area || !offer) throw new Error('no board offers anything today');
-    expect(offer.authoredChance, 'the floor is not biting, so this measures nothing').toBe(
-      MIN_SCALED_SUCCESS,
-    );
+    const picked = areas
+      .flatMap((area) => area.offers.map((offer) => ({ area, offer })))
+      .find(({ offer }) => {
+        if (offer.kind !== 'standard') return false;
+        const template = findMissionTemplate(offer.templateId) as MissionTemplate;
+        return oddsAt(offer.grade, offer.leanings) !== oddsAt(template.grades[0], offer.leanings);
+      });
+    if (!picked) throw new Error('no card today is priced apart from its floor');
+    const { area, offer } = picked;
 
     const sent = await stack.app.inject({
       method: 'POST',
@@ -321,30 +342,15 @@ describe('what a card carries about the odds', () => {
       payload: {
         templateId: offer.templateId,
         areaId: area.id,
-        force: { razors: 1 },
+        force: { haulers: 1 },
         leaderId: stack.overseer.id,
       },
     });
     expect(sent.statusCode, sent.body.slice(0, 200)).toBe(200);
 
-    const expected = missionOdds({
-      authored: offer.authoredChance,
-      leader: stack.overseer.attributes,
-      profile: composeProfile(offer.leanings),
-      unled: 'forbidden',
-    });
     const stored = stack.repos.missions.findById(sent.json<{ mission: Mission }>().mission.id);
-    expect(stored?.successChance).toBe(expected.chance);
-    // The control: the Overseer moved it, so this is not two ways of writing the same floor.
-    expect(expected.edge).not.toBe(0);
-  });
-
-  it('reads the unled rule off the two rungs', async () => {
-    const stack = await makeStack('ruled');
-    teach(stack, RESEARCH_UNLED_PENALISED);
-    expect((await board(stack)).unledRule).toBe('penalised');
-    teach(stack, RESEARCH_UNLED_PENALISED, RESEARCH_UNLED_FREE);
-    expect((await board(stack)).unledRule).toBe('free');
+    expect(stored?.successChance).toBe(oddsAt(offer.grade, offer.leanings));
+    expect(stored?.mission.grade).toBe(offer.grade);
   });
 });
 
@@ -359,10 +365,10 @@ describe('the launch', () => {
     // of the others answer with a 409 of their own.
     const at = new Date();
     const other = OPEN_ON_DAY_ONE.find(
-      (id) => missionOffers(id, missionBoardKey(id, at)).length > 0,
+      (id) => missionOffers(id, missionBoardKey(id, at), stack.base.level).length > 0,
     );
     if (!other) throw new Error('no second board today');
-    const offer = missionOffers(other, missionBoardKey(other, at))[0];
+    const offer = missionOffers(other, missionBoardKey(other, at), stack.base.level)[0]?.template;
     if (!offer) throw new Error('no offer on the second board');
 
     const again = await stack.app.inject({
@@ -413,7 +419,10 @@ describe('the launch', () => {
     // walk over every district used to land on a Combine one, which is refused since 2026-09-21.
     const elsewhere = [MISC_AREA_ID, ...OPEN_ON_DAY_ONE]
       .filter((areaId) => areaId !== home.areaId)
-      .map((areaId) => ({ areaId, offer: missionOffers(areaId, missionBoardKey(areaId, now))[0] }))
+      .map((areaId) => ({
+        areaId,
+        offer: missionOffers(areaId, missionBoardKey(areaId, now), stack.base.level)[0]?.template,
+      }))
       .find((entry) => entry.offer !== undefined);
     if (!elsewhere?.offer) throw new Error('no second board today');
 
@@ -431,53 +440,34 @@ describe('the launch', () => {
     expect(again.statusCode, again.body.slice(0, 200)).toBe(200);
   });
 
-  it('refuses an unled run until the crew has written down how to run one', async () => {
+  /**
+   * Every run has a leader (maintainer, 2026-09-28). The two rungs that used to let a crew out
+   * with nobody at its head keep their ids on the Right Hand's track and open nothing unled, so a
+   * crew that researched both is refused the same as one that researched neither.
+   */
+  it('refuses a run with nobody at its head, whatever the crew has researched', async () => {
     const stack = await makeStack();
+    teach(stack, 'tech_unled_runs', 'tech_unled_runs_free');
     const refused = await launch(stack);
-    expect(refused.statusCode).toBe(409);
-    const { error } = refused.json<{ error: { code: string; message: string } }>();
-    expect(error.code).toBe('MISSION_NEEDS_OFFICER');
-    // The refusal names the way out of it rather than being a wall.
-    expect(error.message).toContain('Written Orders');
-  });
-
-  it('lets an unled crew go once, at a cost to the odds, and then for nothing', async () => {
-    const { template } = aJobToday();
-    const authored = scaledSuccessChance(template.successChance, 1);
-
-    const penalised = await makeStack('penalised');
-    teach(penalised, RESEARCH_UNLED_PENALISED);
-    const docked = await launch(penalised);
-    expect(docked.statusCode, docked.body.slice(0, 200)).toBe(200);
-    const dockedRow = penalised.repos.missions.findById(
-      docked.json<{ mission: Mission }>().mission.id,
-    );
-    expect(dockedRow?.successChance).toBeCloseTo(authored - UNLED_PENALTY, 10);
-
-    const free = await makeStack('free');
-    teach(free, RESEARCH_UNLED_PENALISED, RESEARCH_UNLED_FREE);
-    const whole = await launch(free);
-    expect(whole.statusCode, whole.body.slice(0, 200)).toBe(200);
-    const wholeRow = free.repos.missions.findById(whole.json<{ mission: Mission }>().mission.id);
-    expect(wholeRow?.successChance).toBeCloseTo(authored, 10);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json<{ error: { code: string } }>().error.code).toBe('VALIDATION_ERROR');
+    expect(stack.repos.missions.countActiveByBaseId(stack.base.id)).toBe(0);
   });
 
   it('freezes exactly what the shared model priced, leader and all', async () => {
     const stack = await makeStack();
-    const { template } = aJobToday();
+    const { template, grade } = aJobToday(stack.base.level);
     const led = await launch(stack, { leaderId: stack.overseer.id });
     expect(led.statusCode, led.body.slice(0, 200)).toBe(200);
 
     const stored = stack.repos.missions.findById(led.json<{ mission: Mission }>().mission.id);
-    const expected = missionOdds({
-      authored: scaledSuccessChance(template.successChance, stack.base.level),
-      leader: stack.overseer.attributes,
-      profile: composeProfile(leaningsFor(template)),
-      unled: 'forbidden',
-    });
+    const priced = (leader: Attributes) =>
+      missionOdds({ grade, leader, profile: composeProfile(leaningsFor(template)) });
+    const expected = priced(stack.overseer.attributes);
     expect(stored?.successChance).toBe(expected.chance);
-    // The control: the Overseer moved it, so this is not two ways of writing the authored figure.
-    expect(expected.edge).not.toBe(0);
+    expect(stored?.mission.grade).toBe(grade);
+    // The control: the Overseer's sheet moved it, so this is not two ways of writing one figure.
+    expect(expected.chance).not.toBe(priced(makeAttributes(0)).chance);
   });
 
   it('still refuses a leader nobody has heard of', async () => {
@@ -494,10 +484,15 @@ function planted(
   force: Army,
   seed: number,
   vehicles: Record<string, number> = {},
-  /** Who is at the head of it, for the tests about what that is worth at the settle. */
-  leader?: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes },
+  /**
+   * Who is at the head of it. The Overseer by default, which puts the crew's own character in the
+   * line of a fight (`leaderOf` reads the row's `overseerLed`, not this sheet).
+   */
+  leader: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes } = sureLeader(),
   /** When they left. `T0` is long past, so a test about a crew still on the road names its own. */
   startedAt: Date = T0,
+  /** The grade the card was dealt: the job's lowest unless a test is about a harder one. */
+  grade: Grade = template.grades[0],
 ): Mission {
   const base = stack.repos.bases.findById(stack.base.id);
   if (!base) throw new Error('no base');
@@ -509,15 +504,14 @@ function planted(
     // Combine holds whole, and a run planted there is refused at the launch (2026-09-22).
     areaId:
       [MISC_AREA_ID, ...OPEN_ON_DAY_ONE].find((id) =>
-        areasOffering(template.id, new Date()).includes(id),
+        areasOffering(template.id, new Date(), base.level).includes(id),
       ) ?? MISC_AREA_ID,
     force,
     vehicles,
     now: startedAt,
     seed,
-    unled: 'free',
     leader,
-    battleTier: legacyTier(template),
+    grade,
   });
   stack.repos.missions.insert(stored);
   // The roster moves with the row, the way the launch route moves it: a crew that is out is not at
@@ -526,32 +520,20 @@ function planted(
   return stored.mission;
 }
 
-/**
- * The tier each fixture was tuned against, which is the rule the board used to read off the job
- * before tiers were dealt by level: an easy job fought what is now Fight I (1,400 at level one),
- * the furthest what is now Fight V (7,900), and everything else Fight III (3,500).
- */
-function legacyTier(template: MissionTemplate): BattleTier | null {
-  if (template.kind !== 'battle') return null;
-  if (template.difficulty === 'easy') return 'fight_1';
-  return template.travelBand === 'furthest' ? 'fight_5' : 'fight_3';
-}
-
 const after = (template: MissionTemplate) =>
   new Date(T0.getTime() + (templateTimings(template).totalMinutes + 1) * 60_000);
 
 const total = (army: Army) => Object.values(army).reduce((sum, count) => sum + count, 0);
 
-/** The first seed at which this crew is wiped out at this job. */
-function seedThatWipes(force: Army, jobName: string): number {
+/** The first seed at which this crew is wiped out at this job, at this grade. */
+function seedThatWipes(force: Army, jobName: string, grade: Grade): number {
   for (let seed = 1; seed < 200; seed += 1) {
     const fought = fightMissionBattle({
       seed,
       jobName,
       force,
       vehicles: {},
-      tier: 'fight_5',
-      level: 1,
+      grade,
       anyRide: false,
     });
     if (total(fought.home) === 0) return seed;
@@ -565,9 +547,10 @@ describe('a battle job is a fight', () => {
 
   it('pays a crew that held the field, and only the dead stay out there', async () => {
     const stack = await makeStack('victors');
-    const force: Army = { razors: 80, wardens: 20 };
+    const force: Army = { razors: 80, wardens: 20, juggernauts: 10 };
+    stack.repos.bases.updateArmy(stack.base.id, { ...force, haulers: 20 }, []);
     /*
-     * The siege tier, and a force sized so holding the field still costs somebody.
+     * A Siege (B-, the job's floor), and a force sized so holding the field still costs somebody.
      *
      * This was sixty razors and twenty wardens against `convoy-ambush`, which the pinned crew
      * won without a scratch: `total(home.lost)` was zero and the assertion below had nothing to
@@ -580,10 +563,15 @@ describe('a battle job is a fight', () => {
      * wardens and 20 haulers, and asking for more than that sends a force the crew does not have
      * and leaves the roster arithmetic below short.
      *
-     * At full stock the siege is genuinely close: a sweep of the first twenty seeds holds the
-     * field on fourteen of them and loses somebody on every one. Seed 3, which this test already
-     * used, is one of the fourteen. A fixture this near a balance edge will move again, and the
-     * number to reach for is the one a sweep says works rather than a nudge.
+     * At full stock the siege was genuinely close: a sweep of the first twenty seeds held the
+     * field on fourteen of them and lost somebody on every one. A fixture this near a balance edge
+     * will move again, and the number to reach for is the one a sweep says works rather than a
+     * nudge.
+     *
+     * It moved on 2026-09-28, when the fight's weight came off the job's grade: a B- fields about
+     * 14,700 where the old Fight V at level one fielded 7,900, and the whole stock lost on all of
+     * the first twelve seeds. Ten Juggernauts on top, minted for this test alone, hold the field
+     * on all twelve and lose between 28 and 47 people doing it. Seed 3 is one of the twelve.
      */
     const mission = planted(stack, siege, force, 3);
 
@@ -600,7 +588,7 @@ describe('a battle job is a fight', () => {
     expect(Object.keys(home.rewards).length).toBeGreaterThan(0);
     // The roster is the force less the dead, and the row says who those were.
     const roster = stack.repos.bases.findById(stack.base.id)!.army;
-    expect(total(roster)).toBe(total({ razors: 80, wardens: 20, haulers: 20 }) - total(home.lost));
+    expect(total(roster)).toBe(total({ ...force, haulers: 20 }) - total(home.lost));
     expect(total(home.lost), 'a fight nobody paid for measures nothing').toBeGreaterThan(0);
     expect(mission.lost).toEqual({});
   });
@@ -632,43 +620,57 @@ describe('a battle job is a fight', () => {
     expect(roster.razors).toBe(80 - (home.lost.razors ?? 0));
   });
 
-  it('sends whoever led the run into the fight with them', async () => {
-    const force: Army = { razors: 9 };
-    const alone = await makeStack('unled_fight');
-    const led = await makeStack('led_fight');
-    // A sheet at the ceiling, so the direction is not in doubt: a middling Overseer is one more
-    // unit in the line and can cost a fight as easily as win it, which is the honest model but a
-    // coin flip to assert on.
-    const sheet = makeAttributes(MAX_ATTRIBUTE);
-    led.repos.overseers.updateAttributes(led.overseer.id, sheet);
-    planted(alone, skirmish, force, 4);
+  /*
+   * One officer on the books, leading a fight job on a fixed seed, and what the run lost.
+   *
+   * The officer rather than the Overseer on purpose: the Overseer's sheet feeds the crew's fold as
+   * well, so two worlds with two Overseers fight two different fights whether or not the leader
+   * reaches the engine, and a comparison would measure nothing. The fold is held level instead: an
+   * Overseer at the ceiling in every rating is paid in full, so the crew's best-of reads 100 in
+   * every world whatever the officer brings. (The officer used to sit on the bench for this, which
+   * kept them off the fold; the bench leads nothing since 2026-09-28.)
+   */
+  async function lostUnder(username: string, sheet: Attributes) {
+    const stack = await makeStack(username);
+    stack.repos.overseers.updateAttributes(stack.overseer.id, makeAttributes(MAX_ATTRIBUTE));
+    const officer = {
+      ...createCommander('off-1', 'Halvard Nyx', 'field_commander'),
+      attributes: sheet,
+    };
+    stack.repos.bases.updateCommanders(stack.base.id, [officer]);
     planted(
-      led,
+      stack,
       skirmish,
-      force,
+      { razors: 9 },
       4,
       {},
-      { kind: 'overseer', id: led.overseer.id, attributes: sheet },
+      { kind: 'officer', id: officer.id, attributes: sheet },
+      T0,
+      skirmish.grades.at(-1),
     );
+    const home = resolveDueMissions(
+      stack.repos,
+      stack.repos.bases.findById(stack.base.id)!,
+      after(skirmish),
+    ).resolved[0];
+    if (!home) throw new Error('nothing settled');
+    return home.lost;
+  }
 
-    const settle = (stack: Stack) =>
-      resolveDueMissions(stack.repos, stack.repos.bases.findById(stack.base.id)!, after(skirmish))
-        .resolved[0];
-    const withoutOne = settle(alone);
-    const withOne = settle(led);
-    if (!withoutOne || !withOne) throw new Error('nothing settled');
-
+  it('sends whoever led the run into the fight with them', async () => {
     // The same job, the same seed, the same nine units: the only difference is the person at the
     // front, and the row's casualty list is where that shows up. Which way it moves is pinned in
     // `enemy.test.ts` on a fight balanced for it; what this file is about is that the row's leader
     // reaches the engine at all, which is `leaderOf`'s whole job.
-    expect(withOne.lost).not.toEqual(withoutOne.lost);
+    const weak = await lostUnder('weak_lead', makeAttributes(0));
+    const sharp = await lostUnder('sharp_lead', makeAttributes(MAX_ATTRIBUTE));
+    expect(sharp).not.toEqual(weak);
   });
 
   /**
    * A crew turned around never reached the ground, so there is nobody there to fight.
    *
-   * The settle reads the tier off the template, and a recalled row has to skip that: a battle job
+   * The settle reads the grade off the row, and a recalled row has to skip the fight: a battle job
    * that fought on the way home would kill people for a trip the player cancelled. The other half
    * is the bench, which must not free the leader the moment the order is given: they are on the
    * road, and the road is what the return leg is.
@@ -713,6 +715,7 @@ describe('a battle job is a fight', () => {
     const { leaders } = recalled.json<MissionsResponse>();
     expect(leaders.find((one) => one.id === officerId)?.held).toBe('run');
 
+    const progressBefore = stack.repos.bases.findById(stack.base.id)!.progression;
     const settled = resolveDueMissions(
       stack.repos,
       stack.repos.bases.findById(stack.base.id)!,
@@ -723,6 +726,9 @@ describe('a battle job is a fight', () => {
     expect(home.outcome).toBe('failure');
     expect(home.lost, 'a run nobody went on cannot kill anybody').toEqual({});
     expect(home.reported).toBe(true);
+    // And it teaches nothing (bug pass, 2026-09-27): a share of the whole run's XP for turning
+    // round made launch-and-recall the fastest way to level.
+    expect(settled.base.progression).toEqual(progressBefore);
     // Everybody who left is back, which is the whole of what a recall costs.
     expect(stack.repos.bases.findById(stack.base.id)!.army).toEqual(before);
     expect((await board(stack)).leaders.find((one) => one.id === officerId)?.held).toBeNull();
@@ -731,7 +737,7 @@ describe('a battle job is a fight', () => {
   it('pays nothing at all for a crew nobody came back from, and says so', async () => {
     const stack = await makeStack('wiped');
     const force: Army = { razors: 1 };
-    const seed = seedThatWipes(force, siege.name);
+    const seed = seedThatWipes(force, siege.name, siege.grades[0]);
     const before = stack.repos.bases.findById(stack.base.id)!.resources;
     planted(stack, siege, force, seed, { motorcycle: 1 });
     stack.repos.bases.updateFleet(stack.base.id, {});
@@ -766,7 +772,7 @@ describe('a battle job is a fight', () => {
 /**
  * §E5: a battle job is a fight, so it is fought with everything a fight is fought with.
  *
- * `fightMissionBattle` was handed a force, a tier and a leader, and nothing else: no territory, no
+ * `fightMissionBattle` was handed a force, a grade and a leader, and nothing else: no territory, no
  * cohesion, no medicine, no salvage refund and no infamy multiplier. So the one mission kind that
  * kills people was the one fight in the game a crew fought bare. Every assertion below is about a
  * channel that pays a declared battle and paid nothing here.
@@ -779,6 +785,7 @@ describe('what a battle job is fought with', () => {
     username: string,
     prepare: (stack: Stack) => void,
     template: MissionTemplate = siegeJob,
+    grade: Grade = template.grades[0],
   ) => {
     const stack = await makeStack(username);
     // Both worlds are the same person. Which of the thirty characters an account is offered is a
@@ -788,7 +795,7 @@ describe('what a battle job is fought with', () => {
     // full suite, on a run where one crew killed nine and the other ten.
     pinOverseer(stack.app, stack.token);
     prepare(stack);
-    planted(stack, template, { razors: 40 }, 5);
+    planted(stack, template, { razors: 40 }, 5, {}, sureLeader(), T0, grade);
     const settled = resolveDueMissions(
       stack.repos,
       stack.repos.bases.findById(stack.base.id)!,
@@ -808,19 +815,21 @@ describe('what a battle job is fought with', () => {
 
   it('fights it with the crew fold, so held ground changes the outcome', async () => {
     // A fight the crew can hold, because that is where toughness shows: on a siege they are
-    // overrun either way and what decides who dies is the rout roll.
+    // overrun either way and what decides who dies is the rout roll. At E rather than the job's
+    // floor, because forty Razors walk over an E- and lose one either way (measured 2026-09-28).
     const winnable = findMissionTemplate('convoy-ambush') as MissionTemplate;
-    const bare = await runJob('bare_job', () => {}, winnable);
+    const bare = await runJob('bare_job', () => {}, winnable, 'E');
     const backed = await runJob(
       'backed_job',
       (stack) => {
         // Ground that pays into the fight rather than into the economy: the Quiet Ward is
         // `unit_offense` and Saint Ferrous is `unit_vitality` (`city/locations.ts`). Holding a
         // Scrapyard or a kennel would have proved nothing, because neither writes a combat channel.
-        hold(stack, 'datavault-sigma-ward');
+        hold(stack, 'annexes-ward');
         hold(stack, 'chrome-row-ferrous');
       },
       winnable,
+      'E',
     );
     expect(
       total(backed.home.lost),
@@ -843,7 +852,7 @@ describe('what a battle job is fought with', () => {
   it('pays the crew’s infamy multiplier on what the job killed', async () => {
     const banked = async (username: string, holds: boolean) => {
       const { stack, home } = await runJob(username, (one) => {
-        if (holds) hold(one, 'combine-spire-martyrs');
+        if (holds) hold(one, 'ccs-martyrs');
       });
       return { delta: stack.repos.bases.findById(stack.base.id)!.economy.infamy, home };
     };
@@ -858,7 +867,7 @@ describe('what a battle job is fought with', () => {
   });
 
   it('gets the medics onto the winner’s dead, and the Bone Market onto the losses', async () => {
-    const graveyard = 'rustyard-bones';
+    const graveyard = 'steelbelt-bones';
     const plain = await runJob('plain_job', () => {});
     const kitted = await runJob('kitted_job', (stack) => hold(stack, graveyard));
 

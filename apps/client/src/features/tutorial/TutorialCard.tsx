@@ -98,6 +98,7 @@ export function TutorialCard({
             tone="danger"
             onClick={onSkip}
             disabled={pending}
+            data-sound="click"
             data-testid="tutorial-skip"
           >
             Skip tutorial
@@ -107,6 +108,7 @@ export function TutorialCard({
             tone="go"
             onClick={onNext}
             disabled={pending}
+            data-sound="click"
             data-testid="tutorial-next"
           >
             {last ? 'Got it' : 'Next'}

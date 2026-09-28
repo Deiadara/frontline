@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BarBidViewSchema, nextMinimumBid, rankBids } from '../bar/auction.js';
-import { IsoDateTimeSchema } from '../primitives.js';
+import { IsoDateTimeSchema, REQUEST_AMOUNT_MAX } from '../primitives.js';
 import { GAME_TIMEZONE, instantAtHourInZone } from '../time/zone.js';
 import { currentVendorSession, marketDay, vendorSessionsFor } from './vendor.js';
 
@@ -109,6 +109,32 @@ export function nextLotBid(reserve: number, leading: number | null): number {
 }
 
 /**
+ * The most a crew can bid on a lot and still be able to pay at the close.
+ *
+ * Not the purse itself, on the two counters that charge the winner less than the bid: the barrow
+ * takes the crew's market ground off (`discountedCaps`) and the fence its standing
+ * (`discountedInfamy`), and both tables refuse a bid only when that *charge* is past the purse. A
+ * screen that capped the field at the raw purse greyed out bids the server takes, and the fence's
+ * card called a lot affordable that its own bidding window then refused.
+ *
+ * `charge` must never fall as the bid rises, which every discount in the game satisfies. A binary
+ * search rather than an inverse formula, because the two discounts clamp at different ceilings and
+ * both round, and a search is exact whatever the rounding does.
+ */
+export function largestBidWithin(purse: number, charge: (bid: number) => number): number {
+  const room = Math.max(0, Math.floor(purse));
+  let low = 0;
+  let high = Math.max(1, room) * 2;
+  while (charge(high) <= room && high < Number.MAX_SAFE_INTEGER) high *= 2;
+  while (low + 1 < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (charge(middle) <= room) low = middle;
+    else high = middle;
+  }
+  return low;
+}
+
+/**
  * Who takes the lot, and who stands behind them.
  *
  * The Bar's ranking with every position open: highest amount first, ties by the seeded coin,
@@ -197,7 +223,7 @@ export const VendorAuctionResultSchema = z.object({
 export type VendorAuctionResult = z.infer<typeof VendorAuctionResultSchema>;
 
 export const PlaceVendorBidRequestSchema = z.object({
-  lineId: z.string().min(1),
-  amount: z.number().int().positive(),
+  lineId: z.string().min(1).max(128),
+  amount: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
 });
 export type PlaceVendorBidRequest = z.infer<typeof PlaceVendorBidRequestSchema>;

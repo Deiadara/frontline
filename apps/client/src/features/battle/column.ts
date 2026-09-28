@@ -131,15 +131,24 @@ function seat(
  * these quotes may not be wrong in: a Colossus holds a column to fifteen, and a crew that has
  * bought the waiver puts it in a truck. The server has read the waiver at every seat it spends
  * since it existed; this did not, so the board quoted a road the crew then beat by hours.
+ *
+ * `unitSpeedPercent` is the crew's own lift on every unit's pace (`CrewEffects.unitSpeedPercent`),
+ * which the mission launch spends on the column. Defaulted, so a screen that has not been handed
+ * it quotes the bare sheets it always did.
  */
 export function readColumn(
   fleet: Fleet,
   force: Army,
   loadouts: UnitLoadouts,
   anyRide = false,
+  unitSpeedPercent = 0,
 ): ColumnRead {
   const speedOf = (unitId: string): ColumnUnit =>
-    unitColumnSpeed(unitId, { fitted: fittedFor(loadouts, unitId), anyRide });
+    unitColumnSpeed(unitId, {
+      percent: unitSpeedPercent,
+      fitted: fittedFor(loadouts, unitId),
+      anyRide,
+    });
   const groups: ColumnGroup[] = Object.entries(force)
     .filter(([, count]) => count > 0)
     .map(([unitId, count]) => ({

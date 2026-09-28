@@ -5,6 +5,8 @@ import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { MVP_PLAYER } from '../seed/constants.js';
 import { seedMvpWorld } from '../seed/index.js';
+import { MVP_FACTION } from '../seed/constants.js';
+import { awardPlayerXp } from '../progression/award.js';
 import { UNLOCKED_LEVEL } from '../seed/sandbox.js';
 import { chooseOverseer, offeredOverseers } from '../testing/overseer.js';
 
@@ -303,6 +305,70 @@ describe('the invitation a new crew is given', () => {
     return app;
   }
 
+  /**
+   * Takes the crew to level 10 through the XP funnel, the way play does (2026-09-28): the letter
+   * waits for the level the Faction door opens at, and the funnel is what sends it.
+   */
+  function reachFactionLevel(app: FastifyInstance, token: string): void {
+    const { sub } = app.jwt.decode<{ sub: string }>(token) ?? { sub: '' };
+    const base = app.repos.bases.findByOwnerId(sub);
+    if (!base) throw new Error('no crew');
+    awardPlayerXp(app.repos, base, 'missionCompleted', 0, 20_000);
+    expect(app.repos.bases.findById(base.id)?.level).toBeGreaterThanOrEqual(10);
+  }
+
+  const invitesIn = async (app: FastifyInstance, token: string) =>
+    (await app.inject({ method: 'GET', url: '/api/messages', headers: auth(token) }))
+      .json<{ inbox: { invite: { inviteId: string } | null }[] }>()
+      .inbox.filter((message) => message.invite != null);
+
+  it('waits for level 10, the level a crew can accept it at', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'patient_one', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+    expect(await invitesIn(app, token)).toEqual([]);
+
+    reachFactionLevel(app, token);
+    expect(await invitesIn(app, token)).toHaveLength(1);
+    // Once: a second crossing of the funnel does not write a second letter.
+    const { sub } = app.jwt.decode<{ sub: string }>(token) ?? { sub: '' };
+    awardPlayerXp(app.repos, app.repos.bases.findByOwnerId(sub)!, 'missionCompleted', 0, 50_000);
+    expect(await invitesIn(app, token)).toHaveLength(1);
+  });
+
+  it('is refused to a crew under level 10', async () => {
+    const app = await seededApp();
+    const registered = await app.inject({
+      method: 'POST',
+      url: '/api/auth/register',
+      payload: { username: 'too_early', password: 'hunter2pass' },
+    });
+    const token = registered.json<{ token: string }>().token;
+    await chooseOverseer(app, token);
+    const { sub } = app.jwt.decode<{ sub: string }>(token) ?? { sub: '' };
+    const faction = app.repos.factions.findByName(MVP_FACTION.name)!;
+    app.repos.factions.invite({
+      id: 'early-invite',
+      factionId: faction.id,
+      invitedUserId: sub,
+      invitedByUserId: sub,
+      sentAt: new Date().toISOString(),
+    });
+    const answered = await app.inject({
+      method: 'POST',
+      url: '/api/factions/answer',
+      headers: auth(token),
+      payload: { inviteId: 'early-invite', accept: true },
+    });
+    expect(answered.statusCode).toBe(403);
+    expect(answered.json<{ error: { code: string } }>().error.code).toBe('AREA_LOCKED');
+  });
+
   it('arrives in the mailbox carrying the invitation, not just a bell', async () => {
     const app = await seededApp();
     const registered = await app.inject({
@@ -312,6 +378,7 @@ describe('the invitation a new crew is given', () => {
     });
     const token = registered.json<{ token: string }>().token;
     await chooseOverseer(app, token);
+    reachFactionLevel(app, token);
 
     const inbox = await app.inject({
       method: 'GET',
@@ -350,7 +417,7 @@ describe('the invitation a new crew is given', () => {
     expect(rung?.link).not.toBe('/game/faction');
   });
 
-  it('can actually be accepted by a level-one crew', async () => {
+  it('can actually be accepted by a crew at level 10', async () => {
     const app = await seededApp();
     const registered = await app.inject({
       method: 'POST',
@@ -359,6 +426,7 @@ describe('the invitation a new crew is given', () => {
     });
     const token = registered.json<{ token: string }>().token;
     await chooseOverseer(app, token);
+    reachFactionLevel(app, token);
 
     const inbox = await app.inject({ method: 'GET', url: '/api/messages', headers: auth(token) });
     const mail = inbox.json<{ inbox: { invite: { inviteId: string } | null }[] }>().inbox;

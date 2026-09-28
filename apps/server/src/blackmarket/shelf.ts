@@ -3,7 +3,6 @@ import { tallyContrabandTaken, tallyPagesIn } from '../feats/tally.js';
 import {
   addItems,
   addToStash,
-  averageCityLevel,
   blackBidRefusal,
   blackLotId,
   blackLotReserve,
@@ -16,6 +15,7 @@ import {
   cityOfBlackLot,
   DEFAULT_CITY_ID,
   findBlackMarketGood,
+  largestBidWithin,
   nextDayBoundary,
   rankLotBids,
   spendInfamy,
@@ -28,11 +28,12 @@ import {
 } from '@frontline/shared';
 import type { BlackBid } from '../db/repos/blackmarket.js';
 import type { Repositories } from '../db/repos/index.js';
-import { citiesFor } from '../city/stakes.js';
+import { calibreOf, citiesFor } from '../city/stakes.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { bidderNames, projectLotAuction } from '../market/auction.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * The back room, server-side.
@@ -66,26 +67,26 @@ function infamyOf(base: Base): number {
 }
 
 /**
- * The city's average player level: what the dealer prices and stocks against (board).
+ * What the dealer prices and stocks against: the standing of the crews with a stake in *this* city.
  *
- * **Bots excluded.** §A3's rival is a fixture, not a customer, and a city of one real player and
- * one seeded bot would otherwise quote its prices against the halfway point between them. The
- * dealer reads the street; the bot is scenery.
+ * It used to be the flat average level of every non-bot base in the world, which was one number for
+ * every back room there is: the fence in Terminus quoted Ashfall's street, and a crew holding half
+ * of Terminus had no more say over its shelf than somebody who has never been. The Bar was moved
+ * off that pattern onto `calibreOf` and this is the same move, so both of a city's counters read
+ * one number (`city/access.ts`): a resident counts for a whole share, a visitor for the share of
+ * ten locations they hold, and the notoriety ladder counts alongside the district level.
  *
- * Read from the summaries rather than from full base rows: this runs on every read of the shelf,
- * and the only column it needs is the level.
+ * Bots are counted now, where the world average excluded them. That is `calibreOf`'s ruling and the
+ * right one for a room: a bot holds ground and is somebody to fight, and a city whose only other
+ * crews are rivals is exactly the city whose shelf should reflect them.
  *
- * Exported because the shelf is not the only thing that reads it: a fight weights the contraband
- * it applies by the same number, and the battle screen has to quote the figure the fight will use.
- * There were two copies of this function and no test that would have noticed them disagreeing.
+ * Exported because the shelf is not the only thing that reads it: a fight weights the contraband it
+ * applies by the same number, and the battle screen has to quote the figure the fight will use.
+ * Those two callers name no city and get the default one, which is a loose end rather than a
+ * ruling: a crate applied in a fight over Terminus should be weighted by Terminus.
  */
-export function cityLevelFor(repos: Repositories): number {
-  return averageCityLevel(
-    repos.bases
-      .listSummaries()
-      .filter((summary) => !summary.isBot)
-      .map((summary) => summary.level),
-  );
+export function cityLevelFor(repos: Repositories, cityId: string = DEFAULT_CITY_ID): number {
+  return calibreOf(repos, cityId);
 }
 
 /** The shelf as this crew sees it: the same five lots, marked with what they can actually bid on. */
@@ -105,7 +106,7 @@ export function projectBlackMarket(
   // screen's allowance and the close cannot disagree about what this crew is entitled to.
   const takesPerDay = blackMarketTakesPerDay(base.level);
   // The whole shelf is weighted by this, so it is read once for the page rather than per slot.
-  const cityLevel = cityLevelFor(repos);
+  const cityLevel = cityLevelFor(repos, cityId);
   // §A4, and so is the crew's own discount, for the same reason.
   const discount = standingEffectsFor(repos, base).blackMarketDiscountPercent;
   // One query for the whole shelf, and one name lookup per crew on it: five lots read separately
@@ -165,6 +166,9 @@ export function projectBlackMarket(
       };
     }),
     infamy,
+    // The edge `blackBidRefusal` refuses at: the bid whose charge after this crew's standing is
+    // the last one the ledger covers. The card's `affordable` reads the same discount.
+    bidCeiling: largestBidWithin(infamy, (bid) => discountedInfamy(bid, discount)),
     takenToday,
     takesPerDay,
     cityLevel,
@@ -220,7 +224,7 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
     board,
     amount,
     infamy: infamyOf(base),
-    cityLevel: cityLevelFor(repos),
+    cityLevel: cityLevelFor(repos, cityId),
     leading: leader?.amount ?? null,
     leadingIsYou: leader?.userId === userId,
     discountPercent: standingEffectsFor(repos, base).blackMarketDiscountPercent,
@@ -229,13 +233,28 @@ export function placeBlackMarketBid(repos: Repositories, command: BlackBidComman
      * §H7a on the shelf (maintainer, 2026-09-17): two lots at once.
      *
      * Read off the night's whole bid table rather than a count of this crew's, because the guard
-     * needs the slots and not the number: raising on a crate this crew is already in is not a new
-     * lot. One read, which is the same read the leader above came from in spirit and is five rows.
+     * needs the lots and not the number: raising on a crate this crew is already in is not a new
+     * lot. One read, which is the same read the leader above came from in spirit.
+     *
+     * **Lot ids, not slot indices.** `bidsOn(day)` is the whole world's night and a slot index is
+     * 0 to 4 in every city, so counting by slot made Ashfall's slot 3 and Terminus's slot 3 one
+     * lot and Ashfall's slot 1 and Terminus's slot 2 two. The id names the room as well as the
+     * slot (`blackLotId`), which is the identity the limit is actually about.
+     *
+     * **Per city** (maintainer ruling, 2026-09-24). The count spanned every back room at first, on
+     * the argument that the infamy being staked is one ledger. The Bar's table cap and the barrow's
+     * lot cap both went per city in the same pass, and three rooms in one city obeying two
+     * different rules is a thing a player has to learn rather than a thing they can reason about.
+     * The one allowance that stays genuinely world-wide is the daily infamy spend
+     * (`black_market_takings`), which was ruled that way on purpose: walking to a second city is
+     * not a second helping. How many crates you can have an eye on at once is a different question
+     * and it is asked per room.
      */
-    openSlots: repos.blackMarket
+    lotId,
+    openLots: repos.blackMarket
       .bidsOn(day)
-      .filter((bid) => bid.userId === userId)
-      .map((bid) => bid.slotIndex),
+      .filter((bid) => bid.userId === userId && cityOfBlackLot(bid.lotId) === cityId)
+      .map((bid) => bid.lotId),
   });
   if (refusal) return { kind: 'refused', reason: refusal };
 
@@ -271,12 +290,13 @@ interface BlackLotWinner {
  * the other two fall to whoever is behind them.
  */
 export function settleBlackMarketLots(repos: Repositories, now: Date, zone: string): number {
-  let closed = 0;
-  for (const lot of repos.blackMarket.unsettled(now)) {
-    repos.tx(() => closeBlackLot(repos, lot, now, zone));
-    closed += 1;
-  }
-  return closed;
+  return settleEach(
+    repos,
+    'black market lots',
+    repos.blackMarket.unsettled(now),
+    (lot) => `${lot.day}:${lot.lotId}:${lot.slotIndex}`,
+    (lot) => closeBlackLot(repos, lot, now, zone),
+  );
 }
 
 function closeBlackLot(
@@ -301,7 +321,8 @@ function closeBlackLot(
   const bids = repos.blackMarket.bidsFor(day, lotId);
   // A slot id that names nothing on that day's shelf cannot be sold to anybody, and leaving it due
   // would settle it again on every read for ever. It goes down as a lot nobody took.
-  const winner = slot && spec ? awardBlackLot(repos, { day, slot, spec, bids, now, zone }) : null;
+  const winner =
+    slot && spec ? awardBlackLot(repos, { day, cityId, slot, spec, bids, now, zone }) : null;
 
   repos.blackMarket.recordResult({
     day,
@@ -330,6 +351,8 @@ function awardBlackLot(
   repos: Repositories,
   lot: {
     day: string;
+    /** Whose back room, read back off the lot id. The reserve is that city's number. */
+    cityId: string;
     slot: BlackMarketSlot;
     spec: BlackMarketGoodSpec;
     bids: readonly BlackBid[];
@@ -337,12 +360,14 @@ function awardBlackLot(
     zone: string;
   },
 ): BlackLotWinner | null {
-  const { day, slot, spec, bids, now } = lot;
-  // Read at the close, not at the bid: the fence asks what the street is worth tonight. It moves
-  // slowly (a city average over every player), so a bid that cleared the floor this morning is
-  // still above it at midnight in any city that is not being reseeded under the game.
-  const reserve = blackLotReserve(spec, cityLevelFor(repos));
-  const ranked = rankLotBids(bids, reserve, blackLotSeed(day, slot.index));
+  const { day, cityId, slot, spec, bids, now } = lot;
+  // Read at the close, not at the bid: the fence asks what this city's street is worth tonight. It
+  // moves slowly (a weighted average over the crews with a stake), so a bid that cleared the floor
+  // this morning is still above it at midnight in any city that is not being reseeded under the game.
+  const reserve = blackLotReserve(spec, cityLevelFor(repos, cityId));
+  // The room is in the coin as well as in the reserve: a lot is one city's slot on one night, and
+  // that is what the tie-break has to be a function of.
+  const ranked = rankLotBids(bids, reserve, blackLotSeed(day, slot.index, cityId));
 
   for (const entry of ranked) {
     const bid = bids.find((row) => row.userId === entry.userId);

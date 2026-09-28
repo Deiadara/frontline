@@ -1,4 +1,5 @@
 import type { OverseerChoicesResponse, OverseerPreset } from '@frontline/shared';
+import { CitiesView } from '../features/cities/CitiesView';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +10,7 @@ import { DrawnRule } from '../components/ui/DrawnMarks';
 import { LoadFailure } from '../components/ui/LoadFailure';
 import { OverseerPortrait } from '../features/overseer/OverseerPortrait';
 import { OverseerSheet } from '../features/overseer/OverseerSheet';
+import { ErrorNote } from '../components/ui/ErrorNote';
 
 /**
  * How long the four on screen stay held, measured on the server's clock (§F6, 2026-09-17).
@@ -49,7 +51,7 @@ function asClock(ms: number): string {
 }
 
 /**
- * The first screen, in two steps (maintainer, 2026-09-22).
+ * The first screen, in three steps (maintainer, 2026-09-22 and 2026-09-24).
  *
  * **Portraits, then the file.** It used to be four cards holding a thumbnail, a clamped bio, a
  * radar and a 4-column sheet each, all fighting for one viewport: nothing was big enough to look
@@ -60,6 +62,17 @@ function asClock(ms: number): string {
  * Nothing but the paintings at first on purpose. The pick cannot be undone and the operator is
  * off the board for every other player, so the screen asks for one deliberate press before it
  * shows the numbers anybody would compare on.
+ *
+ * **Then where they will live.** Taking the overseer no longer starts the game: it opens the same
+ * wall of city paintings the world screen draws (`CitiesView`, in `choosing` mode), and the crew
+ * exists once a city has been picked. Both halves go to the server in one `POST /overseer`, which
+ * is what makes the character claim and the plot claim one decision: a screen that took the
+ * character first and then asked about cities could seat a player behind a full world with a
+ * character already spent.
+ *
+ * A press on a city selects it rather than entering it, and `Choose this city` is what commits.
+ * Which cities may be picked is the server's answer, on the same response as the four characters:
+ * a browser cannot see who lives where.
  */
 export function CharacterSelectScreen() {
   const navigate = useNavigate();
@@ -74,6 +87,9 @@ export function CharacterSelectScreen() {
   const offer = useOverseerChoices();
   const choices = offer.data?.choices ?? [];
   const [openedId, setOpenedId] = useState<string | null>(null);
+  /** Past the file and on the wall of cities. Null until a card is pressed. */
+  const [pickingCity, setPickingCity] = useState(false);
+  const [cityId, setCityId] = useState<string | null>(null);
 
   /*
    * §F6: the ten minutes are up, so draw four more without making the player find the reload key.
@@ -88,16 +104,46 @@ export function CharacterSelectScreen() {
   const { refetch } = offer;
   useEffect(() => {
     if (!lapsed) return;
+    // All the way back to the four, city and all: the character the city was being chosen for is
+    // not held any more, so the step after it is a decision about nothing.
     setOpenedId(null);
+    setPickingCity(false);
+    setCityId(null);
     void refetch();
   }, [lapsed, refetch]);
 
   const opened = choices.find((preset) => preset.presetId === openedId) ?? null;
+  /*
+   * On the wall of cities, which needs a character still in hand.
+   *
+   * The offer is re-read while this screen is open and the four can change under it, so `opened`
+   * going null is a real state rather than a defensive check: it drops the player back on the
+   * portraits, and the heading has to go back with them.
+   */
+  const atTheCities = pickingCity && opened !== null;
+  /*
+   * Nothing but the failure, once the offer has failed.
+   *
+   * A refused pick drops `overseerChoices` and re-reads it (`useCreateOverseer`), and that re-read
+   * can fail on its own. React Query keeps the batch it already had when it does, so `offer.data`
+   * is still on hand, the player is still standing on whichever step they had reached, and
+   * `isError` is true at the same time. Drawn off `isError` alone, the failure panel appeared
+   * *above* a live wall of cities with its two buttons still pressable, and the only thing they
+   * could still do was press Confirm on a character somebody else had taken. One thing at a time:
+   * the four, the file and the wall all yield to the failure, and Try again is the way on.
+   */
+  const showing = offer.isError
+    ? 'failure'
+    : atTheCities
+      ? 'cities'
+      : opened !== null
+        ? 'file'
+        : 'portraits';
 
   const confirm = () => {
-    if (!opened) return;
+    if (!opened || cityId === null) return;
     createOverseer.mutate(
-      { presetId: opened.presetId },
+      { presetId: opened.presetId, cityId },
       {
         onSuccess: () => {
           void navigate('/game');
@@ -128,7 +174,7 @@ export function CharacterSelectScreen() {
             className="font-stamp text-[clamp(24px,4vw,44px)] leading-none tracking-[0.06em] text-ink-100"
             data-testid="overseer-title"
           >
-            CHOOSE YOUR OVERSEER
+            {showing === 'cities' ? 'CHOOSE YOUR CITY' : 'CHOOSE YOUR OVERSEER'}
           </h1>
           <span aria-hidden className="mt-2 block h-2 w-[min(28rem,60vw)] text-brass-300/70">
             <DrawnRule />
@@ -168,7 +214,7 @@ export function CharacterSelectScreen() {
        * it does not, which is the behaviour that was wanted both times.
        */}
       <div className="relative flex min-h-0 flex-1 flex-col justify-start gap-3 overflow-y-auto px-4 pb-5 pt-1 sm:px-6">
-        {offer.isError && (
+        {showing === 'failure' && (
           <div className="mx-auto w-full max-w-5xl">
             <LoadFailure
               what="The overseer files"
@@ -178,20 +224,62 @@ export function CharacterSelectScreen() {
           </div>
         )}
 
-        {!offer.isError && opened === null && (
+        {showing === 'portraits' && (
           <PortraitWall choices={choices} loading={offer.data === undefined} onOpen={setOpenedId} />
+        )}
+
+        {showing === 'cities' && (
+          <div
+            className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-3"
+            data-testid="city-wall"
+          >
+            {/* `min-h-0` and `flex-1`: the wall sizes itself off the room it is given, the way it
+                does inside the world screen's scroller, so the two buttons under it stay on screen
+                at 1280x720 rather than being pushed past the foot of the frame. */}
+            <div className="min-h-0 flex-1">
+              <CitiesView
+                choosing={{
+                  offers: offer.data?.cities ?? [],
+                  selectedId: cityId,
+                  onSelect: setCityId,
+                }}
+              />
+            </div>
+            {serverError && <ErrorNote className="self-center">{serverError}</ErrorNote>}
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8">
+              <DrawnButton
+                size="md"
+                tone="danger"
+                onClick={() => {
+                  setPickingCity(false);
+                  setCityId(null);
+                }}
+                data-testid="city-back"
+                data-sound="click"
+              >
+                Back to the file
+              </DrawnButton>
+              <DrawnButton
+                size="md"
+                tone="go"
+                onClick={confirm}
+                disabled={cityId === null || createOverseer.isPending}
+                data-testid="city-confirm"
+              >
+                {createOverseer.isPending ? 'Deploying…' : 'Choose this city'}
+              </DrawnButton>
+            </div>
+          </div>
         )}
 
         {/* `min-h-0` on the column so the file can give ground rather than pushing the two
             buttons past the foot of the frame: a single pixel over and the drawn faces are cut. */}
-        {opened !== null && (
+        {/* `opened !== null` is already implied by `showing`, and repeated so the compiler can
+            narrow it: a string discriminant carries no information about another variable. */}
+        {showing === 'file' && opened !== null && (
           <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-3">
             <OverseerSheet preset={opened} />
-            {serverError && (
-              <p role="alert" className="font-body text-[13px] text-oxblood-300">
-                {serverError}
-              </p>
-            )}
+            {serverError && <ErrorNote>{serverError}</ErrorNote>}
             {/*
              * Centred and colour-coded (maintainer, 2026-09-22).
              *
@@ -207,17 +295,17 @@ export function CharacterSelectScreen() {
                 tone="danger"
                 onClick={() => setOpenedId(null)}
                 data-testid="overseer-back"
+                data-sound="click"
               >
                 Go back
               </DrawnButton>
               <DrawnButton
                 size="md"
                 tone="go"
-                onClick={confirm}
-                disabled={createOverseer.isPending}
+                onClick={() => setPickingCity(true)}
                 data-testid="overseer-confirm"
               >
-                {createOverseer.isPending ? 'Deploying…' : 'Confirm overseer'}
+                Confirm overseer
               </DrawnButton>
             </div>
           </div>

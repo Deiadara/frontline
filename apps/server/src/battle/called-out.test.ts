@@ -13,13 +13,15 @@
  * Nothing surfaced it because nothing could reach it: every account was created in the same
  * district, and a crew cannot call on the district it lives in, so no human could ever be the
  * resident of a district somebody else was allowed to call on. Spreading new crews across the four
- * residential plots (`quietestDistrict`, 2026-09-17) made it reachable on the first fight of a
- * five-player world.
+ * residential plots (`quietestDistrict`, 2026-09-17, since replaced by a random free plot) made it
+ * reachable on the first fight of a five-player world.
  *
  * The second case is the same question with a bot in the room. The three non-starter residential
  * districts each hold a seeded crew, and `residentOf` took the first base in the district by
  * `created_at`, which is always the seed. A player living there was invisible: the bot answered for
- * their home, the bot's roster defended it, and the player was never told.
+ * their home, the bot's roster defended it, and the player was never told. Since 2026-09-28 a player
+ * is never seated on a bot's plot, so that case pins a database from before the rule and goes with
+ * the bots.
  */
 import {
   DECLARE_INFAMY_COST,

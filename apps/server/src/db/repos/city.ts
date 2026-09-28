@@ -1,9 +1,11 @@
 import {
-  CITY_DISTRICTS,
+  ALL_DISTRICTS,
   withoutRetiredUnits,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   LocationControlSchema,
+  districtsOfCity,
   findDistrict,
+  findLocation,
   startingControl,
   type Army,
   type LocationControl,
@@ -26,8 +28,6 @@ interface ControlRow {
   holder_base_id: string | null;
   level: number;
   upgrading_until: string | null;
-  fortification: number;
-  fortifying_until: string | null;
   garrison_json: string;
 }
 
@@ -40,8 +40,6 @@ function rowToControl(row: ControlRow): LocationControl {
         : { kind: row.holder_kind },
     level: row.level,
     upgradingUntil: row.upgrading_until,
-    fortification: row.fortification,
-    fortifyingUntil: row.fortifying_until,
     garrison: withoutRetiredUnits(readJson(row.garrison_json)),
   });
 }
@@ -53,12 +51,17 @@ export interface CityRepo {
    * Creates any row the catalogue has and the table does not, so a location added to the map appears
    * held by whoever nominally garrisons its district without a migration. That is the only sane
    * location for this: the catalogue is TypeScript, and SQL cannot read it.
+   *
+   * The catalogue is the **world's** now rather than Ashfall's (2026-09-24). Minting off
+   * `CITY_LOCATIONS` meant no control row could ever exist for a location in a second city, and a
+   * location with no control row is ground nobody can hold, fight for or garrison: the whole city
+   * was unreachable through a lazy insert that had never heard of it.
    */
   controls(): Map<string, LocationControl>;
   control(locationId: string): LocationControl | undefined;
-  /** Replaces one location's whole control row. Holder, digging and garrison move together. */
+  /** Replaces one location's whole control row. Holder, level and garrison move together. */
   put(control: LocationControl): void;
-  /** Just the garrison: the common write, and the one that must not disturb a fortify clock. */
+  /** Just the garrison: the common write, and the one that must not disturb an upgrade clock. */
   setGarrison(locationId: string, garrison: Army): void;
   /** Districts this crew has seen inside. */
   scouted(baseId: string): Set<string>;
@@ -73,8 +76,14 @@ export interface CityRepo {
    * What this crew can see into right now: the districts its scouts have visited, or in admin
    * mode every district except the ones the Console has hidden. This is the read the city, the
    * board and the battles go through; `scouted` is the raw intel and stays that.
+   *
+   * `cityId` says which map the admin answer is drawn from, and a caller that knows where the crew
+   * is standing should pass it: the city screen asks for its own city's districts, so a crew in
+   * Terminus on a testing build sees Terminus rather than a list of Ashfall ids it has no ground
+   * near. Left off, the answer is every district in the world, which is what a caller with no city
+   * in hand means by "everything".
    */
-  visibleDistricts(baseId: string): Set<string>;
+  visibleDistricts(baseId: string, cityId?: string): Set<string>;
   /** The Console's exceptions: districts an admin has chosen not to see (migration 0079). */
   hiddenByAdmin(baseId: string): Set<string>;
   setAdminFog(baseId: string, districtId: string, hidden: boolean): void;
@@ -85,17 +94,17 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
   const allStmt = db.prepare('SELECT * FROM location_control');
   const oneStmt = db.prepare('SELECT * FROM location_control WHERE location_id = ?');
   const insertStmt = db.prepare(
+    // `fortification` and `fortifying_until` are still columns on this table and are no longer
+    // written or read: dug-in fortification left the game (maintainer, 2026-09-26), and dropping a
+    // column needs a migration number of its own. Their defaults (0, null) fill new rows.
     `INSERT INTO location_control
-       (location_id, holder_kind, holder_base_id, level, upgrading_until,
-        fortification, fortifying_until, garrison_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       (location_id, holder_kind, holder_base_id, level, upgrading_until, garrison_json)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT (location_id) DO UPDATE SET
        holder_kind = excluded.holder_kind,
        holder_base_id = excluded.holder_base_id,
        level = excluded.level,
        upgrading_until = excluded.upgrading_until,
-       fortification = excluded.fortification,
-       fortifying_until = excluded.fortifying_until,
        garrison_json = excluded.garrison_json`,
   );
   const garrisonStmt = db.prepare(
@@ -120,8 +129,6 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
       control.holder.kind === 'crew' ? control.holder.baseId : null,
       control.level,
       control.upgradingUntil,
-      control.fortification,
-      control.fortifyingUntil,
       JSON.stringify(control.garrison),
     );
   };
@@ -131,7 +138,7 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
       const rows = allStmt.all() as ControlRow[];
       const known = new Map(rows.map((row) => [row.location_id, rowToControl(row)]));
 
-      for (const location of CITY_LOCATIONS) {
+      for (const location of EVERY_LOCATION) {
         if (known.has(location.id)) continue;
         const district = findDistrict(location.districtId);
         if (!district) continue;
@@ -145,7 +152,7 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
       const row = oneStmt.get(locationId) as ControlRow | undefined;
       if (row) return rowToControl(row);
 
-      const location = CITY_LOCATIONS.find((candidate) => candidate.id === locationId);
+      const location = findLocation(locationId);
       const district = location ? findDistrict(location.districtId) : undefined;
       if (!location || !district) return undefined;
 
@@ -167,10 +174,29 @@ export function createCityRepo(db: AppDatabase, admin = false): CityRepo {
     forgetScouted(baseId) {
       forgetScoutedStmt.run(baseId);
     },
-    visibleDistricts(baseId) {
+    visibleDistricts(baseId, cityId) {
       if (!admin) return this.scouted(baseId);
+      /*
+       * The Console **adds** to what a crew has really scouted; it does not stand in for it.
+       *
+       * It replaced the crew's own marks with one city's districts, and `cityId` defaults to the
+       * city being looked at. So on an admin build a crew that had genuinely scouted ground in a
+       * second city became unable to declare a fight on it or move units to it: `declare.ts` and
+       * `sendMove` both gate on this set, and the real mark had been thrown away. The first
+       * foothold abroad could not be taken at all on the one build the Console exists in.
+       *
+       * It also quietly voided the Console's own workaround. `mockBattleOn` marks the attacker as
+       * having scouted the target precisely because a declaration refuses unscouted ground, and
+       * that mark was the thing being discarded.
+       *
+       * The fog knob still hides a district, genuinely scouted or not, which is what it is for:
+       * the subtraction happens after the union rather than instead of it.
+       */
       const hidden = this.hiddenByAdmin(baseId);
-      return new Set(CITY_DISTRICTS.map((district) => district.id).filter((id) => !hidden.has(id)));
+      const map = cityId === undefined ? ALL_DISTRICTS : districtsOfCity(cityId);
+      const seen = new Set([...this.scouted(baseId), ...map.map((district) => district.id)]);
+      for (const districtId of hidden) seen.delete(districtId);
+      return seen;
     },
     hiddenByAdmin(baseId) {
       const rows = fogStmt.all(baseId) as { district_id: string }[];

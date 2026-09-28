@@ -1,8 +1,9 @@
 import {
+  ALL_DISTRICTS,
   BLUEPRINTS,
   BUILDING_KINDS,
-  CITY_DISTRICTS,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
+  cityOf,
   isBlueprintUnlocked,
   levelCeilingFor,
   OFFICER_ROLES,
@@ -37,10 +38,19 @@ import type { Repositories } from '../db/repos/index.js';
  * answer is always the true one, and none of them costs more than a walk over a list the crew row
  * already carries.
  *
- * The one that is not free is `locations_held`, which walks the city's control map. That map is a
+ * The one that is not free is `locations_held`, which walks the world's control map. That map is a
  * single read of one row per location and is already loaded by half the screens in the game, so it
  * is cheap in practice; it is called out here because it is the one line in this function that
- * would need looking at again if the city got ten times bigger.
+ * would need looking at again if the world got ten times bigger. It doubled on 2026-09-24, when
+ * the second city opened, and one walk over a hundred and twenty rows is still one walk.
+ *
+ * ## Whose city, and whose world
+ *
+ * Six measures here name ground, and the day Terminus opened each one had to answer whether it
+ * means "everywhere" or "in my city". Five of them mean everywhere, and say so where they are
+ * computed: a holding, a whole district, the regime's ground, its chapels and a district walked
+ * into are all the same thing wherever they stand. The three that mean "not where I live" are the
+ * frontier measures, and they are the same walk read against `cityOf(base.districtId)`.
  *
  * ## The scoped measures, and why every scope is filled in
  *
@@ -151,15 +161,48 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
 
   // --- the city ---
   const controls = repos.city.controls();
+  /*
+   * What this crew holds, anywhere in the world (2026-09-24).
+   *
+   * This walked `CITY_LOCATIONS`, which is Ashfall, so a crew that had taken half of Terminus was
+   * told it held nothing: the holdings ladder, the one that says how much of the map is yours,
+   * counted the first city and silently ignored the second. "Everywhere" is the only reading that
+   * survives a second city, because a holding is a holding and the rent is the same money.
+   *
+   * Not filtered to the open cities. That filter belongs on the *targets*, which is where an
+   * unreachable rung does damage (`feats/world.ts`); here it would be a clause that changes no
+   * answer, since nobody can hold ground in a city with no way in.
+   */
+  const heldPlaces = EVERY_LOCATION.filter((location) => {
+    const holder = controls.get(location.id)?.holder;
+    return holder?.kind === 'crew' && holder.baseId === base.id;
+  });
+  put('locations_held', heldPlaces.length);
+  /*
+   * ...and the same ground read from where the crew lives.
+   *
+   * Home is the city the crew's own district sits in, derived on every read rather than stored:
+   * a crew gets its foothold abroad by marching across and taking ground, not by moving house, so
+   * there is no moment at which anybody would remember to write a city onto the crew row.
+   *
+   * `cities_held` counts home in, and is not the same question as "is anything abroad": a crew
+   * that holds one Terminus platform and nothing in Ashfall is abroad and is in one city.
+   */
+  const homeCity = cityOf(base.districtId);
   put(
-    'locations_held',
-    CITY_LOCATIONS.filter((location) => {
-      const holder = controls.get(location.id)?.holder;
-      return holder?.kind === 'crew' && holder.baseId === base.id;
-    }).length,
+    'locations_held_abroad',
+    heldPlaces.filter((one) => cityOf(one.districtId) !== homeCity).length,
   );
+  put('cities_held', new Set(heldPlaces.map((one) => cityOf(one.districtId))).size);
+  // The railway, which is one location kind and therefore one filter (`city/rails.ts`). A rival
+  // does not have to break your city to break your line, only to take one platform.
+  put('rail_stations_held', heldPlaces.filter((one) => one.kind === 'rail_station').length);
   const heldWhole = districtsHeldWhole(repos, base.id);
   put('districts_held_whole', heldWhole.length);
+  put(
+    'districts_held_whole_abroad',
+    heldWhole.filter((districtId) => cityOf(districtId) !== homeCity).length,
+  );
   /*
    * The Combine's ground, read off the same walk (`city/combine.ts`).
    *
@@ -181,6 +224,16 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
       return control !== undefined && isHeldBy(control, base.id);
     }).length,
   );
+  /*
+   * Districts walked into, everywhere.
+   *
+   * A raw count of `district_intel` rows with no district filter, which means it has counted both
+   * cities since the day the second one opened, and that is the reading kept on purpose:
+   * `sendScout` resolves its target through `findDistrict`, which answers for every city, so a
+   * scout really can be sent across and a number that refused to count the trip would be lying
+   * about work the player did. What was wrong was the ladder above it, which still asked for one
+   * city's worth; `catalog.ts` grew the rung rather than narrowing this.
+   */
   put('districts_scouted', repos.city.scouted(base.id).size);
 
   // --- the table ---
@@ -194,11 +247,11 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   /*
    * Documents assembled, not paper on a shelf.
    *
-   * This counted `kind: 'blueprint'` items, which is the generated document *and* six hand-written
-   * pre-war collectibles whose own `usedFor` reads "Nothing the Lab can use". Four of those six sit
-   * on the Black Market for infamy, so 440 infamy claimed the first rung of this ladder without a
-   * single page ever being found. `isBlueprintUnlocked` over `BLUEPRINTS` asks the question the
-   * feat is actually about: did this crew press Unlock.
+   * This counted `kind: 'blueprint'` items, which once took in six pre-war collectibles that
+   * opened nothing (retired 2026-09-28), so 440 infamy at the fence claimed the first rung without
+   * a single page ever being found. `isBlueprintUnlocked` over `BLUEPRINTS` asks the question the
+   * feat is actually about: does this crew hold the document, assembled or bought whole from the
+   * fence.
    */
   put(
     'blueprints_unlocked',
@@ -210,15 +263,29 @@ export function featSnapshot(repos: Repositories, base: Base): FeatSnapshot {
   return snapshot;
 }
 
-/** The districts the regime holds by allegiance, which is the set `combine_districts_held` counts over. */
+/**
+ * The districts the regime holds by allegiance, which is the set `combine_districts_held` counts
+ * over.
+ *
+ * Every city, not Ashfall's six (2026-09-24). The Combine holds Telemetry Hill, the Viaduct, the
+ * Last Platform and the Blockhouse as well, and it is the same regime: a crew that took the
+ * Blockhouse off it had taken a Combine district and was told it had taken none. "Everywhere" is
+ * forced here by what the measure is about, which is the opponent rather than the postcode.
+ */
 const COMBINE_GROUND: ReadonlySet<string> = new Set(
-  CITY_DISTRICTS.filter((district) => district.allegiance === 'government').map(
+  ALL_DISTRICTS.filter((district) => district.allegiance === 'government').map(
     (district) => district.id,
   ),
 );
 
-/** The Chosen Chapel: one location today, and `chapel_held` counts however many wear the kind. */
-const CHAPELS = CITY_LOCATIONS.filter((location) => location.kind === 'combine_chapel');
+/**
+ * The regime's chapels: the Chosen Chapel over Ashfall and the Frontier Chapel inside Control.
+ *
+ * Read off every location rather than Ashfall's, for the same reason as the ground above. It was
+ * one chapel and one standalone feat; there are two now, a city apart, and the ladder in
+ * `feats/catalog.ts` ends on holding both.
+ */
+const CHAPELS = EVERY_LOCATION.filter((location) => location.kind === 'combine_chapel');
 
 /**
  * How many of the Overseer's skills are at or above a threshold.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CITY_ID } from '../city/cities.js';
-import { SALTMARCH_CITY_ID, VERGE_CITY_ID } from '../city/atlas.js';
+import { SALTMARCH_CITY_ID, TERMINUS_CITY_ID } from '../city/atlas.js';
 import { vendorStockFor } from './vendor.js';
 
 /**
@@ -41,7 +41,7 @@ describe('whose barrow it is', () => {
    * crate in Saltmarch.
    */
   it('never mints one line id in two cities', () => {
-    const ids = [DEFAULT_CITY_ID, SALTMARCH_CITY_ID, VERGE_CITY_ID].flatMap((city) =>
+    const ids = [DEFAULT_CITY_ID, SALTMARCH_CITY_ID, TERMINUS_CITY_ID].flatMap((city) =>
       vendorStockFor(DAY, city).map((line) => line.id),
     );
     expect(new Set(ids).size).toBe(ids.length);

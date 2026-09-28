@@ -74,7 +74,7 @@ export const GATE_DEFENSE_PERCENT_PER_LEVEL = 2.5;
  */
 export const GATE_INTEL_RESISTANCE_PER_LEVEL = 10;
 
-/** §B7: what the Gate adds to every defender's `defensePercent`, modifications included. */
+/** §B7: what the Gate adds to every defender's `gatePercent`, modifications included. */
 export function gateDefensePercent(buildings: readonly Building[]): number {
   const effects = districtEffects(buildings);
   return (

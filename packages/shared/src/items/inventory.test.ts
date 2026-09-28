@@ -13,7 +13,7 @@ import { pagesGained } from './inventory.js';
 
 const FIRST = BLUEPRINTS[0];
 const PAGE = FIRST.pages[0].id;
-const OTHER_PAGE = (BLUEPRINTS.find((spec) => spec.id !== FIRST.id) ?? FIRST).pages[0].id;
+const OTHER_PAGE = (BLUEPRINTS.find((spec) => spec.id !== FIRST.id) ?? FIRST).pages[0]!.id;
 const COMPONENT: ItemId = 'scrap_servo';
 
 describe('pagesGained', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeAttributes } from '../attributes.js';
-import { BENCH_SHARE, IMPORTANCE_SHARE, liftOfficer, noCrewEffects, peerLift } from './effects.js';
+import { liftOfficer, noCrewEffects, peerLift } from './effects.js';
 import { PERK_CATALOG } from './perks.js';
 
 /**
@@ -98,24 +98,5 @@ describe('the specialist perk, which has a bar on it', () => {
     const own = makeAttributes(10, { [attribute]: bar - 2 });
     const lifted = liftOfficer(own, lift, { social: 5, mental: 5, physical: 5, technical: 5 });
     expect(lifted[attribute]).toBe(bar - 2 + 5);
-  });
-});
-
-/**
- * §C2: the bench can never be an upgrade.
- *
- * The invariant that decides what `BENCH_SHARE` is allowed to be. A crew's rating in an attribute
- * is the best across everybody, so if a benched officer out-contributed a seated one anywhere,
- * emptying a chair would raise the crew's numbers and the bench would be a strategy rather than a
- * waiting room. Pinned against the actual share table rather than against the constant, because
- * that is the comparison that can go wrong when either number is retuned.
- */
-describe('what the bench is worth against a chair', () => {
-  it('never pays more than the least a chair pays', () => {
-    expect(BENCH_SHARE).toBeLessThanOrEqual(Math.min(...Object.values(IMPORTANCE_SHARE)));
-  });
-
-  it('is worth something, so signing somebody you cannot place is not wasted', () => {
-    expect(BENCH_SHARE).toBeGreaterThan(0);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  FOUND_FACTION_PLAYER_LEVEL,
   DECLARE_INFAMY_COST,
   declarationWindow,
   randomBadge,
@@ -15,6 +16,8 @@ import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleMovements } from '../battle/movement.js';
 import { settleBattles } from '../battle/resolve.js';
 import { chooseOverseer } from '../testing/overseer.js';
+import { everybodyHome } from '../testing/walk.js';
+import { elsewhere } from '../testing/districts.js';
 
 /**
  * §A4: sending units to an ally's fight, for the case the feature exists for.
@@ -66,7 +69,7 @@ async function register(app: FastifyInstance, username: string): Promise<Crew> {
 function establish(app: FastifyInstance, crew: Crew): void {
   const base = app.repos.bases.findById(crew.baseId);
   if (!base) throw new Error('no base');
-  app.repos.bases.updateProgression(crew.baseId, 9, base.progression);
+  app.repos.bases.updateProgression(crew.baseId, FOUND_FACTION_PLAYER_LEVEL, base.progression);
   app.repos.bases.updateBuildings(
     crew.baseId,
     base.buildings.map((building) =>
@@ -127,7 +130,7 @@ describe('reinforcing an ally who is being broken into', () => {
 
     // The way in is already open: breaking the gate is its own fight with its own tests.
     app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
-    app.repos.sieges.breakGate(HOME, new Date(Date.now() + 3_600_000).toISOString());
+    app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
 
     const target: BattleTarget = { kind: 'district', districtId: HOME };
     const declared = await app.inject({
@@ -277,6 +280,9 @@ describe('reinforcing an ally who is being broken into', () => {
     establish(app, raider);
     const HOME = 'ashen-terraces';
     db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(HOME, victim.baseId);
+    // The ally lives somewhere else, or it would be a neighbour whose whole home army the raid turns
+    // out (`battle/alignment.ts`), and its share would already be home.
+    db.prepare('UPDATE bases SET district_id = ? WHERE id = ?').run(elsewhere(HOME), ally.baseId);
 
     const founded = await app.inject({
       method: 'POST',
@@ -306,7 +312,7 @@ describe('reinforcing an ally who is being broken into', () => {
     });
 
     app.repos.city.markScouted(raider.baseId, HOME, new Date().toISOString());
-    app.repos.sieges.breakGate(HOME, new Date(Date.now() + 3_600_000).toISOString());
+    app.repos.sieges.breakGate(HOME, new Date(Date.now() + 24 * 3_600_000).toISOString());
     const target: BattleTarget = { kind: 'district', districtId: HOME };
     const declared = await app.inject({
       method: 'POST',
@@ -348,8 +354,52 @@ describe('reinforcing an ally who is being broken into', () => {
     const resolved = settleBattles(app.repos, engine, new Date());
     expect(resolved).toHaveLength(1);
 
-    // Five went and five came back to the crew that sent them; the crew they helped kept its own.
+    // Five went and five walk back to the crew that sent them (maintainer, 2026-09-28): on the road
+    // from the raided district, not home the second the fight ended.
+    expect(app.repos.bases.findById(ally.baseId)?.army.razors).toBe(15);
+    const [walking] = app.repos.moves.activeFor(ally.baseId);
+    expect(walking?.from.kind).toBe('street');
+    expect(walking?.army).toEqual({ razors: 5 });
+    everybodyHome(app.repos);
+    // ...and the crew they helped kept its own.
     expect(app.repos.bases.findById(ally.baseId)?.army.razors).toBe(20);
     expect(app.repos.bases.findById(victim.baseId)?.army.razors).toBe(victimBefore);
+  });
+});
+
+describe('reinforcing a fight that is not there', () => {
+  /**
+   * A fight that has resolved, or never existed, was refused as `no_such_invite`, so the screen
+   * told a player sending help that "That invitation is no longer open." It is the fight that is
+   * gone, and the battle routes already have the sentence for it.
+   */
+  it('says the fight is gone rather than talking about an invitation', async () => {
+    const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+    const db = openDatabase(config.databasePath);
+    runMigrations(db);
+    const app = await buildApp({ config, db, logger: false });
+    instances.push({ app, db });
+
+    const ally = await register(app, 'the_ally');
+    establish(app, ally);
+    const founded = await app.inject({
+      method: 'POST',
+      url: '/api/factions',
+      headers: auth(ally.token),
+      payload: { name: 'The Ninth Street Crew', badge: randomBadge(7), blurb: '' },
+    });
+    expect(founded.statusCode, founded.body).toBe(200);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/factions/reinforce',
+      headers: auth(ally.token),
+      payload: { battleId: 'long-since-fought', army: { razors: 5 } },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json<{ error: { message: string } }>().error.message).toBe(
+      'No fight by that name is still coming',
+    );
   });
 });

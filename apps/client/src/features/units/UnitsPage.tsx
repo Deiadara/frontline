@@ -38,6 +38,7 @@ import { BonusBreakdown } from './BonusBreakdown';
 import { UnitCard } from './UnitCard';
 import { PageShell } from '../game/PageShell';
 import { VehicleCatalogue } from '../garage/VehicleCatalogue';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The tabs across the roster: the six tiers, then the machines (maintainer request, 2026-09-08).
@@ -303,11 +304,7 @@ export function UnitsPage() {
         {/* §A5: the cancel window is short and shuts the moment the first unit walks out, so
             `window_closed` is the refusal a player is most likely to meet. It used to be silent:
             the button un-dimmed, the order stayed, and nothing said why. */}
-        {cancel.error && (
-          <p role="alert" className="font-body text-[12px] leading-snug text-oxblood-300">
-            {cancel.error.message}
-          </p>
-        )}
+        {cancel.error && <ErrorNote>{cancel.error.message}</ErrorNote>}
 
         {bench.length === 0 ? (
           <p className="font-body text-[13px] leading-snug text-ink-300">
@@ -374,9 +371,9 @@ export function UnitsPage() {
             an ordinary thing to do rather than an edge case. Named against the unit that was
             pressed, the way the mission board attributes a refused launch. */}
         {train.error && (
-          <p role="alert" className="font-body text-[12px] leading-snug text-oxblood-300">
+          <ErrorNote>
             {findUnit(train.variables?.unitId ?? '')?.name ?? 'That order'}: {train.error.message}
-          </p>
+          </ErrorNote>
         )}
 
         {tab === 'vehicles' ? (
@@ -391,6 +388,11 @@ export function UnitsPage() {
                 key={unit.id}
                 unit={unit}
                 garrisoned={data.garrisoned[unit.id] ?? 0}
+                // The gate garrison is the crew's own and stands in none of the other three
+                // counts: left out, twenty Razors walked to the door vanished from the card. Its
+                // own prop rather than folded into `garrisoned`, because the door is inside the
+                // home district and the brass slice is what stands outside it.
+                atGate={data.gateArmy[unit.id] ?? 0}
                 abroad={data.abroad[unit.id] ?? 0}
                 carriersFight={data.carriersFight ?? false}
                 deltas={mustered[unit.id] ?? []}

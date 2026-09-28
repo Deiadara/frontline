@@ -23,7 +23,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { standingEffectsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
-import { ownBase } from '../routes/own-base.js';
+import { settledOwnBase } from '../routes/own-base.js';
 import { districtUnitSlots, vehiclesAbroad } from '../district/unit-slots.js';
 import { queueVehicle } from '../units/training.js';
 
@@ -162,14 +162,18 @@ export function projectGarage(app: FastifyInstance, base: Base): GarageResponse 
 
 export function registerGarageRoutes(app: FastifyInstance): void {
   app.get('/garage', { preHandler: app.authenticate }, (request): GarageResponse => {
-    return projectGarage(app, ownBase(app, request.currentUser.id));
+    // Settled, like every other screen that prices against the stockpile: the raw row counted a
+    // finished machine still on the bench and missed caps sitting in unbanked production.
+    return app.db.transaction(() =>
+      projectGarage(app, settledOwnBase(app, request.currentUser.id, new Date())),
+    )();
   });
 
   /** Build a machine. Counted, not fitted: the yard holds several of a kind. */
   app.post('/garage/build', { preHandler: app.authenticate }, (request): GarageMutationResponse => {
     const { vehicleId } = parseBody(BuildVehicleRequestSchema, request.body);
     return app.db.transaction(() => {
-      const base = ownBase(app, request.currentUser.id);
+      const base = settledOwnBase(app, request.currentUser.id, new Date());
       const blocker = blockerFor(
         app,
         base,

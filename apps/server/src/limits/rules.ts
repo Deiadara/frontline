@@ -38,14 +38,28 @@ export const STREAM_LIMIT: LimitRule = { quota: 60, windowMs: 60_000 };
  * Paths that are password work by another name.
  *
  * `AUTH_LIMIT` exists because guessing a password is a slow grind against one endpoint, and it was
- * keyed on the `/api/auth/` prefix alone. `/api/settings/password` does *twice* the crypto of a
- * login (a `bcrypt.compare` and a `bcrypt.hash`, measured at 49ms and 55ms on this machine with the
- * repo's own `bcryptjs`) and sat on the 120/minute write bucket, so one account could spend 12.5
- * seconds of CPU a minute, on the single thread that serves every player's reads, settles and
- * battle resolutions. Every change is hashed before it is written, so each call costs the server
- * the hash and the caller nothing.
+ * keyed on the `/api/auth/` prefix alone. `/api/settings/password` does the crypto of a login (a
+ * `bcrypt.hash`, measured at 55ms on this machine with the repo's own `bcryptjs`) and sat on the
+ * 120/minute write bucket, so one account could spend over six seconds of CPU a minute on the
+ * single thread that serves every player's reads, settles and battle resolutions. Every change is
+ * hashed before it is written, so each call costs the server the hash and the caller nothing.
  */
 const PASSWORD_PATHS: readonly string[] = ['/api/settings/password'];
+
+/**
+ * The doors knocked on before there is an account, which are counted against the address whatever
+ * token the request carries (bug pass, 2026-09-28).
+ *
+ * Keyed like everything else, a login that carried any valid token was counted against that
+ * account instead: one account bought twenty password guesses a quarter hour on top of the
+ * address's twenty, and every account opened the same way bought twenty more.
+ */
+const SIGN_IN_PATHS: readonly string[] = ['/api/auth/login', '/api/auth/register'];
+
+/** Whether a request is counted against its address even when it carries a token. */
+export function countsByAddress(path: string): boolean {
+  return SIGN_IN_PATHS.includes(path);
+}
 
 /**
  * Which rule a request falls under, from its method and path.

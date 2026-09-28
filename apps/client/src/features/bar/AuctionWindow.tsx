@@ -19,11 +19,11 @@ import { PerkTags } from '../../components/PerkTags';
 import { cn } from '../../lib/cn';
 import { useMe, usePlaceBid, useSealBid } from '../../lib/queries';
 import { AuctionClock, PhaseBadge, leaderName, phaseOf, standingOf } from './AuctionParts';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /** §H3, in the player's own accent. The same two doors the roster card reads. */
 const BLOCKER_LABEL: Record<JoinBlocker, string> = {
   notoriety: 'Your name is not big enough',
-  level: 'Wants a crew that has been doing this longer',
   infamy: 'Wants infamy banked, not just a rank',
   faction: 'Wants a faction behind you that has earned',
 };
@@ -169,7 +169,6 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
             </ul>
           )}
           {(recruit.requirement.minNotoriety > 0 ||
-            recruit.requirement.minLevel > 1 ||
             recruit.requirement.minInfamy > 0 ||
             recruit.requirement.minFactionInfamy > 0) && (
             <div className="flex min-w-0 flex-col gap-1 border-l-2 border-surface-600 pl-2.5">
@@ -179,12 +178,6 @@ function Dossier({ recruit }: { recruit: BarRecruit }) {
                   <span className="text-ink-100">
                     {notorietyTier(recruit.requirement.minNotoriety)}
                   </span>
-                </p>
-              )}
-              {recruit.requirement.minLevel > 1 && (
-                <p className="min-w-0 break-words font-display text-[10px] uppercase leading-snug tracking-[0.14em] text-ink-300">
-                  And one that has reached{' '}
-                  <span className="text-ink-100">level {recruit.requirement.minLevel}</span>
                 </p>
               )}
               {recruit.requirement.minInfamy > 0 && (
@@ -571,11 +564,7 @@ function BidPanel({
         </p>
       )}
 
-      {error !== null && (
-        <p role="alert" className="font-body text-[12px] leading-relaxed text-oxblood-300">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
 
       {confirming && (
         <Confirm

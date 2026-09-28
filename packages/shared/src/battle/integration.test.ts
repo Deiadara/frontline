@@ -40,8 +40,6 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     ground: battlefieldFor({
       locationName: 'The Sump',
       kind: 'sewer_junction',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 3,
       at: NIGHT,
     }),
   },
@@ -52,8 +50,6 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     ground: battlefieldFor({
       locationName: 'The Yard',
       kind: 'rail_yard',
-      fortifyDifficulty: 'hard',
-      fortifyLevel: 0,
       at: DAY,
     }),
   },
@@ -70,8 +66,6 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     ground: battlefieldFor({
       locationName: 'The Armoury',
       kind: 'armory',
-      fortifyDifficulty: 'easy',
-      fortifyLevel: 5,
       at: NIGHT,
     }),
   },
@@ -82,8 +76,6 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     ground: battlefieldFor({
       locationName: 'The Graveyard',
       kind: 'war_machine_graveyard',
-      fortifyDifficulty: 'medium',
-      fortifyLevel: 1,
       at: DAY,
     }),
   },
@@ -94,8 +86,6 @@ const SCENARIOS: { name: string; attacking: Army; defending: Army; ground: Battl
     ground: battlefieldFor({
       locationName: 'The Press',
       kind: 'scrap_press',
-      fortifyDifficulty: 'easy',
-      fortifyLevel: 0,
       at: DAY,
     }),
   },

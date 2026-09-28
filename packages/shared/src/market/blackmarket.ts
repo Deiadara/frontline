@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { REQUEST_AMOUNT_MAX } from '../primitives.js';
 import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { PAGE_DRAW_WEIGHT } from '../blueprints/prize.js';
 import type { ItemRarity } from '../items/rarity.js';
@@ -296,46 +297,51 @@ const SPECS: readonly BlackMarketGoodSpec[] = [
     grants: { scrap_servo: 4, targeting_core: 2 },
   },
 
-  // Blueprints: the rare shelf, and the reason to check every day.
+  // Blueprints: the rare shelf, and the reason to check every day. Each is a whole document for a
+  // masterpiece unit card that nothing else in the game sells or drops (`fenceOnly`).
   {
     id: 'stolen_cybernetics_plans',
     kind: 'blueprint',
     name: 'Stolen Cybernetics Plans',
     description: 'A drum of microfiche and a reader that only works if you hold it level.',
-    effect: 'The Cybernetics blueprint. Permanent, and nobody else has to know where it came from.',
+    effect:
+      'The Black Clinic Chrome blueprint, whole and unlocked: +40 offense, +14 evasion, +10 speed and +10 armour on any unit. Only the fence has it.',
     infamy: 520,
     minNotoriety: 7,
-    grants: { blueprint_cybernetics: 1 },
+    grants: { bp_fence_black_clinic_chrome: 1 },
   },
   {
     id: 'munitions_schematics',
     kind: 'blueprint',
     name: 'Munitions Schematics',
     description: 'Hand-copied, in three different hands, and the last page is missing.',
-    effect: 'The Munitions blueprint. Enough of it survived to be worth having.',
+    effect:
+      'The Hollowpoint Munitions blueprint, whole and unlocked: +64 offense, +20 penetration and +8 intimidation on a shooter. Only the fence has it.',
     infamy: 480,
     minNotoriety: 6,
-    grants: { blueprint_munitions: 1 },
+    grants: { bp_fence_hollowpoint_munitions: 1 },
   },
   {
     id: 'rotorcraft_plans',
     kind: 'blueprint',
     name: 'Rotorcraft Plans',
     description: 'A full airframe set, rolled in a length of pipe.',
-    effect: 'The Rotorcraft blueprint. Somebody died carrying this out of the yard.',
+    effect:
+      'The Rotor Drop Rig blueprint, whole and unlocked: +20 speed, +10 evasion, +40 carry and +4 stealth on a carrier or a runner. Only the fence has it.',
     infamy: 560,
     minNotoriety: 8,
-    grants: { blueprint_rotorcraft: 1 },
+    grants: { bp_fence_rotor_drop_rig: 1 },
   },
   {
     id: 'field_medicine_notes',
     kind: 'blueprint',
     name: "A Field Surgeon's Notes",
     description: 'Two decades of a war nobody won, in handwriting that gets worse towards the end.',
-    effect: 'The Field Medicine blueprint. Read it before a raid, not after.',
+    effect:
+      "The Field Surgeon's Kit blueprint, whole and unlocked: +72 vitality, +16 morale and +10 armour on any unit. Only the fence has it.",
     infamy: 440,
     minNotoriety: 5,
-    grants: { blueprint_field_medicine: 1 },
+    grants: { bp_fence_field_surgeons_kit: 1 },
   },
 ];
 
@@ -384,8 +390,14 @@ export const BLACK_MARKET_GOODS: Readonly<Record<string, BlackMarketGoodSpec>> =
 
 export const BLACK_MARKET_GOOD_IDS: readonly string[] = SPECS.map((spec) => spec.id);
 
+// A Map rather than an index into the record: the id arrives off the wire, and a plain object
+// answers `constructor` or `toString` with a function off its prototype.
+const GOODS_BY_ID: ReadonlyMap<string, BlackMarketGoodSpec> = new Map(
+  Object.entries(BLACK_MARKET_GOODS),
+);
+
 export function findBlackMarketGood(id: string): BlackMarketGoodSpec | undefined {
-  return BLACK_MARKET_GOODS[id];
+  return GOODS_BY_ID.get(id);
 }
 
 /**
@@ -689,7 +701,7 @@ export const BLACK_MARKET_REFUSALS = [
   'too_low',
   /** Already leading it. Raising your own number buys nothing and costs the reputation. */
   'outbid_yourself',
-  /** §H7a: `MAX_OPEN_LOTS` lots at once, counted across the shelf on the night they stand. */
+  /** §H7a: `MAX_OPEN_LOTS` lots at once, counted across one city's shelf on the night it stands. */
   'too_many_lots',
 ] as const;
 export const BlackMarketRefusalSchema = z.enum(BLACK_MARKET_REFUSALS);
@@ -810,9 +822,9 @@ export type BlackMarketLot = z.infer<typeof BlackMarketLotSchema>;
 
 /** Bidding names the slot, what was believed to be in it, and the number. */
 export const PlaceBlackMarketBidRequestSchema = z.object({
-  slotIndex: z.number().int().min(0),
-  goodId: z.string().min(1),
-  amount: z.number().int().positive(),
+  slotIndex: z.number().int().min(0).max(64),
+  goodId: z.string().min(1).max(128),
+  amount: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
   /**
    * Which city's back room the bid is placed in. Absent means the crew's own.
    *
@@ -847,16 +859,24 @@ export interface BlackBidRequest {
   /** §D7: the crew's rank, for the stock the fence keeps for people with a name. */
   notoriety?: number;
   /**
-   * The slots this crew already has money on tonight (maintainer, 2026-09-17).
+   * This lot's own id, and the lots this crew already has money on tonight (maintainer, 2026-09-17).
    *
-   * §H7a's rule, which the Bar has always had and neither shelf did: `MAX_OPEN_LOTS` at once. Slots
-   * rather than a count, so raising on a lot the crew is already in is never the one refused. The
-   * shelf stands for the whole day, so the slot is the lot's identity for as long as the limit
-   * counts. Left out entirely by a caller that has not read them, which reads as "no lots" and
-   * therefore never refuses: a guard that fired on an unsupplied argument would be a guard that
-   * refused everybody the day somebody forgot to pass it.
+   * §H7a's rule, which the Bar has always had and neither shelf did: `MAX_OPEN_LOTS` at once. Ids
+   * rather than a count, so raising on a lot the crew is already in is never the one refused.
+   *
+   * **Full lot ids, not slot indices** (2026-09-24). A slot index is 0 to 4 in every city, so with
+   * two back rooms open the identity collided both ways at once: Ashfall's slot 3 and Terminus's
+   * slot 3 read as one lot and the cap let a crew hold three, while Ashfall's slot 1 and Terminus's
+   * slot 2 read as two and a crew standing in Terminus was refused a first crate there because it
+   * had one open at home. `blackLotId` names the room, the day and the slot, which is exactly the
+   * identity the limit is about.
+   *
+   * Both are optional together, and the guard does not run unless `lotId` is given: a guard that
+   * fired on an unsupplied argument would be a guard that refused everybody the day somebody forgot
+   * to pass it.
    */
-  openSlots?: readonly number[];
+  lotId?: string;
+  openLots?: readonly string[];
 }
 
 /**
@@ -892,7 +912,9 @@ export function blackBidRefusal(request: BlackBidRequest): BlackMarketRefusal | 
    * cannot open this one at any number, and telling them to bid higher sends them to do something
    * that was never going to work.
    */
-  if (!canOpenLot(request.openSlots ?? [], request.slotIndex)) return 'too_many_lots';
+  if (request.lotId !== undefined && !canOpenLot(request.openLots ?? [], request.lotId)) {
+    return 'too_many_lots';
+  }
 
   const reserve = blackLotReserve(spec, request.cityLevel);
   if (request.amount < nextLotBid(reserve, request.leading)) return 'too_low';

@@ -10,7 +10,7 @@ import {
   type MovePlace,
   type UnitsResponse,
 } from '@frontline/shared';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dropdown, type DropdownOption } from '../../components/ui/Dropdown';
 import { Modal } from '../../components/ui/Modal';
@@ -18,6 +18,7 @@ import { NumberField } from '../../components/ui/NumberField';
 import { ApiRequestError } from '../../lib/api';
 import { useMoveQuote, useMoveUnits } from '../../lib/queries';
 import { formatDuration } from '../base/format';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Moving units between the crew's places (maintainer ruling, 2026-09-22).
@@ -38,11 +39,17 @@ const keyOf = (place: MovePlace): PlaceKey =>
 export function MoveDialog({
   roster,
   unitId,
+  towards,
   onClose,
 }: {
   roster: UnitsResponse;
   /** The row the button was pressed on: preselected, the rest of the source offered beside it. */
-  unitId: string;
+  unitId?: string;
+  /**
+   * Where the button that opened this was pointing, preselected as the destination: the Garrison
+   * control on a held location opens the dialog walking units onto that location (2026-09-28).
+   */
+  towards?: MovePlace;
   onClose: () => void;
 }) {
   const destinations = roster.moveDestinations;
@@ -61,12 +68,25 @@ export function MoveDialog({
     return out;
   }, [destinations, roster]);
 
+  const towardsKey = towards && byKey.has(keyOf(towards)) ? keyOf(towards) : null;
   const firstSource =
-    sources.find((source) => (source.standing[unitId] ?? 0) > 0) ?? sources[0] ?? null;
+    (unitId === undefined
+      ? sources.find((source) => source.key !== towardsKey)
+      : sources.find((source) => (source.standing[unitId] ?? 0) > 0)) ??
+    sources[0] ??
+    null;
   const [fromKey, setFromKey] = useState<PlaceKey>(firstSource?.key ?? 'district');
-  const [toKey, setToKey] = useState<PlaceKey>(fromKey === 'gate' ? 'district' : 'gate');
+  const [toKey, setToKey] = useState<PlaceKey>(
+    towardsKey !== null && towardsKey !== fromKey
+      ? towardsKey
+      : fromKey === 'gate'
+        ? 'district'
+        : 'gate',
+  );
   const [force, setForce] = useState<Army>(() =>
-    firstSource && (firstSource.standing[unitId] ?? 0) > 0 ? { [unitId]: 1 } : {},
+    unitId !== undefined && firstSource && (firstSource.standing[unitId] ?? 0) > 0
+      ? { [unitId]: 1 }
+      : {},
   );
   const [riding, setRiding] = useState<Fleet>({});
 
@@ -84,7 +104,22 @@ export function MoveDialog({
   const chosen = armySize(sending);
   const legal = chosen > 0 && !samePlace(from, to);
 
-  const quote = useMoveQuote(legal ? { from, to, army: sending, vehicles } : null);
+  /*
+   * Terminus's railway, offered rather than taken (maintainer, 2026-09-24).
+   *
+   * The server quotes both clocks and this picks between them, because riding is a choice and not
+   * an optimisation: the train leaves the machines behind, so a column taking its vehicles has no
+   * ride to take and the server answers `rail: null`. The toggle is reset whenever the offer goes
+   * away, so a player who picks the train and then loads a motorcycle does not silently send a
+   * request asking for a service that is not running.
+   */
+  const [byRail, setByRail] = useState(false);
+  const quote = useMoveQuote(legal ? { from, to, army: sending, vehicles, byRail: false } : null);
+  const rail = quote.data?.rail ?? null;
+  const onTheTrain = rail !== null && byRail;
+  useEffect(() => {
+    if (rail === null && byRail) setByRail(false);
+  }, [rail, byRail]);
   const move = useMoveUnits();
 
   const options = (exclude: PlaceKey | null): DropdownOption<PlaceKey>[] =>
@@ -224,33 +259,68 @@ export function MoveDialog({
         <dl className="flex flex-col divide-y divide-surface-700 border-t border-surface-700 pt-1">
           <Line label="Sending" value={String(chosen)} />
           <Line
-            label="On the road"
+            label={onTheTrain ? 'On the line' : 'On the road'}
             value={
               !legal
                 ? 'Pick somebody and somewhere'
                 : quote.data
-                  ? formatDuration(quote.data.minutes * 60)
+                  ? formatDuration((onTheTrain ? rail.minutes : quote.data.minutes) * 60)
                   : 'Working it out…'
             }
             testId="move-time"
           />
         </dl>
 
-        {move.error !== null && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
-            {move.error instanceof ApiRequestError ? move.error.message : 'That did not go through'}
-          </p>
+        {rail !== null && (
+          <label
+            className="flex cursor-pointer items-start gap-2.5 rounded-sm border border-brass-300/30 bg-surface-900/60 px-3 py-2.5"
+            data-testid="move-by-rail"
+          >
+            <input
+              type="checkbox"
+              checked={byRail}
+              onChange={(event) => setByRail(event.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-brass-300"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300">
+                Put them on the train
+              </span>
+              <span className="font-body text-[12px] leading-snug text-ink-300">
+                {rail.boardAt} to {rail.alightAt}, {formatDuration(rail.minutes * 60)}
+                {rail.walkMinutes > 0
+                  ? `, including ${formatDuration(rail.walkMinutes * 60)} on foot at the ends`
+                  : ''}
+                . No vehicles.
+              </span>
+            </span>
+          </label>
         )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+        {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
+        {move.error !== null && (
+          <div className="mr-auto flex min-w-0 flex-col gap-1.5">
+            <ErrorNote>
+              {move.error instanceof ApiRequestError
+                ? move.error.message
+                : 'That did not go through'}
+            </ErrorNote>
+          </div>
+        )}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
         <Button
           size="sm"
           disabled={!legal || move.isPending}
-          onClick={() => move.mutate({ from, to, army: sending, vehicles }, { onSuccess: onClose })}
+          onClick={() =>
+            move.mutate(
+              { from, to, army: sending, vehicles, byRail: onTheTrain },
+              { onSuccess: onClose },
+            )
+          }
           data-testid="move-confirm"
         >
           {move.isPending ? 'Sending…' : 'Send them'}
@@ -264,6 +334,8 @@ export function MoveDialog({
 function standingAt(roster: UnitsResponse, place: MovePlace): Army {
   if (place.kind === 'district') return roster.army;
   if (place.kind === 'gate') return roster.gateArmy;
+  // Nobody stands in the streets: the server only ever walks a column home from them.
+  if (place.kind === 'street') return {};
   return roster.standingAt[place.locationId] ?? {};
 }
 

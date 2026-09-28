@@ -45,6 +45,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -186,5 +187,32 @@ describe('the sheet reads as asked', () => {
     await screen.findByRole('heading', { name: 'Password' });
     expect(screen.queryByTestId('settings-current-password')).toBeNull();
     expect(screen.getByTestId('settings-new-password')).toBeTruthy();
+  });
+});
+
+describe('logging out everywhere', () => {
+  it('asks the server to end every other session, and says it did', async () => {
+    fetchMock.mockImplementation((path: string) =>
+      reply(
+        path.endsWith('/settings')
+          ? settings
+          : path.endsWith('/auth/logout-all')
+            ? { ok: true }
+            : {},
+      ),
+    );
+    renderSettings();
+    fireEvent.click(await screen.findByTestId('settings-logout-everywhere'));
+    expect(await screen.findByText('Every other device is signed out.')).toBeTruthy();
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([path, init]) =>
+            String(path).endsWith('/auth/logout-all') &&
+            (init as RequestInit | undefined)?.method === 'POST',
+        ),
+      ).toBe(true),
+    );
   });
 });

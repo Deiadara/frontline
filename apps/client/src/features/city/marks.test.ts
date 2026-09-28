@@ -26,11 +26,16 @@ import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 /** The districts with a delivered painting dense enough to need leader lines. */
 const PAINTED = [
   'neon-docks',
-  'rustyard',
+  'steelbelt',
   'chrome-row',
   'glasshouse-fields',
-  'blacksite-7',
-  'combine-spire',
+  'blacksite',
+  'ccs',
+  // Terminus's first painted district (2026-09-24). The list stays hand-maintained for the reason
+  // `painting.spec.ts` gives: a plate that lands without a line here ships with none of these
+  // sweeps run over it.
+  'coldwater-halt',
+  'ironmouth',
 ] as const;
 
 function marksOf(district: string): [string, Mark][] {
@@ -120,14 +125,14 @@ describe('where the district signs stand', () => {
  * painting is redelivered, re-measure and move these numbers with it.
  */
 describe('signs measured against the paintings they stand on', () => {
-  // `plate-district-blacksite-7.png`, teal detector over the right-hand wall: the lit room.
+  // `plate-district-blacksite.png`, teal detector over the right-hand wall: the lit room.
   const WARD_ROOM = { left: 0.865, right: 0.95, top: 0.46 };
   // A plain sign is 18.5px tall at any width (`plateFit.test.ts`); the plate is 488px tall at
   // 1024 wide, so this is the tallest a sign ever is as a fraction of the frame.
   const SIGN_HEIGHT_AT_1024 = 18.5 / 488;
 
   it('hangs the Psychic Ward sign above its glass room, centred on it, and not on it', () => {
-    const mark = LOCATION_MARKS['blacksite-7-blackward']!;
+    const mark = LOCATION_MARKS['blacksite-blackward']!;
     expect(mark.side).toBe('left');
     // Bottom edge clear of the room's top on the shortest viewport.
     expect(mark.y + SIGN_HEIGHT_AT_1024).toBeLessThanOrEqual(WARD_ROOM.top);

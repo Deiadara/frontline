@@ -29,14 +29,22 @@ describe('the backdrop stack', () => {
       'plate-district',
       'plate-bar',
       'plate-district-neon-docks',
-      'plate-district-rustyard',
+      'plate-district-steelbelt',
       'plate-district-chrome-row',
       'plate-faction-room',
       'plate-district-undergrid',
-      'plate-district-datavault-sigma',
+      'plate-district-annexes',
       'plate-district-glasshouse-fields',
-      'plate-district-blacksite-7',
-      'plate-district-combine-spire',
+      'plate-district-blacksite',
+      'plate-district-ccs',
+      'plate-district-coldwater-halt',
+      // Terminus's own aerial. A `plate` and a whole city, but not *this* city: the backdrop
+      // stack is Ashfall's map alone, and the second city's map is drawn by the same screen from
+      // its own single painting with no parallax planes behind it.
+      'plate-city-terminus',
+      'plate-district-ironmouth',
+      'plate-district-marshalling-yards',
+      'plate-district-bonded-row',
     ];
     for (const key of elsewhere) expect(findAssetSpec(key), key).toBeDefined();
 

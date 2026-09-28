@@ -367,6 +367,11 @@
     border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.08' numOctaves='3' seed='19'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Crect x='2.5' y='2.5' width='35' height='35' rx='2' fill='none' stroke='%23e6c99a' stroke-opacity='0.34' stroke-width='1.4' filter='url(%23s)'/%3E%3C/svg%3E");
   }
 
+  /** The same ruled line in oxblood, round a note that says why something is shut. */
+  .scrap-danger::before {
+    border-image-source: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.08' numOctaves='3' seed='19'/%3E%3CfeDisplacementMap in='SourceGraphic' scale='2.4'/%3E%3C/filter%3E%3Crect x='2.5' y='2.5' width='35' height='35' rx='2' fill='none' stroke='%23e05a4a' stroke-opacity='0.75' stroke-width='1.6' filter='url(%23s)'/%3E%3C/svg%3E");
+  }
+
   /** A scrap's own content has to clear the torn edge and the ruled line. */
   .scrap > * {
     position: relative;
@@ -1057,47 +1062,6 @@
   }
 
   /**
-   * The fly's idle: a slow bob and a shift of weight, never a flight path.
-   *
-   * Three pixels of travel over eleven seconds. Anything that crosses the screen is a thing to
-   * look at, and the ornament's whole job is to be noticed once and then forgotten.
-   */
-  @keyframes fly-idle {
-    0%,
-    100% {
-      transform: translate3d(0, 0, 0) rotate(0deg);
-    }
-    30% {
-      transform: translate3d(2px, -3px, 0) rotate(-2.5deg);
-    }
-    62% {
-      transform: translate3d(-2px, 1px, 0) rotate(1.5deg);
-    }
-  }
-
-  .animate-fly-idle {
-    animation: fly-idle 11s ease-in-out infinite;
-  }
-
-  /** A dying contact arcing somewhere behind the plating. Long dark, brief flicker. */
-  @keyframes arc-flicker {
-    0%,
-    46%,
-    52%,
-    100% {
-      opacity: 0.12;
-    }
-    48%,
-    50% {
-      opacity: 0.55;
-    }
-  }
-
-  .animate-arc-flicker {
-    animation: arc-flicker 7s steps(1, end) infinite;
-  }
-
-  /**
    * A figure floating off a readout the crew just spent from or was just paid into.
    *
    * 3.4 seconds, and it has to be all three of: long enough to read a seven-digit number, short
@@ -1158,11 +1122,6 @@
    * centred on its chip with the transform never animated.
    */
   @media (prefers-reduced-motion: reduce) {
-    .animate-fly-idle,
-    .animate-arc-flicker {
-      animation: none;
-    }
-
     .delta-figure {
       animation-name: delta-fade;
     }
@@ -1317,6 +1276,42 @@
 
   @media (prefers-reduced-motion: reduce) {
     .holo-tag::after {
+      animation: none;
+    }
+  }
+
+  /* The landing screen's searchlights (`screens/InkSkyline.tsx`): two slow sweeps out of step, and
+     a beacon on the spire that breathes. Still for anybody who has asked for less motion. */
+  .ink-searchlight-a {
+    animation: ink-sweep 14s ease-in-out infinite alternate;
+  }
+  .ink-searchlight-b {
+    animation: ink-sweep 19s ease-in-out -6s infinite alternate-reverse;
+  }
+  .ink-beacon {
+    animation: ink-beacon 2.6s ease-in-out infinite;
+  }
+  @keyframes ink-sweep {
+    0% {
+      transform: rotate(-18deg);
+    }
+    100% {
+      transform: rotate(16deg);
+    }
+  }
+  @keyframes ink-beacon {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ink-searchlight-a,
+    .ink-searchlight-b,
+    .ink-beacon {
       animation: none;
     }
   }

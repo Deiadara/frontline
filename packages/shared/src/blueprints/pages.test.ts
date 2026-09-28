@@ -129,8 +129,12 @@ describe('rarity is authored, not derived (§D3)', () => {
    * makes brass mean something is how rarely one turns up, not how many entries the catalogue has.
    */
   it('makes masterpiece the scarcest tier of the lot', () => {
+    // The fence's four are left out: they are never dropped, so they do not make the drop tables
+    // any richer, and they are masterpieces because the cards behind them are.
     const counts = tally([
-      ...BLUEPRINTS.map((blueprint) => blueprint.rarity),
+      ...BLUEPRINTS.filter((blueprint) => !(blueprint as BlueprintSpec).fenceOnly).map(
+        (blueprint) => blueprint.rarity,
+      ),
       ...ALL_PAGES.map(({ blueprint, page }) => pageRarity(blueprint, page)),
     ]);
     for (const rarity of ITEM_RARITIES) {

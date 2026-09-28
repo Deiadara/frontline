@@ -29,9 +29,12 @@ import { hasRoom, projectFaction } from '../factions/project.js';
 import { notify, notifyFaction } from '../social/notify.js';
 import { sendMessage } from '../social/send.js';
 import { adjustDeployment } from '../battle/deploy.js';
+import { alignmentReader } from '../battle/alignment.js';
 import { defendingBaseOf } from '../battle/ground.js';
 import { REFUSAL_MESSAGES } from '../battle/routes.js';
 import { settleBase } from '../district/settle.js';
+import { bringPostedUnitsHome } from '../factions/unpost.js';
+import { requireAreaFor } from '../progression/doors.js';
 
 /**
  * Factions (maintainer request): the team a player belongs to.
@@ -231,6 +234,9 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           return answer(userId);
         }
 
+        // Joining needs the Faction door open, the same level 10 founding and the screen ask for
+        // (maintainer, 2026-09-28). Declining is anybody's.
+        requireAreaFor(app.repos, userId, 'faction');
         if (app.repos.factions.membershipOf(userId)) refuse('already_in_a_faction');
         // Re-checked at the moment of joining, not at the moment of inviting: five people can each
         // hold an invitation to the last seat, and only one of them can take it.
@@ -310,10 +316,17 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             now,
             exceptUserId: userId,
           });
+          const everyone = members.map((row) => row.userId);
+          bringPostedUnitsHome(app.repos, everyone, everyone);
           app.repos.factions.disband(held.factionId);
           return answer(userId);
         }
 
+        bringPostedUnitsHome(
+          app.repos,
+          [userId],
+          members.map((row) => row.userId).filter((id) => id !== userId),
+        );
         app.repos.factions.removeMember(userId);
         notifyFaction(app.repos, held.factionId, {
           kind: 'faction_left',
@@ -352,6 +365,8 @@ export function registerFactionRoutes(app: FastifyInstance): void {
           now: new Date(),
           exceptUserId: userId,
         });
+        const everyone = app.repos.factions.members(held.factionId).map((row) => row.userId);
+        bringPostedUnitsHome(app.repos, everyone, everyone);
         app.repos.factions.disband(held.factionId);
         return answer(userId);
       })();
@@ -380,6 +395,14 @@ export function registerFactionRoutes(app: FastifyInstance): void {
             // One question, two ranks, answered in the domain: a chief may remove a member and
             // nobody else, and nobody removes the leader. See `canKick`.
             if (!canKick(held.rank, target.rank)) refuse('not_allowed');
+            bringPostedUnitsHome(
+              app.repos,
+              [targetId],
+              app.repos.factions
+                .members(held.factionId)
+                .map((row) => row.userId)
+                .filter((id) => id !== targetId),
+            );
             app.repos.factions.removeMember(targetId);
             notify(app.repos, {
               userId: targetId,
@@ -455,48 +478,36 @@ export function registerFactionRoutes(app: FastifyInstance): void {
       const userId = request.currentUser.id;
 
       return app.db.transaction(() => {
-        const held = membership(userId);
+        // Only a crew at a table sends help; which side is read off the table below.
+        membership(userId);
         const base = app.repos.bases.findByOwnerId(userId);
         if (!base) refuse('not_a_member');
 
         const battle = app.repos.sieges.find(battleId);
-        if (!battle || battle.resolvedAt !== null) refuse('no_such_invite');
+        // The fight is what is gone, in the battle routes' own words: this was refused as
+        // `no_such_invite`, and the screen told somebody sending help about an invitation.
+        if (!battle || battle.resolvedAt !== null) {
+          throw new AppError('NOT_FOUND', 'No fight by that name is still coming');
+        }
 
-        // The fight has to belong to somebody at this table. Without this check a battle id would be
-        // a way to put units into any fight in the city, which is a different game.
-        const allies = new Set(
-          app.repos.factions
-            .members(held.factionId)
-            .flatMap((row) => app.repos.bases.findByOwnerId(row.userId)?.id ?? []),
-        );
-        const attackerRows = app.repos.sieges.side(battle.id, 'attacker');
-        const defenderRows = app.repos.sieges.side(battle.id, 'defender');
-        const allyOnAttack =
-          allies.has(battle.attackerBaseId) ||
-          attackerRows.some((row) => row.baseId !== null && allies.has(row.baseId));
         /*
-         * The defending side is named two ways too, and it has to be.
-         *
-         * A break-in's seeded defender row carries `base_id = NULL` whenever `defenderOf` cannot
-         * name a single holder, which is the ordinary state of a lived-in district: `districtHolder`
-         * is null unless one crew holds every location in it. Matching on rows alone therefore
-         * refused an ally in exactly the case the feature is for, a friend's home being emptied
-         * while they are asleep, and only let them in once the victim had deployed something
-         * themselves. `defendingBaseOf` is the same answer the settler uses to decide whose crew is
-         * defending, so the two cannot disagree about who is being helped.
+         * The side is whichever this crew is on right now, by the rule the settle musters with
+         * (`battle/alignment.ts`): in the attacker's faction it attacks, in the defender's it
+         * defends, and in neither (or in both, a fight inside one faction) it has no business
+         * sending anything (maintainer, 2026-09-28). This used to match on the rows already on each
+         * side, so a crew could help through a faction-mate's row after that mate had left, or into
+         * a fight inside its own faction, and have its column parked and walked home at the mark.
          */
+        const side = alignmentReader(app.repos, battle)(base.id);
+        if (side === null) refuse('not_a_member');
         const defendingBase = defendingBaseOf(app.repos, battle);
-        const allyOnDefence =
-          (defendingBase !== undefined && allies.has(defendingBase.id)) ||
-          defenderRows.some((row) => row.baseId !== null && allies.has(row.baseId));
-        if (!allyOnAttack && !allyOnDefence) refuse('not_a_member');
 
         const now = new Date();
         const settled = settleBase(app.repos, base, now).base;
         const result = adjustDeployment(app.repos, {
           base: settled,
           battle,
-          side: allyOnAttack ? 'attacker' : 'defender',
+          side,
           // Positive only: this route sends help. Pulling your own units back out of an ally's fight
           // is the ordinary deployment screen's job, against the same row.
           changes: army,
@@ -517,9 +528,8 @@ export function registerFactionRoutes(app: FastifyInstance): void {
          * hide, which is the whole of `deploymentBlurPercent` and the ring that buys a silence.
          * Whoever is being helped is the side the units were just put on.
          */
-        const helped = allyOnAttack
-          ? app.repos.bases.findById(battle.attackerBaseId)
-          : defendingBase;
+        const helped =
+          side === 'attacker' ? app.repos.bases.findById(battle.attackerBaseId) : defendingBase;
         const ownerOfBattle = helped?.ownerId;
         if (ownerOfBattle && ownerOfBattle !== userId) {
           notify(app.repos, {

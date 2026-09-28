@@ -56,6 +56,8 @@ export interface FactionsRepo {
 
   /** The faction this player sits in, or nothing. */
   membershipOf(userId: string): FactionMemberRow | undefined;
+  /** Every player's faction, in one read, for the boards that list everybody. */
+  factionOfEveryone(): Map<string, string>;
   members(factionId: string): FactionMemberRow[];
   memberCount(factionId: string): number;
   /**
@@ -160,6 +162,7 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
   const dropInvitesStmt = db.prepare('DELETE FROM faction_invites WHERE faction_id = ?');
 
   const membershipStmt = db.prepare('SELECT * FROM faction_members WHERE user_id = ?');
+  const everyMembershipStmt = db.prepare('SELECT user_id, faction_id FROM faction_members');
   const membersStmt = db.prepare(
     'SELECT * FROM faction_members WHERE faction_id = ? ORDER BY joined_at',
   );
@@ -227,6 +230,10 @@ export function createFactionsRepo(db: AppDatabase): FactionsRepo {
       disbandStmt.run(id);
     },
 
+    factionOfEveryone() {
+      const rows = everyMembershipStmt.all() as { user_id: string; faction_id: string }[];
+      return new Map(rows.map((row) => [row.user_id, row.faction_id]));
+    },
     membershipOf(userId) {
       const row = membershipStmt.get(userId) as MemberRow | undefined;
       return row ? toMember(row) : undefined;

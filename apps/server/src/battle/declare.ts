@@ -9,6 +9,7 @@ import {
   scheduleRefusal,
   spendInfamy,
   type BattleTarget,
+  type DistrictStanding,
   type Base,
   type DeclarationRefusal,
   type District,
@@ -64,12 +65,15 @@ export const DECLARE_REFUSALS = [
   'no_gate',
   'gate_intact',
   'nothing_to_break',
+  'gate_down',
   'unscouted',
   'already_declared',
   'too_many_pending',
   'own_ground',
   /** §D7: the call's price in infamy, which this crew has not got. */
   'cannot_afford',
+  /** A fight through a breach, called for after the gate is back up. */
+  'breach_closes',
 ] as const;
 export type DeclareRefusal = (typeof DECLARE_REFUSALS)[number];
 
@@ -93,8 +97,6 @@ export interface DeclareInput {
   target: BattleTarget;
   scheduledFor: Date;
   now: Date;
-  /** Leave the survivors holding the location they take, instead of marching them home (§A4). */
-  holdAfterCapture?: boolean;
   /** Admin mode, which waives the call's price along with every other one (`admin/mode.ts`). */
   admin?: boolean;
 }
@@ -178,6 +180,18 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
 
   const late: ScheduleRefusal | null = scheduleRefusal(scheduledFor, now);
   if (late) return { kind: 'refused', reason: late };
+  /*
+   * A breach is a window, and the fight has to land inside it (maintainer, 2026-09-27). A raid, or
+   * a location fight in a shut district, is only legal because the gate is down; called for after
+   * it comes back up, it would reach ground the rules say is closed. The settle checks again at
+   * the mark (`battle/resolve.ts`), for a gate put back early.
+   */
+  if (throughBreach(target, standing)) {
+    const brokenUntil = repos.sieges.gate(target.districtId)?.brokenUntil ?? null;
+    if (brokenUntil === null || scheduledFor.getTime() >= Date.parse(brokenUntil)) {
+      return { kind: 'refused', reason: 'breach_closes' };
+    }
+  }
 
   /*
    * §D7's price, checked last on purpose.
@@ -221,9 +235,9 @@ export function declareBattle(repos: Repositories, input: DeclareInput): Declare
     declaredAt: now.toISOString(),
     resolvedAt: null,
     seed: randomUUID(),
-    // Winners stay and hold what they took (maintainer, 2026-09-22): the default, and the client
-    // no longer asks.
-    holdAfterCapture: input.holdAfterCapture ?? true,
+    // Winners stay and hold what they took, always (maintainer, 2026-09-22 and 2026-09-28: "The
+    // server should automatically give the winners what they should hold, not ask them").
+    holdAfterCapture: true,
     /*
      * §A4: whether a cell of this crew's was already standing here (`city/sleepers.ts`).
      *
@@ -330,4 +344,12 @@ export function fightsCalledOn(repos: Repositories, base: Base): number {
       (battle) =>
         battle.attackerBaseId !== base.id && defendingBaseOf(repos, battle)?.id === base.id,
     ).length;
+}
+
+/** Whether a fight is only legal because the district's gate is down. */
+export function throughBreach(
+  target: BattleTarget,
+  standing: Pick<DistrictStanding, 'shut'>,
+): boolean {
+  return target.kind === 'district' || (target.kind === 'location' && standing.shut);
 }

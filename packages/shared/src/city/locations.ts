@@ -8,7 +8,7 @@ import {
   type UnitTierStat,
 } from '../units/tiers.js';
 import { envLabel, type EnvLabel, type EnvLabelId } from './labels.js';
-import { UNIT_RULES, type UnitRuleId } from '../units/rules.js';
+import { UNIT_RULES, type GrantableUnitMark, type UnitRuleId } from '../units/rules.js';
 import {
   MAX_MISSION_SPEED_BONUS,
   MAX_TRAINING_SPEED_BONUS,
@@ -106,6 +106,9 @@ export const LOCATION_KINDS = [
   'glasshouse',
   // The Combine's seat, appended for the same reason (maintainer, 2026-09-19).
   'combine_chapel',
+  // Terminus's railway, appended for the same reason (maintainer, 2026-09-24). By sense it belongs
+  // under "ground and defence": a platform is a piece of the map, not a workshop.
+  'rail_station',
 ] as const;
 export const LocationKindSchema = z.enum(LOCATION_KINDS);
 export type LocationKind = z.infer<typeof LocationKindSchema>;
@@ -198,13 +201,14 @@ export type HoldBonus =
    */
   | { kind: 'road_shortcut'; minutes: number }
   /**
-   * The porters take a place in the line, at half of what they are.
+   * The porters take a place in the line, at their own full sheet (maintainer, 2026-09-27).
    *
    * `combat: false` is otherwise absolute: a Scavenger is never in a battle line, never draws fire
    * and contributes nothing (`units/catalog.ts`). This suspends that for the crew that holds it,
    * which is a different thing from a damage bonus: it changes what a *unit* is for. A crew with
    * this can send forty porters on a raid and have them be forty units rather than forty
-   * bystanders, and the half is what stops the cheapest sheet in the game becoming the best one.
+   * bystanders. They were halved on top of that until 2026-09-27; a porter's own weak numbers are
+   * what stop the cheapest sheet in the game becoming the best one.
    */
   | { kind: 'carriers_fight' }
   /**
@@ -223,7 +227,7 @@ export type HoldBonus =
    * unless you field that unit, and it changes what fielding it means rather than how much of it
    * you get. A rung that makes your Wardens open fire is a reason to build a crew around Wardens.
    */
-  | { kind: 'unit_mark'; unitId: string; mark: UnitRuleId }
+  | { kind: 'unit_mark'; unitId: string; mark: GrantableUnitMark }
   /**
    * Nobody runs because somebody else did.
    *
@@ -243,7 +247,26 @@ export type HoldBonus =
    * This widens that, which is a different kind of thing from a shorter run: a second party is a
    * second question answered tonight, and no percentage off `scoutRunMinutes` ever buys that.
    */
-  | { kind: 'scout_parties'; flat: number };
+  | { kind: 'scout_parties'; flat: number }
+  /**
+   * A platform on Terminus's line (maintainer, 2026-09-24).
+   *
+   * Hold the Station in two districts and you may **choose** to put a unit move or a battle column
+   * on the train between them: fifteen minutes flat on the rails, whatever the map says the
+   * distance is, plus the walk from where the units are to the platform at each end. Any two
+   * Stations you hold are linked, not only neighbouring ones, because a train runs the whole line.
+   *
+   * Carries no percentage, and could not. `travel_speed` is a fraction of a clock and this
+   * *replaces* the clock for the middle leg, so a Rail Yard cannot make a linked run faster and
+   * nothing can make it slower. It is also the one travel rule in the game a player turns on and
+   * off per journey, because riding is not always what you want: `vehicles` and the Colossus
+   * cannot board, so a column that takes the train leaves them behind.
+   *
+   * Missions and scouting runs do not ride it. Those are crews sent out to work the ground rather
+   * than to arrive somewhere, and a mission board that priced half its jobs off a railway would be
+   * pricing the wrong thing.
+   */
+  | { kind: 'rail_link' };
 
 /**
  * How far a location can be worked up, and what each level is worth.
@@ -273,6 +296,16 @@ export type HoldBonus =
  * meant to be fought over rather than farmed.
  */
 export const MAX_LOCATION_LEVEL = 10;
+
+/**
+ * Terminus's line: how long the middle leg of a linked journey takes, in minutes.
+ *
+ * Flat, and a rule rather than a slider (maintainer, 2026-09-24). It replaces the road between two
+ * held Stations instead of discounting it, so nothing speeds it up and nothing slows it down. The
+ * walk to the platform at each end is charged on top, at the ordinary road rate, which is what
+ * keeps a Station worth taking in the district you actually work in.
+ */
+export const RAIL_LINK_MINUTES = 15;
 
 export const LEVEL_SCALE: readonly number[] = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5];
 
@@ -773,10 +806,8 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
       /*
        * The pit is where a hauler learns to stand somewhere and not move.
        *
-       * `carriers_fight` at half strength (`CARRIER_STRENGTH`), which is the whole balance of it: a
-       * Scavenger is a sixth of a Razor's price and there is no slot pressure on porters, so at
-       * full strength this would make the cheapest sheet in the game the correct one. At half it is
-       * a reason to bring the porters you were bringing anyway, which is what a fight pit is.
+       * `carriers_fight`, at the porters' own sheet (maintainer, 2026-09-27). They were halved on
+       * top of it; now their stats are the balance, which are a hauler's and not a fighter's.
        */
       { kind: 'carriers_fight' },
     ],
@@ -1207,6 +1238,27 @@ export const LOCATION_CATALOG: Record<LocationKind, LocationSpec> = {
     /** §D8: taking the room the Combine ran the city from is the event of the whole game. */
     captureInfamy: 40,
   },
+  // ------------------------------------------------------------ the railway
+  rail_station: {
+    label: 'Station',
+    blurb:
+      'A platform, a lamp and a board with the times chalked on it. Whoever holds it decides who the train stops for.',
+    reward: 'Linked to any other Station you hold, at fifteen minutes flat.',
+    bonuses: [
+      { kind: 'rail_link' },
+      // A platform is also somewhere people wait, and waiting rooms fill up. Small, because the
+      // reason to take a Station is the line and not the beds.
+      { kind: 'unit_slots', flat: 2 },
+    ],
+    baseDefense: 4,
+    labels: [L('open', 3), L('windy', 2), L('noisy', 1)],
+    upgradeCost: 240,
+    upgrades: [
+      'The points either side are yours, so nothing comes through that you did not let through.',
+      'The water column and the coal stage work again. A train can be held here as long as you like.',
+      'The board is rewritten in your hand. The timetable is whatever you say it is.',
+    ],
+  },
 };
 
 /** A location's level, brought inside `1..MAX_LOCATION_LEVEL`. Everything reads through this. */
@@ -1263,6 +1315,7 @@ export function scaledBonus(bonus: HoldBonus, level: number): HoldBonus {
     case 'any_ride':
     case 'steady_nerve':
     case 'unit_mark':
+    case 'rail_link':
       return bonus;
     default:
       return { ...bonus, percent: grow(bonus.percent) };
@@ -1330,32 +1383,12 @@ export function upgradeNote(kind: LocationKind, level: number): string | null {
   return authored ?? (LATE_UPGRADE_NOTES[from - 1 - AUTHORED_UPGRADE_NOTES] as string);
 }
 
-/**
- * How hard a location is to dig into (§A4).
- *
- * Deliberately inverted against intuition, and the maintainer asked for it that way: an *easy* location
- * to fortify pays the most per level. The rubble-and-rebar barricade you can add to all afternoon
- * is worth more per level than the spire you can barely drill into: the hard ones are already
- * defensible, so what you can add to them is marginal.
- */
-export const FORTIFY_DIFFICULTIES = ['easy', 'medium', 'hard'] as const;
-export const FortifyDifficultySchema = z.enum(FORTIFY_DIFFICULTIES);
-export type FortifyDifficulty = z.infer<typeof FortifyDifficultySchema>;
-
-/** Defence percentage each fortification level is worth, by how hard the ground is to work. */
-export const FORTIFY_DIFFICULTY_LABELS: Record<FortifyDifficulty, string> = {
-  easy: 'Easy to fortify',
-  medium: 'Medium to fortify',
-  hard: 'Hard to fortify',
-};
-
 /** One authored location on the map. */
 export const LocationSchema = z.object({
   id: z.string().min(1),
   districtId: z.string().min(1),
   name: z.string().min(1),
   kind: LocationKindSchema,
-  fortifyDifficulty: FortifyDifficultySchema,
   /**
    * What *this* place is, when the kind's own line will not do.
    *
@@ -1372,6 +1405,15 @@ export interface TerritoryEffects {
   /** Added to whatever the district's own structures produce. */
   perHour: PartialResources;
   defensePercent: number;
+  /**
+   * The share of a holder's toughness that is a gate's: the home Gate, a gate raised on a district
+   * held whole, and the perks that make either stronger (maintainer, 2026-09-26).
+   *
+   * Apart from `defensePercent` because some attackers do not meet it. A Breaching unit's hits land
+   * as if it were not there, and a Wall Breaker in the attacking line takes it off the whole fight.
+   * The two are capped together (`MAX_HELD_DEFENSE`), so moving the gate here changed no total.
+   */
+  gatePercent: number;
   researchSpeedPercent: number;
   buildSpeedPercent: number;
   trainingSpeedPercent: number;
@@ -1449,12 +1491,22 @@ export interface TerritoryEffects {
   steadyNerve: boolean;
   /** Scouting parties a crew may have out at once, on top of the one everybody gets. */
   scoutPartiesFlat: number;
+  /**
+   * Whether this crew holds a Station: a platform on Terminus's line.
+   *
+   * A boolean on the *crew's* effects and a count of platforms nowhere, because one Station is
+   * worth nothing on its own. What a journey actually needs is a Station at **both** ends, which
+   * is a question about two districts rather than about a crew, so it is asked of the control map
+   * where the journey is priced (`city/rails.ts`) and never of this total.
+   */
+  railLink: boolean;
 }
 
 export function noTerritoryEffects(): TerritoryEffects {
   return {
     perHour: {},
     defensePercent: 0,
+    gatePercent: 0,
     researchSpeedPercent: 0,
     buildSpeedPercent: 0,
     trainingSpeedPercent: 0,
@@ -1490,6 +1542,7 @@ export function noTerritoryEffects(): TerritoryEffects {
     unitMarks: {},
     steadyNerve: false,
     scoutPartiesFlat: 0,
+    railLink: false,
   };
 }
 
@@ -1630,6 +1683,9 @@ export function applyHoldBonus(into: TerritoryEffects, bonus: HoldBonus): Territ
     case 'scout_parties':
       into.scoutPartiesFlat += bonus.flat;
       return into;
+    case 'rail_link':
+      into.railLink = true;
+      return into;
   }
 }
 
@@ -1724,7 +1780,7 @@ export function describeHoldBonus(bonus: HoldBonus): string {
     case 'road_shortcut':
       return `-${bonus.minutes} min off every road`;
     case 'carriers_fight':
-      return 'porters fight, at half strength';
+      return 'porters fight';
     case 'any_ride':
       return 'anything can be put on a machine';
     case 'unit_mark':
@@ -1733,6 +1789,8 @@ export function describeHoldBonus(bonus: HoldBonus): string {
       return 'a stack that breaks shakes nobody';
     case 'scout_parties':
       return `+${bonus.flat} scouting part${bonus.flat === 1 ? 'y' : 'ies'} out at once`;
+    case 'rail_link':
+      return `On the line: ${RAIL_LINK_MINUTES} min to any Station you hold`;
   }
 }
 

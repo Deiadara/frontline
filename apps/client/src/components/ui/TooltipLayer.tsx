@@ -55,7 +55,20 @@ export function TooltipLayer() {
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    /*
+     * When the last press landed. A click focuses what it pressed, and `focusin` straight after
+     * the `pointerdown` that shut the tip would open it again over whatever the click opened: the
+     * city picker's list sat under its own button's tip (maintainer, 2026-09-28). Focus is still a
+     * way in for the keyboard, which is what it is here for.
+     */
+    let pressedAt = -Infinity;
+    const PRESS_FOCUS_MS = 500;
+    const press = (event: Event): void => {
+      pressedAt = event.timeStamp;
+      shut(event);
+    };
     const open = (event: Event): void => {
+      if (event.type === 'focusin' && event.timeStamp - pressedAt < PRESS_FOCUS_MS) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       const host = target.closest('[data-tip]');
@@ -90,7 +103,7 @@ export function TooltipLayer() {
     document.addEventListener('pointerout', shut);
     document.addEventListener('focusout', shut);
     // A tip is about where a thing *was*: anything that moves it, or any intent to act, ends it.
-    document.addEventListener('pointerdown', shut);
+    document.addEventListener('pointerdown', press);
     window.addEventListener('scroll', shut, true);
     window.addEventListener('blur', shut);
     return () => {
@@ -98,7 +111,7 @@ export function TooltipLayer() {
       document.removeEventListener('focusin', open);
       document.removeEventListener('pointerout', shut);
       document.removeEventListener('focusout', shut);
-      document.removeEventListener('pointerdown', shut);
+      document.removeEventListener('pointerdown', press);
       window.removeEventListener('scroll', shut, true);
       window.removeEventListener('blur', shut);
     };

@@ -1,3 +1,4 @@
+import { PartialResourcesSchema } from '../resources.js';
 import { z } from 'zod';
 import { EnvLabelSchema, WeatherKindSchema } from '../city/index.js';
 import { COMBINE_LEADERS, type CombinePower } from '../city/combine.js';
@@ -97,7 +98,9 @@ export const SideAnalysisSchema = z.object({
    * Beside the unit rows rather than in them. Every figure in `units` is a unit count the settler
    * writes back to a roster, and an officer is neither trained nor lost nor recovered: they are
    * one person who was there. `injured` is filled in by the settler once the stretcher has been
-   * decided, and it is what {@link reportReaches} reads to withhold this side's report (§D4).
+   * decided, and it is reported rather than acted on: {@link reportReaches} stopped reading it on
+   * 2026-09-23, so a hurt officer withholds nothing from anybody. Saying otherwise here is what
+   * left the settler skipping the `battle_report` receipt for a report it was handing over in full.
    *
    * Defaulted, so a report written before officers could lead reads as a fight nobody led.
    */
@@ -169,6 +172,13 @@ export const BattleAnalysisSchema = z.object({
   executed: z.number().int().nonnegative().default(0),
   /** The one sentence at the top. Everything else is detail under it. */
   headline: z.string(),
+  /**
+   * What the winner carried home, after anything the stores could not take (2026-09-28). Empty on
+   * a fight that paid nothing. Written by the settler, which is the only thing that knows it.
+   */
+  spoils: PartialResourcesSchema.default({}),
+  /** What the fight was for, so the report can say what winning it meant: a plot, a gate, a raid. */
+  target: z.enum(['location', 'gate', 'district']).default('location'),
   /**
    * Whether the beaten side's withdrawal came through the winner's ring rather than breaking on it.
    *
@@ -469,6 +479,9 @@ export function analyseBattle(input: AnalysisInput): BattleAnalysis {
     turned: simulation.turned,
     executed: simulation.executed,
     headline: headlineFor(simulation, attacker, defender),
+    // The settler fills both in: the engine knows neither what the fight was for nor what it paid.
+    spoils: {},
+    target: 'location',
     brokeThrough: input.brokeThrough ?? true,
     // Copied off the battlefield the engine actually fought on, so the card and the fight cannot
     // disagree about the weather.

@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
 import { findMissionTemplate } from '@frontline/shared';
 import { adminApiUrl } from '../playwright.config';
+import { chooseAnyCity } from './harness';
 
 /**
  * The Right Hand's standing orders against the REAL backend (maintainer, 2026-09-22).
@@ -59,7 +60,7 @@ async function openSession(browser: Browser): Promise<Session> {
   const page = await context.newPage();
   await page.goto('/auth');
   await page.getByTestId('auth-choose-login').click();
-  await page.getByLabel('Operator ID').fill(USERNAME);
+  await page.getByLabel('Overseer ID').fill(USERNAME);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Jack In' }).click();
   /*
@@ -78,6 +79,7 @@ async function openSession(browser: Browser): Promise<Session> {
       .first()
       .click();
     await page.getByTestId('overseer-confirm').click();
+    await chooseAnyCity(page, 'terminus');
     await expect(city).toBeVisible({ timeout: 20_000 });
   }
   const tutorial = page.getByTestId('tutorial-card');

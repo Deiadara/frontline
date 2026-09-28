@@ -363,6 +363,13 @@ export function refreshDisruption(current: Disruption, next: Disruption): Disrup
   if (current.until === null) return next;
   if (next.until === null) return current;
   /*
+   * A record that ran out before the new raid landed is no record (audit, 2026-09-28). Merged, a
+   * 46% raid at 10:00 that expired at 16:00 met a 12% raid at 20:00 and came out as 46% from
+   * 10:00 until 02:00: the new raid inherited the old one's rate *and* its start, so the quiet
+   * evening between them was billed as disrupted and the new raid ran at the old one's rate.
+   */
+  if (next.since !== null && Date.parse(current.until) <= Date.parse(next.since)) return next;
+  /*
    * `since` travels with the *percent*, not with the expiry, because those two fields are what a
    * settle reads together: the record says "cut by `percent` from `since` until `until`". Pairing
    * the start with the expiry instead would hand the surviving percentage a start that belongs to

@@ -23,6 +23,7 @@ import {
   SUPPLY_MIN_PERCENT,
   SUPPLY_RESOURCES,
   SUPPLY_DEEP_POCKETS_PERCENT,
+  supplyAffordable,
   supplyAllowance,
   supplyAllowancePercent,
   supplyBoard,
@@ -135,6 +136,13 @@ describe('the Runner', () => {
     }
   });
 
+  it('finds tomorrow on the eve of the 23-hour spring day', () => {
+    // Athens goes from 03:00 straight to 04:00 on 2027-03-28, so 24 hours after 23:30 the night
+    // before is half past midnight on the 29th, and a whole day of visits lay in between.
+    const now = at('2027-03-27', 23);
+    expect(marketDay(nextVendorOpening(now))).toBe('2027-03-28');
+  });
+
   describe('the barrow', () => {
     it('carries a full spread, with nothing listed twice', () => {
       for (const day of DAYS) {
@@ -241,19 +249,48 @@ describe('the Runner', () => {
 });
 
 describe('the Broker', () => {
-  it('gives back exactly half, rounded down', () => {
+  it('gives back half the value, rounded down, between two things worth the same', () => {
     // Materials only: caps are the one key the Broker will not deal in, and the list is every
     // other resource so a seventh material joins on its own.
     expect(BARTER_RESOURCES).not.toContain('caps');
     expect(BARTER_RESOURCES).toHaveLength(RESOURCE_KEYS.length - 1);
-    expect(barterQuote(100)).toBe(100 * BARTER_RATE);
-    expect(barterQuote(101)).toBe(50);
-    expect(barterQuote(1)).toBe(0);
-    expect(barterQuote(0)).toBe(0);
+    // A material into itself is the cut alone, which is the rate the rest of this reads against.
+    expect(barterQuote('oil', 'oil', 100)).toBe(100 * BARTER_RATE);
+    expect(barterQuote('oil', 'oil', 101)).toBe(50);
+    expect(barterQuote('oil', 'oil', 1)).toBe(0);
+    expect(barterQuote('oil', 'oil', 0)).toBe(0);
+  });
+
+  /*
+   * By value (maintainer, 2026-09-27). Two supplies used to buy a high-quality metal: the scarcest
+   * material was the cheapest thing in the game to make.
+   */
+  it('prices what comes out by what it is worth, so scarce metal costs its weight', () => {
+    const metal = barterQuote('supplies', 'highQualityMetal', 100);
+    expect(metal).toBe(
+      Math.floor(
+        (100 * RESOURCE_CAP_VALUE.supplies * BARTER_RATE) / RESOURCE_CAP_VALUE.highQualityMetal,
+      ),
+    );
+    expect(metal).toBeLessThan(10);
+    // The other way round pays out more than went in, by count, and still less than it was worth.
+    const supplies = barterQuote('highQualityMetal', 'supplies', 10);
+    expect(supplies).toBeGreaterThan(10);
+    expect(supplies * RESOURCE_CAP_VALUE.supplies).toBeLessThan(
+      10 * RESOURCE_CAP_VALUE.highQualityMetal,
+    );
   });
 
   it('never pays out on a negative trade', () => {
-    expect(barterQuote(-500)).toBe(0);
+    expect(barterQuote('oil', 'scrap', -500)).toBe(0);
+  });
+
+  it('pays the whole plank on a trade that comes out exact, not one short of it', () => {
+    // 33 oil is 66 caps of value, half of it is 33, and 33 at 2.2 a plank is exactly 15. The
+    // floating-point product was 14.999999999999998, and the floor took a plank off every such trade.
+    expect(barterQuote('oil', 'planks', 33)).toBe(15);
+    expect(barterQuote('highQualityMetal', 'planks', 11)).toBe(30);
+    expect(barterQuote('oil', 'planks', 66, BARTER_RATE_RESPECTED)).toBe(39);
   });
 });
 
@@ -514,6 +551,16 @@ describe('the supply run: caps into materials', () => {
     expect(supplyPrice('supplies', 0)).toBe(0);
   });
 
+  it('charges a round order of planks its exact price, and sells it to a purse that holds it', () => {
+    // 2.2 x 1.5 is 3.3 caps a plank. The float product of a hundred was 330.00000000000006, which
+    // `Math.ceil` charged as 331: the default order on the panel cost a cap more than it should.
+    expect(supplyPrice('planks', 100)).toBe(330);
+    expect(supplyPrice('planks', 10)).toBe(33);
+    expect(
+      supplyAffordable('planks', { ...STARTING_RESOURCES, caps: 330, planks: 0 }, 1_000, 10_000),
+    ).toBe(100);
+  });
+
   it('will not sell caps for caps', () => {
     expect(
       supplyRefusal({
@@ -521,26 +568,23 @@ describe('the supply run: caps into materials', () => {
         units: 10,
         stock: rich,
         allowanceLeft: 10_000,
-        capacity: 10_000,
       }),
     ).toBe('not_a_resource');
   });
 
-  it('refuses past the ration, past the warehouse and past the wallet: in that order', () => {
-    const order = { key: 'scrap' as const, stock: rich, capacity: 10_000 };
+  it('refuses past the ration and past the wallet, in that order, and never for the warehouse', () => {
+    const order = { key: 'scrap' as const, stock: rich };
     expect(supplyRefusal({ ...order, units: 0, allowanceLeft: 100 })).toBe('nothing_ordered');
     expect(supplyRefusal({ ...order, units: 101, allowanceLeft: 100 })).toBe('over_allowance');
-    // Inside the ration, over the shelf: the store already holds what `rich` starts with.
-    expect(supplyRefusal({ ...order, units: 9_999, allowanceLeft: 99_999, capacity: 1_000 })).toBe(
-      'no_room',
-    );
+    // Inside the ration and far over any shelf: warned about at the till, not refused here
+    // (maintainer ruling, 2026-09-28).
+    expect(supplyRefusal({ ...order, units: 9_999, allowanceLeft: 99_999 })).toBeNull();
     expect(
       supplyRefusal({
         key: 'highQualityMetal',
         units: 5_000,
         stock: { ...STARTING_RESOURCES, caps: 10 },
         allowanceLeft: 99_999,
-        capacity: 999_999,
       }),
     ).toBe('cannot_afford');
     expect(supplyRefusal({ ...order, units: 100, allowanceLeft: 100 })).toBeNull();
@@ -558,7 +602,6 @@ describe('the supply run: caps into materials', () => {
           units: line.most,
           stock: rich,
           allowanceLeft: board.allowance - board.used,
-          capacity: line.capacity,
         }),
         `${line.key} quoted ${line.most} as buyable`,
       ).toBeNull();
@@ -578,13 +621,13 @@ describe('§I3: the Broker’s cut', () => {
     expect(barterRateFor(1)).toBe(BARTER_RATE);
     expect(barterRateFor(59)).toBe(BARTER_RATE);
     expect(barterRateFor(60)).toBe(BARTER_RATE_RESPECTED);
-    expect(barterQuote(100, barterRateFor(60))).toBeGreaterThan(
-      barterQuote(100, barterRateFor(59)),
+    expect(barterQuote('oil', 'oil', 100, barterRateFor(60))).toBeGreaterThan(
+      barterQuote('oil', 'oil', 100, barterRateFor(59)),
     );
   });
 
   it('still floors, so a single scrap through the window is never a free unit', () => {
-    expect(barterQuote(1, BARTER_RATE_RESPECTED)).toBe(0);
-    expect(Number.isInteger(barterQuote(37, BARTER_RATE_RESPECTED))).toBe(true);
+    expect(barterQuote('oil', 'oil', 1, BARTER_RATE_RESPECTED)).toBe(0);
+    expect(Number.isInteger(barterQuote('oil', 'scrap', 37, BARTER_RATE_RESPECTED))).toBe(true);
   });
 });

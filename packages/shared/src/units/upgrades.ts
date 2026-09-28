@@ -208,6 +208,19 @@ export function upgradedStats(base: UnitStats, fitted: FittedUpgrades): UnitStat
    * `engagementMultiplier` and, since the speed rebalance, both roads as well
    * (`units/catalog.ts`, `unitColumnSpeed`), so those points are real twice over.
    */
+  /*
+   * `UNIT_STAT_KEYS` is the eleven numbers, and a card's `effect` is typed wider than that.
+   *
+   * `UnitModificationSpec.effect` is `Partial<UnitStats>`, and `UnitStats` also carries
+   * `damageType` and `resistances`. This loop cannot see either: a card granting a resistance
+   * would be accepted by the type, typecheck clean and vanish here, on the one path that builds
+   * the sheet a unit actually fights with. `unitModificationPower` loops the same eleven, so it
+   * would also price at zero and pass the rarity band as free.
+   *
+   * Nothing in the catalogue does it today. Written down at both ends (see the note on
+   * `effect` itself) so the day somebody wants a card that changes what a unit is *made of*, they
+   * find the two loops rather than a card that does nothing.
+   */
   const totals: Partial<Record<(typeof UNIT_STAT_KEYS)[number], number>> = {};
   for (const id of fitted) {
     const spec = findUnitModification(id);

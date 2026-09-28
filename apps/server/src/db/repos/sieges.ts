@@ -132,6 +132,18 @@ export interface SiegeRepo {
   resolvedFor(baseId: string, limit: number): ResolvedBattle[];
   /** Marks it run and files the ledger, in one statement. */
   markResolved(id: string, at: string, analysis: BattleAnalysis): void;
+  /**
+   * Closes a fight that can never run, with no ledger behind it.
+   *
+   * A battle whose target district or whose attacker the world no longer has is unresolvable, and
+   * before this there was nothing to do with one: `resolveOne` answered `null`, the sweep skipped
+   * it, and the row stayed in `due()` for ever. It was retried on every tick, it went on holding
+   * one of the crew's three declaration slots, and any column already folded into its deployment
+   * was never sent home. Stamping `resolved_at` is what takes it out of all three queues; the
+   * analysis stays null on purpose, because nothing happened and a synthetic report of a fight
+   * that never took place would be a lie in the crew's own history.
+   */
+  abandon(id: string, at: string): void;
 
   deployments(battleId: string): BattleDeployment[];
   /**
@@ -150,6 +162,12 @@ export interface SiegeRepo {
   /** Every deployment this crew has standing, across every fight still to come. */
   deploymentsFor(baseId: string): BattleDeployment[];
   putDeployment(deployment: BattleDeployment): void;
+  /**
+   * Takes one crew's row off a side. For a crew that is on neither side, or the other side, of a
+   * fight when its mark comes (`battle/alignment.ts`): an empty row left behind would still count
+   * as a second contributor, which is what pays the allied perks.
+   */
+  removeDeployment(battleId: string, side: BattleSide, baseId: string): void;
   /**
    * The coming fights this officer is already named on, other than `exceptBattleId`.
    *
@@ -209,6 +227,9 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
   const resolveStmt = db.prepare(
     'UPDATE scheduled_battles SET resolved_at = ?, analysis_json = ? WHERE id = ?',
   );
+  const abandonStmt = db.prepare(
+    'UPDATE scheduled_battles SET resolved_at = ?, analysis_json = NULL WHERE id = ?',
+  );
 
   const deploymentsStmt = db.prepare('SELECT * FROM battle_deployments WHERE battle_id = ?');
   /*
@@ -243,6 +264,9 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
    */
   const clearNpcDeploymentStmt = db.prepare(
     `DELETE FROM battle_deployments WHERE battle_id = ? AND side = ? AND base_id IS NULL`,
+  );
+  const removeDeploymentStmt = db.prepare(
+    'DELETE FROM battle_deployments WHERE battle_id = ? AND side = ? AND base_id = ?',
   );
   const putDeploymentStmt = db.prepare(
     `INSERT INTO battle_deployments
@@ -336,6 +360,9 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
     markResolved(id, at, analysis) {
       resolveStmt.run(at, JSON.stringify(analysis), id);
     },
+    abandon(id, at) {
+      abandonStmt.run(at, id);
+    },
 
     deployments(battleId) {
       return (deploymentsStmt.all(battleId) as DeploymentRow[]).map(rowToDeployment);
@@ -366,6 +393,10 @@ export function createSiegeRepo(db: AppDatabase): SiegeRepo {
         JSON.stringify(deployment.vehicles),
         deployment.updatedAt,
       );
+    },
+
+    removeDeployment(battleId, side, baseId) {
+      removeDeploymentStmt.run(battleId, side, baseId);
     },
 
     leadingElsewhere(officerId, exceptBattleId) {

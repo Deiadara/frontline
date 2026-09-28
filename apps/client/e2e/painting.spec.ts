@@ -10,7 +10,7 @@
  * breaks.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { CITY_DISTRICTS, LOCATION_CATALOG } from '@frontline/shared';
+import { CITY_DISTRICTS, LOCATION_CATALOG, cityOf, findDistrict } from '@frontline/shared';
 import { districtDetailFor, me } from './fixtures';
 import { installApi, settleFonts } from './harness';
 
@@ -26,17 +26,27 @@ const VIEWPORTS = [
  *
  * Named here rather than derived, so a new plate is a line in this list rather than a district
  * that quietly ships with none of these sweeps run over it. That is not hypothetical: Chrome Row
- * landed while this said `['neon-docks', 'rustyard']` and went unswept, and the Undergrid and the
+ * landed while this said `['neon-docks', 'steelbelt']` and went unswept, and the Undergrid and the
  * Annexes joined it on 2026-09-11, Glasshouse Fields and the Blacksite on 2026-09-15.
  */
 const PAINTED = [
   'neon-docks',
-  'rustyard',
+  'steelbelt',
   'chrome-row',
   'undergrid',
-  'datavault-sigma',
+  'annexes',
   'glasshouse-fields',
-  'blacksite-7',
+  'blacksite',
+  // Terminus's first painted district (2026-09-24), and the first entry here that is not in
+  // Ashfall. See `serveTerminusGround`: the shared fixture only knows Ashfall, so this district's
+  // detail is stubbed in `open` rather than in `fixtures.ts`, which another lane owns.
+  'coldwater-halt',
+  'ironmouth',
+  // The Yards and the Bond (2026-09-25). Neither painting shows a district gate, so neither has a
+  // `GATE_MARK`: the way in stays on the buttons beside the painting, which is where it already
+  // was, and these sweeps only ever read the location signs.
+  'marshalling-yards',
+  'bonded-row',
 ] as const;
 
 interface Box {
@@ -51,9 +61,40 @@ interface Box {
   readonly lines: number;
 }
 
+/**
+ * District detail for ground the shared fixture has never heard of.
+ *
+ * `districtDetailFor` walks `CITY_DISTRICTS`, which is Ashfall, and answers with the Steelbelt for
+ * anything else: the page would then draw the Steelbelt's painting under a Terminus URL and every
+ * assertion below would be measuring the wrong picture. This re-labels one Steelbelt payload with
+ * the real district and its real locations, which is all this file's sweeps read, and it lives
+ * here because `e2e/fixtures.ts` belongs to another lane.
+ */
+async function serveTerminusGround(page: Page, id: string) {
+  const district = findDistrict(id);
+  if (district === undefined || cityOf(id) === 'ashfall') return;
+  const standIn = districtDetailFor('steelbelt');
+  await page.route(`**/api/city/${id}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...standIn,
+        district,
+        unified: null,
+        locations: district.locations.map((location, index) => ({
+          ...standIn.locations[index % standIn.locations.length]!,
+          location,
+        })),
+      }),
+    }),
+  );
+}
+
 async function open(page: Page, id: string, size: { width: number; height: number }) {
   await page.setViewportSize(size);
   await installApi(page, me);
+  await serveTerminusGround(page, id);
   await page.goto(`/game/city/${id}`);
   await expect(page.getByTestId(`district-painting-${id}`)).toBeVisible();
   await settleFonts(page);
@@ -112,7 +153,7 @@ async function signsOn(page: Page, id: string): Promise<{ plate: Box; signs: Box
  * has walked into does not look like anything yet.
  *
  * The fog has to be put over a district that **has** a painting, which is why this stubs the route
- * rather than using the fixture's own unscouted district. That one is `combine-spire`, which has
+ * rather than using the fixture's own unscouted district. That one is `ccs`, which has
  * no painting under any conditions, so asserting the painting is absent there passes against a
  * build that never draws a painting at all: the first version of this test did exactly that, and
  * survived deleting the scouted check.
@@ -162,20 +203,21 @@ test('shows the painting only once the ground has been scouted', async ({ page }
 test('reaches locations the painting has no mark for', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await installApi(page, me);
-  await page.goto('/game/city/rustyard');
-  await expect(page.getByTestId('district-painting-rustyard')).toBeVisible();
+  await page.goto('/game/city/steelbelt');
+  await expect(page.getByTestId('district-painting-steelbelt')).toBeVisible();
   await settleFonts(page);
 
   // With marks, they are signs on the picture and there is no fallback row.
   await expect(page.getByTestId('unplaced-locations')).toHaveCount(0);
-  const district = CITY_DISTRICTS.find((entry) => entry.id === 'rustyard')!;
+  const district = CITY_DISTRICTS.find((entry) => entry.id === 'steelbelt')!;
   for (const location of district.locations) {
     await expect(page.getByTestId(`site-${location.id}`)).toBeVisible();
   }
 });
 
 for (const id of PAINTED) {
-  const district = CITY_DISTRICTS.find((entry) => entry.id === id)!;
+  // `findDistrict` rather than `CITY_DISTRICTS`: the list above reaches past Ashfall now.
+  const district = findDistrict(id)!;
 
   test.describe(`${district.name}: the painting and its signs`, () => {
     test('hangs a sign on every location the district has', async ({ page }) => {

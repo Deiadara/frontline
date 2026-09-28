@@ -316,9 +316,9 @@ function catalogueSections(): Section[] {
       'missions',
       'Missions',
       'packages/shared/src/missions/templates.ts',
-      'Board templates. `spoils` is the haul before difficulty and officer scaling, `successChance` the base odds before the crew is weighed.',
+      'Board templates. `grades` is the range each is dealt at, which sets the odds against the leader, the pay and what a fight fields. `spoils` is the mix, priced to one value before the grade and the area move it.',
       MISSION_TEMPLATES,
-      (entry) => `${str(entry.difficulty)} / ${str(entry.travelBand)}`,
+      (entry) => `${(entry.grades as readonly string[]).join(' to ')} / ${str(entry.travelBand)}`,
     ),
     listSection(
       'vehicles',

@@ -1,4 +1,10 @@
-import { FEATS, findFeat, type FeatProgress } from '@frontline/shared';
+import {
+  FEATS,
+  CONTESTED_DISTRICTS,
+  findDistrict,
+  findFeat,
+  type FeatProgress,
+} from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import * as F from '../../../e2e/fixtures';
 import {
@@ -231,6 +237,29 @@ describe("a ladder's name", () => {
     expect(titleOf('area_neon_docks')).toBe('Neon Docks missions');
     expect(titleOf('nexus_1')).toBe('Nexus levels');
     expect(titleOf('metal_1')).toBe('High Quality Metal earned');
+  });
+
+  /**
+   * A district scope is called what the **map** calls it, which is not always its id title-cased.
+   *
+   * Opening the id out gets most districts right by luck, because most names are their ids in
+   * title case. The CCS is the one that is not, and it was wrong in both spellings its id has
+   * had: "Combine Spire missions" while the id was `combine-spire`, and "Ccs missions" once the
+   * ids became the names on the tags. Pinned against the atlas rather than against the string, so
+   * the next district whose name is not plain title case cannot slip through either.
+   */
+  it('calls a district what the map calls it, however its id is spelled', () => {
+    const ccs = findDistrict('ccs');
+    expect(ccs, 'the CCS is missing from the atlas').toBeDefined();
+    expect(ccs!.name).toBe('CCS');
+    expect(titleOf('area_ccs')).toBe(`${ccs!.name} missions`);
+
+    // And every other district ladder agrees with the atlas too, so this is a rule rather than a
+    // patch over one name.
+    for (const district of CONTESTED_DISTRICTS) {
+      const id = `area_${district.id.replace(/-/g, '_')}`;
+      expect(titleOf(id), district.id).toBe(`${district.name} missions`);
+    }
   });
 
   /**

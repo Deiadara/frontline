@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findUnit } from '../units/index.js';
 import { COMBINE_LEADERS, combineSlotBudget } from './combine.js';
-import { RESOURCE_KEYS } from '../resources.js';
 import {
   CITY_DISTRICTS,
   CITY_LOCATIONS,
@@ -15,14 +14,16 @@ import {
   BOT_DISTRICT_ID,
   STARTER_DISTRICT_ID,
   UNIFIED_BONUSES,
-  findDistrict,
-  findLocation,
+  // Ashfall's own lookups. This file is Ashfall's map held to its shape, and the world-wide
+  // versions moved to `atlas.ts` when the second city opened.
+  findAshfallDistrict as findDistrict,
+  findAshfallLocation as findLocation,
   garrisonOf,
   isDistrictRaidable,
   isSeatOfGovernmentPower,
   raidTargetOf,
-  unifiedBonusFor,
 } from './districts.js';
+import { unifiedBonusFor } from './atlas.js';
 import { DistrictNameSchema } from '../base.js';
 import { hastenedMinutes } from '../missions.js';
 import { trainingSeconds } from '../units/training.js';
@@ -40,16 +41,6 @@ import {
   nearestDistricts,
   travelMinutes,
 } from './geography.js';
-import {
-  FORTIFY_LEVEL_PERCENT,
-  FORTIFY_MAX_LEVEL,
-  fortifyBonusPercent,
-  fortifyCost,
-  fortifySeconds,
-  maxFortifyBonusPercent,
-  nextFortifyLevel,
-  quoteFortify,
-} from './fortification.js';
 import {
   districtHolder,
   districtsHeldBy,
@@ -70,9 +61,7 @@ import {
  * The city (GDD §A4).
  *
  * Where a claim can be checked against something other than the constant that produced it, it is:
- * the unified bonus is asserted to be *different in kind* from the locations it sits over, and the
- * fortification ladder is asserted in percentages the maintainer named rather than against the table
- * that produces them.
+ * the unified bonus is asserted to be *different in kind* from the locations it sits over.
  */
 
 const MINE = 'base-mine';
@@ -83,8 +72,6 @@ const control = (locationId: string, over: Partial<LocationControl> = {}): Locat
   holder: { kind: 'unoccupied' },
   level: 1,
   upgradingUntil: null,
-  fortification: 0,
-  fortifyingUntil: null,
   garrison: {},
   ...over,
 });
@@ -124,7 +111,7 @@ describe('the map (§A4)', () => {
   });
 
   it('reads a raid target off the district and nothing else', () => {
-    expect(raidTargetOf(findDistrict('combine-spire')!)).toEqual({
+    expect(raidTargetOf(findDistrict('ccs')!)).toEqual({
       allegiance: 'government',
       isSeatOfPower: true,
     });
@@ -182,7 +169,7 @@ describe('the locations inside it (§A4)', () => {
 });
 
 describe('what a location says about itself (maintainer, 2026-09-15)', () => {
-  const blacksite = findDistrict('blacksite-7')!;
+  const blacksite = findDistrict('blacksite')!;
 
   /**
    * `z.object` strips keys it was not told about. The district schema used to carry its own copy
@@ -212,12 +199,12 @@ describe('what a location says about itself (maintainer, 2026-09-15)', () => {
   });
 
   it('renamed three holds and kept their ids, so nothing persisted moved', () => {
-    expect(findLocation('blacksite-7-motorpool')?.name).toBe('Motor Pool');
-    expect(findLocation('blacksite-7-blackward')?.name).toBe('Psychic Ward');
-    expect(findLocation('blacksite-7-pit17')?.name).toBe('Robot Pit');
+    expect(findLocation('blacksite-motorpool')?.name).toBe('Motor Pool');
+    expect(findLocation('blacksite-blackward')?.name).toBe('Psychic Ward');
+    expect(findLocation('blacksite-pit17')?.name).toBe('Robot Pit');
     // The new names are what the descriptions follow: minds behind the glass, machines in the ring.
-    expect(findLocation('blacksite-7-blackward')?.blurb).toMatch(/minds/);
-    expect(findLocation('blacksite-7-pit17')?.blurb).toMatch(/[Mm]achines/);
+    expect(findLocation('blacksite-blackward')?.blurb).toMatch(/minds/);
+    expect(findLocation('blacksite-pit17')?.blurb).toMatch(/[Mm]achines/);
   });
 
   it('puts the Glasshouses on the Green Belt, on a kind that pays supplies', () => {
@@ -241,7 +228,7 @@ describe('what a location says about itself (maintainer, 2026-09-15)', () => {
 describe('geography (§A4)', () => {
   it('makes the far side of the city genuinely far', () => {
     const near = travelMinutes(STARTER_DISTRICT_ID, 'chrome-row') ?? 0;
-    const far = travelMinutes(STARTER_DISTRICT_ID, 'combine-spire') ?? 0;
+    const far = travelMinutes(STARTER_DISTRICT_ID, 'ccs') ?? 0;
     expect(near).toBeGreaterThanOrEqual(MIN_TRAVEL_MINUTES);
     expect(far).toBeGreaterThan(near * 1.5);
     // …and the whole city is crossable in a session, not in a week.
@@ -249,13 +236,13 @@ describe('geography (§A4)', () => {
   });
 
   it('is symmetric, and answers null for ground that is not on the map', () => {
-    expect(travelMinutes('rustyard', 'undergrid')).toBe(travelMinutes('undergrid', 'rustyard'));
-    expect(travelMinutes('rustyard', 'nowhere')).toBeNull();
+    expect(travelMinutes('steelbelt', 'undergrid')).toBe(travelMinutes('undergrid', 'steelbelt'));
+    expect(travelMinutes('steelbelt', 'nowhere')).toBeNull();
   });
 
   it('shortens the journey with a travel bonus, and stops shortening it eventually', () => {
     const to = (pace?: { speed?: number; reductionPercent?: number }) =>
-      travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', pace) ?? 0;
+      travelMinutes(STARTER_DISTRICT_ID, 'ccs', pace) ?? 0;
     const plain = to();
     const quick = to({ reductionPercent: 30 });
     const absurd = to({ reductionPercent: 500 });
@@ -277,7 +264,7 @@ describe('geography (§A4)', () => {
    */
   it('divides by the column speed and then takes the ground off what is left', () => {
     const to = (pace?: { speed?: number; reductionPercent?: number }) =>
-      travelMinutes(STARTER_DISTRICT_ID, 'combine-spire', pace) ?? 0;
+      travelMinutes(STARTER_DISTRICT_ID, 'ccs', pace) ?? 0;
     const plain = to();
     // Within a minute of the exact figure: the map rounds once at the end, so a 61-minute walk
     // halves to 30 rather than to 30.5.
@@ -304,60 +291,6 @@ describe('geography (§A4)', () => {
   });
 });
 
-describe('digging in (§A4)', () => {
-  it('doubles at every level, and easy ground still pays the most', () => {
-    // The authored curve is medium's: 2.5 / 5 / 10. Asserted literally because it is the number
-    // the screen quotes and the one a balance change would come for first.
-    expect(FORTIFY_LEVEL_PERCENT.medium).toEqual([2.5, 5, 10]);
-    for (const difficulty of ['easy', 'medium', 'hard'] as const) {
-      const [one, two, three] = FORTIFY_LEVEL_PERCENT[difficulty];
-      expect(two).toBe(one! * 2);
-      expect(three).toBe(two! * 2);
-    }
-    // The board's inversion: what digging is *worth* falls as the ground gets harder.
-    expect(maxFortifyBonusPercent('easy')).toBeGreaterThan(maxFortifyBonusPercent('medium'));
-    expect(maxFortifyBonusPercent('medium')).toBeGreaterThan(maxFortifyBonusPercent('hard'));
-    expect(maxFortifyBonusPercent('medium')).toBe(10);
-  });
-
-  it('costs the same on every kind of ground, and the top level is the one you have to mean', () => {
-    // The board's call, and it is what keeps easy/medium/hard a reward axis rather than a second
-    // price axis. Asserted directly because it would be very easy to "fix" by accident.
-    for (let level = 2; level <= FORTIFY_MAX_LEVEL; level += 1) {
-      const lower = fortifyCost(level - 1);
-      const higher = fortifyCost(level);
-      for (const key of RESOURCE_KEYS) {
-        expect(higher[key] ?? 0, `${key} at ${level}`).toBeGreaterThanOrEqual(lower[key] ?? 0);
-      }
-      expect(fortifySeconds(level)).toBeGreaterThan(fortifySeconds(level - 1));
-    }
-    // The step, not the slope: the last level costs more than the two below it put together.
-    const top = fortifyCost(FORTIFY_MAX_LEVEL);
-    const below = Array.from({ length: FORTIFY_MAX_LEVEL - 1 }, (_, index) =>
-      fortifyCost(index + 1),
-    );
-    for (const key of RESOURCE_KEYS) {
-      const under = below.reduce((total, cost) => total + (cost[key] ?? 0), 0);
-      if (under === 0) continue;
-      expect(top[key] ?? 0, `${key} at the top level`).toBeGreaterThan(under);
-    }
-  });
-
-  it('stops at three levels', () => {
-    expect(FORTIFY_MAX_LEVEL).toBe(3);
-    expect(nextFortifyLevel(0)).toBe(1);
-    expect(nextFortifyLevel(FORTIFY_MAX_LEVEL)).toBeNull();
-    expect(fortifyBonusPercent('easy', 99)).toBe(maxFortifyBonusPercent('easy'));
-    expect(fortifyBonusPercent('easy', 0)).toBe(0);
-
-    const location = CITY_LOCATIONS[0]!;
-    expect(quoteFortify(location, FORTIFY_MAX_LEVEL)).toBeNull();
-    const quote = quoteFortify(location, 0);
-    expect(quote?.level).toBe(1);
-    expect(quote?.bonusPercent).toBe(FORTIFY_LEVEL_PERCENT[location.fortifyDifficulty][0]);
-  });
-});
-
 describe('who holds what (§A4)', () => {
   /**
    * The shape of the first hour, and the one thing about the map a new player actually meets.
@@ -368,7 +301,7 @@ describe('who holds what (§A4)', () => {
    * ground is squatted rather than owned.
    */
   it('shuts Combine ground and leaves independent ground open but squatted', () => {
-    const combine = findDistrict('datavault-sigma');
+    const combine = findDistrict('annexes');
     const open = findDistrict('chrome-row');
     expect(combine).toBeDefined();
     expect(open).toBeDefined();
@@ -440,20 +373,13 @@ describe('who holds what (§A4)', () => {
     const combine = contested.filter((d) => d.allegiance === 'government').map((d) => d.id);
     const independent = contested.filter((d) => d.allegiance !== 'government').map((d) => d.id);
     expect(combine.sort()).toEqual(
-      [
-        'neon-docks',
-        'rustyard',
-        'glasshouse-fields',
-        'datavault-sigma',
-        'blacksite-7',
-        'combine-spire',
-      ].sort(),
+      ['neon-docks', 'steelbelt', 'glasshouse-fields', 'annexes', 'blacksite', 'ccs'].sort(),
     );
     expect(independent.sort()).toEqual(['chrome-row', 'undergrid'].sort());
   });
 
   it('gives an unoccupied location nobody to fight', () => {
-    const open = findDistrict('rustyard');
+    const open = findDistrict('steelbelt');
     expect(open).toBeDefined();
     if (!open) return;
     for (const location of open.locations) {
@@ -472,17 +398,12 @@ describe('who holds what (§A4)', () => {
     expect(isHeldBy(control('x', { holder: { kind: 'government' } }), MINE)).toBe(false);
   });
 
-  it('makes a location harder to take for the ground, the digging and the garrison', () => {
-    const location = CITY_LOCATIONS.find((p) => p.fortifyDifficulty === 'easy')!;
+  it('makes a location harder to take for the ground and the garrison', () => {
+    const location = CITY_LOCATIONS[0]!;
     const bare = locationDefense(location, control(location.id));
-    const dug = locationDefense(
-      location,
-      control(location.id, { fortification: FORTIFY_MAX_LEVEL }),
-    );
     const held = locationDefense(location, control(location.id, { garrison: { razors: 20 } }));
 
     expect(bare).toBe(LOCATION_CATALOG[location.kind].baseDefense);
-    expect(dug).toBeGreaterThan(bare);
     expect(held).toBeGreaterThan(bare);
     expect(garrisonSize(control(location.id, { garrison: { razors: 3, ghosts: 2 } }))).toBe(5);
   });
@@ -682,16 +603,11 @@ describe('NPC garrisons (§A3, §A4)', () => {
     };
     // The Docks: conscripts only, and the lightest gate in the game.
     expect(faces('neon-docks')).toEqual(['civic_levy']);
-    expect(faces('rustyard')).toEqual(['civic_levy', 'greycoat']);
+    expect(faces('steelbelt')).toEqual(['civic_levy', 'greycoat']);
     expect(faces('glasshouse-fields')).toEqual(['civic_levy', 'greycoat']);
-    expect(faces('datavault-sigma')).toEqual(['greycoat', 'street_enforcers', 'syndic']);
-    expect(faces('blacksite-7')).toEqual(['executioner', 'street_enforcers', 'suppressor']);
-    expect(faces('combine-spire')).toEqual([
-      'directive_xero',
-      'greycoat',
-      'street_enforcers',
-      'suppressor',
-    ]);
+    expect(faces('annexes')).toEqual(['greycoat', 'street_enforcers', 'syndic']);
+    expect(faces('blacksite')).toEqual(['executioner', 'street_enforcers', 'suppressor']);
+    expect(faces('ccs')).toEqual(['directive_xero', 'greycoat', 'street_enforcers', 'suppressor']);
   });
 
   it('stands each leader on his own plot, once, and nowhere else', () => {
@@ -799,7 +715,7 @@ describe("the city's geography", () => {
 
   /** The seat of the Combine looks down the middle of the frame. */
   it('puts the Combine Spire at the top, centred', () => {
-    const spire = byId('combine-spire');
+    const spire = byId('ccs');
     expect(spire.position.y).toBe(Math.min(...CITY_DISTRICTS.map((d) => d.position.y)));
     expect(Math.abs(spire.position.x - 0.5)).toBeLessThan(0.12);
   });
@@ -910,7 +826,7 @@ describe('a plot is called after you, or numbered', () => {
 
   /** Contested ground has a name of its own and a crew never gets to overwrite it. */
   it('never lets a crew rename ground that is only being held', () => {
-    const viewer = { ownDistrictId: 'rustyard', ownName: 'EterosEgw' };
+    const viewer = { ownDistrictId: 'steelbelt', ownName: 'EterosEgw' };
     for (const district of contested) {
       expect(districtDisplayName(district, viewer), district.id).toBe(district.name);
     }

@@ -1379,13 +1379,13 @@ Ids match `District.id` in `@frontline/shared`.
 | `district-neon-docks`        | Neon Docks        | contested   | `120001` |
 | `district-ashen-terraces`    | Player District   | residential | `120002` |
 | `district-kettle-row`        | Player District   | residential | `120003` |
-| `district-rustyard`          | Steelbelt         | contested   | `120004` |
+| `district-steelbelt`         | Steelbelt         | contested   | `120004` |
 | `district-chrome-row`        | Chrome Row        | contested   | `120005` |
 | `district-undergrid`         | The Undergrid     | contested   | `120006` |
-| `district-datavault-sigma`   | The Annexes       | contested   | `120007` |
+| `district-annexes`           | The Annexes       | contested   | `120007` |
 | `district-glasshouse-fields` | Glasshouse Fields | contested   | `120008` |
-| `district-blacksite-7`       | Blacksite         | contested   | `120009` |
-| `district-combine-spire`     | CCS               | contested   | `120010` |
+| `district-blacksite`         | Blacksite         | contested   | `120009` |
+| `district-ccs`               | CCS               | contested   | `120010` |
 | `district-upper-roofs`       | Player District   | residential | `120011` |
 | `district-south-quay`        | Player District   | residential | `120012` |
 
@@ -1421,7 +1421,7 @@ door standing open. Warm #f59e0b sodium led, the cyan key arriving only down the
 cut.
 ```
 
-### 2.4 `district-rustyard`: contested, difficulty 2
+### 2.4 `district-steelbelt`: contested, difficulty 2
 
 ```
 SUBJECT: A ship-breaking yard of beached hulls half-dismantled in orange mud, ribs of vessels
@@ -1451,7 +1451,7 @@ coolant seams and inspection ports, with the cyan key entering as a single dista
 grate far above. Catwalks at three levels. Oppressive, immense, wet, humming.
 ```
 
-### 2.7 `district-datavault-sigma`: contested, difficulty 6
+### 2.7 `district-annexes`: contested, difficulty 6
 
 ```
 SUBJECT: A windowless black monolith of a data fortress, its face broken only by cooling louvres
@@ -1471,7 +1471,7 @@ leaking into rust runs. A collapsed section reveals the city drop below. Overgro
 strangely serene.
 ```
 
-### 2.9 `district-blacksite-7`: contested, difficulty 8
+### 2.9 `district-blacksite`: contested, difficulty 8
 
 ```
 SUBJECT: A hardened military compound sunk into a bomb crater: sloped ferrocrete revetments,
@@ -1481,7 +1481,7 @@ no windows, no invitation. Searchlight beams sweeping the crater walls. The mage
 saturated colour in frame and it reads as a warning.
 ```
 
-### 2.10 `district-combine-spire`: contested, difficulty 10
+### 2.10 `district-ccs`: contested, difficulty 10
 
 ```
 SUBJECT: The single tallest structure in the city: a corporate megaspire punching through the
@@ -1514,7 +1514,7 @@ the market audible one arch away. Three figures under an awning, out of the rain
 
 ---
 
-## 3. Map plates and parallax planes: 13 assets
+## 3. Map plates and parallax planes: 19 assets
 
 **Class framing:**
 
@@ -1534,14 +1534,19 @@ and the readable action sits on top of it.
 | `plate-district`                   | `130006` | opaque                  |
 | `plate-bar`                        | `130007` | opaque                  |
 | `plate-district-neon-docks`        | `130008` | opaque                  |
-| `plate-district-rustyard`          | `130009` | opaque                  |
+| `plate-district-steelbelt`         | `130009` | opaque                  |
 | `plate-district-chrome-row`        | `130010` | opaque                  |
 | `plate-faction-room`               | `130011` | opaque                  |
 | `plate-district-undergrid`         | `130012` | opaque                  |
-| `plate-district-datavault-sigma`   | `130013` | opaque                  |
+| `plate-district-annexes`           | `130013` | opaque                  |
 | `plate-district-glasshouse-fields` | `130014` | opaque                  |
-| `plate-district-blacksite-7`       | `130015` | opaque                  |
-| `plate-district-combine-spire`     | `130016` | opaque                  |
+| `plate-district-blacksite`         | `130015` | opaque                  |
+| `plate-district-ccs`               | `130016` | opaque                  |
+| `plate-district-coldwater-halt`    | `130017` | opaque                  |
+| `plate-city-terminus`              | `130018` | opaque                  |
+| `plate-district-ironmouth`         | `130019` | opaque                  |
+| `plate-district-marshalling-yards` | `130020` | opaque                  |
+| `plate-district-bonded-row`        | `130021` | opaque                  |
 
 ### 3.1 `plate-city`: the map base plate (plane 2)
 
@@ -1649,7 +1654,7 @@ middle range, cold reflected light off standing water, small sodium lamps at hea
 signage is part of the street; nothing that reads as a label for a game object.
 ```
 
-### 3.9 `plate-district-rustyard`: the Steelbelt, walked into (§A4)
+### 3.9 `plate-district-steelbelt`: the Steelbelt, walked into (§A4)
 
 ```
 SUBJECT: The Steelbelt from above and slightly forward, same camera, no sky: a working yard of press houses
@@ -1710,7 +1715,7 @@ the street; nothing that reads as a label for a game object.
 
 ---
 
-### 3.13 `plate-district-datavault-sigma`: The Annexes, walked into (§A4)
+### 3.13 `plate-district-annexes`: The Annexes, walked into (§A4)
 
 ```
 SUBJECT: The Annexes from above and slightly forward, the same camera as the other contested plates and **no sky**: a fogged faculty quarter of wet stone under cold grey-green light. Eight places a player can stand, each recognisable at a glance: a satellite dish bolted to the roof of a stone faculty building at upper left, a glass-fronted hall lit green from inside next along, a copper-domed observatory with a brass orrery turning under the dome at top centre, a foundry of smokestacks and teal cooling tanks at upper right, a scaffolded half-built tower under a yellow crane at the right, a mansion roofed with a thicket of antenna spikes in the centre, a huge columned faculty building with grand steps at the left, and a stone gate between two towers closing the bottom edge. Fog between the roofs, standing water on the flagstones, lit windows the only warm notes. Painted signage is part of the street; nothing that reads as a label for a game object.
@@ -1735,7 +1740,7 @@ reads as a label for a game object.
 
 ---
 
-### 3.15 `plate-district-blacksite-7`: The Blacksite, walked into (§A4)
+### 3.15 `plate-district-blacksite`: The Blacksite, walked into (§A4)
 
 ```
 SUBJECT: The Blacksite from above and slightly forward, the same camera as the other contested
@@ -1750,7 +1755,7 @@ concrete, the searchlight the only cold note. Painted signage is part of the str
 reads as a label for a game object.
 ```
 
-### 3.16 `plate-district-combine-spire`: The CCS, walked into (§A4)
+### 3.16 `plate-district-ccs`: The CCS, walked into (§A4)
 
 ```
 SUBJECT: The CCS from above and slightly forward, the same camera as the other contested plates and
@@ -1763,6 +1768,91 @@ paved plaza at the centre, a squat armoury block behind the walls at lower right
 over an unfinished wing at the far right, and a barricaded gatehouse in the outer wall at the bottom
 centre. Warm gold light in every window against cold blue stone, smoke over the city beyond. Painted
 signage is part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.17 `plate-district-coldwater-halt`: Coldwater Halt, walked into (§A4)
+
+```
+SUBJECT: Coldwater Halt from above and slightly forward, the same camera as the other contested
+plates and **no sky**: a gated frontier rail town on the flats at the end of a timber trestle, wet
+stone and duckboard under a cold dusk. Seven places a player can stand, each recognisable at a
+glance: a long covered platform with a pitched canopy along the top left, an arcade of stone arches
+turned market with striped awnings and stalls under it at the left, a stone gatehouse in the middle
+of the frame with a barred iron gate and red signal lamps burning on either side of it, a cookhouse
+row of open-fronted sheds with fires and trestle tables in the lower middle, a fuelling stand of
+tanks and hose gantries on the lower left quay, a camp of canvas tents on the high ground at the
+upper right, and a lattice signal tower with a lit cabin and a red lamp at the far right. A timber
+trestle bridge carries a steam train over the water across the right of the frame. Warm lamplight on
+wet timber against cold green water, emissives small and at head height. Painted signage is part of
+the street; nothing that reads as a label for a game object.
+```
+
+### 3.18 `plate-city-terminus`: the Terminus map (§A4)
+
+```
+SUBJECT: Terminus whole, from above and at an angle, the second city's answer to the Ashfall aerial
+and the screen a player opens the city on: a night rail city stacked along one line, seen across the
+whole frame with no horizon and only a band of smog sky at the very top. A great brick viaduct of
+lit arches runs from the left edge down across the middle to the lower right, each arch bricked up
+into a workshop, a bar or a dwelling, and a river gorge with waterfalls cuts under it. A glass-roofed
+station shed stands upper left of centre with its concourse in front of it; a walled stone garrison
+with a barred gate and red banners holds the upper right, masts and a dish on the rock above it;
+marshalling sidings, wagons, a turning loop and standing locomotives fill the right; terraced
+housing, a spired chapel and a lit street market fill the lower left. Roughly twelve distinguishable
+quarters across the frame, separated by the line, the gorge and the walls, with quiet clearings
+between them for tags to sit in. Value kept in the middle range (#1e293b to #55617e), warm sodium
+windows against cold blue stone. Keep the outer eight percent of the frame quiet. Painted signage is
+part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.19 `plate-district-ironmouth`: Ironmouth, walked into (§A4)
+
+```
+SUBJECT: Ironmouth from above and slightly forward, the same camera as the other contested plates
+and **no sky**: a tunnel mouth cut into a ridge, with a town built on the rock terraces either side
+of it, wet stone and iron stairs under a cold dusk. Seven places a player can stand, each
+recognisable at a glance: a great arched tunnel portal closed by a red barred gate with signal lamps
+burning beside it at top centre, a covered platform with a steam train standing at it in the middle
+of the frame and track running down to the bottom edge, a row of bricked-up brick arches lived in
+with lit windows and washing strung across them at the right, a chapel with a lit stained glass
+window on the terrace above them at top right, a chemical works of green-lit vats and tanks under
+steam at the left, tall ventilation stacks and pipework at the far left, a spoil tip with a conveyor
+and a grab crane on the terrace at top left, and a row of small lit shopfronts at the lower right.
+Warm lamplight on wet rock against cold green chemical light, smoke off every stack, emissives small
+and at head height. Painted signage is part of the street; nothing that reads as a label for a game
+object.
+```
+
+### 3.20 `plate-district-marshalling-yards`: The Marshalling Yards, walked into (§A4)
+
+```
+SUBJECT: The Marshalling Yards from above and slightly forward, the same camera as the other contested plates
+and **no sky**: sixty miles of siding seen across the whole frame at night, wet steel and soot under
+a cold blue dusk. Seven places a player can stand, each recognisable at a glance: a fan of sorting
+sidings full of parked wagons with a hump and its gantry across the top left and centre, a lattice
+signal box with a lit teal cabin standing over the throat of the yard at the centre right, an arched
+train shed with lit platforms and a stopped train at the right, a coaling stage of black bunkers and
+fuel tanks along the left edge, a wagon breaker's floor of stripped bogies, wheelsets and cut frames
+in the lower left, a lit mess room of awnings and trestle tables full of people in the lower middle,
+and a running shed with open doors and furnaces burning orange at the upper right. Warm furnace and
+lamplight against cold blue steel, steam off every stack, emissives small and at head height.
+Painted signage is part of the street; nothing that reads as a label for a game object.
+```
+
+### 3.21 `plate-district-bonded-row`: Bonded Row, walked into (§A4)
+
+```
+SUBJECT: Bonded Row from above and slightly forward, the same camera as the other contested plates and **no
+sky**: a bonded warehouse quarter at night, crates stacked to the roofline on wet concrete under red
+and violet light. Eight places a player can stand, each recognisable at a glance: a gantry crane
+lifting a crate over a stacked yard at the upper left, a long covered market shed of lit trestles
+and stalls running across the top left and centre, a two-storey brick office with lit windows
+standing alone in the middle of the frame, a goods platform under a great timber shed with a
+standing train at the upper right, an open-fronted shed of hanging carcasses and cutting tables at
+the right, a fenced run of kennels with dogs and handlers in the lower left, a roped ring of crates
+with a crowd around two fighters in the lower middle, and a violet-lit clinic of curtained bays and
+steel trolleys at the lower right. Hot red and cold violet on wet concrete, emissives small and at
+head height. Painted signage is part of the street; nothing that reads as a label for a game object.
 ```
 
 ---
@@ -1898,54 +1988,55 @@ central seventy percent. Consistent implied light from upper-left across the who
 
 One marker per _kind_ of place, not per place: thirty-one places share twenty kinds, and a player reads the kind off the map.
 
-| Key                                   | Seed     | Subject                                                                                                                                                                                           |
-| ------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `icon-location-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                                                               |
-| `icon-location-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                                                                     |
-| `icon-location-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                                                                           |
-| `icon-location-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                                                                             |
-| `icon-location-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                                                                     |
-| `icon-location-gas-station`           | `160036` | `SUBJECT: A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm #f59e0b spill reading as fuel on the apron.`                                                 |
-| `icon-location-nuclear-plant`         | `160037` | `SUBJECT: Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in the reactor block.`                                                                         |
-| `icon-location-soup-kitchen`          | `160038` | `SUBJECT: A long trestle table seen from above with two steaming vats at one end and a queue of small marks along it, warm #f59e0b light.`                                                        |
-| `icon-location-refugee-camp`          | `160039` | `SUBJECT: A cluster of lean-to shelters against a chain-link fence seen from above, tarpaulins in muted #94a3b8, two small cook fires in warm #f59e0b.`                                           |
-| `icon-location-market`                | `160040` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                                                                          |
-| `icon-location-downtown-market`       | `160041` | `SUBJECT: An exchange floor seen from above, a ring of desks around an open pit with a price board on the far wall in #22d3ee.`                                                                   |
-| `icon-location-pawn-shop`             | `160042` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                                                                       |
-| `icon-location-bone-market`           | `160043` | `SUBJECT: A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.`                                                                                            |
-| `icon-location-revolutionist-statue`  | `160044` | `SUBJECT: A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm #f59e0b rim light down one side.`                                                             |
-| `icon-location-high-ground`           | `160045` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                                                                             |
-| `icon-location-barricade`             | `160046` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                                                                       |
-| `icon-location-watchtower`            | `160047` | `SUBJECT: A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.`                                                                                                 |
-| `icon-location-sewer-junction`        | `160048` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`                                                          |
-| `icon-location-smugglers-tunnel`      | `160049` | `SUBJECT: A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in deep #0b1020.`                                                                            |
-| `icon-location-armory`                | `160050` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`                                                            |
-| `icon-location-war-machine-graveyard` | `160051` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                                                                            |
-| `icon-location-construction-site`     | `160052` | `SUBJECT: A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b hazard marks on the base.`                                                                    |
-| `icon-location-fight-pit`             | `160053` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                                                                   |
-| `icon-location-gym`                   | `160054` | `SUBJECT: A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn #cbd5e1 iron.`                                                                                     |
-| `icon-location-doghouse`              | `160055` | `SUBJECT: A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment light at one door.`                                                                          |
-| `icon-location-rail-yard`             | `160056` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                                                                |
-| `icon-location-tram-depot`            | `160057` | `SUBJECT: A depot shed with three parallel roads running into it, one tram nose showing, overhead line in cold #22d3ee.`                                                                          |
-| `icon-location-university`            | `160058` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                                                                    |
-| `icon-location-planetarium`           | `160059` | `SUBJECT: A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light escaping.`                                                                                  |
-| `icon-location-satellite-uplink`      | `160060` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                                                                             |
-| `icon-location-broadcast-tower`       | `160061` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                                                                            |
-| `icon-location-broadcast-station`     | `160062` | `SUBJECT: A studio console seen from above with two microphone booms and a lit ON AIR panel in #e11d8f.`                                                                                          |
-| `icon-location-pirate-radio`          | `160063` | `SUBJECT: A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a single #e11d8f indicator.`                                                                   |
-| `icon-location-gene-clinic`           | `160064` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                                                                      |
-| `icon-location-hospital`              | `160065` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                                                              |
-| `icon-location-black-clinic`          | `160066` | `SUBJECT: A steel trolley with a locked cabinet above it and three syringes laid in a row, cold #22d3ee lamp overhead.`                                                                           |
-| `icon-location-mad-scientist-lair`    | `160067` | `SUBJECT: A cylindrical specimen tank with cabling running to an operating table beside it, sick #86e6a8 light inside the tank.`                                                                  |
-| `icon-location-tavern`                | `160068` | `SUBJECT: A long bar seen three-quarter from above with four stools and hanging glasses, warm #f59e0b light pooling on it.`                                                                       |
-| `icon-location-cinema`                | `160069` | `SUBJECT: A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.`                                                                                            |
-| `icon-location-arcade`                | `160070` | `SUBJECT: Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and #22d3ee glow.`                                                                                   |
-| `icon-location-skate-ground`          | `160071` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.`                                               |
-| `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                                                              |
-| `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`                                                         |
-| `icon-location-revolutionary-statue`  | `160074` | `SUBJECT: A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from above, cold #22d3ee floodlight up the front.`                                               |
-| `icon-location-glasshouse`            | `160075` | `SUBJECT: A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one grow-lamp inside reading warm #f59e0b.`                                                     |
-| `icon-location-combine-chapel`        | `160076` | `SUBJECT: A steel-and-glass chapel at the top of a tower seen three-quarter from above, a long table under a vaulted roof where the pews would be, one cold #22d3ee light down the length of it.` |
+| Key                                   | Seed     | Subject                                                                                                                                                                                                     |
+| ------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icon-location-scrap-press`           | `160031` | `SUBJECT: A baling press seen from above with a squared bale on the outfeed and a scatter of loose swarf, warm #f59e0b rust tones.`                                                                         |
+| `icon-location-chemical-plant`        | `160032` | `SUBJECT: Three cracking towers of descending height joined by a pipe run, one venting a pale #86e6a8 plume.`                                                                                               |
+| `icon-location-power-station`         | `160033` | `SUBJECT: A transformer bank of four ribbed cylinders behind a mesh fence, cold #22d3ee arc light between two of them.`                                                                                     |
+| `icon-location-water-works`           | `160034` | `SUBJECT: Two circular settling beds seen from above with a radial sweep arm on each, water reading as flat #12a2bd.`                                                                                       |
+| `icon-location-foundry`               | `160035` | `SUBJECT: A cupola furnace with a tapping spout, the pour glowing #ffd166 across the floor plate beneath it.`                                                                                               |
+| `icon-location-gas-station`           | `160036` | `SUBJECT: A forecourt canopy seen from above on four thin posts, two pump islands beneath it, a warm #f59e0b spill reading as fuel on the apron.`                                                           |
+| `icon-location-nuclear-plant`         | `160037` | `SUBJECT: Two hyperboloid cooling towers with a low turbine hall between them, a cold #86e6a8 glow in the reactor block.`                                                                                   |
+| `icon-location-soup-kitchen`          | `160038` | `SUBJECT: A long trestle table seen from above with two steaming vats at one end and a queue of small marks along it, warm #f59e0b light.`                                                                  |
+| `icon-location-refugee-camp`          | `160039` | `SUBJECT: A cluster of lean-to shelters against a chain-link fence seen from above, tarpaulins in muted #94a3b8, two small cook fires in warm #f59e0b.`                                                     |
+| `icon-location-market`                | `160040` | `SUBJECT: A cluster of three market awnings seen from above, tarpaulins sagging, a single warm lamp point between them.`                                                                                    |
+| `icon-location-downtown-market`       | `160041` | `SUBJECT: An exchange floor seen from above, a ring of desks around an open pit with a price board on the far wall in #22d3ee.`                                                                             |
+| `icon-location-pawn-shop`             | `160042` | `SUBJECT: A barred serving hatch in a blank wall with three hanging balls above it, one warm #f59e0b lamp inside the bars.`                                                                                 |
+| `icon-location-bone-market`           | `160043` | `SUBJECT: A row of low stalls under a bare frame, pale #cbd5e1 sorted remains laid out on the boards.`                                                                                                      |
+| `icon-location-revolutionist-statue`  | `160044` | `SUBJECT: A bronze figure on a tall plinth with one arm raised, seen three-quarter from above, warm #f59e0b rim light down one side.`                                                                       |
+| `icon-location-high-ground`           | `160045` | `SUBJECT: A water tower on lattice legs above a rooftop parapet, seen at a low angle, cold rim light along the tank.`                                                                                       |
+| `icon-location-barricade`             | `160046` | `SUBJECT: A staggered line of sea containers and rubble with rebar teeth, seen from above, one narrow gap left through it.`                                                                                 |
+| `icon-location-watchtower`            | `160047` | `SUBJECT: A lattice mast with a small glazed cabin at the top, a cold #22d3ee lamp in the cabin.`                                                                                                           |
+| `icon-location-sewer-junction`        | `160048` | `SUBJECT: A brick chamber where six storm drains meet, seen from above, standing water reading as dark #12a2bd with one shaft of light.`                                                                    |
+| `icon-location-smugglers-tunnel`      | `160049` | `SUBJECT: A timbered tunnel mouth cut into a retaining wall, rails running out of it, unlit interior in deep #0b1020.`                                                                                      |
+| `icon-location-armory`                | `160050` | `SUBJECT: A heavy vault door standing ajar in a blank concrete face, weapon racks visible as silhouettes in the #f59e0b light beyond.`                                                                      |
+| `icon-location-war-machine-graveyard` | `160051` | `SUBJECT: Three dead armoured hulls half sunk in mud, tracks shed, one turret canted skyward, cold smog between them.`                                                                                      |
+| `icon-location-construction-site`     | `160052` | `SUBJECT: A tower crane over a poured concrete raft with rebar stubs, seen from above, warm #f59e0b hazard marks on the base.`                                                                              |
+| `icon-location-fight-pit`             | `160053` | `SUBJECT: A sunken circular ring seen from above with a standing crowd ringing it, warm #f59e0b lamps on poles around the rim.`                                                                             |
+| `icon-location-gym`                   | `160054` | `SUBJECT: A barbell on a rack with two stacked plate trees beside it, seen three-quarter, worn #cbd5e1 iron.`                                                                                               |
+| `icon-location-doghouse`              | `160055` | `SUBJECT: A row of three kennels under a low roof with a wire run in front, a single #22d3ee augment light at one door.`                                                                                    |
+| `icon-location-rail-yard`             | `160056` | `SUBJECT: Converging sidings around a turntable seen from above, two flatbeds parked off-centre, cold light along the rail heads.`                                                                          |
+| `icon-location-tram-depot`            | `160057` | `SUBJECT: A depot shed with three parallel roads running into it, one tram nose showing, overhead line in cold #22d3ee.`                                                                                    |
+| `icon-location-university`            | `160058` | `SUBJECT: A colonnaded facade with a broken pediment, one lit window in an upper storey, cyan #22d3ee light behind the glass.`                                                                              |
+| `icon-location-planetarium`           | `160059` | `SUBJECT: A ribbed dome with a slit at the apex, a projector silhouette inside it, cold #22d3ee light escaping.`                                                                                            |
+| `icon-location-satellite-uplink`      | `160060` | `SUBJECT: A parabolic dish on a guyed mast, hand-aligned and slightly off true, cold #7ff0ff light at the feed horn.`                                                                                       |
+| `icon-location-broadcast-tower`       | `160061` | `SUBJECT: A lattice transmitter mast with three stacked dipole arrays, a single #e11d8f obstruction light at the top.`                                                                                      |
+| `icon-location-broadcast-station`     | `160062` | `SUBJECT: A studio console seen from above with two microphone booms and a lit ON AIR panel in #e11d8f.`                                                                                                    |
+| `icon-location-pirate-radio`          | `160063` | `SUBJECT: A wire aerial strung between two rooftop poles with a small transmitter case beneath it, a single #e11d8f indicator.`                                                                             |
+| `icon-location-gene-clinic`           | `160064` | `SUBJECT: A sealed theatre door with a porthole and a cold-storage cabinet beside it, sterile white light through the port.`                                                                                |
+| `icon-location-hospital`              | `160065` | `SUBJECT: A four-bay ambulance canopy with a repainted cross panel above it, warm light spilling from the entrance.`                                                                                        |
+| `icon-location-black-clinic`          | `160066` | `SUBJECT: A steel trolley with a locked cabinet above it and three syringes laid in a row, cold #22d3ee lamp overhead.`                                                                                     |
+| `icon-location-mad-scientist-lair`    | `160067` | `SUBJECT: A cylindrical specimen tank with cabling running to an operating table beside it, sick #86e6a8 light inside the tank.`                                                                            |
+| `icon-location-tavern`                | `160068` | `SUBJECT: A long bar seen three-quarter from above with four stools and hanging glasses, warm #f59e0b light pooling on it.`                                                                                 |
+| `icon-location-cinema`                | `160069` | `SUBJECT: A projector on a stand throwing a cone of pale #cbd5e1 light towards a small bright screen.`                                                                                                      |
+| `icon-location-arcade`                | `160070` | `SUBJECT: Three upright cabinets side by side seen three-quarter, screens reading as #e11d8f and #22d3ee glow.`                                                                                             |
+| `icon-location-skate-ground`          | `160071` | `SUBJECT: A drained reservoir bowl seen from above, its curved transitions marked with tyre and board scuffs, one graffiti sweep across the floor.`                                                         |
+| `icon-location-chapel`                | `160072` | `SUBJECT: A small pitched roof with a bell in an open cote at the gable, warm #f59e0b light from one narrow window.`                                                                                        |
+| `icon-location-graveyard`             | `160073` | `SUBJECT: Six headstones in two staggered rows on a terraced slope seen from above, cold #94a3b8 stone, one lamp at the gate in #f59e0b.`                                                                   |
+| `icon-location-revolutionary-statue`  | `160074` | `SUBJECT: A long-coated figure, one fist raised, on a plinth in a paved plaza seen three-quarter from above, cold #22d3ee floodlight up the front.`                                                         |
+| `icon-location-glasshouse`            | `160075` | `SUBJECT: A gabled glass house seen from above, beds of #86e6a8 growth showing through the panes, one grow-lamp inside reading warm #f59e0b.`                                                               |
+| `icon-location-combine-chapel`        | `160076` | `SUBJECT: A steel-and-glass chapel at the top of a tower seen three-quarter from above, a long table under a vaulted roof where the pews would be, one cold #22d3ee light down the length of it.`           |
+| `icon-location-rail-station`          | `160077` | `SUBJECT: A single railway platform seen three-quarter from above, a canopy on iron columns over half its length, a running-in board at the near end and a warm #f59e0b lamp burning over the empty track.` |
 
 ### 6.5 Garage machines: ids match `VehicleId`
 

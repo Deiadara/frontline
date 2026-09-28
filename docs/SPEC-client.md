@@ -18,6 +18,14 @@ Implement the existing `apiFetch(path, schema, init?)` stub:
   body must throw, never leak unvalidated data into the app.
 - non-2xx → parse with `ApiErrorSchema` and throw a typed `ApiRequestError {status, code,
 message}`; on `401` also clear the session (logout).
+- **The waste warning** (maintainer, 2026-09-28): every endpoint that can credit more than the
+  stores hold (barter, supply, accept and withdraw an offer, claim, and the five cancels) goes
+  through `mindingWaste`. A `409 WOULD_WASTE` puts the server's figure (`waste` in the envelope) to
+  the player through `askToWaste` and the one `WasteConfirmLayer` mounted at the root ("This would
+  put you over your storage: 120 Scrap would go to waste. Go ahead?"); a yes resends the same
+  request with `acceptWaste: true`, a no rejects with `WASTE_DECLINED` and an empty message, which
+  `ErrorNote` draws as nothing. A feat claim keeps its own `WasteDialog`, because it can also lose
+  units.
 - On top of `apiFetch`, export one thin function per endpoint in `docs/SPEC-server.md`
   (`register`, `login`, `getMe`, `createOverseer`, `getCity`, `getBase`, `attack`), each using
   the matching shared request/response schema.
@@ -92,6 +100,13 @@ The Market is three tabs of one place: the Runner, the Broker and the supply run
 `/game/market/black`. The board is a page of its own rather than a panel on the front, because a
 listing is two piles of goods and a verdict on them, which does not read in a shared column.
 
+On the board, **Your Offers** opens with what the board is holding for the crew (`claims` on
+`GET /market`, maintainer 2026-09-28): a listing somebody took keeps its card with Claim where
+Withdraw was, naming who took it, what the crew handed over and what it gets; a listing that ran
+out, or a counter whose listing closed, says so and shows the one pile coming back. Each card counts
+down its 24 hours (`ClaimCard`). Claim goes through the same waste question as every other credit
+(`POST /market/claim`); after the 24 hours the server pays it anyway and the overflow is lost.
+
 The front of the market fits one frame (`PageShell fills`, maintainer 2026-09-08): the tab strip with
 the Runner's hours as its standing note on the right, a tape of the street's figures
 (`.market-ticker`, hidden under 800px tall), then two columns, the Runner over the supply run and
@@ -104,7 +119,10 @@ the barrow is a lot (`market/auction.ts`): the card carries the leading bid on a
 edge is the reader's standing, and its button reads Bid, Raise or Your table. The button opens
 `VendorAuctionWindow`, the Bar's bidding screen without the sealed phase: the lot on the left, the
 standing figure, one bid control floored at the price with the server as the authority on the
-step, and every bid on the table. `POST /market/bid` answers with the whole board.
+step, and every bid on the table. `POST /market/bid` answers with the whole board. The Broker
+says under his button how much of what he would hand over will not fit on the shelf, and leaves
+the button live: the till asks again before anything is thrown away. The supply run still offers no
+more than the shelf has room for.
 
 ## Screens
 
@@ -115,8 +133,12 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    below; placeholder gradient keyed to `portraitId` is fine), name, archetype tag, bio, and the
    34 attributes as a grouped 0..100 sheet PLUS a compact FM-style radar/spider (SVG is fine:
    one vertex per `ATTRIBUTE_GROUPS` entry, plotting the group's peak rating). Traits are shown
-   as named badges. Selecting a card → confirm button → `POST /api/overseer`
-   → navigate to `/game`.
+   as named badges. Selecting a card → confirm button → **choose a city**, on the same route: the
+   wall of city paintings `CitiesView` draws for the world screen, in `choosing` mode. Pressing a
+   card selects it rather than entering that city, and `Choose this city` sends
+   `POST /api/overseer` with `{presetId, cityId}` → navigate to `/game`. Which cities may be
+   picked comes from `cities` on `GET /api/overseer/choices`: a city with no map and a city whose
+   four plots are taken are both drawn, unpressable, with a line saying which it is.
 3. **Game shell** (`/game`): **the world is the page.** A fixed viewport with the routed screen
    filling it edge to edge and the chrome floating over the top, rather than a header over a
    sidebar-plus-content grid. The old frame spent a column and a header band of every screen on
@@ -182,7 +204,10 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      a cross, and a line saying where to go. Ready: how long the party would be gone, and Send
      Scouts. A party on the road here: the countdown and the X to turn them round. A party out
      elsewhere: where, and the countdown. A link straight to `/game/city/:id` for unscouted ground
-     bounces to `/game?scout=<id>`, which the map reads once, strips, and opens the sheet for.
+     bounces to `/game?scout=<id>`, which the map reads once, strips, and opens the sheet for. That
+     bounce is the backstop for a pasted URL and nothing else: the decision is made at click time
+     off the map's own read, which is asked for the city on screen (`useCity(city)`, keyed per
+     city), so a tag in a city the crew does not live in has a summary to read like any other.
    - **All cities**: the world one step back, as state on this screen rather than a route of its
      own (`CitiesView`), reached by a control on the painting. Five cities as a staggered row of
      tall portraits filling the frame, each carrying a name, a nickname and what the place is, and
@@ -238,6 +263,10 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      payroll book, the crew, and **Last night** (`open-results`).
    - **The roster** is unchanged behind the stool: one person at a time, an arrow either side, the
      portrait, the perks, the §H3 doors and the thirty-three-row sheet with the role highlighter.
+     Who sits in which chair is the server's business and the screen does not label it: the first
+     card is pitched at the weakest crew in the city, the sixth at the strongest, the last two are
+     the standouts, and the rest sit around the city's middle (SPEC-server, "Who the room is
+     poured for"). A late city's sheets run past 40, which the radar already scales to.
      Under the dossier each card carries the **auction strip**: a phase badge (`Open` /
      `Sealed: final values only` / `Closed`), a `Leading` or `Outbid` mark, the reader's locked
      value when they have one, the leading bid with who holds it (or the reserve on an untouched
@@ -281,7 +310,7 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      hour in this. Darkness used to be read off the clock and is not any more
      (`battle/battlefield.ts`, `DARK_GROUND_TIER`), so nothing says "after dark".
    - **A coming fight** (`BattlePage`) carries the same row directly under the ground's name, with
-     the frontage, the location's own base defence and anything dug in said in words beside it.
+     the frontage and the location's own base defence said in words beside it.
    - **Hovering a unit inside a fight** (the muster's chips, the ring, the road, and a row in the
      deploy dialog) opens `EffectiveCard`: the seven stats a fight turns on with the sheet's figure,
      the effective figure and the percent change coloured by direction, and under it the `reasons`
@@ -320,31 +349,66 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
    - A unit whose sheet carries `no_ride` never boards. The row that offers it shows a small red
      **walks** note beside its count, and only while something is actually loaded: with an empty
      yard everybody walks and a note on every row says nothing.
+   - **Nothing arrives in an instant** (maintainer, 2026-09-28). The Garrison control on a held
+     location opens the Move dialog (`MoveDialog`, `towards` the location, from home), and the units
+     walk; bringing them home is the same dialog from the location. The instant garrison picker and
+     `POST /city/garrison` are gone.
+   - **The deploy dialog says whether the column makes the mark** (`deploy-arrival`), off the
+     quote's `arrivesAt` and `inTime` rather than its own sum: "Arrives 14:32, before the fight",
+     or, in oxblood, "Arrives 15:10, after the fight. They will not be in it, and walk on to
+     whatever it leaves". A late column can still be sent. The quote is re-asked every fifteen
+     seconds, since its landing time is measured from when it was asked.
+   - **Calling a fight** (`DeclareDialog`) asks for the mark and nothing else. Winners always hold
+     what they take (maintainer, 2026-09-28), so there is no hold choice and none is sent; on a
+     location the dialog says the survivors will garrison it. A fight that is only legal through a
+     breach (a raid, or a location in a shut district) is offered only the marks before the gate
+     comes back up, the same line the server refuses on.
+   - **The battle page shows what is at the place.** Beside the muster (what has landed from
+     columns), `Standing there` draws `muster.standing`: the garrison, the home army or gate
+     garrison, faction postings and faction Sleepers that fight on the caller's side with no
+     deployment. A neutral's units are never on it.
 
 9. **The mission board** (§E3, §E4), and who takes a job out. Every job on the board carries what
-   it leans on (`leanings`), its odds before anybody is considered (`authoredChance`) and, if it
-   is a fight, its tier; the payload also carries `leaders` (the Overseer first, then the officers,
-   each with `held` naming what is holding them, and `heldUntil` the mark they are free at) and
-   `unledRule`, the crew's research on going out with nobody in charge. **No arithmetic on this screen is the screen's own**:
+   it leans on (`leanings`) and the grade it was dealt at (`grade`, F- to S+, maintainer
+   2026-09-28); the payload also carries `leaders` (the Overseer first, then the officers, each
+   with `held` naming what is holding them, and `heldUntil` the mark they are free at). Every run
+   has a leader. **No arithmetic on this screen is the screen's own**:
    `missions.leading.ts` is what the launch is priced with, and the dial reads the same functions.
 
    - **The card** says what the job leans on, as chips off `MISSION_LEANING_LABELS`
      (`A haul`, `Salvage`, `A long road`); each chip's hover is the attributes it reads and how much
-     each matters, nothing else. A fight says its tier instead (`Fight I` to `Fight V`, or `Siege`),
-     in red, with no hover: what a fight actually fields is the job's secret. There is no Standard
+     each matters, nothing else. A fight says its category first (`Skirmish`, `Battle`, `Siege` or
+     `Mayhem`, off the grade's letter), in red, with no hover: what a fight actually fields is the
+     job's secret. The grade is stamped in the brief's bottom right corner (`DifficultyStamp`), a
+     chamfered checkpoint stamp with the grade stencilled under DIFFICULTY and a ruler marking where
+     it sits between F- and S+, inked green for F to D, brass for C and B, red from A. There is no Standard
      or Battle keyword any more (maintainer, 2026-09-23): red is the mark of a fight. The band is a
      fixed height like every other band on the card, so three offers stay comparable line for line.
    - **What a run out is worth.** The In flight panel quotes each crew's haul and XP if it comes
      off, rebuilt from the row (`offerOfMission`). The Monitor's job rows do the same, and a job's
      name there is a hover that shows the card it was taken off (`OfferCard` read-only, no Send);
      a click pins it open so the things on it can be hovered in turn, with a Close.
-   - **The leader picker** in the send window lists everybody with their kind and their fit for
-     _this_ job (`leaderFit(attributes, composeProfile(offer.leanings))` as a percentage). Somebody
+   - **Room in the stores.** The send window quotes whether the stores could take the haul the
+     chosen crew would carry (`Stores take: all of it / part of it`) against the stock held now,
+     and names what would go to waste when some would. A warning, not a refusal: the stock moves
+     before the crew is back. The report and the notification sheet name what did go to waste at
+     the gate (`Mission.wasted`, `WastedAtTheGate`): a loot total and the resources, and in the
+     report's haul each resource row carries its own `N wasted` line.
+   - **The leader picker** in the send window lists everybody with their kind and their grade for
+     _this_ job (`leaderMark(attributes, composeProfile(offer.leanings))`), and opens with the most
+     suitable free leader picked. **A fight is different** (maintainer, 2026-09-28): a fight leans
+     on the fight alone, and its bench is rated by fighting it. The window posts the force it is
+     filling to `POST /api/missions/leaders/quote` (`useFightLeaderQuote`, re-asked as the party
+     changes) and each row reads `wins 4 of 6 practice fights`; the pick follows the best rated
+     free leader until the player chooses by hand, and the dial's band is the share of practice
+     fights the picked leader won (`fightBand`), the force against the grade's figure until the
+     answer lands. Somebody
      who is held is drawn dimmed, cannot be picked, and carries the reason in the server's own
-     words off `LEADER_HOLD_LABELS`: `out leading a run`, `at a fight`, `out scouting`, `laid up`.
-     Where `heldUntil` is set the row counts down to it (`out scouting, back in 1h 35m`), so a
-     player deciding whether to wait can see the wait; a fight has no such mark until it settles
-     and the row says only what it is. Beside it, **Use the most suitable leader for this job**
+     words off `LEADER_HOLD_LABELS`: `out leading a run`, `at a fight`, `laid up`, `on the bench`.
+     Where `heldUntil` is set the row counts down to it (`laid up, back in 1h 35m`), so a
+     player deciding whether to wait can see the wait; a fight has no such mark until it settles,
+     the bench has none because it ends when the officer is seated, and the row says only what it
+     is. Beside it, **Use the most suitable leader for this job**
      takes `bestLeader` over the ones who are free (`held === null`), never over the whole list.
      The launch sends `leaderId`, and the server refuses a held leader in the same words the row
      was dimmed with.
@@ -352,21 +416,20 @@ step, and every bid on the table. `POST /market/bid` answers with the whole boar
      brass-bezelled speedometer: five arcs of twenty points, red through blue, tick marks at each
      band edge, a needle that travels to the chance and the figure struck in the well in the
      colour of the band it is in. It reads
-     `missionOdds({ authored, leader, profile, unled })`, so it moves as the player picks. The
+     `missionOdds({ grade, leader, profile })`, so it moves as the player picks. The
      needle's travel is a transition and it is off under `prefers-reduced-motion`. Whole points is
      the precision it prints and therefore the precision it reads: the chance is rounded once and
      the needle, the band and the figure all take that one number, so two jobs quoting `60%` are
      never struck in two different colours.
    - **A battle shows no number.** Same bezel, four bands, and the band from
-     `battleOdds({ ours: fieldStrength(force), theirs: enemyStrength(tier, level), edge })` named
-     in the well (`BATTLE_ODDS_LABELS`), recomputed as units are picked. The edge is the leader's,
-     or the unled penalty when there is none.
-   - **Going unled**, in the three states `unledRule` leaves it in. `forbidden`: the send button is
-     dead and the window says `Nobody leads this. Research unled runs, or send somebody.`
-     `penalised`: the dial already has `UNLED_PENALTY` off it and a line says so.
-     `free`: nothing is said.
+     `battleOdds({ ours: fieldStrength(force), theirs: enemyStrength(grade), edge })` named
+     in the well (`BATTLE_ODDS_LABELS`), recomputed as units are picked. The edge is the leader's
+     fit on the fight's profile (`leaderEdge`).
+   - **Nobody free to lead**: the send button is dead and the window says `Somebody has to lead
+this.` There is no option to send nobody.
    - **In flight and returned.** Every run names who took it out: the Overseer (`overseerLed`), the
-     officer (`officerId`), or `Nobody leading them`. The Overseer's name comes off the board's own
+     officer (`officerId`); `Nobody leading them` is left only for rows from before every run had a
+     leader (2026-09-28). The Overseer's name comes off the board's own
      `leaders`, which is where the row that needs it arrives from; `/me` is only the fallback, and
      reading it first left every such row saying `The Overseer` until that query landed. A returned
      battle says what came home and
@@ -392,7 +455,7 @@ the words and the words scroll behind a fade rather than a cut.
 `/game/actions/progress` (`features/actions/InProgressPage.tsx`), between Total units and
 Automations (maintainer, 2026-09-23). Every clock running _at home_, on one sheet in the road's own
 row style (`features/actions/rows.tsx`): levels being built, the programme in the Archive, batches
-on the bench (units and vehicles), officers' drills, places being worked up or dug in on ground the
+on the bench (units and vehicles), officers' drills, places being worked up on ground the
 crew holds (one section per held district, read off `/city/:id`), and officers laid up. Each row
 carries where it is, the time left, a progress bar and, inside its first tenth, the X that calls it
 off through the same write the owning page uses. Nothing here is the only copy: the district, the
@@ -425,7 +488,8 @@ Three things about the form are load-bearing and were each a bug first:
   unit row, which is what the mission board's send dialog uses.
 - **Best fit shows nothing.** The size is in unit slots (the beds' and the trucks' currency), with
   1/4, Half and All beside the field. Who goes and who leads are the Right Hand's to pick when the
-  party leaves (`bestFitParty`: most suitable unit first, all of it, then the next, to the slot),
+  party leaves (`bestFitParty`: most suitable unit first, all of it, then the next, to the slot;
+  for a fight "most suitable" is what wins practice fights against the job's grade),
   and the sheet says none of it. The player trusts the chair.
 
 ## Opening tutorial

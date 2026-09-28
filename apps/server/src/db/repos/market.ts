@@ -1,5 +1,12 @@
-import { MarketOfferSchema, type MarketOffer, type OfferStatus } from '@frontline/shared';
+import {
+  MarketClaimSchema,
+  MarketOfferSchema,
+  type MarketClaim,
+  type MarketOffer,
+  type OfferStatus,
+} from '@frontline/shared';
 import { readJson } from '../json.js';
+import type { Statement } from 'better-sqlite3';
 import type { AppDatabase } from '../index.js';
 
 /**
@@ -25,6 +32,21 @@ interface OfferRow {
   directed_at: string | null;
 }
 
+interface ClaimRow {
+  id: string;
+  base_id: string;
+  offer_id: string;
+  reason: string;
+  resources_json: string;
+  items_json: string;
+  taken_by: string | null;
+  created_at: string;
+  claim_until: string;
+}
+
+/** A claim as stored: the crew it is for, beside what the screen is sent. */
+export type StoredClaim = MarketClaim & { baseId: string };
+
 export interface MarketRepo {
   insert(offer: MarketOffer): void;
   findById(id: string): MarketOffer | undefined;
@@ -35,6 +57,18 @@ export interface MarketRepo {
   setStatus(id: string, status: OfferStatus): void;
   /** Counters aimed at a listing, so withdrawing the parent can release theirs too. */
   countersTo(offerId: string): MarketOffer[];
+  /** Holds goods for a crew until it claims them (`MarketClaim`). */
+  insertClaim(claim: StoredClaim): void;
+  findClaim(id: string): StoredClaim | undefined;
+  /** What the board is holding for one crew, soonest to lapse first. */
+  claimsFor(baseId: string): StoredClaim[];
+  /** The ids of claims whose window has closed by `now`, unparsed, for the world clock. */
+  lapsedClaimIds(now: Date): string[];
+  /** The ids of open listings posted at or before `cutoff`, unparsed, for the world clock. */
+  openIdsPostedBy(cutoff: Date): string[];
+  deleteClaim(id: string): void;
+  /** Drops everything held for a crew, paid to nobody: a reset's clean slate. */
+  dropClaimsFor(baseId: string): void;
   /** Units of material this crew has bought with caps today. The whole of the ration's state. */
   supplyUsed(baseId: string, day: string): number;
   /** Adds to it. Upserts, because the first purchase of a day has no row to increment. */
@@ -59,6 +93,37 @@ function rowToOffer(row: OfferRow): MarketOffer {
   });
 }
 
+function rowToClaim(row: ClaimRow, offer: MarketOffer): StoredClaim {
+  return {
+    ...MarketClaimSchema.parse({
+      id: row.id,
+      offer,
+      reason: row.reason,
+      goods: { resources: readJson(row.resources_json), items: readJson(row.items_json) },
+      takenBy: row.taken_by,
+      createdAt: row.created_at,
+      claimUntil: row.claim_until,
+    }),
+    baseId: row.base_id,
+  };
+}
+
+/**
+ * Listings for a board, leaving out any that no longer parse (bug pass, 2026-09-28). A retired
+ * item id in one bundle made every read of the board a 500 for every crew in the city; the rest
+ * of the board is still a board without it, and the world clock reports it (`world/guard.ts`)
+ * when it tries to settle it.
+ */
+function readableOffers(rows: OfferRow[]): MarketOffer[] {
+  return rows.flatMap((row) => {
+    try {
+      return [rowToOffer(row)];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function createMarketRepo(db: AppDatabase): MarketRepo {
   const insertStmt = db.prepare(
     `INSERT INTO market_offers
@@ -74,9 +139,36 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
     "SELECT * FROM market_offers WHERE seller_base_id = ? AND status = 'open'",
   );
   const setStatusStmt = db.prepare('UPDATE market_offers SET status = ? WHERE id = ?');
+  const openPostedByStmt = db.prepare(
+    "SELECT id FROM market_offers WHERE status = 'open' AND created_at <= ? ORDER BY created_at DESC",
+  );
   const countersStmt = db.prepare(
     "SELECT * FROM market_offers WHERE counter_to = ? AND status = 'open'",
   );
+  // Prepared on first use: `market_claims` arrived with 0125, and the repositories are also built
+  // over older schemas by the migration tests.
+  const lazy = (sql: string): (() => Statement) => {
+    let held: Statement | null = null;
+    return () => (held ??= db.prepare(sql));
+  };
+  const insertClaimStmt = lazy(
+    `INSERT INTO market_claims
+       (id, base_id, offer_id, reason, resources_json, items_json, taken_by, created_at, claim_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const claimByIdStmt = lazy('SELECT * FROM market_claims WHERE id = ?');
+  const claimsForStmt = lazy(
+    'SELECT * FROM market_claims WHERE base_id = ? ORDER BY claim_until ASC, id ASC',
+  );
+  const lapsedClaimsStmt = lazy(
+    'SELECT id FROM market_claims WHERE claim_until <= ? ORDER BY claim_until ASC, id ASC',
+  );
+  const deleteClaimStmt = lazy('DELETE FROM market_claims WHERE id = ?');
+  const dropClaimsStmt = lazy('DELETE FROM market_claims WHERE base_id = ?');
+  const withOffer = (row: ClaimRow): StoredClaim[] => {
+    const offer = byIdStmt.get(row.offer_id) as OfferRow | undefined;
+    return offer ? [rowToClaim(row, rowToOffer(offer))] : [];
+  };
   const supplyUsedStmt = db.prepare(
     'SELECT units FROM market_supply_runs WHERE base_id = ? AND day = ?',
   );
@@ -113,16 +205,56 @@ export function createMarketRepo(db: AppDatabase): MarketRepo {
       return row ? rowToOffer(row) : undefined;
     },
     listByStatus(status) {
-      return (byStatusStmt.all(status) as OfferRow[]).map(rowToOffer);
+      return readableOffers(byStatusStmt.all(status) as OfferRow[]);
     },
     openBySeller(baseId) {
-      return (openBySellerStmt.all(baseId) as OfferRow[]).map(rowToOffer);
+      return readableOffers(openBySellerStmt.all(baseId) as OfferRow[]);
     },
     setStatus(id, status) {
       setStatusStmt.run(status, id);
     },
     countersTo(offerId) {
-      return (countersStmt.all(offerId) as OfferRow[]).map(rowToOffer);
+      return readableOffers(countersStmt.all(offerId) as OfferRow[]);
+    },
+    insertClaim(claim) {
+      insertClaimStmt().run(
+        claim.id,
+        claim.baseId,
+        claim.offer.id,
+        claim.reason,
+        JSON.stringify(claim.goods.resources),
+        JSON.stringify(claim.goods.items),
+        claim.takenBy,
+        claim.createdAt,
+        claim.claimUntil,
+      );
+    },
+    findClaim(id) {
+      const row = claimByIdStmt().get(id) as ClaimRow | undefined;
+      return row ? withOffer(row)[0] : undefined;
+    },
+    claimsFor(baseId) {
+      // Skipped rather than thrown for the reason `readableOffers` gives: one bad claim must not
+      // close the market screen. The world clock reports it when it comes to pay it out.
+      return (claimsForStmt().all(baseId) as ClaimRow[]).flatMap((row) => {
+        try {
+          return withOffer(row);
+        } catch {
+          return [];
+        }
+      });
+    },
+    lapsedClaimIds(now) {
+      return (lapsedClaimsStmt().all(now.toISOString()) as { id: string }[]).map((row) => row.id);
+    },
+    openIdsPostedBy(cutoff) {
+      return (openPostedByStmt.all(cutoff.toISOString()) as { id: string }[]).map((row) => row.id);
+    },
+    deleteClaim(id) {
+      deleteClaimStmt().run(id);
+    },
+    dropClaimsFor(baseId) {
+      dropClaimsStmt().run(baseId);
     },
     supplyUsed(baseId, day) {
       const row = supplyUsedStmt.get(baseId, day) as { units: number } | undefined;

@@ -228,13 +228,13 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['district-neon-docks', 'district-neon-docks.webp', 120001],
   ['district-ashen-terraces', 'district-ashen-terraces.webp', 120002],
   ['district-kettle-row', 'district-kettle-row.webp', 120003],
-  ['district-rustyard', 'district-rustyard.webp', 120004],
+  ['district-steelbelt', 'district-steelbelt.webp', 120004],
   ['district-chrome-row', 'district-chrome-row.webp', 120005],
   ['district-undergrid', 'district-undergrid.webp', 120006],
-  ['district-datavault-sigma', 'district-datavault-sigma.webp', 120007],
+  ['district-annexes', 'district-annexes.webp', 120007],
   ['district-glasshouse-fields', 'district-glasshouse-fields.webp', 120008],
-  ['district-blacksite-7', 'district-blacksite-7.webp', 120009],
-  ['district-combine-spire', 'district-combine-spire.webp', 120010],
+  ['district-blacksite', 'district-blacksite.webp', 120009],
+  ['district-ccs', 'district-ccs.webp', 120010],
   ['district-upper-roofs', 'district-upper-roofs.webp', 120011],
   ['district-south-quay', 'district-south-quay.webp', 120012],
   ['plate-city', 'plate-city.webp', 130001],
@@ -245,14 +245,19 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['plate-district', 'plate-district.webp', 130006],
   ['plate-bar', 'plate-bar.webp', 130007],
   ['plate-district-neon-docks', 'plate-district-neon-docks.webp', 130008],
-  ['plate-district-rustyard', 'plate-district-rustyard.webp', 130009],
+  ['plate-district-steelbelt', 'plate-district-steelbelt.webp', 130009],
   ['plate-district-chrome-row', 'plate-district-chrome-row.webp', 130010],
   ['plate-faction-room', 'plate-faction-room.webp', 130011],
   ['plate-district-undergrid', 'plate-district-undergrid.webp', 130012],
-  ['plate-district-datavault-sigma', 'plate-district-datavault-sigma.webp', 130013],
+  ['plate-district-annexes', 'plate-district-annexes.webp', 130013],
   ['plate-district-glasshouse-fields', 'plate-district-glasshouse-fields.webp', 130014],
-  ['plate-district-blacksite-7', 'plate-district-blacksite-7.webp', 130015],
-  ['plate-district-combine-spire', 'plate-district-combine-spire.webp', 130016],
+  ['plate-district-blacksite', 'plate-district-blacksite.webp', 130015],
+  ['plate-district-ccs', 'plate-district-ccs.webp', 130016],
+  ['plate-district-coldwater-halt', 'plate-district-coldwater-halt.webp', 130017],
+  ['plate-city-terminus', 'plate-city-terminus.webp', 130018],
+  ['plate-district-ironmouth', 'plate-district-ironmouth.webp', 130019],
+  ['plate-district-marshalling-yards', 'plate-district-marshalling-yards.webp', 130020],
+  ['plate-district-bonded-row', 'plate-district-bonded-row.webp', 130021],
   ['unit-razors', 'unit-razors.webp', 145001],
   ['unit-anodics', 'unit-anodics.webp', 145002],
   ['unit-sparks', 'unit-sparks.webp', 145003],
@@ -356,6 +361,7 @@ const EXPECTED: readonly (readonly [key: string, file: string, seed: number])[] 
   ['icon-location-revolutionary-statue', 'icon-location-revolutionary-statue.webp', 160074],
   ['icon-location-glasshouse', 'icon-location-glasshouse.webp', 160075],
   ['icon-location-combine-chapel', 'icon-location-combine-chapel.webp', 160076],
+  ['icon-location-rail-station', 'icon-location-rail-station.webp', 160077],
   // §C1: the Garage's catalogue, appended after the location markers so no seed above moves.
   ['vehicle-motorcycle', 'vehicle-motorcycle.webp', 161001],
   ['vehicle-dirt-runner', 'vehicle-dirt-runner.webp', 161002],
@@ -441,8 +447,8 @@ describe('ART_MANIFEST', () => {
    * `building-<kind>` masters, which no production code ever built a ref for. 346 before that,
    * which was the seven Combine portraits, the Chosen Chapel's icon and the CCS plate on 337.
    */
-  it('holds the 332 MVP assets', () => {
-    expect(ART_MANIFEST).toHaveLength(332);
+  it('holds the 338 MVP assets', () => {
+    expect(ART_MANIFEST).toHaveLength(338);
   });
 
   it.each(ART_MANIFEST.map((spec) => [spec.key, spec] as const))(
@@ -528,7 +534,7 @@ describe('ART_MANIFEST', () => {
     // at the same 21:10. Two numbers rather than one shared constant even so, because they have
     // moved independently before and will again.
     'plate-district-neon-docks': { width: 3780, height: 1800, aspect: '21:10' },
-    'plate-district-rustyard': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-steelbelt': { width: 3780, height: 1800, aspect: '21:10' },
     'plate-district-chrome-row': { width: 3780, height: 1800, aspect: '21:10' },
     // The faction's back room, at the same shape: five seats are fractions of this exact image.
     'plate-faction-room': { width: 3780, height: 1800, aspect: '21:10' },
@@ -537,14 +543,26 @@ describe('ART_MANIFEST', () => {
     // The Annexes, last in manifest order and the one plate off the other four's size: the board's
     // file is named 3780x1800 and measures 1817x866. Wired at the measurement, so this number is
     // the one place a re-export at the full width has to be agreed to a second time.
-    'plate-district-datavault-sigma': { width: 1817, height: 866, aspect: '21:10' },
+    'plate-district-annexes': { width: 1817, height: 866, aspect: '21:10' },
     // Glasshouse Fields and the Blacksite, delivered together on 2026-09-15 and both measured at
     // the full 3780x1800: seven signs and a gate stand on the first, eight and a gate on the second.
     'plate-district-glasshouse-fields': { width: 3780, height: 1800, aspect: '21:10' },
-    'plate-district-blacksite-7': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-blacksite': { width: 3780, height: 1800, aspect: '21:10' },
     // The CCS, delivered 2026-09-20 at the Annexes' size rather than the other five's: the
     // maintainer's own portrait of the spire, shipped as it came instead of upscaled.
-    'plate-district-combine-spire': { width: 1817, height: 866, aspect: '21:10' },
+    'plate-district-ccs': { width: 1817, height: 866, aspect: '21:10' },
+    // Terminus, delivered 2026-09-24 and measured at the full 3780x1800: Coldwater Halt carries
+    // seven signs and a gate, and the city map carries the twelve district tags of the second
+    // city. Both load-bearing in exactly the way the eleven above are.
+    'plate-district-coldwater-halt': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-city-terminus': { width: 3780, height: 1800, aspect: '21:10' },
+    // Ironmouth, delivered on the same day and measured the same way: seven signs and a gate
+    // stand on this one too.
+    'plate-district-ironmouth': { width: 3780, height: 1800, aspect: '21:10' },
+    // The Yards and the Bond, delivered 2026-09-25 and measured the same way: seven signs on the
+    // first and eight on the second. Neither painting shows a gate, so neither carries one.
+    'plate-district-marshalling-yards': { width: 3780, height: 1800, aspect: '21:10' },
+    'plate-district-bonded-row': { width: 3780, height: 1800, aspect: '21:10' },
   };
 
   it('matches the ART-BIBLE §6 resolution and aspect table per class', () => {
@@ -722,7 +740,7 @@ describe('ART_MANIFEST', () => {
      */
     // 60 since 2026-09-24: the eleven `building-<kind>` masters went with the ref nothing built,
     // and each of them was a downscale. 71 before that, when the Chosen Chapel's icon was added.
-    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(60);
+    expect(ART_MANIFEST.filter((spec) => spec.postProcess.length > 0)).toHaveLength(61);
   });
 
   it('carries the shared prompt blocks as single-line prose', () => {
@@ -893,9 +911,9 @@ describe('validateAssetSpec', () => {
   });
 
   it('rejects a filename that disagrees with the key', () => {
-    expect(validateAssetSpec({ ...districtSpec(), file: 'district-rustyard.webp' })).toContainEqual(
-      expect.stringContaining('does not match key'),
-    );
+    expect(
+      validateAssetSpec({ ...districtSpec(), file: 'district-steelbelt.webp' }),
+    ).toContainEqual(expect.stringContaining('does not match key'));
   });
 
   it('rejects an unknown style reference', () => {

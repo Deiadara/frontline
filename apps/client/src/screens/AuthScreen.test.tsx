@@ -51,13 +51,13 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('AuthScreen MVP dev prefill', () => {
-  const usernameField = () => screen.getByLabelText<HTMLInputElement>(/Operator ID/);
+  const usernameField = () => screen.getByLabelText<HTMLInputElement>(/Overseer ID/);
   const passwordField = () => screen.getByLabelText<HTMLInputElement>(/Password/);
 
   it('opens on the two handles and nothing else', () => {
     renderAuth();
     expect(screen.getByTestId('auth-choice')).toBeInTheDocument();
-    expect(screen.queryByLabelText(/Operator ID/)).toBeNull();
+    expect(screen.queryByLabelText(/Overseer ID/)).toBeNull();
   });
 
   it('prefills the seeded dev credentials in login mode and flags the build', () => {
@@ -117,7 +117,7 @@ describe('AuthScreen', () => {
   it('blocks submission and surfaces the schema error on invalid input', () => {
     renderAuth();
     choose('register');
-    fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'ab' } });
+    fireEvent.change(screen.getByLabelText(/Overseer ID/), { target: { value: 'ab' } });
     fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
 
@@ -133,6 +133,7 @@ describe('AuthScreen', () => {
   it('submits to the register endpoint once validation passes', async () => {
     const body: AuthResponse = { token: 'tok', user: USER };
     const response: Response = {
+      headers: new Headers(),
       ok: true,
       status: 201,
       statusText: '',
@@ -142,7 +143,7 @@ describe('AuthScreen', () => {
 
     renderAuth();
     choose('register');
-    fireEvent.change(screen.getByLabelText(/Operator ID/), { target: { value: 'operator' } });
+    fireEvent.change(screen.getByLabelText(/Overseer ID/), { target: { value: 'operator' } });
     fireEvent.change(screen.getByLabelText(/Password/), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Enlist' }));
 
@@ -188,7 +189,7 @@ describe('AuthScreen in a production build', () => {
     choose('login');
     // The form is up, so the absences below are absences rather than an unmounted screen.
     expect(screen.getByRole('button', { name: 'Jack In' })).toBeInTheDocument();
-    expect(screen.getByLabelText<HTMLInputElement>(/Operator ID/).value).toBe('');
+    expect(screen.getByLabelText<HTMLInputElement>(/Overseer ID/).value).toBe('');
     expect(screen.getByLabelText<HTMLInputElement>(/Password/).value).toBe('');
     expect(screen.queryByText(/MVP build/)).toBeNull();
     expect(screen.queryByText(new RegExp(MVP_DEV_CREDENTIALS.password))).toBeNull();

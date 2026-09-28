@@ -54,9 +54,7 @@ describe('the size of a force, as the odds read it', () => {
   /**
    * `carriers_fight` puts them back, because it is the one thing that lifts the rule.
    *
-   * Counted whole rather than at `CARRIER_STRENGTH`: that constant is how hard a porter hits once
-   * it is standing there, and this function answers whether it is standing there at all. The
-   * engine's own outnumbered flag reads it the same way.
+   * Counted whole, the way the engine turns them out and its outnumbered flag reads them.
    */
   it('counts the porters for a crew that has bought them a place in the line', () => {
     const rules = { carriersFight: true, unitMarks: {} };

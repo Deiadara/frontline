@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ApiRequestError } from '../lib/api';
 import { useRenameDistrict } from '../lib/queries';
 import { Button } from './ui/Button';
+import { ErrorNote } from './ui/ErrorNote';
 import { cn } from './../lib/cn';
 
 /**
@@ -169,13 +170,13 @@ export function DistrictPlaque({ base }: { base: Base }) {
        * standing bar would jump the moment somebody picked a name that was gone.
        */}
       {rename.error !== null && (
-        <p
-          role="alert"
+        <ErrorNote
+          backdrop
           data-testid="district-name-error"
-          className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap rounded-sm border border-oxblood-500/60 bg-surface-950/95 px-2 py-1 font-body text-[12px] leading-none text-oxblood-300"
+          className="absolute left-0 top-full z-10 mt-1 whitespace-nowrap"
         >
           {rename.error instanceof ApiRequestError ? rename.error.message : 'That did not save'}
-        </p>
+        </ErrorNote>
       )}
       <label className="sr-only" htmlFor="district-name">
         District name

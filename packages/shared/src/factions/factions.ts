@@ -262,8 +262,11 @@ export type FactionInvite = z.infer<typeof FactionInviteSchema>;
  * about the *place*: a faction is administered from somewhere, and a crew whose command post is a
  * shipping container is not administering anybody. The refusal names both, because a player who is
  * short of one and not the other has one thing to go and do.
+ *
+ * Level 10, the level the Faction screen opens at (`AREA_REQUIREMENTS.faction`), since 2026-09-28:
+ * founding at 5 behind a screen locked until 10 was two rules for one door. Joining asks the same.
  */
-export const FOUND_FACTION_PLAYER_LEVEL = 5;
+export const FOUND_FACTION_PLAYER_LEVEL = 10;
 export const FOUND_FACTION_NEXUS_LEVEL = 3;
 
 export const FACTION_REFUSALS = [

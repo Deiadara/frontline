@@ -10,7 +10,6 @@ import {
   capRating,
   findUnit,
   findUnitModification,
-  isCombatUnit,
   fittedFor,
   upgradedStats,
   UNIT_RULES,
@@ -43,7 +42,7 @@ import {
 } from './morale.js';
 import { drawLuck } from './luck.js';
 import {
-  OFFICER_TARGET_SHARE,
+  officerTargetShare,
   officerUnit,
   type BattleOfficer,
   type OfficerOutcome,
@@ -225,48 +224,30 @@ export const STEALTH_UNTAGGED_SHARE = 0.6;
  * be worth less than one that can, or the counterplay stops being worth buying.
  *
  * Sized against the strongest thing on the same surface. `bulwark` is +70% toughness on one sheet
- * and `tracking` is +45% damage against an evasive target, both of which are worth more than a
- * third of a round to the stacks that carry them; this is under both and it is unconditional.
+ * and `tracking` takes half of every target's dodge, both of which are worth more than a third of
+ * a round to the stacks that carry them; this is under both and it is unconditional.
  */
 export const FIRST_STRIKE_SHARE = 0.35;
-
-/**
- * The share of an attacking line that has to be sappers before the works come down as far as they
- * are going to (`UnitSpec.sapper`).
- *
- * A quarter, which is {@link MEND_FULL_COVER}'s ratio and for the same reason: how much a
- * speciality is worth depends on how big the line it is working for is, so this is a ratio and not
- * a rate. Four Demolishers in a raiding party of sixteen bring the whole wall down as far as it
- * goes; four in a party of a hundred bring a sixth of it.
- */
-export const SAPPER_FULL_SHARE = 0.25;
-
-/**
- * The most of a defender's fortification a sapping line can take away, as a percentage of it.
- *
- * Forty per cent of the works, never the works themselves. Fortification is the whole return on a
- * barricade and a Gate, and a sheet that could cancel it would make every defensive structure in
- * the game a purchase you regret the first time somebody brings the right unit. What this buys is
- * that a dug-in defender is a problem with an answer, which is what `penetration` is to armour and
- * `tracking` is to evasion.
- */
-export const MAX_SAPPER_CUT = 40;
 
 /**
  * The share of a line that has to be jammers before the jam is as deep as it goes
  * (`UnitSpec.jammer`).
  *
- * A quarter, which is {@link SAPPER_FULL_SHARE}'s ratio and {@link MEND_FULL_COVER}'s, and for
- * the same reason: what a speciality is worth depends on the size of the line it is working for.
+ * A quarter, which is {@link MEND_FULL_COVER}'s ratio, and for the same reason: what a speciality is worth depends on the size of the line it is working for.
  * Four Netrunners in a party of sixteen jam the other side as hard as they are going to; four in
  * a party of a hundred manage a sixth of it.
  */
 export const JAM_FULL_SHARE = 0.25;
 
 /**
- * The most a jamming line takes off the other side, in percentage points of armour and of damage.
+ * The deepest jam a full jamming line reaches on nominal ground, in percent.
  *
- * **Measured, not reasoned to.** The first draft was 25, chosen against {@link MAX_SAPPER_CUT}
+ * Since 2026-09-27 (maintainer) the percent is what the enemy's modifications lose
+ * (`jammedSheet`), not a cut to the whole line's armour and damage; Wonders of Engineering have
+ * their own cut (`wonderJam`). The history below measured the old effect and set the number, which
+ * the new one kept.
+ *
+ * **Measured, not reasoned to.** The first draft was 25, chosen against the old sapper's cut
  * on the argument that a jam buys two things at once (the enemy's armour *and* their damage) so
  * a point of it should be worth about two of a sapper's. That argument was wrong, and the way it
  * was wrong is worth keeping: 25 made a Netrunner a bad trade at every size. Equal slots a side,
@@ -369,6 +350,13 @@ export interface Stack {
    * offense does.
    */
   sheet: UnitStats;
+  /**
+   * What this stack's fitted modifications add to the numbers a round reads, against the same unit
+   * unfitted on the same ground (maintainer, 2026-09-27). The enemy's jam strips its percentage of
+   * exactly this and nothing else (`jammedSheet`). Positive where a card helps, negative where it
+   * costs, so a jam softens a trade-off as well as a gain.
+   */
+  modGain: ModGain;
   /**
    * How many tiers of `noisy` this stack puts on the enemies it is fighting, or 0 (`UnitSpec.loud`).
    *
@@ -870,42 +858,29 @@ function turncoatsStanding(side: SideState): Army {
 }
 
 /**
- * What a porter standing in the line is worth, against what it would be as a fighter.
+ * Whether this attacking force brings a Wall Breaker into the line (`UnitSpec.wall_breaker`).
  *
- * Half, and the half is what stops `carriers_fight` making the cheapest sheet in the game the best
- * one: a Scavenger costs a fraction of a Razor and there is no slot ceiling on porters worth
- * speaking of. Applied to damage and to hit points both, so a crew that turns its porters out gets
- * units on the ground rather than a second army.
- */
-export const CARRIER_STRENGTH = 0.5;
-
-/**
- * How much of the defender's fortification this attacking force takes down, as a percentage of it.
+ * The Colossus's rule (maintainer, 2026-09-26): with one in the line the defender's gates count for
+ * nothing in this fight, which is `gatePercent` taken off their territory in {@link simulate}. The
+ * traps and the gate's lost level are the settler's (`battle/resolve.ts`), because they are writes
+ * and this function writes nothing.
  *
- * Read off the raw roster rather than off the built stacks, which matters: `simulate` builds the
- * two sides in sequence, and a cut computed from one side's finished stacks would depend on which
- * of them happened to be built first. Porters are skipped for the same reason they are skipped
- * everywhere else, they are not on the line.
+ * Read off the raw roster rather than the built stacks, for the reason every roster reading here
+ * gives: the two sides are built in sequence. Porters are skipped, they are not on the line.
  */
-export function sapperCutPercent(army: Army, rules: LineRules = bareLineRules()): number {
-  let sappers = 0;
-  let line = 0;
-  for (const [unitId, count] of Object.entries(army)) {
+export function breaksWalls(army: Army, rules: LineRules = bareLineRules()): boolean {
+  return Object.entries(army).some(([unitId, count]) => {
     const found = findUnit(unitId);
-    if (!found || (count ?? 0) <= 0 || !standsInLine(found, rules)) continue;
-    const unit = markedUnit(found, rules);
-    line += count ?? 0;
-    if (unit.sapper === true) sappers += count ?? 0;
-  }
-  if (sappers <= 0 || line <= 0) return 0;
-  return MAX_SAPPER_CUT * Math.min(1, sappers / (line * SAPPER_FULL_SHARE));
+    if (!found || (count ?? 0) <= 0 || !standsInLine(found, rules)) return false;
+    return markedUnit(found, rules).wall_breaker === true;
+  });
 }
 
 /**
  * How hard this side is jamming the other **this round**, in percentage points.
  *
  * Read off the stacks still standing rather than off the roster, which is the whole difference
- * between this and {@link sapperCutPercent}: a wall stays down once it is down, and a hijacked
+ * between this and {@link breaksWalls}: a wall stays down once it is down, and a hijacked
  * augmentation comes back the moment the person holding it is dead. A side that has lost its
  * Netrunners is jamming nobody by the next round, and a side whose Netrunners have broken and run
  * (`brokeAt`) is not jamming either, because they are not there.
@@ -914,6 +889,100 @@ export function sapperCutPercent(army: Army, rules: LineRules = bareLineRules())
  * still count, on both sides of the ratio, because a intimidated jammer is still inside the enemy's
  * systems even if it is not shooting, and `suppressed` is about fire.
  */
+/** The per-round figures a modification can move, and so the ones a jam can weaken. */
+export const MOD_GAIN_KEYS = ['offense', 'armor', 'penetration', 'evasion', 'range'] as const;
+export type ModGain = Partial<Record<(typeof MOD_GAIN_KEYS)[number], number>>;
+
+/**
+ * What each covered Wonder of Engineering loses, per step of Netrunners (maintainer, 2026-09-27).
+ *
+ * A Wonder is cut only once the jammers standing cover its unit slots with their own: a 12-slot
+ * machine needs four 3-slot Netrunners, and three do nothing to it. Covering it exactly takes 10%
+ * off its damage and armour, and each jammer's worth of slots past that takes 10% more, to 50%.
+ * Several Wonders are covered as many as possible first, smallest first, and only then do extra
+ * jammers deepen the cuts, one step at a time round the covered ones. The ground, the weather and
+ * the Lab scale the result the way they scale the jam (`jamCondition`), and may carry it past 50%,
+ * to {@link WONDER_JAM_CEILING}.
+ */
+export const WONDER_JAM_STEP = 10;
+export const WONDER_JAM_CAP = 50;
+export const WONDER_JAM_CEILING = 75;
+
+/** How deep the jam on `target` is cut into each of its Wonders this round, by stack. */
+export function wonderJam(jamming: SideState, target: SideState): Map<Stack, number> {
+  const cuts = new Map<Stack, number>();
+  let slots = 0;
+  let bodies = 0;
+  let condition = 0;
+  for (const stack of jamming.stacks) {
+    if (stack.brokeAt !== null || stack.alive <= 0 || stack.unit.jammer !== true) continue;
+    slots += stack.alive * stack.unit.unitSlots;
+    bodies += stack.alive;
+    condition += stack.alive * jamCondition(stack);
+  }
+  if (slots <= 0 || bodies <= 0) return cuts;
+  const perJammer = slots / bodies;
+  const factor = condition / bodies;
+
+  const wonders: { stack: Stack; slots: number; steps: number }[] = [];
+  for (const stack of target.stacks) {
+    if (stack.brokeAt !== null || stack.alive <= 0 || stack.unit.tier !== 'wonder') continue;
+    for (let body = 0; body < stack.alive; body += 1) {
+      wonders.push({ stack, slots: stack.unit.unitSlots, steps: 0 });
+    }
+  }
+  if (wonders.length === 0) return cuts;
+  wonders.sort((a, b) => a.slots - b.slots);
+
+  let pool = slots;
+  const covered = wonders.filter((wonder) => {
+    if (pool < wonder.slots) return false;
+    pool -= wonder.slots;
+    wonder.steps = 1;
+    return true;
+  });
+  const maxSteps = WONDER_JAM_CAP / WONDER_JAM_STEP;
+  let extra = Math.floor(pool / perJammer + 1e-9);
+  while (extra > 0 && covered.some((wonder) => wonder.steps < maxSteps)) {
+    for (const wonder of covered) {
+      if (extra <= 0) break;
+      if (wonder.steps >= maxSteps) continue;
+      wonder.steps += 1;
+      extra -= 1;
+    }
+  }
+
+  for (const wonder of wonders) {
+    const cut = Math.min(WONDER_JAM_CEILING, wonder.steps * WONDER_JAM_STEP * factor);
+    // A stack of several machines is cut by the average of its members'.
+    cuts.set(wonder.stack, (cuts.get(wonder.stack) ?? 0) + cut / wonder.stack.alive);
+  }
+  return cuts;
+}
+
+/**
+ * A sheet as the enemy's jam leaves it this round (maintainer, 2026-09-27).
+ *
+ * Two effects that stack. The jam percent strips that share of what the stack's modifications add
+ * (`Stack.modGain`), and a Wonder the jammers cover loses its cut off damage and armour on top.
+ * A copy: `stack.effective` is what the unit is, and this is what is being done to it this round.
+ */
+export function jammedSheet(stack: Stack, jam: number, wonderCut = 0): Effective {
+  if (jam <= 0 && wonderCut <= 0) return stack.effective;
+  const out = { ...stack.effective };
+  if (jam > 0) {
+    for (const key of MOD_GAIN_KEYS) {
+      const gain = stack.modGain[key] ?? 0;
+      if (gain !== 0) out[key] = out[key] - gain * (jam / 100);
+    }
+  }
+  if (wonderCut > 0) {
+    out.offense *= 1 - wonderCut / 100;
+    out.armor *= 1 - wonderCut / 100;
+  }
+  return out;
+}
+
 export function jamPercent(side: SideState): number {
   let jammers = 0;
   let condition = 0;
@@ -1139,17 +1208,6 @@ export function noiseOnEnemy(side: SideState, enemy: SideState): Map<Stack, Fiel
   return out;
 }
 
-/** The ground as the defender actually finds it, once the attacker's sappers have been at it. */ /** The ground as the defender actually finds it, once the attacker's sappers have been at it. */
-export function sappedGround(
-  battlefield: Battlefield,
-  attacking: Army,
-  rules: LineRules = bareLineRules(),
-): Battlefield {
-  const cut = sapperCutPercent(attacking, rules);
-  if (cut <= 0) return battlefield;
-  return { ...battlefield, fortifyPercent: battlefield.fortifyPercent * (1 - cut / 100) };
-}
-
 /** Whether this stack keeps standing at a morale that would rout anybody else (`stalwart`). */
 export function holdsTheLine(stack: Stack): boolean {
   return stack.unit.stalwart === true && stack.alive * 2 > stack.started;
@@ -1217,29 +1275,33 @@ function buildStacks(
      * everything else so the report can name it beside the terrain reasons.
      */
     /*
-     * §A5: the *fighter's* reading of Collective, and only a fighter's.
+     * §A5: Collective pays both halves, to every sheet that carries it (maintainer, 2026-09-25).
      *
-     * A carrier with the mark spends it on carry instead (`carriedBy` in `raid.ts`), which is
-     * the maintainer's rule: "instead of their combat stats, their loot increases". Without this
-     * clause a crew holding `carriers_fight` would collect both halves off one tag, which is a
-     * rule that reads as one thing on the card and pays twice in the fight.
+     * It used to be gated on `isCombatUnit`, so a carrier with the mark spent it on carry alone
+     * while a fighter spent it on offense alone. That was defensible and it was not what the card
+     * says: "Carriers can carry more loot **and** combat units fight harder when there is more of
+     * them" reads as one tag with two effects, and the Sparks were already collecting both anyway
+     * because they are a combat unit that also carries fifteen kilos. So the rule is now what the
+     * card is: a unit with the tag gets the percentage on whichever of the two it has, and a sheet
+     * that has both gets both.
+     *
+     * The carry half lives in `carriedBy` (`raid.ts`) and never had the gate, which is why this is
+     * a change to one side only.
      */
-    const packed = unit.pack === true && isCombatUnit(unit) ? packBonusPercent(count) : 0;
-    // A porter turned out under `carriers_fight` fights at half of what it is. Applied to the two
-    // figures the exchange reads, and after the pack bonus, so the halving is of the finished
-    // number rather than of the sheet: there is no order of these two that is not this one.
-    const turnedOut = isCombatUnit(unit) ? 1 : CARRIER_STRENGTH;
+    // The same unit on the same ground with nothing fitted, so what the cards add can be told apart.
+    const plain = withFlats(
+      effectiveStats(unit, battlefield, { defending, outnumbered }, territory, []),
+      flat,
+    );
+    const packed = unit.pack === true ? packBonusPercent(count) : 0;
+    // A porter turned out under `carriers_fight` fights at its full sheet (maintainer, 2026-09-27):
+    // its own numbers are what hold it back, not a second cut on top of them. It was halved.
     const effective =
-      packed > 0 || turnedOut < 1
+      packed > 0
         ? {
             ...bare,
-            offense: bare.offense * (1 + packed / 100) * turnedOut,
-            vitality: bare.vitality * turnedOut,
-            reasons: [
-              ...bare.reasons,
-              ...(packed > 0 ? [UNIT_RULES.pack.label] : []),
-              ...(turnedOut < 1 ? ['Turned out to fight'] : []),
-            ],
+            offense: bare.offense * (1 + packed / 100),
+            reasons: [...bare.reasons, UNIT_RULES.pack.label],
           }
         : bare;
     stacks.push({
@@ -1256,6 +1318,13 @@ function buildStacks(
       dealt: 0,
       // The sheet as the workshop left it, before the ground is read: see `Stack.sheet`.
       sheet: fittedSheet,
+      // What the cards add, which is what the enemy's jam weakens (`jammedSheet`).
+      modGain: Object.fromEntries(
+        MOD_GAIN_KEYS.map((key) => [
+          key,
+          (bare[key] - plain[key]) * (key === 'offense' ? 1 + packed / 100 : 1),
+        ]),
+      ),
       // §A5: how loud this particular stack is, refits included (`UnitSpec.loud`).
       loudTier: unit.loud === true ? loudTierFor(fitted) : 0,
     });
@@ -1290,6 +1359,7 @@ function buildStacks(
       // Nothing is bolted to a person, so an officer's sheet is its own (see the note above).
       sheet: unit.stats,
       // An officer is a person, not a PA system.
+      modGain: {},
       loudTier: 0,
       officer,
     });
@@ -1384,7 +1454,7 @@ export function allocate(
         0,
         threatWeight(attacker.effective, attacker.unit.modifiers, enemy.effective, enemy.morale) *
           enemy.alive *
-          (cover && enemy.officer !== undefined ? OFFICER_TARGET_SHARE : 1),
+          (cover && enemy.officer !== undefined ? officerTargetShare(enemy.officer) : 1),
       ),
     );
   /** Threat weights, normalised to shares of `budget`. Falls back to an even split at zero. */
@@ -1486,6 +1556,28 @@ export function mend(side: SideState, incoming: Map<Stack, number>): Map<Stack, 
   return out;
 }
 
+/** This round's jam, both ways. See `fireRound`. */
+export interface RoundJam {
+  onShooter: number;
+  onTarget: number;
+  wondersOnShooter: ReadonlyMap<Stack, number>;
+  wondersOnTarget: ReadonlyMap<Stack, number>;
+}
+
+const NO_JAM: RoundJam = {
+  onShooter: 0,
+  onTarget: 0,
+  wondersOnShooter: new Map(),
+  wondersOnTarget: new Map(),
+};
+
+/** A field effect's percentage off a shooter's damage (`noiseOnEnemy`). */
+function withField(effective: Effective, percent: number): Effective {
+  return percent > 0
+    ? { ...effective, offense: effective.offense * (1 - percent / 100) }
+    : effective;
+}
+
 /** Damage each stack on `side` deals this round, as a map from enemy stack index to damage. */
 function fireRound(
   side: SideState,
@@ -1495,16 +1587,15 @@ function fireRound(
   frontage: number,
   only?: (stack: Stack) => boolean,
   /**
-   * §E: this round's electronic warfare, in percentage points (`UnitSpec.jammer`).
+   * §E: this round's electronic warfare (`UnitSpec.jammer`, `jammedSheet`).
    *
-   * Two numbers because a jam cuts two things and the two land on opposite sides of this call:
-   * `onShooter` is what the *enemy's* jammers are doing to the people firing here, and comes off
-   * their offense; `onTarget` is what this side's jammers are doing to the people being fired at,
-   * and comes off their armour. Passed in rather than read from the sides, because `jamPercent`
-   * has to be taken once per round from a snapshot: read inside the loop it would fall as this
-   * round's casualties landed, and both sides have to fire into the same moment.
+   * `onShooter` and `wondersOnShooter` are what the *enemy's* jammers are doing to the people
+   * firing here; `onTarget` and `wondersOnTarget` are what this side's jammers are doing to the
+   * people being fired at. Passed in rather than read from the sides, because both have to be
+   * taken once per round from a snapshot: read inside the loop they would fall as this round's
+   * casualties landed, and both sides have to fire into the same moment.
    */
-  jam: { onShooter: number; onTarget: number } = { onShooter: 0, onTarget: 0 },
+  jam: RoundJam = NO_JAM,
   /**
    * §A5: what the *other* side's field effects are doing to the people firing here, per stack.
    *
@@ -1518,26 +1609,13 @@ function fireRound(
   const incoming = new Map<Stack, number>();
   const deployed = frontageShare(side, frontage);
   /*
-   * The jam, folded onto copies of the two sheets rather than onto the stacks.
+   * The jam is folded onto copies of the two sheets rather than onto the stacks (`jammedSheet`), so
+   * nothing carries into the next round, the morale phase or the report.
    *
-   * Nothing is mutated: `stack.effective` is what the unit is, and a jam is what is being done to
-   * it this round. Writing it onto the stack would carry into the next round, into the morale
-   * phase and into the report, and it would have to be undone, which is a thing to forget.
-   *
-   * `allocate` below still picks targets off the *unjammed* sheets. That is deliberate and it is
-   * not a rounding error hidden in a comment: the jam is the same percentage against every stack
-   * on the enemy side, so it scales every candidate's attractiveness by the same factor and
-   * cannot change their order. Targeting would answer the same question either way, and threading
-   * a second set of sheets through it would be work for no difference.
+   * `allocate` below still picks targets off the *unjammed* sheets. Deliberate: a jam that shaved
+   * a candidate's armour would move it up the queue, and the queue is the enemy's judgement of the
+   * line as they see it, not of what the jammers are doing to it this second.
    */
-  const jammed = (effective: Effective, armorOff: number, offenseOff: number): Effective =>
-    armorOff <= 0 && offenseOff <= 0
-      ? effective
-      : {
-          ...effective,
-          armor: effective.armor * (1 - armorOff / 100),
-          offense: effective.offense * (1 - offenseOff / 100),
-        };
   for (const stack of side.stacks) {
     if (stack.brokeAt !== null || stack.alive <= 0) continue;
     if (only && !only(stack)) continue;
@@ -1552,11 +1630,14 @@ function fireRound(
     if (firing <= 0) continue;
     for (const { target, share } of allocate(stack, enemy.stacks)) {
       const { perBody } = exchange(
-        // The jam and the field effect are both percentage points off this shooter's damage, so
-        // they compose the way two reductions compose everywhere else in this engine.
-        jammed(stack.effective, 0, jam.onShooter + (field.get(stack)?.percent ?? 0)),
+        // The jam first (what it leaves of the cards, and a covered Wonder's cut), then the field
+        // effect off whatever damage is left.
+        withField(
+          jammedSheet(stack, jam.onShooter, jam.wondersOnShooter.get(stack) ?? 0),
+          field.get(stack)?.percent ?? 0,
+        ),
         stack.unit.modifiers,
-        jammed(target.effective, jam.onTarget, 0),
+        jammedSheet(target, jam.onTarget, jam.wondersOnTarget.get(target) ?? 0),
         target.morale,
         side.luck,
       );
@@ -1686,7 +1767,6 @@ function moralePhase(
     // losses, from being outnumbered and from what is opposite it, and never from the panic beside
     // it. See `SideState.steadyNerve`.
     alliesBroken: side.steadyNerve ? 0 : cascadeFrom,
-    resolvePercent: side.defending ? battlefield.fortifyPercent : 0,
   };
 
   /*
@@ -1826,28 +1906,43 @@ export function simulate(input: SimulateInput): Simulation {
   const next = mulberry32(seedFrom(input.seed));
   const battlefield = input.battlefield ?? bareBattlefield();
 
-  // Counted off the line that actually forms, not off the raw record: `buildStacks` skips an id it
-  // cannot resolve and leaves the porters out, so counting the record could tell a side it was
-  // outnumbered by units that never reached the field. Forty Scavengers behind twenty Razors were
-  // handing every Warden and Juggernaut sent against them a last stand it had not earned.
-  const roster = (army: Army, rules: LineRules): number =>
-    Object.entries(army).reduce((total, [unitId, count]) => {
-      const unit = findUnit(unitId);
-      return unit && count > 0 && standsInLine(unit, rules) ? total + count : total;
-    }, 0);
+  /*
+   * How big each side is, in **unit slots**, off the line that actually forms.
+   *
+   * Two rules, and they were added a year apart. The line that forms is the older one: `buildStacks`
+   * skips an id it cannot resolve and leaves the porters out, so counting the raw record could tell
+   * a side it was outnumbered by units that never reached the field. Forty Scavengers behind twenty
+   * Razors were handing every Warden and Juggernaut sent against them a last stand it had not
+   * earned.
+   *
+   * Slots rather than heads is the newer one (maintainer, 2026-09-25). This counted heads, and two
+   * comments elsewhere in the codebase asserted it did not: `line.ts` and `resolve.ts` both say
+   * "`simulate` has counted its own sides this way since the day the rule was written", meaning the
+   * slots `fightingSlots` returns. They were half right, because the *predicate* was shared and the
+   * *unit* was not, and the half that was wrong ran the other way from the bug it was written
+   * against. Measured before the change: eight Juggernauts (48 slots) against sixteen Razors
+   * (16 slots) collected the outnumbered bonus, so a side with three times the enemy's weight was
+   * paid for being outnumbered while the feats board simultaneously recorded it as the larger
+   * force.
+   *
+   * A Juggernaut is not one body, and unit slots are what the game prices a force in everywhere a
+   * player can see one: the beds a district finds, the deployment screen, `supply_deployed`. Off
+   * `fightingSlots`, which is the same function the feats board asks, so the engine and the board
+   * can no longer disagree about which side was outnumbered.
+   */
   const rulesFor = (setup: SideSetup): LineRules => setup.territory ?? bareLineRules();
-  const attackerCount = roster(input.attacker.army, rulesFor(input.attacker));
-  const defenderCount = roster(input.defender.army, rulesFor(input.defender));
+  const attackerCount = fightingSlots(input.attacker.army, rulesFor(input.attacker));
+  const defenderCount = fightingSlots(input.defender.army, rulesFor(input.defender));
 
   /*
-   * §A4: the works, once the attacker's sappers have been at them (`UnitSpec.sapper`).
-   *
-   * Cut here rather than inside `effectiveStats` because it is a fact about the ground and about
-   * the force that came for it, not about any one defending unit: every stack behind the barricade
-   * finds the same barricade. The defender is built against this and so is the defender's morale
-   * phase, which reads `fortifyPercent` as the resolve that holding built ground buys.
+   * The Wall Breaker (`UnitSpec.wall_breaker`, maintainer 2026-09-26): with one in the attacking
+   * line the defender's gates add nothing to this fight. Taken off the defender's territory here,
+   * once, because it is a fact about the force that came and not about any one defending unit.
    */
-  const defenderGround = sappedGround(battlefield, input.attacker.army, rulesFor(input.attacker));
+  const defenderSetup: SideSetup =
+    input.defender.territory && breaksWalls(input.attacker.army, rulesFor(input.attacker))
+      ? { ...input.defender, territory: { ...input.defender.territory, gatePercent: 0 } }
+      : input.defender;
 
   const build = (
     setup: SideSetup,
@@ -1884,7 +1979,7 @@ export function simulate(input: SimulateInput): Simulation {
    * per-round effect on whoever is actually fighting them now: see `noiseOnEnemy`.
    */
   const attacker = build(input.attacker, defenderCount, attackerCount, battlefield);
-  const defender = build(input.defender, attackerCount, defenderCount, defenderGround);
+  const defender = build(defenderSetup, attackerCount, defenderCount, battlefield);
 
   // Both forces are on the field; now the day decides. Drawn here rather than inside `build` so
   // that neither side's luck can depend on how the other side's roster happened to be shaped.
@@ -2029,6 +2124,9 @@ export function simulate(input: SimulateInput): Simulation {
      */
     const jamOnDefender = jamPercent(attacker);
     const jamOnAttacker = jamPercent(defender);
+    // ...and what each side's jammers are doing to the other's Wonders, from the same snapshot.
+    const wondersOnDefender = wonderJam(attacker, defender);
+    const wondersOnAttacker = wonderJam(defender, attacker);
 
     /*
      * §A5: this round's field effects, taken from the same snapshot as the jam.
@@ -2049,7 +2147,12 @@ export function simulate(input: SimulateInput): Simulation {
         attackerSwing,
         battlefield.frontage,
         undefined,
-        { onShooter: jamOnAttacker, onTarget: jamOnDefender },
+        {
+          onShooter: jamOnAttacker,
+          onTarget: jamOnDefender,
+          wondersOnShooter: wondersOnAttacker,
+          wondersOnTarget: wondersOnDefender,
+        },
         noiseOnAttacker,
       ),
     );
@@ -2062,7 +2165,12 @@ export function simulate(input: SimulateInput): Simulation {
         defenderSwing,
         battlefield.frontage,
         undefined,
-        { onShooter: jamOnDefender, onTarget: jamOnAttacker },
+        {
+          onShooter: jamOnDefender,
+          onTarget: jamOnAttacker,
+          wondersOnShooter: wondersOnDefender,
+          wondersOnTarget: wondersOnAttacker,
+        },
         noiseOnDefender,
       ),
     );
@@ -2078,7 +2186,7 @@ export function simulate(input: SimulateInput): Simulation {
     );
 
     const brokeAttacker = moralePhase(attacker, defender, battlefield, round, attackerCascade);
-    const brokeDefender = moralePhase(defender, attacker, defenderGround, round, defenderCascade);
+    const brokeDefender = moralePhase(defender, attacker, battlefield, round, defenderCascade);
     pursue(brokeAttacker);
     pursue(brokeDefender);
     attackerCascade = brokenShare(attacker, brokeAttacker);

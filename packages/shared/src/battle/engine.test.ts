@@ -4,13 +4,15 @@ import { winnerLossFraction } from './attrition.js';
 import { bareBattlefield } from './battlefield.js';
 import { effectiveStats } from './effects.js';
 import { noTerritoryEffects } from '../city/index.js';
-import { EVASIVE_THRESHOLD, exchange, targetBonusPercent } from './matchup.js';
+import { evasionCut, exchange, ignoresGate, missChance, targetBonusPercent } from './matchup.js';
 import {
   nerve,
   intimidate,
   allocate,
   MAX_MEND_SHARE,
   MAX_INTIMIDATED_SHARE,
+  bareLineRules,
+  fightingSlots,
   mendShare,
   outnumberedBy,
   pursue,
@@ -70,7 +72,7 @@ function lossFraction(side: Simulation['attacker']): number {
 /**
  * A mirror matchup at a given strength ratio, averaged over seeds.
  *
- * Razors against Razors: one unit type, no resistances between them, no terrain, no fortification.
+ * Razors against Razors: one unit type, no resistances between them, no terrain, no gate.
  * The only thing left is numbers, which is exactly the case the reference curve describes.
  */
 function mirrorLosses(attackers: number, defenders: number): { winnerLoss: number; ratio: number } {
@@ -284,6 +286,7 @@ describe('regressions', () => {
       suppressed: 0,
       dealt: 0,
       sheet: razors.stats,
+      modGain: {},
       loudTier: 0,
     };
     const before = {
@@ -349,6 +352,7 @@ describe('a taunting stack takes the fire off the line behind it', () => {
       suppressed: 0,
       dealt: 0,
       sheet: spec.stats,
+      modGain: {},
       loudTier: 0,
     };
   };
@@ -598,70 +602,94 @@ describe('medics undo part of a round before anybody counts it', () => {
 });
 
 /**
- * `tracking`, the counter that evasion did not have.
+ * `tracking`, the counter that evasion did not have, and since 2026-09-26 a cut to the dodge itself.
  *
- * Armour has been answered by `penetration` on every sheet since the first draft. Evasion was a
- * flat miss chance with nothing on either side of it, so the two most evasive units in the roster
- * were better than everything against everything: the Crimson Dancer took 90% of her matchups with
- * a spread of 23 points across opponents, which is what an uncounterable stat looks like in a table.
+ * It was +45% damage against anything at 30 evasion or more, which made 30 a cliff: a unit at 30
+ * took more from a tracker than one at 29 and stayed worse off all the way to 60. The maintainer's
+ * rule now is that it takes half the target's dodge away, on every target, and adds nothing else.
  */
-describe('a tracking sheet answers an evasive one', () => {
+describe('a tracking sheet halves the dodge of whatever it shoots at', () => {
   const trackers = UNIT_CATALOG.filter((unit) => unit.modifiers.includes('tracking'));
-  const evasive = UNIT_CATALOG.filter(
-    (unit) => isCombatUnit(unit) && unit.stats.evasion >= EVASIVE_THRESHOLD,
-  );
-  const steady = UNIT_CATALOG.filter(
-    (unit) => isCombatUnit(unit) && unit.stats.evasion < EVASIVE_THRESHOLD,
-  );
+  const dodgers = UNIT_CATALOG.filter((unit) => isCombatUnit(unit) && unit.stats.evasion > 0);
 
-  it('has trackers, and both kinds of target to point them at', () => {
-    expect(trackers.length).toBeGreaterThan(0);
-    expect(evasive.length).toBeGreaterThan(0);
-    expect(steady.length).toBeGreaterThan(0);
+  it('is carried by the trackers and not by the Netrunners, whose shots do nothing', () => {
+    expect(trackers.map((unit) => unit.id).sort()).toEqual(['kite_crews', 'the_cartographer']);
+    expect(evasionCut(trackers[0]!.modifiers)).toBe(0.5);
+    expect(evasionCut(findUnit('netrunners')!.modifiers)).toBe(0);
   });
 
-  it('pays a tracker against something that dodges, and nothing against something that does not', () => {
+  it('never pays as a damage bonus on the table', () => {
     for (const tracker of trackers) {
-      for (const target of evasive) {
+      for (const target of dodgers) {
         expect(
-          targetBonusPercent(tracker.modifiers, bare(target), target.stats.morale),
+          targetBonusPercent(tracker.modifiers, bare(target), 100),
           `${tracker.id} vs ${target.id}`,
-        ).toBeGreaterThanOrEqual(UNIT_MODIFIERS.tracking.percent);
-      }
-      for (const target of steady) {
-        const withArmorBonus = targetBonusPercent(tracker.modifiers, bare(target), 100);
-        const withoutTracking = targetBonusPercent(
-          tracker.modifiers.filter((id) => id !== 'tracking'),
-          bare(target),
-          100,
+        ).toBe(
+          targetBonusPercent(
+            tracker.modifiers.filter((id) => id !== 'tracking'),
+            bare(target),
+            100,
+          ),
         );
-        expect(withArmorBonus, `${tracker.id} vs ${target.id}`).toBe(withoutTracking);
       }
     }
   });
 
-  /** And the consequence, stated as damage rather than as a percentage on a table. */
-  it('makes a tracker hit an evasive target harder than the same sheet without it', () => {
+  /** The consequence, as the share of the fire that goes past and as damage. */
+  it('lets half as much of its fire be dodged, at every level of evasion, with no step', () => {
     const tracker = trackers[0]!;
-    const target = evasive.find((unit) => unit.stats.evasion >= 60) ?? evasive[0]!;
-    const withIt = exchange(bare(tracker), tracker.modifiers, bare(target), target.stats.morale);
-    const withoutIt = exchange(
-      bare(tracker),
-      tracker.modifiers.filter((id) => id !== 'tracking'),
-      bare(target),
-      target.stats.morale,
+    const without = tracker.modifiers.filter((id) => id !== 'tracking');
+    let lastGap = -1;
+    for (const evasion of [10, 29, 30, 31, 45, 60, 90]) {
+      const target = { ...bare(findUnit('razors')!), evasion };
+      const tracked = exchange(bare(tracker), tracker.modifiers, target, 100);
+      const plain = exchange(bare(tracker), without, target, 100);
+      const missTracked = 1 - tracked.parts.dodge;
+      const missPlain = 1 - plain.parts.dodge;
+      expect(missTracked, `evasion ${evasion}`).toBeCloseTo(missPlain / 2, 10);
+      // Worth more the more there is to cut, and never a jump: the old 30 was a cliff.
+      const gap = tracked.perBody - plain.perBody;
+      expect(gap, `evasion ${evasion}`).toBeGreaterThan(lastGap);
+      lastGap = gap;
+    }
+    expect(missChance(0)).toBe(0);
+  });
+});
+
+/**
+ * `breaching`: the gate is not there for this unit's hits (maintainer, 2026-09-26).
+ *
+ * Breakers and Demolishers; every other unit on their side still meets the wall, and the Colossus
+ * has the whole side's version instead (`wall_breaker`).
+ */
+describe('a breaching sheet hits through the gate', () => {
+  const gatedWardens = (gatePercent: number) =>
+    effectiveStats(
+      findUnit('wardens')!,
+      bareBattlefield(),
+      { defending: true, outnumbered: false },
+      { ...noTerritoryEffects(), gatePercent },
     );
-    expect(withIt.perBody).toBeGreaterThan(withoutIt.perBody);
+
+  it('is carried by the Breakers and the Demolishers, and no longer by the Colossus', () => {
+    expect(ignoresGate(findUnit('breakers')!.modifiers)).toBe(true);
+    expect(ignoresGate(findUnit('demolishers')!.modifiers)).toBe(true);
+    expect(ignoresGate(findUnit('the_colossus')!.modifiers)).toBe(false);
   });
 
-  /**
-   * Nobody may carry it *and* be the thing it answers. A sheet that dodges and reads dodging is a
-   * sheet with no counter, which is the hole this modifier was added to close.
-   */
-  it('is never on a sheet that is itself evasive', () => {
-    for (const tracker of trackers) {
-      expect(tracker.stats.evasion, tracker.id).toBeLessThan(EVASIVE_THRESHOLD);
-    }
+  it('does to a gated defender exactly what it would do with the gate down, as a share of its life', () => {
+    const breaker = findUnit('breakers')!;
+    const razor = findUnit('razors')!;
+    const gated = gatedWardens(60);
+    const open = gatedWardens(0);
+    expect(gated.vitality).toBeGreaterThan(open.vitality);
+
+    // Damage as a share of one body's life, which is what a gate is supposed to change.
+    const share = (attacker: typeof breaker, target: typeof gated) =>
+      exchange(bare(attacker), attacker.modifiers, target, 100).perBody / target.vitality;
+    expect(share(breaker, gated)).toBeCloseTo(share(breaker, open), 10);
+    // Anybody else still meets the wall.
+    expect(share(razor, gated)).toBeLessThan(share(razor, open));
   });
 });
 
@@ -697,6 +725,7 @@ describe('who is too intimidated to fight (§D3)', () => {
       suppressed: 0,
       dealt: 0,
       sheet: spec.stats,
+      modGain: {},
       loudTier: 0,
     };
   };
@@ -857,10 +886,42 @@ describe('counting the line honestly', () => {
     const reasons = (defending: Army) =>
       fight(army({ wardens: 10 }), defending, 'porters').attacker.stacks[0]?.effective.reasons ??
       [];
-    // Sixteen Razors outnumber ten Wardens: the last stand is earned.
-    expect(reasons(army({ razors: 16 }))).toContain(lastStand);
+    /*
+     * Ten Wardens are twenty unit slots, not ten units (maintainer, 2026-09-25).
+     *
+     * This read sixteen Razors against them as an earned last stand, which was true while the
+     * engine counted heads and is false now: sixteen slots against twenty is the Wardens being
+     * the *heavier* line. Thirty Razors is the ratio `OUTNUMBERED_RATIO` actually asks for.
+     */
+    expect(reasons(army({ razors: 30 }))).toContain(lastStand);
     // Ten Razors and forty porters do not: the porters never form a line.
     expect(reasons(army({ razors: 10, scavengers: 40 }))).not.toContain(lastStand);
+  });
+
+  /**
+   * ...and a force is weighed in unit slots, not in bodies (maintainer, 2026-09-25).
+   *
+   * The engine counted heads while `line.ts` and the feats board counted slots, and two comments
+   * asserted it counted slots. Measured before the change: eight Juggernauts, forty-eight slots
+   * between them, collected the outnumbered bonus against sixteen Razors carrying sixteen. A side
+   * three times the enemy's weight was paid for being outnumbered, and the board recorded the same
+   * side as the larger one in the same breath.
+   *
+   * Both directions are asserted. A rule that simply never fires would satisfy the first line on
+   * its own.
+   */
+  it('weighs a line in unit slots, so heavy units are not a mob to be outnumbered by', () => {
+    const lastStand = UNIT_MODIFIERS.last_stand.label;
+    const reasons = (attacking: Army, defending: Army) =>
+      fight(attacking, defending, 'slots').attacker.stacks[0]?.effective.reasons ?? [];
+
+    // Eight Juggernauts are 48 slots; sixteen Razors are 16. On heads that is 2:1 against them.
+    expect(fightingSlots(army({ juggernauts: 8 }), bareLineRules())).toBe(48);
+    expect(fightingSlots(army({ razors: 16 }), bareLineRules())).toBe(16);
+    expect(reasons(army({ juggernauts: 8 }), army({ razors: 16 }))).not.toContain(lastStand);
+
+    // Eighty Razors really are half again the Juggernauts' weight, and it fires.
+    expect(reasons(army({ juggernauts: 8 }), army({ razors: 80 }))).toContain(lastStand);
   });
 });
 

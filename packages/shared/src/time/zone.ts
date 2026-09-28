@@ -163,7 +163,11 @@ export function hourInZone(instant: Date, zone: string = GAME_TIMEZONE): number 
 export function nextDayBoundary(instant: Date, zone: string = GAME_TIMEZONE): Date {
   const today = dayInZone(instant, zone);
   const HOUR = 3_600_000;
-  let probe = instant.getTime();
+  // From the top of the minute (bug pass, 2026-09-28). The walk below moves in whole minutes from
+  // wherever it starts, so starting from `instant` carried its seconds into the answer: asked at
+  // 12:00:37 it said the day ends at 00:00:37, and the Bar's live clock kept a table open for 37
+  // seconds after the server had sealed it.
+  let probe = Math.floor(instant.getTime() / 60_000) * 60_000;
   for (let step = 0; step < 30; step++) {
     probe += HOUR;
     if (dayInZone(new Date(probe), zone) !== today) break;
@@ -177,6 +181,32 @@ export function nextDayBoundary(instant: Date, zone: string = GAME_TIMEZONE): Da
     back = earlier;
   }
   return new Date(back);
+}
+
+/**
+ * The instant the game **week** containing `instant` began: Monday 00:00 in the zone.
+ *
+ * "Sunday night at midnight, before Monday starts" is the maintainer's wording for the same
+ * instant, and Monday 00:00 is what that is. The Combine's garrisons grow back on this mark
+ * (`apps/server/src/city/regrowth.ts`), and the mark is what makes that happen once a week rather
+ * than on every tick after it has passed: a tick asks which week it is in, and a week whose mark
+ * has already been claimed is a week that has already grown back. A server that was down over the
+ * boundary comes up inside the same week and grows it back on its first tick.
+ *
+ * Answers the mark itself when `instant` is exactly on it, so the first tick of a week is inside
+ * that week rather than still in the last one.
+ *
+ * The weekday is worked out on the calendar date {@link dayInZone} gives, with plain UTC
+ * arithmetic: a date with no time on it has no offset to get wrong, and the zone only comes back
+ * in when the answer is turned into an instant by {@link instantAtHourInZone}. Shifting the
+ * instant itself by seven days would be an hour out on the two weeks a year the clocks move.
+ */
+export function lastWeekBoundary(instant: Date, zone: string = GAME_TIMEZONE): Date {
+  const date = new Date(`${dayInZone(instant, zone)}T00:00:00.000Z`);
+  // `getUTCDay` counts from Sunday, and the game's week starts on Monday.
+  const sinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - sinceMonday);
+  return instantAtHourInZone(date.toISOString().slice(0, 10), 0, zone);
 }
 
 /**

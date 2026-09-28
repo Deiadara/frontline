@@ -1,10 +1,12 @@
 import {
+  MAX_LOCATION_LEVEL,
   MAX_NOTORIETY,
   BLACK_MARKET_GOODS,
   BLACK_MARKET_SLOTS,
   blackMarketBoard,
   blackMarketClosesAt,
   blackMarketDay,
+  discountedInfamy,
   findBlackMarketGood,
   nextLotBid,
   type BlackMarketResponse,
@@ -13,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { settleBlackMarketLots } from './shelf.js';
+import { standingEffectsFor } from '../crew/standing.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
@@ -297,6 +300,37 @@ describe('POST /api/black-market/bid', () => {
     const res = await bid(app, token, 0, board.offers[1]!.slot.goodId, lotIn(board, 0).nextBid);
     expect(res.statusCode).toBe(409);
     expect(lotIn(await shelf(app, token), 0).leading).toBeNull();
+  });
+
+  /**
+   * The Statue's cut comes off what the winner pays, and the table refuses on that charge. So the
+   * field's edge is past the ledger for a crew standing under it, and the shelf has to say where.
+   */
+  it('quotes a bid ceiling past the ledger for a crew the Statue favours', async () => {
+    const { app } = await makeApp();
+    const { token } = await crew(app, 'operator');
+    await giveInfamy(app, token, 700);
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(token) });
+    const baseId = me.json<{ base: { id: string } }>().base.id;
+    const statue = 'last-platform-stationmaster';
+    const control = app.repos.city.control(statue);
+    if (!control) throw new Error(`fixture: no control row for ${statue}`);
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+
+    const base = app.repos.bases.findById(baseId);
+    if (!base) throw new Error('fixture: the crew lost its district');
+    const percent = standingEffectsFor(app.repos, base).blackMarketDiscountPercent;
+    expect(percent, 'holding the Statue bought no discount').toBeGreaterThan(0);
+
+    const ceiling = (await shelf(app, token)).bidCeiling ?? 0;
+    expect(ceiling).toBeGreaterThan(700);
+    expect(discountedInfamy(ceiling, percent)).toBeLessThanOrEqual(700);
+    expect(discountedInfamy(ceiling + 1, percent)).toBeGreaterThan(700);
   });
 
   it('refuses a bid the crew could not cover tonight', async () => {

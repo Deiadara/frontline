@@ -1,6 +1,7 @@
 import { LoadFailure } from '../../components/ui/LoadFailure';
 import { useBuildVehicle, useGarage } from '../../lib/queries';
 import { VehicleCard } from './VehicleCard';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The yard's catalogue, as the roster's last tab (GDD §B11, §C; maintainer request, 2026-09-08).
@@ -82,11 +83,7 @@ export function VehicleCatalogue() {
         ))}
       </ul>
 
-      {build.error !== null && (
-        <p role="alert" className="font-body text-[13px] text-oxblood-300">
-          {build.error.message}
-        </p>
-      )}
+      {build.error !== null && <ErrorNote>{build.error.message}</ErrorNote>}
     </>
   );
 }

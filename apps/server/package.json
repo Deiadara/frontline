@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "pretest": "pnpm --filter @frontline/shared build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "playthrough": "pnpm --filter @frontline/shared build && tsx scripts/playthrough.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

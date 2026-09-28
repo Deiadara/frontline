@@ -4,8 +4,15 @@ import { BLUEPRINTS } from '../blueprints/catalog.js';
 import { ITEM_CATALOG, ITEM_IDS, type ItemId } from '../items/catalog.js';
 import { MILESTONE_BROKERS_RESPECT, isPlayerUnlockActive } from '../progression/unlocks.js';
 import { RESOURCE_KEYS, type ResourceKey } from '../resources.js';
+import { RESOURCE_CAP_VALUE, withoutFloatNoise } from './offers.js';
 import { seedFrom } from '../rng.js';
-import { GAME_TIMEZONE, dayInZone, hourInZone, instantAtHourInZone } from '../time/zone.js';
+import {
+  GAME_TIMEZONE,
+  dayInZone,
+  hourInZone,
+  instantAtHourInZone,
+  nextDayBoundary,
+} from '../time/zone.js';
 
 /**
  * The market's two traders (GDD §D, market extension).
@@ -89,6 +96,17 @@ export type VendorSession = z.infer<typeof VendorSessionSchema>;
  * Two sessions, two hours each, never overlapping and never adjacent: a four-hour block would be
  * one session wearing two hats, and the whole point is that missing one still leaves the other.
  * The second is drawn from the hours far enough from the first to guarantee it.
+ *
+ * ## The hours are the same in every city, and the stock is not (2026-09-24)
+ *
+ * Deliberate, and the one thing in the market that is not keyed by city. He is one man with one
+ * barrow: he is in Ashfall's yard and Terminus's yard in the same two-hour windows, and what he
+ * unloads at each is different. That also keeps the close honest. A lot is settled out of
+ * `vendor_bids`, which names a day, a session and a line and nothing else, and the instant a visit
+ * ends is `visitClosesAt(day, session)`: per-city hours would make the same `(day, session)` pair
+ * two different instants and the settler would have to re-derive the room before it could ask
+ * whether the visit was over. The city is already in the line id, so the thing worth varying,
+ * what is on the barrow, varies.
  */
 export function vendorSessionsFor(day: string): VendorSession[] {
   const rng = rngFrom(`${day}:vendor-hours`);
@@ -133,11 +151,11 @@ export function currentVendorSession(
  */
 export function nextVendorOpening(now: Date, zone: string = GAME_TIMEZONE): Date {
   const today = marketDay(now, zone);
-  // A whole day on, then read back through the zone, so the "tomorrow" this looks at is tomorrow
-  // in the game's calendar rather than 24 hours of wall clock that a summer-time night shortens.
-  const tomorrow = marketDay(new Date(now.getTime() + 86_400_000), zone);
-  const days = today === tomorrow ? [today] : [today, tomorrow];
-  for (const day of days) {
+  // The day after today's boundary in the zone, not 24 hours on: late on the eve of the 23-hour
+  // spring day, 24 hours of wall clock lands the day after tomorrow and the Runner's next visit
+  // tomorrow was skipped.
+  const tomorrow = marketDay(nextDayBoundary(now, zone), zone);
+  for (const day of [today, tomorrow]) {
     for (const session of vendorSessionsFor(day)) {
       const opens = instantAtHourInZone(day, session.startHour, zone);
       if (opens.getTime() > now.getTime()) return opens;
@@ -265,7 +283,7 @@ export function isDearVendorLine(item: ItemId): boolean {
  * is what makes it safe to bid on.
  */
 export function vendorStockFor(day: string, cityId: string = DEFAULT_CITY_ID): VendorLine[] {
-  const room = cityId === DEFAULT_CITY_ID ? '' : `${cityId}:`;
+  const room = vendorRoomKey(cityId);
   const rng = rngFrom(`${room}${day}:vendor-stock`);
   const weighted: ItemId[] = VENDOR_GOODS.flatMap((id) => {
     const spec = ITEM_CATALOG[id];
@@ -310,6 +328,33 @@ export function vendorStockFor(day: string, cityId: string = DEFAULT_CITY_ID): V
       price: Math.max(1, Math.round(spec.capsValue * markup)),
     };
   });
+}
+
+/**
+ * Which city's barrow a line belongs to, as a prefix on its id.
+ *
+ * The open city folds to nothing, which keeps every id, fixture and screenshot pinned on the draw
+ * that existed before the second city byte for byte what it was. See `cityOfVendorLine` for the
+ * way back.
+ */
+export function vendorRoomKey(cityId: string): string {
+  return cityId === DEFAULT_CITY_ID ? '' : `${cityId}:`;
+}
+
+/**
+ * Which city a stored line id belongs to.
+ *
+ * The one way back from a bid to the room it was placed in. `vendor_bids` names a day, a session
+ * and a line id, so the id's prefix is the only thing in the row that says which barrow the crew
+ * was standing at: the door on `POST /market/bid` and the per-city lot limit both read it here
+ * rather than trusting a city the client named.
+ *
+ * A city id is a slug and can never contain a colon (`city/atlas.ts`), so splitting on the first
+ * one is total. No colon is the open city, whose ids carry no prefix.
+ */
+export function cityOfVendorLine(lineId: string): string {
+  const colon = lineId.indexOf(':');
+  return colon === -1 ? DEFAULT_CITY_ID : lineId.slice(0, colon);
 }
 
 /**
@@ -379,14 +424,24 @@ export function barterRateFor(level: number): number {
 /**
  * What the Broker gives for a resource, in another resource.
  *
- * Flat, symmetric and deliberately bad. Floored at zero rather than at one: handing over a single
- * scrap and getting something back would be a rounding exploit before it was a mercy.
+ * By value, then cut (maintainer, 2026-09-27). It was one for one by count, so two supplies
+ * (worth about three caps) came back as a high-quality metal the supply run sells for eighteen:
+ * the scarcest material in the game was the cheapest thing to make. Now what goes in is valued
+ * at `RESOURCE_CAP_VALUE`, what comes out is priced the same way, and the Broker keeps his cut.
+ * Floored at zero rather than at one: handing over a single scrap and getting something back
+ * would be a rounding exploit before it was a mercy.
  *
  * The rate is a parameter rather than the constant so the level-60 milestone lands in one place and
  * the client's quote and the server's settlement cannot disagree about which rate applied.
  */
-export function barterQuote(giveAmount: number, rate: number = BARTER_RATE): number {
-  return Math.floor(Math.max(0, giveAmount) * Math.max(0, rate));
+export function barterQuote(
+  give: ResourceKey,
+  want: ResourceKey,
+  giveAmount: number,
+  rate: number = BARTER_RATE,
+): number {
+  const worth = Math.max(0, giveAmount) * RESOURCE_CAP_VALUE[give];
+  return Math.floor(withoutFloatNoise((worth * Math.max(0, rate)) / RESOURCE_CAP_VALUE[want]));
 }
 
 /** The smallest trade the Broker will look at. Below this the rate rounds to nothing anyway. */

@@ -51,7 +51,23 @@ export type PlateFit = 'cover' | 'whole' | 'width';
  * the eye is not comparing greys, it is finding a straight boundary between detail and no detail.
  * Fade the last few pixels and there is no boundary to find.
  */
-const FEATHER_PX = 36;
+export const FEATHER_PX = 36;
+
+/**
+ * The surround behind a painting that does not fill its frame: the same painting, over-scaled and
+ * blurred to nothing. Shared so every room that has margin draws the same light carrying on past
+ * the canvas (the district's own scene reads it too).
+ */
+export const SURROUND_CLASS =
+  'absolute inset-0 h-full w-full scale-125 object-cover opacity-70 blur-[48px] saturate-[0.9]';
+
+/**
+ * Darker at the edges than the plate paints, across the **whole frame**. See the vignette in
+ * `PlateRoom` for why it covers the frame rather than the picture: over both at once there is no
+ * line between the picture's edge and the surround beside it.
+ */
+export const FRAME_VIGNETTE =
+  'radial-gradient(ellipse 70% 60% at 50% 55%, transparent 35%, rgb(6 5 10 / 0.72) 100%)';
 
 /**
  * The box the painting is drawn in, centred on the frame.
@@ -211,13 +227,7 @@ export function PlateRoom({
          * frame is full and the picture inside it is still exactly the picture.
          */}
         {url !== null && fit === 'whole' && (
-          <img
-            src={url}
-            alt=""
-            aria-hidden="true"
-            data-scenery
-            className="absolute inset-0 h-full w-full scale-125 object-cover opacity-70 blur-[48px] saturate-[0.9]"
-          />
+          <img src={url} alt="" aria-hidden="true" data-scenery className={SURROUND_CLASS} />
         )}
         {/* Sized in pixels from a measurement rather than by CSS, for the reason the district
             scene spells out: `aspect-ratio` plus a `max-height` clamps the height without giving
@@ -263,10 +273,7 @@ export function PlateRoom({
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 z-10"
-          style={{
-            background:
-              'radial-gradient(ellipse 70% 60% at 50% 55%, transparent 35%, rgb(6 5 10 / 0.72) 100%)',
-          }}
+          style={{ background: FRAME_VIGNETTE }}
         />
       </div>
     </div>

@@ -4,6 +4,7 @@ import {
   DECLARE_UNAFFORDABLE_MESSAGE,
   DeclareBattleRequestSchema,
   DeployRequestSchema,
+  type DeployQuoteResponse,
   LayTrapRequestSchema,
   BuyBattleBoostRequestSchema,
   LEADER_HOLD_MESSAGES,
@@ -40,22 +41,29 @@ import type { FastifyInstance } from 'fastify';
 import { settleBase } from '../district/settle.js';
 import { AppError, parseBody, type ErrorCode } from '../errors.js';
 import { declareBattle, type DeclareRefusal } from './declare.js';
-import { adjustDeployment, sideOf, type DeployRefusal } from './deploy.js';
+import { adjustDeployment, deployQuote, sideOf, type DeployRefusal } from './deploy.js';
 import { recallColumn, type RecallRefusal, retimeColumns } from './movement.js';
-import { moveMinutes, recallMove, sendMove } from '../moves/moves.js';
+import {
+  holdingsRefusal,
+  moveMinutes,
+  railOfferFor,
+  recallMove,
+  sendMove,
+} from '../moves/moves.js';
 import { projectActions, projectBattles } from './view.js';
 import { workingRoles } from '../crew/roster.js';
 import { crewEffectsFor } from '../crew/standing.js';
 import { settleWorld } from '../world/settle.js';
 import { officerDuty } from '../crew/duty.js';
+import { defendingBaseOf } from './ground.js';
 
 /**
  * The battle board (GDD §A4, battle rework): what is coming, what you have moved up for it, what
  * came back, and the two things infamy buys.
  *
  * Every handler settles first, and the settle order is the same one the city routes use with one
- * more step on the end: the crew's own district and payroll, then any fortification whose clock ran
- * out, then **any fight whose mark has passed**. A battle that went off an hour ago has to have gone
+ * more step on the end: the crew's own district and payroll, then any location upgrade whose clock
+ * ran out, then **any fight whose mark has passed**. A battle that went off an hour ago has to have gone
  * off before anybody declares the next one, or a crew could call a fight on ground the world has not
  * noticed changing hands yet.
  */
@@ -84,6 +92,14 @@ const MOVE_ERRORS: Record<MoveRefusal, { code: ErrorCode; message: string }> = {
     message: 'Somebody else holds that. Call a fight on it instead',
   },
   no_road: { code: 'NOT_FOUND', message: 'There is no road to that' },
+  under_fire: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'A fight is called on that ground. Nobody claims it until it is over',
+  },
+  garrison_locked: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'A fight lands there within the hour. Nobody leaves the ground now',
+  },
 };
 
 const RECALL_ERRORS: Record<RecallRefusal, { code: ErrorCode; message: string }> = {
@@ -114,6 +130,7 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   unscouted: 'You have not had eyes on that ground',
   already_declared: 'Somebody has already called that one',
   too_many_pending: 'You have as many calls out as you can answer for',
+  breach_closes: 'The gate is back up before then. Call it for while the breach is still open',
   own_ground: 'That is yours',
   not_a_participant: 'You are not in that fight',
   deployment_closed: 'They are on the ground. Nobody is moving now',
@@ -122,6 +139,8 @@ export const REFUSAL_MESSAGES: Record<DeclareRefusal | DeployRefusal, string> = 
   needs_infamy: 'They will not take a contract from a name that small',
   no_seats: 'There is no room in what you have loaded. Take another machine or send fewer',
   ring_is_the_defenders: 'The ring is the defender’s. You chose the ground; they choose the cordon',
+  garrison_locked:
+    'A fight lands within the hour. Nobody leaves the ground now, and whoever is there fights',
   // §D7's price, quoted off the shared constant so the dialog's warning and this refusal cannot
   // name two different numbers.
   cannot_afford: DECLARE_UNAFFORDABLE_MESSAGE,
@@ -178,7 +197,6 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           target: body.target,
           scheduledFor: new Date(body.scheduledFor),
           now,
-          holdAfterCapture: body.holdAfterCapture ?? false,
           admin: app.config.admin,
         }),
       )();
@@ -210,6 +228,7 @@ export function registerBattleRoutes(app: FastifyInstance): void {
           side,
           changes: body.changes,
           perimeterChanges: body.perimeterChanges,
+          byRail: body.byRail,
           now,
         }),
       )();
@@ -217,6 +236,38 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       // §A4: the ring's bite, reported on the one response it is news on. It was charged and
       // swallowed: the units came off the roster and the screen said nothing about them.
       return respond(outcome.base, now, outcome.lostOnTheWayOut);
+    },
+  );
+
+  /**
+   * What this column's road would cost, and whether it could ride Terminus's line.
+   *
+   * The same body as the deploy, and nothing is sent. It exists because the screen cannot work
+   * either number out: the road is spent with `standingEffectsFor`, which folds the crew's ground
+   * as well as its people, and the client only ever receives the people-only fold. The deploy
+   * dialog was quoting a march with two of its three speed channels missing.
+   */
+  app.post(
+    '/battles/deploy/quote',
+    { preHandler: app.authenticate },
+    (request): DeployQuoteResponse => {
+      const body = parseBody(DeployRequestSchema, request.body);
+      const now = new Date();
+      const base = settled(request.currentUser.id, now);
+
+      const battle = app.repos.sieges.find(body.battleId);
+      if (!battle || battle.resolvedAt !== null) throw new AppError('NOT_FOUND', 'No such fight');
+      const side = sideOf(app.repos, battle, base.id);
+      if (!side) refuse('not_a_participant');
+
+      return deployQuote(app.repos, {
+        base,
+        battle,
+        side,
+        changes: body.changes,
+        perimeterChanges: body.perimeterChanges,
+        now,
+      });
     },
   );
 
@@ -314,13 +365,21 @@ export function registerBattleRoutes(app: FastifyInstance): void {
        * side that names one, so an ally's purchase was either the one applied, with the crew whose
        * fight it is paying for nothing, or burned unread. The trap and the officer routes refuse a
        * second from the same side; this is the boost route's version of the same rule.
+       *
+       * The defending principal is `defendingBaseOf`, not `battle.defender`. The plate on the row
+       * is the control table's answer and it reads `unoccupied` on every lived-in district: a home
+       * has no locations to hold, so `districtHolder` names nobody however plainly somebody lives
+       * there. Read off the plate, `principal` came back null on exactly those fights and the
+       * check below let it through, so any faction-mate who had sent a column could burn a name on
+       * somebody else's home defence. It stacked past that crew's own slot count (`side.ts` unions
+       * the side's names) and, for a contraband crate, was then settled against the *principal's*
+       * bag: `appliedBoost` is handed `defenderBase.id`, which is this same lookup. Every other
+       * door on the fight already asks it, `sideOf` and `/factions/reinforce` included.
        */
       const principal =
         side === 'attacker'
           ? battle.attackerBaseId
-          : battle.defender.kind === 'crew'
-            ? battle.defender.baseId
-            : null;
+          : (defendingBaseOf(app.repos, battle)?.id ?? null);
       if (principal !== null && principal !== base.id) {
         throw new AppError('FORBIDDEN', 'Only the crew whose fight this is can put a name on it');
       }
@@ -446,6 +505,19 @@ export function registerBattleRoutes(app: FastifyInstance): void {
     }
 
     if (officerId !== null) {
+      /*
+       * The side's leader is the principal's (bug pass, 2026-09-27). `leaderFor` reads only the
+       * principal's row at the mark, so an ally's named officer never fought, blocked the principal
+       * from naming their own, was held off missions for nothing, and still sped the ally's columns
+       * up with the lead-arrival bonus. Refused the same way the boost route refuses an ally.
+       */
+      const principal =
+        side === 'attacker'
+          ? battle.attackerBaseId
+          : (defendingBaseOf(app.repos, battle)?.id ?? null);
+      if (principal !== null && principal !== base.id) {
+        throw new AppError('FORBIDDEN', 'Only the crew whose fight this is names who leads it');
+      }
       const officer = base.commanders.find((held) => held.id === officerId);
       if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
       // §D4: leading is a service, and an officer in a bed is not performing any.
@@ -610,12 +682,32 @@ export function registerBattleRoutes(app: FastifyInstance): void {
       const body = parseBody(MoveUnitsRequestSchema, request.body);
       const now = new Date();
       const base = settled(request.currentUser.id, now);
-      const minutes = moveMinutes(app.repos, base, body.from, body.to, {
-        army: body.army,
-        vehicles: body.vehicles,
-      });
+      const unheld = holdingsRefusal(app.repos, base, body.from, body.army, body.vehicles);
+      if (unheld) {
+        const { code, message } = MOVE_ERRORS[unheld];
+        throw new AppError(code, message);
+      }
+      const riding = { army: body.army, vehicles: body.vehicles };
+      const minutes = moveMinutes(app.repos, base, body.from, body.to, riding);
       if (minutes === null) throw new AppError('NOT_FOUND', 'There is no road to that');
-      return { minutes };
+      /*
+       * Both clocks, so the dialog can offer the choice the maintainer asked for.
+       *
+       * The walk is always quoted and the ride is quoted beside it when there is one. `railOfferFor`
+       * has already refused a ride that is slower than walking, so anything that comes back here is
+       * worth drawing.
+       */
+      const offer = railOfferFor(app.repos, base, body.from, body.to, riding);
+      const rail =
+        offer === null
+          ? null
+          : {
+              minutes: moveMinutes(app.repos, base, body.from, body.to, riding, true) ?? minutes,
+              boardAt: offer.boardAt.name,
+              alightAt: offer.alightAt.name,
+              walkMinutes: offer.toPlatform + offer.fromPlatform,
+            };
+      return { minutes, rail };
     },
   );
 

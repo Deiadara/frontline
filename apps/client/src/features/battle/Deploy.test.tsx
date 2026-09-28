@@ -70,29 +70,27 @@ const me: MeResponse = {
 const view = (id: string, targetName: string): BattleView => ({
   battle: {
     id,
-    target: { kind: 'location', districtId: 'rustyard', locationId: `rustyard-${id}` },
+    target: { kind: 'location', districtId: 'steelbelt', locationId: `steelbelt-${id}` },
     attackerBaseId: base.id,
     defender: { kind: 'looters' },
     scheduledFor: MARK,
-    holdAfterCapture: false,
+    holdAfterCapture: true,
     wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
-    seed: `${id}-seed`,
   },
   targetName,
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: targetName,
     kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: new Date(MARK),
     weather: 'normal',
   }),
   role: 'attacker',
   side: 'attacker',
   deploymentOpen: true,
+  withdrawalOpen: true,
   muster: { army: {}, perimeter: {}, size: 0 },
   enemySize: 10,
   enemyIntel: 'A rough count.',
@@ -185,6 +183,7 @@ let column: ActionsResponse = nothingWalking;
 function stubApi(): void {
   const reply = (body: unknown) =>
     Promise.resolve({
+      headers: new Headers(),
       ok: true,
       status: 200,
       statusText: '',
@@ -288,6 +287,9 @@ describe('sending a column from the battle board (§A4)', () => {
         battleId: 'press',
         changes: { razors: 2 },
         perimeterChanges: {},
+        // Marching. The railway is a choice and the window only offers it when the server has
+        // quoted a ride, which needs a crew holding a pair of platforms that serves the journey.
+        byRail: false,
       }),
     );
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -321,6 +323,7 @@ describe('sending a column from the battle board (§A4)', () => {
     fetchMock.mockImplementation((path: string, init?: RequestInit) => {
       const reply = (body: unknown) =>
         Promise.resolve({
+          headers: new Headers(),
           ok: true,
           status: 200,
           statusText: '',
@@ -349,5 +352,46 @@ describe('sending a column from the battle board (§A4)', () => {
     const told = await screen.findByTestId('caught-leaving');
     expect(told).toHaveTextContent('2 Razors');
     expect(told).toHaveTextContent('not coming home');
+  });
+});
+
+/**
+ * The battle page shows what is at the place (maintainer, 2026-09-28): a garrison, a posting or a
+ * waiting cell on this side fights with no deployment, and the board says so rather than reading
+ * "Nobody yet" over a plot with five of the crew's people standing on it.
+ */
+describe('what already stands at the place (2026-09-28)', () => {
+  it('draws the units standing there beside the muster', async () => {
+    const standing: BattlesResponse = {
+      ...battles,
+      coming: [
+        {
+          ...view('press', 'Kessler Press'),
+          muster: { army: {}, perimeter: {}, size: 0, standing: { razors: 5 } },
+        },
+      ],
+    };
+    const reply = (body: unknown) =>
+      Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/units')) return reply(roster);
+      if (path.endsWith('/battles')) return reply(standing);
+      if (path.endsWith('/actions')) return reply(nothingWalking);
+      if (path.endsWith('/me')) return reply(me);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+    renderGame();
+
+    const chips = await screen.findByTestId('battle-standing');
+    expect(within(chips).getByTestId('battle-standing-razors')).toHaveTextContent('5');
+    expect(screen.getByTestId('battle-forces')).toHaveTextContent(
+      'Those standing there below fight either way',
+    );
   });
 });

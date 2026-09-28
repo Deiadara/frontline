@@ -67,6 +67,10 @@ const CANCEL_ERRORS: Record<BuildCancelRefusal, { code: ErrorCode; message: stri
     code: 'PLACE_UNAVAILABLE',
     message: 'The work has gone too far to stop. It finishes now',
   },
+  orders_behind: {
+    code: 'PLACE_UNAVAILABLE',
+    message: 'An order behind this one is built on it. Call that one off first',
+  },
 };
 
 export function registerBaseRoutes(app: FastifyInstance): void {
@@ -75,14 +79,14 @@ export function registerBaseRoutes(app: FastifyInstance): void {
    * before it has started, with ninety percent of the materials and every part back.
    */
   app.post('/base/cancel', { preHandler: app.authenticate }, (request): BuildStructureResponse => {
-    const { orderId } = parseBody(CancelBuildRequestSchema, request.body);
+    const { orderId, acceptWaste } = parseBody(CancelBuildRequestSchema, request.body);
     const owned = app.repos.bases.findByOwnerId(request.currentUser.id);
     if (!owned) throw new AppError('NO_BASE', 'You do not have a base yet');
     const now = new Date();
     const result = app.db.transaction(() => {
       // Settled first, so an order whose clock has already run out lands rather than refunds.
       const settled = settleBase(app.repos, owned, now);
-      return cancelBuild(app.repos, settled.base, orderId, now);
+      return cancelBuild(app.repos, settled.base, orderId, now, acceptWaste);
     })();
     if (result.kind === 'refused') {
       const { code, message } = CANCEL_ERRORS[result.reason];
@@ -235,11 +239,21 @@ function factionNameMustBeFree(app: FastifyInstance, name: string, exceptBaseId:
       `The city already calls a district "${name.trim()}". Pick something else.`,
     );
   }
+  /*
+   * One crew, one name, in the whole world.
+   *
+   * The check has always swept every crew there is; it was the message that said "in this city",
+   * back when there was one. That became a lie the day a second city opened, and the lie was the
+   * worse half: a player told the clash was local would go looking for the other crew on their own
+   * map and not find them. Global is also the reading that keeps working, because crews from both
+   * cities meet on battle reports, on the trading board and on the standings, and two crews with
+   * one name on any of those is unreadable.
+   */
   const clash = app.repos.bases
     .listSummaries()
     .find((summary) => summary.id !== exceptBaseId && sameDistrictName(summary.name, name));
   if (clash) {
-    throw new AppError('DISTRICT_NAME_TAKEN', `Another crew in this city is already called that.`);
+    throw new AppError('DISTRICT_NAME_TAKEN', 'Another crew is already called that.');
   }
 }
 

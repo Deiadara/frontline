@@ -1,14 +1,10 @@
 import { blueprintForUnit } from '../blueprints/requirements.js';
 import { findBlueprint } from '../blueprints/catalog.js';
 import { isBlueprintUnlocked } from '../blueprints/state.js';
-import {
-  BUILDING_CATALOG,
-  buildingLevel,
-  findModification,
-  findVehicle,
-  type Building,
-  vehicleNoun,
-} from '../building/index.js';
+import { BUILDING_CATALOG } from '../building/kinds.js';
+import { buildingLevel, type Building } from '../building/state.js';
+import { findModification } from '../building/modifications.js';
+import { findVehicle, vehicleNoun } from '../building/vehicles.js';
 import { LOCATION_CATALOG, type LocationKind } from '../city/locations.js';
 import type { Inventory } from '../items/inventory.js';
 import { PLAYER_UNITS, isCombineUnit, type UnitRequirement, type UnitSpec } from './catalog.js';

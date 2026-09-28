@@ -1,6 +1,6 @@
-import { BUILDING_KINDS, CITY_DISTRICTS } from '@frontline/shared';
+import { BUILDING_KINDS, CITY_DISTRICTS, findBlackMarketGood } from '@frontline/shared';
 import { expect, test, type Page } from '@playwright/test';
-import { adminGame, lateGame } from './fixtures';
+import { adminGame, blackMarket, lateGame } from './fixtures';
 import {
   expectNoImagesClipped,
   expectNothingClippedVertically,
@@ -10,8 +10,11 @@ import {
 } from './harness';
 
 /**
- * The three screens half B added, the Black Market, Settings and the console, plus the ambience layer
- * that now runs over all of them.
+ * The three screens half B added: the Black Market, Settings and the console.
+ *
+ * It also carried the corner sprites that ran over all of them, until they came off the game on
+ * 2026-09-25 and their two cases went with them. The `patina` glass they sat under is still here
+ * and is still measured by the pale-share gate below.
  *
  * Every screen is measured at 1024 as well as at 1280. 1024 is where the chrome runs out of room:
  * the scenery switcher grew two doors with these features, and a row that overflows instead of
@@ -119,6 +122,50 @@ test.describe('the black market', () => {
       expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
       await expectSheetNotWashedOut(page);
       await expectLaidOutWhole(page, width, name);
+    });
+  }
+
+  /**
+   * The fence's blueprint lots carry the longest copy on the shelf: the card's every number, since
+   * the lot is the only place a player reads what the infamy buys. Four of them at once is the
+   * worst case the shelf can draw.
+   */
+  for (const { name, width, height } of WIDTHS) {
+    test(`holds four blueprint lots without cutting their copy at ${name}`, async ({ page }) => {
+      const lots = [
+        'rotorcraft_plans',
+        'stolen_cybernetics_plans',
+        'field_medicine_notes',
+        'munitions_schematics',
+      ];
+      const shelf = {
+        ...blackMarket,
+        offers: blackMarket.offers.map((offer, index) => {
+          const good = lots[index];
+          const spec = good === undefined ? undefined : findBlackMarketGood(good);
+          if (!spec) return offer;
+          return {
+            ...offer,
+            slot: { ...offer.slot, goodId: spec.id },
+            minNotoriety: spec.minNotoriety ?? 0,
+            effect: spec.effect,
+          };
+        }),
+      };
+      await page.setViewportSize({ width, height });
+      await installApi(page, adminGame);
+      // Registered after `installApi`, so it wins: Playwright matches the most recent handler first.
+      await page.route('**/api/black-market**', (route) => route.fulfill({ json: shelf }));
+      await page.goto('/game/market/black');
+      await settleFonts(page);
+
+      await expect(page.getByText('Rotor Drop Rig blueprint', { exact: false })).toBeVisible();
+      expect(await overflowing(page), `something is cut off at ${name}`).toEqual([]);
+      await expectLaidOutWhole(page, width, name);
+      await page.screenshot({
+        path: `e2e-out/black-market-blueprints-${name}.png`,
+        fullPage: true,
+      });
     });
   }
 
@@ -414,44 +461,6 @@ test.describe('the scenery switcher with two more doors', () => {
       expect(spilling, `a door's name runs outside the door at ${name}`).toEqual([]);
     });
   }
-});
-
-test.describe('the ambience layer', () => {
-  test('puts junk in the corners without eating a click', async ({ page }) => {
-    await open(page, '/game/settings', 1280, 720);
-    /*
-     * Waited for, because the assertion below is a raw `evaluate` rather than a locator.
-     *
-     * `open` waits for `document.fonts.ready`, which resolves happily against a shell React has
-     * not mounted into yet. On an idle machine the layer is always there by the time the evaluate
-     * runs; under a full-suite load it sometimes is not, and the test then reports "no ambience
-     * layer" for a layer that appears a frame later. Locators auto-wait; `page.evaluate` does not.
-     */
-    await expect(page.getByTestId('ambience')).toBeAttached();
-
-    // Everything in the layer is inert, so the control underneath a sprite is still the thing the
-    // pointer finds.
-    const swallowed = await page.evaluate(() => {
-      const layer = document.querySelector('[aria-hidden][class*="pointer-events-none"]');
-      if (!layer) return 'no ambience layer';
-      return [...layer.querySelectorAll('*')].some(
-        (el) => getComputedStyle(el).pointerEvents !== 'none',
-      )
-        ? 'something in the ambience layer takes pointer events'
-        : null;
-    });
-    expect(swallowed).toBeNull();
-  });
-
-  test('draws every sprite whole, over every screen', async ({ page }) => {
-    for (const path of ['/game', '/game/market/black', '/game/settings', '/game/admin']) {
-      await open(page, path, 1280, 720);
-      // The sprites are `<svg>` in fixed boxes tucked inside the frame; the gate that would catch a
-      // corner-bled sprite is the image one, and it is the reason none of them run off the edge.
-      // Scoped to the ambience layer itself: the backdrop it sits over is over-scaled by design.
-      await expectNoImagesClipped(page, '[data-testid="ambience"]');
-    }
-  });
 });
 
 /**

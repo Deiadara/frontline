@@ -23,6 +23,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(() =>
     Promise.resolve({
+      headers: new Headers(),
       ok: true,
       status: 200,
       statusText: '',
@@ -63,5 +64,35 @@ describe('the mailbox, arrived at from somebody’s file', () => {
 
     await screen.findByTestId('compose');
     expect(screen.queryByTestId('compose-form')).toBeNull();
+  });
+});
+
+/**
+ * Arriving from the join sheet's picker (maintainer, 2026-09-24).
+ *
+ * The sheet on `/game/faction` lists the invitations a crew holds and offers to go and read one.
+ * What it holds is the *invitation's* id, so the mailbox finds the message carrying it rather than
+ * being handed a message id the faction payload does not have.
+ */
+describe('the mailbox, arrived at from an invitation', () => {
+  const INVITED = F.messagesScreen.inbox.find((message) => message.invite !== null);
+  if (!INVITED?.invite) throw new Error('the mailbox fixture carries no invitation');
+  /* Pulled out of the narrowed const: the narrowing above does not reach inside the cases. */
+  const INVITE_ID = INVITED.invite.inviteId;
+
+  it('opens the message that carries that invitation, with its card on it', async () => {
+    open(`/game/messages?invite=${INVITE_ID}`);
+
+    const sheet = await screen.findByTestId('message-open');
+    expect(within(sheet).getByRole('heading')).toHaveTextContent(INVITED.subject);
+    // The card is the button that answers it, and it is on the message and nowhere else.
+    expect(within(sheet).getByTestId('invite-card')).toBeInTheDocument();
+  });
+
+  it('leaves the mailbox closed when the invitation has no message left', async () => {
+    open('/game/messages?invite=invite-that-was-binned');
+
+    await screen.findByTestId('message-list');
+    await waitFor(() => expect(screen.queryByTestId('message-open')).toBeNull());
   });
 });

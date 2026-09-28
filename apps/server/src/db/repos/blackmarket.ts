@@ -1,5 +1,6 @@
 import { blackMarketClosesAt, BoostStashSchema, type BoostStash } from '@frontline/shared';
 import type { AppDatabase } from '../index.js';
+import { lookbackFloor } from './lookback.js';
 
 /**
  * The back room's storage.
@@ -205,7 +206,8 @@ export function createBlackMarketRepo(db: AppDatabase): BlackMarketRepo {
     db.prepare(
       `SELECT b.day AS day, b.lot_id AS lot_id, MIN(b.slot_index) AS slot_index
        FROM black_market_bids b
-      WHERE NOT EXISTS (
+      WHERE b.day >= ?
+        AND NOT EXISTS (
               SELECT 1 FROM black_market_lot_results r
                WHERE r.day = b.day AND r.lot_id = b.lot_id
             )
@@ -308,7 +310,11 @@ export function createBlackMarketRepo(db: AppDatabase): BlackMarketRepo {
        * than in SQL: the query asks the cheap question (which lots have no result), and
        * `blackMarketClosesAt` answers the one only the shared rules can.
        */
-      const rows = openLotsStmt().all() as { day: string; lot_id: string; slot_index: number }[];
+      const rows = openLotsStmt().all(lookbackFloor(now)) as {
+        day: string;
+        lot_id: string;
+        slot_index: number;
+      }[];
       return rows
         .filter((row) => blackMarketClosesAt(row.day).getTime() <= now.getTime())
         .map((row) => ({ day: row.day, lotId: row.lot_id, slotIndex: row.slot_index }));

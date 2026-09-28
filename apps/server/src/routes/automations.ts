@@ -1,7 +1,9 @@
 import {
   AUTOMATION_KINDS,
+  LEADER_HOLD_MESSAGES,
   SaveAutomationRequestSchema,
   automationPowers,
+  findUnit,
   officerIsInjured,
   type AutomationsResponse,
 } from '@frontline/shared';
@@ -88,6 +90,40 @@ export function registerAutomationRoutes(app: FastifyInstance): void {
     const named = Object.keys(body.force).length > 0;
     if (named === (body.unitSlots !== null)) {
       throw new AppError('VALIDATION_ERROR', 'Name a party or a size, not both and not neither');
+    }
+    /*
+     * A party is units, and this is the door that says so (bug pass, 2026-09-24).
+     *
+     * `POST /missions` keys its own `force` on the unit catalogue, so a key naming no sheet never
+     * reaches it. This one takes `z.record(z.string(), ...)` on the wire, and the runner then asks
+     * `base.army[unitId] < count`: for a key that is also a name on `Object.prototype`
+     * (`constructor`, `toString`, `valueOf`) that reads a *function*, the comparison is `NaN < 1`,
+     * which is false, and the party counts as at home. A crew with an empty roster launched a real
+     * job, won it, and banked the XP and every mission tally behind it, once a cooldown, for ever.
+     *
+     * Refused rather than filtered: a party the caller did not ask for is not the party they asked
+     * for, and an empty one would be the "neither" the line above already refuses.
+     */
+    const unknown = Object.keys(body.force).filter((unitId) => findUnit(unitId) === undefined);
+    if (unknown.length > 0) {
+      throw new AppError('VALIDATION_ERROR', `No such unit: ${unknown.join(', ')}`);
+    }
+
+    // The officer named has to be one of this crew's (2026-09-28). The slot used to store any id at
+    // all, and a stranger's officer only surfaced as a stall at the first tick; `POST /missions`
+    // answers a leader who is not on the bench with the same 404.
+    const namedOfficer =
+      body.officerId === null || body.officerId === undefined
+        ? undefined
+        : base.commanders.find((officer) => officer.id === body.officerId);
+    if (body.officerId !== null && body.officerId !== undefined && !namedOfficer) {
+      throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
+    }
+    // Nobody with no chair leads anything (2026-09-28), so an order switched on naming one would
+    // stall on every tick. Refused here instead, where the player can still fix it. Switching an
+    // order *off* is never refused, whoever it names.
+    if (body.enabled && namedOfficer?.role === null) {
+      throw new AppError('MISSION_REFUSED', `${namedOfficer.name} ${LEADER_HOLD_MESSAGES.bench}`);
     }
 
     const held = app.repos.automations.get(base.id, body.slot);

@@ -72,6 +72,11 @@ export const FEAT_MEASURES = [
   'districts_held_whole',
   'locations_held',
   'districts_scouted',
+  // The second city (maintainer, 2026-09-24): what a crew has done somewhere it does not live.
+  'locations_held_abroad',
+  'districts_held_whole_abroad',
+  'cities_held',
+  'rail_stations_held',
   'faction_infamy',
   'faction_seats',
   'blueprints_unlocked',
@@ -88,16 +93,21 @@ export const FEAT_MEASURES = [
   'battles_attacked_won',
   'battles_defended_won',
   'battles_won_outnumbered',
-  'fights_won_at_tier',
+  'fights_won_in_category',
+  'jobs_won_at_letter',
+  'jobs_won_long_odds',
   'battles_won_overwhelmed',
   'battles_won_flawless',
   'battles_won_lopsided',
   'battles_won_jamming',
   'battles_won_planted',
   'battles_won_loud',
+  'battles_won_abroad',
+  'rail_journeys',
   'districts_raided',
   'raids_repelled',
   'trap_kills',
+  'gate_levels_broken',
   'runners_caught',
   'bodies_deployed',
   'supply_deployed',
@@ -114,6 +124,9 @@ export const FEAT_MEASURES = [
   'units_routed',
   'combine_districts_held',
   'chapel_held',
+  // The week (maintainer, 2026-09-24): the NPC army erodes, and Monday morning puts it back.
+  'districts_emptied',
+  'plots_held_through_regrowth',
   'units_trained',
   'drills_paired',
   'overseer_taken',
@@ -193,6 +206,33 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   districts_held_whole: { source: 'crew', scoped: false, unit: 'districts' },
   locations_held: { source: 'crew', scoped: false, unit: 'holdings' },
   districts_scouted: { source: 'crew', scoped: false, unit: 'districts' },
+  /**
+   * The frontier measures (maintainer, 2026-09-24): "feats for doing stuff in another city".
+   *
+   * All four are read off the control map rather than tallied, for the reason every holding
+   * measure is: ground abroad is ground somebody can take back, and a crew that was thrown out of
+   * Terminus last week should not still be wearing the feat for being there.
+   *
+   * **Abroad** is measured against the city the crew's own district sits in (`cityOf`), not
+   * against a column on the crew row. A crew gets its foothold in a second city by marching across
+   * and taking ground, and it keeps living where it lived, so "abroad" has to be derived from the
+   * map on every read or it is a fact that goes stale the first time a district is moved.
+   *
+   * `cities_held` counts cities the crew holds at least one location in, home included. It is not
+   * the same question as `locations_held_abroad > 0`: a crew that has taken a platform in Terminus
+   * and nothing at all in Ashfall is abroad but is only in one city.
+   */
+  locations_held_abroad: { source: 'crew', scoped: false, unit: 'holdings' },
+  districts_held_whole_abroad: { source: 'crew', scoped: false, unit: 'districts' },
+  cities_held: { source: 'crew', scoped: false, unit: 'cities' },
+  /**
+   * Stations held, which is the whole of the railway a crew can own (`city/rails.ts`).
+   *
+   * Seven of Terminus's eight contested districts hold one `rail_station` and Telemetry Hill holds
+   * none, so the ceiling is seven and two is the number that matters: a train needs a platform at
+   * both ends, and one Station is a building rather than a railway.
+   */
+  rail_stations_held: { source: 'crew', scoped: false, unit: 'platforms' },
   faction_infamy: { source: 'crew', scoped: false, unit: 'infamy' },
   faction_seats: { source: 'crew', scoped: false, unit: 'seats' },
   blueprints_unlocked: { source: 'crew', scoped: false, unit: 'blueprints' },
@@ -214,21 +254,52 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    */
   battles_won_outnumbered: { source: 'tally', scoped: false, unit: 'wins' },
   /**
-   * Battle jobs won, by the tier the board dealt them at (`BATTLE_TIERS`), so the top of the
-   * ladder can be a feat: a Fight V held, a Siege held. Scoped by the tier id.
+   * Battle jobs won, by what the grade they were dealt at makes them (`fightCategory`), so the top
+   * of the ladder can be a feat: a Siege held, a Mayhem held. Scoped by the category id.
    */
-  fights_won_at_tier: { source: 'tally', scoped: true, unit: 'wins' },
+  fights_won_in_category: { source: 'tally', scoped: true, unit: 'wins' },
+  /**
+   * Jobs of either kind landed, by the letter of the grade they were dealt at (2026-09-28). Scoped
+   * by the letter alone, `C` for C-, C and C+, so a feat asks for the rung rather than a mark.
+   */
+  jobs_won_at_letter: { source: 'tally', scoped: true, unit: 'missions' },
+  /**
+   * Plain jobs landed on odds under `LONG_ODDS_CHANCE`, read off the chance the run went out with
+   * (2026-09-28). Fights are left out: they do not roll a chance, they fight.
+   */
+  jobs_won_long_odds: { source: 'tally', scoped: false, unit: 'missions' },
   battles_won_overwhelmed: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_flawless: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_lopsided: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_jamming: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_planted: { source: 'tally', scoped: false, unit: 'wins' },
   battles_won_loud: { source: 'tally', scoped: false, unit: 'wins' },
+  /**
+   * Declared fights won in a city the crew does not live in (2026-09-24).
+   *
+   * A tally and not a crew measure, because it is the one half of the frontier that is about
+   * having gone rather than about still being there: a crew that marched on Terminus, won and was
+   * pushed back out has still won a fight abroad. `tally.ts` decides what counts as abroad off the
+   * district the fight was in and the district the crew lives in, so the settle site only has to
+   * say where it happened.
+   */
+  battles_won_abroad: { source: 'tally', scoped: false, unit: 'wins' },
+  /**
+   * Journeys put on Terminus's railway: a unit move or a battle column that chose the train
+   * (`city/rails.ts`). Missions and scouting runs never ride, and neither do vehicles or the
+   * Colossus, so this counts only the moves the offer was actually taken on.
+   */
+  rail_journeys: { source: 'tally', scoped: false, unit: 'journeys' },
   /** Break-ins on a lived-in district: one counts for whoever forced it, the other for whoever did not let them. */
   districts_raided: { source: 'tally', scoped: false, unit: 'raids' },
   raids_repelled: { source: 'tally', scoped: false, unit: 'raids' },
   /** What a trap took off a column before anybody was in contact, counted for whoever laid it. */
   trap_kills: { source: 'tally', scoped: false, unit: 'kills' },
+  /**
+   * Levels a Wall Breaker took off the gates behind a defence (maintainer, 2026-09-26), counted for
+   * the crew that called the fight. `battle/wall-breaker.ts` in the server does the lowering.
+   */
+  gate_levels_broken: { source: 'tally', scoped: false, unit: 'levels' },
   /** Beaten runners a ring stopped on the way out, counted for the side that set it. */
   runners_caught: { source: 'tally', scoped: false, unit: 'runners' },
   bodies_deployed: { source: 'tally', scoped: false, unit: 'units' },
@@ -238,7 +309,10 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
    * The Combine's own ledger (maintainer, 2026-09-19). Tallied at the settle of any fight where
    * the defender was the regime (`apps/server/src/battle/resolve.ts`, `tallyCombineFight`).
    * `combine_kills_of` is scoped by the Combine unit's id and `combine_leaders_slain` by the
-   * leader's; a leader dies once per world, so that ladder is a set of three standalones.
+   * leader's. A killed leader comes back at the Sunday reset wherever no player holds the plot he
+   * stood on (2026-09-24), so the counter can climb past one; the three feats on it are
+   * standalones at a target of one all the same, because the first kill is the whole of what there
+   * is to reward.
    */
   combine_kills: { source: 'tally', scoped: false, unit: 'kills' },
   combine_kills_of: { source: 'tally', scoped: true, unit: 'kills' },
@@ -259,6 +333,29 @@ export const FEAT_MEASURE_SPECS: Readonly<Record<FeatMeasure, FeatMeasureSpec>> 
   /** Crew measures: districts that were the Combine's held whole, and the Chapel itself. */
   combine_districts_held: { source: 'crew', scoped: false, unit: 'districts' },
   chapel_held: { source: 'crew', scoped: false, unit: 'chapels' },
+  /**
+   * The weekly cycle, which is two mechanics and therefore two counters (2026-09-24).
+   *
+   * **`districts_emptied`**: a district with nothing of the regime's or the squatters' left standing
+   * anywhere in it, counted for the crew whose fight took the last of them off. The erosion that
+   * makes it possible is `spendGarrisons` in `apps/server/src/battle/resolve.ts`: a gate or district
+   * fight is paid for out of the control rows that turned up to it, so a week of assaults really
+   * does run a district's garrison down to nothing. A crew's own plot in the district is neither
+   * counted nor a blocker, because that garrison is not theirs to strip, and a legendary is never in
+   * a gate fight (`withoutTheLeader`), so his district cannot be stripped from the door: his plot
+   * has to be taken.
+   *
+   * **`plots_held_through_regrowth`**: one for every plot a crew still held when the Monday sweep
+   * rebuilt everything nobody holds (`apps/server/src/city/regrowth.ts`). Counted in plot-weeks, so
+   * it climbs with how much ground you hold *and* how long you keep it, which is the whole of what
+   * regrowth added: clearing ground stopped being the same thing as owning it.
+   *
+   * Both are tallies rather than crew measures. Neither is a fact about the map now: a district the
+   * regime has walked back into was still stripped, and a plot lost on Tuesday was still held
+   * through Monday. Asking "is this true of you right now" would take both back.
+   */
+  districts_emptied: { source: 'tally', scoped: false, unit: 'districts' },
+  plots_held_through_regrowth: { source: 'tally', scoped: false, unit: 'holdings' },
   units_trained: { source: 'tally', scoped: false, unit: 'units' },
   /** Drills started while somebody else was already on the floor: the second bench, used. */
   drills_paired: { source: 'tally', scoped: false, unit: 'drills' },

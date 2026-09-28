@@ -9,6 +9,8 @@ import type {
 } from '@frontline/shared';
 import {
   TUTORIAL_STEPS,
+  playerXpToNextLevel,
+  missionCompletesAt,
   DECLARE_INFAMY_COST,
   DEFAULT_CITY_ID,
   TRAVEL_BAND_MINUTES,
@@ -135,9 +137,7 @@ import {
   RESOURCE_KG,
   UNIT_MODIFICATIONS,
   areaPayPercent,
-  dealBattleTier,
   leaningsFor,
-  scaledSuccessChance,
   type LeaderHold,
   type MissionLeader,
   missionOffers,
@@ -158,6 +158,7 @@ import {
   OFFICER_ROLES,
   researchCompletesAt,
   CITY_DISTRICTS,
+  districtsOfCity,
   DISTRICT_NAME_MAX,
   createCommander,
   BUILD_QUEUE_RESEARCH_ID,
@@ -199,6 +200,9 @@ import {
   type MissionsResponse,
   type Overseer,
   type OverseerChoicesResponse,
+  cityHomeOffers,
+  homePlots,
+  TERMINUS_CITY_ID,
   type PartialResources,
   type Resources,
   type User,
@@ -254,6 +258,14 @@ export const overseerChoices: OverseerChoicesResponse = {
    */
   serverNow: new Date().toISOString(),
   expiresAt: new Date(Date.now() + OVERSEER_HOLD_MS).toISOString(),
+  /*
+   * Where a new player may live, as the choose-a-city step reads it.
+   *
+   * Terminus is full: three of the five cards are locked for having no map, and without this the
+   * fourth state the screen can draw, a city that filled up, would never be on screen for the
+   * browser tests to look at. Ashfall is left with a free plot, so there is something to choose.
+   */
+  cities: cityHomeOffers(homePlots(TERMINUS_CITY_ID)),
 };
 
 export const base: Base = {
@@ -270,8 +282,7 @@ export const base: Base = {
   buildings: [
     { id: 'b1', kind: 'nexus', level: 1, modifications: [] },
     { id: 'b2', kind: 'generator', level: 1, modifications: [] },
-    // A Gate, dug in one level: the §A4 fortification the board screen is built around, so the
-    // default screenshot shows the meter part-filled rather than empty.
+    // A Gate at level two, so the default screenshot shows a raised Gate rather than a bare one.
     { id: 'b3', kind: 'gate', level: 2, modifications: [] },
   ],
   buildQueue: [],
@@ -410,11 +421,12 @@ export const lateGameBase: Base = {
     planks: 96000,
   },
   // Rank 3 is what the fence wants before he shows a crew the back room (§I3), and 100 infamy is
-  // deliberately short of the 300 the next rung costs: see `notoriousBase` for the other state.
+  // deliberately short of what the next rung costs: see `notoriousBase` for the other state.
   economy: { ...base.economy, infamy: 100, notoriety: 3 },
-  // One XP short of level 16 (§I). Widest the progression readout ever gets: five digits either
-  // side of the slash and a bar at ~100%, where the starting base shows `0 / 100`.
-  progression: { xpIntoLevel: 11_999 },
+  // One XP short of level 16 (§I), off the curve rather than typed out, so a retune of the curve
+  // cannot leave the fixture holding more than its own level asks: the bar at ~100%, where the
+  // starting base shows `0 / 52`.
+  progression: { xpIntoLevel: playerXpToNextLevel(15) - 1 },
   // Something on both clocks, because the in-flight rail is drawn on *every* screen from this
   // payload: a fixture with empty queues screenshots the whole shell without the one piece of
   // chrome that is meant to be always there.
@@ -552,12 +564,49 @@ export const adminGame: MeResponse = { ...lateGame, admin: true };
 /**
  * §A4: the map as one crew sees it.
  *
- * Two districts are deliberately left **unscouted**, because the fog is the thing most worth
+ * Three districts are deliberately left **unscouted**, because the fog is the thing most worth
  * having a fixture for: a screen that renders `held: null` as "0 / 0" is a screen that tells a
  * player something they have not earned, and it only shows up when something is actually unseen.
  */
-/** Named rather than positional, so reordering the map cannot silently reveal the fog case. */
-const UNSCOUTED = new Set(['chrome-row', 'glasshouse-fields']);
+/**
+ * Somewhere this crew has not walked, so the scouting panel has something to draw.
+ *
+ * §A4: opening ground is a journey now, and the panel that offers it has three states. A fixture
+ * where every district is already scouted can only ever render the fourth, which is nothing.
+ */
+/*
+ * `ccs` specifically, and the choice is load-bearing.
+ *
+ * Marking a district unscouted puts fog over everything on it, so any other spec that reads that
+ * ground goes red for a reason that has nothing to do with it. This took two goes to get right:
+ * `undergrid` is the district `government.spec.ts` picks as its "outpost" case, and `blacksite`
+ * is the one it picks as the seat of Combine power. Neither is named as a string anywhere, which is
+ * why grepping for the id found nothing both times: they are *selected*, by
+ * `isSeatOfGovernmentPower` and by allegiance.
+ *
+ * Claimed elsewhere, and therefore unavailable: `kettle-row` (where a new crew is planted),
+ * `upper-roofs` (the AI rival), `blacksite` and `undergrid` (government.spec's two Combine
+ * cases), `neon-docks` (its independent case), and `steelbelt`, `chrome-row`, `ashen-terraces` and
+ * `glasshouse-fields` (named by other specs). This one is claimed by nothing.
+ *
+ * It has to be a district with **no painting**, which is why it moved off `annexes` when
+ * the Annexes plate landed (2026-09-11): an unscouted district never draws its picture, so the
+ * one the fixture keeps in the fog is the one `painting.spec.ts` can never sweep. The Spire is
+ * procedural and the only spec that names it reads its heading, which the fog panel still prints.
+ */
+export const UNSCOUTED_DISTRICT_ID = 'ccs';
+
+/**
+ * Named rather than positional, so reordering the map cannot silently reveal the fog case.
+ *
+ * `UNSCOUTED_DISTRICT_ID` is in here because the map and the district read have to agree about
+ * it: the map decides at click time whether a tag opens the district or the scouting sheet, so a
+ * district the city payload calls open while `districtDetailFor` calls it fogged is a fixture
+ * describing two different worlds. Chrome Row and Glasshouse Fields are fogged on the map only,
+ * because `battles.spec.ts` and `painting.spec.ts` open both of their pages and read the gate,
+ * the sites and the painting that fog would take away.
+ */
+const UNSCOUTED = new Set([UNSCOUTED_DISTRICT_ID, 'chrome-row', 'glasshouse-fields']);
 
 /*
  * The city, with somebody living on two of the four plots.
@@ -578,7 +627,7 @@ export const city: CityResponse = {
    */
   capturedGates: [
     {
-      districtId: 'rustyard',
+      districtId: 'steelbelt',
       districtName: 'The Rustyard',
       level: 6,
       nextCost: capturedGateCost(7),
@@ -590,6 +639,7 @@ export const city: CityResponse = {
       refusal: null,
     },
   ],
+  cityId: DEFAULT_CITY_ID,
   homeDistrictId: STARTER_DISTRICT_ID,
   serverNow: NOW,
   districts: CITY_DISTRICTS.map((district, index) => {
@@ -629,6 +679,55 @@ export const city: CityResponse = {
   }),
 };
 
+/**
+ * The map of a city this crew does not live in (2026-09-24).
+ *
+ * `GET /city` answers for a named city now, so the harness has a second map to serve and the fog
+ * on it is the point: a crew that has been abroad once has walked into exactly one district and
+ * knows nothing about the rest. Everything a player can do with an away map depends on which of
+ * those two a tag is, and before the read was keyed by city the map had *neither*, so every tag
+ * behaved like the unknown case.
+ *
+ * Built from the atlas rather than typed, so it follows the map when the map moves.
+ */
+const AWAY_DISTRICTS = districtsOfCity(TERMINUS_CITY_ID);
+
+/** The one district abroad this crew has walked into. Its tag opens the district page. */
+export const AWAY_SCOUTED_DISTRICT_ID = AWAY_DISTRICTS.find(
+  (district) => district.kind === 'contested',
+)!.id;
+
+/** And one it has not. Its tag opens the scout sheet, over the map, with no navigation. */
+export const AWAY_UNSCOUTED_DISTRICT_ID = AWAY_DISTRICTS.find(
+  (district) => district.id !== AWAY_SCOUTED_DISTRICT_ID,
+)!.id;
+
+export const awayCity: CityResponse = {
+  cityId: TERMINUS_CITY_ID,
+  // The crew's own front door is still at home. An away map holds no `isHome` row at all.
+  homeDistrictId: STARTER_DISTRICT_ID,
+  capturedGates: [],
+  serverNow: NOW,
+  districts: AWAY_DISTRICTS.map((district, index) => {
+    const scouted = district.id === AWAY_SCOUTED_DISTRICT_ID;
+    return {
+      district,
+      scouted,
+      // A real road, and a long one: crossing the frontier is two hours before anything else.
+      travelMinutes: 130 + index * 7,
+      holder: null,
+      held: scouted ? { mine: 1, total: district.locations.length } : null,
+      base: null,
+      isHome: false,
+    };
+  }),
+};
+
+/** The map the server would answer with for one city: the crew's own, or the one abroad. */
+export function cityFor(cityId: string): CityResponse {
+  return cityId === TERMINUS_CITY_ID ? awayCity : city;
+}
+
 // The clock is live, like the queue above it: a frozen one would run those countdowns backwards.
 export const baseDetail: BaseDetailResponse = { base, serverNow: new Date().toISOString() };
 
@@ -666,11 +765,11 @@ const rewards = { scrap: 120, caps: 60 };
  * The Rustyard because it is where a new crew actually goes: easy ground, looters holding it, and
  * a war machine graveyard at the back worth a campaign.
  */
-const rustyard = findDistrict('rustyard');
-if (!rustyard) throw new Error('fixture error: the Rustyard is missing from the city map');
+const steelbelt = findDistrict('steelbelt');
+if (!steelbelt) throw new Error('fixture error: the Rustyard is missing from the city map');
 
 export const districtDetail: DistrictDetailResponse = {
-  district: rustyard,
+  district: steelbelt,
   // Looters' ground: no legendary commands it. `districtDetailFor` fills this for the three that have one.
   combineLeader: null,
   scouted: true,
@@ -690,8 +789,9 @@ export const districtDetail: DistrictDetailResponse = {
   unified: { title: 'Run of the Scrapfields', effect: '-10% training cost' },
   base: null,
   raidable: false,
+  closed: false,
   serverNow: NOW,
-  locations: locationViewsFor(rustyard),
+  locations: locationViewsFor(steelbelt),
 };
 
 /**
@@ -713,9 +813,9 @@ function spyReportOnRivals(locationId: string, placeName: string): SpyReport {
     id: 'spy-report-1',
     baseId: base.id,
     target: { kind: 'location', locationId },
-    // Inline rather than the module's `rustyard`: the narrowing above does not reach a function.
-    districtId: 'rustyard',
-    districtName: findDistrict('rustyard')?.name ?? 'The Rustyard',
+    // Inline rather than the module's `steelbelt`: the narrowing above does not reach a function.
+    districtId: 'steelbelt',
+    districtName: findDistrict('steelbelt')?.name ?? 'The Rustyard',
     placeName,
     holder: {
       kind: 'crew',
@@ -757,9 +857,6 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
       upgradingUntil: null,
       upgradingSince: null,
       upgrade: cost && note ? { toLevel: level + 1, cost, note, seconds: 1800 } : null,
-      fortification: mine ? 2 : 0,
-      fortifyingUntil: null,
-      fortifyingSince: null,
       defense: spec.baseDefense + index,
       // Nothing about somebody else's count is free (2026-09-22): the crew's own is exact, the
       // rival's is whatever the last report said, the looters' is unknown.
@@ -787,34 +884,6 @@ function locationViewsFor(district: District): DistrictDetailResponse['locations
  * worked-over shape and swaps in the district that was actually asked for.
  */
 /**
- * Somewhere this crew has not walked, so the scouting panel has something to draw.
- *
- * §A4: opening ground is a journey now, and the panel that offers it has three states. A fixture
- * where every district is already scouted can only ever render the fourth, which is nothing.
- */
-/*
- * `datavault-sigma` specifically, and the choice is load-bearing.
- *
- * Marking a district unscouted puts fog over everything on it, so any other spec that reads that
- * ground goes red for a reason that has nothing to do with it. This took two goes to get right:
- * `undergrid` is the district `government.spec.ts` picks as its "outpost" case, and `blacksite-7`
- * is the one it picks as the seat of Combine power. Neither is named as a string anywhere, which is
- * why grepping for the id found nothing both times: they are *selected*, by
- * `isSeatOfGovernmentPower` and by allegiance.
- *
- * Claimed elsewhere, and therefore unavailable: `kettle-row` (where a new crew is planted),
- * `upper-roofs` (the AI rival), `blacksite-7` and `undergrid` (government.spec's two Combine
- * cases), `neon-docks` (its independent case), and `rustyard`, `chrome-row`, `ashen-terraces` and
- * `glasshouse-fields` (named by other specs). This one is claimed by nothing.
- *
- * It has to be a district with **no painting**, which is why it moved off `datavault-sigma` when
- * the Annexes plate landed (2026-09-11): an unscouted district never draws its picture, so the
- * one the fixture keeps in the fog is the one `painting.spec.ts` can never sweep. The Spire is
- * procedural and the only spec that names it reads its heading, which the fog panel still prints.
- */
-export const UNSCOUTED_DISTRICT_ID = 'combine-spire';
-
-/**
  * The Combine legendary over a district, alive, as the route projects him (`city/combine.ts`).
  *
  * Derived from the catalogue rather than typed per district, so the three fixtures cannot drift
@@ -841,9 +910,24 @@ function combineLeaderFor(district: District): DistrictDetailResponse['combineLe
 }
 
 export function districtDetailFor(id: string): DistrictDetailResponse {
-  const district = CITY_DISTRICTS.find((entry) => entry.id === id);
+  /*
+   * Every district in the world, not Ashfall's twelve.
+   *
+   * This looked the id up in `CITY_DISTRICTS` and answered with the Steelbelt for anything it did
+   * not find, so a spec that opened a Terminus district measured the wrong picture and passed. The
+   * fixture is the contract in a mocked suite, and a fixture that silently substitutes a different
+   * district is the shape of test that cannot fail.
+   */
+  const district = findDistrict(id);
   if (!district || district.id === districtDetail.district.id) return districtDetail;
-  if (district.id === UNSCOUTED_DISTRICT_ID) {
+  /*
+   * The away city's fogged district reads as fogged here too.
+   *
+   * `awayCity` above says this crew has never walked into it, and the district read has to agree
+   * or the two fixtures are describing different worlds: the map would offer the scout sheet while
+   * the sheet behind it quoted somebody else's ground as already open.
+   */
+  if (district.id === UNSCOUTED_DISTRICT_ID || district.id === AWAY_UNSCOUTED_DISTRICT_ID) {
     return {
       ...districtDetail,
       district,
@@ -889,6 +973,7 @@ export function districtDetailFor(id: string): DistrictDetailResponse {
     base: lived ? { ...NEIGHBOUR, districtId: district.id } : null,
     // Every plot but the player's own, which they never visit as a stranger.
     raidable: lived && district.id !== STARTER_DISTRICT_ID,
+    closed: false,
   };
 }
 
@@ -930,7 +1015,7 @@ const NEIGHBOUR_BUILDINGS: Building[] = [
  * the same template for both: yours has to carry a rank, a faction and holdings that differ from
  * theirs or a test cannot tell which file it is reading.
  */
-const RUSTYARD_LOCATIONS = rustyard.locations;
+const RUSTYARD_LOCATIONS = steelbelt.locations;
 const CHROME_ROW = findDistrict('chrome-row');
 if (!CHROME_ROW) throw new Error('fixture error: Chrome Row is missing from the city map');
 
@@ -1091,21 +1176,21 @@ export const unitsResponse: UnitsResponse = {
       holderName: null,
     },
     {
-      place: { kind: 'location', locationId: 'rustyard-press' },
+      place: { kind: 'location', locationId: 'steelbelt-press' },
       label: 'No. 4 Press House',
       districtName: 'The Rustyard',
       group: 'yours',
       holderName: null,
     },
     {
-      place: { kind: 'location', locationId: 'rustyard-pawn' },
+      place: { kind: 'location', locationId: 'steelbelt-pawn' },
       label: 'Toolhouse Pawn',
       districtName: 'The Rustyard',
       group: 'faction',
       holderName: RIVAL_HOLD.crewName,
     },
   ],
-  standingAt: { 'rustyard-press': { razors: 2 } },
+  standingAt: { 'steelbelt-press': { razors: 2 } },
   // Two machines in the yard, so the Move dialog has a vehicles section to draw.
   fleet: { motorcycle: 2 },
   garrisoned: { razors: 2 },
@@ -1204,7 +1289,7 @@ export const unitsResponse: UnitsResponse = {
      * Both states on one fixture on purpose: the picker draws a fitted entry differently and
      * disables it, and a stock where everything is free screenshots half the screen.
      */
-    fittedTo: index === 0 ? 'razors' : null,
+    fittedTo: index === 0 ? ['razors'] : [],
     fittedToName: index === 0 ? 'Razors' : '',
   })),
   /**
@@ -1312,10 +1397,9 @@ function barRecruit(id: string, name: string, overrides: Partial<BarRecruit> = {
     name,
     attributes: makeAttributes(18, { stealth: 34, logic: 31, signals: 29, medicine: 9 }),
     perks: ['skim_route', 'quiet_boots'],
-    requirement: { minNotoriety: 0, minLevel: 1, minInfamy: 0, minFactionInfamy: 0 },
+    requirement: { minNotoriety: 0, minInfamy: 0, minFactionInfamy: 0 },
     assessment: {
       meetsNotoriety: true,
-      meetsLevel: true,
       meetsInfamy: true,
       meetsFaction: true,
       interested: true,
@@ -1472,10 +1556,9 @@ export const bar: BarResponse = {
     barRecruit('bar-1', 'Dorotea "The Undergrid Ghost"'),
     barRecruit('bar-2', 'Emeric Voskuijlen', { askingWage: 1240, perks: [] }),
     barRecruit('bar-3', 'Kestrel Salvatierra', {
-      requirement: { minNotoriety: 3, minLevel: 1, minInfamy: 0, minFactionInfamy: 0 },
+      requirement: { minNotoriety: 3, minInfamy: 0, minFactionInfamy: 0 },
       assessment: {
         meetsNotoriety: false,
-        meetsLevel: true,
         meetsInfamy: true,
         meetsFaction: true,
         interested: false,
@@ -1483,19 +1566,18 @@ export const bar: BarResponse = {
       },
       askingWage: null,
     }),
-    // §H3 at its hardest: one of the two standout seats, behind all four doors at once, which is
+    // §H3 at its hardest: one of the two standout seats, behind all three doors at once, which is
     // the state the blocker list has to be able to draw without cutting a word (maintainer, 2026-09-11).
     barRecruit('bar-4', 'Rashid Okonkwo', {
       assessment: {
         meetsNotoriety: false,
-        meetsLevel: false,
         meetsInfamy: false,
         meetsFaction: false,
         interested: false,
-        blockers: ['notoriety', 'level', 'infamy', 'faction'],
+        blockers: ['notoriety', 'infamy', 'faction'],
       },
       askingWage: null,
-      requirement: { minNotoriety: 5, minLevel: 24, minInfamy: 9000, minFactionInfamy: 3500 },
+      requirement: { minNotoriety: 5, minInfamy: 9000, minFactionInfamy: 3500 },
       perks: ['pit_boss', 'crane_hand'],
     }),
     barRecruit('bar-8', 'Wren Adisa', { askingWage: 55, perks: ['skim_route'] }),
@@ -1603,49 +1685,53 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
     payPercent,
     offers:
       activeMissionId === null
-        ? missionOffers(id).map((template, index) => ({
+        ? missionOffers(id, '', lateGameBase.level).map(({ template, grade }) => ({
             templateId: template.id,
             name: template.name,
             brief: template.brief,
             kind: template.kind,
-            difficulty: template.difficulty,
-            travelMinutes: templateTimings(template).travelMinutes,
-            durationMinutes: template.durationMinutes,
-            totalMinutes: templateTimings(template).totalMinutes,
+            grade,
+            travelMinutes: templateTimings(template, grade).travelMinutes,
+            durationMinutes: templateTimings(template, grade).durationMinutes,
+            totalMinutes: templateTimings(template, grade).totalMinutes,
             // The clock before anything is taken off it, which is what the send dialog runs the
             // launch's own arithmetic on. See `MissionOfferSchema.rawTravelMinutes`.
             rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-            rawDurationMinutes: template.durationMinutes,
+            rawDurationMinutes: templateTimings(template, grade).durationMinutes,
             speedPercent: 0,
-            rewards: scaledSpoils(missionRewards(template, 'success'), payPercent),
+            rewards: scaledSpoils(
+              missionRewards(
+                template,
+                'success',
+                templateTimings(template, grade).totalMinutes,
+                grade,
+              ),
+              payPercent,
+            ),
             payoutSlots: Math.round(
               payoutSlots(
-                scaledSpoils(missionRewards(template, 'success'), payPercent),
+                scaledSpoils(
+                  missionRewards(
+                    template,
+                    'success',
+                    templateTimings(template, grade).totalMinutes,
+                    grade,
+                  ),
+                  payPercent,
+                ),
                 RESOURCE_KG,
               ),
             ),
-            xp: missionXp(template, templateTimings(template).totalMinutes, lateGameBase.level),
+            xp: missionXp(template, templateTimings(template, grade).totalMinutes, grade),
             failedXp: Math.round(
-              missionXp(template, templateTimings(template).totalMinutes, lateGameBase.level) *
+              missionXp(template, templateTimings(template, grade).totalMinutes, grade) *
                 FAILED_MISSION_XP_SHARE,
             ),
-            // §F1b: one card on the board is carrying a page, so the screenshots and the layout
-            // gates see the state. Most offers carry none, which is the ordinary case.
-            pagePrize: index === 0 ? ('unit' as const) : null,
-            /*
-             * What the gauge starts from, and what moves it.
-             *
-             * Priced off the template through the same two functions the board uses, so a retune
-             * of either cannot leave the fixture quoting odds the server never offers. The
-             * leanings are `leaningsFor` and the tier is dealt by `dealBattleTier` on the same
-             * key the offers were dealt on, at this crew's level.
-             */
-            authoredChance: scaledSuccessChance(template.successChance, lateGameBase.level),
+            // Dealt the way the board deals them, at this crew's level, so a retune of the deal or
+            // the pay cannot leave the fixture quoting a card the server never offers.
             leanings: [...leaningsFor(template)],
-            battleTier:
-              template.kind === 'battle'
-                ? dealBattleTier(id, '', template.id, lateGameBase.level)
-                : null,
+            // `lateGameBase` is well past the opening band, so there is none to quote.
+            ramp: null,
           }))
         : [],
     activeMissionId,
@@ -1655,17 +1741,32 @@ function areaFixture(id: string, name: string, payPercent: number, activeMission
 const MISSION_AREAS = [
   areaFixture(MISC_AREA_ID, 'Miscellaneous Missions', 0, null),
   areaFixture('neon-docks', 'The Neon Docks', areaPayPercent('neon-docks'), null),
-  areaFixture('rustyard', 'The Rustyard', areaPayPercent('rustyard'), 'm-1'),
+  areaFixture('steelbelt', 'The Rustyard', areaPayPercent('steelbelt'), 'm-1'),
 ];
 
 const minutesBefore = (now: Date, minutes: number) =>
   new Date(now.getTime() - minutes * 60_000).toISOString();
 
-/** A crew sent out at `startedAt`, timed from its own template the way the server freezes it. */
-function launchedMission(id: string, templateId: string, startedAt: string): Mission {
+/**
+ * A crew sent out at `startedAt` under `leaderId`, timed from its own template the way the server
+ * freezes it.
+ *
+ * Every run has a leader (maintainer, 2026-09-28), so the fixture takes one the way the launch
+ * route does: the Overseer's id writes `overseerLed`, anybody else's is the officer on the row.
+ * Graded at the job's lowest mark, which is also the clock `templateTimings` gives with no grade,
+ * so the countdowns the screenshots are built around do not move.
+ */
+function launchedMission(
+  id: string,
+  templateId: string,
+  startedAt: string,
+  leaderId: string,
+): Mission {
   const template = findMissionTemplate(templateId);
   if (!template) throw new Error(`unknown mission template: ${templateId}`);
-  const { travelMinutes, durationMinutes } = templateTimings(template);
+  const grade = template.grades[0];
+  const { travelMinutes, durationMinutes } = templateTimings(template, grade);
+  const overseerLed = leaderId === overseer.id;
   return {
     id,
     baseId: base.id,
@@ -1685,11 +1786,9 @@ function launchedMission(id: string, templateId: string, startedAt: string): Mis
     travelMinutes,
     durationMinutes,
     status: 'active',
-    // §G6: these fixtures send delegations, not officer-led runs. `missionsResponse` names a
-    // leader on the one crew that has an officer out on it.
-    officerId: null,
-    battleTier: null,
-    overseerLed: false,
+    officerId: overseerLed ? null : leaderId,
+    grade,
+    overseerLed,
     // Standard work kills nobody and always reports. The battle fixture below is where the other
     // half of that lives.
     lost: {},
@@ -1805,18 +1904,23 @@ export function missionLeaders(held: LeaderHold | null = 'run'): MissionLeader[]
 }
 
 export function missionsResponse(now: Date = new Date()): MissionsResponse {
-  const inFlight = (id: string, templateId: string, startedMinutesAgo: number): Mission =>
-    launchedMission(id, templateId, minutesBefore(now, startedMinutesAgo));
+  const inFlight = (
+    id: string,
+    templateId: string,
+    leaderId: string,
+    startedMinutesAgo: number,
+  ): Mission => launchedMission(id, templateId, minutesBefore(now, startedMinutesAgo), leaderId);
 
   const returned = (
     id: string,
     templateId: string,
+    leaderId: string,
     outcome: MissionOutcome,
     rewards: PartialResources,
     spoils?: PartialResources,
   ): Mission =>
     resolvedMission(
-      inFlight(id, templateId, 5_000),
+      inFlight(id, templateId, leaderId, 5_000),
       outcome,
       rewards,
       minutesBefore(now, 60),
@@ -1836,11 +1940,12 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
        */
       // Led by the officer the leader list has out on it, so the row and the picker agree about
       // who is unavailable.
-      { ...inFlight('m-1', 'deep-expedition', 1), officerId: 'off-2' },
+      inFlight('m-1', 'deep-expedition', 'off-2', 1),
       {
         ...returned(
           'm-5',
           'deep-expedition',
+          'off-1',
           'success',
           { caps: 268, supplies: 268, oil: 201, scrap: 335, highQualityMetal: 40, planks: 335 },
           // Earned half again as much as came home: the under-crewed case the report is for.
@@ -1856,21 +1961,22 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
          */
         pageWon: 'pg_snipers_barrel_liners',
         found: { pg_snipers_barrel_liners: 1, rotor_hub: 2, ceramic_plate: 1 },
+        // And the yard was full for two of the six (2026-09-28): the report's waste lines.
+        wasted: { scrap: 120, planks: 35 },
       },
       // A fight that went badly and cost units, and one nobody came back from: the two states
       // the returned list draws differently from a standard run, both on the fat screenshot.
       {
-        ...returned('m-6', 'foundry-raid', 'failure', {}),
-        overseerLed: true,
+        ...returned('m-6', 'foundry-raid', overseer.id, 'failure', {}),
         lost: { razors: 2, scavengers: 1 },
       },
       {
-        ...returned('m-8', 'foundry-raid', 'failure', {}),
+        ...returned('m-8', 'foundry-raid', 'off-3', 'failure', {}),
         // The whole force, which is why there is nobody to report it.
         lost: { razors: 3, scavengers: 4 },
         reported: false,
       },
-      returned('m-7', 'convoy-ambush', 'success', { caps: 52, oil: 35 }),
+      returned('m-7', 'convoy-ambush', 'off-1', 'success', { caps: 52, oil: 35 }),
     ],
     justResolved: [],
     resources: lateGameBase.resources,
@@ -1879,9 +1985,10 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
     army: lateGameBase.army,
     serverNow: now.toISOString(),
     leaders: missionLeaders(),
-    // The late crew has bought the first rung: they may go out unled, at a price. The early
-    // fixture below is the other side of the same gate.
-    unledRule: 'penalised',
+    // The board's city and the rooms this crew may read. Both carry a Zod default on the
+    // wire; a hand-written fixture has to say them.
+    cityId: 'ashfall',
+    cities: ['ashfall'],
     level: lateGameBase.level,
   };
 }
@@ -1891,11 +1998,11 @@ export function missionsResponse(now: Date = new Date()): MissionsResponse {
  *
  * `LaunchMissionResponseSchema` is `{ mission, serverNow }`, not a board, so this cannot be served
  * by the `GET` fixture: the client validates every 2xx unit and would reject it. A launch of the
- * cheapest easy template, which is the one a delegation can actually run.
+ * cheapest easy template, led by whoever the request named.
  */
-export function launchResponse(now: Date = new Date()): LaunchMissionResponse {
+export function launchResponse(leaderId: string, now: Date = new Date()): LaunchMissionResponse {
   return {
-    mission: launchedMission('m-new', 'scrap-run', now.toISOString()),
+    mission: launchedMission('m-new', 'scrap-run', now.toISOString(), leaderId),
     serverNow: now.toISOString(),
   };
 }
@@ -1929,19 +2036,36 @@ export function settlingMissions(now: Date = new Date()): {
   pending: MissionsResponse;
   settled: MissionsResponse;
 } {
-  const expedition = launchedMission('m-away', 'deep-expedition', minutesBefore(now, 26 * 60));
+  // The starting crew: nobody hired, so the Overseer led both runs and is the only person who can
+  // lead anything.
+  const expedition = launchedMission(
+    'm-away',
+    'deep-expedition',
+    minutesBefore(now, 26 * 60),
+    overseer.id,
+  );
   // Launched a day after the expedition and already back: it sorts above by launch time.
   const shortRun = resolvedMission(
-    launchedMission('m-home', 'scrap-run', minutesBefore(now, 60)),
+    launchedMission('m-home', 'scrap-run', minutesBefore(now, 60), overseer.id),
     'success',
     { scrap: 40, caps: 5 },
     minutesBefore(now, 47),
   );
 
+  const [overseerLeader] = missionLeaders();
+  if (!overseerLeader) throw new Error('the leader list must open with the Overseer');
+  // Out on the expedition until it is home, which is what the server says of a leader on a run.
+  const overseerAway: MissionLeader = {
+    ...overseerLeader,
+    held: 'run',
+    heldUntil: missionCompletesAt(expedition).toISOString(),
+  };
+
   const board = (
     missions: Mission[],
     justResolved: Mission[],
     resources: Resources,
+    leader: MissionLeader,
   ): MissionsResponse => ({
     missions,
     justResolved,
@@ -1950,17 +2074,18 @@ export function settlingMissions(now: Date = new Date()): {
     areas: MISSION_AREAS,
     army: base.army,
     serverNow: now.toISOString(),
-    // The starting crew: nobody hired, so the Overseer is the only person who can lead anything,
-    // and they have researched nothing, so a run with nobody in charge is refused outright.
-    leaders: missionLeaders().slice(0, 1),
-    unledRule: 'forbidden',
+    leaders: [leader],
+    // The board's city and the rooms this crew may read. Both carry a Zod default on the
+    // wire; a hand-written fixture has to say them.
+    cityId: 'ashfall',
+    cities: ['ashfall'],
     level: 1,
   });
 
   const home = resolvedMission(expedition, 'success', SETTLED_REWARD, now.toISOString());
   return {
-    pending: board([shortRun, expedition], [], STARTING_RESOURCES),
-    settled: board([shortRun, home], [home], paidBase.resources),
+    pending: board([shortRun, expedition], [], STARTING_RESOURCES, overseerAway),
+    settled: board([shortRun, home], [home], paidBase.resources, overseerLeader),
   };
 }
 
@@ -2450,7 +2575,7 @@ export const market: MarketResponse = {
   serverNow: NOW,
   caps: lateGameBase.resources.caps,
   resources: lateGameBase.resources,
-  inventory: { scrap_servo: 6, ceramic_plate: 2, blueprint_cybernetics: 1, coolant_cell: 1 },
+  inventory: { scrap_servo: 6, ceramic_plate: 2, gyro_assembly: 1, coolant_cell: 1 },
   vendor: {
     open: true,
     sessions: [
@@ -2560,6 +2685,50 @@ export const market: MarketResponse = {
       createdAt: new Date(Date.parse(NOW) - 90 * 60 * 1000).toISOString(),
       counterTo: null,
       directedAt: null,
+    },
+  ],
+  /**
+   * Goods the board is holding (2026-09-28): one listing somebody took, drawn with both piles, and
+   * one that ran out untaken, drawn with one. The two layouts a claim card has.
+   */
+  claims: [
+    {
+      id: 'claim-taken',
+      offer: {
+        id: 'offer-sold',
+        sellerBaseId: 'base-1',
+        sellerName: 'The Ninth Street Crew',
+        give: { resources: { oil: 1500 }, items: {} },
+        want: { resources: { highQualityMetal: 120, caps: 2500 }, items: {} },
+        status: 'accepted',
+        createdAt: new Date(Date.parse(NOW) - 30 * 3600 * 1000).toISOString(),
+        counterTo: null,
+        directedAt: null,
+      },
+      reason: 'taken',
+      goods: { resources: { highQualityMetal: 120, caps: 2500 }, items: {} },
+      takenBy: 'Sisters of the Undergrid',
+      createdAt: new Date(Date.parse(NOW) - 5 * 3600 * 1000).toISOString(),
+      claimUntil: new Date(Date.parse(NOW) + 19 * 3600 * 1000).toISOString(),
+    },
+    {
+      id: 'claim-expired',
+      offer: {
+        id: 'offer-lapsed',
+        sellerBaseId: 'base-1',
+        sellerName: 'The Ninth Street Crew',
+        give: { resources: { planks: 800 }, items: { rotor_hub: 1 } },
+        want: { resources: { caps: 9000 }, items: {} },
+        status: 'expired',
+        createdAt: new Date(Date.parse(NOW) - 60 * 3600 * 1000).toISOString(),
+        counterTo: null,
+        directedAt: null,
+      },
+      reason: 'expired',
+      goods: { resources: { planks: 800 }, items: { rotor_hub: 1 } },
+      takenBy: null,
+      createdAt: new Date(Date.parse(NOW) - 12 * 3600 * 1000).toISOString(),
+      claimUntil: new Date(Date.parse(NOW) + 12 * 3600 * 1000).toISOString(),
     },
   ],
   /**
@@ -2944,6 +3113,8 @@ const boardAnalysis: BattleAnalysis = {
   legends: [],
   headline:
     'The Ninth Street Reclamation Company holds Ninth Street Pawn. It cost 6, and Looters lost 19.',
+  spoils: { scrap: 180, caps: 60 },
+  target: 'location',
 };
 
 /** What the board fixture's crew has to spend. Quoted once: the shelf is priced against it. */
@@ -2968,15 +3139,14 @@ const comingBattle = (
 ): BattleView => ({
   battle: {
     id,
-    target: { kind: 'location', districtId: 'rustyard', locationId: `rustyard-${id}` },
+    target: { kind: 'location', districtId: 'steelbelt', locationId: `steelbelt-${id}` },
     attackerBaseId: role === 'attacker' ? base.id : 'rival-base',
     defender: { kind: 'looters' },
     scheduledFor,
-    holdAfterCapture: false,
+    holdAfterCapture: true,
     wokeSleepers: false,
     declaredAt: BOARD_NOW,
     resolvedAt: null,
-    seed: `${id}-seed`,
   },
   targetName,
   districtName: 'Steelbelt',
@@ -2985,14 +3155,13 @@ const comingBattle = (
   battlefield: battlefieldFor({
     locationName: targetName,
     kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: new Date(scheduledFor),
     weather,
   }),
   role,
   side: role,
   deploymentOpen: true,
+  withdrawalOpen: true,
   muster: {
     ...muster,
     size:
@@ -3100,8 +3269,8 @@ export const battles: BattlesResponse = {
   ],
   spyReports: [
     spyReportOnRivals(
-      rustyard.locations[2]?.id ?? 'rustyard-press',
-      rustyard.locations[2]?.name ?? 'The Press',
+      steelbelt.locations[2]?.id ?? 'steelbelt-press',
+      steelbelt.locations[2]?.name ?? 'The Press',
     ),
     {
       id: 'spy-report-2',
@@ -3158,7 +3327,7 @@ export const battles: BattlesResponse = {
     districts: {},
   },
   gates: [
-    { districtId: 'rustyard', name: 'The Rustyard', shut: false, brokenUntil: null },
+    { districtId: 'steelbelt', name: 'The Rustyard', shut: false, brokenUntil: null },
     /*
      * The two lived-in plots the visiting screen is measured on (§A4, maintainer 2026-09-09).
      *
@@ -3228,7 +3397,7 @@ export const actionsResponse: ActionsResponse = {
   sleepers: [
     {
       cellId: 'cell-1',
-      locationId: 'rustyard-press',
+      locationId: 'steelbelt-press',
       locationName: 'No. 4 Press House',
       districtName: 'The Rustyard',
       army: { sleepers: 4 },
@@ -3237,7 +3406,7 @@ export const actionsResponse: ActionsResponse = {
     },
     {
       cellId: 'cell-2',
-      locationId: 'rustyard-pawn',
+      locationId: 'steelbelt-pawn',
       locationName: 'Toolhouse Pawn',
       districtName: 'The Rustyard',
       army: { sleepers: 2 },
@@ -3247,7 +3416,7 @@ export const actionsResponse: ActionsResponse = {
   ],
   stationed: [
     {
-      locationId: 'rustyard-kennels',
+      locationId: 'steelbelt-kennels',
       locationName: 'The Kennels',
       districtName: 'The Rustyard',
       army: { razors: 12, ironsides: 3 },
@@ -3311,8 +3480,8 @@ export const actionsResponse: ActionsResponse = {
   // Runners out on a job (2026-09-22): a quarter of an hour into a two-hour look at the Press.
   spyRun: {
     id: 'spy-run-1',
-    target: { kind: 'location', locationId: 'rustyard-press' },
-    districtId: 'rustyard',
+    target: { kind: 'location', locationId: 'steelbelt-press' },
+    districtId: 'steelbelt',
     districtName: 'The Rustyard',
     placeName: 'No. 4 Press House',
     tier: 'paid_whisper',
@@ -3323,7 +3492,7 @@ export const actionsResponse: ActionsResponse = {
     recalledAt: null,
   },
   scoutingRun: {
-    districtId: 'rustyard',
+    districtId: 'steelbelt',
     districtName: 'The Rustyard',
     // A party, not a person, since 2026-09-22: the Master of Whispers stays in the chair.
     officerId: null,
@@ -3719,7 +3888,8 @@ export const leaderboardPlayers: LeaderboardResponse = {
       rank: 2,
       userId: 'vex-user',
       username: 'Vex_Combine',
-      districtId: 'neon-docks',
+      // The plot the city fixture puts Vex Holdings on.
+      districtId: BOT_DISTRICT_ID,
       cityId: 'ashfall',
       districtName: 'Pier Nine Holdings',
       level: 11,
@@ -3753,7 +3923,7 @@ export const leaderboardPlayers: LeaderboardResponse = {
       rank: 3,
       userId: 'tied-user',
       username: 'Marrow',
-      districtId: 'rustyard',
+      districtId: 'south-quay',
       cityId: 'ashfall',
       districtName: 'The Scrap Line',
       level: 9,
@@ -3780,8 +3950,9 @@ export const leaderboardPlayers: LeaderboardResponse = {
       rank: 5,
       userId: 'ash-user',
       username: 'Ash_Wren',
-      districtId: 'chrome-row',
-      cityId: 'ashfall',
+      // In Terminus, because Ashfall has four plots and the four rows above live on them.
+      districtId: 'carriage',
+      cityId: 'terminus',
       districtName: 'The Wren Yard',
       level: 7,
       infamy: 1200,
@@ -4071,6 +4242,18 @@ function buildFeats(): FeatsResponse {
 
   return {
     progress,
+    /*
+     * One waiting rung whose pay will not fit, so the warning dialog has something to draw.
+     *
+     * `area_neon_docks` pays 240 caps, 40 scrap, 40 planks and 20 oil, and this crew's scrap shelf
+     * has room for 15 of the 40. The server quotes the difference on the read; the screen uses it
+     * to decide that CLAIM asks before it pays.
+     *
+     * It is the standalone rung rather than one of the `runs` or `pages` steps deliberately: those
+     * two ladders carry every other case the feats tests press, and a dialog opening over them
+     * would put a window in front of half the suite.
+     */
+    waste: { area_neon_docks: { resources: { scrap: 25 } } },
     ready: progress.filter((one) => one.state === 'ready').length,
     claimed: progress.filter((one) => one.state === 'claimed').length,
     serverNow: NOW,

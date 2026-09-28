@@ -1,5 +1,5 @@
 import {
-  BATTLE_TIERS,
+  OFFICER_MARKS,
   BLUEPRINT_CATEGORIES,
   BLUEPRINT_PAGE_IDS,
   MissionSchema,
@@ -26,7 +26,7 @@ interface MissionRow {
   recalled_at: string | null;
   page_prize: string | null;
   page_won: string | null;
-  battle_tier: string | null;
+  grade: string | null;
   travel_minutes: number;
   duration_minutes: number;
   success_chance: number;
@@ -40,6 +40,8 @@ interface MissionRow {
   rewards_json: string;
   spoils_json: string;
   found_json: string;
+  /** Absent on a database stopped short of 0124, which the migration tests build. */
+  wasted_json?: string;
   resolved_at: string | null;
 }
 
@@ -79,6 +81,8 @@ export interface MissionResolution {
   reported?: boolean;
   /** §F1f and the salvage roll: what they turned up, so the report can name it. */
   found?: Mission['found'];
+  /** The part of `rewards` the stores had no room for, thrown away at the gate. */
+  wasted?: PartialResources;
 }
 
 export interface MissionsRepo {
@@ -144,6 +148,7 @@ function rowToStored(row: MissionRow): StoredMission {
       rewards: readJson(row.rewards_json),
       spoils: readJson(row.spoils_json),
       found: readJson(row.found_json),
+      wasted: row.wasted_json === undefined ? {} : readJson(row.wasted_json),
       resolvedAt: row.resolved_at,
       /*
        * The three frozen enum columns, repaired on the way out like the force and the fleet above,
@@ -158,12 +163,12 @@ function rowToStored(row: MissionRow): StoredMission {
        *
        * Forgotten rather than repaired to a neighbour: a page category the game has dropped is not
        * some other category, and null is the shape both of these already carry for a run that won
-       * nothing. A battle tier that has left the ladder reads as the bottom of it, which is what
-       * `resolveDueMissions` already does with a null tier on a fight row.
+       * nothing. A grade that has left the ladder reads as the bottom of the job's range, which is
+       * what `resolveDueMissions` already does with a null grade.
        */
       pagePrize: known(row.page_prize, BLUEPRINT_CATEGORIES),
       pageWon: known(row.page_won, BLUEPRINT_PAGE_IDS),
-      battleTier: known(row.battle_tier, BATTLE_TIERS),
+      grade: known(row.grade, OFFICER_MARKS),
     }),
     seed: row.seed,
     successChance: row.success_chance,
@@ -174,7 +179,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   /*
    * Compiled on first use, not at construction. `db.prepare` compiles immediately, and the
    * migration tests build the repos against a database deliberately stopped part-way up the
-   * chain; this statement names `battle_tier`, which did not exist until 0115, so an eager
+   * chain; this statement names `grade`, which did not exist until 0123, so an eager
    * prepare threw `no such column` before those tests could assert anything.
    */
   let insertHeld: Statement | null = null;
@@ -183,7 +188,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
       `INSERT INTO missions
        (id, base_id, template_id, area_id, pay_percent, xp, force_json, vehicles_json,
         priced_minutes, started_at, travel_minutes, duration_minutes, success_chance, seed, status,
-        officer_id, overseer_led, outcome, rewards_json, resolved_at, page_prize, battle_tier)
+        officer_id, overseer_led, outcome, rewards_json, resolved_at, page_prize, grade)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ));
   const markRecalledStmt = db.prepare('UPDATE missions SET recalled_at = ? WHERE id = ?');
@@ -214,12 +219,15 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
   const activeBasesStmt = db.prepare(
     "SELECT DISTINCT base_id FROM missions WHERE status = 'active'",
   );
-  const resolveStmt = db.prepare(
-    `UPDATE missions
-        SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?,
-            page_won = ?, lost_json = ?, reported = ?, found_json = ?
-      WHERE id = ?`,
-  );
+  // Lazy for the reason `insertStmt` is: it names `wasted_json`, which arrived with 0124.
+  let resolveHeld: Statement | null = null;
+  const resolveStmt = (): Statement =>
+    (resolveHeld ??= db.prepare(
+      `UPDATE missions
+          SET status = 'resolved', outcome = ?, rewards_json = ?, spoils_json = ?, resolved_at = ?,
+              page_won = ?, lost_json = ?, reported = ?, found_json = ?, wasted_json = ?
+        WHERE id = ?`,
+    ));
 
   return {
     insert({ mission, seed, successChance }) {
@@ -245,7 +253,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         JSON.stringify(mission.rewards),
         mission.resolvedAt,
         mission.pagePrize,
-        mission.battleTier,
+        mission.grade,
       );
     },
     listByBaseId(baseId) {
@@ -269,9 +277,9 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
     },
     markResolved(
       missionId,
-      { outcome, rewards, spoils, resolvedAt, pageWon, lost, reported, found },
+      { outcome, rewards, spoils, resolvedAt, pageWon, lost, reported, found, wasted },
     ) {
-      resolveStmt.run(
+      resolveStmt().run(
         outcome,
         JSON.stringify(rewards),
         JSON.stringify(spoils),
@@ -280,6 +288,7 @@ export function createMissionsRepo(db: AppDatabase): MissionsRepo {
         JSON.stringify(lost ?? {}),
         reported === false ? 0 : 1,
         JSON.stringify(found ?? {}),
+        JSON.stringify(wasted ?? {}),
         missionId,
       );
     },

@@ -2,7 +2,6 @@ import {
   BLUEPRINTS,
   FEATS,
   FEAT_MEASURE_SPECS,
-  ITEM_CATALOG,
   MAX_ATTRIBUTE,
   featMeasureKey,
   findDistrict,
@@ -16,7 +15,6 @@ import {
   startingResearch,
   startingTraining,
   type Base,
-  type ItemId,
   type LocationHolder,
 } from '@frontline/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -224,32 +222,28 @@ describe('the numbers a feat can be measured on', () => {
   /**
    * `blueprints_unlocked` is documents assembled, not paper on a shelf.
    *
-   * It counted every inventory item of `kind: 'blueprint'`, and six of the seventy-four such items
-   * are pre-war collectibles the item catalogue itself describes as "Nothing the Lab can use". Four
-   * of those are on the Black Market for infamy, so 440 infamy claimed the first rung of the
-   * blueprint ladder with no page ever found and no document ever assembled.
+   * It once counted every inventory item of `kind: 'blueprint'`, which took in six pre-war
+   * collectibles that opened nothing; 440 infamy at the fence claimed the first rung with no page
+   * ever found. Those were retired on 2026-09-28 and the fence now sells real documents, which do
+   * count: a document bought whole is as unlocked as one assembled. A loose page does not.
    */
-  it('counts the documents a crew has unlocked, and not the pre-war collectibles', () => {
+  it('counts the documents a crew has unlocked, bought or assembled, and not its pages', () => {
     const base = repos.bases.findByOwnerId(OWNER)!;
     const read = () => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)['blueprints_unlocked'];
 
     expect(read()).toBe(0);
 
-    // Two of the collectibles. Both are `kind: 'blueprint'`, both are bought rather than assembled,
-    // and the catalogue's own `usedFor` says the Lab can do nothing with either.
-    const paper: ItemId[] = ['blueprint_cybernetics', 'blueprint_munitions'];
-    for (const id of paper) expect(ITEM_CATALOG[id].kind).toBe('blueprint');
-    const collectibles = Object.fromEntries(paper.map((id) => [id, 1]));
-    repos.bases.updateHoldings(base.id, base.resources, collectibles);
-    expect(read(), 'a collectible is not an unlocked document').toBe(0);
+    const assembled = BLUEPRINTS[0];
+    const page = assembled.pages[0].id;
+    repos.bases.updateHoldings(base.id, base.resources, { [page]: 1 });
+    expect(read(), 'a page is not an unlocked document').toBe(0);
 
-    // And one document the crew really did assemble, alongside the paper it bought.
-    const document = BLUEPRINTS[0];
     repos.bases.updateHoldings(base.id, base.resources, {
-      ...collectibles,
-      [document.id]: 1,
+      [page]: 1,
+      [assembled.id]: 1,
+      bp_fence_rotor_drop_rig: 1,
     });
-    expect(read()).toBe(1);
+    expect(read()).toBe(2);
   });
 
   /**
@@ -373,9 +367,9 @@ describe('the Combine measures', () => {
   });
 
   it('reads the Chapel off its own row, whoever holds the rest of the Spire', () => {
-    const spire = findDistrict('combine-spire');
+    const spire = findDistrict('ccs');
     if (!spire) throw new Error('fixture: the CCS is on the map');
-    const chapel = 'combine-spire-chapel';
+    const chapel = 'ccs-chapel';
     const rest = spire.locations.map((location) => location.id).filter((id) => id !== chapel);
     expect(spire.locations.map((location) => location.id)).toContain(chapel);
     expect(rest.length, 'the Spire has more than the Chapel on it').toBeGreaterThan(0);
@@ -391,5 +385,144 @@ describe('the Combine measures', () => {
     // Somebody else's now: held, and not by this crew.
     give([chapel], { kind: 'looters' });
     expect(read('chapel_held')).toBe(0);
+  });
+});
+
+/**
+ * The frontier measures (2026-09-24), which are the five that had to decide what city they meant.
+ *
+ * Until Terminus opened, `locations_held`, `combine_districts_held` and `chapel_held` were all
+ * read off Ashfall's own arrays, so a crew that had taken half the second city was told it held
+ * nothing, had taken nothing off the regime and was standing on no chapel. Nothing failed: the
+ * catalogue's ceilings were derived from the same Ashfall arrays, so the board agreed with itself
+ * and disagreed with the map.
+ *
+ * Every fixture here puts the crew's ground in the **other** city, because that is the case the
+ * old readers answered zero for, and each one also holds a piece of ground at home, so a reader
+ * that swapped the two cities over cannot pass either.
+ */
+describe('the second city', () => {
+  const read = (key: string) => snapshotFor(repos, repos.bases.findByOwnerId(OWNER)!)[key];
+  const give = (locationIds: readonly string[], holder: LocationHolder) => {
+    const controls = repos.city.controls();
+    for (const locationId of locationIds) {
+      const control = controls.get(locationId);
+      if (!control) throw new Error(`fixture: no control row for ${locationId}`);
+      repos.city.put({ ...control, holder, garrison: {} });
+    }
+  };
+  const mine: LocationHolder = { kind: 'crew', baseId: 'base-1' };
+  /** A district by id, or a failure that names it: these are fixtures, not optional ground. */
+  const district = (districtId: string) => {
+    const found = findDistrict(districtId);
+    if (!found) throw new Error(`fixture: ${districtId} is not on the map`);
+    return found;
+  };
+  const places = (districtId: string) => district(districtId).locations.map((one) => one.id);
+  const firstOfKind = (districtId: string, kind: string) => {
+    const found = district(districtId).locations.find((one) => one.kind === kind);
+    if (!found) throw new Error(`fixture: ${districtId} has no ${kind}`);
+    return found.id;
+  };
+
+  it('counts a holding in the other city, and knows it is not at home', () => {
+    // Kettle Row is in Ashfall, and the crew never moves house: a foothold abroad is ground taken.
+    expect(findDistrict('kettle-row')?.cityId).toBe('ashfall');
+    expect(district('coldwater-halt').cityId).toBe('terminus');
+
+    expect(read('locations_held')).toBe(0);
+    expect(read('locations_held_abroad')).toBe(0);
+    expect(read('cities_held')).toBe(0);
+
+    give([firstOfKind('coldwater-halt', 'market')], mine);
+    expect(read('locations_held'), 'a holding is a holding wherever it stands').toBe(1);
+    expect(read('locations_held_abroad')).toBe(1);
+    expect(read('cities_held'), 'ground in one city, and it is not the one they live in').toBe(1);
+
+    give([places('chrome-row')[0]!], mine);
+    expect(read('locations_held')).toBe(2);
+    expect(read('locations_held_abroad'), 'the second one is at home').toBe(1);
+    expect(read('cities_held')).toBe(2);
+
+    // And it falls, which is what makes these crew measures: ground abroad can be taken back.
+    give([firstOfKind('coldwater-halt', 'market')], { kind: 'looters' });
+    expect(read('locations_held_abroad')).toBe(0);
+    expect(read('cities_held')).toBe(1);
+  });
+
+  /**
+   * The railway is one location kind, and holding a platform is the whole of owning a line.
+   *
+   * The fixture holds a Station and a warehouse in the same city, which is the pair that separates
+   * `rail_stations_held` from `locations_held`: a reader wired to "anything in Terminus" counts
+   * two and a reader wired to the kind counts one.
+   */
+  it('counts the Stations a crew holds, and not the rest of the city', () => {
+    expect(read('rail_stations_held')).toBe(0);
+
+    give([firstOfKind('coldwater-halt', 'rail_station')], mine);
+    expect(read('rail_stations_held')).toBe(1);
+
+    give([firstOfKind('bonded-row', 'downtown_market')], mine);
+    expect(read('rail_stations_held'), 'a warehouse is not a platform').toBe(1);
+    expect(read('locations_held')).toBe(2);
+
+    // Two is the number the train needs: `railwayOffer` refuses anything under it.
+    give([firstOfKind('bonded-row', 'rail_station')], mine);
+    expect(read('rail_stations_held')).toBe(2);
+  });
+
+  it('counts a whole district abroad separately from one at home', () => {
+    expect(read('districts_held_whole_abroad')).toBe(0);
+
+    give(places('coldwater-halt'), mine);
+    expect(read('districts_held_whole'), 'the whole of a Terminus district').toBe(1);
+    expect(read('districts_held_whole_abroad')).toBe(1);
+
+    give(places('chrome-row'), mine);
+    expect(read('districts_held_whole')).toBe(2);
+    expect(read('districts_held_whole_abroad'), 'Chrome Row is home ground').toBe(1);
+  });
+
+  /**
+   * The regime is one opponent with ground in two cities.
+   *
+   * The Blockhouse is Combine ground in Terminus and Chrome Row is independent ground in Ashfall,
+   * so a reader that counted Ashfall alone answers zero here and a reader that counted every
+   * district held whole answers two.
+   */
+  it('counts the regime’s ground wherever the regime holds it', () => {
+    expect(district('blockhouse').allegiance).toBe('government');
+    expect(district('chrome-row').allegiance).toBe('independent');
+
+    give(places('chrome-row'), mine);
+    expect(read('combine_districts_held'), 'Chrome Row was never theirs').toBe(0);
+
+    give(places('blockhouse'), mine);
+    expect(read('districts_held_whole')).toBe(2);
+    expect(read('combine_districts_held')).toBe(1);
+  });
+
+  /**
+   * Two chapels, a city apart, on a measure that was written when there was one.
+   *
+   * `chapel_held` read Ashfall's locations, so holding the Frontier Chapel inside Control counted
+   * for nothing while the feat's own sentence said "the regime's headquarters". The ladder in the
+   * catalogue now ends on both, and this is the reader that has to be able to reach two.
+   */
+  it('reads both of the regime’s chapels', () => {
+    const chosen = firstOfKind('ccs', 'combine_chapel');
+    const frontier = firstOfKind('blockhouse', 'combine_chapel');
+
+    expect(read('chapel_held')).toBe(0);
+
+    give([frontier], mine);
+    expect(read('chapel_held'), 'the Frontier Chapel is a chapel').toBe(1);
+
+    give([chosen], mine);
+    expect(read('chapel_held')).toBe(2);
+
+    give([frontier], { kind: 'government' });
+    expect(read('chapel_held')).toBe(1);
   });
 });

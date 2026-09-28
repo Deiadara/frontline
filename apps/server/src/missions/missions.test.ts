@@ -9,7 +9,6 @@ import {
   FAILED_MISSION_XP_SHARE,
   areaPayPercent,
   areasOffering,
-  levelPayPercent,
   missionBoardKey,
   missionOffers,
   missionXp,
@@ -21,6 +20,7 @@ import {
   missionInfamyForKills,
   applyPlayerXp,
   createCommander,
+  OFFICER_ROLES,
   findMissionTemplate,
   missionRewards,
   hastenedRoadMinutes,
@@ -33,18 +33,25 @@ import {
   MAX_LOCATION_LEVEL,
   UNIT_MODIFICATIONS,
   leading,
+  makeAttributes,
   TRAVEL_BAND_MINUTES,
   missionTimings,
   pricedTotalMinutes,
   playerLevelGrants,
   templateTimings,
   type Army,
+  type Attributes,
   type UnitLoadouts,
   type Base,
   type Mission,
   type MissionTemplate,
   type Resources,
-  type BattleTier,
+  type Grade,
+  type BuildQueueEntry,
+  applyQueueEntry,
+  buildingLevel,
+  missionCompletesAt,
+  VEHICLE_IDS,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -58,17 +65,19 @@ import { launchMission } from './launch.js';
 import { projectUnits } from '../units/roster.js';
 import { removeForce } from '../battle/forces.js';
 import { fightMissionBattle } from './battle.js';
-import { resolveDueMissions } from './resolve.js';
+import { resolveDueMissions, settleAndResolveMissions } from './resolve.js';
+import { storeCeilingsOf } from '../district/stores.js';
 import { tickWorld } from '../live/clock.js';
 import { MISSION_HISTORY_LIMIT } from '../db/repos/missions.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { infirmaryRecoveryPercent } from '@frontline/shared';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { sureLeader } from '../testing/leader.js';
 
 /**
  * Any job on any board today, with the area that offers it.
  *
- * The counterpart to `anEasyJobToday` for the tests that do not care *which* job goes out, only
+ * The counterpart to `theLongestPlainJobToday` for the tests that do not care *which* job goes out, only
  * that one does. Every one of those used to name a template, which is the expiry-dated fixture
  * described on `launchBody`.
  */
@@ -80,7 +89,7 @@ import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
  * engine on the days a raid happens to sort first, and a crew of one Razor would come home in a
  * bag. `aBattleJobToday` is what asks for the other property.
  */
-function aJobToday(): { template: MissionTemplate; areaId: string } {
+function aJobToday(level = 1): { template: MissionTemplate; grade: Grade; areaId: string } {
   /*
    * Each area asked for its own key, not one day for the lot.
    *
@@ -89,45 +98,63 @@ function aJobToday(): { template: MissionTemplate; areaId: string } {
    * no longer offering and every launch came back `That job is not on offer there`.
    */
   const now = new Date();
+  // At the crew's level, because the board is dealt by it and the route checks the card against
+  // the same deal.
   for (const areaId of [MISC_AREA_ID, ...CITY_DISTRICTS.map((district) => district.id)]) {
-    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
-      (entry) => entry.kind === 'standard',
+    const job = missionOffers(areaId, missionBoardKey(areaId, now), level).find(
+      (entry) => entry.template.kind === 'standard',
     );
-    if (template) return { template, areaId };
+    if (job) return { template: job.template, grade: job.grade, areaId };
   }
   throw new Error(`no standard job on any board at ${now.toISOString()}`);
 }
 
 /**
- * The longest road on any board today, with the area that offers it.
+ * The longest road on any board today at this level, with the area that offers it.
  *
  * The tests about the *road* need a leg long enough that a change in pace survives the rounding to
  * whole minutes: a `close` job is five of them, and everything from a walking Razor to a Razor at
  * the game's ceiling of 100 lands on three, so a road test that runs on one passes whatever the
- * code does. Measured rather than assumed: every day in an 800-day window offers a `furthest` job
- * somewhere, so this is not the expiry-dated fixture a named id would be. Difficulty is not
- * filtered: what a job asks of a crew has nothing to do with how long the road to it is.
+ * code does. The longest band on offer rather than `furthest` by name (2026-09-28): the boards
+ * are dealt by level now, and the far jobs mostly start at D or above, so a level-seven crew sees
+ * a `furthest` card on about a third of days. Measured over 400 days at level seven, every day
+ * offers at least a `further` job (twenty minutes) somewhere. Difficulty is not filtered: what a
+ * job asks of a crew has nothing to do with how long the road to it is.
  */
-function theFurthestJobToday(): { template: MissionTemplate; areaId: string } {
+function theLongestRoadToday(level: number): {
+  template: MissionTemplate;
+  grade: Grade;
+  areaId: string;
+} {
   const now = new Date();
   // Contested districts only: a plot posts no work (maintainer, 2026-09-21), and which board
-  // carries the day's furthest job moves with the date.
+  // carries the day's longest road moves with the date.
   const areas = [
     MISC_AREA_ID,
     ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map((d) => d.id),
   ];
-  for (const areaId of areas) {
-    const template = missionOffers(areaId, missionBoardKey(areaId, now)).find(
-      (entry) => entry.travelBand === 'furthest',
+  const offered = areas
+    .flatMap((areaId) =>
+      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
+        template: job.template,
+        grade: job.grade,
+        areaId,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        TRAVEL_BAND_MINUTES[b.template.travelBand] - TRAVEL_BAND_MINUTES[a.template.travelBand],
     );
-    if (template) return { template, areaId };
+  const longest = offered[0];
+  if (!longest || longest.template.travelBand === 'close') {
+    throw new Error(`no long job on any board at ${now.toISOString()}`);
   }
-  throw new Error(`no long job on any board at ${now.toISOString()}`);
+  return longest;
 }
 
 /** `aJobToday` as a launch payload. */
-function launchAnyJobToday(extra: Record<string, unknown> = {}) {
-  const { template, areaId } = aJobToday();
+function launchAnyJobToday(extra: Record<string, unknown> = {}, level = 1) {
+  const { template, areaId } = aJobToday(level);
   return { templateId: template.id, areaId, force: { razors: 1 }, ...extra };
 }
 
@@ -138,7 +165,7 @@ function launchAnyJobToday(extra: Record<string, unknown> = {}) {
  * launches. Walking the boards rather than naming them keeps this stable if the offer walk is
  * retuned.
  */
-function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
+function launchInArea(nth: number, extra: Record<string, unknown> = {}, level = 1) {
   // Contested districts only: a residential district is somebody's plot and posts no work at all
   // (maintainer, 2026-09-21), so a helper that counted them handed out ids no board offers.
   const boards = [
@@ -149,32 +176,48 @@ function launchInArea(nth: number, extra: Record<string, unknown> = {}) {
   ];
   const areaId = boards[nth];
   if (areaId === undefined) throw new Error(`no board number ${nth}`);
-  const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()))[0];
+  const offer = missionOffers(areaId, missionBoardKey(areaId, new Date()), level)[0];
   if (!offer) throw new Error(`board ${areaId} offers nothing`);
-  return { templateId: offer.id, areaId, force: { razors: 1 }, ...extra };
+  return { templateId: offer.template.id, areaId, force: { razors: 1 }, ...extra };
 }
 
 /**
- * The **longest** easy job on a board today, with the area that offers it.
+ * The **longest** plain job on a board today at this level, with the area that offers it.
  *
  * Two things are going on here. Naming a template outright is a test that works until the day its
  * board does not offer it, and `fuel-siphon` is how that was found: the boards turn over daily, so
  * a hard-coded id is a fixture with a hidden expiry date.
  *
- * Longest rather than first, because durations are whole minutes. Today's first easy job is a
- * three-minute scrap run, and a percentage off three minutes rounds back to three: the effect
+ * Longest rather than first, because durations are whole minutes. Today's first plain job can be
+ * a three-minute scrap run, and a percentage off three minutes rounds back to three: the effect
  * fires and the assertion cannot see it. A job of any real length has room for it to show.
  */
-function anEasyJobToday(): { template: MissionTemplate; areaId: string } {
+function theLongestPlainJobToday(level: number): {
+  template: MissionTemplate;
+  grade: Grade;
+  areaId: string;
+} {
   const now = new Date();
-  const offered = MISSION_TEMPLATES.filter((template) => template.difficulty === 'easy')
-    .map((template) => ({ template, areaId: areasOffering(template.id, now)[0] }))
-    .filter(
-      (entry): entry is { template: MissionTemplate; areaId: string } => entry.areaId !== undefined,
+  const areas = [
+    MISC_AREA_ID,
+    ...CITY_DISTRICTS.filter((district) => district.kind === 'contested').map((d) => d.id),
+  ];
+  const offered = areas
+    .flatMap((areaId) =>
+      missionOffers(areaId, missionBoardKey(areaId, now), level).map((job) => ({
+        template: job.template,
+        grade: job.grade,
+        areaId,
+      })),
     )
-    .sort((a, b) => b.template.durationMinutes - a.template.durationMinutes);
+    .filter((entry) => entry.template.kind === 'standard')
+    .sort(
+      (a, b) =>
+        templateTimings(b.template, b.grade).durationMinutes -
+        templateTimings(a.template, a.grade).durationMinutes,
+    );
   const longest = offered[0];
-  if (!longest) throw new Error(`no easy job on any board at ${now.toISOString()}`);
+  if (!longest) throw new Error(`no plain job on any board at ${now.toISOString()}`);
   return longest;
 }
 
@@ -213,9 +256,8 @@ interface Stack {
   /**
    * The Overseer's id, which is the leader every crew has from the first day.
    *
-   * Every launch below names a leader, because an unled run is a thing a crew researches its way
-   * into now (`unledRule`) and the tests here are about clocks, pay and slots rather than about
-   * that gate. The two that *are* about it say so.
+   * Every launch below names a leader, because every run has one (maintainer, 2026-09-28) and the
+   * Overseer is on the bench from the first day.
    */
   overseerId: string;
   /** The handle itself, for the few tests that wind a clock back rather than going through HTTP. */
@@ -343,7 +385,8 @@ function withOfficer(stack: Stack): string {
  */
 function withOfficers(stack: Stack, count: number): string[] {
   const officers = Array.from({ length: count }, (_, index) =>
-    createCommander(`off-${index + 1}`, `Officer ${index + 1}`, null),
+    // One chair each: the bench leads nothing (maintainer, 2026-09-28).
+    createCommander(`off-${index + 1}`, `Officer ${index + 1}`, OFFICER_ROLES[index]!),
   );
   stack.repos.bases.updateCommanders(stack.base.id, officers);
   return officers.map((officer) => officer.id);
@@ -360,12 +403,6 @@ function withOfficers(stack: Stack, count: number): string[] {
  */
 const BATTLE_FORCE = { ironsides: 120, razors: 240, haulers: 200 };
 
-/** The tier `planted` freezes on a fixture row: see the note there. */
-function legacyTier(template: MissionTemplate): BattleTier {
-  if (template.difficulty === 'easy') return 'fight_1';
-  return template.travelBand === 'furthest' ? 'fight_5' : 'fight_3';
-}
-
 function planted(
   stack: Stack,
   template: MissionTemplate,
@@ -380,48 +417,44 @@ function planted(
    * because the road's clock is now the *column's* speed and four hundred units need seats.
    */
   force: Record<string, number> = { haulers: 400 },
+  /** The grade the card was dealt: the job's lowest unless a test is about a harder one. */
+  grade: Grade = template.grades[0],
+  /**
+   * Who leads. The Overseer on a sheet that lands any plain job below S for certain, because
+   * these rows are fixtures for the settle and the odds a leader moves are
+   * `missions.leading.test.ts`'s subject. On a fight the settle puts the crew's own Overseer in
+   * the line (`leaderOf` reads `overseerLed`), which `replayed` below does as well.
+   */
+  leader: { kind: 'overseer' | 'officer'; id: string; attributes: Attributes } = sureLeader(),
 ): Mission {
   const stored = launchMission({
     id: `mission-${seed}-${template.id}`,
     base: stack.base,
     template,
-    areaId: areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID,
+    areaId: areasOffering(template.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID,
     force,
     now: startedAt,
     seed,
     vehicles,
-    // Nobody leading, and nothing docked for it: these rows are fixtures for the settle, and the
-    // odds a leader would move are `missions.leading.test.ts`'s subject rather than this file's.
-    unled: 'free',
-    // The tier each fixture was tuned against: the rule the board read off the job before tiers
-    // were dealt by level. Easy is Fight I, the furthest Fight V, everything else Fight III.
-    battleTier:
-      template.kind !== 'battle'
-        ? null
-        : template.difficulty === 'easy'
-          ? 'fight_1'
-          : template.travelBand === 'furthest'
-            ? 'fight_5'
-            : 'fight_3',
+    leader,
+    grade,
   });
   stack.repos.missions.insert(stored);
   return stored.mission;
 }
 
 /**
- * What a clean run of this template pays a crew at this stack's level, off the board `planted`
- * sends it from.
+ * What a clean run of this template pays, off the board `planted` sends it from.
  *
  * Recomputed from the same shared functions the settler uses rather than restated, so a test that
  * asserts on it is checking that the settler *ran* rather than carrying a second copy of the
  * pricing that can drift from it.
  */
 function paidFor(template: MissionTemplate, stack: Stack) {
-  const areaId = areasOffering(template.id, new Date())[0] ?? MISC_AREA_ID;
-  return scaledSpoils(
-    missionRewards(template, 'success'),
-    areaPayPercent(areaId) + levelPayPercent(stack.base.level),
-  );
+  const areaId = areasOffering(template.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID;
+  // At the job's lowest grade, which is what `planted` freezes. The crew's level plays no part
+  // in the price any more (maintainer, 2026-09-28): it only decides which grades are dealt.
+  return scaledSpoils(missionRewards(template, 'success'), areaPayPercent(areaId));
 }
 
 const after = (minutes: number, from: Date = T0) => new Date(from.getTime() + minutes * MINUTE_MS);
@@ -496,19 +529,27 @@ describe('mission timers are authoritative server-side (§E2, §E8)', () => {
    * battle jobs, for their middling odds; a battle job does not roll any more (it fights, see
    * `missions/battle.ts`), so a fleet of them would have proved the determinism of a code path
    * this test is not about, and every one of them would have come home a failure.
+   *
+   * Led by somebody who grades about F- for anything, so the odds are middling: level with the
+   * cheapest jobs and short of the rest. The sure leader `planted` defaults to lands every one.
    */
   it('resolves a slept-through fleet identically to a watched one', async () => {
     const watched = await makeStack('watcher');
     const abandoned = await makeStack('sleeper');
     const jobs = MISSION_TEMPLATES.filter((t) => t.kind === 'standard');
     const fleetSize = 40;
+    const middling = {
+      kind: 'overseer' as const,
+      id: 'ov-middling',
+      attributes: makeAttributes(12),
+    };
 
     for (let i = 0; i < fleetSize; i += 1) {
       const template = jobs[i % jobs.length] as MissionTemplate;
       // Seeds spread across the roll space, so outcomes are a genuine mix of wins and losses.
       const seed = 1_000 + i * 7_919;
-      planted(watched, template, seed);
-      planted(abandoned, template, seed);
+      planted(watched, template, seed, T0, {}, undefined, undefined, middling);
+      planted(abandoned, template, seed, T0, {}, undefined, undefined, middling);
     }
 
     const longest = Math.max(...jobs.map((t) => templateTimings(t).totalMinutes));
@@ -617,10 +658,17 @@ describe('mission payout (§E1, §E5)', () => {
   /**
    * The fight the settler is about to run for a battle job, replayed off the same row.
    *
-   * `planted` sends nobody to lead and a fresh crew has nothing that seats anybody, so the two
-   * inputs the settler adds (`leaderOf`, `anyRide`) are read the way it reads them; the seed and
-   * the tier are the row's own. What comes back is what the job killed, which is what it pays for.
+   * `planted` sends the Overseer to lead and a fresh crew has nothing that seats anybody, so the
+   * two inputs the settler adds (`leaderOf`, `anyRide`) are read the way it reads them; the seed
+   * and the grade are the row's own. What comes back is what the job killed, which is what it pays for.
    */
+  /** The crew's own Overseer, the way `leaderOf` puts them in the line of an Overseer-led row. */
+  function overseerInLine(stack: Stack) {
+    const overseer = stack.repos.overseers.findById(stack.overseerId);
+    if (!overseer) throw new Error('fixture: the crew has no Overseer');
+    return { officerId: overseer.id, name: overseer.name, attributes: overseer.attributes };
+  }
+
   function replayed(stack: Stack, template: MissionTemplate, seed: number, force: Army, at: Date) {
     /*
      * The same books the settler hands the engine, not a subset of them.
@@ -637,8 +685,8 @@ describe('mission payout (§E1, §E5)', () => {
       jobName: template.name,
       force,
       vehicles: {},
-      tier: legacyTier(template),
-      level: stack.base.level,
+      grade: template.grades[0],
+      leader: overseerInLine(stack),
       anyRide: crew.anyRide,
       loadouts: stack.base.unitLoadouts,
       territory: crew,
@@ -701,8 +749,8 @@ describe('mission payout (§E1, §E5)', () => {
             jobName: strike.name,
             force,
             vehicles: {},
-            tier: legacyTier(strike),
-            level: stack.base.level,
+            grade: strike.grades[0],
+            leader: overseerInLine(stack),
             anyRide: false,
           });
           if (fought.outcome === 'failure' && total(fought.killed) > 0 && total(fought.home) > 0) {
@@ -788,8 +836,8 @@ describe('mission payout (§E1, §E5)', () => {
         jobName: strike.name,
         force: edge,
         vehicles: {},
-        tier: legacyTier(strike),
-        level: fitted.level,
+        grade: strike.grades[0],
+        leader: overseerInLine(stack),
         anyRide: crew.anyRide,
         loadouts,
         territory: crew,
@@ -870,7 +918,10 @@ describe('mission payout (§E1, §E5)', () => {
     const before = resourcesOf(stack);
     const launchedTotal = templateTimings(expedition).totalMinutes;
 
-    const planned = planted(stack, expedition, ALWAYS_SUCCEEDS);
+    // A thousand Haulers rather than `planted`'s four hundred: a day-long job at C, its floor,
+    // pays more than four hundred can carry, and a haul trimmed at the gate would read as the
+    // clock being wrong.
+    const planned = planted(stack, expedition, ALWAYS_SUCCEEDS, T0, {}, { haulers: 1_000 });
     // §A4: what the ground adds. The job is taken off a board, and a board in a hard district pays
     // more for the same work, so the figure to hold the clock against is the scaled one.
     const owedOnLaunchTerms = scaledSpoils(
@@ -894,7 +945,11 @@ describe('mission payout (§E1, §E5)', () => {
 
       // Held the full 26 hours on the frozen clock, so paid the full 26 hours.
       expect(resolved[0]?.rewards).toEqual(owedOnLaunchTerms);
-      expect(base.resources.scrap).toBe(before.scrap + (owedOnLaunchTerms.scrap ?? 0));
+      // A day's pay is more scrap than a fresh store holds, so part of it lands and the rest is
+      // thrown away at the gate (maintainer ruling, 2026-09-28). The two add up to the pay.
+      expect(base.resources.scrap + (resolved[0]?.wasted?.scrap ?? 0)).toBe(
+        before.scrap + (owedOnLaunchTerms.scrap ?? 0),
+      );
       expect(base.resources.caps).toBe(before.caps + (owedOnLaunchTerms.caps ?? 0));
     } finally {
       (expedition as { durationMinutes: number }).durationMinutes = shipped;
@@ -979,7 +1034,7 @@ describe('the mission routes', () => {
     const { app, token } = stack;
     // An officer at the head of it, so this stays a test about the freeze.
     const leaderId = withOfficer(stack);
-    const { template, areaId } = anEasyJobToday();
+    const { template, grade, areaId } = theLongestPlainJobToday(7);
     const res = await app.inject({
       method: 'POST',
       url: '/api/missions',
@@ -997,18 +1052,25 @@ describe('the mission routes', () => {
         standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
       ),
     );
-    expect(mission.durationMinutes).toBe(template.durationMinutes);
+    // The job's time on site at the grade the card was dealt, which is what the row keeps.
+    expect(mission.durationMinutes).toBe(templateTimings(template, grade).durationMinutes);
+    expect(mission.grade).toBe(grade);
   });
 
   it('rejects a mission that is not on the board', async () => {
-    const { app, token } = await makeStack();
+    const { app, token, overseerId } = await makeStack();
     const res = await app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(token),
       // Built by hand, not through `launchBody`: that helper now refuses to construct a payload
       // for a job no board offers, which is exactly what this test is trying to send.
-      payload: { templateId: 'not-a-mission', areaId: MISC_AREA_ID, force: { razors: 1 } },
+      payload: {
+        templateId: 'not-a-mission',
+        areaId: MISC_AREA_ID,
+        force: { razors: 1 },
+        leaderId: overseerId,
+      },
     });
     expect(res.statusCode).toBe(404);
     expect(res.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND');
@@ -1197,11 +1259,12 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
       id: 'mission-supply',
       base: freshBase(stack),
       template: scrapRun,
-      areaId: areasOffering(scrapRun.id, new Date())[0] ?? MISC_AREA_ID,
+      areaId: areasOffering(scrapRun.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID,
       force,
       now: T0,
       seed: ALWAYS_SUCCEEDS,
-      unled: 'free',
+      grade: scrapRun.grades[0],
+      leader: sureLeader(),
     });
     // The launch route is what takes them off the roster; `launchMission` only writes the row.
     const sent = freshBase(stack);
@@ -1211,11 +1274,12 @@ describe('a crew on a mission still eats (§A1, §E)', () => {
         id: 'mission-supply',
         base: sent,
         template: scrapRun,
-        areaId: areasOffering(scrapRun.id, new Date())[0] ?? MISC_AREA_ID,
+        areaId: areasOffering(scrapRun.id, new Date(), stack.base.level)[0] ?? MISC_AREA_ID,
         force,
         now: T0,
         seed: ALWAYS_SUCCEEDS,
-        unled: 'free',
+        grade: scrapRun.grades[0],
+        leader: sureLeader(),
       }),
     );
 
@@ -1233,18 +1297,17 @@ describe('mission XP feeds W6 progression (§I1, INTERFACES R7)', () => {
    * What W6's engine makes of these awards from where the base currently stands.
    *
    * Priced per run rather than off the table entry: a mission's XP is its own clock, its risk and
-   * the crew's level (`missionXp`), and a failure pays `FAILED_MISSION_XP_SHARE` of it. Recomputed
+   * the grade the card was dealt (`missionXp`), and a failure pays `FAILED_MISSION_XP_SHARE` of it. Recomputed
    * here from the same shared function the settler uses, so this is a check that the settler *ran*
    * rather than a second copy of the arithmetic.
    */
   function expectedAfter(base: Base, runs: readonly { template: MissionTemplate; won: boolean }[]) {
     const total = runs.reduce((sum, run) => {
-      // Priced with the tier `planted` froze on the row, the way the launch prices it.
+      // Priced with the grade `planted` froze on the row, the way the launch prices it.
       const xp = missionXp(
         run.template,
         templateTimings(run.template).totalMinutes,
-        base.level,
-        run.template.kind === 'battle' ? legacyTier(run.template) : null,
+        run.template.grades[0],
       );
       return sum + Math.round(xp * (run.won ? 1 : FAILED_MISSION_XP_SHARE));
     }, 0);
@@ -1388,16 +1451,16 @@ describe('a settlement announces its level-up on the response that caused it (§
   });
 
   /**
-   * The aggregation, on a fixture built to need it: parked at 99/100, three awards of 120 cross the
-   * level-1 threshold, then miss level 2's (300), then clear it. So the run is 1, 0, 1: a total of
-   * 2 that neither the first nor the last award reports on its own.
+   * The aggregation, on a fixture built to need it: parked at 100 of level 2's 158, the three awards
+   * cross it, then miss level 3's (302), then clear it. So the run is 1, 0, 1: a total of 2 that
+   * neither the first nor the last award reports on its own.
    */
   it('adds the levels up across crews, so two thresholds are one announcement', async () => {
     const stack = await makeStack();
-    stack.repos.bases.updateProgression(stack.base.id, 1, { xpIntoLevel: 99 });
+    stack.repos.bases.updateProgression(stack.base.id, 2, { xpIntoLevel: 100 });
     // Standard work: a battle job fights at the settle, and a crew of porters loses that fight,
     // which pays the failure's share of the XP and takes this fixture to one level instead of two.
-    // The three are chosen for what they pay: 61 clears level 1 from 99, 94 misses level 2, and
+    // The three are chosen for what they pay: 61 clears level 2 from 100, 94 misses level 3, and
     // 388 clears it, which is the 1, 0, 1 run the aggregation is about.
     for (const templateId of ['scrap-run', 'ration-run', 'courier-contract']) {
       planted(stack, findMissionTemplate(templateId) as MissionTemplate, ALWAYS_SUCCEEDS, LONG_AGO);
@@ -1414,12 +1477,12 @@ describe('a settlement announces its level-up on the response that caused it (§
     // Three separate awards, not one lump: the engine carries the remainder between them.
     const expected = [1, 2, 3].reduce(
       (at) => applyPlayerXp(at, PLAYER_XP_AWARDS.missionCompleted),
-      { level: 1, xpIntoLevel: 99 } as ReturnType<typeof applyPlayerXp>,
+      { level: 2, xpIntoLevel: 100 } as ReturnType<typeof applyPlayerXp>,
     );
-    expect(expected.level).toBe(3);
+    expect(expected.level).toBe(4);
     expect(body.levelUp?.levelsGained).toBe(2);
-    expect(body.levelUp?.level).toBe(3);
-    expect(freshBase(stack).level).toBe(3);
+    expect(body.levelUp?.level).toBe(4);
+    expect(freshBase(stack).level).toBe(4);
   });
 
   /**
@@ -1594,19 +1657,19 @@ describe('a settlement announces its level-up on the response that caused it (§
     );
     const before = freshBase(stack).level;
 
-    // Nobody leading it, and this crew has not researched how to go without: refused. The check
-    // reads `base.research`, which this very settle can move, so it cannot be hoisted above the
-    // settle the way the bench lookup can.
+    // More Razors than the crew has at home: refused. The check reads the roster as the settle
+    // left it (a crew that walked in on this very request may go straight back out), so it cannot
+    // be hoisted above the settle the way the bench lookup can.
     const refused = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      payload: launchAnyJobToday(),
+      payload: launchAnyJobToday({ leaderId: stack.overseerId, force: { razors: 999 } }),
     });
 
     expect(refused.statusCode).toBe(409);
     const body = refused.json<LevelUpBody & { error: { code: string } }>();
-    expect(body.error.code).toBe('MISSION_NEEDS_OFFICER');
+    expect(body.error.code).toBe('NO_FORCE');
     // The settle genuinely happened and is not rolled back: the level really moved…
     expect(freshBase(stack).level).toBeGreaterThan(before);
     // …so this refusal is the only response that can ever report it.
@@ -1628,8 +1691,8 @@ describe('a settlement announces its level-up on the response that caused it (§
       method: 'POST',
       url: '/api/missions',
       headers: auth(stack.token),
-      // Nobody leading it, so it is refused: the envelope of a *refusal* is the subject.
-      payload: launchAnyJobToday(),
+      // More Razors than the crew has, so it is refused: the envelope of a *refusal* is the subject.
+      payload: launchAnyJobToday({ leaderId: stack.overseerId, force: { razors: 999 } }),
     });
 
     expect(refused.statusCode, refused.body).toBe(409);
@@ -1927,7 +1990,7 @@ describe('vehicles on a mission (§C3)', () => {
     );
     expect(effects.unitSpeedPercent).toBeGreaterThan(0);
 
-    const { template, areaId } = theFurthestJobToday();
+    const { template, areaId } = theLongestRoadToday(7);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
@@ -1971,7 +2034,7 @@ describe('vehicles on a mission (§C3)', () => {
       standingEffectsFor(stack.repos, stack.repos.bases.findById(stack.base.id)!),
     );
 
-    const { template, areaId } = theFurthestJobToday();
+    const { template, areaId } = theLongestRoadToday(7);
     const res = await stack.app.inject({
       method: 'POST',
       url: '/api/missions',
@@ -2068,8 +2131,6 @@ describe('the board a recall answers with', () => {
       holder: { kind: 'crew', baseId: stack.base.id },
       level: 1,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: {},
     });
     const running = planted(
@@ -2182,7 +2243,8 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
     const offered = MISSION_TEMPLATES.filter(
       (template) => template.kind === 'standard' && template.travelBand !== 'close',
     )
-      .map((template) => ({ template, areaId: areasOffering(template.id, now)[0] }))
+      // At level seven, where `crewWithAShortWay` puts both crews: the board is dealt by level.
+      .map((template) => ({ template, areaId: areasOffering(template.id, now, 7)[0] }))
       .filter(
         (entry): entry is { template: MissionTemplate; areaId: string } =>
           entry.areaId !== undefined,
@@ -2253,7 +2315,12 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
     // pricing that could drift from it.
     const paid = (mission: Mission) =>
       scaledSpoils(
-        missionRewards(template, 'success', pricedTotalMinutes(mission)),
+        missionRewards(
+          template,
+          'success',
+          pricedTotalMinutes(mission),
+          mission.grade ?? template.grades[0],
+        ),
         mission.payPercent,
       );
     expect(paid(withLeader)).toEqual(paid(without));
@@ -2285,5 +2352,136 @@ describe('§D5: a leader shortens the road and not the cheque', () => {
     expect(mission.xp).toBe(quoted.xp);
     // And the run really is shorter than the quote, which is what the officer was brought for.
     expect(mission.travelMinutes).toBeLessThan(quoted.travelMinutes);
+  });
+});
+
+/**
+ * The crew's own cuts off the road, on the board read (`MissionRoadSchema`).
+ *
+ * The launch spends them on the run's clock and the card cannot carry them, so the send dialog
+ * re-runs the launch's arithmetic and needs them handed over. Off the same fold the launch reads
+ * and with the same clamps, so the dialog's round trip is the run's.
+ */
+describe('§C3: the road the send dialog is handed', () => {
+  it('is the launch’s own three road figures', async () => {
+    const stack = await makeStack('road_on_the_wire');
+    const board = await stack.app.inject({
+      method: 'GET',
+      url: '/api/missions',
+      headers: { authorization: `Bearer ${stack.token}` },
+    });
+    expect(board.statusCode, board.body.slice(0, 200)).toBe(200);
+    const base = stack.repos.bases.findByOwnerId(stack.base.ownerId) ?? stack.base;
+    const effects = standingEffectsFor(stack.repos, base, new Date());
+    expect(board.json<MissionsResponse>().road).toEqual({
+      travelSpeedPercent: Math.max(0, effects.travelSpeedPercent),
+      roadMinutesOff: Math.max(0, effects.roadMinutesOff),
+      unitSpeedPercent: effects.unitSpeedPercent,
+    });
+  });
+});
+
+/** Audit, 2026-09-28: a crew comes home to its stores as they stand, in the order it walked in. */
+describe('crews coming home to the stores', () => {
+  const zeroed = (scrap: number): Resources => ({
+    caps: 0,
+    supplies: 0,
+    oil: 0,
+    scrap,
+    planks: 0,
+    highQualityMetal: 0,
+  });
+
+  it('measures the haul against a store that finished since the owner last looked', async () => {
+    const stack = await makeStack();
+    const at = new Date();
+    const base = freshBase(stack);
+    // The Apothecary a level up, finished nine minutes ago and not yet read by anybody.
+    const raise: BuildQueueEntry = {
+      id: 'apothecary-raise',
+      kind: 'apothecary',
+      level: buildingLevel(base.buildings, 'apothecary') + 1,
+      startedAt: new Date(at.getTime() - 10 * MINUTE_MS).toISOString(),
+      durationSeconds: 60,
+      paid: {},
+      parts: {},
+    };
+    const full = storeCeilingsOf(stack.repos, base, at).scrap;
+    const raised = storeCeilingsOf(
+      stack.repos,
+      { ...base, buildings: applyQueueEntry(base.buildings, raise) },
+      at,
+    ).scrap;
+    expect(raised - full, 'fixture: the raise must make room for the haul').toBeGreaterThanOrEqual(
+      paidFor(scrapRun, stack).scrap ?? 0,
+    );
+    stack.repos.bases.updateResources(base.id, zeroed(full));
+    // Settled to the instant, so the only thing the settle can change is the finished build.
+    stack.repos.bases.updateEconomy(base.id, {
+      ...base.economy,
+      productionSettledAt: at.toISOString(),
+    });
+    stack.repos.bases.updateDistrict(base.id, base.buildings, [raise]);
+    const run = planted(stack, scrapRun, ALWAYS_SUCCEEDS, new Date(at.getTime() - 60 * MINUTE_MS));
+
+    settleAndResolveMissions(stack.repos, freshBase(stack), at);
+
+    const landed = stack.repos.missions.findById(run.id)!.mission;
+    expect(landed.outcome).toBe('success');
+    expect(landed.wasted?.scrap ?? 0, 'the haul was measured against the old store').toBe(0);
+    expect(resourcesOf(stack).scrap).toBeGreaterThan(full);
+  });
+
+  it('gives the room to whichever crew walked in first, not whichever left first', async () => {
+    const stack = await makeStack();
+    const cableStrip = findMissionTemplate('cable-strip') as MissionTemplate;
+    const long = planted(stack, cableStrip, ALWAYS_SUCCEEDS, T0);
+    const short = planted(stack, scrapRun, ALWAYS_SUCCEEDS, after(1));
+    expect(missionCompletesAt(short).getTime()).toBeLessThan(missionCompletesAt(long).getTime());
+    const home = after(120);
+    const room = paidFor(scrapRun, stack).scrap ?? 0;
+    const ceiling = storeCeilingsOf(stack.repos, freshBase(stack), home).scrap;
+    stack.repos.bases.updateResources(stack.base.id, zeroed(ceiling - room));
+
+    const { resolved } = resolveDueMissions(stack.repos, freshBase(stack), home);
+
+    expect(resolved.map((mission) => mission.id)).toEqual([short.id, long.id]);
+    const wasted = (id: string) => stack.repos.missions.findById(id)!.mission.wasted?.scrap ?? 0;
+    expect(wasted(short.id), 'the long run took the room it came home to second').toBe(0);
+    expect(wasted(long.id)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Audit, 2026-09-28: the fight-leader quote rates every leader over practice fights, and each
+ * fight costs more with the force, so a force nobody checked held the event loop for seconds.
+ */
+describe('the fight-leader quote', () => {
+  const quote = (stack: Stack, force: Army, vehicles?: Record<string, number>) => {
+    const fight = MISSION_TEMPLATES.find((template) => template.kind === 'battle');
+    if (!fight) throw new Error('fixture: no fight on the books');
+    return stack.app.inject({
+      method: 'POST',
+      url: '/api/missions/leaders/quote',
+      headers: { authorization: `Bearer ${stack.token}` },
+      payload: { templateId: fight.id, grade: fight.grades[0], force, vehicles },
+    });
+  };
+
+  it('refuses a force bigger than the roster, and machines the yard does not hold', async () => {
+    const stack = await makeStack();
+    const huge = await quote(stack, { razors: 10_000_000 });
+    expect(huge.statusCode, huge.body.slice(0, 200)).toBe(409);
+    expect(huge.json<{ error: { code: string } }>().error.code).toBe('NO_FORCE');
+
+    const riding = await quote(stack, { razors: 4 }, { [VEHICLE_IDS[0]]: 1_000 });
+    expect(riding.statusCode, riding.body.slice(0, 200)).toBe(403);
+  });
+
+  it('still answers for a party the crew has, however half-filled', async () => {
+    const stack = await makeStack();
+    expect((await quote(stack, { razors: 4 })).statusCode).toBe(200);
+    // Porters alone cannot launch a fight, and are still a fair question while the window fills.
+    expect((await quote(stack, { haulers: 2 })).statusCode).toBe(200);
   });
 });

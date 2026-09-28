@@ -29,7 +29,6 @@
  */
 import {
   DISTRICT_NAME_MAX,
-  FORTIFY_MAX_LEVEL,
   LOCATION_CATALOG,
   RESOURCE_KEYS,
   isPlainDay,
@@ -50,7 +49,6 @@ import { NumberField } from './ui/NumberField';
 import { Panel } from './ui/Panel';
 import { WeatherBanner } from './ui/WeatherBanner';
 import { DescribedTag } from './ui/DescribedTag';
-import { FortifyMeter } from './ui/FortifyMeter';
 import { LabelChip, LabelRow } from './ui/LabelChip';
 import { ProgressBar } from './ui/ProgressBar';
 
@@ -239,10 +237,6 @@ const CASES: readonly { name: string; render: () => RenderResult }[] = [
   {
     name: 'a progress bar at nothing done',
     render: () => render(<ProgressBar progress={0} label="Nothing yet" remaining="0%" />),
-  },
-  {
-    name: 'a fortify meter at its ceiling',
-    render: () => render(<FortifyMeter level={FORTIFY_MAX_LEVEL} percent={100} />),
   },
   {
     name: 'the infamy chip at its longest rank and its largest figure',

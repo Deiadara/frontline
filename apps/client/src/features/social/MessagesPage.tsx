@@ -29,6 +29,7 @@ import { PageShell } from '../game/PageShell';
 import { usePlayerZone } from '../settings/usePlayerZone';
 import { InviteCard } from './InviteCard';
 import { RecipientPicker } from './RecipientPicker';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The mailbox (maintainer request).
@@ -132,6 +133,36 @@ export function MessagesPage() {
     setParams(next, { replace: true });
   }, [addressed, params, setParams]);
 
+  /*
+   * `?invite=<inviteId>` opens the invitation's own message (maintainer, 2026-09-24).
+   *
+   * The join sheet lists the invitations a crew holds and now offers to go and read one, and the
+   * thing it has in hand is the invitation's id: the faction payload carries no message id, and
+   * an invitation is not a message, it is a row a message happens to carry. So the door names the
+   * invitation and the mailbox finds the letter that holds it, which is also the honest direction
+   * of the relation.
+   *
+   * Nothing happens until the inbox has arrived: stripping the parameter on the first render,
+   * before the read settles, would consume the door and leave the reader on a list. A parameter
+   * that matches nothing (the message was thrown away, the invitation answered from elsewhere) is
+   * consumed all the same and the inbox is what is left, which is where such a reader is going
+   * anyway.
+   */
+  const invited = params.get('invite');
+  useEffect(() => {
+    if (invited === null || invited === '') return;
+    const inbox = query.data?.inbox;
+    if (inbox === undefined) return;
+    const carrying = inbox.find((message) => message.invite?.inviteId === invited);
+    if (carrying) {
+      setOpen({ folder: 'inbox', message: carrying });
+      if (carrying.readAt === null) read.mutate({ id: carrying.id });
+    }
+    const next = new URLSearchParams(params);
+    next.delete('invite');
+    setParams(next, { replace: true });
+  }, [invited, params, query.data, read, setParams]);
+
   const data = query.data;
   /*
    * A failure is said out loud rather than rendered as a blank sheet.
@@ -153,6 +184,16 @@ export function MessagesPage() {
    * only carries what the page did (reading, throwing away).
    */
   const error = read.error ?? remove.error ?? null;
+  /*
+   * The invitation as the latest read has it, not as it was when the letter was opened (bug pass,
+   * 2026-09-27). `open` is a snapshot, so an answered invitation kept its live Join and Decline
+   * until the dialog was closed; the next press was refused as already answered.
+   */
+  const invite =
+    open?.folder === 'inbox'
+      ? (data.inbox.find((message) => message.id === open.message.id)?.invite ??
+        open.message.invite)
+      : undefined;
 
   /** Opens a message and marks it read in the same gesture, which is what a mailbox does. */
   const openMessage = (message: Message) => {
@@ -228,11 +269,7 @@ export function MessagesPage() {
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          {error && (
-            <p role="alert" className="shrink-0 font-body text-[13px] text-oxblood-300">
-              {refusalText(error.message)}
-            </p>
-          )}
+          {error && <ErrorNote className="shrink-0">{refusalText(error.message)}</ErrorNote>}
 
           <div
             className="ink-frame card-paper washed rivets edge-lit min-h-0 flex-1 overflow-y-auto"
@@ -370,9 +407,7 @@ export function MessagesPage() {
               <p className="whitespace-pre-wrap font-body text-[14px] leading-relaxed text-ink-200">
                 {open.message.body}
               </p>
-              {open.folder === 'inbox' && open.message.invite && (
-                <InviteCard invite={open.message.invite} />
-              )}
+              {open.folder === 'inbox' && invite && <InviteCard invite={invite} />}
             </div>
             <div className="flex shrink-0 gap-2 border-t border-surface-600/60 px-5 py-3">
               {open.folder === 'inbox' && (
@@ -385,7 +420,7 @@ export function MessagesPage() {
                     variant="danger"
                     data-testid="throw-away"
                     onClick={() => {
-                      const live = open.message.invite;
+                      const live = invite;
                       if (live?.open === true) {
                         setBinning({ id: open.message.id, factionName: live.factionName });
                         return;
@@ -467,13 +502,7 @@ export function MessagesPage() {
             </label>
 
             {send.error && (
-              <p
-                role="alert"
-                data-testid="compose-error"
-                className="font-body text-[13px] text-oxblood-300"
-              >
-                {refusalText(send.error.message)}
-              </p>
+              <ErrorNote data-testid="compose-error">{refusalText(send.error.message)}</ErrorNote>
             )}
 
             <div className="flex gap-2">

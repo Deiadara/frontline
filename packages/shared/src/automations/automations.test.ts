@@ -130,6 +130,30 @@ describe('filling a size, most suitable unit first (the fifth rung)', () => {
     expect(bestFitParty({ scavengers: 9 }, 2, 'battle')).toBeNull();
   });
 
+  /*
+   * The pieces not adding up is not a shortage (bug pass, 2026-09-25). This returned null whenever
+   * the fill missed the size by even one slot, and the slot then said "not enough units at home"
+   * with forty units at home.
+   */
+  it('fills an odd size from two-slot units as far as the pieces go', () => {
+    expect(bestFitParty({ anodics: 10 }, 5, 'standard')).toEqual({ anodics: 2 });
+    expect(bestFitParty({ anodics: 10 }, 5, 'battle')).toEqual({ anodics: 2 });
+  });
+
+  it('does not give up when the best unit leaves a gap the next one cannot close', () => {
+    // Haulers first (15 a slot), two slots, one left and nothing that small: two slots go out.
+    expect(bestFitParty({ haulers: 1, juggernauts: 1 }, 3, 'standard')).toEqual({ haulers: 1 });
+  });
+
+  it('orders a fight by the ranking it is handed, over the catalogue’s own', () => {
+    // Left to itself it takes Razors first; told the Breakers win, it takes Breakers first.
+    const told = bestFitParty({ razors: 10, breakers: 10 }, 6, 'battle', (id) =>
+      id === 'breakers' ? 1 : 0,
+    );
+    expect(told).toEqual({ breakers: 3 });
+    expect(bestFitParty({ razors: 10, breakers: 10 }, 6, 'battle')).toEqual({ razors: 6 });
+  });
+
   it('counts the slots at home in the same currency', () => {
     expect(unitSlotsAtHome({ razors: 3, haulers: 2, juggernauts: 1 })).toBe(3 + 4 + 6);
   });

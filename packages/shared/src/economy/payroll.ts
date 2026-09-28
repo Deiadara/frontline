@@ -186,7 +186,13 @@ export const PayrollLedgerSchema = z.object({
    * exactly this reason.
    */
   nextStepCost: z.number().int().positive().nullable(),
-  /** Caps per week that purchase would add. */
+  /**
+   * Caps per week that purchase would add to `capacity`.
+   *
+   * `PAYROLL_STEP` before the district's bonus and the step after it, because the bonus multiplies
+   * the whole base including what was bought: with Quarters standing, the button that read `+30`
+   * widened the book by 33.
+   */
   stepSize: z.number().int().positive(),
 });
 export type PayrollLedger = z.infer<typeof PayrollLedgerSchema>;
@@ -208,7 +214,7 @@ export function payrollLedger(
     available: Math.max(0, capacity - committed),
     purchasedSteps: payroll.purchasedSteps,
     nextStepCost: payrollStepCost(payroll.purchasedSteps, stepDiscountPercent),
-    stepSize: PAYROLL_STEP,
+    stepSize: payrollCapacity(nexusLevel, payroll.purchasedSteps + 1, bonusPercent) - capacity,
   };
 }
 

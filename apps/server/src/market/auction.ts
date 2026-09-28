@@ -8,6 +8,7 @@ import {
   spendResources,
   vendorSessionsFor,
   canOpenLot,
+  cityOfVendorLine,
   findVendorLine,
   vendorVisitAt,
   visitClosesAt,
@@ -25,10 +26,12 @@ import {
 import { previousDay } from '../bar/auction.js';
 import { tallyMarketBuy, tallyPagesIn } from '../feats/tally.js';
 import { standingEffectsFor } from '../crew/standing.js';
+import { settleBase } from '../district/settle.js';
 import type { Repositories } from '../db/repos/index.js';
 import type { VendorBid, VendorLotResult } from '../db/repos/vendor-auctions.js';
 import { notify } from '../social/notify.js';
 import { tellPagesFound } from '../social/pages.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * The Runner's lots (market extension, maintainer 2026-09-08), server side.
@@ -187,9 +190,19 @@ export function placeVendorBid(repos: Repositories, request: VendorBidRequest): 
    * checks, because "you are at every table you can hold" is true whatever they typed, and a crew
    * told to bid higher on a lot they cannot open at all has been sent to do something pointless.
    */
+  /*
+   * Counted **in this city**, which is the room the crew is standing in.
+   *
+   * `vendor_bids` is keyed `(day, session, line_id, user_id)` with no city column and does not need
+   * one: a line id carries the barrow it was drawn for, so the split is a filter. Without it two
+   * lots in Ashfall left a crew unable to bid on anything in Terminus, which is one budget shared
+   * across cities rather than a decision about one barrow.
+   */
+  const room = cityOfVendorLine(lineId);
   const open = repos.vendorAuctions
     .bidsBy(userId, visit.day, visit.session)
-    .map((bid) => bid.lineId);
+    .map((bid) => bid.lineId)
+    .filter((id) => cityOfVendorLine(id) === room);
   if (!canOpenLot(open, lineId)) return refuse('too_many_lots');
   if (amount < minimum) return refuse('too_low');
   if (base.resources.caps < chargeFor(repos, base, amount, now)) return refuse('cannot_afford');
@@ -325,12 +338,13 @@ interface LotWinner {
  */
 export function settleVendorAuctions(repos: Repositories, now: Date): number {
   // Counted, so the world settle can tell every open tab the barrow changed. See `world/settle.ts`.
-  let closed = 0;
-  for (const lot of repos.vendorAuctions.unsettled(now)) {
-    repos.tx(() => closeLot(repos, lot, now));
-    closed += 1;
-  }
-  return closed;
+  return settleEach(
+    repos,
+    'runner lots',
+    repos.vendorAuctions.unsettled(now),
+    (lot) => `${lot.day}:${lot.session}:${lot.lineId}`,
+    (lot) => closeLot(repos, lot, now),
+  );
 }
 
 function closeLot(
@@ -382,8 +396,12 @@ function award(
   const ranked = rankLotBids(bids, line.price, lotSeed(day, session, line.id));
   for (const entry of ranked) {
     const bid = bids.find((row) => row.userId === entry.userId);
-    const base = bid ? repos.bases.findById(bid.baseId) : undefined;
-    if (!base) continue;
+    const bidder = bid ? repos.bases.findById(bid.baseId) : undefined;
+    if (!bidder) continue;
+    // Settled first, so caps a crew's own production made since it last looked can pay for the lot
+    // (audit, 2026-09-28): read raw, a winner who could cover the bid was passed over for the next
+    // crew down.
+    const base = settleBase(repos, bidder, now).base;
 
     const charge = chargeFor(repos, base, entry.amount, now);
     if (base.resources.caps < charge) continue;
@@ -480,8 +498,13 @@ export function lotResultsFor(
   userId: string,
   day: string,
   session: number,
+  cityId: string,
 ): VendorAuctionResult[] {
-  const mine = repos.vendorAuctions.bidsBy(userId, day, session);
+  // One barrow's lots, because this panel is drawn beside one barrow. A crew that bid in Terminus
+  // this morning was shown those closes under Ashfall's stock, naming lines nobody there carries.
+  const mine = repos.vendorAuctions
+    .bidsBy(userId, day, session)
+    .filter((bid) => cityOfVendorLine(bid.lineId) === cityId);
   if (mine.length === 0) return [];
   const closed = new Map(
     repos.vendorAuctions.results(day, session).map((result) => [result.lineId, result]),
@@ -519,6 +542,7 @@ export function latestLotResultsFor(
   repos: Repositories,
   userId: string,
   now: Date,
+  cityId: string,
 ): VendorAuctionResult[] {
   let day = marketDay(now);
   for (let back = 0; back <= LOT_RESULTS_LOOKBACK_DAYS; back += 1) {
@@ -526,7 +550,7 @@ export function latestLotResultsFor(
     for (let session = sessions.length - 1; session >= 0; session -= 1) {
       // A visit still running has no results yet, and the one before it is the one to show.
       if (visitClosesAt(day, session).getTime() > now.getTime()) continue;
-      const results = lotResultsFor(repos, userId, day, session);
+      const results = lotResultsFor(repos, userId, day, session, cityId);
       if (results.length > 0) return results;
     }
     day = previousDay(day);

@@ -152,8 +152,6 @@ export interface MoraleShock {
    * this was reachable with most of the cheap units in the game.
    */
   alliesBroken: number;
-  /** Holding fortified ground steadies a unit: percentage points of resistance to all of it. */
-  resolvePercent: number;
 }
 
 /**
@@ -165,8 +163,7 @@ export interface MoraleShock {
  * an assault has something to bring home.
  */
 export function moraleDelta(shock: MoraleShock, morale: number): number {
-  const resolve = Math.max(0, 1 - shock.resolvePercent / 100);
-  const scale = fragility(morale) * resolve;
+  const scale = fragility(morale);
 
   const net = shock.casualtyFraction - WINNING_RELIEF * Math.max(0, shock.enemyCasualtyFraction);
   const casualties = CASUALTY_SHOCK * Math.max(0, Math.min(1, net));

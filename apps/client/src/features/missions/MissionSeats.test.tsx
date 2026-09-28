@@ -44,7 +44,7 @@ const offer: MissionOffer = {
   name: 'Long Haul',
   brief: 'A long way out and a long way back.',
   kind: 'standard',
-  difficulty: 'easy',
+  grade: 'E',
   travelMinutes: 40,
   durationMinutes: 30,
   totalMinutes: missionTimings({ travelMinutes: 40, durationMinutes: 30 }).totalMinutes,
@@ -55,10 +55,9 @@ const offer: MissionOffer = {
   payoutSlots: 8,
   xp: 100,
   failedXp: 20,
-  pagePrize: null,
-  authoredChance: 0.8,
   leanings: ['road'],
-  battleTier: null,
+  // Out of the opening band: this fixture is not about the ramp.
+  ramp: null,
 };
 
 const area: MissionArea = {
@@ -98,8 +97,6 @@ function open(): HTMLElement {
           heldUntil: null,
         },
       ]}
-      unledRule="free"
-      level={10}
       now={NOW}
       atCapacity={false}
       automated={false}

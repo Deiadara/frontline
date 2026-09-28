@@ -9,14 +9,16 @@ import {
   type FactionResponse,
 } from '@frontline/shared';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { Dropdown } from '../../components/ui/Dropdown';
 import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { useAnswerFactionInvite, useCreateFaction } from '../../lib/queries';
 import { BadgeBuilder } from './BadgeBuilder';
 import { FactionBadge } from './FactionBadge';
 import { refusalText } from './refusal';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The screen for somebody with no faction: the two ways in, and nothing else.
@@ -29,8 +31,9 @@ import { refusalText } from './refusal';
  * ## Joining is not a button
  *
  * There is deliberately no "find a faction" list. An invitation is the only way in, it arrives in
- * the mailbox like anything else somebody sends you, and the left-hand sheet's job is to say so
- * rather than to offer a door that is not there. When invitations *are* held, they are the sheet.
+ * the mailbox like anything else somebody sends you, and the left-hand sheet says so by holding
+ * nothing but that fact when nobody has asked. When invitations *are* held, they are the sheet:
+ * the rows that answer them, and a picker that goes to what was written.
  */
 export function FoundFaction({ data }: { data: FactionResponse }) {
   const [building, setBuilding] = useState(false);
@@ -96,9 +99,26 @@ export function FoundFaction({ data }: { data: FactionResponse }) {
   );
 }
 
-/** The left-hand door: an invitation, or the fact that you need one. */
+/**
+ * The left-hand door: the invitations being held, or the fact that none are.
+ *
+ * ## The picker and the rows are not the same question
+ *
+ * The rows answer the invitation: Join puts your district at their table, Decline sends it back,
+ * and both are one press from here because taking that away would make joining a faction a trip to
+ * the mailbox. The picker answers a different one. An invitation is an ordinary message
+ * (`social/messages.ts`) and somebody wrote something in it, which is the part a player wants
+ * before they decide, and the rows have nowhere to put a letter. So it sits where the "Check your
+ * messages" link sits when nothing is held: the foot of the sheet is the way to the mailbox
+ * either way, and the only thing that changes is whether the game knows which message is meant.
+ *
+ * With nothing held there is no picker at all. An empty dropdown is a control that says "choose"
+ * and then offers nothing to choose, which reads as a screen that is broken rather than as a crew
+ * nobody has asked.
+ */
 function JoinSheet({ data }: { data: FactionResponse }) {
   const answer = useAnswerFactionInvite();
+  const navigate = useNavigate();
   const held = data.invites;
 
   return (
@@ -111,10 +131,6 @@ function JoinSheet({ data }: { data: FactionResponse }) {
 
       {held.length === 0 ? (
         <>
-          <p className="font-body text-[13px] leading-relaxed text-ink-300">
-            An invitation is the only way in, and it arrives the way anything else somebody sends
-            you does: in your messages, with a button on it.
-          </p>
           <p className="font-body text-[13px] leading-relaxed text-ink-400">
             Nobody has asked you yet. Ask around, or start your own and do the asking.
           </p>
@@ -169,13 +185,27 @@ function JoinSheet({ data }: { data: FactionResponse }) {
               </li>
             ))}
           </ul>
+          {/* The value stays empty on purpose, so the trigger keeps asking rather than sitting on
+              whichever invitation was read last: this is a door, not a setting. That is also why
+              there is no caption over it. The placeholder is the label, and the twenty pixels a
+              second line would cost are the ones that decide whether the sheet clears the fold of
+              a 768px screen. */}
+          <Dropdown
+            className="mt-auto"
+            value=""
+            options={held.map((invite) => ({
+              value: invite.id,
+              label: invite.factionName,
+              hint: `${invite.invitedBy} sent it`,
+            }))}
+            onChange={(id) => void navigate(`/game/messages?invite=${id}`)}
+            label="Read an invitation in your messages"
+            placeholder="Read what they wrote"
+            data-testid="invite-messages"
+          />
         </>
       )}
-      {answer.error && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {refusalText(answer.error.message)}
-        </p>
-      )}
+      {answer.error && <ErrorNote>{refusalText(answer.error.message)}</ErrorNote>}
     </section>
   );
 }
@@ -272,11 +302,7 @@ function CreateSheet({ onCancel }: { onCancel: () => void }) {
             />
           </label>
 
-          {create.error && (
-            <p role="alert" className="font-body text-[13px] text-oxblood-300">
-              {refusalText(create.error.message)}
-            </p>
-          )}
+          {create.error && <ErrorNote>{refusalText(create.error.message)}</ErrorNote>}
 
           <Button
             className="mt-auto"

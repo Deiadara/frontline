@@ -12,7 +12,7 @@
  * marks are written in. A mark that fails this is placed too close to an edge for the screen it is
  * on, whatever the picture says.
  */
-import { CITY_DISTRICTS, plateAspect } from '@frontline/shared';
+import { ALL_DISTRICTS, plateAspect } from '@frontline/shared';
 import { describe, expect, it } from 'vitest';
 import { GATE_MARK, LOCATION_MARKS, type Mark } from './marks';
 
@@ -49,6 +49,17 @@ const SHUT_GATE_SIGN_PX = 26;
  */
 const TOGGLE_CORNER = { fromRight: 17 * 16 + 16, top: 12, bottom: 43 } as const;
 
+/**
+ * The screen's own header strip, in band pixels: left-aligned, from 5px to 50px under the band's
+ * top and running to x 565. It carries the back link, the district's plaque and, on gated ground,
+ * the gate's state and the spy control, and it is `pointer-events-auto` at `z-20`, so it covers a
+ * sign exactly the way the toggle does. Measured on the page at 1024x768, 1280x720, 1280x800,
+ * 1440x900 and 1920x1080 on 2026-09-24 with the gate row present, which is its widest form; the
+ * band above is where it reaches deepest into the plate. Coldwater Halt's platform sign was
+ * marked at y 0.138 and was drawn underneath it with nothing measuring that.
+ */
+const HEADER_STRIP = { fromLeft: 565, top: 5, bottom: 50 } as const;
+
 /** Whether a sign hung at `mark` at the worst band would sit under the toggle's corner box. */
 function underToggle(mark: Mark, aspect: number, px: number): boolean {
   const plate = plateHeight(aspect);
@@ -57,6 +68,15 @@ function underToggle(mark: Mark, aspect: number, px: number): boolean {
   const signBottom = signTop + px;
   const inColumn = mark.x * WORST_BAND.width > WORST_BAND.width - TOGGLE_CORNER.fromRight;
   return inColumn && signBottom > TOGGLE_CORNER.top && signTop < TOGGLE_CORNER.bottom;
+}
+
+/** The same question for the header strip in the plate's top-left corner. */
+function underHeader(mark: Mark, aspect: number, px: number): boolean {
+  const plate = plateHeight(aspect);
+  const signTop = (mark.y - hiddenShare(aspect)) * plate;
+  const signBottom = signTop + px;
+  const inColumn = mark.x * WORST_BAND.width < HEADER_STRIP.fromLeft;
+  return inColumn && signBottom > HEADER_STRIP.top && signTop < HEADER_STRIP.bottom;
 }
 
 function plateHeight(aspect: number): number {
@@ -72,7 +92,12 @@ function signSpan(mark: Mark, aspect: number, px: number): { top: number; bottom
   return { top: mark.y, bottom: mark.y + px / plateHeight(aspect) };
 }
 
-const painted = CITY_DISTRICTS.filter(
+/*
+ * Every district in the world, not Ashfall's twelve. Coldwater Halt is in Terminus, so a sweep
+ * over `CITY_DISTRICTS` would have skipped its eight marks and then failed them as marks on no
+ * district, which is the check three lines down doing its job for the wrong reason.
+ */
+const painted = ALL_DISTRICTS.filter(
   (district) =>
     GATE_MARK[district.id] !== undefined ||
     district.locations.some((location) => LOCATION_MARKS[location.id] !== undefined),
@@ -114,19 +139,22 @@ describe('the signs stand in the visible part of a cover-fitted plate', () => {
         expect(under, `signs under a bar at ${WORST_BAND.width}x${WORST_BAND.height}`).toEqual([]);
       });
 
-      it('keeps every sign out from under the ground box toggle', () => {
+      it.each([
+        ['the ground box toggle', underToggle],
+        ['the header strip', underHeader],
+      ])('keeps every sign out from under %s', (_, covers) => {
         const covered: string[] = [];
         for (const location of district.locations) {
           const mark = LOCATION_MARKS[location.id];
-          if (mark !== undefined && underToggle(mark, aspect, SIGN_PX)) {
+          if (mark !== undefined && covers(mark, aspect, SIGN_PX)) {
             covered.push(`${location.id}: x ${mark.x}, y ${mark.y}`);
           }
         }
         const gate = GATE_MARK[district.id];
-        if (gate !== undefined && underToggle(gate, aspect, SHUT_GATE_SIGN_PX)) {
+        if (gate !== undefined && covers(gate, aspect, SHUT_GATE_SIGN_PX)) {
           covered.push(`gate: x ${gate.x}, y ${gate.y}`);
         }
-        expect(covered, 'signs the toggle would cover at the worst band').toEqual([]);
+        expect(covered, 'signs a floating control would cover at the worst band').toEqual([]);
       });
 
       it('keeps the gate sign between the bars, lock icon included', () => {

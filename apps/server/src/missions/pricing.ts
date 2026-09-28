@@ -4,8 +4,10 @@ import {
   hastenedMinutes,
   hastenedRoadMinutes,
   missionTimings,
+  templateTimings,
   rampedTimings,
   type EarlyRampBand,
+  type Grade,
   type MissionTemplate,
   type MissionTimings,
   type Base,
@@ -50,6 +52,8 @@ import type { Repositories } from '../db/repos/index.js';
  */
 export function pricedTimings(
   template: MissionTemplate,
+  /** The grade the card was dealt: a harder grade keeps the crew on site longer. */
+  grade: Grade,
   speedPercent: number,
   /**
    * The opening band this crew is in, or null once they are out of it (`missions.ramp.ts`).
@@ -63,7 +67,10 @@ export function pricedTimings(
 ): MissionTimings {
   const timings = missionTimings({
     travelMinutes: hastenedRoadMinutes(TRAVEL_BAND_MINUTES[template.travelBand], 0, speedPercent),
-    durationMinutes: hastenedMinutes(template.durationMinutes, speedPercent),
+    durationMinutes: hastenedMinutes(
+      templateTimings(template, grade).durationMinutes,
+      speedPercent,
+    ),
   });
   return ramp === null ? timings : rampedTimings(timings, ramp);
 }

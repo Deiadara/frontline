@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
-import { setGarrison } from './actions.js';
+import { sendMove } from '../moves/moves.js';
 import { isFightingForce } from '../battle/forces.js';
 import { chooseOverseer } from '../testing/overseer.js';
 import { elsewhere } from '../testing/districts.js';
@@ -29,8 +29,32 @@ import { elsewhere } from '../testing/districts.js';
  * That is not hypothetical. `setGarrison` was exactly that door: it checked the §D7 rank a unit
  * will not take the field without, with a comment explaining that a garrison *is* a defending
  * force because `assemble` merges it into the line, and then never asked whether the units could
- * fight at all. Deploy, attack and raid all did, and none of the four had a test.
+ * fight at all. Deploy, attack and raid all did, and none of the four had a test. That door is gone
+ * (maintainer, 2026-09-28): units reach ground by walking there (`sendMove`), and it is the door
+ * measured here now.
  */
+
+/** Walks units from home onto a location, or from a location home: the only way onto ground. */
+function post(stack: Stack, base: Base, location: Location, army: Record<string, number>) {
+  return sendMove(stack.app.repos, {
+    base,
+    from: { kind: 'district' },
+    to: { kind: 'location', locationId: location.id },
+    army,
+    vehicles: {},
+    now: new Date(),
+  });
+}
+function pull(stack: Stack, base: Base, location: Location, army: Record<string, number>) {
+  return sendMove(stack.app.repos, {
+    base,
+    from: { kind: 'location', locationId: location.id },
+    to: { kind: 'district' },
+    army,
+    vehicles: {},
+    now: new Date(),
+  });
+}
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 
@@ -66,7 +90,7 @@ async function makeStack(): Promise<Stack> {
   // not the trip, so the intel is written directly.
   app.repos.city.markScouted(
     chosen.json<{ base: { id: string } }>().base.id,
-    'rustyard',
+    'steelbelt',
     new Date().toISOString(),
   );
 
@@ -111,8 +135,8 @@ async function callOutTheNeighbour(stack: Stack): Promise<string> {
   });
   const theirs = await chooseOverseer(stack.app, victim.json<{ token: string }>().token);
   const theirBase = theirs.json<{ base: { id: string } }>().base.id;
-  // Moved off whatever plot they were given: a crew cannot be called out on ground the caller
-  // lives on, and `quietestDistrict` may well have put the two side by side.
+  // Moved onto a plot the test names: a crew cannot be called out on ground the caller lives on,
+  // and the plot a new crew is given is a random draw.
   const district = elsewhere(stack.base.districtId);
   const theirs2 = stack.app.repos.bases.findById(theirBase);
   if (!theirs2) throw new Error('the neighbour has no base');
@@ -142,7 +166,7 @@ async function callOutTheNeighbour(stack: Stack): Promise<string> {
 
 /** A location in the district this crew has scouted, and the control row that goes with it. */
 function somewhere(): Location {
-  const found = CITY_LOCATIONS.find((location) => location.districtId === 'rustyard');
+  const found = CITY_LOCATIONS.find((location) => location.districtId === 'steelbelt');
   if (!found) throw new Error('the Rustyard has no locations');
   return found;
 }
@@ -165,27 +189,19 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
     const location = somewhere();
     held(stack, location);
 
-    expect(
-      setGarrison(stack.app.repos, {
-        base: stack.base,
-        location,
-        changes: { scavengers: 3 },
-      }),
-    ).toEqual({ kind: 'refused', reason: 'not_a_fighting_force' });
+    expect(post(stack, stack.base, location, { scavengers: 3 })).toEqual({
+      kind: 'refused',
+      reason: 'not_a_fighting_force',
+    });
 
     // Mixed is still refused: one porter in the rank is one porter in the rank.
-    expect(
-      setGarrison(stack.app.repos, {
-        base: stack.base,
-        location,
-        changes: { razors: 2, haulers: 1 },
-      }),
-    ).toEqual({ kind: 'refused', reason: 'not_a_fighting_force' });
+    expect(post(stack, stack.base, location, { razors: 2, haulers: 1 })).toEqual({
+      kind: 'refused',
+      reason: 'not_a_fighting_force',
+    });
 
     // And the control is live: a fighter takes the post.
-    expect(
-      setGarrison(stack.app.repos, { base: stack.base, location, changes: { razors: 2 } }).kind,
-    ).toBe('ok');
+    expect(post(stack, stack.base, location, { razors: 2 }).kind).toBe('sent');
   });
 
   /**
@@ -201,10 +217,7 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
     held(stack, location);
     stack.app.repos.city.setGarrison(location.id, { scavengers: 2 });
 
-    expect(
-      setGarrison(stack.app.repos, { base: stack.base, location, changes: { scavengers: -2 } })
-        .kind,
-    ).toBe('ok');
+    expect(pull(stack, stack.base, location, { scavengers: 2 }).kind).toBe('sent');
   });
 
   /**
@@ -229,7 +242,7 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
    * ...and the exception, which the doors did not honour until 2026-09-18.
    *
    * `carriers_fight` has always worked *inside* a fight: `standsInLine` is what every round of
-   * `engine.ts` asks, and a porter standing in a defence is counted at `CARRIER_STRENGTH`. The
+   * `engine.ts` asks, and a porter standing in a defence fights on its own sheet. The
    * doors asked `isCombatUnit` instead, so a crew that had paid for Yard Discipline still could
    * not send a porter anywhere a fight was going to happen. The perk was reachable only when the
    * enemy came to the crew's own plot, which is the one case a player does not choose.
@@ -255,18 +268,13 @@ describe('§A5: every door that puts units on ground refuses the support tier', 
       const location = somewhere();
       held(stack, location);
 
-      expect(
-        setGarrison(stack.app.repos, {
-          base: stack.base,
-          location,
-          changes: { scavengers: 3 },
-        }),
-      ).toEqual({ kind: 'refused', reason: 'not_a_fighting_force' });
+      expect(post(stack, stack.base, location, { scavengers: 3 })).toEqual({
+        kind: 'refused',
+        reason: 'not_a_fighting_force',
+      });
 
       const schooled = withYardDiscipline(stack);
-      expect(
-        setGarrison(stack.app.repos, { base: schooled, location, changes: { scavengers: 3 } }).kind,
-      ).toBe('ok');
+      expect(post(stack, schooled, location, { scavengers: 3 }).kind).toBe('sent');
     });
 
     it('deploys porters to a coming fight, and still refuses them without it', async () => {

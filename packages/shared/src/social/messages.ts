@@ -49,6 +49,13 @@ export const MESSAGE_BODY_MAX = 2000;
 export const MESSAGE_RECIPIENTS_MAX = 5;
 
 /**
+ * Letters a crew may send in any rolling day (hardening pass, 2026-09-27). Every letter is a row per
+ * recipient, a sent copy and a notification, kept for ever, so without a ceiling one account at the
+ * write limit adds megabytes an hour. A hundred is far past anybody writing to people.
+ */
+export const MESSAGES_PER_DAY = 100;
+
+/**
  * How much of the body a quoted original may take.
  *
  * Three quarters, so a reply always has a quarter of the field to be written in. A quote that
@@ -127,6 +134,7 @@ export const MESSAGE_REFUSALS = [
   'not_in_a_faction',
   'cannot_write_to_yourself',
   'nobody_to_write_to',
+  'too_many_today',
 ] as const;
 export const MessageRefusalSchema = z.enum(MESSAGE_REFUSALS);
 export type MessageRefusal = z.infer<typeof MessageRefusalSchema>;
@@ -136,6 +144,7 @@ export const MESSAGE_REFUSAL_TEXT: Record<MessageRefusal, string> = {
   not_in_a_faction: 'You are not in a faction to write to.',
   cannot_write_to_yourself: 'You already know.',
   nobody_to_write_to: 'There is nobody at the other end of that.',
+  too_many_today: 'You have sent enough for one day. The wires open again tomorrow.',
 };
 
 export function unreadMessages(messages: readonly Message[]): number {

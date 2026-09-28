@@ -8,6 +8,7 @@ import {
   type District,
 } from '@frontline/shared';
 import { expect, test, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { chooseAnyCity } from './harness';
 
 /**
  * REAL end-to-end: no `/api` interception. This drives the actual UI against the real
@@ -119,7 +120,7 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await page.goto('/auth');
   await expect(page.getByRole('heading', { name: 'FRONTLINE' })).toBeVisible();
   await page.getByTestId('auth-choose-login').click();
-  await expect(page.getByLabel('Operator ID')).toHaveValue(MVP_DEV_CREDENTIALS.username);
+  await expect(page.getByLabel('Overseer ID')).toHaveValue(MVP_DEV_CREDENTIALS.username);
   await expect(page.getByLabel('Password')).toHaveValue(MVP_DEV_CREDENTIALS.password);
   await expect(page.getByText(/MVP build. Dev login prefilled/)).toBeVisible();
   await shootEveryViewport(page, 'login');
@@ -143,6 +144,11 @@ test('live: Nikos logs in, meets the AI rival and raids it against the real back
   await expect(confirm).toBeEnabled();
   await shootEveryViewport(page, 'overseer-select');
   await confirm.click();
+
+  // ...and where they will live, on the same wall of paintings the world screen draws.
+  await expect(page.getByRole('heading', { name: 'CHOOSE YOUR CITY' })).toBeVisible();
+  await shootEveryViewport(page, 'city-select');
+  await chooseAnyCity(page, 'ashfall');
 
   // --- STEP 3: city map, with the hostile rival marker on Ashen Terraces ---
   await page.waitForURL('**/game');
@@ -427,7 +433,7 @@ async function openGround(page: Page): Promise<District> {
    * The last clause is the one this was missing. A district is shut exactly when one party holds
    * all of it, and nothing inside a shut district can be called: the card says "The gate is armed"
    * and offers a dead "Behind the gate" button where "Call a fight" would be. This took the first
-   * scouted district it found, which on 2026-09-18 was `datavault-sigma`, held end to end by the
+   * scouted district it found, which on 2026-09-18 was `annexes`, held end to end by the
    * Combine, so step five waited six minutes for a button the game was correctly refusing to draw.
    *
    * Home is always "scouted" because you live there, and clicking its tag opens your own district

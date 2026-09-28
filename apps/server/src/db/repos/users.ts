@@ -1,4 +1,4 @@
-import { UserSchema } from '@frontline/shared';
+import { TUTORIAL_STEPS, UserSchema } from '@frontline/shared';
 import type { Statement } from 'better-sqlite3';
 import type { UserRecord } from '../../types.js';
 import type { AppDatabase } from '../index.js';
@@ -56,6 +56,12 @@ export interface UsersRepo {
    * Skip is just this call with every id.
    */
   markTutorialSeen(userId: string, steps: readonly string[]): void;
+  /** Every account's username, in one read, for the boards that list everybody. */
+  usernames(): Map<string, string>;
+  /** The version every live token for this account must carry, or null for no such account. */
+  sessionVersion(userId: string): number | null;
+  /** Ends every session the account has open, and answers the version a new token must carry. */
+  revokeSessions(userId: string): number;
 }
 
 /**
@@ -108,6 +114,7 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
   );
   const byIdStmt = db.prepare('SELECT * FROM users WHERE id = ?');
   const byUsernameStmt = db.prepare('SELECT * FROM users WHERE username = ?');
+  const usernamesStmt = db.prepare('SELECT id, username FROM users');
   const setOverseerStmt = db.prepare('UPDATE users SET overseer_id = ? WHERE id = ?');
   const clearOverseerStmt = db.prepare('UPDATE users SET overseer_id = NULL WHERE id = ?');
   const setPasswordStmt = db.prepare('UPDATE users SET password_hash = ? WHERE id = ?');
@@ -120,6 +127,9 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
    * prepare throws `no such column` before those tests can assert anything.
    */
   let tutorialStmt: Statement<[string, string]> | null = null;
+  // Lazy for the same reason: `session_version` is 0121's column.
+  let sessionStmt: Statement<[string]> | null = null;
+  let revokeStmt: Statement<[string]> | null = null;
   // One statement per field rather than a built-up SQL string: five prepared statements cost
   // nothing and a concatenated UPDATE is how a column name ends up coming from a request body.
   const profileStmts: Readonly<
@@ -176,8 +186,30 @@ export function createUsersRepo(db: AppDatabase): UsersRepo {
         if (!row) return;
         const stored = parseSeen(row.tutorial_seen_json) ?? [];
         tutorialStmt ??= db.prepare('UPDATE users SET tutorial_seen_json = ? WHERE id = ?');
-        tutorialStmt.run(JSON.stringify([...new Set([...stored, ...steps])]), userId);
+        // Only steps the game has, so the column cannot be grown by sending made-up ids: it is
+        // parsed on every lookup of this account, which is every request it makes.
+        const known = steps.filter((step) => (TUTORIAL_STEPS as readonly string[]).includes(step));
+        const merged = [...new Set([...stored, ...known])].filter((step) =>
+          (TUTORIAL_STEPS as readonly string[]).includes(step),
+        );
+        tutorialStmt.run(JSON.stringify(merged), userId);
       })();
+    },
+    usernames() {
+      const rows = usernamesStmt.all() as { id: string; username: string }[];
+      return new Map(rows.map((row) => [row.id, row.username]));
+    },
+    sessionVersion(userId) {
+      sessionStmt ??= db.prepare('SELECT session_version FROM users WHERE id = ?');
+      const row = sessionStmt.get(userId) as { session_version: number } | undefined;
+      return row ? row.session_version : null;
+    },
+    revokeSessions(userId) {
+      revokeStmt ??= db.prepare(
+        'UPDATE users SET session_version = session_version + 1 WHERE id = ? RETURNING session_version',
+      );
+      const row = revokeStmt.get(userId) as { session_version: number } | undefined;
+      return row?.session_version ?? 0;
     },
   };
 }

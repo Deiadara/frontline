@@ -12,6 +12,7 @@ import { cn } from '../../lib/cn';
 import { useBurnUpgrade } from '../../lib/queries';
 import { RARITY_BRACKET, RARITY_TEXT } from '../scrapyard/rarity';
 import { YardGlyph } from '../scrapyard/YardGlyph';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Three brackets on every unit, each one a door to the Scrapyard (GDD §A5, yard rework 2026-09-16).
@@ -106,14 +107,15 @@ export function UpgradeSlots({ unit }: { unit: UnitOption }) {
           testId={`slot-burn-${unit.id}`}
           onCancel={() => setBurning(null)}
           onConfirm={() =>
-            burn.mutate({ upgradeId: burningId }, { onSuccess: () => setBurning(null) })
+            burn.mutate(
+              { unitId: unit.id, upgradeId: burningId },
+              { onSuccess: () => setBurning(null) },
+            )
           }
         />
       )}
 
-      {burn.isError && (
-        <p className="mt-1 font-body text-[12px] text-oxblood-300">{burn.error.message}</p>
-      )}
+      {burn.isError && <ErrorNote className="mt-1">{burn.error.message}</ErrorNote>}
     </>
   );
 }

@@ -28,10 +28,17 @@ import { mergeArmies } from './forces.js';
 /**
  * Everything one side has on the ground, as a single deployment.
  *
- * The boost is the **declarer's**, not the sum: a boost is bought for a fight and a side gets one
- * (`battle/boosts.ts`), so reinforcements bringing their own would multiply an effect the design
- * gives out once. The route refuses a boost from anybody but the declarer; this is the read side of
- * the same rule, and it takes the first row that has one so the two cannot disagree.
+ * The names are the **principal's**: a boost is bought for a fight and a side gets as many as the
+ * principal's own `battleBoostsFlat` allows (`battle/boosts.ts`), so reinforcements bringing their
+ * own would multiply an effect the design gives out a fixed number of times. `/battles/boost` is
+ * where that is enforced, and it is enforced by naming the principal. This end merely folds every
+ * row's list together, distinctly, so an ally who burned the same name the principal already did
+ * adds nothing.
+ *
+ * It does **not** re-apply the cap, which is why the door has to be right: for a while the door
+ * read the principal off `battle.defender`, which is `unoccupied` on every lived-in district, and
+ * an ally's name landed here and stacked. A row written under that reading still stacks, because
+ * nothing goes back and unburns a name somebody paid for.
  */
 export function combinedSide(
   rows: readonly BattleDeployment[],
@@ -71,16 +78,21 @@ export function sideForce(
  * different people, and handing them all back to the declarer would quietly transfer an ally's army
  * to whoever called the fight.
  *
+ * Generic over the row rather than tied to `BattleDeployment`, because the same apportionment
+ * answers the same question for the regime: a district's defence is drawn off several control rows
+ * and its survivors have to go back to the plots that sent them (`resolve.ts`, `spendGarrisons`).
+ * All this needs of a row is a key and, through `pick`, what that key put in.
+ *
  * Distribution is **largest remainder** per unit id, proportional to what each crew committed. The
  * naive `floor(share)` loses units to rounding on every unit type with more than one contributor,
  * and over a long war those losses land entirely on the smaller contributor. Largest remainder
  * hands back exactly the number that survived, every time, which is the property
  * `factions.test.ts` pins.
  */
-export function splitSurvivors(
-  rows: readonly BattleDeployment[],
+export function splitSurvivors<Row extends { baseId: string | null }>(
+  rows: readonly Row[],
   survived: Army,
-  pick: (row: BattleDeployment) => Army,
+  pick: (row: Row) => Army,
 ): Map<string | null, Army> {
   const out = new Map<string | null, Army>(rows.map((row) => [row.baseId, {}]));
 

@@ -195,15 +195,28 @@ export function isResting(
  * stack is cut to whatever still fits, and a unit too big for the room left (a six-slot Juggernaut
  * against two slots) is skipped rather than jammed in.
  *
- * "Most suitable" is read off the job. A fight wants what hits hardest per slot, and only units
- * that fight at all; everything else wants what carries most per slot, since a job that is not a
- * fight is measured by what comes home. Nothing here is shown to the player: the sheet says
- * "best" and the Right Hand decides at the moment the party leaves.
+ * "Most suitable" is read off the job. A fight wants the units that win it, and only units that
+ * fight at all; everything else wants what carries most per slot, since a job that is not a fight
+ * is measured by what comes home. Nothing here is shown to the player: the sheet says "best" and
+ * the Right Hand decides at the moment the party leaves.
+ *
+ * `rank` is how a fight's units are ordered, higher first, and the server hands in one read off
+ * the engine (`automations/runners.ts`, bug pass 2026-09-25). The built-in order for a fight,
+ * offense plus a fifth of vitality per slot, is the fallback for a caller with no engine to hand.
+ * Measured against real fight-job enemies it was a poor judge: it put Sparks first at every size,
+ * which lost Fight II at twelve slots every time where two Juggernauts won 85% of the time.
+ *
+ * Null only when the eligible units at home come to fewer slots than the size, which is the one
+ * case the stall's words ("not enough units at home") describe. It used to be null whenever the
+ * pieces did not add up **exactly**, so a yard of two-slot units could never fill an odd size and
+ * a slot asked for three stalled with a two-slot and a three-slot unit at home: the greedy took
+ * the two, had one left, and gave up. Now the party is as full as the pieces allow.
  */
 export function bestFitParty(
   army: Readonly<Record<string, number>>,
   unitSlots: number,
   kind: 'battle' | 'standard',
+  rank?: (unitId: string) => number,
 ): Record<string, number> | null {
   const ranked = Object.entries(army)
     .flatMap(([unitId, count]) => {
@@ -212,11 +225,14 @@ export function bestFitParty(
       if (kind === 'battle' && !isCombatUnit(unit)) return [];
       const perSlot =
         kind === 'battle'
-          ? (unit.stats.offense + unit.stats.vitality / 5) / unit.unitSlots
+          ? (rank?.(unitId) ?? (unit.stats.offense + unit.stats.vitality / 5) / unit.unitSlots)
           : unit.stats.lootCapacity / unit.unitSlots;
       return [{ unitId, count, slots: unit.unitSlots, perSlot }];
     })
     .sort((a, b) => b.perSlot - a.perSlot || b.count - a.count);
+
+  const available = ranked.reduce((sum, one) => sum + one.count * one.slots, 0);
+  if (available < unitSlots) return null;
 
   const picked: Record<string, number> = {};
   let filled = 0;
@@ -228,7 +244,7 @@ export function bestFitParty(
     filled += take * slots;
     if (filled >= unitSlots) break;
   }
-  return filled < unitSlots ? null : picked;
+  return filled > 0 ? picked : null;
 }
 
 /** Every unit slot at home: the ceiling on a size the Right Hand can be asked to fill. */

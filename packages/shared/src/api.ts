@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { FleetSchema } from './building/vehicles.js';
 import { CapturedGateViewSchema } from './api.district.js';
-import { MissionDifficultySchema } from './delegation/index.js';
 import { UnreadCountsSchema } from './api.social.js';
 import { AttributeNameSchema, AttributesSchema } from './attributes.js';
 import {
@@ -14,15 +13,15 @@ import { BaseSchema, BaseSummarySchema, DistrictNameSchema } from './base.js';
 import { PayrollLedgerSchema } from './economy/payroll.js';
 import { BattleResultSchema } from './battle/types.js';
 import {
-  UnitIdSchema,
   ArmySchema,
   TrainingQueueSchema,
   UnitStatsSchema,
   UnitTierSchema,
   UNIT_UPGRADE_SLOTS,
 } from './units/index.js';
-import { BuildingKindSchema, BuildingSchema } from './building/index.js';
+import { AcceptWasteSchema, BuildingKindSchema, BuildingSchema } from './building/index.js';
 import {
+  CityHomeOfferSchema,
   DEFAULT_CITY_ID,
   DistrictSchema,
   EnvLabelIdSchema,
@@ -30,16 +29,12 @@ import {
   LocationHolderSchema,
   LocationSchema,
 } from './city/index.js';
-import { BlueprintCategorySchema, BlueprintPageIdSchema } from './blueprints/catalog.js';
+import { BlueprintPageIdSchema } from './blueprints/catalog.js';
 import { CommanderSchema } from './commander.js';
 import { OfficerMarkSchema } from './crew/marks.js';
 import { MissionAreaIdSchema, MissionKindSchema, MissionSchema } from './missions.js';
-import {
-  BattleTierSchema,
-  LeaderHoldSchema,
-  MissionLeaningSchema,
-  UnledRuleSchema,
-} from './missions.leading.js';
+import { EarlyRampBandSchema } from './missions.ramp.js';
+import { LeaderHoldSchema, MissionLeaningSchema } from './missions.leading.js';
 import { OverseerPresetSchema, OverseerSchema } from './overseer.js';
 import { MoveDestinationSchema, MovePlaceSchema } from './moves/index.js';
 import {
@@ -51,12 +46,12 @@ import {
 import { TrainingSessionSchema } from './crew/training.js';
 import { InventorySchema } from './items/inventory.js';
 import { ResourceKeySchema } from './resources.js';
-import { MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
+import { MarketClaimSchema, MarketOfferSchema, TradeBundleSchema } from './market/offers.js';
 import { SupplyBoardSchema, SupplyResourceSchema } from './market/supply.js';
 import { VendorAuctionResultSchema, VendorAuctionSchema } from './market/auction.js';
 import { VendorLineSchema, VendorSessionSchema } from './market/vendor.js';
 import { UnitModificationRaritySchema } from './units/modifications.js';
-import { IdSchema, IsoDateTimeSchema, UsernameSchema } from './primitives.js';
+import { IdSchema, IsoDateTimeSchema, REQUEST_AMOUNT_MAX, UsernameSchema } from './primitives.js';
 import { PlayerLevelGrantsSchema, PlayerLevelUnlockSchema } from './progression/index.js';
 import { ActiveResearchSchema } from './research/index.js';
 import { PartialResourcesSchema, ResourcesSchema } from './resources.js';
@@ -115,6 +110,12 @@ export const ApiErrorSchema = z.object({
    * `.optional()`: there the body is the contract and a bad one should be rejected loudly.
    */
   levelUp: LevelUpSchema.optional().catch(undefined),
+  /**
+   * `WOULD_WASTE`: what the request would have thrown away, for the dialog that asks first
+   * (maintainer ruling, 2026-09-28). A sibling of `error` for the reason `levelUp` is one, and
+   * caught for the same reason: a malformed figure must not cost the player the refusal itself.
+   */
+  waste: PartialResourcesSchema.optional().catch(undefined),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
@@ -128,8 +129,8 @@ export const RegisterRequestSchema = z.object({
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
 export const LoginRequestSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(1),
+  username: z.string().min(1).max(64),
+  password: z.string().min(1).max(128),
 });
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 
@@ -211,6 +212,20 @@ export type MeResponse = z.infer<typeof MeResponseSchema>;
 // --- overseer creation ---
 export const CreateOverseerRequestSchema = z.object({
   presetId: IdSchema,
+  /**
+   * The city the player picked to live in (maintainer, 2026-09-24).
+   *
+   * Optional, and the server picks a city with room when it is absent. Two callers rely on that
+   * and both are real: a client that has not been redeployed yet, and the server's own test
+   * helper, which takes a character on behalf of a few hundred fixtures that do not care where
+   * they live and must not start failing the day a map fills up.
+   *
+   * When it *is* sent it is checked rather than trusted. The screen only offers cities with a map
+   * and a free plot, but the screen is a browser: `POST /overseer` re-reads both facts inside its
+   * own transaction, because the four plots of a city are the sort of thing two registrations can
+   * want in the same second.
+   */
+  cityId: z.string().min(1).optional(),
 });
 export type CreateOverseerRequest = z.infer<typeof CreateOverseerRequestSchema>;
 
@@ -248,6 +263,28 @@ export const OverseerChoicesResponseSchema = z.object({
   expiresAt: IsoDateTimeSchema.nullable().default(null),
   /** The server's own clock, so a countdown does not drift with the reader's. */
   serverNow: IsoDateTimeSchema.default(() => new Date().toISOString()),
+  /**
+   * Where the player may live, city by city (maintainer, 2026-09-24).
+   *
+   * ## Why it rides on the character offer rather than a route of its own
+   *
+   * The two are one screen and one decision. A player who is being offered four characters is
+   * exactly the player who is about to be offered five cities, nobody else may call either (both
+   * are refused outright for an account that has already chosen), and the pair has to be read
+   * again together every time the screen redraws: the character hold lapses on a clock, and a
+   * plot fills up when somebody else registers. Two routes would be two round trips on the one
+   * screen a player cannot get past, and two answers that can disagree by a second, which is how
+   * you get a screen offering a city that its own refusal will reject.
+   *
+   * The counter-argument is that a city offer is not about characters, and it is a real one: the
+   * day a second screen needs this list, it moves to `GET /cities/homes` and this field points at
+   * it. Nothing else reads it today.
+   *
+   * Every city is listed, shut ones included, because the screen draws all five and says why each
+   * one it will not take is refused. Defaulted so a response written before this existed still
+   * parses.
+   */
+  cities: z.array(CityHomeOfferSchema).default([]),
 });
 export type OverseerChoicesResponse = z.infer<typeof OverseerChoicesResponseSchema>;
 
@@ -281,6 +318,17 @@ export type DistrictSummary = z.infer<typeof DistrictSummarySchema>;
 
 export const CityResponseSchema = z.object({
   districts: z.array(DistrictSummarySchema),
+  /**
+   * Which city this map is of (2026-09-24).
+   *
+   * The read answers for a named city now (`?city=`), so the answer has to say which one it is
+   * about: the districts on it are not always the crew's own, and `homeDistrictId` below is a fact
+   * about the crew rather than about the map. The client used to put the two together itself,
+   * running `homeDistrictId` back through `cityOf`, which was right only while every map was the
+   * crew's own.
+   */
+  cityId: IdSchema,
+  /** The crew's own front door, wherever it is. Not always a district on the map above. */
   homeDistrictId: IdSchema,
   /**
    * §B7: the gates on districts this crew holds outright, one per district and none otherwise.
@@ -320,18 +368,15 @@ export const LocationViewSchema = z.object({
       seconds: z.number().int().positive(),
     })
     .nullable(),
-  fortification: z.number().int().min(0),
-  fortifyingUntil: IsoDateTimeSchema.nullable(),
   /**
-   * When the running upgrade and dig began, so the sheet can offer to call each off inside its
-   * first tenth (`time/cancel.ts`). Null when nothing is under way.
+   * When the running upgrade began, so the sheet can offer to call it off inside its first tenth
+   * (`time/cancel.ts`). Null when nothing is under way.
    */
   upgradingSince: IsoDateTimeSchema.nullable(),
-  fortifyingSince: IsoDateTimeSchema.nullable(),
   /**
-   * What an attacker has to beat. On this crew's own ground: the ground, the digging and whoever
-   * is standing on it. On anybody else's: the ground and the digging alone, because the standing
-   * part is a head count and a head count is what a spy job is for (maintainer, 2026-09-22).
+   * What an attacker has to beat. On this crew's own ground: the ground and whoever is standing on
+   * it. On anybody else's: the ground alone, because the standing part is a head count and a head
+   * count is what a spy job is for (maintainer, 2026-09-22).
    */
   defense: z.number().nonnegative(),
   /**
@@ -447,6 +492,11 @@ export const DistrictDetailResponseSchema = z.object({
   residentBuildings: z.array(BuildingSchema),
   raidable: z.boolean(),
   /**
+   * A home plot nobody lives on, seen by anybody else: closed until a crew claims it (maintainer,
+   * 2026-09-28). No scene, no scouting, nothing to call. Your own plot is never closed to you.
+   */
+  closed: z.boolean().default(false),
+  /**
    * The scouting run this crew has out, wherever it is going, or `null`.
    *
    * Not scoped to *this* district on purpose. Only one run is allowed at a time, so a player
@@ -512,30 +562,12 @@ export type DistrictDetailResponse = z.infer<typeof DistrictDetailResponseSchema
  * path anybody used.
  */
 
-/** Leave units on a place you hold, or take them home again. */
-export const GarrisonRequestSchema = z.object({
-  locationId: z.string().min(1),
-  /**
-   * Positive leaves units there; negative brings them back.
-   *
-   * Keyed by {@link UnitIdSchema}, the same way {@link ArmySchema} and the deployment request are.
-   * With a plain string key, `constructor` and `toString` arrive as ordinary own properties (Zod
-   * drops `__proto__`, but not those), and the withdrawal branch in `city/actions.ts` read
-   * `garrison[key]` before checking that the key named a unit: on a plain object that is a
-   * *function*, `Math.min(-delta, fn)` is `NaN`, and a `NaN` count went into both the roster and
-   * the garrison column.
-   *
-   * This is the twin of the same bug in `DeployRequestSchema`. That one was found and fixed first;
-   * this door was missed, which is the usual way a two-site fix leaves one site broken.
-   */
-  changes: z.record(UnitIdSchema, z.number().int()),
-});
-export type GarrisonRequest = z.infer<typeof GarrisonRequestSchema>;
-
-export const FortifyRequestSchema = z.object({
-  locationId: z.string().min(1),
-});
-export type FortifyRequest = z.infer<typeof FortifyRequestSchema>;
+/*
+ * `GarrisonRequest` was here, the body of `POST /city/garrison`, and it is gone with the route
+ * (maintainer, 2026-09-28: "Nothing sends units immediately, you need to move them"). It put units
+ * on a held location and took them home again in the same instant, across cities. Every placement
+ * walks now, through `POST /actions/move` (`moves/moves.ts`).
+ */
 
 /** §A4: work a location you hold up one level. */
 export const UpgradeLocationRequestSchema = z.object({
@@ -690,17 +722,16 @@ export const BuiltUpgradeSchema = z.object({
   description: z.string().min(1),
   effect: z.record(z.string(), z.number()),
   /**
-   * §D5c: the unit this one is bolted to, or null while it is still on the shelf.
+   * §D5c: every unit wearing this card, empty while nothing is.
    *
    * On the payload rather than derived on the client, because "is it fitted" is a fact about the
-   * whole roster and the units page only ever holds one unit's brackets at a time. Without it the
-   * picker could tell a player an upgrade was free when it was already on the Breakers, and the
-   * server would refuse the press.
+   * whole roster and the units page only ever holds one unit's brackets at a time. A list, because
+   * the yard sells the same card to several sheets and bills each.
    *
-   * Defaulted so a response written before the one-of-each rule still parses.
+   * Defaulted so an older response still parses.
    */
-  fittedTo: z.string().nullable().default(null),
-  /** Its name, for the line the picker prints. Empty while it is on the shelf. */
+  fittedTo: z.array(z.string()).default([]),
+  /** Their names, comma-separated, for the line the picker prints. Empty while nothing wears it. */
   fittedToName: z.string().default(''),
 });
 
@@ -824,8 +855,15 @@ export const UnitsResponseSchema = z.object({
 });
 export type UnitsResponse = z.infer<typeof UnitsResponseSchema>;
 
-/** §D5c: burn a fitted modification off the roster. It is destroyed, not returned. */
-export const BurnUpgradeRequestSchema = z.object({ upgradeId: z.string().min(1) });
+/**
+ * §D5c: burn a fitted modification off one unit. It is destroyed, not returned.
+ *
+ * `unitId` is required because the same card can be on several sheets, each one paid for.
+ */
+export const BurnUpgradeRequestSchema = z.object({
+  unitId: z.string().min(1),
+  upgradeId: z.string().min(1),
+});
 export type BurnUpgradeRequest = z.infer<typeof BurnUpgradeRequestSchema>;
 
 export const TrainUnitsRequestSchema = z.object({
@@ -835,21 +873,30 @@ export const TrainUnitsRequestSchema = z.object({
 export type TrainUnitsRequest = z.infer<typeof TrainUnitsRequestSchema>;
 
 /** §A5: which batch on the bench to call off. See `trainingCancellable` for when it is allowed. */
-export const CancelTrainingRequestSchema = z.object({ orderId: IdSchema });
+export const CancelTrainingRequestSchema = z.object({
+  orderId: IdSchema,
+  acceptWaste: AcceptWasteSchema,
+});
 export type CancelTrainingRequest = z.infer<typeof CancelTrainingRequestSchema>;
 
 // --- calling things off (maintainer request, 2026-09-12; `time/cancel.ts`) ---
 
 /** `POST /base/cancel`: take a build order off the queue inside its first tenth. */
-export const CancelBuildRequestSchema = z.object({ orderId: IdSchema });
+export const CancelBuildRequestSchema = z.object({
+  orderId: IdSchema,
+  acceptWaste: AcceptWasteSchema,
+});
 export type CancelBuildRequest = z.infer<typeof CancelBuildRequestSchema>;
 
 /** `POST /research/cancel`: the one project on the bench. */
-export const CancelResearchRequestSchema = z.object({});
+export const CancelResearchRequestSchema = z.object({ acceptWaste: AcceptWasteSchema });
 export type CancelResearchRequest = z.infer<typeof CancelResearchRequestSchema>;
 
-/** `POST /city/cancel-upgrade` and `/city/cancel-fortify`: the work on one location. */
-export const CancelLocationWorkRequestSchema = z.object({ locationId: z.string().min(1) });
+/** `POST /city/cancel-upgrade`: the work on one location. */
+export const CancelLocationWorkRequestSchema = z.object({
+  locationId: z.string().min(1),
+  acceptWaste: AcceptWasteSchema,
+});
 export type CancelLocationWorkRequest = z.infer<typeof CancelLocationWorkRequestSchema>;
 
 /** `POST /city/scout/recall`: the one scout out. */
@@ -874,12 +921,43 @@ export const MoveUnitsRequestSchema = z.object({
   army: ArmySchema,
   /** Only from the district: the yard is at home. */
   vehicles: FleetSchema.default({}),
+  /**
+   * Put this column on Terminus's railway (maintainer, 2026-09-24).
+   *
+   * A choice rather than an optimisation, which is why it is on the request at all. Riding is not
+   * always what you want: the train leaves the machines behind, and a hop between two neighbouring
+   * districts is quicker on foot than fifteen minutes on the rails. Defaults to `false`, so a
+   * client written before the railway existed keeps walking.
+   *
+   * Ignored, not refused, when there is no ride to take: the server quotes both clocks and the
+   * player picks, so a request that asks for a ride it cannot have is a stale screen rather than a
+   * bad request, and answering it with the walk is the useful thing to do.
+   */
+  byRail: z.boolean().default(false),
 });
 export type MoveUnitsRequest = z.infer<typeof MoveUnitsRequestSchema>;
+
+/**
+ * What a ride would cost, for the Move dialog to offer beside the walk.
+ *
+ * `null` on the quote means there is no ride: fewer than two platforms held, the two ends in
+ * different cities, or a party carrying machines. The dialog draws the walk alone.
+ */
+export const RailQuoteSchema = z.object({
+  minutes: z.number().int().nonnegative(),
+  /** Where the column gets on, and where it gets off, by district name. */
+  boardAt: z.string(),
+  alightAt: z.string(),
+  /** The walk to the first platform and off the last one, which the fifteen minutes does not buy. */
+  walkMinutes: z.number().int().nonnegative(),
+});
+export type RailQuote = z.infer<typeof RailQuoteSchema>;
 
 /** `POST /actions/move/quote`: the same body, answered with the clock and nothing moved. */
 export const MoveQuoteResponseSchema = z.object({
   minutes: z.number().int().nonnegative(),
+  /** The ride, if this crew can offer one for this journey. See {@link RailQuoteSchema}. */
+  rail: RailQuoteSchema.nullable().default(null),
 });
 export type MoveQuoteResponse = z.infer<typeof MoveQuoteResponseSchema>;
 
@@ -988,7 +1066,12 @@ export const MissionOfferSchema = z.object({
   name: z.string().min(1),
   brief: z.string().min(1),
   kind: MissionKindSchema,
-  difficulty: MissionDifficultySchema,
+  /**
+   * The grade this card was dealt (maintainer, 2026-09-28): the stamp on the brief, and what the
+   * odds, a fight's force, the clock and the pay were all priced from. The same for everybody who
+   * reads the card; which grades a crew is dealt is what its level decides.
+   */
+  grade: OfficerMarkSchema,
   /** §E6/§E8, broken out the way the card shows it. */
   travelMinutes: z.number().int().nonnegative(),
   durationMinutes: z.number().int().positive(),
@@ -1012,7 +1095,7 @@ export const MissionOfferSchema = z.object({
   rawDurationMinutes: z.number().int().positive(),
   /** §A4: what the crew's ground takes off a run, as a percentage. Already in the card's clock. */
   speedPercent: z.number(),
-  /** What it pays on a clean run, with the area's and the crew's own premium already on it. */
+  /** What it pays on a clean run, with the grade's and the area's premium already on it. */
   rewards: PartialResourcesSchema,
   /** Loot slots that payout takes up, so a player can size the crew before they send it. */
   payoutSlots: z.number().int().nonnegative(),
@@ -1020,25 +1103,28 @@ export const MissionOfferSchema = z.object({
   xp: z.number().int().positive(),
   /** And what a run that came home empty still pays: `FAILED_MISSION_XP_SHARE` of it. */
   failedXp: z.number().int().nonnegative(),
-  /**
-   * §F1b: a blueprint page on the table, as a **category and nothing more**.
-   *
-   * Null on most offers. When it is set the card may say "a Unit Blueprint's Page" and may not say
-   * which one: which page it turns out to be is not decided until the crew is home (§F1c), so a
-   * player sizing a run knows there is something worth having on it and cannot shop for a specific
-   * document.
+  /*
+   * No page prize here (maintainer, 2026-09-28). Whether a run finds a page is only ever learnt
+   * when it comes home, from the receipt and the returned-runs list; an offer that carried it, even
+   * as a category, let a player shop the board for it. The launch still freezes one onto the row
+   * (`Mission.pagePrize`) and the settle pays it.
    */
-  pagePrize: BlueprintCategorySchema.nullable().default(null),
-  /**
-   * The odds before anybody is considered, at this crew's level (`scaledSuccessChance`): what the
-   * gauge starts from, with the chosen leader's edge added on the screen by the same shared
-   * function the launch prices with (`missionOdds`).
-   */
-  authoredChance: z.number().min(0).max(1),
-  /** What the job leans on in its leader, resolved (`leaningsFor`). */
+  /** What the job leans on in its leader: the gauge grades the chosen leader against these. */
   leanings: z.array(MissionLeaningSchema).min(1),
-  /** A battle job's tier, or null on standard work. What it fields stays the job's secret. */
-  battleTier: BattleTierSchema.nullable(),
+  /**
+   * The opening band this crew is in, or null once they are out of it (`missions.ramp.ts`).
+   *
+   * Here because the send dialog has to apply it and had no way to know about it. The three
+   * `*Minutes` figures above already carry it, but the dialog cannot use them: it re-runs the
+   * launch's arithmetic from `rawTravelMinutes` and `rawDurationMinutes` so the column's pace and
+   * the leader's Short Way can come off, and those two are the bare template. With the band
+   * missing from the payload the dialog was quoting the template's own clock, which on a new
+   * crew's first three runs is 110 minutes for a job that takes 2.
+   *
+   * `launchMission` applies the band **last**, after the pace and every road cut, and the dialog
+   * does the same, so the two arrive at the same figure.
+   */
+  ramp: EarlyRampBandSchema.nullable().default(null),
 });
 export type MissionOffer = z.infer<typeof MissionOfferSchema>;
 
@@ -1053,7 +1139,8 @@ export const MissionLeaderSchema = z.object({
    *
    * One reason for the whole screen: a held leader cannot be sent anywhere until they are free,
    * and every door refuses them in the same words (`LEADER_HOLD_MESSAGES`). The Overseer is only
-   * ever held by `run`; the other three are things that can only happen to an officer.
+   * ever held by `run`; the rest are things that can only happen to an officer. `bench` has no
+   * clock: it lifts the moment the player gives them a chair.
    */
   /**
    * §D5: what this leader takes off the road, as a percentage, or 0.
@@ -1074,6 +1161,40 @@ export const MissionLeaderSchema = z.object({
 });
 export type MissionLeader = z.infer<typeof MissionLeaderSchema>;
 
+/**
+ * Who should lead a fight, asked of the engine (maintainer, 2026-09-28).
+ *
+ * A plain job's odds are on the card; a fight's leader is settled by fighting it, and the fight
+ * depends on the force the player is still filling in, so the send window asks as it changes.
+ * The grade is the offer's own, sent back rather than re-derived: the quote is advice, and the
+ * launch re-reads the board for the grade it actually goes out at.
+ */
+export const FightLeaderQuoteRequestSchema = z.object({
+  templateId: IdSchema,
+  grade: OfficerMarkSchema,
+  force: ArmySchema,
+  vehicles: FleetSchema.optional(),
+});
+export type FightLeaderQuoteRequest = z.infer<typeof FightLeaderQuoteRequestSchema>;
+
+export const FightLeaderRatingSchema = z.object({
+  id: IdSchema,
+  /** Practice fights won, out of `fights`. */
+  wins: z.number().int().nonnegative(),
+  fights: z.number().int().positive(),
+  /** Share of the force that walked home, averaged over the practice fights. */
+  kept: z.number().min(0).max(1),
+  /** What the bench is ordered on: wins plus half the survivors, per fight. */
+  score: z.number().nonnegative(),
+});
+export type FightLeaderRating = z.infer<typeof FightLeaderRatingSchema>;
+
+/** Every leader on the bench, best first. A held leader is rated like a free one. */
+export const FightLeaderQuoteResponseSchema = z.object({
+  leaders: z.array(FightLeaderRatingSchema),
+});
+export type FightLeaderQuoteResponse = z.infer<typeof FightLeaderQuoteResponseSchema>;
+
 /** One board: a district, or the miscellaneous work that belongs to nobody's ground. */
 export const MissionAreaSchema = z.object({
   id: MissionAreaIdSchema,
@@ -1090,6 +1211,23 @@ export const MissionAreaSchema = z.object({
   activeMissionId: IdSchema.nullable(),
 });
 export type MissionArea = z.infer<typeof MissionAreaSchema>;
+
+/**
+ * What a crew takes off every road it walks to a job, which the card does not carry.
+ *
+ * `launchMission` spends all three on the run's own clock and none on the priced one: the crew's
+ * `travelSpeedPercent` beside the ground's cut, the `road_shortcut` holding's whole minutes off
+ * the end (`roadMinutesOff`), and `unitSpeedPercent` on the pace of every walker. The send dialog
+ * re-runs the launch's arithmetic to quote the run a column will actually walk, and without these
+ * it quoted a longer round trip than the launch charged for any crew with Stamina, Navigation or
+ * a Skate Ground.
+ */
+export const MissionRoadSchema = z.object({
+  travelSpeedPercent: z.number(),
+  roadMinutesOff: z.number(),
+  unitSpeedPercent: z.number(),
+});
+export type MissionRoad = z.infer<typeof MissionRoadSchema>;
 
 export const MissionsResponseSchema = z.object({
   missions: z.array(MissionSchema),
@@ -1111,14 +1249,19 @@ export const MissionsResponseSchema = z.object({
   levelUp: LevelUpSchema.optional(),
   /** Everybody who could lead a run, the Overseer first (maintainer, 2026-09-10). */
   leaders: z.array(MissionLeaderSchema),
-  /** Whether this crew may send units out with nobody leading them, and on what terms. */
-  unledRule: UnledRuleSchema,
-  /**
-   * The crew's level, on this payload beside everything else a battle band reads: the level a
-   * tier's strength scales with has to come from the same read as the offers, or a dial drawn
-   * before another query lands prices a siege several bands easier than it is.
-   */
+  /** The crew's level: which grades it is dealt, and the level-up line on the board. */
   level: z.number().int().positive(),
+  /**
+   * Which city's board this is, and every city this crew may work in (2026-09-24).
+   *
+   * The same pair the Bar, the market and the back room carry, and for the same reason: the board
+   * is per city now, and a screen that cannot say which one it drew cannot offer to draw the other.
+   * Defaulted so a response written before the second city opened still parses.
+   */
+  cityId: z.string().min(1).default(DEFAULT_CITY_ID),
+  cities: z.array(z.string().min(1)).default([DEFAULT_CITY_ID]),
+  /** The crew's own cuts off the road to a job, for the send dialog's clock. Absent reads as none. */
+  road: MissionRoadSchema.optional(),
 });
 export type MissionsResponse = z.infer<typeof MissionsResponseSchema>;
 
@@ -1129,10 +1272,10 @@ export const LaunchMissionRequestSchema = z.object({
   /** §A5: the units going. A battle job needs at least one of them able to fight. */
   force: ArmySchema,
   /**
-   * Who leads the run: the Overseer's id or an officer's (maintainer, 2026-09-10). Absent for an
-   * unled run, which the crew's research has to allow (`unledRule`).
+   * Who leads the run: the Overseer's id or an officer's (maintainer, 2026-09-10). Every run has
+   * one (maintainer, 2026-09-28); the Overseer is there from the first day.
    */
-  leaderId: IdSchema.optional(),
+  leaderId: IdSchema,
   /**
    * §C3: the machines carrying them, out of the Garage for the run.
    *
@@ -1185,7 +1328,6 @@ export const BarRecruitSchema = z.object({
   /** §H3 judged against *this* crew, so the client never re-derives the gate. */
   assessment: z.object({
     meetsNotoriety: z.boolean(),
-    meetsLevel: z.boolean(),
     /** The wallet and the badge, which the standout seats ask about (maintainer, 2026-09-11). */
     meetsInfamy: z.boolean(),
     meetsFaction: z.boolean(),
@@ -1238,9 +1380,13 @@ export const BarResponseSchema = z.object({
   /** §H8: recruit slots, `2 + level - 1`, read off W6's grant table. */
   slotsUsed: z.number().int().nonnegative(),
   slotsTotal: z.number().int().nonnegative(),
-  /** The three crew facts §H3 judges against, so the client can explain a refusal. */
+  /**
+   * Two of the facts §H3 judges against (the faction's lifetime infamy is the third, judged on the
+   * server), so the client can explain a refusal.
+   */
   infamy: z.number(),
   notoriety: z.number().int().nonnegative(),
+  /** The crew's level. Not a §H3 door since the maintainer took that one out on 2026-09-28. */
   level: z.number().int().positive(),
   caps: z.number(),
   /** §H7: the payroll book, so the Bar can refuse a fee that will not fit before it is offered. */
@@ -1313,13 +1459,13 @@ export type ReleaseOfficerResponse = z.infer<typeof ReleaseOfficerResponseSchema
  * older client still buys, at the old risk.
  */
 export const IncreasePayrollRequestSchema = z.object({
-  fromSteps: z.number().int().nonnegative().optional(),
+  fromSteps: z.number().int().nonnegative().max(10_000).optional(),
 });
 export type IncreasePayrollRequest = z.infer<typeof IncreasePayrollRequestSchema>;
 
 /** Buying the next rank of the notoriety ladder. `fromNotoriety`: see `IncreasePayrollRequest`. */
 export const UpgradeNotorietyRequestSchema = z.object({
-  fromNotoriety: z.number().int().nonnegative().optional(),
+  fromNotoriety: z.number().int().nonnegative().max(10_000).optional(),
 });
 export type UpgradeNotorietyRequest = z.infer<typeof UpgradeNotorietyRequestSchema>;
 
@@ -1635,6 +1781,12 @@ export const MarketResponseSchema = z.object({
   cityId: z.string().min(1).default(DEFAULT_CITY_ID),
   cities: z.array(z.string().min(1)).default([]),
   caps: z.number().nonnegative(),
+  /**
+   * The most this crew can bid on a lot: the caps it holds, stretched by its market ground, which
+   * comes off what the winner pays (`largestBidWithin`). Optional so an older payload still parses;
+   * a screen without it caps the field at `caps`.
+   */
+  bidCeiling: z.number().int().nonnegative().optional(),
   resources: ResourcesSchema,
   inventory: InventorySchema,
   /** §Market: the Runner's hours today, whether he is in, and when he next is. */
@@ -1653,6 +1805,8 @@ export const MarketResponseSchema = z.object({
   offers: z.array(MarketOfferSchema),
   /** This crew's own standing listings. */
   mine: z.array(MarketOfferSchema),
+  /** Goods the board is holding for this crew until it claims them, soonest to lapse first. */
+  claims: z.array(MarketClaimSchema).default([]),
   /** Caps into materials, and how much of today's run is left. */
   supply: SupplyBoardSchema,
   /** What the Broker gives back, at this crew's level. Quoted so the client cannot guess wrong. */
@@ -1676,7 +1830,8 @@ export type MarketResponse = z.infer<typeof MarketResponseSchema>;
 export const BuySupplyRequestSchema = z.object({
   // Same derived enum the maintainer's own lines are parsed with: see `market/supply.ts`.
   key: SupplyResourceSchema,
-  units: z.number().int().positive(),
+  units: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
+  acceptWaste: AcceptWasteSchema,
 });
 export type BuySupplyRequest = z.infer<typeof BuySupplyRequestSchema>;
 
@@ -1687,7 +1842,8 @@ export type BuySupplyRequest = z.infer<typeof BuySupplyRequestSchema>;
 export const BarterRequestSchema = z.object({
   give: ResourceKeySchema,
   want: ResourceKeySchema,
-  amount: z.number().int().positive(),
+  amount: z.number().int().positive().max(REQUEST_AMOUNT_MAX),
+  acceptWaste: AcceptWasteSchema,
 });
 export type BarterRequest = z.infer<typeof BarterRequestSchema>;
 
@@ -1699,8 +1855,18 @@ export const PostOfferRequestSchema = z.object({
 });
 export type PostOfferRequest = z.infer<typeof PostOfferRequestSchema>;
 
-export const OfferActionRequestSchema = z.object({ offerId: IdSchema });
+export const OfferActionRequestSchema = z.object({
+  offerId: IdSchema,
+  acceptWaste: AcceptWasteSchema,
+});
 export type OfferActionRequest = z.infer<typeof OfferActionRequestSchema>;
+
+/** Takes goods the board is holding (`MarketClaim`), warned first about what would not fit. */
+export const ClaimMarketRequestSchema = z.object({
+  claimId: IdSchema,
+  acceptWaste: AcceptWasteSchema,
+});
+export type ClaimMarketRequest = z.infer<typeof ClaimMarketRequestSchema>;
 
 /** Every market write answers with the refreshed board, so the client never re-derives it. */
 export const MarketMutationResponseSchema = z.object({ market: MarketResponseSchema });

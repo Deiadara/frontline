@@ -5,9 +5,9 @@ import type { FittedUpgrades } from './upgrades.js';
 /**
  * Three slots on every unit, and what a crew is allowed to put in them.
  *
- * The Scrapyard *builds* a modification card once (`fittedUpgrades`, which is the crew's stock).
- * This is the other half: which three of the things you have built are actually bolted onto the
- * Razors, and which three onto the Juggernauts. Building a Hardshell Exoframe does not improve
+ * The Scrapyard *builds* a modification card (`fittedUpgrades` records which cards the crew has
+ * built) and bills it again for every unit it goes on. This is the other half: which three cards
+ * are actually bolted onto the Razors, and which three onto the Juggernauts. Building a Hardshell Exoframe does not improve
  * everybody by itself; it improves whoever you fit it to.
  *
  * That is the whole point of a slot. Thirty cards applied to every unit type is not a decision,
@@ -82,11 +82,10 @@ export function firstFreeSlot(loadouts: UnitLoadouts, unitId: string): number | 
 }
 
 /**
- * Every unit id this crew has bolted `upgradeId` to. Empty when it is still on the shelf.
+ * Every unit id this crew has bolted `upgradeId` to. Empty when nothing is wearing it.
  *
- * The whole roster, not one unit, and that is the rule: a modification is **one object**. A crew
- * that has built one Scrap Plate has one Scrap Plate, and it is bolted to the Razors or it is not
- * bolted to anything.
+ * A list because a card can be on several sheets at once: the yard cuts one per unit and bills
+ * each (maintainer rule, 2026-09-16), so the Razors and the Ghosts can both wear Taped Grips.
  */
 export function fittedOn(loadouts: UnitLoadouts, upgradeId: string): string[] {
   return Object.entries(loadouts)
@@ -97,13 +96,12 @@ export function fittedOn(loadouts: UnitLoadouts, upgradeId: string): string[] {
 /**
  * Why this cannot be bolted on, checked in the order a player wants to hear it (§D5c).
  *
- * ## One of a thing is one of a thing
+ * ## Once per sheet
  *
- * `already_slotted` used to mean "already in another bracket **on this unit**", so the same
- * upgrade could be fitted to every unit type in the game off a single build: one Scrap Plate on
- * the Razors, the Breakers, the Wardens and the Ironsides at once. It now means fitted anywhere,
- * which is the maintainer's rule ("you can only have each modification once") and the thing that makes
- * choosing *which* unit gets it a decision at all.
+ * `already_slotted` means already in a bracket **on this unit**. The same card on a second unit is
+ * legal, and is a second purchase: the yard cuts one per sheet and bills each (maintainer rule,
+ * 2026-09-16, `boltOntoUnitRefusal`'s `already_fitted`). Two of one card on one sheet would stack
+ * its effect for the price of a bracket, which is what this refuses.
  *
  * ## And it does not come off
  *
@@ -129,9 +127,9 @@ export function slotRefusal(
    */
   if (!modificationFitsUnit(spec, unitId)) return 'does_not_fit';
   if (!built.includes(upgradeId)) return 'not_built';
-  if (fittedOn(loadouts, upgradeId).length > 0) return 'already_slotted';
-  // A bracket holds one thing, and taking the old one out means burning it.
   const slots = slotsFor(loadouts, unitId);
+  if (slots.includes(upgradeId)) return 'already_slotted';
+  // A bracket holds one thing, and taking the old one out means burning it.
   if (slots[slot] !== null) return 'slot_taken';
   /*
    * Left to right, and enforced here rather than left to the screen (maintainer request,
@@ -147,33 +145,40 @@ export function slotRefusal(
 export type BurnRefusal = 'unknown_upgrade' | 'not_fitted';
 
 /**
- * Burns a fitted modification off the roster (§D5c, maintainer request).
+ * Burns a fitted modification off one unit (§D5c, maintainer request).
  *
  * The only way one ever comes off. It is destroyed rather than returned: gone from the bracket it
- * was in *and* from what the crew has built, so getting it back means building or finding another.
- * That is what stops the three brackets being a free loadout screen a player re-arranges before
- * every fight, and it is why fitting one is worth thinking about.
+ * was in, so getting it back means paying the yard for another. That is what stops the three
+ * brackets being a free loadout screen a player re-arranges before every fight.
  *
- * Returns both halves because they have to move together: leaving it in `built` would let a crew
- * burn a plate off the Razors and immediately bolt the same plate to the Breakers, which is the
- * un-fit this replaces wearing a different name.
+ * **One unit's bracket, not the card everywhere.** The yard sells the same card to several sheets
+ * and bills each one, so a burn that stripped it from every wearer destroyed cards the player
+ * never pressed on. `built` loses the id only once nothing wears it any more, so a copy still on
+ * another sheet is not left looking unbuilt.
  */
 export function burnUpgrade(
   loadouts: UnitLoadouts,
   built: FittedUpgrades,
+  unitId: string,
   upgradeId: string,
 ): { loadouts: UnitLoadouts; built: FittedUpgrades } {
-  const stripped: UnitLoadouts = {};
-  for (const [unitId, slots] of Object.entries(loadouts)) {
-    const kept = slots.map((id) => (id === upgradeId ? null : id));
-    if (kept.some((id) => id !== null)) stripped[unitId] = kept;
-  }
-  return { loadouts: stripped, built: built.filter((id) => id !== upgradeId) };
+  const slots = slotsFor(loadouts, unitId);
+  const index = slots.indexOf(upgradeId);
+  const stripped = index === -1 ? loadouts : withSlot(loadouts, unitId, index, null);
+  const stillWorn = fittedOn(stripped, upgradeId).length > 0;
+  return {
+    loadouts: stripped,
+    built: stillWorn ? built : built.filter((id) => id !== upgradeId),
+  };
 }
 
-export function burnRefusal(loadouts: UnitLoadouts, upgradeId: string): BurnRefusal | null {
+export function burnRefusal(
+  loadouts: UnitLoadouts,
+  unitId: string,
+  upgradeId: string,
+): BurnRefusal | null {
   if (!findUnitModification(upgradeId)) return 'unknown_upgrade';
-  if (fittedOn(loadouts, upgradeId).length === 0) return 'not_fitted';
+  if (!slotsFor(loadouts, unitId).includes(upgradeId)) return 'not_fitted';
   return null;
 }
 

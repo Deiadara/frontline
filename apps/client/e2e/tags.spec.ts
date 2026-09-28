@@ -46,7 +46,7 @@ test('a modifier answers with its name and one line, and keeps the condition', a
   const card = page.locator(CARD).first();
   await expect(card).toBeVisible();
   await expect(card).toContainText('Dug In');
-  await expect(card).toContainText('Worth twice as much behind something');
+  await expect(card).toContainText('Better behind cover than in front of it');
 
   // The headings are the thing that went. Both of them, by name.
   await expect(card).not.toContainText('When it happens');

@@ -21,7 +21,8 @@ import {
   type SideSetup,
   type SideState,
 } from './engine.js';
-import { breakOut, perimeterFights, perimeterToll } from './perimeter.js';
+import { breakOut, perimeterFights, perimeterToll, perimeterUnits } from './perimeter.js';
+import { bareLineRules, type LineRules } from './line.js';
 import { outcomeFrom } from './skirmish.js';
 import { mulberry32, seedFrom } from '../rng.js';
 import {
@@ -129,6 +130,13 @@ describe('what may be declared against (§A4)', () => {
       'gate_intact',
     );
     expect(declarationRefusal(raid, { shut: true, breached: true, inhabited: true })).toBeNull();
+  });
+
+  it('will not call a gate fight on a gate that is already down', () => {
+    expect(declarationRefusal(gate, { shut: true, breached: true, inhabited: true })).toBe(
+      'gate_down',
+    );
+    expect(declarationRefusal(gate, { shut: true, breached: false, inhabited: true })).toBeNull();
   });
 
   it('has nothing to raid in a breached district nobody lives in', () => {
@@ -303,6 +311,42 @@ describe('the ring outside the fight (§A4)', () => {
       standingUnits(slippery.caught),
       'a crew that bought speed and cover was caught at the catalogue rate',
     ).toBeLessThan(standingUnits(printed.caught));
+  });
+
+  /**
+   * A porter ring is real for the crew that bought `carriers_fight`, on the toll as on the breakout.
+   *
+   * `perimeterUnits` was given the rules in the 2026-09-23 pass and its note claimed both readers
+   * were closed: "the toll path reads the same answer, which closes the other half of the
+   * inconsistency". `ringCoverage` was still calling it with no rules, so a ring of 20 Scavengers
+   * counted 20 in `breakOut` and 0 here. A crew that had paid for the holding watched an attacker
+   * walk a withdrawal out through it for nothing, and the same attacker would have been fought on
+   * the way out of a lost battle.
+   *
+   * Both halves are asserted. Without the first, a toll that ignored the rules entirely would
+   * still pass the second by catching nobody in either case.
+   */
+  it('catches a withdrawal on a porter ring, but only for a crew that fields porters', () => {
+    const pulled = { razors: 20 };
+    const ring = { scavengers: 20 };
+    const fielded: LineRules = { ...bareLineRules(), carriersFight: true };
+
+    expect(perimeterUnits(ring), 'porters are not a ring for a crew that has not bought it').toBe(
+      0,
+    );
+    expect(perimeterUnits(ring, fielded), 'the fixture ring is empty under both readings').toBe(20);
+
+    const bare = perimeterToll(pulled, ring, stream());
+    const bought = perimeterToll(pulled, ring, stream(), undefined, fielded);
+
+    expect(
+      standingUnits(bare.caught),
+      'a crew that never bought the holding caught somebody on a ring of porters',
+    ).toBe(0);
+    expect(
+      standingUnits(bought.caught),
+      'the crew that bought the holding still caught nobody: the toll is ignoring its rules',
+    ).toBeGreaterThan(0);
   });
 
   /**

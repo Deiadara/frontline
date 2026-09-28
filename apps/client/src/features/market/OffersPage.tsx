@@ -1,13 +1,15 @@
 import {
+  CLAIM_WINDOW_HOURS,
   MAX_OPEN_OFFERS,
   OFFER_LIFETIME_HOURS,
   RESOURCE_LABELS,
   RESOURCE_ORDER,
-  bundleValue,
+  bundleIsEmpty,
   offerExpiresAt,
   ITEM_CATALOG,
   ITEM_IDS,
   type Inventory,
+  type MarketClaim,
   type MarketOffer,
   type MarketResponse,
   type ResourceKey,
@@ -32,13 +34,22 @@ import { PartsPicker } from './PartsPicker';
 const ASK_FOR_ANY: Inventory = Object.fromEntries(
   ITEM_IDS.filter((id) => ITEM_CATALOG[id].kind === 'component').map((id) => [id, 99]),
 );
-import { useAcceptOffer, useMarket, usePostOffer, useWithdrawOffer } from '../../lib/queries';
+import {
+  isCityShut,
+  useAcceptOffer,
+  useClaimMarketGoods,
+  useMarket,
+  usePostOffer,
+  useWithdrawOffer,
+} from '../../lib/queries';
 import { CityPicker } from '../city/CityPicker';
+import { useCityRoom } from '../city/useCityRoom';
 import { formatRemaining } from '../base/format';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
 import { MarketTabs } from './BlackMarketPage';
 import { BundleChips, TradeArrow } from './TradeParts';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The board: crews trading with crews.
@@ -60,14 +71,15 @@ import { BundleChips, TradeArrow } from './TradeParts';
  */
 export function OffersPage() {
   /*
-   * Which city's board this is, the same state the market carries and for the same reason: the
-   * offers on it are the offers of the crews in that city (maintainer, 2026-09-17).
+   * Which city's board this is, the same remembered city the market reads and for the same reason:
+   * the offers on it are the offers of the crews in that city (maintainer, 2026-09-17).
    */
-  const [city, setCity] = useState<string | null>(null);
-  const query = useMarket(city ?? undefined);
+  const { city, choose } = useCityRoom();
+  const query = useMarket(city);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const accept = useAcceptOffer();
   const withdraw = useWithdrawOffer();
+  const claim = useClaimMarketGoods();
   /*
    * Who a counter is aimed at, carried by name as well as by id.
    *
@@ -83,13 +95,14 @@ export function OffersPage() {
       <ScreenLoadSheet
         what="The board"
         loading="Reading what is pinned up…"
-        isError={query.isError}
+        // A shut door is not a failed read: see `isCityShut`.
+        isError={query.isError && !isCityShut(query.error)}
         onRetry={() => void query.refetch()}
       />
     );
   }
 
-  const pending = accept.isPending || withdraw.isPending;
+  const pending = accept.isPending || withdraw.isPending || claim.isPending;
 
   return (
     <PageShell
@@ -97,7 +110,7 @@ export function OffersPage() {
       quote="Put a price on it. Someone out there is desperate enough."
       action={
         data === undefined ? undefined : (
-          <CityPicker cityId={data.cityId} cities={data.cities} onChoose={setCity} />
+          <CityPicker cityId={data.cityId} cities={data.cities} onChoose={choose} />
         )
       }
     >
@@ -105,9 +118,10 @@ export function OffersPage() {
         active="offers"
         action={
           <InfoNote label="How District Offers Work">
-            What you offer leaves your store when you post it and comes home if you withdraw it or
-            it stands {OFFER_LIFETIME_HOURS} hours untaken. {MAX_OPEN_OFFERS} standing at once,
-            counters included; a counter is a listing only the crew it answers can see.
+            What you offer leaves your store when posted. Up to {MAX_OPEN_OFFERS} at once, counters
+            included. When somebody takes it, or nobody has after {OFFER_LIFETIME_HOURS} hours, the
+            goods wait here for you to claim. After {CLAIM_WINDOW_HOURS} hours they go into your
+            stores anyway, and whatever does not fit is lost.
           </InfoNote>
         }
       />
@@ -130,6 +144,8 @@ export function OffersPage() {
                     size="sm"
                     disabled={pending}
                     onClick={() => setCounter({ id: offer.id, sellerName: offer.sellerName })}
+                    // Opens the composer, commits nothing: the press that spends is its Post.
+                    data-sound="click"
                   >
                     Counter
                   </DrawnButton>
@@ -148,9 +164,7 @@ export function OffersPage() {
               "that listing has gone" for a withdraw on the right of the screen appeared under
               somebody else's board on the left, where the player was not looking. */}
           {accept.error !== null && (
-            <p role="alert" className="px-4 pb-4 font-body text-[13px] text-oxblood-300">
-              {accept.error.message}
-            </p>
+            <ErrorNote className="mx-4 mb-4">{accept.error.message}</ErrorNote>
           )}
         </Panel>
 
@@ -165,6 +179,25 @@ export function OffersPage() {
            * is the rarer errand of the two and it reads perfectly well as the foot of the panel.
            */}
           <div className="flex flex-col gap-4 p-4">
+            {/* Waiting goods first: they are the one thing on this half with a clock that costs. */}
+            {data.claims.length > 0 && (
+              <ul className="flex flex-col gap-3" data-testid="my-claims">
+                {data.claims.map((held) => (
+                  <ClaimCard key={held.id} claim={held} now={now}>
+                    <DrawnButton
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => claim.mutate({ claimId: held.id })}
+                      data-testid={`claim-${held.id}`}
+                    >
+                      Claim
+                    </DrawnButton>
+                  </ClaimCard>
+                ))}
+              </ul>
+            )}
+            {claim.error !== null && <ErrorNote>{claim.error.message}</ErrorNote>}
+
             {data.mine.length === 0 ? (
               <p className="font-body text-[13px] text-ink-300">
                 Nothing of yours is standing. Whatever you put up is held aside until somebody takes
@@ -186,11 +219,7 @@ export function OffersPage() {
               </ul>
             )}
 
-            {withdraw.error !== null && (
-              <p role="alert" className="font-body text-[13px] text-oxblood-300">
-                {withdraw.error.message}
-              </p>
-            )}
+            {withdraw.error !== null && <ErrorNote>{withdraw.error.message}</ErrorNote>}
 
             <OfferComposer market={data} counter={counter} onDone={() => setCounter(null)} />
           </div>
@@ -295,6 +324,66 @@ function OfferCard({
 }
 
 /**
+ * Goods the board is holding for this crew (maintainer, 2026-09-28).
+ *
+ * A listing somebody took stays on this half with Claim where Withdraw was, and says who took it
+ * and what the crew handed over for it. Goods coming back from a listing nobody took, or a counter
+ * whose listing closed, say so instead. The clock is the one that matters: when it runs out the
+ * goods go in whatever the stores can hold.
+ */
+function ClaimCard({
+  claim,
+  now,
+  children,
+}: {
+  claim: MarketClaim;
+  now: Date;
+  children: ReactNode;
+}) {
+  const left = Date.parse(claim.claimUntil) - now.getTime();
+  const headline =
+    claim.reason === 'taken'
+      ? `Taken by ${claim.takenBy ?? 'another crew'}`
+      : claim.reason === 'expired'
+        ? 'Nobody took it'
+        : 'The listing you countered closed';
+
+  return (
+    <li
+      className="card-paper washed edge-lit flex flex-col gap-3 rounded-md border border-verdigris-500/50 p-4"
+      data-testid={`market-claim-${claim.id}`}
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="font-display text-[12px] font-bold uppercase tracking-[0.14em] text-verdigris-300">
+          {headline}
+        </span>
+        <span
+          className="ml-auto font-display text-[11px] uppercase tracking-[0.12em] text-ink-300"
+          data-tip="After this they go into your stores anyway, and whatever does not fit is lost"
+        >
+          Claim within {formatRemaining(Math.max(0, left))}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+        {claim.reason === 'taken' && (
+          <>
+            <Field label="You handed over" tone="give">
+              <BundleChips bundle={claim.offer.give} tone="give" size="lg" empty="nothing" />
+            </Field>
+            <TradeArrow className="mb-1 h-9 w-9" />
+          </>
+        )}
+        <Field label={claim.reason === 'taken' ? 'You get' : 'Back to you'} tone="take">
+          <BundleChips bundle={claim.goods} tone="take" size="lg" empty="nothing" />
+        </Field>
+        <div className="ml-auto flex flex-wrap items-center gap-2">{children}</div>
+      </div>
+    </li>
+  );
+}
+
+/**
  * One side of a trade, captioned: on a card, and in the composer.
  *
  * The same small-caps hand the rest of the market labels its steps with, and the same two colours
@@ -377,7 +466,9 @@ function OfferComposer({
 
   const give = { resources: giveRes, items: giveParts };
   const want = { resources: wantRes, items: wantParts };
-  const empty = bundleValue(give) === 0 && bundleValue(want) === 0;
+  // Either side empty, not both: the server refuses a listing that gives nothing and one that asks
+  // for nothing (`offerRefusal`), so a half-filled form was a live button with a refusal behind it.
+  const empty = bundleIsEmpty(give) || bundleIsEmpty(want);
 
   return (
     <div
@@ -455,16 +546,12 @@ function OfferComposer({
           {counter === null ? 'Post it' : 'Send the counter'}
         </DrawnButton>
         {counter !== null && (
-          <DrawnButton size="sm" onClick={onDone}>
+          <DrawnButton size="sm" data-sound="click" onClick={onDone}>
             Never mind
           </DrawnButton>
         )}
       </div>
-      {post.error !== null && (
-        <p role="alert" className="font-body text-[13px] text-oxblood-300">
-          {post.error.message}
-        </p>
-      )}
+      {post.error !== null && <ErrorNote>{post.error.message}</ErrorNote>}
     </div>
   );
 }

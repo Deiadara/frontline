@@ -7,7 +7,6 @@ import { broadcastKindFor } from './broadcast.js';
 describe('broadcastKindFor', () => {
   it('names the world for the map, the board, the factions and a crew name', () => {
     expect(broadcastKindFor('POST', '/api/city/gate')).toBe('world');
-    expect(broadcastKindFor('POST', '/api/city/garrison')).toBe('world');
     expect(broadcastKindFor('POST', '/api/battles/declare')).toBe('world');
     expect(broadcastKindFor('POST', '/api/battles/deploy?x=1')).toBe('world');
     expect(broadcastKindFor('POST', '/api/battles/withdraw')).toBe('world');
@@ -24,6 +23,8 @@ describe('broadcastKindFor', () => {
   /** One crew's own books: a leader, a trap, a boost, a rank, an invite, a blurb. */
   it('keeps a private write on the board or at the table private', () => {
     expect(broadcastKindFor('POST', '/api/battles/lead')).toBeNull();
+    // A quote prices a move without making one.
+    expect(broadcastKindFor('POST', '/api/battles/deploy/quote')).toBeNull();
     expect(broadcastKindFor('POST', '/api/battles/trap')).toBeNull();
     expect(broadcastKindFor('POST', '/api/battles/boost')).toBeNull();
     expect(broadcastKindFor('POST', '/api/battles/notoriety')).toBeNull();

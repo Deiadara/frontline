@@ -13,12 +13,23 @@ from `@frontline/shared`.
 - **Error envelope** (every non-2xx response): `{ "error": { "code": string, "message": string } }`
   (`ApiErrorSchema`). Codes are `SCREAMING_SNAKE`: `VALIDATION_ERROR`, `UNAUTHORIZED`,
   `FORBIDDEN`, `NOT_FOUND`, `USERNAME_TAKEN`, `INVALID_CREDENTIALS`, `OVERSEER_ALREADY_CHOSEN`,
-  `UNKNOWN_PRESET`, `NO_BASE`, `INVALID_TARGET`, `INTERNAL`.
+  `UNKNOWN_PRESET`, `NO_BASE`, `INVALID_TARGET`, `WOULD_WASTE`, `INTERNAL`. A `WOULD_WASTE`
+  refusal also carries `waste`, the amounts the request would have thrown away.
 - **Auth**: `Authorization: Bearer <jwt>` on everything except `register`, `login`, `/health`.
-  JWT payload is `{ sub: userId }` (`JwtPayload` in `src/types.ts`), signed with `JWT_SECRET`
-  via the already-registered `@fastify/jwt`. Missing/invalid token → `401 UNAUTHORIZED`.
-  Recommended: an `authenticate` decorator/preHandler that verifies the token and loads the user
-  row (`401` if the user no longer exists).
+  JWT payload is `{ sub: userId, ver }` (`JwtPayload` in `src/types.ts`), signed with `JWT_SECRET`
+  via `@fastify/jwt` and good for thirty days (`src/auth/session.ts`). `ver` is the account's
+  `users.session_version`; a token whose version no longer matches, or with no expiry or version
+  (signed before migration 0121), is `401 UNAUTHORIZED`, as is a missing, invalid or expired one.
+  Any authenticated answer to a token more than a day old carries a fresh one in the
+  `x-session-token` response header, and the client swaps it in, so an active player stays signed
+  in indefinitely. `POST /api/auth/logout-all` and `POST /api/settings/password` bump the version,
+  ending every other session, and hand the caller its new token in the same header.
+- **Limits**: bodies over 64 KB are refused before parsing, path parameters over 200 characters
+  are refused, every id is at most `ID_MAX` (128) characters, and every client-named amount at
+  most `REQUEST_AMOUNT_MAX`. Rate limits per account and per address are in
+  `src/limits/rules.ts`; IPv6 callers are counted by their /64. Letters are capped at
+  `MESSAGES_PER_DAY` in any rolling day (`409 MESSAGE_REFUSED`, `too_many_today`). The live
+  channel refuses past 40 streams per address or 2,000 in total with `503 SERVER_BUSY`.
 - **Passwords**: bcrypt-hashed via `bcryptjs` (cost 10). Rules come from the shared
   `PasswordSchema`: min 8 / max 128 chars. Never return or log password material; convert rows to
   the shared `User` shape before responding (see `UserRecord` in `src/types.ts`).
@@ -38,7 +49,9 @@ from `@frontline/shared`.
 
 ### `GET /health` (public): implemented
 
-`200 {"status":"ok"}`.
+`200 {status: 'ok', database: true, clockAgeMs, loopP99Ms}` while the database answers a read and
+the world clock has ticked within 15 seconds; `503` with `status: 'degraded'` when either fails.
+`clockAgeMs` is null before the clock's first tick and in processes that run no clock.
 
 ### `POST /api/auth/register` (public)
 
@@ -52,8 +65,14 @@ Body: `RegisterRequestSchema` `{username, password}`.
 
 Body: `LoginRequestSchema` `{username, password}`.
 
-- Unknown username or bcrypt mismatch → `401 INVALID_CREDENTIALS` (same message for both).
+- Unknown username or bcrypt mismatch → `401 INVALID_CREDENTIALS` (same message for both, and
+  the same time: an unknown name is compared against a decoy hash).
 - `200` → `AuthResponseSchema` `{token, user}`.
+
+### `POST /api/auth/logout-all` (auth)
+
+Ends every session the account has open. `200 {ok: true}`, with this caller's new token in
+`x-session-token`.
 
 ### `GET /api/me` (auth)
 
@@ -63,28 +82,56 @@ by `owner_id`.)
 
 ### `POST /api/overseer` (auth)
 
-Body: `CreateOverseerRequestSchema` `{presetId}`.
+Body: `CreateOverseerRequestSchema` `{presetId, cityId?}`.
 
 - User already has an overseer → `409 OVERSEER_ALREADY_CHOSEN`.
 - `findOverseerPreset(presetId)` undefined → `400 UNKNOWN_PRESET`.
+- `cityId` names a city with no map (`City.open === false`, or no ground in the atlas) →
+  `400 CITY_UNBUILT`.
+- `cityId` names a city whose four residential plots each already hold a crew →
+  `409 CITY_FULL`. A seeded bot occupies its plot like a player (maintainer, 2026-09-28), so a dev
+  world with the bots has four free plots rather than eight.
 - In one transaction: create the overseer from the preset (fresh id, copy name/archetype/
-  portraitId/bio/attributes/perks), set `users.overseer_id`, and create the starting base:
-  district `STARTER_DISTRICT_ID`, level 1, `STARTING_RESOURCES`, buildings =
-  `[nexus L1, generator L1]` (fresh ids, empty `modifications`), an empty `buildQueue`, and the
-  faction name `"<username>'s Crew"` truncated to `FACTION_NAME_MAX`.
+  portraitId/bio/attributes/perks), set `users.overseer_id`, and create the starting base on a
+  free plot in the chosen city, drawn at random (`pickHomePlot`), level 1, `STARTING_RESOURCES`,
+  buildings = `[nexus L1, generator L1]` (fresh ids, empty `modifications`), an empty
+  `buildQueue`, and the faction name `"<username>'s Crew"` truncated to `FACTION_NAME_MAX`.
+  The free list is read inside the same transaction that inserts, so two accounts racing for the
+  last plot cannot both be seated on it.
+- With no `cityId`: `STARTER_DISTRICT_ID` while it is free, otherwise a free plot in the first
+  city with room, and `409 CITY_FULL` when the whole world is full.
 - `201` → `CreateOverseerResponseSchema` `{user, overseer, base}`.
+
+### `GET /api/overseer/choices` (auth)
+
+`200` → `OverseerChoicesResponseSchema` `{choices, remaining, total, expiresAt, serverNow,
+cities}`. `choices` is the four characters held for this account (§F6); `cities` is one
+`CityHomeOffer` per city in `CITIES`, carrying `available`, `refusal` (`unbuilt` | `full` |
+`null`), `plots` and `free`. A crew that already has an overseer is refused
+`409 OVERSEER_ALREADY_CHOSEN` rather than handed a fresh hold.
 
 ### `GET /api/city` (auth)
 
-`200` → `CityResponseSchema` `{districts: CITY_DISTRICTS, bases}` where `bases` is ALL bases
-projected through `BaseSummarySchema` (id/ownerId/name/districtId/level only: never resources
-or buildings of other players).
+`?city=` names the city to draw; left off, it answers the crew's own. `200` →
+`CityResponseSchema` `{districts, cityId, homeDistrictId, capturedGates, serverNow}`. `districts`
+is that city's map, one `DistrictSummary` each: the district, whether this crew has scouted it,
+the road to it in minutes, who holds it, how much of it is theirs, and the crew living on it where
+it is residential, projected through `BaseSummarySchema` (id/ownerId/name/districtId/level only:
+never resources or buildings of other players). Unscouted ground carries `held: null` rather than
+zeroes, and `capturedGates` is the crew's own, in every city.
+
+The door is **not** the rooms' door. The Bar, the market, the back room and the mission board run
+on `cityAsked`, which wants ground already held in the city; the map cannot, because looking at a
+city is how a player decides to take something in it. Any city with districts in the atlas is
+readable, and the fog does the rest: a crew that has never been to Terminus is served its twelve
+districts with nothing known about any of them. A city nobody has drawn ground for (`redline`,
+`deepcut`) is `404`.
 
 ### `POST /api/city/upgrade` (auth)
 
 Body: `UpgradeLocationRequestSchema` `{locationId}`. Works a location you hold up one level
-(GDD §A4). Charged up front, a clock on the control row, banked by `settleFortifications` on the
-next read of the city: the same lazy contract fortifying uses, and the same settler.
+(GDD §A4). Charged up front, a clock on the control row, banked by `settleLocationUpgrades` on the
+next read of the city.
 
 A location can be worked to `MAX_LOCATION_LEVEL` (10). Each level pays more (`LEVEL_SCALE`, linear
 at +0.5 of the level-1 value per level) and each upgrade costs more than the last
@@ -168,9 +215,10 @@ Five endpoints under `/api/bar`. Schemas are in `packages/shared/src/api.ts` and
 `packages/shared/src/bar/auction.ts`.
 
 The roster is never stored: §H2a makes it a pure function of the game day (Athens) and of the
-city's average level, so every request recomputes it and two accounts asking on the same day are
-served the same people. What is stored is what the players did to it: `bar_bids`, `bar_auction_results`
-and the `bar_hires` signing log.
+city's crews, so every request recomputes it and two accounts asking on the same day are served the
+same people. What is stored is what the players did to it: `bar_bids`, `bar_auction_results` and the
+`bar_hires` signing log, and the one input the day cannot supply, which crews the room was poured
+for (`bar_rooms`, below).
 
 - `GET /api/bar` → `BarResponseSchema`. Returns the room, the officers on the books, the payroll
   ledger, one `BarAuction` per recruit in roster order, how many tables this crew is at
@@ -215,6 +263,33 @@ Admin mode waives the four gates that are about how far along a crew is: `not_in
 `no_slots`, `no_payroll` and the §H3 doors. It does not waive the phases, the increment or the
 table cap, which are rules about the auction rather than about the crew.
 
+#### Who the room is poured for (maintainer, 2026-09-28)
+
+A city's room is built from a **room profile** (`RoomProfile`, `cityRoomProfile` in
+`packages/shared/src/city/access.ts`): the weakest crew with a stake in the city, the strongest, and
+the stake-weighted middle, each as a level and a notoriety rank. Crews are ranked by
+`crewStanding` (level plus two per rank). Bots count, as they did before; they are dev-only.
+
+| Seat                      | Pitched at         | Sheet                                             | Door                                                                                                |
+| ------------------------- | ------------------ | ------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| 0, low                    | the weakest crew   | that crew's calibre plus the seat's grade         | open                                                                                                |
+| 1 to 4, and widened seats | the middle         | the middle's calibre plus the seat's grade        | 1 and 2 open; the rest the grade's rank ladder, lifted one rung per rung the average is past rank 5 |
+| 5, high                   | the strongest crew | that crew's calibre plus `HIGH_SEAT_CALIBRE_LIFT` | that crew's rank or one under it, open while it is rank 0                                           |
+| 6 and 7, standout         | above the middle   | the middle's calibre plus `STANDOUT_CALIBRE_LIFT` | rank from `max(3, average)` to `max(8, average + 3)`; wallet and badge doors +20% per average rank  |
+
+The calibre (`barCalibre`, standing to attribute points on every mean) keeps the old slope of one
+point per three standing up to standing 30, then climbs in a straight line to `MAX_ROOM_CALIBRE` at
+standing 110, a crew at level 90 that has bought ten rungs. The recruitment ceiling climbs with the
+calibre of each roll past 10 (`recruitmentCeiling` in `characters/generate.ts`), so a young city
+still never rolls past 40 and a finished one reaches 85. Measured best-leaning grades in a finished
+city: the middle seats about B+, the standouts about A with the best at A+.
+
+**The profile is frozen per city per day.** `barRoomOf(repos, cityId, day)` (`bar/room.ts`) reads
+the day's `bar_rooms` row, or writes it from the live city the first time anybody reads, bids or
+settles that room. The read route, both bid routes and the close all rebuild the room from it, so a
+crew that levels at noon changes tomorrow's room, and the close signs the person that was on the
+card. A table from a day that was never frozen settles against the city as it stands at the close.
+
 ### Closing the day's tables
 
 `settleBarAuctions(repos, now)` is the whole of the close, and it is lazy in the same way every
@@ -242,6 +317,14 @@ route (so the first player through the door after midnight sees the result on th
 whichever request it was).
 
 ### The market and the Runner's lots (market extension)
+
+The Broker (`POST /api/market/barter`) converts by value: what is handed over is priced at
+`RESOURCE_CAP_VALUE`, the cut (`barterRateFor`) is taken, and what comes back is priced the same way
+(`barterQuote`). What it hands over goes into the stores up to their ceiling, and a trade that would
+waste some is answered `409 WOULD_WASTE` until the request carries `acceptWaste: true` (see "The
+stores are a hard ceiling" below). The supply run, taking a listing, withdrawing one and paying in
+a claim all work the same way. Posting one no longer asks, since what a listing brings back waits
+as a claim for 24 hours and the poster is asked when they claim it.
 
 Schemas are in `packages/shared/src/api.ts` and `packages/shared/src/market/auction.ts`.
 
@@ -334,8 +417,9 @@ The kinds live in `@frontline/shared`'s `social/notifications.ts` and every one 
 through `notify`. `page_found` says a blueprint page reached the inventory and has five doors, so its
 sentence is written once: `tellPagesFound` (`social/pages.ts`) diffs the inventory before and after
 and rings for a mission's page prize, the Runner's lot close, a page taken off the Black Market
-shelf, the page the Lab hands back for a Reimagining, and each side of a settled market offer. The
-Runner's close rings it alongside `market_won`: one is the lot, the other is the sheet.
+shelf, the page the Lab hands back for a Reimagining, and a settled market offer: the taker's side
+when it is taken, the seller's when they claim the pay (`payClaim`). The Runner's close rings it
+alongside `market_won`: one is the lot, the other is the sheet.
 
 ### The live channel
 
@@ -351,7 +435,7 @@ Two scopes of kind, from `@frontline/shared`'s `live/events.ts`:
 - **Broadcast**: `world`, `market`, `bar`. Published to every connected account, because what
   moved is the one world everybody shares. Two sources: `live/broadcast.ts` maps the route prefix
   of every **successful** write that changes shared state (a fight called or moved, a location
-  taken or dug in, a listing or a bid, a faction founded or left, a crew renamed) to a kind in an
+  taken or worked up, a listing or a bid, a faction founded or left, a crew renamed) to a kind in an
   `onResponse` hook; `world/settle.ts` broadcasts what the clock itself moved (fights resolved,
   columns landed, gates raised, tables and lots closed), only when a count is above zero. A
   refused write announces nothing. Because a nudge carries no data, nothing crosses the fog: each
@@ -384,8 +468,34 @@ Fields, and six shut, so breaking a gate is what puts a new board on the screen.
 `missions/board.test.ts` holds that count.
 
 Every board deals **one fight and two plain jobs** (`FIGHTS_PER_AREA`, maintainer 2026-09-23); the
-coin that used to deal two fights on half the boards is gone. A fight's tier is dealt off the
-crew's level (`dealBattleTier`) and frozen on the row when the crew leaves.
+coin that used to deal two fights on half the boards is gone.
+
+**Grades** (maintainer, 2026-09-28, `missions.grade.ts`). Every card is dealt a grade on the
+officers' twenty one marks, F- to S+, and the grade is a fact about the card, the same for anybody
+who reads it: it sets the odds against the leader, what a fight fields (`GRADE_ENEMY_STRENGTH`),
+how much longer than its authored time the job runs (`gradedDurationMinutes`, 8% a mark above the
+job's lowest) and what it pays (`gradePay`, and `fightLift` on a fight). Each template carries the
+range it can be dealt at (`grades: [from, to]`); there are three hundred of them
+(`packages/shared/src/mission-catalog/`), and every grade has at least eight of each kind.
+
+The crew's level decides **only** which grades it is dealt (`gradeOdds`): a bell round the grade
+whose pay level (`GRADE_PAY_LEVEL`, F- at 1 to A+ at 86) matches three quarters of the crew's level
+(`GRADE_DEAL_PACE`, so a grade is dealt most a third above its pay level, `gradePeakLevel`), never more
+than three marks either side. The S grades open flat at `MAYHEM_UNLOCK_LEVEL` (90) with at least
+`MAYHEM_SHARE` (5%) of the deal. The old per-level pay premium, the per-level odds drop and the
+per-level enemy growth are gone; a grade pays what the level premium used to pay at its pay level.
+The pace is three quarters (2026-09-28, with the level curve and the rank ladder retuned so the
+late game arrives about two and a half months in): `apps/server/scripts/progression-sim.ts` holds
+the best leader within about a mark of the deal at it, now that the Bar seats officers pitched at
+the city's level and a crew trades its weakest officer up. The level curve is
+`PLAYER_XP_LEVEL_STEP * level ^ PLAYER_XP_LEVEL_POWER` (52 and 1.6): level ninety around day
+seventy nine in the simulation, which leaves out XP from buildings, research, drills and hires. The
+rank ladder costs 60 infamy for the first rung and grows by 1.625 (`notorietyUpgradeCost`), so a
+crew that fights daily buys the tenth rung around day seventy five. Boards are a crew's own: `missionOffers(area,
+key, level)` is deterministic for one crew on one key, and two crews at different levels see
+different work. A fight's category is its letter: Skirmish (F, E), Battle (D, C), Siege (B, A),
+Mayhem (S). The grade is frozen on the row (`Mission.grade`, migration 0123, which backfilled the
+old `battle_tier` and dropped it).
 
 ### Standing orders: the Right Hand's automations (§C2b)
 
@@ -406,9 +516,16 @@ told to do is a new runner and nothing else. `missions` is the one kind today.
   with nobody connected.
 - **The ladder is the Right Hand's research track** (`AUTOMATION_RUNGS`): rung 3 one slot, an
   exact party and a named officer, non-fight jobs only; rung 5 name a size in unit slots and the
-  party is filled most suitable unit first (`bestFitParty`: hardest hitter per slot for a fight,
-  best carrier per slot otherwise, all of one unit before the next) behind the best free officer; rung 6 the gap drops from fifteen minutes to five; rung 7 a second slot; rung
-  8 chase one resource by best return per minute; rung 9 battle jobs; rung 10 the alternating order (a mission, then a fight).
+  party is filled most suitable unit first (`bestFitParty`, all of one unit before the next, as
+  full as the pieces allow): for a fight, the units that win it, ranked by `FIGHT_RANK_SAMPLES`
+  practice fights each against the job's grade on seeds the real fight never uses; otherwise the
+  best carrier per slot. It is led by the best free officer, and a slot with nobody free stalls
+  ("No officer is free to lead"): every run has a leader, and the Overseer is not a standing
+  order's to send (a named officer is always that officer or a stall); rung 6 the gap drops from
+  fifteen minutes to five;
+  rung 7 a second slot; rung 8 chase one resource by best return per minute, meaning what comes
+  **home**: the reward curve and the grade applied, trimmed to what the party carries; rung
+  9 battle jobs; rung 10 the alternating order (a mission, then a fight).
   The ladder is re-read every tick, so a cancelled rung stops its slot.
 - **Each slot keeps its own clock.** Both slots send the moment they are on. After that a slot
   rests from the moment its own party walks in (`restingSince` is stamped from the mission's
@@ -421,8 +538,11 @@ told to do is a new runner and nothing else. `missions` is the one kind today.
 - **Never a fight on a location.** A battle here is a battle-kind job off the board. The kind list
   has no entry for attacking ground and the runner table nowhere to put one.
 - **Which job:** at random across every open board, or the best rate when a resource is chosen.
-  Stalls (nothing on offer, the named party or officer not free) are written to `stalled` and shown;
-  they are not errors.
+  Either way only among jobs the slot can actually fill and lead, so it never picks one it cannot
+  send while another is on offer. Stalls (nothing on offer, the named party or officer not free)
+  are written to `stalled` and shown; they are not errors. A stalled slot is asked again after
+  `STALL_RETRY_MS` (thirty seconds) rather than on every one-second tick, or at once when its
+  order is edited.
 - **The board lock is the strong rule:** while any slot is on, `POST /missions` is refused with
   "Your Right Hand has the board", and the screen says so first.
 - **A slot obeys every door a player does** (bug pass, 2026-09-23). It was the fourth way onto a
@@ -441,7 +561,7 @@ called by nothing: the missions screen reads its automation state off another pa
 ## Spying (maintainer, 2026-09-22)
 
 Nothing about somebody else's garrison is free. The city read serves `garrisonSize: null` and a
-`defense` figure of the ground and the digging alone on every location the caller does not hold,
+`defense` figure of the ground alone on every location the caller does not hold,
 and the battle board's `enemySize` is null unless the caller has a spy report on that ground. The
 old blur (their counter-intel against your intel, coarsened) is gone with `battle/intel.ts`; the
 `intel` bonus is spy points now and `intel_resistance` counter-spy points.
@@ -496,17 +616,52 @@ A crew's army stands in three kinds of place, and each defends only its own:
   a player's gate reads this garrison. It starts empty on every save: nobody is at the door until
   somebody is walked there.
 - **Locations**: the garrison on ground the crew holds, plus any faction ally's posting on it
-  (`allied_garrisons`). Both stand in the line; a posting that held stays posted, one that fell
-  walks home to its owner, and ground that changed hands has no postings left on it. A posting is
-  reported as `garrisoned` on the roster and taken back out of `abroad`, so the census counts it
-  once.
+  (`allied_garrisons`). A posting stands in the line when its crew is on the defender's side at the
+  mark (see "Who fights for whom" below); a posting that held stays posted, one that fell goes home
+  to its owner, and ground that changed hands has no postings left on it (a neutral's, parked
+  there through the fight, walks home). A posting is reported as `garrisoned` on the roster and
+  taken back out of `abroad`, so the census counts it once. Leaving, being removed from or
+  disbanding a faction walks every posting on a former ally's ground home (`factions/unpost.ts`);
+  that walk is not held by a fight's last hour, because a posting of nobody's side is parked
+  anyway.
 
-Winning attackers **stay and hold** what they took (`holdAfterCapture` defaults to true and the
-client no longer asks). Walking onto ground nobody holds **claims** it on arrival with no fight,
-the level as it stands and nothing dug in, and counts as a capture for the feats.
+Winning attackers **stay and hold** what they took, always (maintainer, 2026-09-28: "The server
+should automatically give the winners what they should hold, not ask them"). `holdAfterCapture` is
+gone from `DeclareBattleRequest` (a request that still sends it has it stripped), every row is
+written with it true, and the settle does not read it, so an old row with it false holds too. Walking onto ground nobody holds **claims** it on arrival with no fight,
+the level as it stands, and counts as a capture for the feats.
+
+**Nothing moves without walking** (maintainer, 2026-09-28: "Nothing sends units immediately, you
+need to move them"). `POST /city/garrison`, which stood units on held ground or brought them home in
+the same instant and across cities, is gone; the client's Garrison control opens the Move dialog
+pointed at the place. Every trip home the game makes for a crew is a move on the same clock
+(`walkHome` in `moves/moves.ts`): units pulled back out of a deployment, a column that reaches
+ground that will no longer have it, a posting whose alliance ended, a crew standing in a fight on
+nobody's side, and everybody on a fight that is called off. A battle column turned round in its
+first tenth walks back what it walked; one still walking when its fight is run walks on to the
+place and lands on whatever the fight left (the garrison of ground its crew now holds, a posting on
+an ally's, its own gate or district, or nothing, and then home). A column landing after the mark
+waits for the fight to be run first and is never folded into it.
+
+**Survivors walk home too** (`homeFromTheFight` in `battle/resolve.ts`): every crew's share of a
+fight's survivors, line and ring, with the machines that carried it, is a move home from the place
+of the fight (the location, or the streets of the district fought over). That covers the declarer
+and its allies after a win they are not staying to hold or after a loss (runners and porters
+included), the defender's column abroad, the defender's allies, and a neighbour turned out by the
+mark (a legacy case: see the neighbour note under the muster below). Four things stay where they are
+because they are already there: winners who stay and hold what they took are its garrison; a
+location's defenders who held it are its garrison, and a posting that held stays posted; a gate
+garrison that held its own gate stays on it (a gate that fell sends its survivors back into the
+district on the door's clock); and a crew raided at home is home. A column of machines with nobody
+in it is not recallable. The regime's survivors go back onto the plots they came off in the same
+instant, since those are in the district fought over and the Combine has no roster to walk to.
+Reports, infamy and feats count the same survivors and losses as before; only where they are
+afterwards changed, and a unit on the road home is in `abroad` on the roster.
 
 `POST /api/actions/move`: `{from, to, army, vehicles}`, where a place is `{kind: 'district'}`,
-`{kind: 'gate'}` or `{kind: 'location', locationId}`. The source is anywhere the crew has people
+`{kind: 'gate'}` or `{kind: 'location', locationId}`. A fourth kind, `{kind: 'street',
+districtId}`, is the open streets of somebody else's district: only the game walks a column home
+from it (after a gate fight or a raid abroad), and a request naming it as either end is refused. The source is anywhere the crew has people
 standing; the destination is the district, the gate, ground the crew holds or ground a faction
 ally holds (`UnitsResponse.moveDestinations`, with `standingAt` for what is on each). Vehicles
 ride only from the district, and they come back **on their own**: the column drops its people and
@@ -538,9 +693,9 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
   the entry at order time); the orders behind it close up. Answers like `/base/build`.
 - `POST /api/research/cancel`: `{}`. Takes the active project off the bench (`paid` is recorded on
   it). Answers with the research screen.
-- `POST /api/city/cancel-upgrade` and `POST /api/city/cancel-fortify`: `{locationId}`. The start of
-  each is derived from its end and the level's fixed duration, which the district read exposes as
-  `upgradingSince` and `fortifyingSince`. Answer like `/city/upgrade`.
+- `POST /api/city/cancel-upgrade`: `{locationId}`. The start is derived from its end and the
+  level's fixed duration, which the district read exposes as `upgradingSince`. Answers like
+  `/city/upgrade`.
 - `POST /api/city/scout/recall`: `{}`. Sets `recalledAt` on the run and its `returnsAt` to now plus
   the time out; the settler marks it home without opening the ground.
 - `POST /api/city/gate/cancel`: `{districtId}`. The raise's `upgradingSince` (migration 0089) is
@@ -552,6 +707,45 @@ below refuses with `409` once the window has shut (`PLACE_UNAVAILABLE`, `RESEARC
 - `POST /api/units/cancel` and `POST /api/actions/recall` already existed; the unit refund moved
   from ninety-five to ninety percent. `POST /api/missions/recall` now refuses outside the first
   tenth of the outbound leg (it was open until the crew was home).
+
+Every refund above goes into the stores like any other credit: a refund that would not fit is
+answered `409 WOULD_WASTE` until the request carries `acceptWaste: true`.
+
+### The stores are a hard ceiling (maintainer, 2026-09-28)
+
+"You're never past your storage, it will go to waste, the excess, but whenever you do something that
+would push you to waste it has a warning first."
+
+Every credit to a stockpile goes through `district/stores.ts` (`creditBase`, over the shared
+`creditStores`): it lands up to each store's ceiling (`storeCeilings`, the crew's Logistics
+included; caps have none) and the rest is thrown away. A store already standing above its ceiling
+keeps what it has and takes nothing more. That covers production, mission pay and salvage refunds,
+raid loot and the Bone Market's caps, every market trade and escrow coming home, feat rewards,
+cancel refunds and the Console's resource knob. `district/stores.test.ts` fails on a server source
+that adds to a stockpile any other way.
+
+The warning, for a credit the player fires: the request is refused with `409 WOULD_WASTE`, the
+sentence from `wasteWarning`, and `waste` (the amounts) beside `error` in the envelope, and nothing
+is written. The same request with `acceptWaste: true` goes through. It applies to
+`/market/barter`, `/market/supply`, `/market/accept` (for the taker), `/market/withdraw`,
+`/market/claim`, `/base/cancel`, `/units/cancel`, `/research/cancel`, `/city/cancel-upgrade` and
+`/city/gate/cancel`. A feat claim keeps its own `FEAT_REFUSED` `would_waste`, because it can also
+lose units.
+
+A credit nobody is pressing for lands without a question: a crew coming home, a raid's haul. A
+mission's report carries the part of its pay that did not fit as `Mission.wasted` (migration 0124),
+shown per resource and as a loot total in the report's haul, and `resources_earned` counts only
+what landed.
+
+The trading board holds its unattended credits instead (maintainer, 2026-09-28): the poster's side
+of a listing somebody takes, a listing's escrow when it expires untaken, a counter's escrow when
+the listing it answered closes. Each becomes a row in `market_claims` (migration 0125), sent on
+`GET /market` as `claims` and told with a `market_claim` notification. `POST /market/claim` pays one
+into the stores behind the usual warning. After `CLAIM_WINDOW_HOURS` (24) the world tick's
+`settleMarketBoard` pays it anyway, and what does not fit is lost; the same stage closes expired
+listings, which used to wait for somebody to open the market. Posting a listing no longer warns
+about what it asks for, since the claim is where the poster is asked. A reset drops the crew's
+claims with its listings.
 
 ### Lazy settlement
 
@@ -599,7 +793,7 @@ Eight endpoints, all under `/api/battles`, all answering with the whole board so
 to reconstruct it. Schemas are in `packages/shared/src/api.battle.ts`.
 
 Every handler settles in the same order the city routes use, with one more step on the end: the
-crew's district and payroll, then any fortification whose clock ran out, then **any fight whose mark
+crew's district and payroll, then any location upgrade whose clock ran out, then **any fight whose mark
 has passed**. There is no scheduler: `settleBattles` runs on the read, and a fight nobody has looked
 at for three days resolves to the same result whenever it is next opened.
 
@@ -609,6 +803,39 @@ at for three days resolves to the same result whenever it is next opened.
   `leaders` list is the officers free to take it, filtered through the same `officerDuty` the lead
   route refuses with, keeping whoever already leads that fight. It used to drop the injured alone,
   so it offered names `/battles/lead` then turned away.
+- **Rules around a called fight (maintainer, 2026-09-27; `src/battle/lock.ts`).**
+  - In the last hour before a fight, nothing leaves the place of it (maintainer, 2026-09-27 and
+    2026-09-28; `placeLocked`): a move off a location with a fight called on it, off the gate
+    before a call on the crew's own gate, or out of the district before a raid through its own
+    breach (`/actions/move`, `409 PLACE_UNAVAILABLE`, `garrison_locked`); a withdrawal from the
+    fight's own deployment (`/battles/deploy` with a negative delta, `409 BATTLE_REFUSED`); and,
+    before a raid on home, anything else that takes units out of the district: a deployment to
+    another fight, a Sleeper cell, a mission party (`409 MISSION_REFUSED`) and a standing order,
+    which stalls. Turning the home army out onto the raid's own ring is not leaving it. Arrivals
+    are accepted to the last second and fight.
+  - An unoccupied plot with a fight called on it cannot be claimed: a move there is refused
+    (`under_fire`), and a column already walking there turns home on arrival.
+  - A fight through a breach (a raid, or a location in a shut district) must be called for before
+    the gate comes back up (`breach_closes`, a mark at or after `brokenUntil` is refused). The
+    declaration is the only thing that sets a mark, so the settle's call-off of a raid whose gate is
+    up at the mark (everyone goes home, both sides get a `battle_report` notice) is a backstop a
+    legal call never reaches.
+  - **One pending fight per place** (maintainer, 2026-09-28: "two fights cannot be called in the
+    same place at the same time"): a second call on a location, a gate or a raid on a district
+    that already has an unresolved call is refused (`already_declared`), whoever makes it and
+    whatever the mark, until the first resolves or is called off. It is not a rule about
+    overlapping marks: two calls at different hours on one place are refused as well.
+  - A broken gate gives nothing: no `gatePercent`, no intel resistance, no gate perks.
+  - **A gate counts only at that gate** (maintainer, 2026-09-28): the home Gate (and the gate
+    perks) in a fight at the crew's own home gate, a captured district's gate in a fight at that
+    district's gate, and no gate in a location fight, a raid, or any fight elsewhere. A Colossus
+    lowers only the gate its fight was at.
+  - **A district's gate after a breach** (non-player ground): a contested district has a gate only
+    while one party holds every location in it. Taking any location during the breach splits it,
+    which resets the captured gate to level 1 (`resetGateOnDistrictLost`) and leaves the district
+    open when the breach timer runs out: the gate is not recovered. With nothing taken, the gate is
+    armed again the moment the timer runs out. A home (residential) district is shut by its
+    resident, cannot change hands, and its Gate is always back up when the timer runs out.
 - `POST /api/battles/declare`: `{target, scheduledFor}`. Three target kinds, `location`, `gate` and
   `district`, and which of them is legal is `declarationRefusal` and nothing else. Refused
   (`409 BATTLE_REFUSED`) for a mark off the half hour, inside eight hours or past twenty-four; for a
@@ -620,12 +847,74 @@ at for three days resolves to the same result whenever it is next opened.
   (`declareInfamyCost`). A crew that cannot cover it is refused last, after every refusal it could
   answer by picking a different target or mark. Admin mode waives the price with the rest of them.
 
+- `POST /api/battles/deploy/quote` answers `{minutes, arrivesAt, inTime, rail}`: the road, when a
+  column sent now would land and whether that is at or before the mark (`rail` carries the same
+  pair for the ride). The dialog says it plainly before the player confirms; a late column may
+  still be sent.
+
+#### Who fights for whom (maintainer, 2026-09-28)
+
+_"Whatever units are in the location of the fight, if they are the attackers' or from a player
+that is in the same faction as the attackers they attack, if they're the defenders' or the
+defenders' [faction] they defend, and if they're a neutral's they don't affect anything and don't
+show up in spying."_ Decided at the mark, on the factions as they stand then
+(`battle/alignment.ts`, `musterAtTheMark`, run first thing in the fight's own transaction):
+
+- The place is the location for a location fight, the gate for a gate fight and the district for a
+  raid. At a location it holds the holder's garrison, every posting, every Sleeper cell waiting
+  there and the deployment rows; at a gate the resident's gate garrison and, on a legacy database,
+  any other crew living in the district's own gate garrison; in a raid the resident's home army and,
+  on a legacy database, any other resident's home army; plus the rows.
+- The two crews the call names are on their sides by identity; the regime's plots and muster are
+  the defender's. Everybody else by faction; a crew whose faction is on both sides of an in-faction
+  fight is on neither.
+- A deployment row on the wrong side moves to the right one (its ring walks home from an attack,
+  its officer, trap and boosts stay behind). A row of nobody's side is taken off the fight and walks
+  home with its machines. A posting whose crew attacks joins that crew's attacking row. A cell whose
+  crew is on a side wakes into that crew's row, which counts as `planted` for the declarer's own
+  cell even when it went to ground after the call. A neighbour on a side turns out its gate
+  garrison or home army into its own row, and its survivors go back to its roster. Neighbours exist
+  only in a database from before 2026-09-28, when a player could be seated on a bot's plot; a plot
+  now holds one crew, and this handling leaves with the bots (the TODO in `seed/index.ts`).
+- A neutral's units are untouched: not counted, not killed, not in a spy report, and not on the
+  battle page. A spy report counts only the holder's side as the reader would meet it (the holder's
+  garrison, its faction's postings and, with the rung, its faction's cells), so a report on a
+  faction-mate's ground no longer counts the reader's own posting as a defender.
+- `BattleView.muster.standing` is everybody already at the place on the caller's side without a
+  row: the garrison, the home army or gate garrison, postings, cells and (legacy) neighbours. The
+  boost reach is priced on the same force.
+
+#### The regime's army erodes, and grows back on Monday (maintainer, 2026-09-24)
+
+A gate or district fight on Combine or looter ground is defended by every garrison standing in that
+district (`assemble`), plus the muster `declare` turned out. Those survivors are now **written back
+to the control rows they came off** (`spendGarrisons`), apportioned by the same largest-remainder
+split an ally's survivors go home by. Before that the rows were never touched: the defence was
+immortal and was counted as killed anyway, so every feat and every infamy payment for killing the
+Combine could be collected again the next day against the same bodies. The muster is a row in the
+split and its share is dropped, because it stood on no plot; a legendary is not in the split at all,
+because `withoutTheLeader` keeps him out of any fight that is not on his own plot, and he is put
+back on the row exactly as he was found.
+
+**Sunday night at midnight, the instant before Monday begins**, every plot the Combine or the
+looters still hold is put back to `startingGarrison`, which is the authored strength for that
+district's difficulty and that location's `baseDefense`. Ground a crew holds is untouched: that
+garrison is theirs. A legendary is a body in his plot's garrison, so he comes back under the same
+condition and no other, which is the ruling: hold his plot and he stays dead, lose it and he is
+standing on it again next week.
+
+The mark is Monday 00:00 in `GAME_TIMEZONE` (`lastWeekBoundary`), and the sweep is
+`settleGarrisonRegrowth` on the world tick, before the fights. It is keyed on the week rather than
+on the instant: `garrison_regrowth` (migration 0119) holds one row per mark, and the insert that
+writes it is the claim. So a tick a fortnight later still pays the week it is in, once, and the
+tick after it pays nothing.
+
 #### Raiding a home (§A4, maintainer 2026-09-09)
 
 **A home is shut.** A residential district has no locations, so `districtHolder` answers null for
 one; the resident is what shuts it (`districtIsShut`), and the gate that is fought is the resident's
-own Gate structure, whose level already reaches the fight through `standingEffectsFor` and
-`withGate`. Winning at the gate breaks it for `GATE_BREACH_HOURS` (24), which `gateIsBroken` is the
+own Gate structure, whose level reaches a fight at that gate, and only there, through
+`standingEffectsFor` and `withGate`. Winning at the gate breaks it for `GATE_BREACH_HOURS` (24), which `gateIsBroken` is the
 only reader of.
 
 Inside that day the whole district is one target. A won `district` raid does three things, all in
@@ -663,8 +952,10 @@ Migration `0087` rewrote every stored `building` target into the `district` targ
 district, resolved history included, so the repo carries no legacy branch.
 
 - `POST /api/battles/deploy`: `{battleId, changes, perimeterChanges}`, both **deltas**. Positive
-  sends, negative withdraws. Units leave the roster when sent and return when pulled, less whatever
-  the enemy's ring takes on the way out. Refused past the cutoff, for units the crew does not have,
+  sends, negative withdraws. Units leave the roster when sent and walk home from the place of the
+  fight when pulled (maintainer, 2026-09-28), less whatever the enemy's ring takes on the way out;
+  a raid on the crew's own district is the one place that is already home. Refused in the fight's
+  last hour for a withdrawal (`garrison_locked`), past the cutoff, for units the crew does not have,
   for units whose tier asks for a notoriety rank the crew has not bought (`unitsBeyondNotoriety`),
   and (`ring_is_the_defenders`) for any `perimeterChanges` from the attacker: only the defender may
   set a ring (maintainer, 2026-09-23).
@@ -730,12 +1021,22 @@ crew that is past the opening whatever their history.
 - **`leaders`** is the bench, from `apps/server/src/missions/leaders.ts`: the **Overseer first**,
   kind `overseer`, then every officer on the books in roster order, kind `officer`. Each carries the
   sheet the screen scores them with and one reason they cannot go: `held`, one of `run`, `fight`,
-  `injury` or `null`, with `heldUntil` set to the mark they are free at wherever the server knows
-  one (the run's return, the end of the injury). A declared fight
-  has no such mark until it settles, so `held: 'fight'` always carries `heldUntil: null`.
+  `injury`, `bench` or `null`, with `heldUntil` set to the mark they are free at wherever the server
+  knows one (the run's return, the end of the injury). A declared fight
+  has no such mark until it settles, so `held: 'fight'` always carries `heldUntil: null`, and
+  neither has the bench, which ends when the player seats them.
   - An officer's `held` is `officerDuty` (`apps/server/src/crew/duty.ts`), the same question the
     dispatch doors ask before they refuse, asked in one order: injured, at a fight, out on a
-    run. A dimmed row and a `409` therefore never disagree about why.
+    run, on the bench. A dimmed row and a `409` therefore never disagree about why. The bench is
+    last so an officer unseated mid-run still reads as out on the run, which is the hold the
+    release door refuses on.
+  - **The bench is unusable** (maintainer, 2026-09-28). An officer with no chair puts no rating,
+    no perk and no lift on anybody into any fold (`officerIsWorking` in `@frontline/shared`, read
+    by `officerLiftRoom` and `workingOfficers`), leads no run or fight, is left off the fight
+    screen's picker and the Right Hand's choices, and is not fought in the leader quote. Every run
+    keeps its leader, so `POST /api/crew/reassign` refuses to move an officer out on a run or named
+    to lead a fight (`409`, "`<name>` is out leading a run. Seat changes wait until they are
+    back"). Drills and release are unaffected.
   - **The Overseer is only ever held by a run they lead.** They are not on the books, so no
     declared fight can name them, and §D4's injuries belong to officers.
     Their half is the run join alone: the row's `overseerLed` flag, where an officer's is
@@ -745,45 +1046,59 @@ crew that is past the opening whatever their history.
     `MISSION_HISTORY_LIMIT` rows, so a long job with a couple of hundred short ones launched after
     it drops off the end of it while it is still out, and the bench would call its leader free
     while the launch refuses them.
-- **`unledRule`** is `unledRule(base.research.technologies)`: `forbidden`, `penalised` or `free`.
-  The second rung only lifts the first one's cost, so holding it without the first opens nothing.
+    Every offer carries two fields the gauge needs and nothing more: `grade` (the one it was dealt at)
+    and `leanings` (`leaningsFor`, one to three of eighteen; a fight carries `fight` alone,
+    maintainer 2026-09-28). The odds a run would actually go out with
+    are **not** on the card: the screen grades the chosen leader for the job (`leaderMark`, their
+    attributes weighted by what the job leans on, on the role-mark scale) and runs `missionOdds`, the
+    same function `launchMission` freezes the row with, so the needle and the row cannot disagree. A
+    leader level with the job is 75%, three marks short about 30%, three over 95%, five or more over
+    certain (`gradedChance`).
+  - **A fight's leader is whoever wins it** (`missions/fight-leaders.ts`, maintainer 2026-09-28).
+    `POST /api/missions/leaders/quote` (`{templateId, grade, force, vehicles?}`, a fight template
+    only) fights the force under every leader on the bench over `LEADER_RANK_SAMPLES` practice
+    fights on practice seeds, each with their chair's rungs on their sheet and on the line, and
+    answers `{leaders: [{id, wins, fights, kept, score}]}` best first. The launch freezes the share
+    the chosen leader won as the row's `successChance` (`fightChance`), which the report prints;
+    the Right Hand's standing orders pick a fight's leader the same way once the party is filled.
+  - **The Raid Boss's seat** (`RAID_BOSS_SEAT_TIMES`, `crew/leading.ts`): in every fight he leads,
+    the damage and hit points the attribute table calculates for him are doubled, after any rung
+    percentages. That is the whole of what the chair does as a chair; nothing has to be researched.
+  - **Chair rungs** (`crew/leading.ts`). Rungs on the Raid Boss track pay him alone while he leads
+    (`leader_self`: damage, hit points, armour past the officer cap; `leader_taunt`: more of the
+    enemy's fire), and rungs on the Field Commander's pay every unit on his side (`leader_party`).
+    A `mission` rung pays on a battle job only; a `fight` rung pays in any fight the engine
+    settles, a battle job included. Nothing pays while another chair or the Overseer leads. Both
+    settlers spend them through `leadingAs` and `officerSheetBonusFor`.
 
-Every offer carries three fields the gauge needs and nothing more: `authoredChance`
-(`scaledSuccessChance(template.successChance, base.level)`, the odds before anybody is considered),
-`leanings` (`leaningsFor`), and `battleTier` (`battleTierFor`, `null` on standard work). The odds a
-run would actually go out with are **not** on the card: the screen adds the chosen leader's edge
-with `missionOdds`, which is the same function `launchMission` freezes the row with, so the needle
-and the row cannot disagree.
-
-`POST /api/missions` takes `leaderId` (the Overseer's id or an officer's) instead of the old
-`officerId`, and it is optional:
+`POST /api/missions` takes `leaderId` (the Overseer's id or an officer's), and it is **required**:
+every run has a leader (maintainer, 2026-09-28), and the Overseer is on the bench from the first
+day. The grade is the one the board dealt the crew at its level before the settle, so a level
+banked by the same request cannot swap the card the player pressed.
 
 - an id nobody on the bench answers to → `404`;
 - a leader who is out leading a run → `409`, "`<name>` is out leading a run". One job at a time,
   for the Overseer as much as for an officer;
-- an officer who is injured, leading a declared fight or out scouting → `409` through
-  `officerDuty`, in that hold's own words: "`<name>` is at a fight", "`<name>` is out scouting",
-  "`<name>` is still laid up" (`LEADER_HOLD_MESSAGES`, in `@frontline/shared`). The Overseer
+- an officer who is injured, leading a declared fight or on the bench → `409` through
+  `officerDuty`, in that hold's own words: "`<name>` is at a fight", "`<name>` is still laid up",
+  "`<name>` is on the bench. Give them a chair first" (`LEADER_HOLD_MESSAGES`, in
+  `@frontline/shared`). The Overseer
   answers to none of that: they are the player, not an employee;
-- no `leaderId` at all with `unledRule` `forbidden` → `409 MISSION_NEEDS_OFFICER`, naming Written
-  Orders, the rung that opens it.
+- no `leaderId` at all → `400`, from the schema.
 
-Otherwise the row is priced by `missionOdds({authored, leader, profile, unled})` and frozen:
-`officerId` for an officer, `overseerLed: true` for the Overseer, neither for an unled run. What
+Otherwise the row is priced by `missionOdds({grade, leader, profile})` and frozen:
+`officerId` for an officer, `overseerLed: true` for the Overseer. What
 came before this is gone rather than kept beside it: `delegationTerms`, the ×0.67 odds and ×1.5
 clock penalties, `requiresOfficer`'s hard-job gate, and `overseerMissionEdge`'s Speed-and-Stealth
 nudge. The Overseer goes through `leaderFit` like anybody else.
 
-The two rungs that open an unled run are the Right Hand's second and sixth (`research/tracks.ts`):
-`tech_unled_runs` (Written Orders) lets a crew go out with nobody at the head of it at
-`UNLED_PENALTY` off the odds, and `tech_unled_runs_free` (They Have Done It Before) takes the
-penalty away. Written Orders is the gate and the sixth rung only lifts what it charges, so a crew
-holding the second without the first is `forbidden`. The track already refuses a rung whose
-predecessor is unfinished; `unledRule` says it as well so the rule does not rest on that.
+The Right Hand's second and sixth rungs (`research/tracks.ts`) used to open unled runs. They keep
+the ids crews researched them under (`tech_unled_runs`, `tech_unled_runs_free`) and their other
+bonuses; neither opens anything unled any more.
 
 A recall does not free the leader. `recalledAt` is recorded and the row stays `active` for the walk
 home, so the person at the head of the crew is out until the settle brings them in, and a recalled
-run never fights: `battleTierFor` is skipped on it, the whole force comes back, and it settles as a
+run never fights: the fight is skipped on it, the whole force comes back, and it settles as a
 failure with `lost` empty and `reported` true.
 
 #### A battle job fights
@@ -791,18 +1106,14 @@ failure with `lost` empty and `reported` true.
 A `battle` template no longer rolls against its frozen chance. At the settle
 (`missions/resolve.ts` through `missions/battle.ts`):
 
-1. The enemy is built from the row's own seed: `enemyForce(tier, base.level, seed)`
-   (`missions/enemy.ts`), a force of catalogue units whose `fieldStrength` lands within
-   `ENEMY_STRENGTH_TOLERANCE` of `enemyStrength(tier, level)`. Six tiers (maintainer,
-   2026-09-23): Fight I to Fight V and, from level 90, the Siege. Each draws from its own short
-   roster (`ENEMY_TIER_ROSTERS`), from razors and scrapers at the bottom to wardens, breakers,
-   snipers and juggernauts at the top. The tier is **dealt on the card** off the crew's level
-   (`dealBattleTier`, seeded on the board and the job; the odds per level are `battleTierOdds`,
-   fixed at 2 / 6 / 12 / 30 / 50 from level 70, the Siege taking 5 points off Fight V from 90)
-   and **frozen on the row** (`battleTier`, migration 0115), so a level gained on the road changes
-   nothing. Pay and XP climb the ladder with `BATTLE_TIER_REWARD`. A won Siege always brings
-   `SIEGE_GUARANTEED_PARTS` components and a page home on top of the haul. A fight row from
-   before this carries null and settles as a Fight I.
+1. The enemy is built from the row's own seed: `enemyForce(grade, seed)` (`missions/enemy.ts`), a
+   force of catalogue units whose `fieldStrength` lands within `ENEMY_STRENGTH_TOLERANCE` of
+   `enemyStrength(grade)`. The grade's letter picks the roster (`ENEMY_ROSTERS`, F to S), from
+   razors and scrapers at F to wardens, breakers, snipers and juggernauts at A and S; the grade
+   sets how many. The grade is **dealt on the card** and **frozen on the row** (`grade`,
+   migration 0123), so nothing on the road changes it. A won Mayhem always brings
+   `MAYHEM_GUARANTEED_PARTS` components and a page home on top of the haul (the Siege's guarantee
+   until 2026-09-28). A row from before grades carries null and settles as the job's lowest.
 2. `TacticalSkirmishEngine` runs it with the crew as the attacker and the enemy as the defender, on
    a bare battlefield, **with no ring on either side**: whoever breaks and runs is not pursued and
    comes home. Whoever led the run is folded in as the side's officer, the way a declared battle
@@ -879,6 +1190,10 @@ one unit fled and made it home past the ring; the officer counts for nothing tow
 (maintainer, 2026-09-23). A redacted report leaks the shape of what was kept back, and a ring is
 bought to buy a silence. The ledger pays a kill whole, a rout half (floored on the bulk) and every
 death at the ring half (`economy/infamy.ts`); `units_routed` counts the rout for the feats.
+The analysis the settler stores carries two more fields since 2026-09-28, because the report is
+a sheet of final figures rather than a log now: `spoils`, what landed on the winner after the
+stores' waste (the same figure the battle record keeps), and `target` (`location`, `gate` or
+`district`), so the sheet can say captured, held, broken or raided without re-reading the map.
 
 ## Status code summary
 

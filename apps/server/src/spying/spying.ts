@@ -42,7 +42,8 @@ import {
   type SpyTier,
 } from '@frontline/shared';
 import { mergeArmies } from '../battle/forces.js';
-import { residentOf } from '../battle/ground.js';
+import { livingIn, residentOf } from '../battle/ground.js';
+import { sidesReader } from '../battle/alignment.js';
 import { gateFor } from '../city/gates.js';
 import { visibleDistricts } from '../city/view.js';
 import { crewEffectsFor, officerFitReader, standingEffectsFor } from '../crew/standing.js';
@@ -51,6 +52,7 @@ import { tallySpyReport } from '../feats/tally.js';
 import { planScout, scoutParty } from '../scouting/scouting.js';
 import { notifyBase } from '../social/notify.js';
 import { workingOfficer } from '../crew/roster.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * Spying (maintainer ruling, 2026-09-22): a paid look at somebody else's ground.
@@ -152,11 +154,32 @@ function crewCounter(repos: Repositories, holder: Base, gateLevel: number): Coun
   };
 }
 
+/**
+ * Whether units of this crew's would stand against the reader if it called a fight on the holder.
+ *
+ * The rule the settle applies at the mark (`battle/alignment.ts`, maintainer 2026-09-28): the
+ * holder's and its faction's units defend, the reader's own and its faction's would attack beside
+ * it, and a neutral's are parked and "don't show up in spying". A report is a count of what the
+ * reader would have to beat, so only the first kind is in it.
+ */
+function standsAgainst(
+  repos: Repositories,
+  reader: Base,
+  holderBaseId: string | null,
+): (ownerBaseId: string) => boolean {
+  const sideOf = sidesReader(repos, reader.id, holderBaseId);
+  return (owner) => sideOf(owner) === 'defender';
+}
+
 /** The Sleepers other crews have planted on this ground, which a late rung lets a report list. */
-function plantedOn(repos: Repositories, reader: Base, locationIds: readonly string[]): Army {
+function plantedOn(
+  repos: Repositories,
+  locationIds: readonly string[],
+  against: (ownerBaseId: string) => boolean,
+): Army {
   return locationIds
     .flatMap((locationId) => repos.sleepers.waitingOn(locationId))
-    .filter((cell) => cell.baseId !== reader.id)
+    .filter((cell) => against(cell.baseId))
     .reduce<Army>((all, cell) => mergeArmies(all, cell.army), {});
 }
 
@@ -188,13 +211,20 @@ export function groundBehind(
     if (control.holder.kind === 'unoccupied') return refused('nothing_there');
     if (districtHolder(district, controls) !== null) return refused('not_the_gate');
 
-    // The holder's garrison, any faction ally's posting on it, and planted cells with the rung.
+    // The holder's garrison, the postings on it and, with the rung, the cells, of whoever would
+    // defend it against the reader (`standsAgainst`).
+    const against = standsAgainst(
+      repos,
+      reader,
+      control.holder.kind === 'crew' ? control.holder.baseId : null,
+    );
     const posted = repos.alliedGarrisons
       .at(location.id)
+      .filter((row) => against(row.baseId))
       .reduce<Army>((all, row) => mergeArmies(all, row.army), {});
     const army = mergeArmies(
       mergeArmies(control.garrison, posted),
-      sleeperRung ? plantedOn(repos, reader, [location.id]) : {},
+      sleeperRung ? plantedOn(repos, [location.id], against) : {},
     );
     if (control.holder.kind === 'crew') {
       const holder = repos.bases.findById(control.holder.baseId);
@@ -242,8 +272,17 @@ export function groundBehind(
         district,
         placeName: SPY_GATE_PLACE,
         holder: { kind: 'crew', baseId: resident.id },
-        // What stands behind a player's gate: the gate garrison, since the split (2026-09-22).
-        army: resident.gateArmy ?? {},
+        // What stands behind a player's gate: the gate garrison, since the split (2026-09-22), and
+        // the gate garrison of any neighbour on the resident's side (`battle/alignment.ts`). A
+        // neighbour exists only in a database from before 2026-09-28, when a plot could hold two
+        // crews; the merge goes with the bots (the TODO in `seed/index.ts`).
+        army: livingIn(repos, district.id)
+          .filter((neighbour) => neighbour.id !== resident.id)
+          .filter((neighbour) => standsAgainst(repos, reader, resident.id)(neighbour.id))
+          .reduce<Army>(
+            (all, neighbour) => mergeArmies(all, neighbour.gateArmy ?? {}),
+            resident.gateArmy ?? {},
+          ),
         counter: crewCounter(repos, resident, buildingLevel(resident.buildings, 'gate')),
         stealthOf: crewStealthReader(repos, resident),
       },
@@ -253,12 +292,13 @@ export function groundBehind(
   const holder = districtHolder(district, controls);
   if (holder === null || holder.kind === 'unoccupied') return refused('nothing_there');
   if (holder.kind === 'crew' && holder.baseId === reader.id) return refused('own_ground');
-  const locationIds = district.locations.map((location) => location.id);
-  const standing = district.locations.reduce<Army>(
-    (all, location) => mergeArmies(all, controls.get(location.id)?.garrison ?? {}),
-    {},
-  );
-  const army = mergeArmies(standing, sleeperRung ? plantedOn(repos, reader, locationIds) : {});
+  /*
+   * What meets a fight at this gate, and nothing else (bug pass, 2026-09-28). A crew holding the
+   * district from somewhere else defends its gate with what it sends to the fight: its location
+   * garrisons stay on their locations (`assemble` in `battle/resolve.ts`), so counting them showed
+   * sixty units behind a gate nobody was standing at. The regime's plots do stand at their gate.
+   * Sleepers never fight at a gate (`presenceAt`), so no cell is counted either.
+   */
   if (holder.kind === 'crew') {
     const crew = repos.bases.findById(holder.baseId);
     if (!crew) return refused('nothing_there');
@@ -268,12 +308,16 @@ export function groundBehind(
         district,
         placeName: SPY_GATE_PLACE,
         holder,
-        army,
+        army: {},
         counter: crewCounter(repos, crew, gateFor(repos, district.id).level),
         stealthOf: crewStealthReader(repos, crew),
       },
     };
   }
+  const army = district.locations.reduce<Army>(
+    (all, location) => mergeArmies(all, controls.get(location.id)?.garrison ?? {}),
+    {},
+  );
   return {
     kind: 'ground',
     ground: {
@@ -355,7 +399,9 @@ export function sendSpy(
   if (looked.kind === 'refused') return looked;
 
   const plan = planSpy(repos, base, looked.ground.district.id, tier, now);
-  if (!plan) return { kind: 'refused', reason: 'no_whispers' };
+  // Inherited from `planScout`, and the same correction: a null plan is no road, not an empty
+  // chair. See the note there.
+  if (!plan) return { kind: 'refused', reason: 'no_road' };
   const cost = { caps: plan.caps };
   if (!canAfford(base.resources, cost)) return { kind: 'refused', reason: 'cannot_afford' };
 
@@ -508,38 +554,45 @@ function warnHolder(
  */
 export function settleSpying(repos: Repositories, now: Date): number {
   const due = repos.spying.due(now.toISOString());
-  for (const run of due) {
-    repos.spying.markSettled(run.id, now.toISOString());
-    // Turned round: home without a report. The caps went at the send.
-    if (run.recalledAt !== null) continue;
-    const base = repos.bases.findById(run.baseId);
-    if (!base) continue;
+  // One transaction per run: marking it settled and writing its report are one fact, and a throw
+  // between them used to lose the report the caps were spent on (`world/guard.ts`).
+  return settleEach(
+    repos,
+    'spying',
+    due,
+    (run) => run.id,
+    (run) => {
+      repos.spying.markSettled(run.id, now.toISOString());
+      // Turned round: home without a report. The caps went at the send.
+      if (run.recalledAt !== null) return;
+      const base = repos.bases.findById(run.baseId);
+      if (!base) return;
 
-    const report = writeSpyReport(repos, base, run, now);
-    repos.spying.insertReport(report);
-    /*
-     * The ladder counts what was **learnt**.
-     *
-     * A report on ground with nobody standing on it stands (there was nothing to miss, so the
-     * accuracy is one) and it is worth filing: "the place was empty when they looked" is the
-     * answer a player paid for. It is not a feat, though. Every crew's gate starts with nobody
-     * at it, so counting it would make `spy_reports` a hundred caps a rung.
-     */
-    if (!report.failed && armySize(report.exposed) > 0) tallySpyReport(repos, base.id);
-    notifyBase(repos, base.id, {
-      kind: 'spy_report',
-      title: report.failed ? 'Your spies came back with nothing' : 'A spy report is in',
-      body: report.failed
-        ? `${report.placeName}, ${report.districtName}: nothing they would put their name to.`
-        : `${report.placeName}, ${report.districtName}: ${armySize(report.exposed)} seen.`,
-      link: `/game/battles?spy=${report.id}`,
-      subjectId: report.id,
-      now,
-    });
-    const looked = groundBehind(repos, base, run.target);
-    if (looked.kind === 'ground') warnHolder(repos, base, report, looked.ground.holder, now);
-  }
-  return due.length;
+      const report = writeSpyReport(repos, base, run, now);
+      repos.spying.insertReport(report);
+      /*
+       * The ladder counts what was **learnt**.
+       *
+       * A report on ground with nobody standing on it stands (there was nothing to miss, so the
+       * accuracy is one) and it is worth filing: "the place was empty when they looked" is the
+       * answer a player paid for. It is not a feat, though. Every crew's gate starts with nobody
+       * at it, so counting it would make `spy_reports` a hundred caps a rung.
+       */
+      if (!report.failed && armySize(report.exposed) > 0) tallySpyReport(repos, base.id);
+      notifyBase(repos, base.id, {
+        kind: 'spy_report',
+        title: report.failed ? 'Your spies came back with nothing' : 'A spy report is in',
+        body: report.failed
+          ? `${report.placeName}, ${report.districtName}: nothing they would put their name to.`
+          : `${report.placeName}, ${report.districtName}: ${armySize(report.exposed)} seen.`,
+        link: `/game/battles?spy=${report.id}`,
+        subjectId: report.id,
+        now,
+      });
+      const looked = groundBehind(repos, base, run.target);
+      if (looked.kind === 'ground') warnHolder(repos, base, report, looked.ground.holder, now);
+    },
+  );
 }
 
 /** The run this crew has out, named for the screens, or null. */

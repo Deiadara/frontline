@@ -26,6 +26,7 @@ import {
 } from './moves.js';
 import { createAutomationsRepo, type AutomationsRepo } from './automations.js';
 import { createFeatsRepo, type FeatsRepo } from './feats.js';
+import { createRegrowthRepo, type RegrowthRepo } from './regrowth.js';
 
 /** The full set of persistence repositories, backed by a single sqlite connection. */
 export interface Repositories {
@@ -69,6 +70,8 @@ export interface Repositories {
   alliedGarrisons: AlliedGarrisonsRepo;
   /** Feats: the lifetime counters a feat asks about, and what each crew has collected. */
   feats: FeatsRepo;
+  /** The weeks the Combine's and the looters' garrisons have already grown back on. */
+  regrowth: RegrowthRepo;
   /**
    * Runs `work` so that either all of its writes land or none of them do.
    *
@@ -105,6 +108,7 @@ export function createRepositories(
     capturedGates: createCapturedGatesRepo(db),
     history: createHistoryRepo(db),
     feats: createFeatsRepo(db),
+    regrowth: createRegrowthRepo(db),
     scouting: createScoutingRepo(db),
     spying: createSpyingRepo(db),
     moves: createMovesRepo(db),

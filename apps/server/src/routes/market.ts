@@ -10,8 +10,10 @@ import {
   type ReimagineResponse,
   BARTER_MINIMUM,
   BarterRequestSchema,
+  cityOfVendorLine,
   BuySupplyRequestSchema,
   PlaceVendorBidRequestSchema,
+  ClaimMarketRequestSchema,
   OfferActionRequestSchema,
   PostOfferRequestSchema,
   type Base,
@@ -20,9 +22,11 @@ import {
   type MarketResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { requireAreaFor } from '../progression/doors.js';
 import {
   acceptOffer,
   barter,
+  claimMarketGoods,
   buySupply,
   marketRefusalText,
   postOffer,
@@ -33,7 +37,7 @@ import {
   type RefusalFigures,
 } from '../market/board.js';
 import { placeVendorBid, settleVendorAuctions } from '../market/auction.js';
-import { AppError, parseBody } from '../errors.js';
+import { AppError, cityQuery, parseBody } from '../errors.js';
 import { ownBase, settledOwnBase } from './own-base.js';
 import { cityAsked, homeCityOf } from '../city/stakes.js';
 import { workingRoles } from '../crew/roster.js';
@@ -86,12 +90,13 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     // first, and they must see what they won on this very read rather than on the next one.
     settleVendorAuctions(app.repos, now);
     const reader = app.repos.bases.findByOwnerId(base.ownerId) ?? base;
-    const cityId = cityOrRefuse(reader, (request.query as { city?: string } | undefined)?.city);
+    const cityId = cityOrRefuse(reader, cityQuery(request.query));
     return board(reader, now, cityId);
   });
 
   /** Bid on a lot, while he is in. The close hands it over when he packs up. */
   app.post('/market/bid', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'market');
     const { lineId, amount } = parseBody(PlaceVendorBidRequestSchema, request.body);
     const now = new Date();
     // The close first, the way `/bar` does it: a bid landing just after a visit ended belongs to
@@ -99,6 +104,16 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     settleVendorAuctions(app.repos, now);
     return app.db.transaction(() => {
       const base = settledOwnBase(app, request.currentUser.id, now);
+      /*
+       * The door, which this route did not have at all (2026-09-24).
+       *
+       * The read was gated and the write was not, so a crew with no stake in Terminus could take a
+       * Terminus lot by sending its line id: `findVendorLine` searches every city, and nothing
+       * here asked whether the crew could stand at that barrow. The room comes out of the id
+       * rather than off the request, because the id is what the bid is filed under and a city
+       * named beside it could disagree with it.
+       */
+      const cityId = cityOrRefuse(base, cityOfVendorLine(lineId));
       const result = placeVendorBid(app.repos, {
         base,
         userId: request.currentUser.id,
@@ -107,7 +122,9 @@ export function registerMarketRoutes(app: FastifyInstance): void {
         now,
       });
       if (result.kind === 'refused') refuse(result.reason, result);
-      return { market: board(base, now) };
+      // The barrow the bid landed at, not the crew's own: a bid in Terminus used to answer with
+      // Ashfall's stock, so the lot the player had just bid on was not on the board they got back.
+      return { market: board(base, now, cityId) };
     })();
   });
 
@@ -253,16 +270,16 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     '/market/barter',
     { preHandler: app.authenticate },
     (request): MarketMutationResponse => {
-      const { give, want, amount } = parseBody(BarterRequestSchema, request.body);
+      requireAreaFor(app.repos, request.currentUser.id, 'market');
+      const trade = parseBody(BarterRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
         const result = barter(
           app.repos,
           settledOwnBase(app, request.currentUser.id, now),
-          give,
-          want,
-          amount,
+          trade,
           BARTER_MINIMUM,
+          now,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
@@ -275,7 +292,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     '/market/supply',
     { preHandler: app.authenticate },
     (request): MarketMutationResponse => {
-      const { key, units } = parseBody(BuySupplyRequestSchema, request.body);
+      requireAreaFor(app.repos, request.currentUser.id, 'market');
+      const { key, units, acceptWaste } = parseBody(BuySupplyRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
         const result = buySupply(
@@ -284,6 +302,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           key,
           units,
           now,
+          acceptWaste,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
@@ -293,6 +312,7 @@ export function registerMarketRoutes(app: FastifyInstance): void {
 
   /** Post a listing, or counter somebody else's. */
   app.post('/market/offer', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'offers');
     const { give, want, counterTo } = parseBody(PostOfferRequestSchema, request.body);
     const now = new Date();
     return app.db.transaction(() => {
@@ -313,13 +333,15 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     '/market/withdraw',
     { preHandler: app.authenticate },
     (request): MarketMutationResponse => {
-      const { offerId } = parseBody(OfferActionRequestSchema, request.body);
+      const { offerId, acceptWaste } = parseBody(OfferActionRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
         const result = withdrawOffer(
           app.repos,
           settledOwnBase(app, request.currentUser.id, now),
           offerId,
+          now,
+          acceptWaste,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
@@ -331,7 +353,8 @@ export function registerMarketRoutes(app: FastifyInstance): void {
     '/market/accept',
     { preHandler: app.authenticate },
     (request): MarketMutationResponse => {
-      const { offerId } = parseBody(OfferActionRequestSchema, request.body);
+      requireAreaFor(app.repos, request.currentUser.id, 'offers');
+      const { offerId, acceptWaste } = parseBody(OfferActionRequestSchema, request.body);
       const now = new Date();
       return app.db.transaction(() => {
         const result = acceptOffer(
@@ -339,10 +362,28 @@ export function registerMarketRoutes(app: FastifyInstance): void {
           settledOwnBase(app, request.currentUser.id, now),
           offerId,
           now,
+          acceptWaste,
         );
         if (result.kind === 'refused') refuse(result.reason);
         return { market: board(result.base, now) };
       })();
     },
   );
+
+  /** Takes goods the board is holding for this crew, warned first about what would not fit. */
+  app.post('/market/claim', { preHandler: app.authenticate }, (request): MarketMutationResponse => {
+    const { claimId, acceptWaste } = parseBody(ClaimMarketRequestSchema, request.body);
+    const now = new Date();
+    return app.db.transaction(() => {
+      const result = claimMarketGoods(
+        app.repos,
+        settledOwnBase(app, request.currentUser.id, now),
+        claimId,
+        now,
+        acceptWaste,
+      );
+      if (result.kind === 'refused') refuse(result.reason);
+      return { market: board(result.base, now) };
+    })();
+  });
 }

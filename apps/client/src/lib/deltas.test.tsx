@@ -270,28 +270,28 @@ describe('xpBehind', () => {
   });
 
   it('adds every threshold the crew has already cleared', () => {
-    // 100 to clear level 1 and 300 to clear level 2, and 500 into the third.
-    expect(playerXpToNextLevel(1)).toBe(100);
-    expect(playerXpToNextLevel(2)).toBe(300);
-    expect(xpBehind(3, 500)).toBe(900);
+    // 52 to clear level 1 and 158 to clear level 2, and 200 into the third.
+    expect(playerXpToNextLevel(1)).toBe(52);
+    expect(playerXpToNextLevel(2)).toBe(158);
+    expect(xpBehind(3, 200)).toBe(410);
   });
 
   /**
    * The figure the chip has to throw when an award crosses a threshold: what was left of the
-   * level, plus what the next one opened with. 600 to clear level 3, 500 already in it, 20 in the
-   * new one, so the award was 120.
+   * level, plus what the next one opened with. 302 to clear level 3, 200 already in it, 20 in the
+   * new one, so the award was 122.
    *
-   * Control: diff `xpIntoLevel` directly (20 - 500) and this reads -480, which is the red minus
+   * Control: diff `xpIntoLevel` directly (20 - 200) and this reads -180, which is the red minus
    * the chip used to be one wiring away from throwing at a level-up.
    */
   it('turns a level crossing into the award that paid for it', () => {
-    expect(playerXpToNextLevel(3)).toBe(600);
-    expect(xpBehind(4, 20) - xpBehind(3, 500)).toBe(120);
+    expect(playerXpToNextLevel(3)).toBe(302);
+    expect(xpBehind(4, 20) - xpBehind(3, 200)).toBe(122);
   });
 
-  /** And a double crossing pays the whole thing: 100 left of level 3, all of level 4, then 10. */
+  /** And a double crossing pays the whole thing: 102 left of level 3, all of level 4, then 10. */
   it('adds the levels an award skipped straight past', () => {
-    expect(xpBehind(5, 10) - xpBehind(3, 500)).toBe(100 + playerXpToNextLevel(4) + 10);
+    expect(xpBehind(5, 10) - xpBehind(3, 200)).toBe(102 + playerXpToNextLevel(4) + 10);
   });
 
   /** A malformed row never throws on a read path: the level is clamped, the progress floored. */
@@ -310,8 +310,8 @@ describe('the level chip receipt', () => {
   afterEach(() => vi.useRealTimers());
 
   it('throws a green figure in XP when a mission pays out', () => {
-    const { rerender } = render(<XpProbe level={3} xpIntoLevel={500} />);
-    rerender(<XpProbe level={3} xpIntoLevel={560} />);
+    const { rerender } = render(<XpProbe level={3} xpIntoLevel={200} />);
+    rerender(<XpProbe level={3} xpIntoLevel={260} />);
     const figure = screen.getByTestId('delta-gain');
     expect(figure).toHaveTextContent('+60XP');
     expect(figure.className).toContain('text-verdigris-300');
@@ -319,17 +319,17 @@ describe('the level chip receipt', () => {
 
   /** The level-up case, which is the one a naive diff gets backwards. */
   it('throws the whole award when the payout crosses a level', () => {
-    const { rerender } = render(<XpProbe level={3} xpIntoLevel={500} />);
+    const { rerender } = render(<XpProbe level={3} xpIntoLevel={200} />);
     rerender(<XpProbe level={4} xpIntoLevel={20} />);
     const figure = screen.getByTestId('delta-gain');
-    expect(figure).toHaveAttribute('data-amount', '120');
+    expect(figure).toHaveAttribute('data-amount', '122');
     expect(screen.queryByTestId('delta-spend')).toBeNull();
   });
 
   /** XP does not trickle, so there is no floor: a single point is still a receipt. */
   it('announces a single point', () => {
-    const { rerender } = render(<XpProbe level={3} xpIntoLevel={500} />);
-    rerender(<XpProbe level={3} xpIntoLevel={501} />);
+    const { rerender } = render(<XpProbe level={3} xpIntoLevel={200} />);
+    rerender(<XpProbe level={3} xpIntoLevel={201} />);
     expect(screen.getByTestId('delta-gain')).toHaveAttribute('data-amount', '1');
   });
 });

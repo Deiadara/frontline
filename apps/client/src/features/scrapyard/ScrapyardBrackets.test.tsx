@@ -114,6 +114,7 @@ const fetchMock = vi.fn();
 function stubApi(board: ScrapyardResponse = scrapyard): void {
   const reply = (body: unknown) =>
     Promise.resolve({
+      headers: new Headers(),
       ok: true,
       status: 200,
       statusText: '',

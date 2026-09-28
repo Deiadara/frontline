@@ -259,6 +259,8 @@ export const SPY_REFUSALS = [
   'own_ground',
   /** A player's district is read at its gate and nowhere else. */
   'not_the_gate',
+  /** There is no road between the crew and that ground. See the scouting refusal of the same name. */
+  'no_road',
   'unscouted',
 ] as const;
 export type SpyRefusal = (typeof SPY_REFUSALS)[number];
@@ -348,10 +350,15 @@ export type SpyReport = z.infer<typeof SpyReportSchema>;
 /**
  * A tenth of the **whole job**, not a tenth of the way out (maintainer, 2026-09-22).
  *
- * `departedAt` to `returnsAt` is the round trip plus the look itself, which is the figure the
- * send dialog quotes and the Monitor counts down. Measuring the outbound leg alone gave a window
- * that shrank as the tier grew: `total_intelligence` spends far longer on the ground than on the
- * road, so the dearest job in the game was the one a player had least time to call off.
+ * `departedAt` to `returnsAt` is the round trip plus the look itself, which is the figure the send
+ * dialog quotes and the Monitor counts down, so the window a player is offered is a tenth of the
+ * thing they were shown rather than a tenth of a leg nothing on screen names.
+ *
+ * The note here used to add that the dearest tier spends far longer on the ground than on the
+ * road, and that is not true: `SPY_TIER_SPECS` carries a price and a boost and no clock, and
+ * `planSpy` takes its minutes from `planScout`, so every tier takes exactly the same time and only
+ * the price and the report differ. The reason above stands on its own; the tiers were never the
+ * reason. Corrected 2026-09-25.
  */
 function spyTotalMs(run: Pick<SpyRun, 'departedAt' | 'returnsAt'>): number {
   return Math.max(0, Date.parse(run.returnsAt) - Date.parse(run.departedAt));

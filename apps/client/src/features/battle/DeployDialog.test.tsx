@@ -37,29 +37,27 @@ const ARMY = { razors: 9, scrapers: 1 };
 const view: BattleView = {
   battle: {
     id: 'press',
-    target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+    target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
     attackerBaseId: 'base-1',
     defender: { kind: 'looters' },
     scheduledFor: MARK,
-    holdAfterCapture: false,
+    holdAfterCapture: true,
     wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
-    seed: 'press-seed',
   },
   targetName: 'Kessler Press',
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
     kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: new Date(MARK),
     weather: 'normal',
   }),
   role: 'attacker',
   side: 'attacker',
   deploymentOpen: true,
+  withdrawalOpen: true,
   // Different counts in the two places on purpose: a window reading the wrong one still draws a
   // number, and only a fixture where the two differ can say which it read.
   muster: { army: { razors: 3 }, perimeter: { razors: 2 }, size: 5 },
@@ -139,6 +137,7 @@ function stubApi(): void {
   fetchMock.mockImplementation((path: string) => {
     if (String(path).endsWith('/units')) {
       return Promise.resolve({
+        headers: new Headers(),
         ok: true,
         status: 200,
         statusText: '',
@@ -170,7 +169,6 @@ function open(
           army={army}
           loadouts={loadouts}
           bagPercent={0}
-          homeDistrictId="neon-docks"
           // Above every gate in the catalogue, so nothing in this fixture is locked out by rank.
           notoriety={100_000}
           mode={mode}
@@ -231,7 +229,7 @@ describe('the deploy dialog (§A4)', () => {
 
     fireEvent.change(field('line-razors'), { target: { value: '2' } });
     fireEvent.click(screen.getByTestId('deploy-confirm'));
-    await waitFor(() => expect(confirmed).toHaveBeenCalledWith({ razors: 2 }, {}));
+    await waitFor(() => expect(confirmed).toHaveBeenCalledWith({ razors: 2 }, {}, false));
   });
 
   it('the periphery sends its deltas as the ring and leaves the line alone', async () => {
@@ -248,7 +246,14 @@ describe('the deploy dialog (§A4)', () => {
 
     fireEvent.change(field('ring-razors'), { target: { value: '2' } });
     fireEvent.click(screen.getByTestId('deploy-confirm'));
-    await waitFor(() => expect(confirmed).toHaveBeenCalledWith({}, { razors: 2 }));
+    await waitFor(() => expect(confirmed).toHaveBeenCalledWith({}, { razors: 2 }, false));
+  });
+
+  // The last hour holds whoever is there (bug pass, 2026-09-28): the field offers no withdrawal
+  // the server would refuse, and still lets more come in.
+  it('offers nothing back off the ring in the last hour, and still sends', () => {
+    open('ring', { withdrawalOpen: false });
+    expect(field('ring-razors').min).toBe('0');
   });
 
   it('a unit name opens the roster card, with the sheet the Units page draws', async () => {
@@ -301,6 +306,63 @@ describe('a unit that will not board', () => {
     expect(line).toHaveTextContent(
       `Held to ${colossus?.stats.speed} by 1 ${colossus?.name} walking`,
     );
-    expect(line).toHaveTextContent('on the road at most');
+    /*
+     * The pace, and nothing about the clock.
+     *
+     * It asserted "on the road at most", which was the window's own guess at a road: it spent the
+     * column's pace and neither of the two channels that come off the crew's held ground, so it
+     * was an upper bound and said so. The clock is the server's answer now (`useDeployQuote`), so
+     * in a unit test with no server there is no clock to draw, and the thing this case is about,
+     * a sheet that cannot board holding the column to its own speed, is the line above.
+     */
+    expect(line).not.toHaveTextContent('at most');
+  });
+});
+
+/**
+ * Whether a column makes the mark, said before it is sent (maintainer, 2026-09-28: "it'll tell you
+ * if they can reach before the timer or not").
+ *
+ * The verdict is the server's (`DeployQuoteResponse.inTime`), because the server is what folds a
+ * late column out of the fight; the window's job is to say it plainly either way.
+ */
+describe('the deploy dialog says whether the column arrives in time', () => {
+  function quoting(answer: { minutes: number; arrivesAt: string; inTime: boolean }): void {
+    fetchMock.mockImplementation((path: string) => {
+      const body = String(path).endsWith('/battles/deploy/quote')
+        ? { ...answer, rail: null }
+        : String(path).endsWith('/units')
+          ? roster
+          : null;
+      if (body === null) throw new Error(`unstubbed request: ${String(path)}`);
+      return Promise.resolve({
+        headers: new Headers(),
+        ok: true,
+        status: 200,
+        statusText: '',
+        json: () => Promise.resolve(body),
+      } as Response);
+    });
+  }
+
+  it('gives the landing time and says it is before the fight', async () => {
+    quoting({ minutes: 40, arrivesAt: '2026-08-13T10:40:00.000Z', inTime: true });
+    open('line');
+    fireEvent.change(field('line-razors'), { target: { value: '2' } });
+    const arrival = await screen.findByTestId('deploy-arrival');
+    // The house clock (Europe/Athens, UTC+3 in August).
+    expect(arrival).toHaveTextContent('Arrives 13:40, before the fight');
+    expect(arrival).toHaveAttribute('data-in-time', 'true');
+  });
+
+  it('says plainly when it lands after the mark, and still lets it go', async () => {
+    quoting({ minutes: 600, arrivesAt: '2026-08-13T20:00:00.000Z', inTime: false });
+    open('line');
+    fireEvent.change(field('line-razors'), { target: { value: '2' } });
+    const arrival = await screen.findByTestId('deploy-arrival');
+    expect(arrival).toHaveTextContent('Arrives 23:00, after the fight');
+    expect(arrival).toHaveTextContent('They will not be in it');
+    expect(arrival).toHaveAttribute('data-in-time', 'false');
+    expect(screen.getByTestId('deploy-confirm')).not.toBeDisabled();
   });
 });

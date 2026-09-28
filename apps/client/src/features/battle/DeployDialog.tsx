@@ -1,4 +1,6 @@
 import {
+  armySize,
+  formatClock,
   VEHICLES,
   findUnit,
   fleetCapacity,
@@ -8,7 +10,6 @@ import {
   notorietyToField,
   lootCapacityOf,
   ridingUnitSlots,
-  travelMinutes,
   type Army,
   type BattleView,
   type Fleet,
@@ -18,19 +19,22 @@ import {
   type VehicleId,
   vehicleNoun,
 } from '@frontline/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { HoverCard } from '../../components/ui/HoverCard';
 import { Modal } from '../../components/ui/Modal';
 import { ApiRequestError } from '../../lib/api';
 import { NumberField } from '../../components/ui/NumberField';
 import { cn } from '../../lib/cn';
+import { useDeployQuote } from '../../lib/queries';
 import { useTakeVehicles, useUnits } from '../../lib/queries';
 import { UnitCard } from '../units/UnitCard';
 import { walksAlways } from '../units/rules';
 import { heldToLine, readColumn } from './column';
 import { OnThisGround } from './EffectiveCard';
 import { formatDuration } from '../base/format';
+import { ErrorNote } from '../../components/ui/ErrorNote';
+import { usePlayerZone } from '../settings/usePlayerZone';
 
 /**
  * Moving people to a fight that has not happened yet (GDD §A4).
@@ -119,14 +123,18 @@ interface DeployDialogProps {
   /** §A4: what the crew's holdings and perks add to the bag, so the loot figure is the real one. */
   bagPercent: number;
   /** §C3: where the column starts, so the window can quote the road. Null puts no clock on it. */
-  homeDistrictId: string | null;
   /** §D7: the crew's rank, which is what decides who will take a contract. */
   notoriety: number;
   mode: DeployMode;
   pending: boolean;
   error: unknown;
   onClose: () => void;
-  onConfirm: (changes: Record<string, number>, perimeterChanges: Record<string, number>) => void;
+  onConfirm: (
+    changes: Record<string, number>,
+    perimeterChanges: Record<string, number>,
+    /** Put the departing column on Terminus's line. False unless a ride was offered and taken. */
+    byRail: boolean,
+  ) => void;
 }
 
 export function DeployDialog({
@@ -134,7 +142,6 @@ export function DeployDialog({
   army,
   loadouts,
   bagPercent,
-  homeDistrictId,
   notoriety,
   mode,
   pending,
@@ -185,20 +192,53 @@ export function DeployDialog({
    * §C3: what this column will actually travel at, and how long that takes.
    *
    * This is the one window where a column exists: the deltas the player has typed *are* the force
-   * about to walk out of the gate, which is exactly what `battle/movement.ts` puts on the road. So
-   * it quotes the pace through `columnSpeed` and the clock through `travelMinutes`, both the
-   * server's own functions, rather than a percentage that described the machines instead of the
-   * people. Only what is being *sent* counts: a negative delta is somebody coming home.
+   * about to walk out of the gate, which is exactly what `battle/movement.ts` puts on the road.
+   * Only what is being *sent* counts: a negative delta is somebody coming home.
    *
-   * An upper bound, and it says so: the crew's travel reduction is not on this payload and only
-   * ever shortens a road.
+   * ## Why the clock comes off the server
+   *
+   * It used to be a `travelMinutes` call right here with the column's pace alone, and that is
+   * one of the three channels the server spends. `travelSpeedPercent` and `roadMinutesOff` come
+   * off `standingEffectsFor`, which folds the crew's **ground** as well as its people, and the
+   * client is only ever sent the people-only fold. So the window promised a longer march than the
+   * crew makes, and a crew with a Tram Depot and travel bonuses was told a materially wrong
+   * arrival. The same request answers the other thing the window cannot know: whether a pair of
+   * platforms this crew holds serves this journey, which is a question about the live control map.
+   *
+   * The pace is still read here, because the column's speed is a fact about the deltas on screen
+   * and it is what the sheet beside it is describing.
    */
   const sending: Army = Object.fromEntries(Object.entries(deltas).filter(([, delta]) => delta > 0));
   const column = readColumn(view.vehicles, sending, loadouts, anyRide);
-  const road =
-    homeDistrictId === null
-      ? null
-      : travelMinutes(homeDistrictId, view.battle.target.districtId, { speed: column.speed });
+  const quote = useDeployQuote(
+    armySize(sending) > 0
+      ? {
+          battleId: view.battle.id,
+          changes: mode === 'line' ? deltas : {},
+          perimeterChanges: mode === 'line' ? {} : deltas,
+          byRail: false,
+        }
+      : null,
+  );
+  const rail = quote.data?.rail ?? null;
+  /*
+   * Riding is a choice, never an optimisation, and the offer can go away under the player: loading
+   * a motorcycle takes the train off the table, so the toggle is reset rather than left asking for
+   * a service that is not running.
+   */
+  const [byRail, setByRail] = useState(false);
+  const onTheTrain = rail !== null && byRail;
+  useEffect(() => {
+    if (rail === null && byRail) setByRail(false);
+  }, [rail, byRail]);
+  const road = onTheTrain ? rail.minutes : (quote.data?.minutes ?? null);
+  /*
+   * Whether the column makes the mark, in the server's own words (maintainer, 2026-09-28: "it'll
+   * tell you if they can reach before the timer or not"). Only the line walks into the fight; a
+   * column that lands after the mark is not in it, and walks on to whatever the fight left.
+   */
+  const landing = onTheTrain ? rail : (quote.data ?? null);
+  const zone = usePlayerZone();
 
   // Every unit the crew can put anywhere: at home, already in the line, or already on the ring.
   // Both places, in both modes: a unit standing on the ring is one this crew owns and can pull
@@ -281,7 +321,8 @@ export function DeployDialog({
               const atHome = army[unit.id] ?? 0;
               const gate = notorietyToField(unit.id);
               const locked = !meetsNotoriety(notoriety, gate);
-              const min = -(alreadyThere[unit.id] ?? 0);
+              // Nothing comes back off the ground in the last hour; sending is still open.
+              const min = view.withdrawalOpen ? -(alreadyThere[unit.id] ?? 0) : 0;
               const value = deltas[unit.id] ?? 0;
               /*
                * What the seats leave for this one.
@@ -429,27 +470,19 @@ export function DeployDialog({
          * the mission board's own picker.
          */}
         {overloaded && (
-          <p
-            role="alert"
-            className="font-body text-xs leading-relaxed text-oxblood-300"
-            data-testid="deploy-overloaded"
-          >
+          <ErrorNote data-testid="deploy-overloaded">
             They do not all fit. <span className="tabular-nums">{aboard}</span> unit slots picked
             and <span className="tabular-nums">{seats}</span> seats loaded: take somebody off, or
             put another machine on.
-          </p>
+          </ErrorNote>
         )}
 
-        {takeVehicles.error !== null && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
-            {takeVehicles.error.message}
-          </p>
-        )}
+        {takeVehicles.error !== null && <ErrorNote>{takeVehicles.error.message}</ErrorNote>}
 
         {error !== null && error !== undefined && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
+          <ErrorNote>
             {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </p>
+          </ErrorNote>
         )}
       </div>
 
@@ -480,11 +513,53 @@ export function DeployDialog({
             {column.speed > 0 && (
               <>
                 {heldToLine(column)}
-                {road !== null && <> · {formatDuration(road * 60)} on the road at most</>}
+                {/* The server's own number now, so "at most" is gone with the guesswork. */}
+                {road !== null && (
+                  <>
+                    {' '}
+                    · {formatDuration(road * 60)} {onTheTrain ? 'on the line' : 'on the road'}
+                  </>
+                )}
               </>
             )}
           </span>
+          {column.speed > 0 && landing !== null && (
+            <span
+              className={cn('min-w-0', landing.inTime ? 'text-verdigris-100' : 'text-oxblood-300')}
+              data-testid="deploy-arrival"
+              data-in-time={landing.inTime}
+            >
+              {landing.inTime
+                ? `Arrives ${formatClock(new Date(landing.arrivesAt), zone)}, before the fight`
+                : `Arrives ${formatClock(new Date(landing.arrivesAt), zone)}, after the fight. They will not be in it, and walk on to whatever it leaves`}
+            </span>
+          )}
         </span>
+        {rail !== null && (
+          <label
+            className="flex cursor-pointer items-start gap-2.5 rounded-sm border border-brass-300/30 bg-surface-900/60 px-3 py-2"
+            data-testid="deploy-by-rail"
+          >
+            <input
+              type="checkbox"
+              checked={byRail}
+              onChange={(event) => setByRail(event.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-brass-300"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="font-display text-[10px] font-bold uppercase tracking-[0.16em] text-brass-300">
+                Put them on the train
+              </span>
+              <span className="font-body text-[12px] leading-snug text-ink-300">
+                {rail.boardAt} to {rail.alightAt}, {formatDuration(rail.minutes * 60)}
+                {rail.walkMinutes > 0
+                  ? `, including ${formatDuration(rail.walkMinutes * 60)} on foot at the ends`
+                  : ''}
+                . No vehicles.
+              </span>
+            </span>
+          </label>
+        )}
         <span className="flex gap-3">
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
@@ -492,7 +567,9 @@ export function DeployDialog({
           <Button
             size="sm"
             disabled={moved === 0 || pending || overloaded}
-            onClick={() => onConfirm(mode === 'line' ? deltas : {}, mode === 'line' ? {} : deltas)}
+            onClick={() =>
+              onConfirm(mode === 'line' ? deltas : {}, mode === 'line' ? {} : deltas, onTheTrain)
+            }
             data-testid="deploy-confirm"
           >
             {pending ? 'Working…' : copy.confirm}

@@ -1,10 +1,12 @@
-import type { MessageInvite } from '@frontline/shared';
+import { describeAreaRequirement, isAreaUnlocked, type MessageInvite } from '@frontline/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Confirm } from '../../components/ui/Confirm';
 import { FactionBadge } from '../faction/FactionBadge';
 import { refusalText } from '../faction/refusal';
 import { useAnswerFactionInvite } from '../../lib/queries';
+import { ErrorNote } from '../../components/ui/ErrorNote';
+import { useUnlockFacts } from '../../lib/unlocks';
 
 /**
  * The invitation a message carries, drawn inside the message.
@@ -21,6 +23,10 @@ import { useAnswerFactionInvite } from '../../lib/queries';
 export function InviteCard({ invite }: { invite: MessageInvite }) {
   const answer = useAnswerFactionInvite();
   const [asking, setAsking] = useState(false);
+  // Joining needs the Faction door open, level 10 (maintainer, 2026-09-28); the server refuses
+  // below it, so the button says so first. Unknown until `/me` lands, and not locked meanwhile.
+  const facts = useUnlockFacts();
+  const shut = facts !== null && !isAreaUnlocked('faction', facts);
 
   return (
     <section
@@ -39,16 +45,12 @@ export function InviteCard({ invite }: { invite: MessageInvite }) {
         </div>
       </div>
 
-      {answer.error && (
-        <p role="alert" className="font-body text-[12px] text-oxblood-300">
-          {refusalText(answer.error.message)}
-        </p>
-      )}
+      {answer.error && <ErrorNote>{refusalText(answer.error.message)}</ErrorNote>}
 
       {invite.open ? (
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={answer.isPending}
+            disabled={answer.isPending || shut}
             data-testid="invite-accept"
             onClick={() => setAsking(true)}
           >
@@ -66,6 +68,11 @@ export function InviteCard({ invite }: { invite: MessageInvite }) {
       ) : (
         <p className="font-body text-[12px] italic text-ink-400">
           It has been answered, or the seat is gone.
+        </p>
+      )}
+      {invite.open && shut && (
+        <p className="font-body text-[12px] text-ink-300" data-testid="invite-locked">
+          Joining a faction is not open to you yet. {describeAreaRequirement('faction')}
         </p>
       )}
 

@@ -146,7 +146,7 @@ describe('a location at a level', () => {
    */
   it('parses every level a row can hold, old and new', () => {
     const row = (level: number) => ({
-      locationId: 'rustyard-press',
+      locationId: 'steelbelt-press',
       holder: { kind: 'unoccupied' as const },
       level,
       upgradingUntil: null,

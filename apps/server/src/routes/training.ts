@@ -16,12 +16,13 @@ import {
   drillCancellable,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
+import { requireAreaFor } from '../progression/doors.js';
 import { projectTraining, settleTrainingFor } from '../crew/training.js';
 import { tallyDrillPaired } from '../feats/tally.js';
 import { crewEffectsFor, crewSheetsFor } from '../crew/standing.js';
 import { AppError, parseBody } from '../errors.js';
 import { standingEffectsFor } from '../crew/standing.js';
-import { ownBase } from './own-base.js';
+import { settledOwnBase } from './own-base.js';
 
 /**
  * §A4: how many extra sessions the crew's ground buys them today (the Gym).
@@ -44,6 +45,10 @@ function benchesFor(app: FastifyInstance, base: Base): number {
  * Both routes settle first. A player who left an hour ago and comes back should see the point
  * already on the sheet, not a finished bar that pays out on the next click, and settling on read
  * is what makes "come back tomorrow" work without a scheduler.
+ *
+ * The whole crew, not the drills alone: an hour landing moves what the district makes, so the
+ * district has to be walked up to it first (`settleBase` does both, in order). Landed on its own,
+ * the next settle priced the whole window with the new sheet.
  */
 
 export function registerTrainingRoutes(app: FastifyInstance): void {
@@ -54,7 +59,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
     return app.db.transaction(() => {
       const { base, overseer } = settleTrainingFor(
         app.repos,
-        ownBase(app, request.currentUser.id),
+        settledOwnBase(app, request.currentUser.id, new Date(now)),
         now,
       );
       const session = base.training.sessions.find((held) => held.id === sessionId);
@@ -77,7 +82,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
   app.get('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {
     const now = new Date().toISOString();
     const settled = app.db.transaction(() =>
-      settleTrainingFor(app.repos, ownBase(app, request.currentUser.id), now),
+      settleTrainingFor(app.repos, settledOwnBase(app, request.currentUser.id, new Date(now)), now),
     )();
     return projectTraining(
       settled.base,
@@ -90,13 +95,14 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
 
   /** §F2: put one person through one hour of one thing. */
   app.post('/training', { preHandler: app.authenticate }, (request): TrainingResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'training');
     const { subjectId, attribute } = parseBody(StartTrainingRequestSchema, request.body);
     const now = new Date().toISOString();
 
     return app.db.transaction(() => {
       const { base, overseer } = settleTrainingFor(
         app.repos,
-        ownBase(app, request.currentUser.id),
+        settledOwnBase(app, request.currentUser.id, new Date(now)),
         now,
       );
 
@@ -150,7 +156,7 @@ export function registerTrainingRoutes(app: FastifyInstance): void {
   app.get('/overseer/me', { preHandler: app.authenticate }, (request): CrewStandingResponse => {
     const now = new Date().toISOString();
     const settled = app.db.transaction(() =>
-      settleTrainingFor(app.repos, ownBase(app, request.currentUser.id), now),
+      settleTrainingFor(app.repos, settledOwnBase(app, request.currentUser.id, new Date(now)), now),
     )();
     if (!settled.overseer) throw new AppError('NOT_FOUND', 'You have not chosen an overseer yet');
 

@@ -1,7 +1,24 @@
-import { CITIES, type City } from '@frontline/shared';
-import { useBareCorners } from '../../components/ui/Ambience';
+import { CITIES, type City, type CityHomeOffer } from '@frontline/shared';
 import { cn } from '../../lib/cn';
 import { CityPortrait } from './CityPortrait';
+
+/**
+ * The two modes, as a type: a wall of doors, or a wall of things to pick between.
+ *
+ * A union rather than two optional callbacks, so neither screen can be built half way. The world
+ * screen has to have somewhere for a press to go, and the choose screen must not be given a door.
+ */
+type CitiesViewProps =
+  | { onEnterCity: (cityId: string) => void; choosing?: undefined }
+  | { onEnterCity?: undefined; choosing: CityChoosing };
+
+/** The choose-a-home mode: what the server is offering, and what the player has pressed so far. */
+export interface CityChoosing {
+  /** One entry per city, off `GET /overseer/choices`. A city with no entry cannot be chosen. */
+  offers: readonly CityHomeOffer[];
+  selectedId: string | null;
+  onSelect: (cityId: string) => void;
+}
 
 /**
  * The world: every city there is, as a wall of portraits (maintainer request, 2026-09-24).
@@ -33,22 +50,36 @@ import { CityPortrait } from './CityPortrait';
  * The stagger is a transform rather than `self-start` / `self-end` for the same reason: aligning
  * the cards differently inside the track would take them out of the shared rows.
  *
- * ## Only Ashfall is a door
+ * ## Which of them are doors
  *
- * Ashfall is the one with a painted map, a seeded world and a mission board. The other four are
- * drawn at full strength and are simply not pressable: no badge, no greyed-out word, nothing that
- * explains itself. A player who presses one and gets nothing has learned the same thing the badge
- * would have told them, and the screen stays a wall of paintings instead of a status board.
+ * The ones with a painted map, a seeded world and a mission board: Ashfall, and Terminus since
+ * 2026-09-24. Pressing one takes you to that city's map, which is the only way to look at a city
+ * you do not live in. The rest are drawn at full strength and are simply not pressable: no badge,
+ * no greyed-out word, nothing that explains itself. A player who presses one and gets nothing has
+ * learned the same thing the badge would have told them, and the screen stays a wall of paintings
+ * instead of a status board.
  *
- * ## Bare corners
+ * ## Choosing one instead of entering it (maintainer, 2026-09-24)
  *
- * `useBareCorners` takes the shell's junk sprites off for as long as this screen is mounted
- * (maintainer, 2026-09-24). The district backdrop stays: it is the room these paintings are hung
- * in. A robot arm lying across the bottom-left card is not in the room, it is in the picture.
+ * A new player picks the city they will live in off this same wall, with the same paintings, right
+ * after they pick their overseer. `choosing` is that mode, and it is a mode rather than a second
+ * component on purpose: the two screens have to stay the same picture, and a copy would drift the
+ * first time either one is retouched.
+ *
+ * What changes with it is what a press means and what a card may say. Pressing selects rather than
+ * navigates, the selected card is ringed, and a card the server will not seat a crew on is
+ * unpressable with a line saying which of the two reasons it is: no map yet, or four crews already
+ * live there. That line is the one departure from "the screen stays a wall of paintings instead of
+ * a status board", and it is the maintainer's: "if a city is full it will show it but as locked".
+ * Every card carries one, including the ones on offer, so the five text bands stay the same height
+ * and the row does not go ragged.
+ *
+ * This screen used to suppress the shell's corner sprites while it was mounted, because a robot arm
+ * lying across the bottom-left card read as part of the picture rather than as furniture in the
+ * room behind it. The sprites came off the game entirely on 2026-09-25, so there is nothing left to
+ * suppress. The district backdrop stays: it is the room these paintings are hung in.
  */
-export function CitiesView({ onEnterCity }: { onEnterCity: () => void }) {
-  useBareCorners();
-
+export function CitiesView({ onEnterCity, choosing }: CitiesViewProps) {
   return (
     // No `data-testid` here: the scroller in `CityView` that wraps this already carries
     // `cities-view`, and two elements answering one id is a locator that silently picks one.
@@ -62,32 +93,65 @@ export function CitiesView({ onEnterCity }: { onEnterCity: () => void }) {
         )}
       >
         {CITIES.map((city, at) => (
-          <CityCard key={city.id} city={city} high={at % 2 === 0} onEnter={onEnterCity} />
+          <CityCard
+            key={city.id}
+            city={city}
+            high={at % 2 === 0}
+            onEnter={() => onEnterCity?.(city.id)}
+            choosing={choosing}
+          />
         ))}
       </div>
     </div>
   );
 }
 
+/** What a card says about itself while a player is picking somewhere to live. */
+function homeLine(offer: CityHomeOffer | undefined): string {
+  if (offer === undefined || offer.refusal === 'unbuilt') return 'No map here yet';
+  if (offer.refusal === 'full') return 'Full: four crews already live here';
+  return offer.free === 1 ? 'One plot left' : `${offer.free} of ${offer.plots} plots free`;
+}
+
 function CityCard({
   city,
   high,
   onEnter,
+  choosing,
 }: {
   city: City;
   /** Rides above the line rather than below it. The first, third and fifth do. */
   high: boolean;
   onEnter: () => void;
+  /** Explicitly `undefined` on the world screen: this project runs `exactOptionalPropertyTypes`. */
+  choosing: CityChoosing | undefined;
 }) {
-  const Tag = city.open ? 'button' : 'div';
+  const offer = choosing?.offers.find((one) => one.cityId === city.id);
+  /*
+   * Pressable for two different reasons, and the offer wins where there is one.
+   *
+   * On the world screen a card is a door, and a city with a map is a door. While choosing, a city
+   * with a map that is full is not somewhere a crew can move in, so the server's answer is what
+   * decides: the client cannot see who lives where and must not guess.
+   */
+  const pressable = choosing === undefined ? city.open : offer?.available === true;
+  const chosen = choosing !== undefined && choosing.selectedId === city.id;
+  const press = choosing === undefined ? onEnter : () => choosing.onSelect(city.id);
+  const Tag = pressable ? 'button' : 'div';
 
   return (
     <Tag
-      {...(city.open
-        ? { type: 'button' as const, onClick: onEnter, 'data-sound': 'confirm' }
+      {...(pressable
+        ? {
+            type: 'button' as const,
+            onClick: press,
+            'data-sound': 'confirm' as const,
+            ...(choosing === undefined ? {} : { 'aria-pressed': chosen }),
+          }
         : { 'aria-disabled': true })}
       data-testid={`city-card-${city.id}`}
-      data-open={city.open ? 'true' : undefined}
+      data-open={pressable ? 'true' : undefined}
+      data-chosen={chosen ? 'true' : undefined}
       className={cn(
         'card-paper group relative flex w-full flex-col overflow-hidden text-left shadow-panel',
         /*
@@ -109,9 +173,12 @@ function CityCard({
          */
         high ? 'lg:-translate-y-[7%]' : 'lg:translate-y-[7%]',
         'transition-transform duration-150',
-        city.open
+        pressable
           ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brass-300'
           : 'cursor-default',
+        // The one the player has pressed. A ring in the brass the whole game answers in, drawn
+        // inside the card's own radius so it follows the rounded corner rather than boxing it.
+        chosen && 'ring-2 ring-brass-300 ring-offset-0',
       )}
     >
       {/*
@@ -124,7 +191,17 @@ function CityCard({
        * zero is a defect the layout gates look for.
        */}
       <span className="relative block aspect-[3/4] w-full overflow-hidden lg:aspect-auto lg:min-h-[140px]">
-        <CityPortrait cityId={city.id} />
+        <span
+          className={cn(
+            'absolute inset-0 block',
+            // Locked, while choosing: the painting is still the painting, drained and pushed back
+            // so the eye goes to the ones a crew can actually move into. The world screen draws
+            // every city at full strength, shut ones included, and keeps doing so.
+            choosing !== undefined && !pressable && 'opacity-60 grayscale',
+          )}
+        >
+          <CityPortrait cityId={city.id} />
+        </span>
 
         {/* The wash under the lettering. Without it the name sits on whatever the picture happens
             to put there, which is a lit window as often as not. */}
@@ -142,6 +219,17 @@ function CityCard({
       </span>
 
       <span className="block px-3.5 pb-3.5 pt-3 font-body text-[13px] leading-snug text-ink-200">
+        {choosing !== undefined && (
+          <span
+            data-testid={`city-status-${city.id}`}
+            className={cn(
+              'mb-1.5 block font-display text-[10px] font-bold uppercase tracking-[0.18em]',
+              pressable ? 'text-brass-300' : 'text-ink-300',
+            )}
+          >
+            {chosen ? 'Chosen' : homeLine(offer)}
+          </span>
+        )}
         {city.blurb}
       </span>
     </Tag>

@@ -23,6 +23,7 @@ describe('the e2e fixtures still describe what the server sends', () => {
     ['adminGame', F.adminGame, S.MeResponseSchema],
     ['paidMe', F.paidMe, S.MeResponseSchema],
     ['city', F.city, S.CityResponseSchema],
+    ['awayCity', F.awayCity, S.CityResponseSchema],
     ['baseDetail', F.baseDetail, S.BaseDetailResponseSchema],
     ['districtDetail', F.districtDetail, S.DistrictDetailResponseSchema],
     ['unitsResponse', F.unitsResponse, S.UnitsResponseSchema],

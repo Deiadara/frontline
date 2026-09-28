@@ -61,6 +61,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown, status = 200) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: status < 400,
     status,
     statusText: '',

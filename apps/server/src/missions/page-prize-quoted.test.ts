@@ -1,45 +1,51 @@
 import {
   MISC_AREA_ID,
   createCommander,
-  missionBoardDay,
   missionBoardKey,
   missionOffers,
   pagePrizeFor,
+  type LaunchMissionResponse,
   type MissionsResponse,
 } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
+import { pagePrizeSaltFrom } from './prize-salt.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
- * §F1b: the blueprint page a mission card advertises is the page the row is frozen with.
+ * §F1b: a run's blueprint page is a surprise until the crew is home (maintainer, 2026-09-28).
  *
- * `misc` grew an hourly turnover on 2026-09-19 (`MISC_BOARD_ROTATION_MINUTES`) and `board.ts`
- * moved to `missionBoardKey`, which is `<day>#<slot>` for that one board. `launchMission` went on
- * seeding the prize off `missionBoardDay`, the bare day, so the card and the row ran two
- * independent draws of the same function: 105 misc cards in a fortnight quoted a page the launch
- * did not freeze, or froze one the card said nothing about. The districts were never affected,
- * because their key is their day, which is why every board test in the suite stayed green.
+ * The card used to name the page's category ("A unit blueprint's page") and this file used to
+ * check that the card and the launched row agreed on it. The maintainer took the line off the
+ * card: whether a job pays a page at all is something a player learns from the notification on a
+ * successful return and from the Recently returned list, never beforehand. The launch still
+ * freezes a prize onto the row, because that is what the return reads.
  *
- * Read off the wire and then off the row, the way `routes/quoted.test.ts` argues a price check has
- * to be done: a test that compared the two arithmetics would pass while both were wrong.
+ * Read off the wire, the way `routes/quoted.test.ts` argues a check like this has to be done: a
+ * schema that merely lacks the field would still let a projection spread a page onto the offer.
  */
 
 const PASSWORD = 'hunter2pass';
 
 /**
- * A moment where the two seeds disagree, and the job standing there.
+ * A moment and a job whose run carries a page.
  *
- * Pinned rather than searched, so a failure names one card and one hour instead of "some card,
- * some hour". The assertion below still holds at any moment; this is the one chosen because the
- * defect is visible in it, which is what stops the test passing vacuously on a day when the two
- * draws happen to agree. `standard`, so the launch needs nothing a battle job needs.
+ * Pinned rather than searched, so a failure names one card and one hour. Chosen because the prize
+ * is not null here: on a job with no page the card would say nothing either way, and the test
+ * would pass vacuously. `standard`, so the launch needs nothing a battle job needs. Dealt at F to
+ * a new crew, a mark above the job's floor, and the prize is there at F and not at F-: a launch
+ * that froze the prize at the job's lowest grade rather than the dealt one stores nothing.
+ *
+ * Refound when the server's secret joined the seed (`missions/prize-salt.ts`): every draw moved,
+ * and under the `test-secret` salt below this is the first misc card from 2026-11-10 that pays
+ * at its dealt grade and not at its floor.
  */
-const AT = new Date('2026-09-21T03:00:00.000Z');
-const TEMPLATE = 'fuel-siphon';
+const AT = new Date('2027-03-23T01:00:00.000Z');
+const TEMPLATE = 'scrap-run';
+const JWT_SECRET = 'test-secret';
 
 const instances: { app: FastifyInstance; db: AppDatabase }[] = [];
 afterEach(async () => {
@@ -56,7 +62,7 @@ beforeEach(() => {
 });
 
 async function crewAtTheBoard(): Promise<{ app: FastifyInstance; token: string; baseId: string }> {
-  const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET: 'test-secret' });
+  const config = loadConfig({ DATABASE_PATH: ':memory:', JWT_SECRET });
   const db = openDatabase(config.databasePath);
   runMigrations(db);
   const app = await buildApp({ config, db, logger: false });
@@ -75,21 +81,28 @@ async function crewAtTheBoard(): Promise<{ app: FastifyInstance; token: string; 
   // Somebody to send, and somebody to lead them: a launch with neither is refused for a reason
   // this test is not about.
   app.repos.bases.updateArmy(baseId, { razors: 10 }, base.trainingQueue);
-  app.repos.bases.updateCommanders(baseId, [createCommander('off-1', 'Halvard Nyx', null)]);
+  // Seated: the bench leads nothing (maintainer, 2026-09-28).
+  app.repos.bases.updateCommanders(baseId, [
+    createCommander('off-1', 'Halvard Nyx', 'field_commander'),
+  ]);
   return { app, token, baseId };
 }
 
-describe('the page a misc card promises', () => {
-  it('is the page the launched run is frozen with', async () => {
-    // The fixture is only worth running while the card is still on that board.
-    const onTheWall = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, AT)).some(
-      (offer) => offer.id === TEMPLATE,
-    );
-    expect(onTheWall, `${TEMPLATE} is no longer on the misc board at ${AT.toISOString()}`).toBe(
-      true,
-    );
-
+describe('the page a run might bring home', () => {
+  it('is on the launched row and nowhere on the card', async () => {
     const { app, token, baseId } = await crewAtTheBoard();
+    const level = app.repos.bases.findById(baseId)!.level;
+    // The fixture is only worth running while the card is still on that board, for this crew.
+    const onTheWall = missionOffers(MISC_AREA_ID, missionBoardKey(MISC_AREA_ID, AT), level).find(
+      (job) => job.template.id === TEMPLATE,
+    );
+    expect(
+      onTheWall,
+      `${TEMPLATE} is no longer on the misc board at ${AT.toISOString()}`,
+    ).toBeDefined();
+    expect(onTheWall!.grade, 'the pinned card is dealt at its floor').not.toBe(
+      onTheWall!.template.grades[0],
+    );
     const headers = { authorization: `Bearer ${token}` };
 
     const board = await app.inject({ method: 'GET', url: '/api/missions', headers });
@@ -99,6 +112,8 @@ describe('the page a misc card promises', () => {
       .areas.find((area) => area.id === MISC_AREA_ID)
       ?.offers.find((offer) => offer.templateId === TEMPLATE);
     expect(misc, `${TEMPLATE} was not on the misc board the server drew`).toBeDefined();
+    expect(misc).not.toHaveProperty('pagePrize');
+    expect(board.body).not.toMatch(/pagePrize|page_prize/);
 
     const launched = await app.inject({
       method: 'POST',
@@ -112,44 +127,27 @@ describe('the page a misc card promises', () => {
       },
     });
     expect(launched.statusCode, launched.body.slice(0, 300)).toBe(200);
+    /*
+     * ...and not on the run once it is out. The launch answers with the row and every read of the
+     * board carries it, so a prize left on it told a player which card paid a page: launch, read
+     * the answer, recall inside the window if it said nothing, and try the next card.
+     */
+    expect(launched.json<LaunchMissionResponse>().mission.pagePrize).toBeNull();
+    const reread = await app.inject({ method: 'GET', url: '/api/missions', headers });
+    const out = reread.json<MissionsResponse>().missions.filter((one) => one.status === 'active');
+    expect(out, 'the launched run is not on the board read').toHaveLength(1);
+    expect(out[0]!.pagePrize).toBeNull();
 
     const row = app.repos.missions.listActiveByBaseId(baseId)[0];
     expect(row, 'the launch wrote no mission row').toBeDefined();
-    expect(row!.mission.pagePrize).toBe(misc!.pagePrize);
-  });
-
-  /**
-   * The positive control for the moment above, and the measure of what the defect was worth.
-   *
-   * The test above pins one hour and one card, which on its own proves nothing about whether that
-   * hour was a fluke: if the misc key and the bare day happened to draw the same prize almost
-   * always, the end-to-end check would pass through a reintroduced bug on most days. So this
-   * counts the disagreements across a fortnight of misc slots and refuses a number small enough
-   * for the other test to be luck.
-   *
-   * It deliberately does **not** assert the fix. Comparing the launch's key against the board's
-   * key would be comparing one expression with itself, which is the tautology this file exists to
-   * avoid; the launch is measured through the wire above, where it cannot be faked.
-   */
-  it('draws a materially different prize from the bare day, which is what the launch used to read', () => {
-    let disagreements = 0;
-    let cards = 0;
-    for (let hour = 0; hour < 24 * 14; hour += 1) {
-      const at = new Date(AT.getTime() + hour * 3_600_000);
-      const key = missionBoardKey(MISC_AREA_ID, at);
-      const day = missionBoardDay(at);
-      expect(key, 'the misc board no longer carries a slot').not.toBe(day);
-      for (const template of missionOffers(MISC_AREA_ID, key)) {
-        cards += 1;
-        const onTheCard = pagePrizeFor(MISC_AREA_ID, key, template.id, template.difficulty);
-        const offTheDay = pagePrizeFor(MISC_AREA_ID, day, template.id, template.difficulty);
-        if (onTheCard !== offTheDay) disagreements += 1;
-      }
-    }
-    expect(cards, 'no misc cards in the window').toBeGreaterThan(500);
-    expect(
-      disagreements,
-      'the two keys draw alike, so the route test could be luck',
-    ).toBeGreaterThan(50);
+    const frozen = pagePrizeFor(
+      pagePrizeSaltFrom(JWT_SECRET),
+      MISC_AREA_ID,
+      missionBoardKey(MISC_AREA_ID, AT),
+      TEMPLATE,
+      onTheWall!.grade,
+    );
+    expect(frozen, 'the pinned job pays no page, so the card had nothing to hide').not.toBeNull();
+    expect(row!.mission.pagePrize).toBe(frozen);
   });
 });

@@ -19,6 +19,7 @@ import { Icon, type IconName } from '../../components/ui/Icon';
 import { Modal } from '../../components/ui/Modal';
 import { cn } from '../../lib/cn';
 import { useMe, useMissions } from '../../lib/queries';
+import { WastedAtTheGate, WastedOn } from '../missions/WastedAtTheGate';
 
 /**
  * What is behind a notification (maintainer request).
@@ -222,6 +223,7 @@ function Haul({ mission }: { mission: Mission }) {
                 carried={Math.round(mission.rewards[kind] ?? 0)}
                 earned={Math.round(earned[kind] ?? 0)}
                 known={knownSpoils}
+                mission={mission}
               />
             ))}
           </ul>
@@ -235,6 +237,7 @@ function Haul({ mission }: { mission: Mission }) {
               </span>
             )}
           </p>
+          <WastedAtTheGate mission={mission} />
         </>
       )}
     </section>
@@ -246,11 +249,14 @@ function HaulRow({
   carried,
   earned,
   known,
+  mission,
 }: {
   kind: ResourceKey;
   carried: number;
   earned: number;
   known: boolean;
+  /** The run, for what of this resource the full stores threw away. */
+  mission: Mission;
 }) {
   const short = known && carried < earned;
   return (
@@ -274,6 +280,7 @@ function HaulRow({
           </span>
           {known && <span className="text-ink-400"> of {earned.toLocaleString()}</span>}
         </span>
+        <WastedOn mission={mission} kind={kind} />
       </span>
     </li>
   );

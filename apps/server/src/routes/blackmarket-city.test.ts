@@ -100,8 +100,6 @@ function give(app: FastifyInstance, locationId: string, baseId: string): void {
     holder: { kind: 'crew', baseId },
     level: 1,
     upgradingUntil: null,
-    fortification: 0,
-    fortifyingUntil: null,
     garrison: {},
   };
   app.repos.city.put(control);

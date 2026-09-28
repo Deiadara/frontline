@@ -174,7 +174,7 @@ function perk(
 
 const CATALOG: Perk[] = [
   // --- Economy: what the district makes, holds and pays -------------------------------------
-  perk('skim_route', 'Skim Route', 'economy', 'Knows which ledgers nobody audits twice.', {
+  perk('skim_route', 'Skim Route', 'economy', 'Knows which ledgers the auditors skip.', {
     kind: 'resource',
     resource: 'caps',
     perHour: 4,
@@ -199,7 +199,7 @@ const CATALOG: Perk[] = [
     'wreck_claim',
     'Wreck Claim',
     'economy',
-    'Holds paper on four crash sites nobody else wants.',
+    'Holds salvage rights on four crash sites, three of them legal.',
     {
       kind: 'resource',
       resource: 'scrap',
@@ -237,7 +237,7 @@ const CATALOG: Perk[] = [
     resource: 'oil',
     percent: 5,
   }),
-  perk('sorted_heap', 'Sorted Heap', 'economy', 'A scrapyard is only a heap if nobody sorted it.', {
+  perk('sorted_heap', 'Sorted Heap', 'economy', 'Sorts the pile by what it will sell for.', {
     kind: 'resource_yield',
     resource: 'scrap',
     percent: 5,
@@ -256,7 +256,7 @@ const CATALOG: Perk[] = [
     'shift_pattern',
     'Shift Pattern',
     'economy',
-    'Redrew the rota. Nobody has noticed they work less.',
+    'Redrew the rota. The crew works less and has not worked out why.',
     {
       kind: 'production',
       percent: 4,
@@ -272,7 +272,7 @@ const CATALOG: Perk[] = [
       percent: 6,
     },
   ),
-  perk('found_room', 'Found Room', 'economy', 'There was a whole floor nobody had on the plans.', {
+  perk('found_room', 'Found Room', 'economy', 'Found a whole floor missing from the plans.', {
     kind: 'storage_capacity',
     percent: 6,
   }),
@@ -280,7 +280,7 @@ const CATALOG: Perk[] = [
     kind: 'storage_capacity',
     percent: 9,
   }),
-  perk('bulk_buyer', 'Bulk Buyer', 'economy', 'Never bought one of anything in their life.', {
+  perk('bulk_buyer', 'Bulk Buyer', 'economy', 'Buys by the pallet, even when one would do.', {
     kind: 'market_discount',
     percent: 4,
   }),
@@ -288,16 +288,10 @@ const CATALOG: Perk[] = [
     kind: 'market_discount',
     percent: 6,
   }),
-  perk(
-    'back_door_price',
-    'Back Door Price',
-    'economy',
-    'Knows which stall keeps the real ledger.',
-    {
-      kind: 'black_market_discount',
-      percent: 6,
-    },
-  ),
+  perk('back_door_price', 'Back Door Price', 'economy', 'Buys from the stall behind the stall.', {
+    kind: 'black_market_discount',
+    percent: 6,
+  }),
   perk(
     'fence_contact',
     'Fence Contact',
@@ -371,16 +365,16 @@ const CATALOG: Perk[] = [
     'Pit Boss',
     'military',
     'Ran the ring on the east side. Everybody who worked for him can hold a line.',
-    // The Fight Pit's rule, bought in a chair instead of on the map, at the same half strength:
-    // see `CARRIER_STRENGTH`. Two sources of one permission, which is the design `crew/effects.ts`
-    // is built around, and holding both buys it once.
+    // The Fight Pit's rule, bought in a chair instead of on the map. Two sources of one
+    // permission, which is the design `crew/effects.ts` is built around, and holding both buys it
+    // once.
     { kind: 'carriers_fight' },
   ),
   perk(
     'chaplain',
     'Chaplain',
     'military',
-    'Walks the line before it starts and nobody remembers what he said.',
+    'Walks the line before it starts and says something different to each of them.',
     // Cuts the cascade term out of the crew's morale phase (`steady_nerve`). The strongest thing in
     // this book on a bad day and worth nothing on a good one: a fight the crew is winning has no
     // cascade to cut.
@@ -465,7 +459,7 @@ const CATALOG: Perk[] = [
     'sworn_word',
     'Sworn Word',
     'military',
-    'Has never left anybody on the ground. Everybody knows.',
+    'Went back for the last one, every time. The crew remembers.',
     {
       kind: 'unit_morale',
       flat: 7,
@@ -537,7 +531,7 @@ const CATALOG: Perk[] = [
       percent: 9,
     },
   ),
-  perk('pack_mule', 'Pack Mule', 'military', 'Nobody comes home from a job empty-handed.', {
+  perk('pack_mule', 'Pack Mule', 'military', 'Straps on one more bag than the last person did.', {
     kind: 'loot_capacity',
     percent: 8,
   }),
@@ -667,7 +661,7 @@ const CATALOG: Perk[] = [
       percent: 5,
     },
   ),
-  perk('relic_smith', 'Relic Smith', 'military', 'Repairs what nobody else will touch.', {
+  perk('relic_smith', 'Relic Smith', 'military', 'Repairs machines older than the district.', {
     kind: 'unit_tier',
     tier: 'legendary',
     stat: 'armor',
@@ -706,7 +700,7 @@ const CATALOG: Perk[] = [
     'shortcut_runner',
     'Shortcut Runner',
     'logistics',
-    'Knows a way through the yards that is not on anybody’s map.',
+    'Cuts through the rail yards where the fences are only for show.',
     // Three minutes flat, against the Tram Depot's four. A percentage is worth what the clock is
     // worth and this is worth the same on the short hop as on the long march: see `roadMinutes`.
     { kind: 'road_shortcut', minutes: 3 },
@@ -788,7 +782,7 @@ const CATALOG: Perk[] = [
       percent: 8,
     },
   ),
-  perk('extra_hour', 'Extra Hour', 'logistics', 'Finds a session in the day nobody else could.', {
+  perk('extra_hour', 'Extra Hour', 'logistics', 'Squeezes one more session out of the day.', {
     kind: 'training_sessions',
     flat: 1,
   }),
@@ -836,7 +830,7 @@ const CATALOG: Perk[] = [
     'name_in_the_papers',
     'Name In The Papers',
     'logistics',
-    'Makes sure the right people hear about it.',
+    'Knows three editors and what each of them drinks.',
     {
       kind: 'infamy_gain',
       percent: 6,
@@ -937,7 +931,7 @@ const CATALOG: Perk[] = [
   }),
   perk(
     'workshop_teacher',
-    'Workshop Teacher',
+    'Bench Teacher',
     'people',
     'Shows the others how, instead of doing it for them.',
     {
@@ -1055,7 +1049,7 @@ const CATALOG: Perk[] = [
     'line_brother',
     'Line Brother',
     'military',
-    'Has stood in somebody else\u2019s line and held it.',
+    'Held another crew\u2019s line once, and was paid badly for it.',
     {
       kind: 'allied_offense',
       percent: 12,
@@ -1069,10 +1063,16 @@ const CATALOG: Perk[] = [
     kind: 'gate_defense',
     percent: 15,
   }),
-  perk('doorkeeper', 'Doorkeeper', 'military', 'Has never once let the wrong person through.', {
-    kind: 'gate_defense',
-    percent: 9,
-  }),
+  perk(
+    'doorkeeper',
+    'Doorkeeper',
+    'military',
+    'Checks every face at the door, including the regulars.',
+    {
+      kind: 'gate_defense',
+      percent: 9,
+    },
+  ),
   perk('ward_boss', 'Ward Boss', 'people', 'Owns every street on the map, and the map.', {
     kind: 'whole_district',
     percent: 14,
@@ -1202,16 +1202,10 @@ const CATALOG: Perk[] = [
     kind: 'xp_gain',
     percent: 10,
   }),
-  perk(
-    'debrief_habit',
-    'Debrief Habit',
-    'people',
-    'Nobody goes home until the run is written up.',
-    {
-      kind: 'xp_gain',
-      percent: 14,
-    },
-  ),
+  perk('debrief_habit', 'Debrief Habit', 'people', 'The run is written up before anyone eats.', {
+    kind: 'xp_gain',
+    percent: 14,
+  }),
 
   /*
    * Other people's sheets.
@@ -1239,11 +1233,17 @@ const CATALOG: Perk[] = [
     attribute: 'analysis',
     flat: 5,
   }),
-  perk('parade_voice', 'Parade Voice', 'people', 'Nobody mumbles an order twice around them.', {
-    kind: 'officer_attribute',
-    attribute: 'authority',
-    flat: 4,
-  }),
+  perk(
+    'parade_voice',
+    'Parade Voice',
+    'people',
+    'Gives an order once, loud enough for the back row.',
+    {
+      kind: 'officer_attribute',
+      attribute: 'authority',
+      flat: 4,
+    },
+  ),
   perk('steady_hand', 'Steady Hand', 'people', 'The room slows down when they walk into it.', {
     kind: 'officer_attribute',
     attribute: 'composure',
@@ -1296,25 +1296,25 @@ const CATALOG: Perk[] = [
       flat: 6,
     },
   ),
-  perk('plate_hoarder', 'Plate Hoarder', 'military', 'Nobody walks out without a chest rig on.', {
+  perk('plate_hoarder', 'Plate Hoarder', 'military', 'Hands out chest rigs at the door.', {
     kind: 'lead_armor',
     flat: 5,
   }),
+  perk('holds_the_line', 'Holds the Line', 'military', 'Calls the retreat late, and only once.', {
+    kind: 'lead_morale',
+    flat: 8,
+  }),
   perk(
-    'holds_the_line',
-    'Holds the Line',
-    'military',
-    'Has never once told anybody to fall back.',
+    'picks_the_crate',
+    'Picks the Crate',
+    'logistics',
+    'Opens the pallet at the back, not the one on show.',
     {
-      kind: 'lead_morale',
-      flat: 8,
+      kind: 'lead_loot',
+      percent: 12,
     },
   ),
-  perk('picks_the_crate', 'Picks the Crate', 'logistics', 'Knows which pallet is the real one.', {
-    kind: 'lead_loot',
-    percent: 12,
-  }),
-  perk('short_way', 'Short Way', 'logistics', 'Has never taken the road anybody else would.', {
+  perk('short_way', 'Short Way', 'logistics', 'Takes the road the column would not think of.', {
     kind: 'lead_arrival',
     percent: 10,
   }),

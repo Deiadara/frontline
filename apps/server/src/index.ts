@@ -1,11 +1,13 @@
 import { buildApp } from './app.js';
 import { assertDeployable, loadConfig } from './config.js';
-import { BACKUP_INTERVAL_MS, startBackupSchedule } from './db/backup.js';
+import { BACKUP_INTERVAL_MS, startBackupSchedule, takeBackup } from './db/backup.js';
+import { CrashBudget } from './crash-budget.js';
+import { resetLoopWindow, vitals, watchEventLoop } from './world/vitals.js';
 import { openDatabase, runMigrations } from './db/index.js';
 import { WORLD_TICK_MS, startWorldClock } from './live/clock.js';
 import { backfillPortraits } from './crew/faces.js';
 import { trimLegendaries } from './units/legendaries.js';
-import { seedMvpWorld } from './seed/index.js';
+import { devOperatorStillOpen, seedMvpWorld } from './seed/index.js';
 import { MVP_PLAYER } from './seed/constants.js';
 import { applyUnlockedSandbox } from './seed/sandbox.js';
 import { watchForOrphaning } from './orphan.js';
@@ -17,15 +19,76 @@ async function main(): Promise<void> {
   assertDeployable(config);
 
   const db = openDatabase(config.databasePath);
+  /*
+   * A damaged save is refused at the door (hardening pass, 2026-09-27). Serving from one writes
+   * new progress on top of the damage, and every snapshot taken afterwards carries it; stopping
+   * here leaves the last good snapshot the newest one. `docs/RECOVERY.md` is the way back.
+   */
+  const integrity = (db.pragma('quick_check') as { quick_check: string }[])
+    .map((row) => row.quick_check)
+    .join('; ');
+  if (integrity !== 'ok') {
+    throw new Error(
+      `The database failed its integrity check (${integrity}). Restore a snapshot: docs/RECOVERY.md`,
+    );
+  }
   const applied = runMigrations(db);
 
   const app = await buildApp({ config, db });
+
+  /*
+   * The last line: nothing that escapes a callback takes the server down (robustness pass,
+   * 2026-09-25).
+   *
+   * Since Node 15 an unhandled promise rejection ends the process, and so does an exception thrown
+   * from a timer or a socket callback, so one forgotten `void` anywhere was an outage for every
+   * player at once. Node's advice is to exit on an uncaught exception because state may be half
+   * written, and here it is not: every write in this server is a synchronous SQLite transaction
+   * that commits whole or rolls back before control returns, so an error escaping afterwards has
+   * nothing half done behind it. It is logged loudly and the server keeps serving. A failure while
+   * starting is still fatal (`main().catch` below), because a server that cannot start cannot serve.
+   */
+  // ...within a budget (`crash-budget.ts`): a process out of descriptors or memory, or throwing
+  // more than ten times a minute, is broken in a way logging does not fix, and goes, so that the
+  // supervisor starts a fresh one (`deploy/frontline.service`).
+  const budget = new CrashBudget();
+  const escaped = (error: unknown, what: string): void => {
+    if (budget.spend(error)) {
+      app.log.fatal({ err: error }, `${what}: past the crash budget, exiting for a clean restart`);
+      process.exitCode = 1;
+      process.kill(process.pid, 'SIGTERM');
+      return;
+    }
+    app.log.error({ err: error }, `${what}: logged, the server keeps running`);
+  };
+  process.on('unhandledRejection', (reason) => escaped(reason, 'unhandled promise rejection'));
+  process.on('uncaughtException', (error) => escaped(error, 'uncaught exception'));
+
+  // The event loop, measured: a stall is every player waiting at once. Warned once a minute when
+  // the slowest one percent of waits passed a fifth of a second, and read by `/health`.
+  watchEventLoop();
+  const loopWatch = setInterval(() => {
+    const { loopP99Ms } = vitals();
+    if (loopP99Ms !== null && loopP99Ms > 200) {
+      app.log.warn({ loopP99Ms }, 'event loop is slow: requests are queueing');
+    }
+    resetLoopWindow();
+  }, 60_000);
+  loopWatch.unref();
   if (applied.length > 0) {
     app.log.info({ applied }, 'applied database migrations');
   }
 
   // Deliberately outside buildApp: tests need to build an unseeded app.
-  const seeded = await seedMvpWorld({ db, repos: app.repos });
+  const production = process.env.NODE_ENV === 'production';
+  const seeded = await seedMvpWorld({ db, repos: app.repos, production });
+  if (production && (await devOperatorStillOpen(app.repos))) {
+    throw new Error(
+      `The dev account "${MVP_PLAYER.username}" still has the password committed to this ` +
+        'repository, so anybody can sign in to it. Change its password or delete it before ' +
+        'serving players.',
+    );
+  }
   app.log.info(seeded, 'seeded MVP world');
 
   // Every officer in the city wears a face of their own (maintainer, 2026-09-11). After the seed, so
@@ -63,6 +126,7 @@ async function main(): Promise<void> {
     stopBackups = startBackupSchedule({
       db,
       directory: config.backupDir,
+      mirror: config.backupMirrorDir,
       onBackup: (file) => {
         app.repos.history.record({
           actorId: null,
@@ -75,7 +139,7 @@ async function main(): Promise<void> {
       onError: (error) => app.log.error({ error }, 'database snapshot failed'),
     });
     app.log.info(
-      { directory: config.backupDir, everyMs: BACKUP_INTERVAL_MS },
+      { directory: config.backupDir, mirror: config.backupMirrorDir, everyMs: BACKUP_INTERVAL_MS },
       'backup schedule started: see docs/RECOVERY.md to restore one',
     );
   }
@@ -89,6 +153,8 @@ async function main(): Promise<void> {
     admin: config.admin,
     onSettled: (resolved, at) => app.log.info({ resolved, at }, 'world clock settled fights'),
     onError: (error) => app.log.error({ error }, 'world clock tick failed'),
+    onFailure: ({ stage, item, error }) =>
+      app.log.error({ stage, item, error }, 'world clock: one stage or row failed and was skipped'),
   });
   app.log.info({ everyMs: WORLD_TICK_MS }, 'world clock started: fights land on their mark');
 
@@ -123,12 +189,21 @@ async function main(): Promise<void> {
       setTimeout(resolve, 2_000, 0).unref();
     });
     void Promise.race([closed, deadline]).then((code) => {
+      // One last snapshot on the way out, so a clean stop loses nothing a restore would need.
+      if (config.backupsEnabled) {
+        try {
+          takeBackup(db, config.backupDir, new Date(), config.backupMirrorDir);
+        } catch (error: unknown) {
+          console.error(error);
+        }
+      }
       try {
+        db.pragma('optimize');
         db.close();
       } catch (error: unknown) {
         console.error(error);
       }
-      process.exit(code);
+      process.exit(process.exitCode ?? code);
     });
   };
   process.once('SIGINT', shutdown);

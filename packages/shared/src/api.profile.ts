@@ -47,6 +47,13 @@ export const CrewProfileResponseSchema = z.object({
     userId: IdSchema,
     /** What they chose to be called, or the name they log in with. */
     name: z.string().min(1),
+    /**
+     * The name they log in with, which is the one `POST /messages` addresses (bug pass,
+     * 2026-09-28). `name` is the display name wherever one is set, so the file's "Write to them"
+     * had nothing to put in the composer and opened an empty mailbox. Optional so a file served
+     * without it still parses; the door then opens the mailbox unaddressed.
+     */
+    handle: z.string().min(1).optional(),
     /** When the account was made: how long they have been in the city. */
     since: IsoDateTimeSchema,
   }),

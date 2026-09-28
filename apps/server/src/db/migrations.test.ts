@@ -507,6 +507,15 @@ describe('every migration from 0081 on, on a database with rows in every table',
     '0115_battle_tier.sql',
     '0116_bio_punctuation.sql',
     '0117_drop_dead_columns.sql',
+    '0118_missions_active_index.sql',
+    '0119_garrison_regrowth.sql',
+    '0120_district_ids_match_names.sql',
+    '0121_session_version.sql',
+    '0122_movement_by_rail.sql',
+    '0123_mission_grade.sql',
+    '0124_mission_wasted.sql',
+    '0125_market_claims.sql',
+    '0126_bar_rooms.sql',
   ];
   /** Dropped by 0082 along with the mechanics under them, so they are not there to be counted. */
   const RETIRED = new Set(['bar_negotiations', 'bar_standoffs', 'bar_slots']);
@@ -538,7 +547,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
       id: 'b-seed',
       owner_id: 'u-seed',
       name: 'Seed Crew',
-      district_id: 'rustyard',
+      district_id: 'steelbelt',
       created_at: NOW,
       resources_json: JSON.stringify({
         caps: 100,
@@ -636,7 +645,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
     sleeper_cells: {
       id: 'cell-seed',
       base_id: 'b-seed',
-      location_id: 'rustyard-press',
+      location_id: 'steelbelt-press',
       army_json: '{"sleepers":4}',
       phase: 'waiting',
       departed_at: NOW,
@@ -653,7 +662,7 @@ describe('every migration from 0081 on, on a database with rows in every table',
       created_at: NOW,
     },
     location_control: {
-      location_id: 'rustyard-ramp',
+      location_id: 'steelbelt-ramp',
       holder_kind: 'crew',
       holder_base_id: 'b-seed',
     },
@@ -971,7 +980,12 @@ describe('0054: battle reports written under the old tier names', () => {
     for (const name of columns) {
       base[name] = name.endsWith('_json') ? '{}' : name.endsWith('_at') ? NOW : 0;
     }
-    Object.assign(base, { id: 'base-1', owner_id: 'u1', name: 'Nowhere', district_id: 'rustyard' });
+    Object.assign(base, {
+      id: 'base-1',
+      owner_id: 'u1',
+      name: 'Nowhere',
+      district_id: 'steelbelt',
+    });
     db.prepare(
       `INSERT INTO bases (${columns.join(', ')})
        VALUES (${columns.map((name) => `@${name}`).join(', ')})`,
@@ -984,7 +998,7 @@ describe('0054: battle reports written under the old tier names', () => {
          (id, attacker_base_id, target_kind, district_id, location_id, defender_json,
           scheduled_for, declared_at, resolved_at, seed, analysis_json)
        VALUES (?, ?, 'location', ?, ?, '{}', ?, ?, ?, 'seed', ?)`,
-    ).run('b1', 'base-1', 'rustyard', 'rustyard-ramp', NOW, NOW, NOW, analysis('regular'));
+    ).run('b1', 'base-1', 'steelbelt', 'steelbelt-ramp', NOW, NOW, NOW, analysis('regular'));
     return db;
   };
 
@@ -1145,7 +1159,7 @@ describe('0075: signals, craft and encyclopedia', () => {
       id: 'b75',
       owner_id: 'u76',
       name: 'Legacy Crew',
-      district_id: 'rustyard',
+      district_id: 'steelbelt',
       created_at: NOW,
       commanders_json: JSON.stringify([
         { id: 'c1', role: 'master_of_whispers', attributes: before },
@@ -1211,7 +1225,7 @@ describe('0077: the retired desk projects', () => {
         id: `b77-${index}`,
         owner_id: `u77-${index}`,
         name: `Legacy ${index}`,
-        district_id: 'rustyard',
+        district_id: 'steelbelt',
         created_at: NOW,
         research_json: JSON.stringify(research),
       });
@@ -1433,7 +1447,7 @@ describe('0104: Directive Xero', () => {
     ).run('u104', 'legacy104', 'x', NOW);
     insert(db, 'bases', { id: 'b104', owner_id: 'u104', name: 'Legacy', created_at: NOW });
     insert(db, 'location_control', {
-      location_id: 'combine-spire-chapel',
+      location_id: 'ccs-chapel',
       holder_kind: 'government',
       base_id: null,
       // The Chapel as a live save has it: him, and the rank and file he stands with.
@@ -1456,7 +1470,7 @@ describe('0104: Directive Xero', () => {
     insert(db, 'sleeper_cells', {
       id: 'cell-104',
       base_id: 'b104',
-      location_id: 'rustyard-ramp',
+      location_id: 'steelbelt-ramp',
       army_json: JSON.stringify({ directive_zero: 3 }),
       phase: 'waiting',
       departed_at: NOW,
@@ -1471,7 +1485,7 @@ describe('0104: Directive Xero', () => {
       (
         db
           .prepare('SELECT garrison_json FROM location_control WHERE location_id = ?')
-          .get('combine-spire-chapel') as { garrison_json: string }
+          .get('ccs-chapel') as { garrison_json: string }
       ).garrison_json,
     ) as Record<string, number>;
 
@@ -1496,7 +1510,7 @@ describe('0104: Directive Xero', () => {
    */
   it('is a precondition that leaving the garrison alone loses him without a sound', () => {
     const db = legacy();
-    expect(createCityRepo(db).control('combine-spire-chapel')?.garrison).toEqual({ greycoat: 12 });
+    expect(createCityRepo(db).control('ccs-chapel')?.garrison).toEqual({ greycoat: 12 });
     db.close();
   });
 
@@ -1506,7 +1520,7 @@ describe('0104: Directive Xero', () => {
     expect(garrison(db)).toEqual({ directive_xero: 1, greycoat: 12 });
     // ...and the row reads back through the schema that refused the old key, with him in it.
     expect(() => ArmySchema.parse(garrison(db))).not.toThrow();
-    expect(createCityRepo(db).control('combine-spire-chapel')?.garrison).toEqual({
+    expect(createCityRepo(db).control('ccs-chapel')?.garrison).toEqual({
       directive_xero: 1,
       greycoat: 12,
     });
@@ -1652,6 +1666,8 @@ const legacyAnalysis = (attackerCowed: number, defenderCowed: number) => ({
   trap: null,
   legends: [],
   headline: 'The Combine held the Chosen Chapel.',
+  spoils: {},
+  target: 'location',
   weather: 'normal',
   ground: [],
 });
@@ -1675,8 +1691,8 @@ describe('0105: a report written when the figure was called cowed', () => {
     ).run(
       'fight-105',
       'b105',
-      'rustyard',
-      'rustyard-ramp',
+      'steelbelt',
+      'steelbelt-ramp',
       SETTLED,
       SETTLED,
       SETTLED,
@@ -1776,7 +1792,7 @@ describe('0106: the save that already ran the broken sweep', () => {
     insert(db, 'scheduled_battles', {
       id: 'sb106',
       attacker_base_id: 'b106',
-      district_id: 'combine-spire',
+      district_id: 'ccs',
       target_kind: 'gate',
       scheduled_for: SETTLED,
       resolved_at: SETTLED,
@@ -1843,7 +1859,7 @@ describe('0107, the retired Professor rung', () => {
         id: `b107-${index}`,
         owner_id: `u107-${index}`,
         name: `Legacy ${index}`,
-        district_id: 'rustyard',
+        district_id: 'steelbelt',
         created_at: NOW,
         research_json: JSON.stringify({ active: null, technologies }),
       });
@@ -1927,7 +1943,7 @@ describe('0111: a level below one', () => {
       id: 'b111-zero',
       owner_id: 'u111-zero',
       name: 'Cleared',
-      district_id: 'rustyard',
+      district_id: 'steelbelt',
       created_at: NOW,
       level: 0,
     });
@@ -1935,23 +1951,23 @@ describe('0111: a level below one', () => {
       id: 'b111-grown',
       owner_id: 'u111-grown',
       name: 'Grown',
-      district_id: 'rustyard',
+      district_id: 'steelbelt',
       created_at: NOW,
       level: 7,
     });
     insert(db, 'location_control', {
-      location_id: 'rustyard-press',
+      location_id: 'steelbelt-press',
       holder_kind: 'government',
       holder_base_id: null,
       level: 0,
     });
     insert(db, 'location_control', {
-      location_id: 'rustyard-ramp',
+      location_id: 'steelbelt-ramp',
       holder_kind: 'government',
       holder_base_id: null,
       level: 4,
     });
-    insert(db, 'captured_gates', { district_id: 'rustyard', level: 0 });
+    insert(db, 'captured_gates', { district_id: 'steelbelt', level: 0 });
     insert(db, 'captured_gates', { district_id: 'kessler', level: 3 });
     return db;
   };
@@ -1966,19 +1982,19 @@ describe('0111: a level below one', () => {
     zeroLocation: (
       db
         .prepare('SELECT level FROM location_control WHERE location_id = ?')
-        .get('rustyard-press') as {
+        .get('steelbelt-press') as {
         level: number;
       }
     ).level,
     heldLocation: (
       db
         .prepare('SELECT level FROM location_control WHERE location_id = ?')
-        .get('rustyard-ramp') as {
+        .get('steelbelt-ramp') as {
         level: number;
       }
     ).level,
     zeroGate: (
-      db.prepare('SELECT level FROM captured_gates WHERE district_id = ?').get('rustyard') as {
+      db.prepare('SELECT level FROM captured_gates WHERE district_id = ?').get('steelbelt') as {
         level: number;
       }
     ).level,
@@ -2022,6 +2038,122 @@ describe('0111: a level below one', () => {
     const after = levels(db);
     runMigrations(db);
     expect(levels(db)).toEqual(after);
+    db.close();
+  });
+});
+
+/**
+ * 0120: the ids became the names the tags show, and a save written before it holds old ones.
+ *
+ * The catalogue is code and moved with the rename in the same change. This is the half that is
+ * data: a row saying a crew lives in `rustyard` names a district the atlas no longer has, and
+ * every read of it comes back undefined. Nothing throws, which is the problem: the crew stands
+ * nowhere, the ground it holds matches no location, and the fight it called is over a place with
+ * no name.
+ *
+ * Written against the schema as it stood before 0120 and then migrated, which is the only way to
+ * reach this state: no fixture built from the catalogue can produce an id the catalogue does not
+ * have.
+ */
+describe('0120: district and location ids follow the names on the tags', () => {
+  const AT = '0120_district_ids_match_names.sql';
+
+  function legacy(): AppDatabase {
+    const db = openDatabase(':memory:');
+    migrateUpTo(db, AT);
+    db.prepare(
+      'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
+    ).run('u1', 'somebody', 'hash', NOW);
+    /*
+     * Column by column off the live table, the way `legacyBattle` above does it.
+     *
+     * Not through the repo: the repo writes what the catalogue says, and the catalogue has already
+     * moved, so it cannot produce the old id this is about. Everything but `district_id` is
+     * scaffolding.
+     */
+    const columns = (db.prepare('SELECT * FROM bases LIMIT 0').columns() as { name: string }[]).map(
+      (column) => column.name,
+    );
+    const base: Record<string, string | number> = {};
+    for (const name of columns) {
+      base[name] = name.endsWith('_json') ? '{}' : name.endsWith('_at') ? NOW : 0;
+    }
+    Object.assign(base, { id: 'base-1', owner_id: 'u1', name: 'Nowhere', district_id: 'rustyard' });
+    db.prepare(
+      `INSERT INTO bases (${columns.join(', ')})
+       VALUES (${columns.map((name) => `@${name}`).join(', ')})`,
+    ).run(base);
+    db.prepare(
+      `INSERT INTO location_control
+         (location_id, holder_kind, holder_base_id, fortification, garrison_json, level)
+       VALUES (?, 'crew', ?, 0, '{}', 1)`,
+    ).run('combine-spire-chapel', 'base-1');
+    db.prepare('INSERT INTO crew_tallies (base_id, tally, value) VALUES (?, ?, ?)').run(
+      'base-1',
+      'missions_in_area:tm-coldwater',
+      7,
+    );
+    db.prepare('INSERT INTO crew_feats (base_id, feat_id, claimed_at) VALUES (?, ?, ?)').run(
+      'base-1',
+      'area_tm_coldwater_2',
+      NOW,
+    );
+    db.prepare(
+      `INSERT INTO unit_moves (id, base_id, from_json, to_json, army_json, vehicles_json, departed_at, returns_at, travel_minutes)
+       VALUES (?, ?, ?, ?, '{}', '{}', ?, ?, 10)`,
+    ).run(
+      'move-1',
+      'base-1',
+      JSON.stringify({ kind: 'district', districtId: 'tm-blockhouse' }),
+      JSON.stringify({ kind: 'location', locationId: 'blacksite-7-vault' }),
+      NOW,
+      NOW,
+    );
+    return db;
+  }
+
+  const read = (db: AppDatabase) => ({
+    district: (db.prepare('SELECT district_id AS d FROM bases').get() as { d: string }).d,
+    held: (db.prepare('SELECT location_id AS l FROM location_control').get() as { l: string }).l,
+    from: (db.prepare('SELECT from_json AS j FROM unit_moves').get() as { j: string }).j,
+    to: (db.prepare('SELECT to_json AS j FROM unit_moves').get() as { j: string }).j,
+    tally: (db.prepare('SELECT tally AS t FROM crew_tallies').get() as { t: string }).t,
+    claimed: (db.prepare('SELECT feat_id AS f FROM crew_feats').get() as { f: string }).f,
+  });
+
+  it('moves every stored id onto the name the tag shows', () => {
+    const db = legacy();
+    // The positive control: the fixture really is holding the old ids before the sweep runs.
+    expect(read(db).district).toBe('rustyard');
+    expect(read(db).held).toBe('combine-spire-chapel');
+
+    runMigrations(db);
+
+    const after = read(db);
+    expect(after.district).toBe('steelbelt');
+    // A location keeps its district's id as its prefix and its own suffix untouched.
+    expect(after.held).toBe('ccs-chapel');
+    expect(JSON.parse(after.from)).toEqual({ kind: 'district', districtId: 'blockhouse' });
+    expect(JSON.parse(after.to)).toEqual({ kind: 'location', locationId: 'blacksite-vault' });
+    /*
+     * The two keys that are made of an id rather than holding one.
+     *
+     * A scoped tally is `<measure>:<id>` and an area feat's id is `area_<id with underscores>`,
+     * both built from the district and both written into rows as strings. Left behind, a crew's
+     * work in the Halt would be counted under a scope the board no longer asks for, and four
+     * claimed rungs per district would come back unclaimed.
+     */
+    expect(after.tally).toBe('missions_in_area:coldwater-halt');
+    expect(after.claimed).toBe('area_coldwater_halt_2');
+    db.close();
+  });
+
+  it('changes nothing on a second run', () => {
+    const db = legacy();
+    runMigrations(db);
+    const after = read(db);
+    runMigrations(db);
+    expect(read(db)).toEqual(after);
     db.close();
   });
 });

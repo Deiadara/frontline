@@ -1,4 +1,6 @@
 import {
+  DEFAULT_CITY_ID,
+  EVERY_LOCATION,
   ITEM_CATALOG,
   MAX_LOCATION_LEVEL,
   instantAtHourInZone,
@@ -25,6 +27,7 @@ import {
 } from './auction.js';
 import { marketRefusalText, projectMarket } from './board.js';
 import { chooseOverseer, pinOverseer } from '../testing/overseer.js';
+import { openDoors } from '../testing/doors.js';
 import { snapshotFor } from '../feats/project.js';
 
 /**
@@ -129,6 +132,7 @@ async function signIn(app: FastifyInstance, username: string, caps = 1_000_000):
   });
   const { token, user } = registered.json<{ token: string; user: { id: string } }>();
   const chosen = await chooseOverseer(app, token);
+  openDoors(app, token, 'market');
   expect(chosen.statusCode).toBe(201);
   // Every close below is checked to the cap: a §F6 signature that takes 15% off a list price
   // would make what a crew paid depend on which four they were offered.
@@ -454,6 +458,41 @@ describe('the close', () => {
     void bex;
   });
 
+  /**
+   * The field's edge is the table's edge. The table refuses on the discounted charge, so a crew on
+   * its own ground can bid past the caps it holds, and the board has to say how far.
+   */
+  it('quotes a bid ceiling past the purse for a crew whose ground cuts the charge', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana', 1_000);
+    const control = app.repos.city.control('chrome-row-exchange');
+    if (!control) throw new Error('fixture: no control row for the Downtown Market');
+    app.repos.city.put({
+      ...control,
+      holder: { kind: 'crew', baseId: ana.baseId },
+      level: MAX_LOCATION_LEVEL,
+      garrison: {},
+    });
+    const day = aDayWhere((lines) => lines.some((candidate) => candidate.price <= 1_000));
+    const now = duringVisit(day, 0);
+    const percent = standingEffectsFor(app.repos, baseOf(app, ana), now).marketDiscountPercent;
+    expect(percent, 'holding the Exchange bought no discount').toBeGreaterThan(0);
+
+    const ceiling = projectMarket(app.repos, baseOf(app, ana), now).bidCeiling ?? 0;
+    expect(ceiling).toBeGreaterThan(1_000);
+    expect(discountedCaps(ceiling, percent)).toBeLessThanOrEqual(1_000);
+    expect(discountedCaps(ceiling + 1, percent)).toBeGreaterThan(1_000);
+
+    // ...and the table takes exactly that bid on a line it opens under, and not one more.
+    const line = vendorStockFor(day).find((candidate) => candidate.price <= 1_000);
+    if (!line) throw new Error('fixture: no line on the barrow opens under the purse');
+    expect(bid(app, ana, { lineId: line.id, amount: ceiling + 1, now })).toMatchObject({
+      kind: 'refused',
+      reason: 'cannot_afford',
+    });
+    expect(bid(app, ana, { lineId: line.id, amount: ceiling, now })).toEqual({ kind: 'placed' });
+  });
+
   it('passes the lot down when the leading crew cannot cover their bid', async () => {
     const app = await makeApp();
     const ana = await signIn(app, 'ana');
@@ -474,9 +513,43 @@ describe('the close', () => {
     expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
     expect(capsOf(app, bex), 'the crew that passed was charged anyway').toBe(1);
 
-    const results = latestLotResultsFor(app.repos, bex.userId, afterVisit(day, 0));
+    const results = latestLotResultsFor(app.repos, bex.userId, afterVisit(day, 0), DEFAULT_CITY_ID);
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ outcome: 'passed', winner: 'ana', price: line.price });
+  });
+
+  /**
+   * The leading crew is settled before it is asked to pay (audit, 2026-09-28): caps its own
+   * ground made since it last looked are caps it has. Read raw, the lot went to the next bid down.
+   */
+  it('counts what the leading crew made since it last looked towards the charge', async () => {
+    const app = await makeApp();
+    const ana = await signIn(app, 'ana');
+    const bex = await signIn(app, 'bex');
+    const day = aDayWhere(() => true);
+    const line = vendorStockFor(day)[0]!;
+    const now = duringVisit(day, 0);
+    const close = afterVisit(day, 0);
+    const winning = nextLotBid(line.price, line.price);
+
+    bid(app, ana, { lineId: line.id, amount: line.price, now });
+    bid(app, bex, { lineId: line.id, amount: winning, now });
+    // Bex is broke on the row and holds a Market that has been paying caps into the till since.
+    const market = EVERY_LOCATION.find((location) => location.kind === 'market')!;
+    const control = app.repos.city.control(market.id)!;
+    app.repos.city.put({ ...control, holder: { kind: 'crew', baseId: bex.baseId }, garrison: {} });
+    const held = baseOf(app, bex);
+    app.repos.bases.updateResources(bex.baseId, { ...held.resources, caps: 0 });
+    const hours = Math.ceil(winning / 10) + 10;
+    app.repos.bases.updateEconomy(bex.baseId, {
+      ...held.economy,
+      productionSettledAt: new Date(close.getTime() - hours * 3_600_000).toISOString(),
+    });
+
+    settleVendorAuctions(app.repos, close);
+
+    expect(baseOf(app, bex).inventory[line.item as keyof Base['inventory']]).toBe(1);
+    expect(baseOf(app, ana).inventory[line.item as keyof Base['inventory']] ?? 0).toBe(0);
   });
 
   /**
@@ -518,13 +591,13 @@ describe('the close', () => {
       expect(lost).toHaveLength(1);
       expect(lost[0]?.title).toContain('went unsold');
     }
-    expect(latestLotResultsFor(app.repos, bex.userId, closed)[0]).toMatchObject({
+    expect(latestLotResultsFor(app.repos, bex.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
       outcome: 'passed',
       price: null,
       winner: null,
       yourBid: winning,
     });
-    expect(latestLotResultsFor(app.repos, ana.userId, closed)[0]).toMatchObject({
+    expect(latestLotResultsFor(app.repos, ana.userId, closed, DEFAULT_CITY_ID)[0]).toMatchObject({
       outcome: 'unsold',
       price: null,
       winner: null,

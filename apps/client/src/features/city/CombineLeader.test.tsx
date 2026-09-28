@@ -27,6 +27,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -97,7 +98,7 @@ describe('how a leader is named', () => {
   });
 
   it('reads alive and dead differently on the tag and in the ground box', () => {
-    const syndic = F.districtDetailFor('datavault-sigma').combineLeader!;
+    const syndic = F.districtDetailFor('annexes').combineLeader!;
     expect(leaderTagLine(syndic)).toBe('Under the Syndic');
     expect(leaderTagLine({ ...syndic, alive: false })).toBe('The Syndic is dead');
     expect(leaderGroundLine(syndic)).toBe(syndic.powerLine);
@@ -109,12 +110,12 @@ describe('how a leader is named', () => {
 
 describe('the leader on the district screen', () => {
   it('is a precondition that the fixtures carry the three leaders and no fourth', () => {
-    for (const id of ['datavault-sigma', 'blacksite-7', 'combine-spire']) {
+    for (const id of ['annexes', 'blacksite', 'ccs']) {
       const leader = F.districtDetailFor(id).combineLeader;
       expect(leader?.unitId, id).toBe(combineLeaderOf(id)?.unitId);
       expect(leader?.name, id).toBe(findUnit(leader?.unitId ?? '')?.name);
     }
-    expect(F.districtDetailFor('rustyard').combineLeader).toBeNull();
+    expect(F.districtDetailFor('steelbelt').combineLeader).toBeNull();
     expect(F.districtDetailFor('neon-docks').combineLeader).toBeNull();
   });
 
@@ -132,7 +133,7 @@ describe('the leader on the district screen', () => {
   it('marks the scout sheet over unscouted ground, and the hover draws his card', async () => {
     // The CCS is the fixture's unscouted district. Unscouted ground opens no page any more
     // (maintainer, 2026-09-23): the tag on the map opens the scout sheet, and his mark is on it.
-    const detail = F.districtDetailFor('combine-spire');
+    const detail = F.districtDetailFor('ccs');
     openSheet(detail);
     const tag = await screen.findByTestId('combine-leader');
     expect(tag).toHaveTextContent('Under Directive Xero');
@@ -161,7 +162,7 @@ describe('the leader on the district screen', () => {
    * tooltip that a pointer could not reach, and only asking a chip a question catches that.
    */
   it('opens his file on a click, with the marks on his sheet live', async () => {
-    const detail = F.districtDetailFor('combine-spire');
+    const detail = F.districtDetailFor('ccs');
     openSheet(detail);
     const tag = await screen.findByTestId('combine-leader');
     expect(screen.queryByTestId('combine-leader-window')).toBeNull();
@@ -197,7 +198,7 @@ describe('the leader on the district screen', () => {
    * are the parts `enemy` takes off it.
    */
   it('takes the ownership claims off his card and leaves the sheet alone', async () => {
-    const detail = F.districtDetailFor('combine-spire');
+    const detail = F.districtDetailFor('ccs');
     openSheet(detail);
     fireEvent.click(await screen.findByTestId('combine-leader'));
     const window_ = screen.getByTestId('combine-leader-window');
@@ -211,7 +212,7 @@ describe('the leader on the district screen', () => {
   });
 
   it('shuts his file again', async () => {
-    openSheet(F.districtDetailFor('combine-spire'));
+    openSheet(F.districtDetailFor('ccs'));
     fireEvent.click(await screen.findByTestId('combine-leader'));
     expect(screen.getByTestId('combine-leader-window')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });
@@ -219,9 +220,9 @@ describe('the leader on the district screen', () => {
   });
 
   it('marks the painted band, and the ground box carries his line', async () => {
-    const detail = F.districtDetailFor('datavault-sigma');
+    const detail = F.districtDetailFor('annexes');
     open(detail);
-    expect(await screen.findByTestId('district-painting-datavault-sigma')).toBeInTheDocument();
+    expect(await screen.findByTestId('district-painting-annexes')).toBeInTheDocument();
     expect(screen.getByTestId('combine-leader')).toHaveTextContent('Under the Syndic');
     fireEvent.click(screen.getByTestId('district-standing-toggle'));
     expect(screen.getByTestId('combine-leader-ground')).toHaveTextContent(
@@ -237,7 +238,7 @@ describe('the leader on the district screen', () => {
    * district tag's job, and the ground line under the garrison already says it in full.
    */
   it('keeps the power mark on what the power does once the leader is dead', () => {
-    const detail = F.districtDetailFor('combine-spire');
+    const detail = F.districtDetailFor('ccs');
     const leader = detail.combineLeader!;
     const sheet = findUnit(leader.unitId)!;
     const dead = leaderOption(sheet, { ...leader, alive: false });
@@ -285,8 +286,8 @@ describe('the leader on the district screen', () => {
   });
 
   it('says so when she is dead, and says the ground fights without her', async () => {
-    open(fallen('datavault-sigma'));
-    expect(await screen.findByTestId('district-painting-datavault-sigma')).toBeInTheDocument();
+    open(fallen('annexes'));
+    expect(await screen.findByTestId('district-painting-annexes')).toBeInTheDocument();
     expect(screen.getByTestId('combine-leader')).toHaveTextContent('The Syndic is dead');
     fireEvent.click(screen.getByTestId('district-standing-toggle'));
     expect(screen.getByTestId('combine-leader-ground')).toHaveTextContent(
@@ -295,8 +296,8 @@ describe('the leader on the district screen', () => {
   });
 
   it('draws no marker on ground no legendary commands', async () => {
-    open(F.districtDetailFor('rustyard'));
-    expect(await screen.findByTestId('district-painting-rustyard')).toBeInTheDocument();
+    open(F.districtDetailFor('steelbelt'));
+    expect(await screen.findByTestId('district-painting-steelbelt')).toBeInTheDocument();
     expect(screen.queryByTestId('combine-leader')).toBeNull();
     fireEvent.click(screen.getByTestId('district-standing-toggle'));
     expect(screen.queryByTestId('combine-leader-ground')).toBeNull();

@@ -105,17 +105,17 @@ describe('unit modification slots', () => {
   });
 
   /**
-   * §D5c: one of a thing is one of a thing (project rule).
+   * §D5c: once per sheet, and any number of sheets (maintainer rule, 2026-09-16).
    *
-   * This test used to assert the opposite, and it was right about the code: `already_slotted` only
-   * looked at the unit being fitted, so a single Scrap Vest could be bolted to the Razors, the
-   * Breakers, the Wardens and the Ironsides at once. A modification is an object the crew owns, so
-   * where it goes is a decision rather than a broadcast.
+   * The yard cuts a card for a named unit and bills each one, so the same card on a second unit is
+   * a second purchase and is legal. What stays refused is two of it on one unit.
    */
-  it('refuses the same card on a second unit', () => {
+  it('takes the same card on a second unit and refuses it twice on one', () => {
     const loadouts = withSlot({}, 'razors', 0, 'scrap_vest');
-    expect(slotRefusal(loadouts, 'sparks', 0, 'scrap_vest', BUILT)).toBe('already_slotted');
-    expect(fittedOn(loadouts, 'scrap_vest')).toEqual(['razors']);
+    expect(slotRefusal(loadouts, 'razors', 1, 'scrap_vest', BUILT)).toBe('already_slotted');
+    expect(slotRefusal(loadouts, 'sparks', 0, 'scrap_vest', BUILT)).toBeNull();
+    const both = withSlot(loadouts, 'sparks', 0, 'scrap_vest');
+    expect(fittedOn(both, 'scrap_vest')).toEqual(['razors', 'sparks']);
   });
 
   /**
@@ -126,7 +126,7 @@ describe('unit modification slots', () => {
    */
   it('burns a card off the roster and out of the crew’s stock', () => {
     const loadouts = withSlot(withSlot({}, 'razors', 0, 'scrap_vest'), 'razors', 1, 'taped_grips');
-    const after = burnUpgrade(loadouts, BUILT, 'scrap_vest');
+    const after = burnUpgrade(loadouts, BUILT, 'razors', 'scrap_vest');
 
     expect(fittedOn(after.loadouts, 'scrap_vest')).toEqual([]);
     expect(after.built).not.toContain('scrap_vest');
@@ -135,10 +135,28 @@ describe('unit modification slots', () => {
     expect(after.built).toContain('taped_grips');
   });
 
-  it('refuses a burn of something that is not fitted', () => {
-    expect(burnRefusal({}, 'scrap_vest')).toBe('not_fitted');
-    expect(burnRefusal({ razors: ['scrap_vest'] }, 'nonsense')).toBe('unknown_upgrade');
-    expect(burnRefusal({ razors: ['scrap_vest'] }, 'scrap_vest')).toBeNull();
+  /**
+   * A burn names the unit it is pressed on, and only that unit loses the card.
+   *
+   * It used to take the card alone and strip it from every wearer, so dismantling Taped Grips off
+   * the Razors also destroyed the pair the Ghosts had been billed for separately.
+   */
+  it('burns the card off the named unit and leaves every other wearer alone', () => {
+    const loadouts = withSlot(withSlot({}, 'razors', 0, 'scrap_vest'), 'sparks', 0, 'scrap_vest');
+    const after = burnUpgrade(loadouts, BUILT, 'razors', 'scrap_vest');
+
+    expect(fittedOn(after.loadouts, 'scrap_vest')).toEqual(['sparks']);
+    expect(after.loadouts.razors).toBeUndefined();
+    // Still worn, so it is still something the crew has.
+    expect(after.built).toContain('scrap_vest');
+  });
+
+  it('refuses a burn of something that unit is not wearing', () => {
+    expect(burnRefusal({}, 'razors', 'scrap_vest')).toBe('not_fitted');
+    expect(burnRefusal({ razors: ['scrap_vest'] }, 'razors', 'nonsense')).toBe('unknown_upgrade');
+    expect(burnRefusal({ razors: ['scrap_vest'] }, 'razors', 'scrap_vest')).toBeNull();
+    // Worn, but by somebody else: the press was on the wrong sheet.
+    expect(burnRefusal({ razors: ['scrap_vest'] }, 'sparks', 'scrap_vest')).toBe('not_fitted');
   });
 
   it('clears a bracket without shifting the ones after it', () => {

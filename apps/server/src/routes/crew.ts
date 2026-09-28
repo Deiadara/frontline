@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import { requireAreaFor } from '../progression/doors.js';
 import {
+  LEADER_HOLD_MESSAGES,
   ReassignOfficerRequestSchema,
   type CrewMutationResponse,
   type CrewResponse,
@@ -8,6 +10,8 @@ import { AppError, parseBody } from '../errors.js';
 import { projectCrew } from '../crew/roster.js';
 import { ownBase } from './own-base.js';
 import { settleBase } from '../district/settle.js';
+import { officerDuty } from '../crew/duty.js';
+import { resolveDueMissions } from '../missions/resolve.js';
 
 /**
  * The crew (GDD §C2, §G).
@@ -33,6 +37,7 @@ export function registerCrewRoutes(app: FastifyInstance): void {
    * rather than something a route quietly does for them.
    */
   app.post('/crew/reassign', { preHandler: app.authenticate }, (request): CrewMutationResponse => {
+    requireAreaFor(app.repos, request.currentUser.id, 'crew');
     const { officerId, role } = parseBody(ReassignOfficerRequestSchema, request.body);
     const now = new Date();
     return app.db.transaction(() => {
@@ -45,10 +50,30 @@ export function registerCrewRoutes(app: FastifyInstance): void {
        * pays, and the *unsettled* hours behind you are then banked at the new rate. A day of
        * production for two HTTP calls and a third to put them back.
        */
-      const base = settleBase(app.repos, ownBase(app, request.currentUser.id), now).base;
+      // The runs as well, so a leader whose crew walked in while the player was reading the
+      // roster is free to move on this very request rather than held by a run that is over.
+      const settled = settleBase(app.repos, ownBase(app, request.currentUser.id), now).base;
+      const base = resolveDueMissions(app.repos, settled, now).base;
       const officer = base.commanders.find((candidate) => candidate.id === officerId);
       if (!officer) throw new AppError('NOT_FOUND', 'Nobody on your books by that id');
       if (officer.role === role) return { crew: projectCrew(app.repos, base) };
+
+      /*
+       * Not while they are out leading something (maintainer, 2026-09-28).
+       *
+       * The bench leads nothing, and every run keeps its leader, so taking a leader out of their
+       * chair mid-run would leave the run with nobody at its head. A move between chairs waits
+       * too: the settle spends the rungs of whichever chair the leader sits in at the mark, so a
+       * swap mid-run would buy a fight with a chair that never went out. Laid up is fine, as it
+       * is for a release: the bed is not a job.
+       */
+      const duty = officerDuty(app.repos, base, officer, now);
+      if (duty !== null && (duty.held === 'run' || duty.held === 'fight')) {
+        throw new AppError(
+          'STALE_STATE',
+          `${officer.name} ${LEADER_HOLD_MESSAGES[duty.held]}. Seat changes wait until they are back`,
+        );
+      }
 
       /*
        * A chair holds one officer. The bench holds as many as you have signed.

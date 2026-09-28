@@ -267,14 +267,19 @@ describe('backend selection', () => {
     'plate-city',
     'plate-bar',
     'plate-district-neon-docks',
-    'plate-district-rustyard',
+    'plate-district-steelbelt',
     'plate-district-chrome-row',
     'plate-faction-room',
     'plate-district-undergrid',
-    'plate-district-datavault-sigma',
+    'plate-district-annexes',
     'plate-district-glasshouse-fields',
-    'plate-district-blacksite-7',
-    'plate-district-combine-spire',
+    'plate-district-blacksite',
+    'plate-district-ccs',
+    'plate-district-coldwater-halt',
+    'plate-city-terminus',
+    'plate-district-ironmouth',
+    'plate-district-marshalling-yards',
+    'plate-district-bonded-row',
   ];
 
   /**

@@ -72,7 +72,7 @@ const EXECUTIONER = leaderOf('executioner');
 const XERO = leaderOf('directive_xero');
 
 /** A plot of the Syndic's district that is not the one she stands on. */
-const ANNEXES_ELSEWHERE = 'datavault-sigma-ward';
+const ANNEXES_ELSEWHERE = 'annexes-ward';
 
 function crew(): Base {
   const now = T0.toISOString();
@@ -263,8 +263,8 @@ describe('a leader shadows his district, not his plot', () => {
   it('reaches no fight in another district, even the Combine ground next to it', () => {
     const engine = recorder();
     callFight(at(ANNEXES_ELSEWHERE));
-    callFight(at('blacksite-7-outer'));
-    callFight(at('combine-spire-broadcast'));
+    callFight(at('blacksite-outer'));
+    callFight(at('ccs-broadcast'));
     expect(presencesFrom(engine).map((one) => one?.kind)).toEqual([
       'syndic',
       'executioner',
@@ -310,8 +310,8 @@ describe('he is alive only while he is standing on his own plot', () => {
   it('holds for all three of them, each over his own district', () => {
     const elsewhere: Record<string, string> = {
       syndic: ANNEXES_ELSEWHERE,
-      executioner: 'blacksite-7-outer',
-      directive_xero: 'combine-spire-broadcast',
+      executioner: 'blacksite-outer',
+      directive_xero: 'ccs-broadcast',
     };
     for (const leader of COMBINE_LEADERS) {
       const plot = elsewhere[leader.unitId];
@@ -368,8 +368,8 @@ describe('never the attacker', () => {
   it('names the presence on the defence and nowhere else on the input', () => {
     const engine = recorder();
     callFight(at(ANNEXES_ELSEWHERE));
-    callFight(at('blacksite-7-outer'));
-    callFight(at('combine-spire-broadcast'));
+    callFight(at('blacksite-outer'));
+    callFight(at('ccs-broadcast'));
     settleBattles(repos, engine, SETTLE);
     expect(engine.inputs).toHaveLength(3);
     for (const input of engine.inputs) {
@@ -416,7 +416,7 @@ describe('the feats say what the fight actually carried', () => {
 
     killLeader(SYNDIC);
     const second = recorder({ winner: 'attacker' });
-    callFight(at('datavault-sigma-coldrow'));
+    callFight(at('annexes-coldrow'));
     settleBattles(repos, second, SETTLE);
     expect(second.inputs[0]?.defenderPresence).toBeUndefined();
     // Still one: the second win was not under anybody.
@@ -643,14 +643,14 @@ describe('the report carries the toll the power actually took', () => {
    * lost both times, so the assertion is about the toll rather than about the result.
    */
   it('reports turncoats instead of the intimidated only while Directive Xero stands', () => {
-    callFight(at('combine-spire-broadcast'), { army: { razors: 12 } });
+    callFight(at('ccs-broadcast'), { army: { razors: 12 } });
     const [under] = settleBattles(repos, defaultSkirmishEngine, SETTLE);
     const crossed = Object.values(under?.analysis.turned ?? {}).reduce((n, c) => n + c, 0);
     expect(crossed).toBeGreaterThan(0);
     expect(under?.analysis.attacker.intimidated).toBe(0);
 
     killLeader(XERO);
-    callFight(at('combine-spire-broadcast'), { army: { razors: 12 } });
+    callFight(at('ccs-broadcast'), { army: { razors: 12 } });
     const settled = settleBattles(repos, defaultSkirmishEngine, SETTLE);
     const after = settled.at(-1)?.analysis;
     expect(after?.turned).toEqual({});

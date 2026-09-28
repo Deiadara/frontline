@@ -109,10 +109,24 @@ export const PERIMETER_EVASION_WEIGHT = 0.6;
 const clamp = (value: number, low: number, high: number): number =>
   Math.min(high, Math.max(low, value));
 
-/** The share of a withdrawal the ring is thick enough to reach at all, 0..1. */
-export function ringCoverage(perimeter: Army, runners: number): number {
+/**
+ * The share of a withdrawal the ring is thick enough to reach at all, 0..1.
+ *
+ * `rules` are the **ring owner's**, for the reason `perimeterUnits` gives: a crew holding
+ * `carriers_fight` really does have a ring made of porters. It defaulted to nothing and the
+ * default was a lie the module told about itself: `perimeterUnits`'s own note claimed "the toll
+ * path reads the same answer, which closes the other half of the inconsistency", and this called
+ * it with no rules at all. Measured on 2026-09-25: a ring of 20 Scavengers posted by a crew with
+ * the holding counts 20 in `breakOut` and 0 here, so ten Razors walked out of the deployment free
+ * and the same ten would have been fought on the way out of a lost battle.
+ */
+export function ringCoverage(
+  perimeter: Army,
+  runners: number,
+  rules: LineRules = bareLineRules(),
+): number {
   if (runners <= 0) return 0;
-  return clamp((perimeterUnits(perimeter) * RUNNERS_COVERED_PER_BODY) / runners, 0, 1);
+  return clamp((perimeterUnits(perimeter, rules) * RUNNERS_COVERED_PER_BODY) / runners, 0, 1);
 }
 
 /** One runner's odds of being stopped, given how thick the ring is where they hit it. */
@@ -165,9 +179,16 @@ export function perimeterToll(
   /** What each runner's sheet says once the crew's cards and channels are on it. */
   sheetOf: (unitId: string) => { speed: number; stealth: number } = (unitId) =>
     findUnit(unitId)?.stats ?? { speed: 0, stealth: 0 },
+  /**
+   * The **ring owner's** line rules, so a ring of porters is real for the crew that bought them.
+   *
+   * Last rather than beside `perimeter` because four call sites already pass the three arguments
+   * above and a shuffle would have been a silent re-binding rather than a compile error.
+   */
+  rules: LineRules = bareLineRules(),
 ): PerimeterToll {
   const runners = total(fleeing);
-  const coverage = ringCoverage(perimeter, runners);
+  const coverage = ringCoverage(perimeter, runners, rules);
   if (coverage <= 0 || runners === 0) return { caught: {}, escaped: { ...fleeing } };
 
   const caught: Army = {};
@@ -280,17 +301,14 @@ export function breakOut(input: BreakoutInput, _next: () => number): Breakout {
   /*
    * The ring stands *outside* the works, so it does not get to stand behind them.
    *
-   * `defending: true` reads `battlefield.fortifyPercent` and `battlefield.baseDefense` as toughness
-   * (`battle/effects.ts`), and the works on this ground belong to whoever built the place. When the
-   * attacker won, their ring was being handed the fortification of the location they had just
-   * taken it off, which is the defender's wall protecting the people who breached it. A breakout
-   * happens on the road out, so neither ring is behind anything: both fight on the ground's terms
-   * with the works taken off. What a crew's own perks and held places are worth still applies,
+   * `defending: true` reads `battlefield.baseDefense` as armour (`battle/effects.ts`), and the
+   * ground's defensibility belongs to whoever is standing behind it. When the attacker won, their
+   * ring was being handed the cover of the location they had just taken, which is the defender's
+   * wall protecting the people who breached it. A breakout happens on the road out, so neither ring
+   * is behind anything: both fight on the ground's terms with the cover taken off. What a crew's own perks and held places are worth still applies,
    * through `guards.territory`.
    */
-  const ground = input.battlefield
-    ? { ...input.battlefield, fortifyPercent: 0, baseDefense: 0 }
-    : undefined;
+  const ground = input.battlefield ? { ...input.battlefield, baseDefense: 0 } : undefined;
 
   // The runners attack, because they are the ones who need to be somewhere else, and the ring
   // defends, because it chose this ground before the first fight started.

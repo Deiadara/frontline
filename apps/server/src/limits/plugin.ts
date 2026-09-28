@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { LIMIT_SWEEP_MS, RateLimiter } from './bucket.js';
-import { ruleFor } from './rules.js';
+import { countsByAddress, ruleFor } from './rules.js';
 
 /**
  * Wires the limiter into the request lifecycle.
@@ -22,8 +22,18 @@ export function registerRateLimits(app: FastifyInstance, limiter = new RateLimit
   app.addHook('onClose', () => clearInterval(sweep));
 
   app.addHook('onRequest', async (request, reply) => {
-    const { rule, scope } = ruleFor(request.method, request.url.split('?')[0] ?? request.url);
-    const decision = limiter.take(`${scope}:${callerOf(app, request)}`, rule);
+    /*
+     * Classified by the route the router matched, not by the raw URL (bug pass, 2026-09-28). The
+     * router decodes a path before matching it, so `/api/%61uth/login` signs in, and a prefix test
+     * on the raw text sent it to the 120-a-minute write bucket instead of the sign-in one. The raw
+     * path is left for a request that matched nothing, which is a 404 whatever it is counted as.
+     */
+    const path = request.routeOptions.url ?? request.url.split('?')[0] ?? request.url;
+    const { rule, scope } = ruleFor(request.method, path);
+    const caller = countsByAddress(path)
+      ? `ip:${addressBucket(request.ip)}`
+      : callerOf(app, request);
+    const decision = limiter.take(`${scope}:${caller}`, rule);
 
     reply.header('X-RateLimit-Limit', String(rule.quota));
     reply.header('X-RateLimit-Remaining', String(decision.remaining));
@@ -43,16 +53,47 @@ export function registerRateLimits(app: FastifyInstance, limiter = new RateLimit
   return limiter;
 }
 
-/** The account this request belongs to, or the address it came from. */
+/**
+ * The account this request belongs to, or the address it came from.
+ *
+ * Keyed by the token's session version too (security pass, 2026-09-28). Keyed by the account
+ * alone, a token revoked by "log out everywhere" or a password change still verified here, so
+ * whoever held it could spend the owner's whole budget and the owner's fresh session met a 429
+ * for as long as the old token had left to run, which is up to thirty days. A revoked token now
+ * spends a bucket nobody current shares.
+ */
 function callerOf(app: FastifyInstance, request: FastifyRequest): string {
   const header = request.headers.authorization;
   if (header?.startsWith('Bearer ')) {
     try {
-      const payload = app.jwt.verify<{ sub?: string }>(header.slice(7));
-      if (payload.sub) return `user:${payload.sub}`;
+      const payload = app.jwt.verify<{ sub?: string; ver?: number }>(header.slice(7));
+      if (payload.sub) return `user:${payload.sub}:${payload.ver ?? 'none'}`;
     } catch {
       // Not a token this server issued, or an expired one. The address will do.
     }
   }
-  return `ip:${request.ip}`;
+  return `ip:${addressBucket(request.ip)}`;
+}
+
+/**
+ * The part of an address that names one caller.
+ *
+ * IPv4 as it is. IPv6 by its /64, because a single home or server is handed a whole /64 and can
+ * answer from any of its 2^64 addresses: keyed whole, every request would be a fresh bucket. An
+ * IPv4 address written in IPv6 form (`::ffff:1.2.3.4`) is the IPv4 address.
+ */
+export function addressBucket(ip: string): string {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) return mapped[1]!;
+  if (!ip.includes(':')) return ip;
+  const [head = '', tail = ''] = ip.toLowerCase().split('::');
+  const left = head === '' ? [] : head.split(':');
+  const right = tail === '' ? [] : tail.split(':');
+  const groups = ip.includes('::')
+    ? [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+    : left;
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`;
 }

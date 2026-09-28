@@ -14,14 +14,14 @@ import { expectNothingOverflowsTheScreen, installApi, settleFonts } from './harn
 
 test('the location sheet offers a way in that is not a fight', async ({ page }) => {
   await installApi(page, lateGame);
-  await page.goto('/game/city/rustyard');
-  await page.getByTestId('site-rustyard-pawn').click();
+  await page.goto('/game/city/steelbelt');
+  await page.getByTestId('site-steelbelt-pawn').click();
   await expect(page.getByTestId('location-window')).toBeVisible();
   await settleFonts(page);
 
   // Beside Call a fight, not instead of it: they are two halves of one decision.
-  const call = page.getByTestId('call-rustyard-pawn');
-  const send = page.getByTestId('send-sleepers-rustyard-pawn');
+  const call = page.getByTestId('call-steelbelt-pawn');
+  const send = page.getByTestId('send-sleepers-steelbelt-pawn');
   await expect(call).toBeVisible();
   await expect(send).toBeVisible();
 
@@ -53,12 +53,12 @@ test('the door is not there for a crew that has none', async ({ page }) => {
   await page.route('**/api/me', (route) =>
     route.fulfill({ json: { ...lateGame, base: { ...lateGame.base, army: { razors: 40 } } } }),
   );
-  await page.goto('/game/city/rustyard');
-  await page.getByTestId('site-rustyard-pawn').click();
+  await page.goto('/game/city/steelbelt');
+  await page.getByTestId('site-steelbelt-pawn').click();
   await expect(page.getByTestId('location-window')).toBeVisible();
 
-  await expect(page.getByTestId('call-rustyard-pawn')).toBeVisible();
-  await expect(page.getByTestId('send-sleepers-rustyard-pawn')).toHaveCount(0);
+  await expect(page.getByTestId('call-steelbelt-pawn')).toBeVisible();
+  await expect(page.getByTestId('send-sleepers-steelbelt-pawn')).toHaveCount(0);
 });
 
 test('the Monitor lists the cells, in place and on the road, and can pull them out', async ({

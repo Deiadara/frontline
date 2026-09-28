@@ -1,18 +1,21 @@
 import {
-  BATTLE_TIERS,
-  type BattleTier,
+  FIGHT_CATEGORIES,
+  GRADES,
   COMBINE_LEADERS,
   COMBINE_UNITS,
   FEATS,
   FEAT_MEASURE_SPECS,
   RESOURCE_KEYS,
   featMeasureKey,
+  fightCategory,
   startingEconomy,
   startingProgression,
   startingResearch,
   startingTraining,
   type Base,
   type FeatMeasure,
+  type Grade,
+  LONG_ODDS_CHANCE,
 } from '@frontline/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -36,7 +39,7 @@ import { tallyCombineFight, tallyMissionHome, tallyResourcesEarned } from './tal
  * The only way to see it is to run the hook and read the row back, which is what this file does.
  * It drives the real writers against a real database rather than asserting about source text.
  *
- * Five measures are in scope and they are found by asking the catalogue, not by a list kept here:
+ * Seven measures are in scope and they are found by asking the catalogue, not by a list kept here:
  * a sixth added tomorrow joins this test without anybody remembering to add it, and fails the
  * first assertion if nothing in here knows how to drive it.
  */
@@ -116,47 +119,109 @@ const SCOPED_TALLY_MEASURES = (Object.keys(FEAT_MEASURE_SPECS) as FeatMeasure[])
 const tallies = (): Record<string, number> => repos.feats.tallies(BASE_ID);
 
 describe('a scoped tally is written under the scope the catalogue asks for', () => {
-  it('has the five measures this file knows how to drive, and no sixth nobody noticed', () => {
+  it('has the seven measures this file knows how to drive, and no eighth nobody noticed', () => {
     // The control. If a scoped tally measure is added and nothing below drives it, this fails
-    // rather than the file quietly covering four of six.
+    // rather than the file quietly covering six of eight.
     expect([...SCOPED_TALLY_MEASURES].sort()).toEqual([
       'combine_kills_of',
       'combine_leaders_slain',
-      'fights_won_at_tier',
+      'fights_won_in_category',
+      'jobs_won_at_letter',
       'missions_in_area',
       'missions_of_kind',
       'resources_earned',
     ]);
   });
 
-  it('spells a fight tier the way the catalogue does, and counts a win only', () => {
-    const tiers = scopesWanted('fights_won_at_tier');
-    expect(tiers.length).toBeGreaterThan(0);
-    for (const tier of tiers) expect(BATTLE_TIERS, tier).toContain(tier);
-    for (const tier of tiers) {
+  it('spells a fight category the way the catalogue does, and counts a won fight only', () => {
+    const categories = scopesWanted('fights_won_in_category');
+    expect(categories.length).toBeGreaterThan(0);
+    for (const category of categories) expect(FIGHT_CATEGORIES, category).toContain(category);
+    // The lowest grade in each category, so the hook has to derive the category off the grade
+    // rather than be handed it.
+    const gradeIn = (category: string): Grade =>
+      GRADES.find((grade) => fightCategory(grade) === category)!;
+
+    for (const category of categories) {
+      const grade = gradeIn(category);
+      tallyMissionHome(repos, BASE_ID, { areaId: 'misc', kind: 'battle', succeeded: false, grade });
+      // A plain job at the same grade lands, and is not a fight won.
       tallyMissionHome(repos, BASE_ID, {
         areaId: 'misc',
-        kind: 'battle',
-        succeeded: false,
-        tier: tier as BattleTier,
+        kind: 'standard',
+        succeeded: true,
+        grade,
       });
     }
     const lost = tallies();
-    for (const tier of tiers) {
-      expect(lost[featMeasureKey('fights_won_at_tier', tier)] ?? 0, tier).toBe(0);
+    for (const category of categories) {
+      expect(lost[featMeasureKey('fights_won_in_category', category)] ?? 0, category).toBe(0);
     }
-    for (const tier of tiers) {
+    for (const category of categories) {
       tallyMissionHome(repos, BASE_ID, {
         areaId: 'misc',
         kind: 'battle',
         succeeded: true,
-        tier: tier as BattleTier,
+        grade: gradeIn(category),
       });
     }
     const won = tallies();
-    for (const tier of tiers) {
-      expect(won[featMeasureKey('fights_won_at_tier', tier)], tier).toBe(1);
+    for (const category of categories) {
+      expect(won[featMeasureKey('fights_won_in_category', category)], category).toBe(1);
     }
+  });
+
+  it('spells a grade letter the way the catalogue does, for a landed job of either kind', () => {
+    const letters = scopesWanted('jobs_won_at_letter');
+    expect(letters.length).toBeGreaterThan(0);
+    const known = new Set(GRADES.map((grade) => grade[0]));
+    for (const letter of letters) expect([...known], letter).toContain(letter);
+    // The minus mark, so a hook that scoped by the whole mark would write `C-` where the
+    // catalogue reads `C`.
+    const minus = (letter: string) => `${letter}-` as Grade;
+
+    for (const letter of letters) {
+      tallyMissionHome(repos, BASE_ID, {
+        areaId: 'misc',
+        kind: 'standard',
+        succeeded: false,
+        grade: minus(letter),
+      });
+    }
+    const lost = tallies();
+    for (const letter of letters) {
+      expect(lost[featMeasureKey('jobs_won_at_letter', letter)] ?? 0, letter).toBe(0);
+    }
+    for (const letter of letters) {
+      tallyMissionHome(repos, BASE_ID, {
+        areaId: 'misc',
+        kind: 'standard',
+        succeeded: true,
+        grade: minus(letter),
+      });
+      tallyMissionHome(repos, BASE_ID, {
+        areaId: 'misc',
+        kind: 'battle',
+        succeeded: true,
+        grade: minus(letter),
+      });
+    }
+    const won = tallies();
+    for (const letter of letters) {
+      expect(won[featMeasureKey('jobs_won_at_letter', letter)], letter).toBe(2);
+    }
+  });
+
+  /** Plain work landed on a long shot (2026-09-28), and only that: not a lost one, not a fight. */
+  it('counts a plain job landed under the long-odds line, and nothing else', () => {
+    const before = tallies().jobs_won_long_odds ?? 0;
+    const home = (kind: 'standard' | 'battle', succeeded: boolean, chance: number) =>
+      tallyMissionHome(repos, BASE_ID, { areaId: 'misc', kind, succeeded, grade: 'C', chance });
+    home('standard', true, LONG_ODDS_CHANCE - 0.01);
+    home('standard', true, LONG_ODDS_CHANCE);
+    home('standard', false, 0.05);
+    home('battle', true, 0.05);
+    expect((tallies().jobs_won_long_odds ?? 0) - before).toBe(1);
   });
 
   it('spells a mission area and a mission kind the way the catalogue does', () => {

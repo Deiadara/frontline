@@ -8,6 +8,7 @@ import { Icon } from '../../components/ui/Icon';
 import { cn } from '../../lib/cn';
 import { FactionBadge } from '../faction/FactionBadge';
 import { suggestPlayers } from '../leaderboard/players';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Who a letter goes to (maintainer request, 2026-09-23).
@@ -171,13 +172,9 @@ export function RecipientPicker({
       </div>
 
       {nobody && (
-        <p
-          role="alert"
-          data-testid="recipient-no-match"
-          className="font-body text-[12px] text-oxblood-300"
-        >
+        <ErrorNote data-testid="recipient-no-match">
           {MESSAGE_REFUSAL_TEXT.no_such_player}
-        </p>
+        </ErrorNote>
       )}
       {full && (
         <p data-testid="recipient-full" className="font-body text-[12px] text-ink-400">

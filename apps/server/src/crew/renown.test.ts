@@ -69,6 +69,7 @@ function fakeRepos() {
     users: { findById: () => undefined },
     overseers: { findById: () => undefined },
     factions: { membershipOf: () => undefined, members: () => [], find: () => undefined },
+    sieges: { gate: () => undefined },
   } as unknown as Parameters<typeof standingEffectsFor>[0];
 }
 

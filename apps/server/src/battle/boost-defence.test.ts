@@ -48,8 +48,8 @@ const auth = (token: string): { authorization: string } => ({ authorization: `Be
 
 const PRESS: BattleTarget = {
   kind: 'location',
-  districtId: 'rustyard',
-  locationId: 'rustyard-press',
+  districtId: 'steelbelt',
+  locationId: 'steelbelt-press',
 };
 
 /** The open name whose whole effect is defence, which is the one an attacker could not spend. */
@@ -113,9 +113,9 @@ async function makeStack(): Promise<Stack> {
   pinOverseer(app, token);
   const baseId = chosen.json<{ base: { id: string } }>().base.id;
 
-  app.repos.city.markScouted(baseId, 'rustyard', new Date().toISOString());
+  app.repos.city.markScouted(baseId, 'steelbelt', new Date().toISOString());
   // One location off the looters, so the Rustyard's gate is not armed and a location can be called.
-  const control = app.repos.city.control('rustyard-bonefield');
+  const control = app.repos.city.control('steelbelt-bonefield');
   if (control) app.repos.city.put({ ...control, holder: { kind: 'crew', baseId }, garrison: {} });
 
   const base = app.repos.bases.findById(baseId);

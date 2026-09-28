@@ -2,18 +2,25 @@ import { randomUUID } from 'node:crypto';
 import {
   CreateOverseerRequestSchema,
   DISTRICT_NAME_MAX,
-  MAX_FACTION_MEMBERS,
   findOverseerPreset,
   OVERSEER_HOLD_MS,
   type OverseerPreset,
   OVERSEER_PRESETS,
   overseerOffer,
   overseerRemaining,
-  CITY_DISTRICTS,
+  cityHomeOffer,
+  cityHomeOffers,
+  cityOfDistrict,
+  DEFAULT_CITY_ID,
+  findCity,
+  freeHomePlots,
+  pickHomePlot,
   districtHolder,
+  districtsOfCity,
   districtIsShut,
   STARTER_DISTRICT_ID,
   findDistrict,
+  type District,
   travelMinutesBetween,
   type Base,
   type CreateOverseerResponse,
@@ -26,8 +33,7 @@ import type { FastifyInstance } from 'fastify';
 import { applyUnlockedSandbox } from '../seed/sandbox.js';
 import { startingBase } from '../crew/starting.js';
 import { MVP_PLAYER } from '../seed/constants.js';
-import { seededFactionId } from '../seed/index.js';
-import { sendMessage } from '../social/send.js';
+import { offerOpeningInvitationAt } from '../factions/opening.js';
 import { tallyOverseerTaken } from '../feats/tally.js';
 import { AppError, parseBody } from '../errors.js';
 import type { Repositories } from '../db/repos/index.js';
@@ -91,7 +97,7 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
  * plots (`quietestDistrict`). A district nobody lives in can still be held end to end by one party,
  * which shuts its gate, and nothing behind a shut gate can be called: the card offers a dead
  * "Behind the gate" button where "Call a fight" would be. A crew planted on the Ashen Terraces was
- * handed `datavault-sigma`, Combine-held from end to end, and opened its first evening with a
+ * handed `annexes`, Combine-held from end to end, and opened its first evening with a
  * district it could look at and not touch. Measured across all four homes, that was one in four
  * new players.
  *
@@ -99,60 +105,133 @@ function freeDistrictName(app: FastifyInstance, username: string): string {
  * occupancy, which is the weaker half of it.
  */
 function openTheNearestGround(repos: Repositories, base: Base, nowIso: string): void {
-  const home = findDistrict(base.districtId);
-  if (!home) return;
-  const occupied = new Set(repos.bases.listSummaries().map((other) => other.districtId));
-  const controls = repos.city.controls();
-  const lived = new Set(repos.bases.listSummaries().map((other) => other.districtId));
-  const nearest = CITY_DISTRICTS.filter(
-    (district) =>
-      district.id !== base.districtId &&
-      !occupied.has(district.id) &&
-      !districtIsShut(districtHolder(district, controls) ?? null, lived.has(district.id)),
-  ).sort(
-    (a, b) =>
-      travelMinutesBetween(home, a) - travelMinutesBetween(home, b) || a.id.localeCompare(b.id),
-  )[0];
+  const nearest = nearestOpenGround(repos, base);
   if (nearest) repos.city.markScouted(base.id, nearest.id, nowIso);
 }
 
 /**
- * Which residential district a new crew moves into (maintainer, 2026-09-17).
+ * The one district a new crew is shown for free, or nothing when there is none.
  *
- * The one fewest *players* live on, ties going to {@link STARTER_DISTRICT_ID} and then to the id.
- * Every human account used to be created in the starter, which put the whole player base in one
- * district: a crew calling on another player's district was calling on its own and was refused with
- * "That is yours", so the only PvP left was over locations. Three players now fill three of the
- * four, which is what the maintainer asked for.
- *
- * ## Why the seeded rivals are not counted
- *
- * They live in three of the four residential districts, so counting them would put the first three
- * players on top of a bot each and leave the quiet one for the fourth. A bot is somebody to fight,
- * not a neighbour competing for somewhere to live, and the question this answers is where the
- * *players* are.
- *
- * ## Why the starter wins a tie
- *
- * So the first crew in an empty world still lands where the onboarding was written for, and only
- * the second player onwards spreads out. It also keeps every test that plants a second crew on a
- * named neighbour working, which is a fleet of them.
+ * Exported so it can be asked the question directly. The rule it has to obey is true of every home
+ * in the world and only one home in the world reaches the case that used to break it, so a test
+ * that registered a crew and looked at the result was passing on a fixture rather than on the rule.
  */
-function quietestDistrict(repos: Repositories): string {
-  const residential = CITY_DISTRICTS.filter((district) => district.kind === 'residential');
-  if (residential.length === 0) return STARTER_DISTRICT_ID;
+export function nearestOpenGround(repos: Repositories, base: Base): District | undefined {
+  const home = findDistrict(base.districtId);
+  if (!home) return undefined;
+  const occupied = new Set(repos.bases.listSummaries().map((other) => other.districtId));
+  const controls = repos.city.controls();
+  const lived = new Set(repos.bases.listSummaries().map((other) => other.districtId));
+  /*
+   * Searched inside the crew's **own** city (2026-09-24).
+   *
+   * A new account picks which playable city to start in, so the crew this opens ground for is as
+   * likely to be standing in Terminus as in Ashfall. The ids are sorted by `travelMinutesBetween`,
+   * which measures normalized positions inside one map, and both cities run 0 to 1: searching the
+   * world would hand a Terminus crew whichever Ashfall district happened to sit near its own
+   * coordinates, which is a free scout on a map forty miles away and the nearest ground at home
+   * left fogged. It was already wrong before the choose screen, because this is not only reached
+   * from registration.
+   */
+  const found = districtsOfCity(cityOfDistrict(base.districtId))
+    .filter(
+      (district) =>
+        /*
+         * Contested ground, because ground is what this opens.
+         *
+         * It filtered out districts somebody *lives* on and not districts that are somewhere to
+         * live, which are two different things: an empty residential plot passed, and a plot holds
+         * no locations at all. So a new crew's one free scout could be spent on a street with
+         * nothing in it to take, and the district it opened read as callable with nothing to call
+         * on. It was only reachable once crews stopped all starting on the same plot, which is
+         * what choosing a city did (2026-09-24), and the live walkthrough is what found it.
+         */
+        district.kind === 'contested' &&
+        district.id !== base.districtId &&
+        !occupied.has(district.id) &&
+        !districtIsShut(districtHolder(district, controls) ?? null, lived.has(district.id)),
+    )
+    .sort(
+      (a, b) =>
+        travelMinutesBetween(home, a) - travelMinutesBetween(home, b) || a.id.localeCompare(b.id),
+    )[0];
+  return found;
+}
 
-  const crowding = new Map(residential.map((district) => [district.id, 0]));
-  for (const home of repos.bases.listSummaries()) {
-    if (home.isBot) continue;
-    const had = crowding.get(home.districtId);
-    if (had !== undefined) crowding.set(home.districtId, had + 1);
+/**
+ * The districts somebody lives on, which is what decides whether a plot is free.
+ *
+ * Bots count (maintainer, 2026-09-28: "there should be no bots seated on players' locations").
+ * They used to be left out so the seeded rivals on three of Ashfall's four plots did not fill the
+ * city, and the price was a player seated on a bot's plot: two crews in one home district, one of
+ * them unraidable and the other's army conscripted into every raid there. While the bots are
+ * seeded, a dev world has four free plots rather than eight. They go before launch (`seed/index.ts`).
+ */
+function takenHomes(repos: Repositories): string[] {
+  return repos.bases.listSummaries().map((home) => home.districtId);
+}
+
+/**
+ * Which plot a new crew moves onto (maintainer, 2026-09-24).
+ *
+ * The player picks a city on the screen after the character, and a free plot in it is drawn at
+ * random. Four plots a city, one resident player crew each, and a city whose four are taken is
+ * refused rather than shared: `homes.ts` holds both rules and the choose screen reads them off
+ * `GET /overseer/choices`.
+ *
+ * ## This replaces the quietest-plot rule, and the ruling under it
+ *
+ * Placement used to be "the residential district of Ashfall that the fewest players live on", and
+ * the doc here argued at length that Terminus's four plots were deliberately not on offer because
+ * a crew earns its foothold in the second city by marching across and taking ground. That was the
+ * call on 2026-09-24 and the maintainer replaced it the same day: a new player now picks which of
+ * the playable cities to start in, so both maps are on offer from the first minute.
+ *
+ * ## When nobody picked
+ *
+ * `cityId` is optional on the wire (see `CreateOverseerRequestSchema`), and an account that sends
+ * none still has to be seated somewhere. It gets {@link STARTER_DISTRICT_ID} while that is free,
+ * because it is the plot the opening was written around, and otherwise the first city with room.
+ * That keeps a client which has not been redeployed, and the server's own test helper, on exactly
+ * the ground they have always been given.
+ *
+ * Throws rather than returning null, because every refusal here is one the player has to be told
+ * apart: a city with no map was never on offer and a full city is the honest race, which is the
+ * same pair of refusals `UNKNOWN_PRESET` and `PRESET_TAKEN` are for a character.
+ */
+function newHome(repos: Repositories, cityId: string | undefined, seed: string): string {
+  const taken = takenHomes(repos);
+
+  if (cityId !== undefined) {
+    const offer = cityHomeOffer(cityId, taken);
+    if (offer.refusal === 'unbuilt') {
+      throw new AppError(
+        'CITY_UNBUILT',
+        `${findCity(cityId)?.name ?? cityId} is not somewhere you can play yet.`,
+      );
+    }
+    const plot = pickHomePlot(cityId, taken, seed);
+    if (plot === null) {
+      throw new AppError(
+        'CITY_FULL',
+        `${findCity(cityId)?.name ?? cityId} is full. Four crews already live there, so pick somewhere else.`,
+      );
+    }
+    return plot;
   }
 
-  const rank = (id: string): number => (id === STARTER_DISTRICT_ID ? 0 : 1);
-  return [...crowding.entries()].sort(
-    (a, b) => a[1] - b[1] || rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]),
-  )[0]![0];
+  if (freeHomePlots(DEFAULT_CITY_ID, taken).includes(STARTER_DISTRICT_ID)) {
+    return STARTER_DISTRICT_ID;
+  }
+  const room = cityHomeOffers(taken).find((offer) => offer.available);
+  const anywhere = room === undefined ? null : pickHomePlot(room.cityId, taken, seed);
+  if (anywhere === null) {
+    throw new AppError(
+      'CITY_FULL',
+      'Every city in the world is full. There is nowhere to move in.',
+    );
+  }
+  return anywhere;
 }
 
 /**
@@ -254,6 +333,13 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
         // printed a negative one.
         remaining: overseerRemaining(claimed),
         total: OVERSEER_PRESETS.length,
+        /*
+         * Where they may live, read fresh on every call for the same reason the claimed set is: a
+         * plot somebody took two seconds ago is gone from the next reader's offer. Sent from here
+         * because a browser cannot see who lives where, and computed outside the transaction
+         * above because it decides nothing. `POST /overseer` is where it decides.
+         */
+        cities: cityHomeOffers(takenHomes(app.repos)),
       };
     },
   );
@@ -262,7 +348,7 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
     '/overseer',
     { preHandler: app.authenticate },
     (request, reply): CreateOverseerResponse => {
-      const { presetId } = parseBody(CreateOverseerRequestSchema, request.body);
+      const { presetId, cityId } = parseBody(CreateOverseerRequestSchema, request.body);
       const user = request.currentUser;
 
       if (user.overseerId !== null) {
@@ -304,23 +390,19 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       const now = takenAt.toISOString();
       const overseer = overseerFromPreset(preset, randomUUID());
       /*
-       * Which district this character ends up on, decided inside the transaction below.
+       * The crew, and the plot it is put on, decided **inside** the transaction below.
        *
-       * The `base` built here is the one a *new* account gets. An account that has been through
-       * the Console's Clean slate already has a district, and reuses it; `district` is what the
-       * response then has to report, because reading the new `base.id` back finds nothing and
-       * falls through to an object that was never saved. That was the first cut of this, and it
-       * answered with a second crew that did not exist.
+       * Both halves have to be, and for the same reason the character claim is: a city has four
+       * plots and two accounts can want the last one in the same second. Reading who lives where
+       * out here and inserting in there is exactly the gap that seats two crews on one plot, so
+       * the free list is read and spent in one transaction and the loser is refused `CITY_FULL`.
+       *
+       * The transaction answers with the crew rather than writing to a `let`, so nothing after it
+       * has to reason about whether it ran. An account that has been through the Console's Clean
+       * slate already has a base, and it keeps the district it is standing on: the response has to
+       * report that one, because reading the new base's id back finds nothing.
        */
-      let district: Base | undefined;
-      const base = startingBase({
-        ownerId: user.id,
-        name: freeDistrictName(app, user.username),
-        now,
-        districtId: quietestDistrict(app.repos),
-      });
-
-      app.db.transaction(() => {
+      const district = app.db.transaction((): Base => {
         /*
          * Re-read inside the transaction, the way every other once-per-account rule in this server
          * is.
@@ -369,11 +451,24 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * A base that has just been reset is already at the shape `startingBase` returns, so
          * nothing needs writing to it. The ground is opened either way, because the reset released
          * every location this crew held.
+         *
+         * A reset crew keeps its old address rather than moving to the city it just picked. The
+         * plot it is standing on is still its own and nothing else has been allowed to take it,
+         * so moving would mean vacating one city and racing for a plot in another to return to
+         * the same starting state. Clean slate is a bench tool and this is the cheap answer;
+         * the day it is wrong, the fix is a move, not a second insert.
          */
         const standing = app.repos.bases.findByOwnerId(user.id);
-        if (standing === undefined) app.repos.bases.insert(base);
-        district = standing ?? base;
-        openTheNearestGround(app.repos, district, now);
+        const home =
+          standing ??
+          startingBase({
+            ownerId: user.id,
+            name: freeDistrictName(app, user.username),
+            now,
+            districtId: newHome(app.repos, cityId, randomUUID()),
+          });
+        if (standing === undefined) app.repos.bases.insert(home);
+        openTheNearestGround(app.repos, home, now);
         /*
          * ...and the feats board's first rung is finished before the player has seen it.
          *
@@ -383,7 +478,8 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
          * top of the handler because a tally is keyed by base, and until this transaction the
          * base may not exist.
          */
-        tallyOverseerTaken(app.repos, district.id);
+        tallyOverseerTaken(app.repos, home.id);
+        return home;
       })();
 
       // The sandbox switch also runs at boot, but a base does not exist until this moment: on a
@@ -396,75 +492,14 @@ export function registerOverseerRoutes(app: FastifyInstance): void {
       // ever touches the seeded dev account", and the boot-time call keeps that promise by name.
       if (app.config.unlocked && user.username === MVP_PLAYER.username) {
         applyUnlockedSandbox(app.repos, MVP_PLAYER.username);
-        app.log.warn(
-          { baseId: district?.id ?? base.id },
-          'UNLOCKED=true: new district opened at the end-game',
-        );
+        app.log.warn({ baseId: district.id }, 'UNLOCKED=true: new district opened at the end-game');
       }
 
-      /*
-       * An invitation from the seeded faction, if there is room at it.
-       *
-       * A new account meets factions through the real door rather than by being quietly enrolled:
-       * they get an invitation in their notifications and on the faction screen, and accepting it
-       * runs the same `POST /factions/answer` anybody else's invitation does. Silently adding them
-       * to a table they never agreed to join would have been the shorter route and the wrong one.
-       */
-      const seeded = seededFactionId(app.repos);
-      const faction = seeded === undefined ? undefined : app.repos.factions.find(seeded);
-      if (seeded && faction && app.repos.factions.memberCount(seeded) < MAX_FACTION_MEMBERS) {
-        const leader = app.repos.factions
-          .members(seeded)
-          .find((member) => member.rank === 'leader');
-        const inviteId = randomUUID();
-        app.repos.factions.invite({
-          id: inviteId,
-          factionId: seeded,
-          invitedUserId: user.id,
-          invitedByUserId: leader?.userId ?? user.id,
-          sentAt: now,
-        });
-        /*
-         * Delivered as a **message**, the way every other invitation is (`routes/factions.ts`).
-         *
-         * It used to be a bell entry alone, pointing at `/game/faction`. That screen is behind
-         * `RequireUnlock area="faction"`, which is level 10, and this invitation arrives at level
-         * one: the first notification a new account ever received was a door it could not open,
-         * for an offer it had no way to answer. The mailbox is not gated, and a message carrying
-         * `invite` is what makes `InviteCard` draw an Accept button, so this is the only delivery
-         * that is actually actionable on the day it is sent. `FoundFaction`'s own copy already
-         * told the player their invitation would be "in your messages, with a button on it".
-         *
-         * The bell still rings `faction_invite` rather than `message_received`, so a player who
-         * has muted ordinary mail still hears this one.
-         */
-        const inviter = leader?.userId ?? user.id;
-        sendMessage(app.repos, {
-          sender: { id: inviter, username: faction.name },
-          senderFaction: faction.name,
-          recipients: [user.id],
-          audience: 'player',
-          addressedTo: user.username,
-          subject: `An invitation to ${faction.name}`,
-          body:
-            `${faction.name} has asked you to join them.\n\n` +
-            `${faction.blurb || 'They have not written down what they are for.'}\n\n` +
-            'Accepting puts your district at their table: your army shows up on their roster, ' +
-            'their fights show up on yours, and either of you can send help to the other.',
-          sentAt: new Date(now),
-          invite: { inviteId, factionId: faction.id },
-          notification: {
-            kind: 'faction_invite',
-            title: `${faction.name} has asked you to join`,
-            body: 'There is a table with a seat open.',
-            link: '/game/messages',
-          },
-          keepSentCopy: false,
-        });
-      }
+      // The seeded faction's invitation waits for the level the Faction door opens at (2026-09-28);
+      // a crew that starts there (the dev sandbox) is asked now.
+      offerOpeningInvitationAt(app.repos, user.id, district.level, now);
 
-      const opened =
-        district === undefined ? base : (app.repos.bases.findById(district.id) ?? district);
+      const opened = app.repos.bases.findById(district.id) ?? district;
       reply.code(201);
       return { user: { ...user, overseerId: overseer.id }, overseer, base: opened };
     },

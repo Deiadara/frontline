@@ -39,8 +39,15 @@ interface HeldGround {
  *     Orders in them, and knows it, because the district screen says so and the leader's card is
  *     a hover away.
  *   * The leader **himself** stands on one location and fights only there. Take that plot and he
- *     is dead: for the whole world, for good. The Combine never musters him, never moves him, and
- *     never replaces him. He is a stationary target with a shadow the size of a district.
+ *     is dead, for the whole world. The Combine never musters him and never moves him. He is a
+ *     stationary target with a shadow the size of a district.
+ *
+ * He is replaced on one condition, and it is the condition that makes taking his plot worth
+ * something rather than worth it once (maintainer, 2026-09-24): *"Legendaries regen only if you
+ * dont hold their location."* The weekly regrowth stands the whole of the regime's army back up on
+ * ground no crew holds (`apps/server/src/city/regrowth.ts`), and he is a body in his plot's
+ * garrison like any other, so he comes back with it. Hold the plot and he stays dead; lose it and
+ * he is on it again on Monday.
  *
  * "Alive" is therefore derived and not stored: he is alive while his unit is standing in the
  * garrison of a Combine-held location in his district ({@link combineLeaderAlive}). Nothing has
@@ -156,8 +163,8 @@ export const DIRECTIVE_XERO_MORALE = 100;
 export const COMBINE_LEADERS: readonly CombineLeader[] = [
   {
     unitId: 'syndic',
-    districtId: 'datavault-sigma',
-    locationId: 'datavault-sigma-uplink',
+    districtId: 'annexes',
+    locationId: 'annexes-uplink',
     power: {
       kind: 'syndic',
       penetration: SYNDIC_PENETRATION,
@@ -170,8 +177,8 @@ export const COMBINE_LEADERS: readonly CombineLeader[] = [
   },
   {
     unitId: 'executioner',
-    districtId: 'blacksite-7',
-    locationId: 'blacksite-7-armory',
+    districtId: 'blacksite',
+    locationId: 'blacksite-armory',
     power: { kind: 'executioner', threshold: EXECUTIONER_THRESHOLD },
     powerName: 'No Survivors',
     pronoun: { subject: 'he', object: 'him', possessive: 'his' },
@@ -179,8 +186,8 @@ export const COMBINE_LEADERS: readonly CombineLeader[] = [
   },
   {
     unitId: 'directive_xero',
-    districtId: 'combine-spire',
-    locationId: 'combine-spire-chapel',
+    districtId: 'ccs',
+    locationId: 'ccs-chapel',
     power: { kind: 'directive_xero', morale: DIRECTIVE_XERO_MORALE, changeOfHeart: true },
     // Both halves of it: nobody under him doubts, and anybody who would have is his.
     powerName: 'Zero Doubt',

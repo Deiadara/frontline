@@ -1,6 +1,7 @@
 import { DEFAULT_SOUND_VOLUME, GAME_TIMEZONE, type SettingsResponse } from '@frontline/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import bcrypt from 'bcryptjs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
@@ -275,6 +276,43 @@ describe('POST /api/settings/password', () => {
       payload: { newPassword: 'short' },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  /**
+   * `authenticate` checks the session before the handler hashes, and the hash is an await. A "log
+   * out everywhere" landing inside it ended this session, and the change went through anyway and
+   * signed the request a fresh token: a stolen token could outrun its own revocation.
+   */
+  it('refuses a change whose session was ended while it was hashing', async () => {
+    const { app } = await makeApp();
+    const token = await register(app, 'operator');
+    // "Log out everywhere" lands once the hash has started, which is the await the route cannot
+    // avoid: the first read of the account after it sees the session already ended.
+    const hashing = vi.spyOn(bcrypt, 'hash');
+    const users = app.repos.users;
+    const find = users.findById.bind(users);
+    const revoke = vi.spyOn(users, 'findById').mockImplementation((id) => {
+      if (hashing.mock.calls.length > 0 && users.sessionVersion(id) === 0) users.revokeSessions(id);
+      return find(id);
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/settings/password',
+      headers: auth(token),
+      payload: { newPassword: 'a-much-longer-one' },
+    });
+    revoke.mockRestore();
+    hashing.mockRestore();
+
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['x-session-token']).toBeUndefined();
+    const old = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { username: 'operator', password: PASSWORD },
+    });
+    expect(old.statusCode).toBe(200);
   });
 
   it('never writes password material into the history trail', async () => {

@@ -64,6 +64,14 @@ const EnvSchema = z.object({
   TRUST_PROXY: z.string().default(''),
   BACKUP_DIR: z.string().default('./backups'),
   /**
+   * A second directory every snapshot is copied to (hardening pass, 2026-09-27). Point it at a
+   * different disk or a synced folder: a backup on the same disk as the database dies with it.
+   * Empty means no mirror.
+   */
+  BACKUP_MIRROR_DIR: z.string().default(''),
+  /** The most sockets the process holds open at once. See `app.ts`. */
+  MAX_CONNECTIONS: z.coerce.number().int().positive().default(4096),
+  /**
    * Off in tests and in any run that should not touch the disk on a timer.
    *
    * On everywhere else, because a backup that has to be enabled is a backup that exists in the
@@ -86,7 +94,9 @@ export interface AppConfig {
   /** See `ADMIN` above, and `admin/mode.ts` for what it actually does. */
   admin: boolean;
   backupDir: string;
+  backupMirrorDir: string;
   backupsEnabled: boolean;
+  maxConnections: number;
   /** See `TRUST_PROXY` above. Passed to Fastify verbatim. */
   trustProxy: boolean | number | string;
 }
@@ -138,12 +148,28 @@ export function adminDefault(nodeEnv: string | undefined): boolean {
  * reads on the day it matters, and the failure it precedes is silent: tokens keep working, players
  * keep playing, and the first sign of trouble is somebody else's account.
  */
+/** Half the 64 characters of `openssl rand -hex 32`, which is what `docs/DEPLOY.md` asks for. */
+export const MIN_PRODUCTION_SECRET_LENGTH = 32;
+
 export function assertDeployable(config: AppConfig, nodeEnv = process.env.NODE_ENV): void {
   if (nodeEnv !== 'production') return;
   if (config.jwtSecret === DEV_JWT_SECRET) {
     throw new Error(
       'JWT_SECRET is still the development default, which is committed to this repository: ' +
         'anyone could sign a token for any account. Set JWT_SECRET to a real secret.',
+    );
+  }
+  if (config.jwtSecret.length < MIN_PRODUCTION_SECRET_LENGTH) {
+    throw new Error(
+      `JWT_SECRET is shorter than ${MIN_PRODUCTION_SECRET_LENGTH} characters, and any token a ` +
+        'player holds is enough to guess a short one offline. Use openssl rand -hex 32.',
+    );
+  }
+  if (config.unlocked) {
+    throw new Error(
+      'UNLOCKED=true raises the dev account to the end game on every boot, and in production ' +
+        'nothing seeds that account, so whoever registers its name first gets the end game. ' +
+        'Unset UNLOCKED to serve players.',
     );
   }
   if (config.trustProxy === true) {
@@ -180,6 +206,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         : parsed.ADMIN === 'true',
     trustProxy: trustProxyFrom(parsed.TRUST_PROXY),
     backupDir: parsed.BACKUP_DIR,
+    backupMirrorDir: parsed.BACKUP_MIRROR_DIR,
+    maxConnections: parsed.MAX_CONNECTIONS,
     backupsEnabled: parsed.BACKUPS,
   };
 }

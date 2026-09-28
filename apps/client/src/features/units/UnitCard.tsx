@@ -44,9 +44,24 @@ const CLAUSES_ON_THE_CARD = 2;
 
 export interface UnitCardProps {
   unit: UnitOption;
-  /** The crew's whole stock, so a bracket's menu opens without going and asking for it. */
+  /**
+   * Standing on held ground outside the home district, the crew's own or an ally's. Part of the
+   * total, and with `abroad` the brass slice of it.
+   */
   garrisoned: number;
-  /** §A4: at a fight or walking to one. Away like a garrison, and counted in the same beds. */
+  /**
+   * Standing at the crew's own gate. Part of the total and nothing else: the door is inside the
+   * home district, so it is not in the brass slice, and it is drawn nowhere on the card. Optional
+   * because only the roster page has the figure; every other caller shows a card with nobody at
+   * the door.
+   */
+  atGate?: number;
+  /**
+   * §A4: away from home. At a fight or walking to one, out on a job, in a Sleeper cell or on the
+   * road between two of the crew's places (`unitsAbroad`). Counted in the same beds, and with
+   * `garrisoned` the brass slice: the two are kept apart on the props because every caller
+   * already has them apart, and the card is the one place that wants their sum.
+   */
   abroad: number;
   /**
    * The price box at the foot of the card, and the Train control in it.
@@ -162,6 +177,7 @@ export function UnitCard({
   unit,
   garrisoned,
   abroad,
+  atGate = 0,
   training,
   deltas,
   bonuses,
@@ -298,16 +314,24 @@ export function UnitCard({
         {/*
           Owned, over the picture's corner, where a strategy game puts a count.
 
-          Three numbers, not one: at home, on held ground, and at a fight. All three are in the
-          unit-slot chip at the top of the page (§A1 feeds them all), so a card that showed only
-          the first would leave a player counting beds they cannot see. Brass is ground, tangerine
-          is a fight, matching the colour each of those screens already uses.
+          Two numbers, not one: the whole roster, and the part of it that is not in the home
+          district. Both are in the unit-slot chip at the top of the page (§A1 feeds them all),
+          so a card that showed only the first would leave a player counting beds they cannot see.
 
-          The fight count is separated by a slash rather than a `+` (maintainer request,
-          2026-09-15): `12 / 6` is how a game writes a figure against the fight it is in, and the
-          `+` had the two reading as one sum a player had to do in their head. The slash stays in
-          ink so the orange is the count and nothing else. Nothing is drawn at all when nobody is
-          away, so a card with everybody at home is still one number.
+          The slice is one figure (maintainer, 2026-09-28: "anything that is not at your home
+          district, gate or not"). It was two until then, brass for held ground and tangerine for a
+          fight, and the two colours asked a player to tell apart what the hover already said. The
+          gate garrison is in the total and not in the slice: the door is inside the home
+          district. The hover names the places the figure covers, because "away" on its own does
+          not say whether a unit is on a plot you hold or walking to a fight.
+
+          The slice is separated by a slash rather than a `+` (maintainer request, 2026-09-15):
+          `12 / 6` is how a game writes a figure against the fight it is in, and the `+` had the
+          two reading as one sum a player had to do in their head. The held-ground count kept its
+          `+` until 2026-09-28, when `24 +12` was read on a real roster as 24 plus 12 more, the
+          same misreading again. The slash stays in ink so the brass is the count and nothing
+          else. Nothing is drawn at all when nobody is away, so a card with everybody at home is
+          still one number.
 
           **The leading figure is the whole roster, not what is left at home.** `unit.owned` is
           `base.army`, which a deployed unit has already left, so printing it raw made `12 / 6`
@@ -324,17 +348,13 @@ export function UnitCard({
           data-testid={`unit-count-${unit.id}`}
         >
           <DeltaFloat marks={deltas ?? []} data-testid={`delta-unit-${unit.id}`} />
-          {unit.owned + garrisoned + abroad}
-          {garrisoned > 0 && (
-            <span className="text-brass-300" data-tip={`${garrisoned} on held ground`}>
-              {' '}
-              +{garrisoned}
-            </span>
-          )}
-          {abroad > 0 && (
-            <span data-tip={`${abroad} at a fight`}>
+          {unit.owned + atGate + garrisoned + abroad}
+          {garrisoned + abroad > 0 && (
+            <span
+              data-tip={`${garrisoned + abroad} outside your home district: on held ground, at a fight, on a job or on the road`}
+            >
               <span className="text-ink-300">{' / '}</span>
-              <span className="text-tangerine-300">{abroad}</span>
+              <span className="text-brass-300">{garrisoned + abroad}</span>
             </span>
           )}
         </span>
@@ -357,24 +377,6 @@ export function UnitCard({
               <span className="block truncate text-left font-display text-[11px] uppercase tracking-[0.14em] text-ink-300">
                 {UNIT_TIER_LABELS[unit.tier]} ·{' '}
                 {enemy ? 'The Combine' : BUILDING_CATALOG[unit.trainedAt].name}
-                {/* The housing budget is called Unit Slots everywhere now (maintainer request,
-                    2026-09-15), so the cost a unit puts on it is a slot, not a "pop". Not on a
-                    Combine sheet: nothing of theirs sleeps in the player's beds (maintainer,
-                    2026-09-21). */}
-                {!enemy && (
-                  <>
-                    {' · '}
-                    {/* The slot figure wears the same drawn head-and-shoulders the district's
-                        slot chip and the Monitor draw (maintainer, 2026-09-22), so "1 slot" on
-                        a card and "17 / 26" on the chip are visibly the same count. Inline and
-                        a hair under the cap height, so it sits in the line rather than on it. */}
-                    <DrawnGlyph
-                      name="unit-slots"
-                      className="relative -top-px inline-block h-3 w-3 text-ink-200"
-                    />{' '}
-                    {unit.unitSlots} {unit.unitSlots === 1 ? 'slot' : 'slots'}
-                  </>
-                )}
               </span>
             </HoverCard>
           </span>
@@ -407,6 +409,22 @@ export function UnitCard({
                 Bonuses
               </span>
             </HoverCard>
+          )}
+          {/* The unit slots one of them takes, in its own box between the bonuses and the loot
+              (maintainer, 2026-09-27), wearing the same drawn head-and-shoulders the district's
+              slot chip draws, so "1" here and "17 / 26" there are visibly the same count. Not on a
+              Combine sheet: nothing of theirs sleeps in the player's beds (2026-09-21). */}
+          {!enemy && (
+            <span
+              className="flex h-[25px] shrink-0 items-center gap-1 rounded-sm border border-surface-600/60 bg-surface-950/40 px-2"
+              data-tip={`Unit slots: ${unit.unitSlots === 1 ? 'one of them takes one' : `one of them takes ${unit.unitSlots}`}`}
+              data-testid={`unit-slots-${unit.id}`}
+            >
+              <DrawnGlyph name="unit-slots" className="h-4 w-4 text-ink-300" />
+              <span className="font-display text-[13px] font-bold leading-none tabular-nums text-ink-100">
+                {unit.unitSlots}
+              </span>
+            </span>
           )}
           {/* The name is on the hover rather than printed: at this size a word beside the figure
               costs more room than the figure itself, and `Loot` is one word nobody needs twice.
@@ -661,14 +679,10 @@ function LockedFigure() {
           icon={<Icon name="research" className="h-full w-full text-oxblood-300" />}
         >
           <p className="font-body text-[13px] leading-relaxed text-ink-200">
-            Carriers cannot fight. They are never put in a line, they never draw fire and they deal
-            nothing, so a sheet of combat numbers would be describing something that cannot happen.
-          </p>
-          <p className="mt-2 font-body text-[13px] leading-relaxed text-ink-200">
-            <span className="font-bold text-brass-300">Everybody Fights</span>, the first programme
-            on the <span className="font-bold text-brass-300">Field Commander</span> track, is what
-            changes that: after it your porters take a place in the line at half strength, and these
-            two figures start meaning something.
+            Carriers do not fight, so these numbers mean nothing yet.{' '}
+            <span className="font-bold text-brass-300">Everybody Fights</span>, first on the{' '}
+            <span className="font-bold text-brass-300">Field Commander</span> track, puts them in
+            the line at full strength.
           </p>
         </InfoWindow>
       }
@@ -802,26 +816,35 @@ function StatLabel({ statKey }: { statKey: RatingKey }) {
  * Always rendered, even when a unit has none, because an empty band that holds its own line is what
  * keeps the sheet's bottom rule where the neighbouring card puts it.
  */
+/**
+ * The band in colour order (maintainer, 2026-09-26): brass rules first, then the verdigris
+ * modifiers and good ground, then everything red, so what is against a unit always sits at the end.
+ */
 function Marks({ unit }: { unit: UnitOption }) {
   const { rules, modifiers, affinities } = unit;
+  const ruleChip = (rule: UnitOption['rules'][number]) => (
+    <li key={rule.id} className="min-w-0">
+      <RuleTag rule={rule} />
+    </li>
+  );
+  const affinityChip = (affinity: UnitOption['affinities'][number]) => (
+    <li key={affinity.id} className="min-w-0">
+      <AffinityTag affinity={affinity} unitName={unit.name} />
+    </li>
+  );
+  const against = (rule: UnitOption['rules'][number]) => ruleTone(rule) === 'negative';
 
   return (
     <ul className="flex min-h-6 flex-wrap items-center gap-1" data-testid={`marks-${unit.id}`}>
-      {rules.map((rule) => (
-        <li key={rule.id} className="min-w-0">
-          <RuleTag rule={rule} />
-        </li>
-      ))}
+      {rules.filter((rule) => !against(rule)).map(ruleChip)}
       {modifiers.map((modifier) => (
         <li key={modifier.label} className="min-w-0">
           <ModifierTag modifier={modifier} />
         </li>
       ))}
-      {affinities.map((affinity) => (
-        <li key={affinity.id} className="min-w-0">
-          <AffinityTag affinity={affinity} unitName={unit.name} />
-        </li>
-      ))}
+      {affinities.filter((affinity) => affinity.good).map(affinityChip)}
+      {rules.filter(against).map(ruleChip)}
+      {affinities.filter((affinity) => !affinity.good).map(affinityChip)}
     </ul>
   );
 }

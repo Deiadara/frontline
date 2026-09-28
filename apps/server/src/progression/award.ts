@@ -5,8 +5,11 @@ import {
   type LevelUp,
   type PlayerXpAward,
   type PlayerXpSource,
+  FOUND_FACTION_PLAYER_LEVEL,
+  playerXpToNextLevel,
 } from '@frontline/shared';
 import { crewEffectsFor } from '../crew/standing.js';
+import { offerOpeningInvitationAt } from '../factions/opening.js';
 import type { Repositories } from '../db/repos/index.js';
 
 export interface AwardedXp {
@@ -61,6 +64,11 @@ export function awardPlayerXp(
    * silent. The marker (migration 0083) is drained by {@link takeLevelUp}, which is what the
    * announcing responses call, so it is announced exactly once whichever door banked it.
    */
+  // Crossing the Faction door's level is when the seeded faction's letter arrives: before it the
+  // crew could not accept (`factions/opening.ts`).
+  if (base.level < FOUND_FACTION_PLAYER_LEVEL && award.level >= FOUND_FACTION_PLAYER_LEVEL) {
+    offerOpeningInvitationAt(repos, base.ownerId, award.level, new Date().toISOString());
+  }
   if (award.levelsGained > 0) {
     repos.bases.setPendingLevelUp(
       base.id,
@@ -68,6 +76,20 @@ export function awardPlayerXp(
     );
   }
   return { base: { ...base, level: award.level, progression: award.progression }, award };
+}
+
+/**
+ * A crew whose banked XP is past its level's threshold, rolled over into the levels it now pays for.
+ *
+ * The curve was retuned on 2026-09-28 with no migration, so a crew that banked 5,499 towards a
+ * level whose threshold is now 2,070 sat past its own finish line: the HUD drew the bar overfull,
+ * and the levels it had earned waited for the next award to cross them. Run on every settle, and a
+ * no-op after the first one: a zero award through the one funnel, so the levels are banked and
+ * announced like any other. The source only labels an award nobody is shown.
+ */
+export function settleRetunedCurve(repos: Repositories, base: Base): Base {
+  if (base.progression.xpIntoLevel < playerXpToNextLevel(base.level)) return base;
+  return awardPlayerXp(repos, base, 'missionCompleted', 0, 0).base;
 }
 
 /**

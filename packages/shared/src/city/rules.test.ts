@@ -60,7 +60,7 @@ const fight = (
 describe('every new kind says what it is in one line', () => {
   const LINES: readonly [HoldBonus, string][] = [
     [{ kind: 'road_shortcut', minutes: 4 }, '-4 min off every road'],
-    [{ kind: 'carriers_fight' }, 'porters fight, at half strength'],
+    [{ kind: 'carriers_fight' }, 'porters fight'],
     [{ kind: 'any_ride' }, 'anything can be put on a machine'],
     [{ kind: 'steady_nerve' }, 'a stack that breaks shakes nobody'],
     [{ kind: 'scout_parties', flat: 1 }, '+1 scouting party out at once'],
@@ -94,12 +94,12 @@ describe('the switches are permissions, not amounts', () => {
     const marks = fold(
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
       { kind: 'unit_mark', unitId: 'ironsides', mark: 'stalwart' },
-      { kind: 'unit_mark', unitId: 'ironsides', mark: 'sapper' },
+      { kind: 'unit_mark', unitId: 'ironsides', mark: 'taunts' },
       { kind: 'unit_mark', unitId: 'razors', mark: 'pack' },
     ).unitMarks;
     // Deduplicated: two holdings granting the same mark grant one mark, not a list with a repeat
     // in it that a consumer counting entries would read as two.
-    expect(marks['ironsides']).toEqual(['stalwart', 'sapper']);
+    expect(marks['ironsides']).toEqual(['stalwart', 'taunts']);
     expect(marks['razors']).toEqual(['pack']);
   });
 });
@@ -165,11 +165,9 @@ describe('the porters take a place in the line', () => {
     );
     expect(without.attacker.stacks).toHaveLength(0);
     expect(with_.attacker.stacks).toHaveLength(1);
-    // ...and they are worth half of what they read, which is what stops the cheapest sheet in the
-    // game being the correct one. See `CARRIER_STRENGTH`.
+    // ...at their own sheet (maintainer, 2026-09-27): a hauler's numbers, not a cut on top of them.
     const stack = with_.attacker.stacks[0]!;
-    expect(stack.effective.vitality).toBeCloseTo(spec('scavengers').stats.vitality / 2, 6);
-    expect(stack.effective.reasons).toContain('Turned out to fight');
+    expect(stack.effective.vitality).toBeCloseTo(spec('scavengers').stats.vitality, 6);
   });
 });
 
@@ -235,11 +233,11 @@ describe('the two folds agree about a switch', () => {
     const ground = { ...noTerritoryEffects(), unitMarks: { ironsides: ['stalwart'] as const } };
     const lab = {
       ...noCrewEffects(),
-      unitMarks: { ironsides: ['sapper'] as const, razors: ['pack'] as const },
+      unitMarks: { ironsides: ['taunts'] as const, razors: ['pack'] as const },
     };
-    expect(combineEffects(ground, lab).unitMarks['ironsides']).toEqual(['sapper', 'stalwart']);
+    expect(combineEffects(ground, lab).unitMarks['ironsides']).toEqual(['taunts', 'stalwart']);
     expect(mergeCrewEffects({ ...noCrewEffects(), ...ground }, lab).unitMarks).toEqual({
-      ironsides: ['stalwart', 'sapper'],
+      ironsides: ['stalwart', 'taunts'],
       razors: ['pack'],
     });
   });

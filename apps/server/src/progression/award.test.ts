@@ -67,40 +67,41 @@ function seedBase(db: AppDatabase, repos: Repositories, level: number): Base {
 describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
   it('banks XP without levelling when the award falls short', () => {
     const { db, repos } = makeRepos();
-    const base = seedBase(db, repos, 1);
+    // Level 2, which asks 158: a raid's 80 falls short of it.
+    const base = seedBase(db, repos, 2);
 
     const { base: after, award } = awardPlayerXp(repos, base, 'raidWon');
 
-    expect(award).toMatchObject({ source: 'raidWon', xpGained: 80, levelsGained: 0, level: 1 });
+    expect(award).toMatchObject({ source: 'raidWon', xpGained: 80, levelsGained: 0, level: 2 });
     expect(after.progression.xpIntoLevel).toBe(80);
     // Persisted, not just returned.
     expect(repos.bases.findById('base-1')).toMatchObject({
-      level: 1,
+      level: 2,
       progression: { xpIntoLevel: 80 },
     });
   });
 
   it('writes the new level and the carried-over XP together on a level-up', () => {
     const { db, repos } = makeRepos();
-    const base = seedBase(db, repos, 1);
+    const base = seedBase(db, repos, 2);
 
     awardPlayerXp(repos, base, 'raidWon'); // 80
     const reread = repos.bases.findById('base-1');
     expect(reread).toBeDefined();
-    const { award } = awardPlayerXp(repos, reread as Base, 'questCompleted'); // +200 => 280, clears 100
+    const { award } = awardPlayerXp(repos, reread as Base, 'questCompleted'); // +200 => 280, clears 158
 
-    expect(award).toMatchObject({ level: 2, levelsGained: 1 });
+    expect(award).toMatchObject({ level: 3, levelsGained: 1 });
     expect(repos.bases.findById('base-1')).toMatchObject({
-      level: 2,
-      progression: { xpIntoLevel: 180 },
+      level: 3,
+      progression: { xpIntoLevel: 122 },
     });
   });
 
   it('hands back the §I2 grants the new level unlocked', () => {
     const { db, repos } = makeRepos();
-    // 580 of the 600 needed to clear level 3; one mission (120) crosses into level 4.
+    // 282 of the 302 needed to clear level 3; one mission (120) crosses into level 4.
     const base = seedBase(db, repos, 3);
-    repos.bases.updateProgression(base.id, 3, { xpIntoLevel: 580 });
+    repos.bases.updateProgression(base.id, 3, { xpIntoLevel: 282 });
     const at3 = repos.bases.findById('base-1') as Base;
 
     const { award } = awardPlayerXp(repos, at3, 'missionCompleted');
@@ -117,11 +118,11 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
 
   it('names the §I3 door a level-up opened, rather than leaving it to be found by accident', () => {
     const { db, repos } = makeRepos();
-    // 280 of the 300 needed to clear level 2; one mission (120) carries it into level 3, which is
+    // 140 of the 158 needed to clear level 2; one mission (120) carries it into level 3, which is
     // where Drills opens. Re-recorded 2026-09-19: the Archive used to be the level-3 door and is
     // now opened by hiring a Head of Research, so no level announces it at all.
     const base = seedBase(db, repos, 2);
-    repos.bases.updateProgression(base.id, 2, { xpIntoLevel: 280 });
+    repos.bases.updateProgression(base.id, 2, { xpIntoLevel: 140 });
     const at2 = repos.bases.findById('base-1') as Base;
 
     const { award } = awardPlayerXp(repos, at2, 'missionCompleted');
@@ -135,10 +136,10 @@ describe('awardPlayerXp: the single XP write path (INTERFACES R7)', () => {
 
   it('reports every door a single oversized award crossed, not just the last', () => {
     const { db, repos } = makeRepos();
-    // Level 1 with 980 banked. One quest (200) clears level 1 (100), level 2 (300) and level 3
-    // (600) in one go, landing on 4: past Drills at 3 and nothing else.
+    // Level 1 with 322 banked. One quest (200) clears level 1 (52), level 2 (158) and level 3
+    // (302) in one go, landing on 4: past Drills at 3 and nothing else.
     const base = seedBase(db, repos, 1);
-    repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 980 });
+    repos.bases.updateProgression(base.id, 1, { xpIntoLevel: 322 });
     const at1 = repos.bases.findById('base-1') as Base;
 
     const { award } = awardPlayerXp(repos, at1, 'questCompleted');

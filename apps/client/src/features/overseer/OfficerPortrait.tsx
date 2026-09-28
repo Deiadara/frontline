@@ -42,7 +42,7 @@ export function OfficerPortrait({
   style?: CSSProperties;
 }) {
   const painted = portraitId === null ? null : deliveredUrl({ type: 'officer', portraitId });
-  // Ticks only while this particular face is hurt, so a crew of nineteen fit officers costs no
+  // Ticks only while this particular face is hurt, so a crew of eighteen fit officers costs no
   // re-render a second.
   const now = useTick(injuredUntil != null);
   const left = injuredUntil == null ? 0 : officerRecoverySeconds(injuredUntil, new Date(now));
@@ -108,7 +108,7 @@ export function OfficerPortrait({
  * The red film, the word, and the clock (§D6).
  *
  * Across the middle rather than in a corner, because the state is the headline: a player scanning
- * nineteen cards has to see which of their people are out without reading anything.
+ * eighteen cards has to see which of their people are out without reading anything.
  *
  * Drawn as **SVG text on a viewBox** rather than as HTML type, and that is the whole reason this
  * is a separate component. The same portrait is rendered at 44px in the training rail, at 48px in

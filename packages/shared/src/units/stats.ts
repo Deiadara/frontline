@@ -89,9 +89,9 @@ export const COMBAT_CONTEXT_LABELS: Record<CombatContext, { name: string; when: 
   indoor: { name: 'Indoor', when: 'inside a structure' },
   open_ground: { name: 'Open ground', when: 'in the open' },
   underground: { name: 'Underground', when: 'below street level' },
-  vs_structure: { name: 'Fortified', when: 'against fortifications' },
+  vs_structure: { name: 'Gated', when: 'against defenders behind a gate' },
   vs_armor: { name: 'Armoured enemy', when: 'against armour' },
-  vs_evasive: { name: 'Evasive enemy', when: 'against something that will not hold still' },
+  vs_evasive: { name: 'Evasive enemy', when: 'against anything that dodges' },
   vs_low_morale: { name: 'Shaken enemy', when: 'against a shaken enemy' },
   outnumbered: { name: 'Outnumbered', when: 'when outnumbered' },
   defending: { name: 'Holding ground', when: 'when holding ground' },
@@ -110,8 +110,14 @@ export interface UnitModifierSpec {
    * unit whose job is not damage: a shield wall with 60 damage and a +60% bonus for holding ground
    * gains 36 points of a stat nobody sends it for. A defensive sheet needs to be *harder to kill*
    * while the context holds, which is a different number in a different place, so it says which.
+   *
+   * Two take something away from the target rather than adding to this unit (maintainer,
+   * 2026-09-26), and `percent` is how much of it: `evasion` is that share of the target's dodge
+   * gone against this unit's shots (`matchup.ts`), and `gate` is that share of the toughness a gate
+   * gives the target gone against them (`effects.ts`, `matchup.ts`). Neither is a bonus on a
+   * number, so neither is summed into `contextBonusPercent`.
    */
-  affects?: 'offense' | 'toughness';
+  affects?: 'offense' | 'toughness' | 'evasion' | 'gate';
   /**
    * The clause the card prints after "Counts", when the context's own is not the whole truth.
    *
@@ -135,13 +141,13 @@ export interface UnitModifierSpec {
 export const UNIT_MODIFIERS = {
   urban_bonus: {
     label: 'Urban Bonus',
-    description: 'Grew up in these streets and does not need a map of them.',
+    description: 'Hits harder in the streets it grew up in.',
     context: 'urban',
     percent: 20,
   },
   night_operations: {
     label: 'Night Operations',
-    description: 'Trained to work without light, and better for the enemy not being.',
+    description: 'Hits harder in the dark, where the enemy is half blind.',
     // Ground, not hour. The clock used to decide this and it made a floodlit yard at ten at night
     // count while a pitch-black sewer at noon did not. See `DARK_GROUND_TIER`.
     context: 'dark',
@@ -149,31 +155,41 @@ export const UNIT_MODIFIERS = {
   },
   close_quarters: {
     label: 'Close Quarters',
-    description: 'At its best in a corridor, where range stops mattering.',
+    description: 'Hits harder indoors, where range stops mattering.',
     context: 'indoor',
     percent: 25,
   },
   open_field: {
     label: 'Open Field',
-    description: 'Needs room, and is worth having when there is some.',
+    description: 'Hits harder when it has room to move.',
     context: 'open_ground',
     percent: 25,
   },
   tunnel_rat: {
     label: 'Tunnel Rat',
-    description: 'Comfortable below the street, where most things are not.',
+    description: 'Hits harder below the street, where most things get lost.',
     context: 'underground',
     percent: 25,
   },
+  /*
+   * The gate is not there for these (maintainer, 2026-09-26).
+   *
+   * It was +30% against dug-in ground, and dug-in ground left the game with fortification. What it
+   * is now is narrower and sharper: against a defender a gate is protecting, this unit's own hits
+   * land as if the gate were not there, while every other unit on its side still meets the wall.
+   * The Colossus does the whole side's version of this (`wall_breaker`), so it does not carry it.
+   */
   breaching: {
     label: 'Breaching',
-    description: 'Carries what it takes to make a door out of a wall.',
+    description:
+      'Carries what it takes to make a door out of a wall. The enemy gate does nothing against its hits, though the rest of your line still meets it.',
     context: 'vs_structure',
-    percent: 30,
+    percent: 100,
+    affects: 'gate',
   },
   armor_piercing: {
     label: 'Armour Piercing',
-    description: 'Ammunition or edge designed for the plate it will meet.',
+    description: 'Hits armoured targets harder. Built for the plate it will meet.',
     context: 'vs_armor',
     percent: 30,
   },
@@ -190,33 +206,43 @@ export const UNIT_MODIFIERS = {
    * ordinary; tracking something that does not want to be hit is a speciality, and it should be a
    * reason to bring a *particular* unit rather than a number everybody carries a little of.
    */
+  /*
+   * Half the dodge, on every target (maintainer, 2026-09-26).
+   *
+   * It was +45% damage against anything at 30 evasion or more, and that threshold was a cliff:
+   * 30 evasion dodges a sixth of the fire and the bonus added nearly half, so a unit at 30 took more
+   * from a tracker than a unit at 29, and stayed worse off all the way to 60. Now it works on what
+   * it counters, the dodge itself, and in proportion to it: a target at 45 evasion dodges a
+   * quarter of the fire and an eighth of a tracker's.
+   */
   tracking: {
     label: 'Tracking',
-    description: 'Reads the movement, not the target. Ducking does not help.',
+    description: 'Reads the movement, not the target. Enemies dodge half as much of its fire.',
     context: 'vs_evasive',
-    percent: 45,
+    percent: 50,
+    affects: 'evasion',
   },
   terror: {
     label: 'Terror',
-    description: 'Finishes what fear started, and starts it where it has not.',
+    description: 'Hits harder against a shaken enemy, and finishes what fear started.',
     context: 'vs_low_morale',
     percent: 35,
   },
   last_stand: {
     label: 'Last Stand',
-    description: 'Fights hardest when the odds are worst. That is not the same as fighting well.',
+    description: 'Hits harder when outnumbered. Nothing left to lose.',
     context: 'outnumbered',
     percent: 25,
   },
   dug_in: {
     label: 'Dug In',
-    description: 'Worth twice as much behind something as in front of it.',
+    description: 'Hits harder when defending. Better behind cover than in front of it.',
     context: 'defending',
     percent: 30,
   },
   bulwark: {
     label: 'Bulwark',
-    description: 'Holding ground is the whole job. Getting through takes time nobody has.',
+    description: 'Far harder to kill when defending. Getting through them takes time nobody has.',
     context: 'defending',
     percent: 70,
     // Toughness rather than damage: this is on the sheet that has almost no damage to raise.
@@ -237,14 +263,14 @@ export const UNIT_MODIFIERS = {
   ambush: {
     label: 'Ambush',
     description:
-      'Better in these streets than out of them. Attacking, they also get an exchange away before the other side is in position: that half is bought with stealth, so it is worth most against people who never saw them coming and nothing at all against people who did.',
+      'Hits harder in the streets, and when attacking gets a free exchange before the enemy is ready. Worth most against those who never spotted them.',
     context: 'urban',
     percent: 25,
     when: 'in urban ground, and on any ground at all for the opening exchange',
   },
   rooftop: {
     label: 'Rooftop',
-    description: 'Works from above, which in this city is most places.',
+    description: 'Hits harder in the streets, firing from above.',
     context: 'urban',
     percent: 15,
   },

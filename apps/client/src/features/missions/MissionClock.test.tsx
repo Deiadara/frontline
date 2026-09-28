@@ -1,10 +1,13 @@
 import {
+  makeAttributes,
+  EARLY_RAMP_BANDS,
   TRAVEL_BAND_MINUTES,
   MISC_AREA_ID,
   leaningsFor,
   hastenedRoadMinutes,
   missionOffers,
   missionTimings,
+  rampedTimings,
   templateTimings,
   findVehicle,
   formatDuration,
@@ -56,31 +59,30 @@ function areaOf(id: string, name: string): MissionArea {
     blurb: `Everything anybody is paying for in ${name}.`,
     difficulty: 1,
     payPercent: 0,
-    offers: missionOffers(id).map((template): MissionOffer => ({
+    offers: missionOffers(id, '', 12).map(({ template, grade }): MissionOffer => ({
       templateId: template.id,
       name: template.name,
       brief: template.brief,
       kind: template.kind,
-      difficulty: template.difficulty,
-      travelMinutes: templateTimings(template).travelMinutes,
-      durationMinutes: template.durationMinutes,
-      totalMinutes: templateTimings(template).totalMinutes,
+      grade,
+      travelMinutes: templateTimings(template, grade).travelMinutes,
+      durationMinutes: templateTimings(template, grade).durationMinutes,
+      totalMinutes: templateTimings(template, grade).totalMinutes,
       // The clock before anything is taken off it: what the send dialog runs the launch's own
       // arithmetic on. See `MissionOfferSchema.rawTravelMinutes`.
       rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-      rawDurationMinutes: template.durationMinutes,
+      rawDurationMinutes: templateTimings(template, grade).durationMinutes,
       speedPercent: 0,
       rewards: template.spoils,
       payoutSlots: 40,
       xp: 240,
       failedXp: 48,
-      pagePrize: null,
       // Off the template, not typed in: what a job leans on is `leaningsFor`, and a fixture
       // that made it up would let the picker agree with itself while disagreeing with the
-      // maintainer. A fight's tier is dealt by the board; here every fight is a Fight I.
-      authoredChance: template.successChance,
+      // maintainer. The grade is the one the board deals a level-twelve crew.
       leanings: [...leaningsFor(template)],
-      battleTier: template.kind === 'battle' ? ('fight_1' as const) : null,
+      // Out of the opening band: this fixture is not about the ramp.
+      ramp: null,
     })),
     activeMissionId: null,
   };
@@ -98,11 +100,24 @@ const board: MissionsResponse = {
   // takes drags the column, and the row has to say so before anybody presses Send.
   army: { razors: 6, the_colossus: 1 },
   serverNow: NOW,
-  leaders: [],
-  // This file is about the clock, not about who leads: a rule that refuses nothing keeps the
-  // send button alive without a leader having to be picked first.
-  unledRule: 'free',
+  // This file is about the clock, not about who leads. Every run has a leader, and the Overseer
+  // takes nothing off the road (`arrivalPercent` is an officer's), so the clock is the bare one.
+  leaders: [
+    {
+      id: 'ov-1',
+      name: 'Rook',
+      kind: 'overseer',
+      arrivalPercent: 0,
+      attributes: makeAttributes(22),
+      held: null,
+      heldUntil: null,
+    },
+  ],
   level: 12,
+  // The board's city and the rooms this crew may read. Both carry a Zod default on the
+  // wire; a hand-written fixture has to say them.
+  cityId: 'ashfall',
+  cities: ['ashfall'],
 };
 
 const crew: CrewResponse = { level: 6, housing: { used: 0, capacity: 8 }, officers: [] };
@@ -116,6 +131,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',
@@ -321,5 +337,113 @@ describe('the send dialog and a unit that walks', () => {
       expect(within(dialog).getByTestId('walks-the_colossus')).toHaveTextContent('walks'),
     );
     expect(within(dialog).queryByTestId('walks-razors')).toBeNull();
+  });
+});
+
+/**
+ * The opening band, on the one screen that never learned about it.
+ *
+ * A crew's first three runs are compressed to between one and three minutes door to door
+ * (`missions.ramp.ts`), and the board card prints that: the server prices the card through
+ * `pricedTimings`, band included. The send dialog does not use those figures. It re-runs the
+ * launch's arithmetic from `rawTravelMinutes` and `rawDurationMinutes` so the column's pace and
+ * the leader's Short Way can come off it, and raw is the bare template.
+ *
+ * So the band was missing from the one line a player commits from. Measured against a live server
+ * on 2026-09-25: the card read "Round trip 2m" and the dialog under it read "At most, with nobody
+ * picked · 1h 50m" for the same job, on a new crew's very first mission.
+ */
+describe('the send dialog and the opening band', () => {
+  const BAND = EARLY_RAMP_BANDS[0]!;
+
+  /** The same board, with every card in the first band, as the server sends it to a new crew. */
+  const ramped: MissionsResponse = {
+    ...board,
+    areas: board.areas.map((area) => ({
+      ...area,
+      offers: area.offers.map((offer) => {
+        const timings = rampedTimings(
+          missionTimings({
+            travelMinutes: offer.rawTravelMinutes,
+            durationMinutes: offer.rawDurationMinutes,
+          }),
+          BAND,
+        );
+        return { ...offer, ...timings, ramp: BAND };
+      }),
+    })),
+  };
+
+  beforeEach(() => {
+    fetchMock.mockImplementation((path: string) => {
+      if (path.endsWith('/crew')) return reply(crew);
+      if (path.endsWith('/me')) return reply(me);
+      if (path.endsWith('/missions')) return reply(ramped);
+      throw new Error(`unstubbed request: ${path}`);
+    });
+  });
+
+  it('quotes the band the card quotes, not the template underneath it', async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <MemoryRouter>
+          <MissionsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('board-area');
+
+    const card = ramped.areas[0]!.offers[0]!;
+    // The precondition, and the whole reason this case exists: the band has to be doing something
+    // to this job, or the dialog agreeing with the card says nothing about whether it applied one.
+    expect(card.totalMinutes).toBeLessThan(card.rawDurationMinutes + 2 * card.rawTravelMinutes);
+    expect(card.totalMinutes).toBeLessThanOrEqual(BAND.maxMinutes);
+
+    fireEvent.click(await screen.findByTestId(`send-${card.templateId}`));
+    const dialog = screen.getByRole('dialog');
+    const clock = within(dialog).getByTestId('round-trip-clock');
+    /*
+     * The whole string, not `toHaveTextContent`.
+     *
+     * That matcher is a substring test, and every duration here ends in the same unit: the band's
+     * "3m" is inside the template's "23m", so the assertion passed against the unfixed component.
+     * Caught by mutating the fix away and watching this case stay green.
+     */
+    expect(clock.textContent).toBe(formatDuration(card.totalMinutes));
+  });
+
+  it('keeps the band on after a column is picked, which is when the figure goes exact', async () => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+          })
+        }
+      >
+        <MemoryRouter>
+          <MissionsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByTestId('board-area');
+
+    const card = ramped.areas[0]!.offers[0]!;
+    fireEvent.click(await screen.findByTestId(`send-${card.templateId}`));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('How many Razors'), { target: { value: '6' } });
+
+    // A column only ever shortens the walk, and the band clamps what is left into its own window,
+    // so the quote stays inside the band rather than jumping back to the template's own clock.
+    await waitFor(() => {
+      const shown = within(dialog).getByTestId('round-trip-clock').textContent ?? '';
+      expect(shown).toBe(formatDuration(card.totalMinutes));
+    });
   });
 });

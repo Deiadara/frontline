@@ -31,11 +31,12 @@ import { MarkStamp } from '../../components/ui/MarkStamp';
 import { TrackSigil } from './TrackSigil';
 import { BlueprintsSection } from './BlueprintsSection';
 import { ReimaginingSection } from './ReimaginingSection';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The research page (GDD §C, §D, §G2, §I1): three tabs and one workspace.
  *
- * **Programmes** is §C, the nineteen officer tracks. **Blueprints** is §D, the documents the crew
+ * **Programmes** is §C, the eighteen officer tracks. **Blueprints** is §D, the documents the crew
  * is assembling out of mission pages. **Reimagining** is §G2, the machine that eats three of those
  * pages and hands back a fourth. They are one screen because they are one question, what the Lab
  * can open next, asked from three directions: time and two chairs, paper, and the bench.
@@ -78,17 +79,13 @@ function ActiveProject({ active, at }: { active: ActiveResearch; at: Date }) {
         onCancel={() => cancel.mutate({})}
         data-testid="cancel-research"
       />
-      {cancel.error && (
-        <p role="alert" className="font-body text-[13px] leading-relaxed text-oxblood-300">
-          {cancel.error.message}
-        </p>
-      )}
+      {cancel.error && <ErrorNote>{cancel.error.message}</ErrorNote>}
     </div>
   );
 }
 
 /**
- * §C: the nineteen tracks, and what standing on one costs.
+ * §C: the eighteen tracks, and what standing on one costs.
  *
  * A track is an officer's trade. It only moves while that officer is in their chair (§C1b) and
  * while somebody holds the Head of Research post (§C1c), and each rung wants the track's officer at
@@ -136,7 +133,7 @@ function TrackRow({
           selected ? 'text-brass-300' : status.mark === null ? 'text-ink-400' : 'text-ink-200',
         )}
       >
-        {/* 7 of the plate's 9, up from 6: the mark is the only thing telling nineteen rows
+        {/* 7 of the plate's 9, up from 6: the mark is the only thing telling eighteen rows
             apart, and it was drawn at two thirds of the space it had. */}
         <TrackSigil role={status.role} className="h-7 w-7" ringed={false} />
       </span>
@@ -145,7 +142,7 @@ function TrackRow({
        *
        * `font-stamp` at 14 with a truncation rather than 13 with `break-words`: the two lists sit
        * one door apart and read as one book, and the wrap was what put a double-barrelled name with
-       * a nickname in it onto two lines and made one row of nineteen taller than the rest.
+       * a nickname in it onto two lines and made one row of eighteen taller than the rest.
        */}
       <span className="min-w-0 flex-1">
         <span className="block truncate font-stamp text-[14px] leading-tight">
@@ -154,7 +151,7 @@ function TrackRow({
         {/*
          * The role truncates, the person does not.
          *
-         * A role is one of nineteen strings this build ships and the rail is sized for the longest
+         * A role is one of eighteen strings this build ships and the rail is sized for the longest
          * of them, so cutting it is impossible. A name is whatever somebody was called: truncating
          * it cut `Wenqing "Compass" Adebayo-Lindqvist` by two pixels, which the sheet's own
          * no-cut-text gate refuses and is right to. It wraps, and the row is a little taller.
@@ -389,7 +386,7 @@ function isOfficerRole(value: string | null): value is OfficerRole {
   return value !== null && (OFFICER_ROLES as readonly string[]).includes(value);
 }
 
-/** The whole §C section: the rail of nineteen trades, and the ten rungs of the one chosen. */
+/** The whole §C section: the rail of eighteen trades, and the ten rungs of the one chosen. */
 function TracksSection({
   data,
   pending,
@@ -403,9 +400,9 @@ function TracksSection({
   /*
    * Chairs with somebody in them first, the empty ones gathered below (maintainer, 2026-09-22).
    *
-   * Nineteen trades in catalogue order put the empty chairs wherever the catalogue happened to
+   * Eighteen trades in catalogue order put the empty chairs wherever the catalogue happened to
    * put them, so the one question a player is actually asking of this rail, "who is not covered",
-   * was answered by scanning nineteen rows for a red line. The two groups keep their own internal
+   * was answered by scanning eighteen rows for a red line. The two groups keep their own internal
    * order, so a trade does not move around inside its group as other chairs fill.
    */
   const seated = statuses.filter((entry) => entry.mark !== null);
@@ -415,7 +412,7 @@ function TracksSection({
    *
    * It was component state, which made the rail unreachable from anywhere else: the shut
    * Reimagining bench wants to send a player to the one rung that opens it, and a link that can
-   * only say "the Programmes tab" lands them on the Master of Whispers with nineteen rows to read. `replace`,
+   * only say "the Programmes tab" lands them on the Master of Whispers with eighteen rows to read. `replace`,
    * because picking through the trades is browsing rather than navigating.
    */
   const [params, setParams] = useSearchParams();
@@ -656,8 +653,8 @@ export function ResearchPage() {
       action={
         section === 'reimagining' ? (
           <InfoNote label="How Reimagining Works" drawn ink="iris">
-            If you look at {REIMAGINING_PAGES_SPENT} random pages hard enough, you are guaranteed to
-            come up with some new research. That&rsquo;s how it usually works anyway.
+            Stare at {REIMAGINING_PAGES_SPENT} random pages long enough and new research always
+            turns up.
           </InfoNote>
         ) : undefined
       }
@@ -693,12 +690,7 @@ export function ResearchPage() {
         )}
 
         {startTechMutation.error && (
-          <p
-            role="alert"
-            className="shrink-0 font-body text-[13px] leading-relaxed text-oxblood-300"
-          >
-            {startTechMutation.error.message}
-          </p>
+          <ErrorNote className="shrink-0">{startTechMutation.error.message}</ErrorNote>
         )}
 
         {/*

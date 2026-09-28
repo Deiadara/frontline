@@ -68,14 +68,14 @@ describe('the address bucket behind a proxy', () => {
     // request by adding one more address to the header.
     const believing = loadConfig({
       DATABASE_PATH: ':memory:',
-      JWT_SECRET: 'a-real-one',
+      JWT_SECRET: '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4',
       TRUST_PROXY: 'true',
     });
     expect(() => assertDeployable(believing, 'production')).toThrow(/TRUST_PROXY/);
 
     const counted = loadConfig({
       DATABASE_PATH: ':memory:',
-      JWT_SECRET: 'a-real-one',
+      JWT_SECRET: '9f2c47d1b8e0a6f35c1d4e7b2a9f8c06d3e5b1a7c4f2e9d8b0a6c3f1e7d5b2a4',
       TRUST_PROXY: '1',
     });
     expect(() => assertDeployable(counted, 'production')).not.toThrow();

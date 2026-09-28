@@ -42,6 +42,7 @@ import { loadConfig } from '../config.js';
 import { elsewhere } from '../testing/districts.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { settleDistrict } from '../district/settle.js';
+import { storeCeilingsOf } from '../district/stores.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import { settleMovements } from './movement.js';
 import { settleBattles } from './resolve.js';
@@ -165,7 +166,10 @@ async function makeWorld(engine: SkirmishEngine = bloody): Promise<World> {
   app.repos.city.markScouted(raider.baseId, victim.districtId, new Date().toISOString());
   // Nothing behind a standing gate can be reached, so the way in is already open. Breaking it is
   // its own fight with its own rules and its own tests; this file is about what happens *after*.
-  app.repos.sieges.breakGate(victim.districtId, new Date(Date.now() + 3_600_000).toISOString());
+  app.repos.sieges.breakGate(
+    victim.districtId,
+    new Date(Date.now() + 24 * 3_600_000).toISOString(),
+  );
   return { app, db, raider, victim };
 }
 
@@ -182,7 +186,7 @@ const totalAcross = (world: World): Resources =>
   );
 
 /** Declares a raid on the victim's district, sends a column, and settles it. */
-async function breakIn(world: World): Promise<void> {
+async function breakIn(world: World): Promise<string> {
   const target: BattleTarget = { kind: 'district', districtId: world.victim.districtId };
   const declared = await world.app.inject({
     method: 'POST',
@@ -233,6 +237,7 @@ async function breakIn(world: World): Promise<void> {
   settleMovements(world.app.repos, new Date());
 
   expect(settleBattles(world.app.repos, world.app.skirmishEngine, new Date())).toHaveLength(1);
+  return view.battle.id;
 }
 
 /** Hands the victim a location outright, so its hold bonus is live on their side of the fight. */
@@ -271,6 +276,59 @@ describe('breaking into a lived-in district', () => {
   });
 
   /**
+   * Loot lands up to the stores' ceiling and the rest is left on the road (maintainer ruling,
+   * 2026-09-28).
+   *
+   * It used to be the one credit allowed to stand a stockpile over its top. The victim still loses
+   * everything the raiders carried out: what the raiders' own stores could not take is simply gone,
+   * and the lifetime ladders count what landed.
+   */
+  it("banks the haul only up to the raiders' ceilings, and counts only what landed", async () => {
+    const world = await makeWorld();
+    fill(world, world.victim.baseId);
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    const raider = world.app.repos.bases.findById(world.raider.baseId)!;
+    const ceilings = storeCeilingsOf(world.app.repos, raider, new Date());
+    // Ten short of the top on every shelf, so almost the whole haul has nowhere to go.
+    const nearlyFull = Object.fromEntries(
+      RESOURCE_KEYS.map((key) => [
+        key,
+        Number.isFinite(ceilings[key]) ? ceilings[key] - 10 : raider.resources[key],
+      ]),
+    ) as unknown as Resources;
+    world.app.repos.bases.updateResources(raider.id, nearlyFull);
+    const victimBefore = stockOf(world, world.victim.baseId);
+
+    const battleId = await breakIn(world);
+    const after = stockOf(world, world.raider.baseId);
+    const victimAfter = stockOf(world, world.victim.baseId);
+    const tallies = world.app.repos.feats.tallies(raider.id);
+
+    const carried = RESOURCE_KEYS.filter(
+      (key) => key !== 'caps' && victimBefore[key] - victimAfter[key] > 10,
+    );
+    expect(
+      carried.length,
+      'the raid has to carry more than the room for this to mean anything',
+    ).toBeGreaterThan(0);
+    for (const key of carried) {
+      expect(after[key], `${key} rose over its ceiling`).toBe(ceilings[key]);
+      expect(tallies[featMeasureKey('resources_earned', key)] ?? 0, key).toBe(10);
+    }
+    // And the raider is told (bug pass, 2026-09-28): the report says what the yard left on the
+    // road, and the record keeps what landed rather than the whole haul.
+    const report = world.db
+      .prepare('SELECT analysis_json FROM scheduled_battles WHERE id = ?')
+      .get(battleId) as { analysis_json: string };
+    expect(report.analysis_json).toContain('was left on the road');
+    const record = world.db
+      .prepare('SELECT rewards_json FROM battles WHERE id = ?')
+      .get(battleId) as { rewards_json: string };
+    const landed = JSON.parse(record.rewards_json) as Record<string, number>;
+    for (const key of carried) expect(landed[key], key).toBe(10);
+  });
+
+  /**
    * The same, with the defender holding a Bone Market.
    *
    * This is the case the duplication bug needed: the refund write is what put the loot back, and it
@@ -295,7 +353,7 @@ describe('breaking into a lived-in district', () => {
     });
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
     world.app.repos.bases.updateArmy(world.victim.baseId, { razors: 8 }, []);
-    give(world, 'rustyard-bones');
+    give(world, 'steelbelt-bones');
 
     const victimBefore = stockOf(world, world.victim.baseId);
     const raiderBefore = stockOf(world, world.raider.baseId);
@@ -562,7 +620,7 @@ describe('one raid on the whole district', () => {
     fill(world, world.victim.baseId);
     world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
     // Ground worth holding, so the victim has percentages to lose in the first place.
-    give(world, 'rustyard-bones');
+    give(world, 'steelbelt-bones');
 
     const victim = () => world.app.repos.bases.findById(world.victim.baseId)!;
     const before = standingEffectsFor(world.app.repos, victim(), new Date());
@@ -830,5 +888,41 @@ describe('what a raid leaves behind (§A4)', () => {
     expect(Date.parse(after.until as string)).toBeGreaterThan(Date.parse(shorter));
     // ...and half a line walking away does not buy the district its output back.
     expect(after.percent).toBe(MAX_RAID_DISRUPTION_PERCENT);
+  });
+});
+
+/**
+ * A raid fights the crew as it stands at the mark, not as its owner last read it (audit,
+ * 2026-09-28). The home defence was the raw roster, so a batch that came off the bench while the
+ * victim was away stood in no line, and the survivors were written back over the stale queue.
+ */
+describe('the district a raid breaks into', () => {
+  it('is defended by the units that came off the bench since the owner last looked', async () => {
+    let defending: Army = {};
+    const world = await makeWorld({
+      resolve: (input) => {
+        defending = input.defending;
+        return skirmishOutcome({ winner: 'defender', log: ['held'] });
+      },
+    });
+    world.app.repos.bases.updateArmy(world.raider.baseId, { razors: 20 }, []);
+    world.app.repos.bases.updateArmy(world.victim.baseId, {}, [
+      {
+        id: 'batch-1',
+        unitId: 'razors',
+        count: 5,
+        delivered: 0,
+        startedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+        durationSeconds: 3_600,
+        paid: {},
+      },
+    ]);
+
+    await breakIn(world);
+
+    expect(defending.razors ?? 0, 'the finished batch was not at home').toBe(5);
+    const victim = world.app.repos.bases.findById(world.victim.baseId)!;
+    expect(victim.trainingQueue, 'the stale queue was written back').toEqual([]);
+    expect(victim.army.razors).toBe(5);
   });
 });

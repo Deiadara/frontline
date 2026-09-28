@@ -112,7 +112,7 @@ export const SaveAutomationRequestSchema = z.object({
   order: AutomationOrderSchema,
   force: z.record(z.string(), z.number().int().positive()).default({}),
   officerId: IdSchema.nullable().default(null),
-  unitSlots: z.number().int().positive().nullable().default(null),
+  unitSlots: z.number().int().positive().max(10_000).nullable().default(null),
   optimiseFor: ResourceKeySchema.nullable().default(null),
 });
 export type SaveAutomationRequest = z.infer<typeof SaveAutomationRequestSchema>;
@@ -174,6 +174,12 @@ export const BlackMarketResponseSchema = z.object({
   offers: z.array(BlackMarketOfferSchema),
   /** What the crew has to spend. */
   infamy: z.number().int().nonnegative(),
+  /**
+   * The most this crew can bid on a lot: its infamy, stretched by the standing discount that comes
+   * off what the winner pays (`largestBidWithin`). Optional so an older payload still parses; a
+   * screen without it caps the field at `infamy`.
+   */
+  bidCeiling: z.number().int().nonnegative().optional(),
   /** How many lots this crew has won at today's close, and how many it may win. */
   takenToday: z.number().int().nonnegative(),
   takesPerDay: z.number().int().positive(),
@@ -349,6 +355,27 @@ export const AdminGrantRequestSchema = z
      * setting it, like every other grant on this route.
      */
     units: ArmySchema.optional(),
+    /**
+     * Eyes on every district in the world (maintainer, 2026-09-24).
+     *
+     * The Console's End game preset is meant to be the ceiling on everything, and it was handing a
+     * crew every document, every rung and a full yard onto a map they had still never walked. Most
+     * of the city read as fog, so the one screen the whole preset exists to be looked at opened
+     * the scout sheet instead of the district.
+     *
+     * The **world**, not the crew's own city, because the bench is for looking at everything and
+     * there are two playable cities now: scouting one of them would leave the other exactly as
+     * shut as before. It writes real scout marks rather than the Console's fog override, so what a
+     * reviewer sees is the state a crew reaches by playing, not a second kind of visibility that
+     * only exists on the bench.
+     */
+    scouted: z.literal('all').optional(),
+    /**
+     * A location held in every open city (maintainer, 2026-09-28), so the multi-city screens
+     * (the city picker on every room, the crossing, the second board) have ground to read on the
+     * bench. Skipped in a city where the crew already holds something.
+     */
+    footholds: z.literal('every-city').optional(),
   })
   .refine((body) => Object.keys(body).length > 0, 'Nothing to grant');
 export type AdminGrantRequest = z.infer<typeof AdminGrantRequestSchema>;

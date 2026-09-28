@@ -100,7 +100,7 @@ describe('the crew switches the roster has to carry', () => {
     const waived = colossusRules(await rosterWith(ANY_RIDE));
     expect(waived).not.toContain('no_ride');
     // ...while every other mark the sheet carries survives, which a blanket filter would not.
-    expect(waived).toContain('sapper');
+    expect(waived).toContain('wall_breaker');
   });
 
   it('sends carriersFight on its own rung, and both together', async () => {

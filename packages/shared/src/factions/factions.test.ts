@@ -13,7 +13,9 @@ import {
   leavingDisbands,
   sameFactionName,
   type FactionRank,
+  FOUND_FACTION_PLAYER_LEVEL,
 } from './factions.js';
+import { areaUnlockLevel } from '../progression/unlocks.js';
 
 /**
  * The rank table, asserted as a table.
@@ -163,5 +165,13 @@ describe('the table itself', () => {
     for (const fine of ['The Ninth Circle', "Ratter's Own", 'Ninth & Vine', 'Οι Εννιά']) {
       expect(FactionNameSchema.safeParse(fine).success, fine).toBe(true);
     }
+  });
+});
+
+/** One door, one level (maintainer, 2026-09-28): founding asks what the Faction screen asks. */
+describe('the level a faction asks for', () => {
+  it('is the level the Faction screen opens at', () => {
+    expect(FOUND_FACTION_PLAYER_LEVEL).toBe(areaUnlockLevel('faction'));
+    expect(FOUND_FACTION_PLAYER_LEVEL).toBe(10);
   });
 });

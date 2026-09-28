@@ -19,7 +19,7 @@
 -- ON DELETE CASCADE on both: a deleted crew leaves no orphan counters and no orphan claims.
 CREATE TABLE IF NOT EXISTS crew_tallies (
   base_id TEXT NOT NULL REFERENCES bases(id) ON DELETE CASCADE,
-  -- The snapshot key of a `tally` measure: `units_trained`, or `missions_in_area:rustyard`.
+  -- The snapshot key of a `tally` measure: `units_trained`, or `missions_in_area:steelbelt`.
   -- Scoped keys are why this is a row per name rather than a column per name: there is one per
   -- district per crew, and districts are content.
   tally TEXT NOT NULL,

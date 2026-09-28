@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CLAIM_WINDOW_HOURS } from '../market/offers.js';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 
 /**
@@ -61,6 +62,7 @@ export const NOTIFICATION_KINDS = [
   'district_attacked',
   'market_won',
   'market_outbid',
+  'market_claim',
   'page_found',
   'spy_report',
   'spied_on',
@@ -200,6 +202,12 @@ export const NOTIFICATION_KIND_SPECS: Readonly<Record<NotificationKind, Notifica
     blurb: 'A lot you were bidding on has gone to somebody else, or gone unsold.',
     icon: 'market',
   },
+  market_claim: {
+    group: 'district',
+    label: 'Goods to claim',
+    blurb: `A listing of yours was taken, ran out, or the one you countered closed. ${CLAIM_WINDOW_HOURS} hours to claim.`,
+    icon: 'market',
+  },
   page_found: {
     group: 'district',
     label: 'Pages found',
@@ -266,7 +274,12 @@ export type Notification = z.infer<typeof NotificationSchema>;
  * which reads as a broken feature rather than as a default.
  */
 export const NotificationSettingsSchema = z.object({
-  muted: z.array(NotificationKindSchema).default([]),
+  // Deduplicated and capped: the column is re-read on every notification this player is sent.
+  muted: z
+    .array(NotificationKindSchema)
+    .max(NOTIFICATION_KINDS.length * 4)
+    .default([])
+    .transform((kinds) => [...new Set(kinds)]),
 });
 export type NotificationSettings = z.infer<typeof NotificationSettingsSchema>;
 

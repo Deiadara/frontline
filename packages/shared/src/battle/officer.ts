@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { MAX_ATTRIBUTE, type AttributeName, type Attributes } from '../attributes.js';
+import { NO_SHEET_BONUS, type OfficerSheetBonus } from '../crew/leading.js';
+import type { OfficerRole } from '../roles.js';
 import type { UnitSpec, UnitStats } from '../units/index.js';
 
 /**
@@ -191,17 +193,37 @@ export function officerMorale(rating: number): number {
   return Math.round(OFFICER_BASE_MORALE + (within / 100) * (100 - OFFICER_BASE_MORALE));
 }
 
-export function officerBattleStats(attributes: Attributes): UnitStats {
+/**
+ * `bonus` is what the officer's own chair does for them (`crew/leading.ts`): damage and hit
+ * points as percentages of the table's figure and then a seat multiplier on the result (the Raid
+ * Boss's doubling), armour as flat points on top of it. The armour lands *after*
+ * {@link OFFICER_ARMOR_CAP}, on purpose: the cap says a person is not a wall, and a Raid Boss who
+ * has bought a plate carrier is a person wearing one. Rounded the way the table rounds, so the
+ * schema still gets integers.
+ */
+export function officerBattleStats(
+  attributes: Attributes,
+  bonus: Readonly<OfficerSheetBonus> = NO_SHEET_BONUS,
+): UnitStats {
   return {
     speed: officerStat('speed', attributes),
-    vitality: officerStat('vitality', attributes),
+    vitality: Math.max(
+      1,
+      Math.round(
+        officerStat('vitality', attributes) *
+          (1 + bonus.vitalityPercent / 100) *
+          bonus.vitalityTimes,
+      ),
+    ),
     morale: officerMorale(officerStat('morale', attributes)),
-    armor: officerStat('armor', attributes),
+    armor: officerStat('armor', attributes) + bonus.armorFlat,
     damageType: 'ballistic',
     resistances: {},
     penetration: officerStat('penetration', attributes),
     range: officerStat('range', attributes),
-    offense: officerStat('offense', attributes),
+    offense: Math.ceil(
+      officerStat('offense', attributes) * (1 + bonus.offensePercent / 100) * bonus.offenseTimes,
+    ),
     evasion: officerStat('evasion', attributes),
     stealth: officerStat('stealth', attributes),
     lootCapacity: 0,
@@ -214,6 +236,11 @@ export interface BattleOfficer {
   officerId: string;
   name: string;
   attributes: Attributes;
+  /**
+   * What their chair's rungs do to their sheet and to how much fire they draw (`crew/leading.ts`).
+   * Absent for the Overseer, who has no chair, and for a fight settled before the rungs existed.
+   */
+  sheetBonus?: OfficerSheetBonus;
 }
 
 /**
@@ -249,7 +276,7 @@ export function officerUnit(officer: BattleOfficer): UnitSpec {
     cost: {},
     trainSeconds: 0,
     unitSlots: 0,
-    stats: officerBattleStats(officer.attributes),
+    stats: officerBattleStats(officer.attributes, officer.sheetBonus ?? NO_SHEET_BONUS),
     modifiers: [],
   };
 }
@@ -261,6 +288,17 @@ export function officerUnit(officer: BattleOfficer): UnitSpec {
  * of Security in alone does not get to hide them behind nobody.
  */
 export const OFFICER_TARGET_SHARE = 0.5;
+
+/**
+ * The share this officer draws, with their chair's taunt on it (`leader_taunt`).
+ *
+ * A Raid Boss who has made himself the loudest thing on the field draws fire the way a unit of
+ * his threat would, or more: +100% is a full share, and the rung can carry him past it. Still a
+ * weight on the same targeting arithmetic, so a shield line still pulls its share off the top.
+ */
+export function officerTargetShare(officer: BattleOfficer): number {
+  return OFFICER_TARGET_SHARE * (1 + (officer.sheetBonus?.targetSharePercent ?? 0) / 100);
+}
 
 // --- injury (§D4) ---
 
@@ -334,6 +372,24 @@ export function officerRecoveryAt(now: Date): string {
  */
 export function officerIsInjured(injuredUntil: string | null | undefined, now: Date): boolean {
   return injuredUntil != null && Date.parse(injuredUntil) > now.getTime();
+}
+
+/** An officer in a chair. What {@link officerIsWorking} narrows a roster to. */
+export type SeatedOfficer<T extends { role: OfficerRole | null }> = T & { role: OfficerRole };
+
+/**
+ * Whether this officer is working: in a chair and out of bed.
+ *
+ * The bench is out in the same way a bed is (maintainer, 2026-09-28): somebody signed and given no
+ * chair puts no rating, no perk and no lift on the crew, leads nothing and fills nothing until they
+ * are seated. They still train, since a drill is spent *on* a person and asks nothing of them.
+ * One predicate for both, so the fold that decides whose sheet counts and the doors that decide who
+ * can be sent cannot disagree about who is in the room.
+ */
+export function officerIsWorking<
+  T extends { role: OfficerRole | null; injuredUntil: string | null },
+>(officer: T, now: Date): officer is SeatedOfficer<T> {
+  return officer.role !== null && !officerIsInjured(officer.injuredUntil, now);
 }
 
 /** Seconds until they are back, floored at zero. What a countdown reads off. */

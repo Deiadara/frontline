@@ -96,6 +96,11 @@ export interface HoverCardProps {
    * difference between a button and a button nobody can reach.
    */
   interactive?: boolean;
+  /**
+   * The ink the note is ruled in. `danger` rules a `tip` in oxblood, for a note explaining why a
+   * control is shut (maintainer, 2026-09-28: the Bar's locked Bid).
+   */
+  tone?: 'ink' | 'danger';
   'data-testid'?: string;
 }
 
@@ -138,6 +143,7 @@ export function HoverCard({
   pressed,
   size = 'tip',
   interactive = false,
+  tone = 'ink',
   'data-testid': testId,
 }: HoverCardProps) {
   const [open, setOpen] = useState(false);
@@ -342,7 +348,10 @@ export function HoverCard({
                   : // A torn scrap of paper with a hand-inked rule round it, not a rounded
                     // rectangle with a hairline border. The card is the game's most-read surface
                     // and it was the one that looked most like a form.
-                    'scrap w-max max-w-[17rem] px-4 py-3.5',
+                    cn(
+                      'scrap w-max max-w-[17rem] px-4 py-3.5',
+                      tone === 'danger' && 'scrap-danger',
+                    ),
               // Invisible for the one frame between mounting and being measured, so it never
               // flashes at the top-left corner on its way to where it belongs.
               placement === null && 'opacity-0',

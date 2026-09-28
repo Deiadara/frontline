@@ -2,6 +2,7 @@ import {
   RESOURCE_KEYS,
   composeProfile,
   createCommander,
+  findMissionTemplate,
   missionOdds,
   buildingCost,
   cancelRefund,
@@ -9,6 +10,7 @@ import {
   findBlackMarketGood,
   type BlackMarketResponse,
   type MeResponse,
+  type MissionOffer,
   type MissionsResponse,
   type Resources,
   type ScrapyardResponse,
@@ -217,7 +219,18 @@ describe('calling an order off', () => {
     const charged = spentBetween(beforeOrder, stockOf(app, one.userId));
     expect(charged).toEqual(quoted);
 
-    const order = app.repos.bases.findByOwnerId(one.userId)!.buildQueue.at(-1);
+    const held = app.repos.bases.findByOwnerId(one.userId)!;
+    const order = held.buildQueue.at(-1);
+    // Room for the refund: `makeRich` stands the crew far over its stores, and a refund onto a full
+    // store is thrown away (maintainer ruling, 2026-09-28). Caps have no ceiling and stay as they are.
+    app.repos.bases.updateResources(held.id, {
+      ...held.resources,
+      supplies: 0,
+      oil: 0,
+      scrap: 0,
+      planks: 0,
+      highQualityMetal: 0,
+    });
     const beforeCancel = stockOf(app, one.userId);
     const cancelled = await app.inject({
       method: 'POST',
@@ -391,16 +404,16 @@ describe('the odds on the dial and the odds on the row', () => {
    * The gauge is a quote like any other price.
    *
    * The send dialog draws a success chance from `missionOdds` over three things off the payload:
-   * the offer's `authoredChance`, the picked leader's attributes, and the job's leanings. The
-   * launch then freezes its own figure onto the row, and that is the one the settle rolls against.
-   * A player deciding on 78% and being sent out on 71% is the same defect as a shelf quoting one
-   * price and a till taking another, and it is harder to notice because nothing prints the second
-   * number: the board deliberately ships no `successChance` at all.
+   * the offer's `grade`, the picked leader's attributes, and the job's leanings. The launch then
+   * freezes its own figure onto the row, and that is the one the settle rolls against. A player
+   * deciding on 78% and being sent out on 71% is the same defect as a shelf quoting one price and a
+   * till taking another, and it is harder to notice because nothing prints the second number: the
+   * board deliberately ships no `successChance` at all.
    *
    * So this recomputes the dial's answer from the wire and compares it with the frozen row. The
    * arithmetic is `missionOdds`, the same function both sides use, which is fine here: what is
    * under test is not the formula but whether the launch feeds it the same three inputs the screen
-   * had. A launch reading a different leader, a different chance or a different profile fails this
+   * had. A launch reading a different leader, a different grade or a different profile fails this
    * however right its arithmetic is.
    */
   it('sends the crew out on the chance the dial showed', async () => {
@@ -408,14 +421,13 @@ describe('the odds on the dial and the odds on the row', () => {
     const one = await player(app, 'quoted_odds');
     makeRich(app, one.userId);
     const base = app.repos.bases.findByOwnerId(one.userId)!;
-    // Somebody to lead it, and a sheet good enough that the leader's edge is not zero.
     /*
      * Level twenty, and that is load-bearing rather than scenery.
      *
-     * `authoredChance` on the card is the template's figure already scaled by the crew's own level
-     * (`scaledSuccessChance`, half a point a level). At level one the scaled figure and the raw one
-     * are the same number, so a launch that froze the raw chance would agree with the card by
-     * accident and this test would hold whichever it read.
+     * The level decides which grade each card is dealt at (`dealGrade`), and at level one nearly
+     * every card sits at its job's lowest grade. A launch that froze the job's lowest grade rather
+     * than the one the card was dealt would agree with the card by accident there, and this test
+     * would hold whichever it read. The offer below is picked to be dealt above its floor.
      */
     app.repos.bases.updateProgression(base.id, 20, base.progression);
 
@@ -436,19 +448,22 @@ describe('the odds on the dial and the odds on the row', () => {
       await app.inject({ method: 'GET', url: '/api/missions', headers: auth(one.token) })
     ).json<MissionsResponse>();
     // A standard job, because a battle one refuses a column of porters and who goes is not the
-    // subject here.
-    const area = board.areas.find((one) => one.offers.some((job) => job.kind === 'standard'));
-    const offer = area?.offers.find((job) => job.kind === 'standard');
+    // subject here. Dealt above its job's lowest grade, for the reason on the level above.
+    const aboveFloor = (job: MissionOffer): boolean =>
+      job.kind === 'standard' && job.grade !== findMissionTemplate(job.templateId)?.grades[0];
+    const area = board.areas.find((one) => one.offers.some(aboveFloor));
+    const offer = area?.offers.find(aboveFloor);
     const leader = board.leaders.find((one) => one.kind === 'officer' && one.held === null);
-    expect(offer, 'the board must be offering a job').toBeDefined();
+    expect(offer, 'the board must be offering a job dealt above its floor').toBeDefined();
     expect(leader, 'the bench must have a free officer').toBeDefined();
 
     const quoted = missionOdds({
-      authored: offer!.authoredChance,
+      grade: offer!.grade,
       leader: leader!.attributes,
       profile: composeProfile(offer!.leanings),
-      unled: board.unledRule,
     });
+    // A certain run reads 1 whatever grade it is priced at, and would hide a wrong one.
+    expect(quoted.chance).toBeLessThan(1);
 
     const sent = await app.inject({
       method: 'POST',
@@ -473,6 +488,7 @@ describe('the odds on the dial and the odds on the row', () => {
      */
     const row = app.repos.missions.listByBaseId(base.id)[0];
     expect(row?.successChance).toBeCloseTo(quoted.chance, 10);
+    expect(row?.mission.grade).toBe(offer!.grade);
   });
 });
 

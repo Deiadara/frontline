@@ -1,5 +1,6 @@
 import {
-  BATTLE_TIER_LABELS,
+  FIGHT_CATEGORY_LABELS,
+  fightCategory,
   BATTLE_ODDS_LABELS,
   composeProfile,
   leaderFit,
@@ -45,9 +46,13 @@ const routeBoard = (page: Page, board: MissionsResponse) =>
   });
 
 /** The first job on the opening board, and the offer behind it. */
+/**
+ * The first plain job on the first board. Plain rather than any: a fight's dial is a band, not a
+ * percentage, and the board orders its cards by clock, so the first card can be either.
+ */
 function firstOffer(board: MissionsResponse): MissionOffer {
-  const offer = board.areas[0]?.offers[0];
-  if (!offer) throw new Error('fixture error: the first board offers nothing');
+  const offer = board.areas[0]?.offers.find((one) => one.kind === 'standard');
+  if (!offer) throw new Error('fixture error: the first board has no plain job');
   return offer;
 }
 
@@ -82,42 +87,27 @@ test('the dial reads what the launch is priced with, and moves with the leader',
   const gauge = dialog.getByTestId('mission-gauge');
 
   /*
-   * Nobody in charge yet, and this crew has researched the first rung, so the dial is already
-   * showing the price of going without. Asserted through the shared function rather than against
-   * a typed-in percentage: what is under test here is that the *screen* and the *launch* read the
-   * same one, and a literal would pass on a screen that had quietly stopped calling it.
+   * The window opens on the most suitable free leader (every run has one, 2026-09-28), and the
+   * dial reads their grade for the job against the job's own. Asserted through the shared
+   * function rather than against a typed-in percentage: what is under test here is that the
+   * *screen* and the *launch* read the same one, and a literal would pass on a screen that had
+   * quietly stopped calling it.
    */
   const profile = composeProfile(offer.leanings);
-  const unled = missionOdds({
-    authored: offer.authoredChance,
-    leader: null,
-    profile,
-    unled: board.unledRule,
-  });
-  await expect(figure).toHaveText(`${Math.round(unled.chance * 100)}%`);
-  await expect(dialog.getByTestId('unled-note')).toContainText('points off the odds');
-
-  // The best of the ones who can go, and the dial follows the choice.
-  await dialog.getByTestId('best-leader').click();
   const best = board.leaders
     .filter((one) => one.held === null)
     .reduce((top, one) =>
       leaderFit(one.attributes, profile).fit > leaderFit(top.attributes, profile).fit ? one : top,
     );
   await expect(dialog.getByTestId('send-leader')).toContainText(best.name);
-  const led = missionOdds({
-    authored: offer.authoredChance,
-    leader: best.attributes,
-    profile,
-    unled: board.unledRule,
-  });
+  const led = missionOdds({ grade: offer.grade, leader: best.attributes, profile });
   const points = Math.round(led.chance * 100);
   await expect(figure).toHaveText(`${points}%`);
   // The needle points at the figure it struck, not at the digits behind it: whole points is the
   // precision the dial prints and therefore the precision it sweeps to.
   const twoPlaces = (value: number) => Math.round(value * 100) / 100;
   await expect(gauge).toHaveAttribute('data-angle', String(twoPlaces(-90 + (points / 100) * 180)));
-  await expect(dialog.getByTestId('unled-note')).toHaveCount(0);
+  await expect(dialog.getByTestId('leader-note')).toHaveCount(0);
 
   // The one who is out is on the list, dimmed, and cannot be taken.
   const away = board.leaders.find((one) => one.held === 'run');
@@ -231,8 +221,8 @@ test('a leader who is at a fight is dimmed with no countdown, and refused on the
   expect(refused.body.error.message).toBe(`${fighting.name} is at a fight`);
 });
 
-test('a crew that has not researched unled runs cannot send one', async ({ page }) => {
-  const board = boardWithARoom({ unledRule: 'forbidden' });
+test('the window never offers to send nobody', async ({ page }) => {
+  const board = boardWithARoom();
   await installApi(page, lateGame);
   await routeBoard(page, board);
   await page.goto('/game/missions');
@@ -240,17 +230,11 @@ test('a crew that has not researched unled runs cannot send one', async ({ page 
 
   const dialog = await openSend(page, firstOffer(board));
   await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('3');
-
-  // Refused on the screen, with the reason on it and the button dead.
-  await expect(dialog.getByTestId('unled-note')).toHaveText(
-    'Nobody leads this. Research unled runs, or send somebody.',
-  );
-  await expect(dialog.getByTestId('confirm-send')).toBeDisabled();
-
-  // Somebody in charge and the same crew goes.
-  await dialog.getByTestId('best-leader').click();
-  await expect(dialog.getByTestId('unled-note')).toHaveCount(0);
   await expect(dialog.getByTestId('confirm-send')).toBeEnabled();
+
+  await dialog.getByTestId('send-leader').click();
+  await expect(page.getByRole('option').first()).toBeVisible();
+  await expect(page.getByRole('option', { name: /nobody/i })).toHaveCount(0);
 });
 
 test('a battle shows a band and no number at all', async ({ page }) => {
@@ -267,10 +251,9 @@ test('a battle shows a band and no number at all', async ({ page }) => {
   for (let step = 0; step < areaIndex; step += 1) await page.getByTestId('board-right').click();
   await expect(page.getByTestId(`offer-${offer.templateId}`)).toBeVisible();
 
-  // The card says the tier and nothing else about what is on that ground.
-  if (offer.battleTier === null) throw new Error('fixture error: a battle with no tier');
-  await expect(page.getByTestId(`job-chips-${offer.templateId}`)).toHaveText(
-    BATTLE_TIER_LABELS[offer.battleTier],
+  // The card says the category and nothing else about what is on that ground.
+  await expect(page.getByTestId(`job-chips-${offer.templateId}`)).toContainText(
+    FIGHT_CATEGORY_LABELS[fightCategory(offer.grade)],
   );
 
   const dialog = await openSend(page, offer);
@@ -307,7 +290,9 @@ test('somebody sent out is off the picker for the next job in the same sitting',
   await page.goto('/game/missions');
   await expect(page.getByTestId('board-area')).toBeVisible();
 
-  const cards = page.locator('[data-testid^="offer-"]');
+  // Plain work: a fight's picker is rated by practice fights, not by the job's leanings, and which
+  // cards the board deals moves with the deal's pace.
+  const cards = page.locator('[data-testid^="offer-"][data-kind="standard"]');
   const dialog = page.getByRole('dialog');
   const ghost = () => page.getByRole('option', { name: /The Ghost of Sector Nine/ });
 
@@ -318,7 +303,7 @@ test('somebody sent out is off the picker for the next job in the same sitting',
   await expect(dialog).toBeVisible();
   await dialog.getByTestId('send-leader').click();
   await expect(ghost()).toHaveAttribute('aria-disabled', 'false');
-  await expect(ghost()).toContainText('fits this job');
+  await expect(ghost()).toContainText('for this job');
   await ghost().click();
   await dialog.getByRole('spinbutton', { name: 'How many Razors' }).fill('2');
   await dialog.getByTestId('confirm-send').click();

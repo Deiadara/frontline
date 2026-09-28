@@ -73,7 +73,7 @@ describe('what a successful defence pays', () => {
     const defender = await register(app, 'defender');
 
     // The ground where the premium is largest: Combine ground, and the seat of power.
-    const spire = CITY_DISTRICTS.find((district) => district.id === 'combine-spire');
+    const spire = CITY_DISTRICTS.find((district) => district.id === 'ccs');
     const location = spire?.locations[0];
     if (!spire || !location) throw new Error('fixture: the Spire has no locations');
     expect(
@@ -85,8 +85,6 @@ describe('what a successful defence pays', () => {
       holder: { kind: 'crew', baseId: defender.baseId },
       level: 1,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: { razors: 1 },
     });
     app.repos.city.markScouted(attacker.baseId, spire.id, new Date().toISOString());
@@ -162,7 +160,7 @@ describe('what a successful defence pays', () => {
     const attacker = await register(app, 'attacker');
     const defender = await register(app, 'defender');
 
-    const spire = CITY_DISTRICTS.find((district) => district.id === 'combine-spire');
+    const spire = CITY_DISTRICTS.find((district) => district.id === 'ccs');
     const location = spire?.locations[0];
     if (!spire || !location) throw new Error('fixture: the Spire has no locations');
     app.repos.city.put({
@@ -170,8 +168,6 @@ describe('what a successful defence pays', () => {
       holder: { kind: 'crew', baseId: defender.baseId },
       level: 1,
       upgradingUntil: null,
-      fortification: 0,
-      fortifyingUntil: null,
       garrison: { razors: 1 },
     });
     app.repos.city.markScouted(attacker.baseId, spire.id, new Date().toISOString());

@@ -13,7 +13,7 @@ import {
   settleBlackMarketLots,
 } from '../blackmarket/shelf.js';
 import { cityAsked } from '../city/stakes.js';
-import { AppError, parseBody } from '../errors.js';
+import { AppError, cityQuery, parseBody } from '../errors.js';
 import { ownBase } from './own-base.js';
 
 /**
@@ -64,7 +64,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
     const now = new Date();
     settleBlackMarketLots(app.repos, now, GAME_TIMEZONE);
     const base = ownBase(app, request.currentUser.id);
-    const cityId = cityOrRefuse(base, (request.query as { city?: string } | undefined)?.city);
+    const cityId = cityOrRefuse(base, cityQuery(request.query));
     return projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId);
   });
 
@@ -84,6 +84,9 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
 
       return app.db.transaction(() => {
         const base = ownBase(app, request.currentUser.id);
+        // Checked here rather than trusted: a bid names the room it is placed in, and a crew that
+        // has been thrown out of a city since the screen loaded must not be able to keep bidding.
+        const cityId = cityOrRefuse(base, city);
         const result = placeBlackMarketBid(app.repos, {
           base,
           userId: request.currentUser.id,
@@ -92,9 +95,7 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
           amount,
           now,
           zone: GAME_TIMEZONE,
-          // Checked here rather than trusted: a bid names the room it is placed in, and a crew that
-          // has been thrown out of a city since the screen loaded must not be able to keep bidding.
-          cityId: cityOrRefuse(base, city),
+          cityId,
         });
         if (result.kind === 'refused') {
           throw new AppError('BLACK_MARKET_REFUSED', BLACK_MARKET_REFUSAL_TEXT[result.reason]);
@@ -105,7 +106,10 @@ export function registerBlackMarketRoutes(app: FastifyInstance): void {
           kind: 'blackmarket.bid',
           payload: { goodId, slotIndex, amount },
         });
-        return { blackMarket: projectBlackMarket(app.repos, base, now, GAME_TIMEZONE) };
+        // The room the bid landed in, not the crew's own: a bid in Terminus used to answer with
+        // Ashfall's five crates, so the lot the player had just bid on was not on the shelf they
+        // got back and the screen showed somebody else's leader on it.
+        return { blackMarket: projectBlackMarket(app.repos, base, now, GAME_TIMEZONE, cityId) };
       })();
     },
   );

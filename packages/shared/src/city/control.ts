@@ -2,8 +2,8 @@ import { combineGarrison, combineLeaderAt, combineSlotBudget, looterGarrison } f
 import { z } from 'zod';
 import { IdSchema, IsoDateTimeSchema } from '../primitives.js';
 import { UNIT_SLOTS_PER_LOCATION, UNIT_SLOTS_PER_LOCATION_LEVEL } from '../building/unit-slots.js';
-import { fortifyBonusPercent } from './fortification.js';
-import { findDistrict, unifiedBonusFor, type District } from './districts.js';
+import type { District } from './districts.js';
+import { findDistrict, unifiedBonusFor } from './atlas.js';
 import {
   LOCATION_CATALOG,
   MAX_LOCATION_LEVEL,
@@ -70,10 +70,6 @@ export const LocationControlSchema = z.object({
   level: z.number().int().min(1).max(MAX_LOCATION_LEVEL).default(1),
   /** Set while a level is being worked on; null when nothing is under way. */
   upgradingUntil: IsoDateTimeSchema.nullable().default(null),
-  /** 0..`FORTIFY_MAX_LEVEL`. Reset to 0 whenever the location changes hands. */
-  fortification: z.number().int().min(0),
-  /** Set while a fortification level is being dug in; null when nothing is under way. */
-  fortifyingUntil: IsoDateTimeSchema.nullable(),
   /** Units standing here, keyed by unit id. Belongs to whoever `holder` is. */
   garrison: z.record(z.string(), z.number().int().nonnegative()),
 });
@@ -98,18 +94,17 @@ export function garrisonSize(control: LocationControl): number {
 /**
  * What a raider has to beat to take this location.
  *
- * Three terms, and each is something somebody chose: the ground itself (the catalogue's
- * `baseDefense`), how deeply the holder has dug in (fortification), and how many of them are
- * standing on it. Held by nobody, it is the ground alone, which is why an unoccupied location is
- * worth walking into early.
+ * Two terms, and each is something somebody chose: the ground itself (the catalogue's
+ * `baseDefense`) and how many of them are standing on it. Held by nobody, it is the ground alone,
+ * which is why an unoccupied location is worth walking into early. Dug-in fortification was a
+ * third until it left the game (maintainer, 2026-09-26).
  */
 export const DEFENSE_PER_GARRISON_UNIT = 0.4;
 
 export function locationDefense(location: Location, control: LocationControl): number {
   const ground = LOCATION_CATALOG[location.kind].baseDefense;
-  const dug = fortifyBonusPercent(location.fortifyDifficulty, control.fortification);
   const standing = garrisonSize(control) * DEFENSE_PER_GARRISON_UNIT;
-  return Math.round((ground + standing) * (1 + dug / 100) * 10) / 10;
+  return Math.round((ground + standing) * 10) / 10;
 }
 
 /**
@@ -257,8 +252,6 @@ export function startingControl(location: Location, district: District): Locatio
     // Level 1, like every capture. Nobody starts the game holding somebody else's work.
     level: 1,
     upgradingUntil: null,
-    fortification: 0,
-    fortifyingUntil: null,
     garrison: startingGarrison(location, district),
   };
 }
@@ -287,6 +280,20 @@ export const SQUATTED_PLACES_PER_OPEN_DISTRICT = 2;
 export const SQUATTED_PLACES: Readonly<Record<string, number>> = {
   undergrid: Number.POSITIVE_INFINITY,
   'chrome-row': 4,
+  /*
+   * Terminus (maintainer, 2026-09-24). Two ways in and nothing else open.
+   *
+   * Coldwater Halt is the starter target and the cheapest ground in the city: three of its seven
+   * plots stand empty, so a first crew's first campaign is a fight against whoever else wants it
+   * rather than against a wall. Bonded Row is the second way in, three of eight open, and it is
+   * the district a crew usually takes second. The other two independent districts are held end to
+   * end, which is what arms their gates: Ironmouth because people who live inside a hill are hard
+   * to get out of it, and the Yards because yard crews have sorted out worse than you.
+   */
+  'coldwater-halt': 4,
+  'bonded-row': 5,
+  ironmouth: Number.POSITIVE_INFINITY,
+  'marshalling-yards': Number.POSITIVE_INFINITY,
 };
 
 /**

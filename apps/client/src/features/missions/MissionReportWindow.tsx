@@ -7,6 +7,7 @@ import {
   heldItems,
   missionCarry,
   missionTimings,
+  missionXpEarned,
   weightOf,
   type ItemId,
   type Mission,
@@ -22,6 +23,7 @@ import { cn } from '../../lib/cn';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { lotSpec } from '../market/VendorAuctionWindow';
 import { FileSection } from '../overseer/FileSection';
+import { WastedAtTheGate, WastedOn } from './WastedAtTheGate';
 import { areaName, cameHome, describeArmy, ledBy } from './missionLines';
 
 const TITLE_ID = 'mission-report-title';
@@ -90,7 +92,8 @@ export function MissionReportWindow({
             value={ledBy(mission, leaders, overseerName)}
             data-testid={`mission-leader-${mission.id}`}
           />
-          <Field label="Experience" value={`${mission.xp.toLocaleString()} XP`} />
+          {/* What the run paid, which is the frozen figure only on a clean run. */}
+          <Field label="Experience" value={`${missionXpEarned(mission).toLocaleString()} XP`} />
           <Field label="Round trip" value={formatDuration(missionTimings(mission).totalMinutes)} />
         </dl>
 
@@ -220,6 +223,7 @@ function Haul({ mission, loadouts }: { mission: Mission; loadouts: UnitLoadouts 
                 kind={kind}
                 carried={Math.round(mission.rewards[kind] ?? 0)}
                 earned={Math.round(earned[kind] ?? 0)}
+                mission={mission}
                 known={knownSpoils}
               />
             ))}
@@ -252,6 +256,7 @@ function Haul({ mission, loadouts }: { mission: Mission; loadouts: UnitLoadouts 
               </>
             )}
           </p>
+          <WastedAtTheGate mission={mission} />
         </>
       )}
     </FileSection>
@@ -262,11 +267,14 @@ function HaulRow({
   kind,
   carried,
   earned,
+  mission,
   known,
 }: {
   kind: ResourceKey;
   carried: number;
   earned: number;
+  /** The run, for what of this resource the full stores threw away at the gate. */
+  mission: Mission;
   known: boolean;
 }) {
   const short = known && carried < earned;
@@ -286,6 +294,7 @@ function HaulRow({
           </span>
           {known && <span className="text-ink-400"> of {earned.toLocaleString()}</span>}
         </span>
+        <WastedOn mission={mission} kind={kind} />
       </span>
     </li>
   );

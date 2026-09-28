@@ -36,6 +36,7 @@ import {
 import { InfoNote, PageShell } from '../game/PageShell';
 import { formatDayClock } from '@frontline/shared';
 import { usePlayerZone } from '../settings/usePlayerZone';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The console.
@@ -126,7 +127,7 @@ const PRESETS: readonly Preset[] = [
   {
     label: 'End game',
     blurb:
-      'The ceiling on everything: seven rungs into every programme, every drawing held, the yard full, traps cut and the shelf stocked.',
+      'The ceiling on everything: seven rungs into every programme, every drawing held, the yard full, the shelf stocked and ground held in both cities.',
     /*
      * The one that hands over everything, because everything is what "end game" means.
      *
@@ -155,6 +156,17 @@ const PRESETS: readonly Preset[] = [
       parts: 250,
       consumables: 10,
       boosts: 5,
+      /*
+       * Eyes on every district in the world (maintainer, 2026-09-24).
+       *
+       * Without it this preset handed a crew the ceiling on everything and dropped them on a map
+       * they had never walked: most of the city read as fog, and the screens this bench exists to
+       * be looked at opened the scout sheet instead of the district. The world rather than one
+       * city, because there are two playable cities and scouting one leaves the other shut.
+       */
+      scouted: 'all' as const,
+      // Ground in both open cities, so the multi-city screens have something to show.
+      footholds: 'every-city' as const,
     },
     knobs: {
       buildingLevel: BUILDING_MAX_LEVEL,
@@ -367,11 +379,7 @@ function StateKnobs({ snapshot }: { snapshot: AdminSnapshot }) {
           </span>
         </div>
 
-        {knobs.error !== null && (
-          <p role="alert" className="font-body text-[13px] text-oxblood-300">
-            {knobs.error.message}
-          </p>
-        )}
+        {knobs.error !== null && <ErrorNote>{knobs.error.message}</ErrorNote>}
       </div>
     </Panel>
   );
@@ -389,8 +397,17 @@ function GrantsPanel() {
   const grant = useAdminGrant();
   const [parts, setParts] = useState(20);
   const [track, setTrack] = useState<OfficerRole>('security_officer');
+  /*
+   * `key` off the test id, because one of the four callers below is a `.map`.
+   *
+   * The blueprint row renders one of these per category and React had nothing to tell them apart
+   * with, which it says so in the console on every open of this screen. The test id is already
+   * unique per button by construction, so it is the key as well rather than a second identifier
+   * that could drift from it.
+   */
   const button = (label: string, body: AdminGrantRequest, testId: string) => (
     <Button
+      key={testId}
       size="sm"
       variant="ghost"
       disabled={grant.isPending}
@@ -468,11 +485,7 @@ function GrantsPanel() {
           </span>
         </div>
 
-        {grant.error !== null && (
-          <p role="alert" className="font-body text-[13px] text-oxblood-300">
-            {grant.error.message}
-          </p>
-        )}
+        {grant.error !== null && <ErrorNote>{grant.error.message}</ErrorNote>}
       </div>
     </Panel>
   );
@@ -569,11 +582,7 @@ function FogPanel({ snapshot }: { snapshot: AdminSnapshot }) {
             Hide everything
           </Button>
         </div>
-        {fog.error !== null && (
-          <p role="alert" className="font-body text-[12px] text-oxblood-300">
-            {fog.error.message}
-          </p>
-        )}
+        {fog.error !== null && <ErrorNote>{fog.error.message}</ErrorNote>}
       </div>
     </Panel>
   );
@@ -644,11 +653,7 @@ function FightsPanel() {
               Called. It is on the Battles board.
             </span>
           )}
-          {mock.error !== null && (
-            <span role="alert" className="font-body text-[12px] text-oxblood-300">
-              {mock.error.message}
-            </span>
-          )}
+          {mock.error !== null && <ErrorNote>{mock.error.message}</ErrorNote>}
         </div>
       </div>
     </Panel>
@@ -696,11 +701,9 @@ export function AdminPage() {
       }
     >
       <InfoNote tone="warn" label="Testing mode">
-        Every clock in the game is <strong>{snapshot.state.actionSeconds} seconds</strong> and
-        nothing is charged, but every screen still shows the real price and the real duration. That
-        is the point, so the economy can be judged while the waiting is skipped. Gates are
-        untouched: a locked structure is still locked, a full queue is still full, the unit-slot cap
-        is still the unit-slot cap. Run with <code>ADMIN=false</code> for a build that charges.
+        Every clock is <strong>{snapshot.state.actionSeconds} seconds</strong> and nothing is
+        charged, but screens show the real prices and times, and every gate still holds. Run with{' '}
+        <code>ADMIN=false</code> to charge.
       </InfoNote>
 
       <Panel title="Take me to">

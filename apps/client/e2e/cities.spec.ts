@@ -1,4 +1,4 @@
-import { CITIES } from '@frontline/shared';
+import { CITIES, DEFAULT_CITY_ID, districtsOfCity } from '@frontline/shared';
 import { expect, test } from '@playwright/test';
 import { lateGame } from './fixtures';
 import {
@@ -97,22 +97,27 @@ test('the five cities are staggered and fill the frame', async ({ page }) => {
   expect(band).toBeGreaterThan(900 * 0.7);
 });
 
-/** The shell's corner junk is off here, and the district backdrop behind it is not. */
-test('the world screen has bare corners and keeps its backdrop', async ({ page }) => {
+/**
+ * The district backdrop is the room these paintings are hung in, and it survives the trip.
+ *
+ * This used to be half a test about the shell's corner sprites, which this screen suppressed while
+ * it was mounted. The sprites came off the game on 2026-09-25 and there is nothing left to
+ * suppress; the backdrop half was always the other claim and it still holds. Asserted on the way
+ * in *and* on the way back, because the failure it guards is a screen that tears the room down
+ * behind it and never puts it back.
+ */
+test('the world screen keeps the district backdrop, going in and coming back', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game');
-  // A guard on the fixture: the sprites have to be there to begin with, or this proves nothing.
-  await expect(page.getByTestId('ambience')).toBeVisible();
+  await expect(page.locator('[data-scenery]').first()).toBeVisible();
 
   await page.getByTestId('all-cities').click();
   await expect(page.getByTestId('cities-view')).toBeVisible();
-  await expect(page.getByTestId('ambience')).toHaveCount(0);
   await expect(page.locator('[data-scenery]').first()).toBeVisible();
 
-  // And back, so the suppression is scoped to this screen rather than to the session.
   await page.getByTestId(`city-card-${CITIES[0]!.id}`).click();
   await expect(page.getByTestId('cities-view')).toHaveCount(0);
-  await expect(page.getByTestId('ambience')).toBeVisible();
+  await expect(page.locator('[data-scenery]').first()).toBeVisible();
 });
 
 test('only the city with a server behind it can be pressed', async ({ page }) => {
@@ -122,9 +127,15 @@ test('only the city with a server behind it can be pressed', async ({ page }) =>
 
   const open = CITIES.filter((city) => city.open);
   const shut = CITIES.filter((city) => !city.open);
-  // A guard on the fixture: with every city open or every city shut this test proves nothing.
-  expect(open.length).toBe(1);
-  expect(shut.length).toBe(4);
+  /*
+   * A guard on the fixture rather than a pin on the count.
+   *
+   * It pinned one open and four shut, and went red the day Terminus opened: the number of playable
+   * cities is the thing this suite is downstream of, not the thing it is testing. What has to hold
+   * is that there is at least one of each, or the two halves below prove nothing.
+   */
+  expect(open.length).toBeGreaterThan(0);
+  expect(shut.length).toBeGreaterThan(0);
 
   for (const city of shut) {
     const card = page.getByTestId(`city-card-${city.id}`);
@@ -134,28 +145,128 @@ test('only the city with a server behind it can be pressed', async ({ page }) =>
     await expect(page.getByTestId('cities-view')).toBeVisible();
   }
 
-  // The open one goes back into the city, which is what the card promises.
-  const home = open[0]!;
-  await page.getByTestId(`city-card-${home.id}`).click();
+  // Every open one is a door onto that city's map, which is what the card promises.
+  for (const city of open) {
+    await expect(page.getByTestId(`city-card-${city.id}`)).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+  }
+  await page.getByTestId(`city-card-${open[0]!.id}`).click();
   await expect(page.getByTestId('cities-view')).toHaveCount(0);
 });
 
-/** Each city draws its own skyline: two cards with the same picture would be a seeding bug. */
-test('every city gets a silhouette of its own', async ({ page }) => {
+/**
+ * Picking a city you do not live in draws that city's map.
+ *
+ * The half that was missing: every card closed the world screen and dropped the player back on
+ * their own painting, so the two playable cities were one screen apart and indistinguishable.
+ */
+test('a city you pick is the city you end up looking at', async ({ page }) => {
   await installApi(page, lateGame);
   await page.goto('/game');
   await page.getByTestId('all-cities').click();
   await expect(page.getByTestId('cities-view')).toBeVisible();
 
-  const shapes = await Promise.all(
+  const away = CITIES.find((city) => city.open && city.id !== DEFAULT_CITY_ID);
+  // A guard: with one open city there is nowhere else to go and this proves nothing.
+  expect(away, 'fixture: needs a second open city').toBeDefined();
+
+  await page.getByTestId(`city-card-${away!.id}`).click();
+  await expect(page.getByTestId('cities-view')).toHaveCount(0);
+
+  // The map now carries that city's districts, and none of the home city's.
+  const theirs = districtsOfCity(away!.id)[0]!;
+  const mine = districtsOfCity(DEFAULT_CITY_ID)[0]!;
+  await expect(page.getByTestId(`district-tag-${theirs.id}`)).toBeVisible();
+  await expect(page.getByTestId(`district-tag-${mine.id}`)).toHaveCount(0);
+});
+
+/**
+ * A district tag is a scrap of paper with a name on it, and a name is one line.
+ *
+ * The tag carried a width cap and `break-words`, which every Ashfall name happened to fit inside.
+ * Terminus's Marshalling Yards is twenty-one characters and wrapped, so one tag on that map was
+ * two lines tall and read as a different kind of object from the eleven beside it (maintainer,
+ * 2026-09-25). Measured on the rendered box rather than on the class, because a cap removed
+ * somewhere else in the cascade would put it back without touching this component.
+ */
+test('no district tag wraps, in either city', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await installApi(page, lateGame);
+
+  for (const city of CITIES.filter((one) => one.open)) {
+    await page.goto('/game/city');
+    await expect(page.getByTestId('cities-view')).toBeVisible();
+    await page.getByTestId(`city-card-${city.id}`).click();
+    await expect(page.getByTestId('cities-view')).toHaveCount(0);
+    await settleFonts(page);
+
+    /*
+     * Authored names only, and that is the point of the cap rather than a hole in the test.
+     *
+     * A crew names its own ground, and `DistrictNameSchema` allows far longer than anything in the
+     * catalogue, so a player-named tag wrapping is the cap doing its job. What must never wrap is
+     * a name the game itself wrote, because that is a fixed string somebody could have measured.
+     */
+    const authored = districtsOfCity(city.id).map((one) => one.name.toUpperCase());
+    const wrapped = await page.evaluate((names: string[]) => {
+      const tall: string[] = [];
+      for (const tag of document.querySelectorAll('[data-testid^="district-tag-"]')) {
+        // The plate is the one child with the name in it; the other is the hover glow.
+        const plate = [...tag.querySelectorAll('span')].find((one) => one.textContent?.trim());
+        if (!plate) continue;
+        const text = plate.textContent?.trim() ?? '';
+        if (!names.includes(text.toUpperCase())) continue;
+        const line = parseFloat(getComputedStyle(plate).lineHeight);
+        const box = plate.getBoundingClientRect();
+        if (box.height > line * 1.6) tall.push(`${text} at ${box.height}px`);
+      }
+      return tall;
+    }, authored);
+    expect(wrapped, `${city.name}: tags on more than one line`).toEqual([]);
+
+    // A guard on the sweep: no tags at all would pass the assertion above having measured nothing.
+    const drawn = await page.locator('[data-testid^="district-tag-"]').count();
+    expect(drawn, `${city.name}: no tags on the map`).toBe(districtsOfCity(city.id).length);
+  }
+});
+
+/**
+ * Every card shows a different place, whether it is painted or generated.
+ *
+ * Two kinds of card now. A city with a painting on the manifest draws it (Ashfall and Terminus
+ * do); a city without one draws a procedural skyline seeded off its id. What has to hold for both
+ * is that no two cards show the same thing: two painted cards sharing a file, or two generated
+ * ones sharing a seed, are the same bug wearing different clothes.
+ */
+test('every city card shows a place of its own', async ({ page }) => {
+  await installApi(page, lateGame);
+  await page.goto('/game');
+  await page.getByTestId('all-cities').click();
+  await expect(page.getByTestId('cities-view')).toBeVisible();
+
+  const pictures = await Promise.all(
     CITIES.map(async (city) => {
-      const svg = page.getByTestId(`city-card-${city.id}`).locator('svg').first();
-      return svg.evaluate((el) =>
-        [...el.querySelectorAll('path')].map((path) => path.getAttribute('d') ?? '').join('|'),
+      const card = page.getByTestId(`city-card-${city.id}`);
+      const painted = card.locator('img').first();
+      if ((await painted.count()) > 0) {
+        // A real painting: the file it points at is its identity.
+        return painted.evaluate((el) => `painted:${(el as HTMLImageElement).currentSrc}`);
+      }
+      const svg = card.locator('svg').first();
+      return svg.evaluate(
+        (el) =>
+          `drawn:${[...el.querySelectorAll('path')].map((path) => path.getAttribute('d') ?? '').join('|')}`,
       );
     }),
   );
 
-  for (const shape of shapes) expect(shape.length).toBeGreaterThan(200);
-  expect(new Set(shapes).size).toBe(CITIES.length);
+  // A guard on the fixture: with every card painted the skyline half of this proves nothing, and
+  // with none painted the other half does.
+  expect(pictures.filter((one) => one.startsWith('painted:')).length).toBeGreaterThan(0);
+  expect(pictures.filter((one) => one.startsWith('drawn:')).length).toBeGreaterThan(0);
+
+  for (const picture of pictures) expect(picture.length).toBeGreaterThan(20);
+  expect(new Set(pictures).size).toBe(CITIES.length);
 });

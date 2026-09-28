@@ -9,7 +9,7 @@ import {
   wrecked,
   type Army,
   type BattleOfficer,
-  type BattleTier,
+  type Grade,
   type CrewEffects,
   type Fleet,
   type MissionOutcome,
@@ -26,7 +26,7 @@ import { enemyForce } from './enemy.js';
  * people*, and it did not: the risk it priced was an empty bag.
  *
  * So it is a fight now, with the engine that settles a declared battle. The crew is the attacker,
- * the tier's force (`enemy.ts`) is the defender, and the ground is bare: no fortification, no
+ * the grade's force (`enemy.ts`) is the defender, and the ground is bare: no fortification, no
  * weather worth the name, and **no ring on either side**. That last one is the rule the maintainer
  * asked for in as many words: whoever breaks and runs is not pursued, so a lost battle job is a
  * mauling rather than an extermination, and a crew can come home beaten and still be a crew.
@@ -73,9 +73,8 @@ export function fightMissionBattle(args: {
   jobName: string;
   force: Army;
   vehicles: Fleet;
-  tier: BattleTier;
-  /** The crew's level, which is what the tier's figure scales on. */
-  level: number;
+  /** The grade the card was dealt, frozen on the row: who is waiting and how many. */
+  grade: Grade;
   /** §D1: whoever led the run, folded in the way a declared battle folds them. */
   leader?: BattleOfficer | undefined;
   /** §C3: whether this crew's holdings put anybody in a seat (`any_ride`). */
@@ -100,7 +99,7 @@ export function fightMissionBattle(args: {
   territory?: CrewEffects;
 }): MissionBattle {
   const seed = String(args.seed);
-  const enemy = enemyForce(args.tier, args.level, seed);
+  const enemy = enemyForce(args.grade, seed);
   const fought = new TacticalSkirmishEngine().resolve({
     seed: `${seed}:battle`,
     attackerName: 'Your crew',

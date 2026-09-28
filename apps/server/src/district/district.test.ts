@@ -42,7 +42,7 @@ import { queueBuild, buildClocksFor } from './build.js';
 import { buyBuildBoost } from './boost.js';
 import { clearSlot } from './modifications.js';
 import { districtUnitSlots } from './unit-slots.js';
-import { setGarrison } from '../city/actions.js';
+import { sendMove, settleMoves } from '../moves/moves.js';
 import { projectUnits } from '../units/roster.js';
 import { cancelTraining, queueTraining, settleTraining } from '../units/training.js';
 import { PRODUCTION_MIN_STEP_MS, settleDistrict } from './settle.js';
@@ -656,9 +656,23 @@ describe('unit slots (§A1: one pool)', () => {
       holder: { kind: 'crew', baseId: crew.id },
       garrison: {},
     });
-    const posted = setGarrison(repos, { base: crew, location, changes: { razors: 2 } });
-    if (posted.kind !== 'ok') throw new Error(`fixture: garrison refused ${posted.reason}`);
+    // Walked there (maintainer, 2026-09-28: the garrison door that did it in an instant is gone).
+    const onto = { kind: 'location' as const, locationId: location.id };
+    const later = new Date(NOW.getTime() + 86_400_000);
+    const posted = sendMove(repos, {
+      base: crew,
+      from: { kind: 'district' },
+      to: onto,
+      army: { razors: 2 },
+      vehicles: {},
+      now: NOW,
+    });
+    if (posted.kind !== 'sent') throw new Error(`fixture: move refused ${posted.reason}`);
     expect(posted.base.army).toEqual({ razors: 4 });
+    expect(agree(posted.base, 'two on the road'), 'a column is still fed from home').toBe(home);
+    settleMoves(repos, later);
+    expect(repos.city.control(location.id)!.garrison).toEqual({ razors: 2 });
+    expect(agree(posted.base, 'two posted'), 'a garrison is still fed from home').toBe(home);
     expect(agree(posted.base, 'two posted'), 'a garrison is still fed from home').toBe(home);
 
     // A batch of two claims two beds at the order, and hands them back when it is called off.
@@ -666,19 +680,25 @@ describe('unit slots (§A1: one pool)', () => {
     const queued = queueTraining(repos, { base: posted.base, unit: razors, count: 2, now: NOW });
     if (queued.kind !== 'queued') throw new Error(`fixture: order refused ${queued.reason}`);
     expect(agree(queued.base, 'two on the bench')).toBe(home + 2);
-    const cancelled = cancelTraining(repos, queued.base, queued.order.id, NOW);
+    // Rich on purpose, so the refund lands on a full store: agreed to, because it is not the point.
+    const cancelled = cancelTraining(repos, queued.base, queued.order.id, NOW, true);
     if (cancelled.kind !== 'cancelled') throw new Error('fixture: cancel refused');
     expect(agree(cancelled.base, 'batch called off')).toBe(home);
 
     // And bringing the two home changes nothing either: they were counted the whole time.
-    const recalled = setGarrison(repos, {
+    const recalled = sendMove(repos, {
       base: cancelled.base,
-      location,
-      changes: { razors: -2 },
+      from: onto,
+      to: { kind: 'district' },
+      army: { razors: 2 },
+      vehicles: {},
+      now: NOW,
     });
-    if (recalled.kind !== 'ok') throw new Error('fixture: recall refused');
-    expect(recalled.base.army).toEqual({ razors: 6 });
-    expect(agree(recalled.base, 'two home again')).toBe(home);
+    if (recalled.kind !== 'sent') throw new Error('fixture: recall refused');
+    settleMoves(repos, later);
+    const home2 = repos.bases.findById(crew.id)!;
+    expect(home2.army).toEqual({ razors: 6 });
+    expect(agree(home2, 'two home again')).toBe(home);
   });
 
   it('houses more people for every location the crew holds', () => {
@@ -909,6 +929,11 @@ describe('the build clock a player is quoted is the one they get', () => {
  * write and a read: the bug this pins was a *read* refusing a row the write had allowed.
  */
 describe('the bench (§A5)', () => {
+  /**
+   * `rich` is far over any store, so every refund here lands on a full one (maintainer ruling,
+   * 2026-09-28). The bench's clock is what these measure, so they agree to the waste up front.
+   */
+  const RICH_ON_PURPOSE = true;
   const rich: Resources = {
     caps: 900_000,
     supplies: 900_000,
@@ -952,7 +977,7 @@ describe('the bench (§A5)', () => {
       reason: 'window_closed',
     });
 
-    const cancelled = cancelTraining(repos, queued.base, order.id, NOW);
+    const cancelled = cancelTraining(repos, queued.base, order.id, NOW, RICH_ON_PURPOSE);
     expect(cancelled.kind).toBe('cancelled');
     if (cancelled.kind !== 'cancelled') return;
 
@@ -963,6 +988,19 @@ describe('the bench (§A5)', () => {
     expect(stored.resources.caps).toBe(queued.base.resources.caps + (cancelled.refund.caps ?? 0));
     // Ninety-five percent, so the crew is out of pocket either way.
     expect(stored.resources.caps).toBeLessThan(base.resources.caps);
+  });
+
+  /** A refund onto a full store is warned about first (maintainer ruling, 2026-09-28). */
+  it('warns before a refund is thrown away, and leaves the batch on the bench', () => {
+    const { repos, base } = stack();
+    const razors = findUnit('razors')!;
+    const queued = queueTraining(repos, { base, unit: razors, count: 4, now: NOW });
+    if (queued.kind !== 'queued') throw new Error('expected the batch to be queued');
+
+    expect(() => cancelTraining(repos, queued.base, queued.order.id, NOW)).toThrow(
+      /would go to waste/,
+    );
+    expect(repos.bases.findById(base.id)!.trainingQueue).toHaveLength(1);
   });
 
   it('says so rather than throwing when the order is not there', () => {
@@ -993,7 +1031,7 @@ describe('the bench (§A5)', () => {
     // close and the assertion below would pass on any implementation.
     expect(Date.parse(second.order.startedAt)).toBeGreaterThan(NOW.getTime());
 
-    const cancelled = cancelTraining(repos, second.base, first.order.id, NOW);
+    const cancelled = cancelTraining(repos, second.base, first.order.id, NOW, RICH_ON_PURPOSE);
     if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
 
     const remaining = cancelled.base.trainingQueue;
@@ -1016,7 +1054,7 @@ describe('the bench (§A5)', () => {
     if (third.kind !== 'queued') throw new Error('expected the third batch to be queued');
 
     // Cancel the middle one while the first is still running.
-    const cancelled = cancelTraining(repos, third.base, second.order.id, NOW);
+    const cancelled = cancelTraining(repos, third.base, second.order.id, NOW, RICH_ON_PURPOSE);
     if (cancelled.kind !== 'cancelled') throw new Error(`refused: ${cancelled.reason}`);
 
     const [running, next] = cancelled.base.trainingQueue;

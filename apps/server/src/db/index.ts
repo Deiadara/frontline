@@ -10,9 +10,24 @@ const DEFAULT_MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.met
 
 /** Open (creating if missing) the sqlite database. Pass ':memory:' in tests. */
 export function openDatabase(databasePath: string): AppDatabase {
-  const db = new Database(databasePath);
+  // How long a statement waits on a lock another process holds (a `sqlite3` shell, say) before
+  // SQLITE_BUSY. Short, because the wait blocks the event loop and every player with it.
+  const db = new Database(databasePath, { timeout: 2_000 });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  /*
+   * Durability and footprint, stated rather than inherited (hardening pass, 2026-09-27).
+   *
+   * `synchronous = FULL`: every commit is on disk before the write returns, so a power cut loses
+   * nothing a player was told had happened. NORMAL is the usual WAL trade and is faster, but it
+   * can drop the last commits on power loss, and the maintainer's rule is that progress is never
+   * lost. The WAL is kept to 64 MB after each checkpoint rather than growing to its high-water mark,
+   * the page cache is 16 MB, and temporary b-trees stay in memory.
+   */
+  db.pragma('synchronous = FULL');
+  db.pragma('journal_size_limit = 67108864');
+  db.pragma('cache_size = -16000');
+  db.pragma('temp_store = MEMORY');
   return db;
 }
 

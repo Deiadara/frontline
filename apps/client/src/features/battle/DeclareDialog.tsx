@@ -5,6 +5,7 @@ import { Modal } from '../../components/ui/Modal';
 import { ApiRequestError } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { useBattles } from '../../lib/queries';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * Calling a fight for a time (GDD §A4, battle rework).
@@ -30,12 +31,22 @@ interface DeclareDialogProps {
    */
   placeName: string;
   slots: readonly string[];
+  /**
+   * The district's front door, as the board reads it (`BattlesResponse.gates`).
+   *
+   * A raid, or a location in a shut district, is only legal while the gate is down, and the route
+   * refuses a mark at or after the breach closes (`breach_closes`, maintainer 2026-09-27). The
+   * board's `slots` run a day out whatever the gate is doing, so without this the picker offered
+   * marks the route turned away.
+   */
+  gate?: { shut: boolean; brokenUntil: string | null } | undefined;
   /** What the crew's name is worth right now, which is what the call is paid out of (§D7). */
   infamy: number;
   pending: boolean;
   error: unknown;
   onClose: () => void;
-  onConfirm: (scheduledFor: string, holdAfterCapture: boolean) => void;
+  /** Winners hold what they take (maintainer, 2026-09-28): the mark is the only choice. */
+  onConfirm: (scheduledFor: string) => void;
 }
 
 const dayLabel = (iso: string): string =>
@@ -47,7 +58,8 @@ const timeLabel = (iso: string): string =>
 export function DeclareDialog({
   target,
   placeName,
-  slots,
+  slots: offered,
+  gate,
   infamy,
   pending,
   error,
@@ -55,14 +67,19 @@ export function DeclareDialog({
   onConfirm,
 }: DeclareDialogProps) {
   const [picked, setPicked] = useState<string | null>(null);
+  // The marks inside the breach, for a call that is only legal through one (`throughBreach` in
+  // the server's `battle/declare.ts`). Every other call takes the board's list as it comes.
+  const throughBreach = target.kind === 'district' || (target.kind === 'location' && gate?.shut);
+  const closesAt = throughBreach && gate?.brokenUntil != null ? Date.parse(gate.brokenUntil) : null;
+  const slots = closesAt === null ? offered : offered.filter((slot) => Date.parse(slot) < closesAt);
   /*
    * Derived, not seeded. `slots` is re-read every few seconds and the first mark drops off the list
    * the minute it passes; a choice seeded once from `slots[0]` outlived the slot and the dialog
    * posted a mark the board no longer offered. `Fights.tsx` documents the same trap.
    */
   const chosen = picked !== null && slots.includes(picked) ? picked : (slots[0] ?? null);
-  // Winners stay and hold what they took (maintainer, 2026-09-22): no longer a choice. A gate is
-  // a hole in a wall for a few hours, not a position, so there the flag means nothing.
+  // Winners stay and hold what they took (maintainer, 2026-09-22 and 2026-09-28): not a choice,
+  // and not sent. The note says so on a location; a gate or a raid is nothing to stand on.
   const holdable = target.kind === 'location';
   /*
    * §D7: the call's price, quoted off the board rather than worked out here.
@@ -158,6 +175,15 @@ export function DeclareDialog({
           </section>
         ))}
 
+        {slots.length === 0 && offered.length > 0 && (
+          <p
+            className="font-body text-xs leading-relaxed text-ink-300"
+            data-testid="declare-breach-closes"
+          >
+            The gate is back up before the earliest mark a fight can be called for.
+          </p>
+        )}
+
         {holdable && (
           <p
             className="font-body text-[11px] leading-relaxed text-ink-300"
@@ -185,25 +211,24 @@ export function DeclareDialog({
             <span className="tabular-nums text-ink-300">Your name: {Math.round(infamy)}</span>
           </p>
         )}
-
-        {charged && !affordable && (
-          <p
-            role="alert"
-            data-testid="declare-unaffordable"
-            className="font-body text-xs leading-relaxed text-oxblood-300"
-          >
-            {DECLARE_UNAFFORDABLE_MESSAGE}
-          </p>
-        )}
-
-        {error !== null && error !== undefined && (
-          <p role="alert" className="font-body text-xs leading-relaxed text-oxblood-300">
-            {error instanceof ApiRequestError ? error.message : 'That did not go through'}
-          </p>
-        )}
       </div>
 
       <footer className="flex shrink-0 items-center justify-end gap-3 border-t border-surface-700 px-5 py-4">
+        {/* Why it cannot go, on the button row and to its left (maintainer, 2026-09-25). */}
+        {((charged && !affordable) || (error !== null && error !== undefined)) && (
+          <div className="mr-auto flex min-w-0 flex-col gap-1.5">
+            {charged && !affordable && (
+              <ErrorNote data-testid="declare-unaffordable">
+                {DECLARE_UNAFFORDABLE_MESSAGE}
+              </ErrorNote>
+            )}
+            {error !== null && error !== undefined && (
+              <ErrorNote>
+                {error instanceof ApiRequestError ? error.message : 'That did not go through'}
+              </ErrorNote>
+            )}
+          </div>
+        )}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Cancel
         </Button>
@@ -215,7 +240,7 @@ export function DeclareDialog({
           // Not the confirm every other primary button gets. Calling a fight is the loudest thing
           // a player does in this game: everybody in the city sees it, and it cannot be taken back.
           data-sound="call"
-          onClick={() => chosen && affordable && onConfirm(chosen, holdable)}
+          onClick={() => chosen && affordable && onConfirm(chosen)}
         >
           {pending ? 'Working…' : 'Call it'}
         </Button>

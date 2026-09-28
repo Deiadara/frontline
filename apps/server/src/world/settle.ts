@@ -2,17 +2,20 @@ import { GAME_TIMEZONE, type SkirmishEngine } from '@frontline/shared';
 import { settleAutomations } from '../automations/runners.js';
 import { settleBarAuctions } from '../bar/auction.js';
 import { settleVendorAuctions } from '../market/auction.js';
+import { settleMarketBoard } from '../market/board.js';
 import { settleBlackMarketLots } from '../blackmarket/shelf.js';
 import { settleBattles } from '../battle/resolve.js';
 import { settleMovements } from '../battle/movement.js';
 import { settleSleepers } from '../city/sleepers.js';
-import { settleFortifications } from '../city/actions.js';
+import { settleLocationUpgrades } from '../city/actions.js';
 import { settleCapturedGates } from '../city/gates.js';
+import { settleGarrisonRegrowth } from '../city/regrowth.js';
 import { settleScouting } from '../scouting/scouting.js';
 import { settleSpying } from '../spying/spying.js';
 import { settleMoves } from '../moves/moves.js';
 import type { Repositories } from '../db/repos/index.js';
 import { liveHub } from '../live/hub.js';
+import { guardStage } from './guard.js';
 
 /**
  * The order the shared world settles in, in one place.
@@ -33,15 +36,18 @@ import { liveHub } from '../live/hub.js';
  * The order is an argument, not a list, and each step is here because of what the step after it
  * reads:
  *
- * 1. **Fortifications**, because ground that finished digging in before the mark is dug in when it
+ * 1. **Location upgrades**, because ground worked up before the mark is at its new level when it
  *    is attacked.
  * 2. **Movements**, because a column whose march ended before the mark is *in* the district, and
  *    settling the fight first would resolve it without those units and land the reinforcements in
  *    a battle that is already over.
  * 3. **Captured gates**, because a gate that finished going up before the mark changes how hard
  *    that ground is to take, and it changes it for somebody else.
- * 4. **Battles**, which read all three.
- * 5. **Crews coming home**, **scouting** and **the two closed auctions**, the Bar's and the
+ * 4. **The weekly regrowth**, because a fight called for a minute past the mark is a fight against
+ *    the regime as it stands on Monday. Settled after it and the first fight of the week would be
+ *    fought against last week's casualties and then have its survivors overwritten.
+ * 5. **Battles**, which read all four.
+ * 6. **Crews coming home**, **scouting** and **the two closed auctions**, the Bar's and the
  *    Runner's, which read nothing above them and write receipts. Last because a receipt only has to
  *    arrive, not to arrive in any particular order.
  *
@@ -62,59 +68,36 @@ export function settleWorld(
   /** Admin mode: automated parties and their gap run on the five second clock. */
   admin = false,
 ): number {
-  settleFortifications(repos, now);
-  const landed = settleMovements(repos, now);
+  /*
+   * Every stage guarded (`world/guard.ts`, robustness pass 2026-09-25). A stage that throws for a
+   * reason no single row explains is reported and skipped for this tick, and the ones after it
+   * still run: a broken auction table is not a reason for no fight to land anywhere. The rows
+   * inside each stage are guarded one by one on top of this.
+   */
+  guardStage('location upgrades', null, () => settleLocationUpgrades(repos, now));
+  const landed = guardStage('columns arriving', 0, () => settleMovements(repos, now));
   // Columns between the crew's own places land beside the ones bound for a fight, and for the
   // same reason: a garrison that arrived before the mark is standing when the mark comes.
-  const moved = settleMoves(repos, now);
-  /*
-   * §A4: cells going to ground and cells coming home, **before** the fights.
-   *
-   * Order matters for exactly one case and it is the case the mechanic is for: a cell whose walk
-   * lands on the same tick as the fight it was planted for has to be standing there when
-   * `assemble` reads the ground. Settled after, it would arrive to a battle already resolved.
-   */
-  const planted = settleSleepers(repos, now);
-  const gates = settleCapturedGates(repos, now);
-  const fights = settleBattles(repos, engine, now).length;
-  bringCrewsHome?.(repos, now);
-  /*
-   * The Right Hand's standing orders, immediately after the crews walk in.
-   *
-   * Order matters: a party that arrived on this very tick starts its slot's cooldown on this tick
-   * rather than a second later, and a slot whose run has just resolved is free to be asked again
-   * on the next one. Only the world clock passes `bringCrewsHome`, so a page load does not send
-   * anybody out: an automation is a thing the world does, not a thing a reader triggers.
-   */
-  if (bringCrewsHome) settleAutomations(repos, now, admin);
-  settleScouting(repos, now);
+  const moved = guardStage('moves', 0, () => settleMoves(repos, now));
+  const planted = guardStage('sleeper cells', 0, () => settleSleepers(repos, now));
+  const gates = guardStage('captured gates', 0, () => settleCapturedGates(repos, now));
+  const regrown = guardStage('regrowth', 0, () => settleGarrisonRegrowth(repos, now));
+  const fights = guardStage('battles', [], () => settleBattles(repos, engine, now)).length;
+  guardStage('crews coming home', null, () => bringCrewsHome?.(repos, now));
+  if (bringCrewsHome) guardStage('automations', 0, () => settleAutomations(repos, now, admin));
+  guardStage('scouting', 0, () => settleScouting(repos, now));
   // Spy jobs beside the scouts: a report is a receipt too, and it reads the ground as it stands
   // after the fights above, which is the ground the runners actually arrive at.
-  settleSpying(repos, now);
-  const tables = settleBarAuctions(repos, now);
-  const lots = settleVendorAuctions(repos, now);
-  /*
-   * The fence's five, which settle at midnight.
-   *
-   * On the clock as well as on the shelf's own read, for the reason the barrow is: without it, a
-   * crew that won a crate overnight is not charged and not given it until somebody in the city
-   * next opens the back room, which on a quiet server can be hours. Nothing is broadcast: the
-   * shelf polls, and the crate lands in an inventory whose own screens poll too.
-   */
-  settleBlackMarketLots(repos, now, GAME_TIMEZONE);
-  /*
-   * Tell every open tab what the clock just moved, **after** every settle above has committed.
-   *
-   * These are the changes nobody pressed a button for: a fight going off, a column landing, a
-   * gate coming up, a table closing at the Bar. Before this, another player learned of them on
-   * their next poll, five to fifteen seconds later, and two players looking at the same street
-   * saw two different streets for that long. A nudge costs nothing when nobody is connected and
-   * is only sent when something actually settled, so a quiet world stays quiet.
-   */
-  if (fights > 0 || landed > 0 || moved > 0 || planted > 0 || gates > 0) {
+  guardStage('spying', 0, () => settleSpying(repos, now));
+  const tables = guardStage('bar auctions', 0, () => settleBarAuctions(repos, now));
+  const lots = guardStage('runner lots', 0, () => settleVendorAuctions(repos, now));
+  guardStage('black market lots', 0, () => settleBlackMarketLots(repos, now, GAME_TIMEZONE));
+  // Listings past their lifetime and claims past their 24 hours, whether or not anybody looks.
+  const board = guardStage('market board', 0, () => settleMarketBoard(repos, now));
+  if (fights > 0 || landed > 0 || moved > 0 || planted > 0 || gates > 0 || regrown > 0) {
     liveHub.broadcast('world', now);
   }
   if (tables > 0) liveHub.broadcast('bar', now);
-  if (lots > 0) liveHub.broadcast('market', now);
+  if (lots > 0 || board > 0) liveHub.broadcast('market', now);
   return fights;
 }

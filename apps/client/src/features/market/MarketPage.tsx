@@ -29,16 +29,19 @@ import { Panel } from '../../components/ui/Panel';
 import { DrawnButton } from '../../components/ui/DrawnButton';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { cn } from '../../lib/cn';
-import { useBarter, useBuySupply, useMarket } from '../../lib/queries';
+import { isCityShut, useBarter, useBuySupply, useMarket } from '../../lib/queries';
 import { RARITY_TAG } from '../../lib/rarity';
 import { formatRemaining } from '../base/format';
 import { useServerClock } from '../missions/useServerClock';
 import { InfoNote, PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { MarketTabs } from './BlackMarketPage';
 import { CityPicker } from '../city/CityPicker';
+import { useCityRoom } from '../city/useCityRoom';
 import { useDayResetClock, usePlayerZone } from '../settings/usePlayerZone';
 import { ItemGlyph } from '../inventory/ItemGlyph';
 import { VendorAuctionWindow, lotSpec } from './VendorAuctionWindow';
+import { pastLotCap } from './LotParts';
+import { ErrorNote } from '../../components/ui/ErrorNote';
 
 /**
  * The market (market extension, reworked by the maintainer 2026-09-08).
@@ -61,12 +64,13 @@ export function MarketPage() {
   /*
    * Which city's market this is (maintainer, 2026-09-17).
    *
-   * `null` is the crew's own, which is what the server answers a bare read with. State on the screen
-   * rather than in the URL, for the reason the Bar's is: it is where a player is standing, and a
-   * bookmarked city they have since been thrown out of would be a refusal on arrival.
+   * Not in the URL: it is where a player is standing, and a bookmarked city they have since been
+   * thrown out of would be a refusal on arrival. Not on this screen either, since 2026-09-24. It
+   * was a `useState` that came back as the crew's own city every time the player looked at
+   * anything else; it is the one remembered city now, shared with the map and the other rooms.
    */
-  const [city, setCity] = useState<string | null>(null);
-  const query = useMarket(city ?? undefined);
+  const { city, choose } = useCityRoom();
+  const query = useMarket(city);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   const zone = usePlayerZone();
   const resetsAt = useDayResetClock(now);
@@ -79,7 +83,9 @@ export function MarketPage() {
       <ScreenLoadSheet
         what="The market"
         loading="Walking down to the market…"
-        isError={query.isError}
+        // A shut door is not a failed read: see `isCityShut`. The screen asks again for the
+        // crew's own market on the next render rather than printing a refusal at them.
+        isError={query.isError && !isCityShut(query.error)}
         onRetry={() => void query.refetch()}
       />
     );
@@ -94,7 +100,7 @@ export function MarketPage() {
       fills
       // The city door on the heading's own line, top right, which is where the maintainer asked for
       // it: "in the market on the top right in the same height as the quote on top".
-      action={<CityPicker cityId={data.cityId} cities={data.cities} onChoose={setCity} />}
+      action={<CityPicker cityId={data.cityId} cities={data.cities} onChoose={choose} />}
     >
       <MarketTabs active="market" />
 
@@ -123,6 +129,11 @@ export function MarketPage() {
           offer={{ ...lot, auction: lot.auction }}
           now={now}
           caps={data.caps}
+          bidCeiling={data.bidCeiling}
+          atLotCap={pastLotCap(
+            data.vendor.stock.map((one) => ({ id: one.line.id, auction: one.auction })),
+            lot.line.id,
+          )}
           onClose={() => setLotOpen(null)}
         />
       )}
@@ -149,10 +160,8 @@ function RunnerHours({ market, now, zone }: { market: MarketResponse; now: Date;
     .join(' and ');
   return (
     <InfoNote label={label} size="sm">
-      Today he is in at {hours}, two hours each, and the hours move every day. What he has is the
-      same for everybody in the city, and every line on the barrow is a lot: bid while he is in, and
-      the highest bid takes one when he packs up, at what they bid. The Broker never leaves and
-      never gives you more than half.
+      In today at {hours}, two hours each. Every line is a lot: the highest bid when he packs up
+      takes it. The Broker never leaves, and pays half the worth of what you hand over.
     </InfoNote>
   );
 }
@@ -422,7 +431,13 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
   const held = market.resources[give];
   // §I3: the rate is quoted by the server so the screen and the settlement cannot disagree about
   // which one applied. A client that recomputed the milestone would be a second opinion about it.
-  const quote = barterQuote(amount, market.barterRate);
+  const quote = barterQuote(give, want, amount, market.barterRate);
+  // The shelf the server measures the trade against, which the supply board already carries per
+  // material. Past it is a warning now rather than a wall (maintainer ruling, 2026-09-28): the line
+  // under the button says so before the press, and the till asks again with its own figure.
+  const room = market.supply.lines.find((line) => line.key === want)?.capacity;
+  const spill =
+    room === undefined ? 0 : Math.max(0, quote - Math.max(0, room - market.resources[want]));
   const blocked =
     give === want
       ? 'Pick two different things'
@@ -430,7 +445,14 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
         ? `He will not move for less than ${BARTER_MINIMUM}`
         : amount > held
           ? 'You do not have that much'
-          : null;
+          : // The quote floors, and the server refuses a trade worth nothing back.
+            quote === 0
+            ? 'Too little to get anything back'
+            : null;
+  const warning =
+    blocked === null && spill > 0
+      ? `Your store is short of room: ${spill.toLocaleString()} ${RESOURCE_LABELS[want]} would go to waste`
+      : null;
 
   return (
     <Panel
@@ -549,14 +571,15 @@ function BrokerPanel({ market }: { market: MarketResponse }) {
           >
             {barter.isPending ? 'Counting it out…' : 'Trade'}
           </DrawnButton>
-          {blocked !== null && (
-            <span className="font-display text-[12px] text-warning">{blocked}</span>
+          {(blocked ?? warning) !== null && (
+            <span
+              className="text-center font-display text-[12px] text-warning"
+              data-testid="broker-note"
+            >
+              {blocked ?? warning}
+            </span>
           )}
-          {barter.error !== null && (
-            <p role="alert" className="font-body text-[13px] text-oxblood-300">
-              {barter.error.message}
-            </p>
-          )}
+          {barter.error !== null && <ErrorNote>{barter.error.message}</ErrorNote>}
         </div>
       </div>
     </Panel>
@@ -775,11 +798,7 @@ function SupplyPanel({ market, resetsAt }: { market: MarketResponse; resetsAt: s
             </DrawnButton>
           </span>
         </div>
-        {buy.error !== null && (
-          <p role="alert" className="w-full text-center font-body text-[13px] text-oxblood-300">
-            {buy.error.message}
-          </p>
-        )}
+        {buy.error !== null && <ErrorNote className="self-center">{buy.error.message}</ErrorNote>}
       </div>
     </Panel>
   );

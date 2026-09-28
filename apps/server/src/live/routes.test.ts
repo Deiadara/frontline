@@ -6,12 +6,14 @@ import {
   startingHolder,
   type LiveEvent,
 } from '@frontline/shared';
+import { get, type ClientRequest } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../app.js';
 import { loadConfig } from '../config.js';
 import { openDatabase, runMigrations, type AppDatabase } from '../db/index.js';
 import { liveHub } from './hub.js';
+import { MAX_STREAMS_PER_ADDRESS } from './routes.js';
 import { chooseOverseer } from '../testing/overseer.js';
 
 /**
@@ -274,5 +276,50 @@ describe('the live channel over the wire', () => {
     await vi.waitFor(() => expect(liveHub.isConnected(stack.userId)).toBe(false), {
       timeout: 5_000,
     });
+  });
+
+  /*
+   * One address holding every stream the process has is the flood this cap is for. Several
+   * accounts, because one account is already held to eight by the hub and would never reach it.
+   */
+  it('refuses a stream past the cap one address may hold, and takes one again after a close', async () => {
+    const stack = await makeStack('crowd');
+    const tokens: string[] = [];
+    for (let n = 0; n * 7 <= MAX_STREAMS_PER_ADDRESS; n += 1) {
+      const res = await stack.app.inject({
+        method: 'POST',
+        url: '/api/auth/register',
+        payload: { username: `crowd${n}`, password: 'hunter2pass' },
+      });
+      tokens.push(res.json<{ token: string }>().token);
+    }
+    /*
+     * A socket of its own per stream (`agent: false`), the way separate tabs hold them. `fetch`
+     * pools connections and recycled one mid-test, which read as the server closing a stream.
+     */
+    const held: ClientRequest[] = [];
+    const open = (token: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = get(
+          `${stack.url}/events`,
+          { agent: false, headers: { authorization: `Bearer ${token}` } },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode ?? 0);
+          },
+        );
+        req.on('error', reject);
+        held.push(req);
+      });
+    for (let n = 0; n < MAX_STREAMS_PER_ADDRESS; n += 1) {
+      expect(await open(tokens[Math.floor(n / 7)]!)).toBe(200);
+    }
+    expect(await open(tokens[tokens.length - 1]!)).toBe(503);
+
+    held[0]!.destroy();
+    await vi.waitFor(async () => expect(await open(tokens[tokens.length - 1]!)).toBe(200), {
+      timeout: 5_000,
+    });
+    for (const req of held) req.destroy();
   });
 });

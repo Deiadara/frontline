@@ -1,6 +1,6 @@
 import {
   BUILDING_CATALOG,
-  CITY_LOCATIONS,
+  EVERY_LOCATION,
   LOCATION_CATALOG,
   displayNameOf,
   findDistrict,
@@ -82,7 +82,9 @@ export function projectCrewProfile(
   // Their street is public once walked, and only then: the district read applies the same rule.
   const homeSeen = visible.has(crew.districtId);
   const controls = repos.city.controls();
-  const held = CITY_LOCATIONS.filter((location) => {
+  // Every location in the world (2026-09-24): a crew's file lists what it holds, and ground held in
+  // a second city is ground it holds. The reader's fog still decides what of it is printed below.
+  const held = EVERY_LOCATION.filter((location) => {
     const holder = controls.get(location.id)?.holder;
     return holder?.kind === 'crew' && holder.baseId === crew.id;
   });
@@ -124,6 +126,7 @@ export function projectCrewProfile(
     player: {
       userId: user.id,
       name: displayNameOf(user),
+      handle: user.username,
       since: user.createdAt,
     },
     overseer: overseer

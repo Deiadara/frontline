@@ -35,10 +35,9 @@ export const CommanderSchema = z.object({
    * and have not decided about yet. They are on the books, they are drawing a wage, and they are
    * doing no job in particular, which is exactly what `null` says.
    *
-   * What they are still worth is the interesting half. A seated officer is paid their full rating
-   * in the attributes their chair actually uses and `OFF_DUTY_SHARE` of it everywhere else; a
-   * benched one is paid the off-duty share in *everything*. So hiring somebody you have nowhere to
-   * put is not wasted, and it is not free either: the chair is most of what an officer is worth.
+   * And they are worth nothing until they have a chair (maintainer, 2026-09-28): no rating, no
+   * perk and no lift reaches the crew, they lead no run and no fight, and they fill no chair. They
+   * can still be drilled. See `officerIsWorking`, which is the one place that says so.
    *
    * Nullable rather than a separate list on the base, because an officer is one kind of thing and
    * which of two arrays they happen to be in is not a fact about them. Every consumer that cares

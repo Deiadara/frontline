@@ -13,10 +13,12 @@ import {
   type ScoutRefusal,
   type ScoutingRun,
 } from '@frontline/shared';
+import { isClosedPlot } from '../battle/ground.js';
 import { standingEffectsFor } from '../crew/standing.js';
 import type { Repositories } from '../db/repos/index.js';
 import { notifyBase } from '../social/notify.js';
 import { workingOfficer } from '../crew/roster.js';
+import { settleEach } from '../world/guard.js';
 
 /**
  * Sending somebody to look at a district, and having them come back (§A4, maintainer rework).
@@ -134,6 +136,10 @@ export function sendScout(
   const { base, districtId, now } = input;
 
   if (districtId === base.districtId) return { kind: 'refused', reason: 'own_district' };
+  const district = findDistrict(districtId);
+  if (district && isClosedPlot(repos, district, base)) {
+    return { kind: 'refused', reason: 'unclaimed' };
+  }
   if (repos.city.scouted(base.id).has(districtId)) {
     return { kind: 'refused', reason: 'already_scouted' };
   }
@@ -154,7 +160,10 @@ export function sendScout(
   const whispers = scoutParty(base)!;
   // No duty check and no hold: the officer stays in the chair. See `scoutParty`.
   const plan = planScout(repos, base, districtId, whispers, now);
-  if (!plan) return { kind: 'refused', reason: 'no_whispers' };
+  // `planScout` answers null only when the map has no road between the two ends, which is a fact
+  // about the ground and not about the chair. Reported as `no_whispers` before, which sent a
+  // player with a Master of Whispers off to hire a second one.
+  if (!plan) return { kind: 'refused', reason: 'no_road' };
 
   const run: ScoutingRun = {
     id: randomUUID(),
@@ -198,28 +207,33 @@ export function recallScout(repos: Repositories, base: Base, now: Date): RecallS
 
 export function settleScouting(repos: Repositories, now: Date): number {
   const due = repos.scouting.due(now.toISOString());
-  for (const run of due) {
-    // A scout turned round never got there: they are home, and the ground stays shut.
-    if (run.recalledAt !== null) {
+  return settleEach(
+    repos,
+    'scouting',
+    due,
+    (run) => run.id,
+    (run) => {
+      // A scout turned round never got there: they are home, and the ground stays shut.
+      if (run.recalledAt !== null) {
+        repos.scouting.markSettled(run.id, now.toISOString());
+        return;
+      }
+      // The ground is open from the moment they are home, and the run is marked in the same breath:
+      // `due` filters on `settled_at`, so a second pass finds nothing and cannot open it twice.
+      repos.city.markScouted(run.baseId, run.districtId, now.toISOString());
       repos.scouting.markSettled(run.id, now.toISOString());
-      continue;
-    }
-    // The ground is open from the moment they are home, and the run is marked in the same breath:
-    // `due` filters on `settled_at`, so a second pass finds nothing and cannot open it twice.
-    repos.city.markScouted(run.baseId, run.districtId, now.toISOString());
-    repos.scouting.markSettled(run.id, now.toISOString());
-    // Feats: a run that got there and opened the ground. A recall is handled above and is
-    // deliberately not counted: the ladder is about the ground seen, not about the officer sent.
-    tallyScoutingRun(repos, run.baseId);
-    notifyBase(repos, run.baseId, {
-      kind: 'scout_home',
-      title: 'Your scout party is back',
-      body: `${findDistrict(run.districtId)?.name ?? run.districtId} is on your map.`,
-      // The district itself: `/game/city` matches no route and fell through to the map.
-      link: `/game/city/${run.districtId}`,
-      subjectId: run.districtId,
-      now,
-    });
-  }
-  return due.length;
+      // Feats: a run that got there and opened the ground. A recall is handled above and is
+      // deliberately not counted: the ladder is about the ground seen, not about the officer sent.
+      tallyScoutingRun(repos, run.baseId);
+      notifyBase(repos, run.baseId, {
+        kind: 'scout_home',
+        title: 'Your scout party is back',
+        body: `${findDistrict(run.districtId)?.name ?? run.districtId} is on your map.`,
+        // The district itself: `/game/city` matches no route and fell through to the map.
+        link: `/game/city/${run.districtId}`,
+        subjectId: run.districtId,
+        now,
+      });
+    },
+  );
 }

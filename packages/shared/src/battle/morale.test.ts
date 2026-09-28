@@ -30,7 +30,6 @@ const quiet: MoraleShock = {
   enemyIntimidation: 0,
   outnumberedRatio: 1,
   alliesBroken: 0,
-  resolvePercent: 0,
 };
 
 describe('the ladder', () => {
@@ -86,13 +85,6 @@ describe('a collapse spreads', () => {
     const witnessed: MoraleShock = { ...alone, alliesBroken: 2 };
     expect(Math.abs(moraleDelta(witnessed, 50))).toBeGreaterThan(
       Math.abs(moraleDelta(alone, 50)) * 1.5,
-    );
-  });
-
-  it('steadies a stack that is holding ground it has dug into', () => {
-    const shock: MoraleShock = { ...quiet, casualtyFraction: 0.3, enemyIntimidation: 50 };
-    expect(Math.abs(moraleDelta({ ...shock, resolvePercent: 25 }, 50))).toBeLessThan(
-      Math.abs(moraleDelta(shock, 50)),
     );
   });
 });
@@ -165,6 +157,7 @@ describe('who gets away', () => {
       suppressed: 0,
       // Only `jamPercent` reads it, and nothing here is fitted, so the catalogue figure is it.
       sheet: unit.stats,
+      modGain: {},
       loudTier: 0,
       dealt: 0,
     };

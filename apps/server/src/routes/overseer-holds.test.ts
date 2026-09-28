@@ -207,7 +207,7 @@ describe('where a new crew lives', () => {
  * end by one party, which shuts its gate, and nothing behind a shut gate can be called at all.
  *
  * Measured before the fix, one home in four was affected: a crew on the Ashen Terraces was handed
- * `datavault-sigma`, Combine-held from end to end, and opened its first evening looking at a
+ * `annexes`, Combine-held from end to end, and opened its first evening looking at a
  * district it could not touch. It also made `live.spec.ts` fail depending on how many accounts had
  * registered before it, which is how it was found.
  */
@@ -218,7 +218,7 @@ describe('the district a new crew wakes up next to', () => {
    * The fixture has to do this because a bare test world has no seeded holders and therefore
    * nothing shut, which is exactly how the first version of this test passed against the bug: the
    * filter it was meant to be proving never had anything to filter. The live world is not like
-   * that, and `datavault-sigma` is Combine-held from end to end in it.
+   * that, and `annexes` is Combine-held from end to end in it.
    */
   const shutTight = (app: FastifyInstance, districtId: string): void => {
     for (const location of CITY_LOCATIONS.filter((one) => one.districtId === districtId)) {

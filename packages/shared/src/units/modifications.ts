@@ -125,7 +125,23 @@ export interface UnitModificationSpec {
   id: string;
   name: string;
   description: string;
-  /** Flat changes to the sheet of every unit this is fitted to. Same shape the refits use. */
+  /**
+   * Flat changes to the sheet of every unit this is fitted to. Same shape the refits use.
+   *
+   * ## Only the eleven numeric keys survive
+   *
+   * `UnitStats` also carries `damageType` and `resistances`, and this type admits both. Nothing
+   * reads them: `upgradedStats` (`units/upgrades.ts`) loops `UNIT_STAT_KEYS`, which is the eleven
+   * numbers and nothing else, so a card written with either field would be accepted here, typecheck
+   * clean, and be **silently dropped** at the one place a fitted sheet is built.
+   *
+   * It would fail quietly twice over. `unitModificationPower` loops the same eleven keys, so such a
+   * card would also price at zero and sail through the rarity-band gate as a card that costs
+   * nothing and does nothing.
+   *
+   * No card in the catalogue uses either field today, which is why this is a note rather than a
+   * bug. If one ever should, the change is `UNIT_STAT_KEYS` and both loops, not this type.
+   */
   effect: Partial<UnitStats>;
   rarity: UnitModificationRarity;
   /**
@@ -618,6 +634,63 @@ const SPECS: readonly UnitModificationSpec[] = [
     requiresBlueprint: true,
     cost: { scrap: 18000, highQualityMetal: 1450 },
     parts: { signal_relay: 4, ceramic_plate: 6, targeting_core: 1 },
+  },
+
+  // ------------------------------------------------------------------ THE FENCE'S FOUR
+  /*
+   * Sold by nobody but the fence (maintainer, 2026-09-28).
+   *
+   * Each sits behind a document the fence sells whole (`bp_fence_*` in `blueprints/catalog.ts`),
+   * with no pages to find, so the only road to one of these is infamy spent in the back room. That
+   * is what makes them worth the price: they are authored at the top of the masterpiece band, each
+   * on a line of the sheet no other masterpiece covers, and their bills lean on the parts the fence
+   * itself carries (shunts, cores, hubs and coolant).
+   */
+  {
+    id: 'black_clinic_chrome',
+    name: 'Black Clinic Chrome',
+    description:
+      'Reflex wiring and subdermal plate, fitted in a back room by somebody who lost their licence for doing it well.',
+    effect: { offense: 40, evasion: 14, speed: 10, armor: 10 },
+    rarity: 'masterpiece',
+    requiresBlueprint: true,
+    cost: { scrap: 16000, highQualityMetal: 1250 },
+    parts: { neural_shunt: 5, gyro_assembly: 2, coolant_cell: 2 },
+  },
+  {
+    id: 'hollowpoint_munitions',
+    name: 'Hollowpoint Munitions',
+    description:
+      'Rounds pressed to a Combine pattern that was never meant to leave the armoury. What they hit does not get up.',
+    effect: { offense: 64, penetration: 20, intimidation: 8 },
+    rarity: 'masterpiece',
+    requiresBlueprint: true,
+    cost: { scrap: 15500, highQualityMetal: 1200 },
+    parts: { targeting_core: 3, scrap_servo: 4 },
+    fits: ['sparks', 'wardens', 'snipers', 'road_reavers', 'kite_crews', 'juggernauts', 'sluggers'],
+  },
+  {
+    id: 'rotor_drop_rig',
+    name: 'Rotor Drop Rig',
+    description:
+      'A rotor pack and a winch harness off a pre-war airframe. The squad arrives from above and leaves with more than it brought.',
+    effect: { speed: 20, evasion: 10, lootCapacity: 40, stealth: 4 },
+    rarity: 'masterpiece',
+    requiresBlueprint: true,
+    cost: { scrap: 17000, highQualityMetal: 1300 },
+    parts: { rotor_hub: 2, gyro_assembly: 2, hydraulic_ram: 1 },
+    fits: ['haulers', 'scavengers', 'kite_crews', 'road_reavers', 'cyber_dogs'],
+  },
+  {
+    id: 'field_surgeons_kit',
+    name: "Field Surgeon's Kit",
+    description:
+      'A roll of instruments and two decades of notes on keeping people standing who should be lying down.',
+    effect: { vitality: 72, morale: 16, armor: 10 },
+    rarity: 'masterpiece',
+    requiresBlueprint: true,
+    cost: { scrap: 16500, highQualityMetal: 1280 },
+    parts: { coolant_cell: 3, ceramic_plate: 4, pressure_valve: 2 },
   },
 ];
 

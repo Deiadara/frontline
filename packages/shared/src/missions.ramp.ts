@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   MISSION_MAX_DURATION_MINUTES,
   TRAVEL_BAND_MINUTES,
@@ -59,6 +60,20 @@ export interface EarlyRampBand {
    */
   payPercent: number;
 }
+
+/**
+ * The band on the wire, so the send dialog can apply the same clock the launch will.
+ *
+ * Declared here rather than in `api.ts` for the reason every other schema beside its type is: the
+ * band and the shape it travels in are one fact, and a field added to the interface and not to the
+ * schema is a field the client never sees.
+ */
+export const EarlyRampBandSchema = z.object({
+  step: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  minMinutes: z.number().int().positive(),
+  maxMinutes: z.number().int().positive(),
+  payPercent: z.number().nonnegative(),
+});
 
 export const EARLY_RAMP_BANDS: readonly EarlyRampBand[] = [
   { step: 1, minMinutes: 1, maxMinutes: 3, payPercent: 100 },

@@ -125,7 +125,7 @@ describe('a bracket is a door to the yard', () => {
 
     fireEvent.click(screen.getByTestId('slot-burn-ironsides-yes'));
     expect(burn.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ upgradeId: vest.id }),
+      { unitId: 'ironsides', upgradeId: vest.id },
       expect.anything(),
     );
   });

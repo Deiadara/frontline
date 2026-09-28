@@ -96,29 +96,27 @@ const me: MeResponse = {
 const view: BattleView = {
   battle: {
     id: 'press',
-    target: { kind: 'location', districtId: 'rustyard', locationId: 'rustyard-press' },
+    target: { kind: 'location', districtId: 'steelbelt', locationId: 'steelbelt-press' },
     attackerBaseId: base.id,
     defender: { kind: 'looters' },
     scheduledFor: MARK,
-    holdAfterCapture: false,
+    holdAfterCapture: true,
     wokeSleepers: false,
     declaredAt: NOW,
     resolvedAt: null,
-    seed: 'press-seed',
   },
   targetName: 'Kessler Press',
   districtName: 'Steelbelt',
   battlefield: battlefieldFor({
     locationName: 'Kessler Press',
     kind: 'scrap_press',
-    fortifyDifficulty: 'medium',
-    fortifyLevel: 0,
     at: new Date(MARK),
     weather: 'normal',
   }),
   role: 'attacker',
   side: 'attacker',
   deploymentOpen: true,
+  withdrawalOpen: true,
   // The whole side, allies included: 200 units already standing, not a column anybody is sending.
   muster: { army: { razors: 200 }, perimeter: {}, size: 200 },
   enemySize: 10,
@@ -151,6 +149,7 @@ const fetchMock = vi.fn();
 
 const reply = (body: unknown) =>
   Promise.resolve({
+    headers: new Headers(),
     ok: true,
     status: 200,
     statusText: '',

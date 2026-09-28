@@ -1,17 +1,14 @@
 import {
   type EarlyRampBand,
   TRAVEL_BAND_MINUTES,
-  pagePrizeFor,
   FAILED_MISSION_XP_SHARE,
   MISC_AREA_ID,
   RESOURCE_KG,
   areaPayPercent,
-  dealBattleTier,
   leaningsFor,
-  levelPayPercent,
   missionXp,
-  scaledSuccessChance,
-  CITY_DISTRICTS,
+  templateTimings,
+  ALL_DISTRICTS,
   areaIsOpen,
   districtHolder,
   missionBoardKey,
@@ -21,6 +18,7 @@ import {
   scaledSpoils,
   type Base,
   type District,
+  type Grade,
   type MissionArea,
   type MissionOffer,
   type MissionTemplate,
@@ -40,9 +38,10 @@ import { pricedTimings } from './pricing.js';
  * whoever armed it, and a residential district was never work in the first place: see
  * `areaIsOpen` in `missions.areas.ts` for the rule and why it moved (maintainer, 2026-09-21).
  *
- * What an area offers is a pure function of the area (`missionOffers`), so the board is stable and
- * a player can plan against it. What it *pays* is the template's own mix with the ground's premium
- * on it, which is the only thing that makes pushing outwards worth the walk.
+ * What an area offers is a function of the area, its key and this crew's level (`missionOffers`),
+ * so the board is stable for a crew and a player can plan against it. What it *pays* is set by the
+ * grade each card was dealt at, with the ground's premium on top, which is what makes pushing
+ * outwards worth the walk.
  */
 
 /** Everything the board needs to know about a district, read once per request. */
@@ -65,11 +64,19 @@ export interface AreaState extends AreaAvailability {
  * this crew. `districtHolder` is the same function the §A4 unified bonus turns on, so a district
  * that pays somebody the unified bonus is exactly a district with no board, and the two cannot
  * drift apart.
+ *
+ * Every district in the world rather than Ashfall's twelve (2026-09-24). This is a lookup keyed by
+ * district id and both its callers ask it about ground they name: the read hands it to
+ * `projectAreas` beside the districts of the city being read, and the launch route asks it about
+ * the one area a request named, which may be in any city the crew may enter. Taking a city
+ * parameter instead would put the same "which city is this" decision at two call sites, and the
+ * one that got it wrong would refuse a real Terminus district as unscouted. The whole atlas is
+ * thirty-odd districts against one already-loaded control map, so the walk costs nothing.
  */
 export function areaStatesFor(repos: Repositories, base: Base): Map<string, AreaState> {
   const context = cityContextFor(repos, base);
   const states = new Map<string, AreaState>();
-  for (const district of CITY_DISTRICTS) {
+  for (const district of ALL_DISTRICTS) {
     const holder = districtHolder(district, context.controls);
     states.set(district.id, {
       scouted: context.visible.has(district.id),
@@ -81,16 +88,16 @@ export function areaStatesFor(repos: Repositories, base: Base): Map<string, Area
 }
 
 /**
- * One job, priced for the ground it is offered on and for the crew reading it.
+ * One job at the grade it was dealt, priced for the ground it is offered on.
  *
- * Two premiums, and they compose: the district's own (`areaPayPercent`) and the crew's level
- * (`levelPayPercent`). The odds move the other way over the same curve, which is what stops
- * levelling being a way of skipping the game.
+ * The grade sets the pay, the XP, the clock and the odds (`missions.grade.ts`), and the district's
+ * premium (`areaPayPercent`) goes on top. The crew's level plays no part here: it decided which
+ * grade the card was dealt at, and that is all it does (maintainer, 2026-09-28).
  */
 export function offerFor(
   template: MissionTemplate,
+  grade: Grade,
   payPercent: number,
-  level: number,
   /**
    * What the crew's own standing does to the clock, off `standingEffectsFor`.
    *
@@ -107,71 +114,45 @@ export function offerFor(
    */
   speedPercent = 0,
   /**
-   * Where and when this card is being drawn, which is what decides whether a page is on it (§F1).
-   *
-   * Optional because the quote is also built for a mission already under way, and a launched run
-   * carries its own frozen prize rather than re-reading the board it came off.
-   */
-  board?: { areaId: string; day: string },
-  /**
    * The opening band this crew is in, or null (`missions.ramp.ts`).
    *
    * The clock only. The band's pay premium is already inside `payPercent` above, folded in by
-   * `projectAreas` with the ground's and the level's, because that is the figure the card prints
+   * `projectAreas` with the ground's, because that is the figure the card prints
    * and the launch freezes.
    */
   ramp: EarlyRampBand | null = null,
 ): MissionOffer {
-  const timings = pricedTimings(template, speedPercent, ramp);
-  /*
-   * A fight's tier is dealt on the card off the crew's level (maintainer, 2026-09-23), seeded on
-   * the board the card is on, and it moves the pay and the XP the card quotes. A quote with no
-   * board behind it (a bare template) prices as a Fight I, the bottom of the ladder.
-   */
-  const battleTier =
-    template.kind !== 'battle'
-      ? null
-      : board === undefined
-        ? 'fight_1'
-        : dealBattleTier(board.areaId, board.day, template.id, level);
+  const timings = pricedTimings(template, grade, speedPercent, ramp);
   const rewards = scaledSpoils(
-    missionRewards(template, 'success', timings.totalMinutes, battleTier),
+    missionRewards(template, 'success', timings.totalMinutes, grade),
     payPercent,
   );
-  const xp = missionXp(template, timings.totalMinutes, level, battleTier);
+  const xp = missionXp(template, timings.totalMinutes, grade);
   return {
     templateId: template.id,
     name: template.name,
     brief: template.brief,
     kind: template.kind,
-    difficulty: template.difficulty,
+    grade,
     travelMinutes: timings.travelMinutes,
     durationMinutes: timings.durationMinutes,
     totalMinutes: timings.totalMinutes,
     // The same numbers before anything was taken off them, so the send dialog can run the launch's
     // own arithmetic rather than approximating it on figures already reduced and rounded once.
     rawTravelMinutes: TRAVEL_BAND_MINUTES[template.travelBand],
-    rawDurationMinutes: template.durationMinutes,
+    rawDurationMinutes: templateTimings(template, grade).durationMinutes,
+    // The band itself, so the send dialog can apply it to the figures above the way the
+    // launch does. Without it the dialog quotes the bare template and a crew in the opening
+    // band reads 1h 50m on a job that runs for two minutes.
+    ramp,
     speedPercent,
     rewards,
     payoutSlots: Math.round(payoutSlots(rewards, RESOURCE_KG)),
     xp,
     failedXp: Math.round(xp * FAILED_MISSION_XP_SHARE),
-    pagePrize:
-      board === undefined
-        ? null
-        : pagePrizeFor(board.areaId, board.day, template.id, template.difficulty),
-    /*
-     * What the gauge starts from, before anybody is put at the head of the crew.
-     *
-     * The odds themselves are still not on the card: this is the authored figure at this crew's
-     * level, and the screen adds whichever leader the player is looking at through `missionOdds`,
-     * the same function the launch prices with. So the needle the player watches while they scroll
-     * the bench and the number frozen onto the row cannot disagree.
-     */
-    authoredChance: scaledSuccessChance(template.successChance, level),
+    // The gauge grades whichever leader the player is looking at against these and the grade,
+    // through `missionOdds`, the same function the launch prices with.
     leanings: [...leaningsFor(template)],
-    battleTier,
   };
 }
 
@@ -186,7 +167,7 @@ export function projectAreas(
   districts: readonly District[],
   states: Map<string, AreaState>,
   active: readonly StoredMission[],
-  /** The crew reading it: what its level does to the pay and the odds. */
+  /** The crew reading it: its level decides which grades each board deals. */
   level: number,
   /**
    * When the boards are being read, which is what each one's key is derived from.
@@ -211,10 +192,9 @@ export function projectAreas(
 
   const board = (id: string, name: string, blurb: string, difficulty: number): MissionArea => {
     const activeMissionId = runningIn.get(id) ?? null;
-    // The ground's premium and the crew's own, folded into one figure the card quotes.
+    // The ground's premium and the crew's own cut, folded into one figure the card quotes.
     const payPercent =
       areaPayPercent(id) +
-      levelPayPercent(level) +
       (standing.spoilsPercent ?? 0) +
       // The opening band's premium, which is what stops a two-minute first job paying two minutes
       // of loot (`missions.ramp.ts`). Zero once the crew is out of the ramp.
@@ -227,17 +207,15 @@ export function projectAreas(
       payPercent,
       offers:
         activeMissionId === null
-          ? ((key) =>
-              missionOffers(id, key).map((template) =>
-                offerFor(
-                  template,
-                  payPercent,
-                  level,
-                  standing.speedPercent ?? 0,
-                  { areaId: id, day: key },
-                  standing.ramp ?? null,
-                ),
-              ))(missionBoardKey(id, now))
+          ? missionOffers(id, missionBoardKey(id, now), level).map((job) =>
+              offerFor(
+                job.template,
+                job.grade,
+                payPercent,
+                standing.speedPercent ?? 0,
+                standing.ramp ?? null,
+              ),
+            )
           : [],
       activeMissionId,
     };

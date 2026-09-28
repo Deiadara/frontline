@@ -20,8 +20,8 @@
  * nothing at all; this is a number it gets nearer to, so the next unit is always worth something
  * and never worth much.
  *
- * Twenty-eight, which is under the biggest context modifier in the table (`tracking`, 45) and
- * near the old cap of 25. In the range anybody actually fields it is a little *weaker* than the
+ * Twenty-eight, which is under the biggest damage modifier in the table (`terror`, 35) and near
+ * the old cap of 25. In the range anybody actually fields it is a little *weaker* than the
  * straight line was: 20 units were worth 11.4 points and are worth 15.2, and 42 units were worth
  * the full 25 and are worth 20.1.
  */

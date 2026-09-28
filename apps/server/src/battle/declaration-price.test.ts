@@ -83,8 +83,6 @@ async function cityWithACaller(infamy: number, held: Held = 'player') {
     holder: held === 'looters' ? { kind: 'looters' } : { kind: 'crew', baseId: rival.baseId },
     level: 1,
     upgradingUntil: null,
-    fortification: 0,
-    fortifyingUntil: null,
     garrison: { razors: 4 },
   });
 
@@ -194,8 +192,6 @@ async function cityWithMixedGround() {
       holder: { kind: 'crew', baseId },
       level: 1,
       upgradingUntil: null,
-      fortifyingUntil: null,
-      fortification: 0,
       garrison: { razors: 4 },
     });
   const board = async () => {

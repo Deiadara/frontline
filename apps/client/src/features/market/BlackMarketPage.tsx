@@ -16,12 +16,13 @@ import { Modal } from '../../components/ui/Modal';
 import { Panel } from '../../components/ui/Panel';
 import { cn } from '../../lib/cn';
 import { DrawnFace } from '../../components/ui/DrawnMarks';
-import { useBlackMarket, useMe, usePlaceBlackMarketBid } from '../../lib/queries';
+import { isCityShut, useBlackMarket, useMe, usePlaceBlackMarketBid } from '../../lib/queries';
 import { CityPicker } from '../city/CityPicker';
+import { useCityRoom } from '../city/useCityRoom';
 import { formatRemaining } from '../base/format';
 import { PageShell, ScreenLoadSheet } from '../game/PageShell';
 import { useServerClock } from '../missions/useServerClock';
-import { LotBidPanel, LotClock, LotHistory, LotStanding, standingOf } from './LotParts';
+import { LotBidPanel, LotClock, LotHistory, LotStanding, pastLotCap, standingOf } from './LotParts';
 
 /**
  * The Black Market, behind the door at the end of the arcade.
@@ -303,17 +304,23 @@ function BlackLotWindow({
   spec,
   lot,
   infamy,
+  bidCeiling,
   now,
   cityId,
+  atLotCap,
   onClose,
 }: {
   offer: BlackMarketOffer;
   spec: BlackMarketGoodSpec;
   lot: BlackMarketLot;
   infamy: number;
+  /** `BlackMarketResponse.bidCeiling`: the infamy stretched by the crew's standing discount. */
+  bidCeiling: number | undefined;
   now: Date;
   /** Which back room the bid is placed in: a slot index is 0 to 4 in every city. */
   cityId: string;
+  /** `pastLotCap` over this room's shelf. */
+  atLotCap: boolean;
   onClose: () => void;
 }) {
   const me = useMe();
@@ -393,6 +400,7 @@ function BlackLotWindow({
             auction={lot}
             name={spec.name}
             purse={infamy}
+            bidCeiling={bidCeiling}
             currency="infamy"
             now={now}
             pending={bid.isPending}
@@ -400,6 +408,7 @@ function BlackLotWindow({
             shortMessage={(purse) =>
               `You have ${purse.toLocaleString()} infamy. He will want the whole figure at midnight.`
             }
+            atLotCap={atLotCap}
             onPlace={(amount) =>
               bid.mutate({
                 slotIndex: offer.slot.index,
@@ -425,8 +434,8 @@ export function BlackMarketPage() {
    * the word over the crates without changing the crates. The lot ids carry a room prefix now and
    * the counter carries a column, so the three doors, barrow, Bar and fence, all work the same way.
    */
-  const [city, setCity] = useState<string | null>(null);
-  const query = useBlackMarket(city ?? undefined);
+  const { city, choose } = useCityRoom();
+  const query = useBlackMarket(city);
   const now = useServerClock(query.data?.serverNow, query.dataUpdatedAt);
   /** Which lot's bidding screen is open, if any. */
   const [lotOpen, setLotOpen] = useState<number | null>(null);
@@ -437,7 +446,8 @@ export function BlackMarketPage() {
       <ScreenLoadSheet
         what="The back room"
         loading="Knocking on the back door…"
-        isError={query.isError}
+        // A shut door is not a failed read: see `isCityShut`.
+        isError={query.isError && !isCityShut(query.error)}
         onRetry={() => void query.refetch()}
       />
     );
@@ -454,7 +464,7 @@ export function BlackMarketPage() {
       quote="Caps won't get you far in here."
       action={
         data === undefined ? undefined : (
-          <CityPicker cityId={data.cityId} cities={data.cities} onChoose={setCity} />
+          <CityPicker cityId={data.cityId} cities={data.cities} onChoose={choose} />
         )
       }
     >
@@ -522,10 +532,15 @@ export function BlackMarketPage() {
           spec={openSpec}
           lot={open.lot}
           infamy={data.infamy}
+          bidCeiling={data.bidCeiling}
           now={now}
           // The room the shelf was read from, not the crew's own: a bid is placed where the reader
           // is standing.
           cityId={data.cityId}
+          atLotCap={pastLotCap(
+            data.offers.map((one) => ({ id: one.lot?.lotId ?? null, auction: one.lot })),
+            open.lot.lotId,
+          )}
           onClose={() => setLotOpen(null)}
         />
       )}

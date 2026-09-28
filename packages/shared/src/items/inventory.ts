@@ -23,7 +23,7 @@ import { ITEM_CATALOG, ItemIdSchema, type ItemId } from './catalog.js';
  */
 export const InventorySchema: z.ZodType<Partial<Record<ItemId, number>>> = z.partialRecord(
   ItemIdSchema,
-  z.number().int().positive(),
+  z.number().int().positive().max(1_000_000_000),
 );
 export type Inventory = z.infer<typeof InventorySchema>;
 

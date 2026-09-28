@@ -13,7 +13,12 @@
  * domain id needing resolution. Grepping this module finds every *domain-addressed* consumer of
  * delivered art, not every consumer.
  */
-import { tryResolveAssetKey, type AssetRef, type BuildingKind } from '@frontline/shared';
+import {
+  DEFAULT_CITY_ID,
+  tryResolveAssetKey,
+  type AssetRef,
+  type BuildingKind,
+} from '@frontline/shared';
 import { artLoader, type ArtLoader } from './loader';
 import { DELIVERED_ART } from './source';
 
@@ -62,5 +67,31 @@ export function buildingPortraitUrl(kind: BuildingKind): string | null {
  * anything that diffs the delivery directory against the manifest's keys. It is not.
  */
 export function cityPortraitUrl(cityId: string): string | null {
-  return DELIVERED_ART.get(`city-${cityId}.webp`) ?? null;
+  /*
+   * A portrait of its own first, then the city's own map painting, then nothing.
+   *
+   * The second step is what puts a real picture on the world screen today. Ashfall and Terminus
+   * each have a painted whole-city map on the manifest (`plate-city`, `plate-city-terminus`), and
+   * a card drawing a procedural skyline beside a city that has a painting was the card telling a
+   * player the place is not drawn yet when it is. The crop is severe, because a 21:10 map into a
+   * tall card keeps about a fifth of its width, but a fifth of the real city reads as that city
+   * and a generated silhouette reads as any city.
+   *
+   * A dedicated `city-<id>.webp` still wins, for the day somebody paints a portrait rather than a
+   * map: a map is a plan and a portrait is a view, and the card wants the view.
+   */
+  const own = DELIVERED_ART.get(`city-${cityId}.webp`);
+  if (own !== undefined) return own;
+  return deliveredUrl({ type: 'plate', plate: cityPlateKey(cityId) });
+}
+
+/**
+ * The manifest's plate key for a city's whole map.
+ *
+ * Ashfall's is the unsuffixed `plate-city`, because it was the only city when it was named and
+ * renaming a delivered key would move a file, a prompt, a licensing row and three test pins to say
+ * something that is already true.
+ */
+function cityPlateKey(cityId: string): string {
+  return cityId === DEFAULT_CITY_ID ? 'city' : `city-${cityId}`;
 }

@@ -10,7 +10,6 @@ import { DEPLOY_REFUSALS } from '../battle/deploy.js';
 import { BID_REFUSALS } from '../bar/auction.js';
 import { HIRE_REFUSALS } from '../bar/hire.js';
 import { BUILD_REFUSALS } from '../district/build.js';
-import { CITY_REFUSALS } from '../city/actions.js';
 import { UPGRADE_REFUSALS } from '../city/upgrade.js';
 import { RESEARCH_REFUSALS } from '../research/start.js';
 import { TRAINING_REFUSALS } from '../units/training.js';
@@ -38,7 +37,6 @@ const LIVE_REFUSALS: readonly string[] = [
   ...DEPLOY_REFUSALS,
   ...RESEARCH_REFUSALS,
   ...Object.keys(UPGRADE_REFUSALS),
-  ...CITY_REFUSALS,
   ...TRAINING_REFUSALS,
   ...HIRE_REFUSALS,
   ...BID_REFUSALS,
